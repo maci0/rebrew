@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from itertools import pairwise
 from typing import Any
 
-from rebrew.utils import parse_c_integer_literal
+from rebrew.utils import parse_c_integer_literal, strip_body
 
 logger = logging.getLogger(__name__)
 
@@ -1999,9 +1999,12 @@ def type_from_declaration(decl: str, var_name: str) -> str | None:
 
 def _mask_cc(source: str) -> str:
     """Hide compiler extensions while retaining AST byte offsets in the original text."""
-    return _DECLSPEC_PATTERN.sub(
-        lambda m: " " * len(m.group()), _CC_PATTERN.sub(lambda m: " " * len(m.group()), source)
-    )
+
+    def blank(match: re.Match[str]) -> str:
+        raw = match[0].encode("utf-8", errors="surrogateescape")
+        return re.sub(rb"[^\r\n]", b" ", raw).decode("ascii")
+
+    return _DECLSPEC_PATTERN.sub(blank, _CC_PATTERN.sub(blank, source))
 
 
 _ASM_KEYWORDS = frozenset({"__asm", "_asm"})
@@ -2064,7 +2067,7 @@ def mask_msvc_syntax(source: str) -> str:
             continue
         for node_kind, node_start, node_end, _row in tokens[i : min(j, len(tokens) - 1) + 1]:
             if node_kind != "comment":
-                out[node_start:node_end] = b" " * (node_end - node_start)
+                out[node_start:node_end] = re.sub(rb"[^\r\n]", b" ", data[node_start:node_end])
         i = j + 1
     return bytes(out).decode("utf-8", errors="surrogateescape")
 
@@ -2086,6 +2089,106 @@ def prototype_name_span(prototype: str) -> tuple[str, int, int] | None:
                 return name, int(node.start_byte), int(node.end_byte)
             pending.extend(reversed(node.children))
     return None
+
+
+def _declarator_identifier(node: Any) -> Any | None:
+    """The identifier a (possibly nested) declarator names, or None when abstract."""
+    while node is not None:
+        if node.type in {"identifier", "field_identifier"}:
+            return node
+        inner = node.child_by_field_name("declarator")
+        if inner is None:
+            inner = next((c for c in node.children if c.type.endswith("declarator")), None)
+        node = inner
+    return None
+
+
+def prototype_type_key(prototype: str) -> str | None:
+    """The types a prototype declares, without its function or parameter names.
+
+    Calling conventions stay, except ``__cdecl``, the C default, which is
+    dropped so an explicit and an implied one compare equal; ``(void)``
+    becomes ``()``.  Spacing is canonical.  Two prototypes with equal keys
+    differ only in names and layout.  Returns None when no function
+    declarator parses.
+    """
+    text = strip_body(prototype).rstrip().rstrip(";") + ";"
+    tree, source = parse_c_source(_mask_cc(text))
+    raw = text.encode("utf-8", errors="surrogateescape")
+    for declaration in tree.root_node.children:
+        declarator = declaration.child_by_field_name("declarator")
+        if declarator is None:
+            continue
+        name = find_function_name_in_node(declarator, source)
+        if not name:
+            continue
+        drop: list[tuple[int, int]] = []
+        pending = [declarator]
+        while pending:
+            node = pending.pop()
+            if node.type == "function_declarator":
+                inner = node.child_by_field_name("declarator")
+                # The declarator whose own name is the function: for a
+                # function returning a function pointer, the inner one.
+                if (
+                    inner is not None
+                    and inner.type == "identifier"
+                    and node_text(inner, source) == name
+                ):
+                    drop.append((inner.start_byte, inner.end_byte))
+                    params = node.child_by_field_name("parameters")
+                    for param in params.children if params is not None else ():
+                        if param.type != "parameter_declaration":
+                            continue
+                        ident = _declarator_identifier(param.child_by_field_name("declarator"))
+                        if ident is not None:
+                            drop.append((ident.start_byte, ident.end_byte))
+                    break
+            pending.extend(reversed(node.children))
+        if not drop:
+            return None
+        pieces: list[bytes] = []
+        cursor = 0
+        for start, end in sorted(drop):
+            pieces.append(raw[cursor:start] + b" ")
+            cursor = end
+        pieces.append(raw[cursor:])
+        key = b"".join(pieces).decode("utf-8", errors="surrogateescape").rstrip(";")
+        key = re.sub(r"\b__cdecl\b", " ", key)
+        key = " ".join(key.split())
+        key = re.sub(r"\s*([(),*\[\]])\s*", r"\1", key)
+        return key.replace("(void)", "()")
+    return None
+
+
+def function_signatures(source: str) -> dict[str, str]:
+    """``{name: signature}`` for every function definition in *source*.
+
+    The signature is the original text from the definition's start to its
+    body (return type, calling convention, name, parameters) with whitespace
+    runs folded to one space.  Calling conventions and ``__declspec`` are
+    masked for the parse only, so definitions tree-sitter would otherwise
+    bury in an ERROR node are found, and the text keeps them.  The first
+    definition of a name wins.
+    """
+    tree, parsed = parse_c_source(_mask_cc(source))
+    raw = source.encode("utf-8", errors="surrogateescape")
+    found: dict[str, str] = {}
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if node.type == "function_definition":
+            declarator = node.child_by_field_name("declarator")
+            body = node.child_by_field_name("body")
+            name = find_function_name_in_node(declarator, parsed) if declarator else None
+            if name and body is not None and name not in found:
+                text = raw[node.start_byte : body.start_byte].decode(
+                    "utf-8", errors="surrogateescape"
+                )
+                found[name] = " ".join(text.split())
+            continue
+        pending.extend(reversed(node.children))
+    return found
 
 
 def replace_function_prototype(source: str, name: str, prototype: str) -> str:
@@ -2114,9 +2217,9 @@ def replace_function_prototype(source: str, name: str, prototype: str) -> str:
                 and body is not None
                 and find_function_name_in_node(declarator, parsed) == name
             ):
-                updated = (
-                    raw[: node.start_byte] + signature.rstrip() + b" " + raw[body.start_byte :]
-                )
+                # Keep everything after the declarator (the line break and
+                # indentation before the brace) as the source wrote it.
+                updated = raw[: node.start_byte] + signature.rstrip() + raw[declarator.end_byte :]
                 return updated.decode("utf-8", errors="surrogateescape")
         elif node.type != "ERROR":
             pending.extend(reversed(node.children))

@@ -26,11 +26,19 @@ import typer
 
 from rebrew.binsync import diff, export, importer, init, overlay
 from rebrew.binsync.git import GIT_NETWORK_TIMEOUT, one_line, run_git
+from rebrew.binsync.repo import ROOT_BRANCH, fetch_peers, is_binsync_repo
+from rebrew.binsync.serial import require_declib
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 
 log = logging.getLogger(__name__)
 
+
+#: ``--user`` help shared by push and pull.
+_USER_HELP = (
+    "BinSync user rebrew writes as (default: targets.<name>.binsync_user, the user "
+    "'rebrew binsync init' recorded, else rebrew)"
+)
 
 #: Counts surfaced by ``summary`` for each direction.
 _PUSH_COUNTS: tuple[str, ...] = (
@@ -112,11 +120,13 @@ def push(
         False, "--git-push", help="Push the root and current branches to the remote"
     ),
     remote: str = typer.Option("origin", "--remote", help="Git remote for --git-push"),
+    user: str | None = typer.Option(None, "--user", help=_USER_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Export the project into a BinSync state directory and commit it."""
+    """Export the project into rebrew's own BinSync branch and commit it."""
+    require_declib(json_mode=json_output)
     cfg: ProjectConfig = require_config(target=target, json_mode=json_output)
 
     # The git-commit helper prints a human "Committed ..." line to stderr; keep
@@ -129,11 +139,12 @@ def push(
             dry_run=dry_run,
             module=module,
             git_commit=(not no_git and not dry_run),
+            user=user,
         )
 
     if git_push and not no_git and not dry_run:
         _require_state_repo(state_dir, json_mode=json_output)
-        for ref in ("binsync/__root__", "HEAD"):
+        for ref in (ROOT_BRANCH, "HEAD"):
             pushed = run_git(state_dir, "push", remote, ref, timeout=GIT_NETWORK_TIMEOUT)
             if pushed.returncode != 0:
                 error_exit(_git_failure(f"git push {remote} {ref}", pushed), json_mode=json_output)
@@ -163,38 +174,53 @@ def pull(
         "--create-missing",
         help="Create STUB files for BinSync functions not in the project catalog",
     ),
+    remote: str = typer.Option("origin", "--remote", help="Git remote to fetch user branches from"),
+    user: str | None = typer.Option(None, "--user", help=_USER_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Pull a BinSync state directory into the project (optional git fast-forward)."""
+    """Import the other BinSync users' branches into the project.
+
+    In a BinSync repo every ``binsync/<user>`` branch except rebrew's own is
+    imported (fetched from ``--remote`` first when it is configured); a plain
+    state directory is fast-forwarded and imported from its working tree.
+    """
     if accept_binsync and accept_local:
         error_exit(
             "--accept-binsync and --accept-local are mutually exclusive", json_mode=json_output
         )
+    require_declib(json_mode=json_output)
 
     resolved = importer.resolve_state_dir(state_dir, json_mode=json_output)
     cfg: ProjectConfig = require_config(target=target, json_mode=json_output)
 
     if not no_git and not dry_run:
         _require_state_repo(resolved, json_mode=json_output)
-        pulled = run_git(resolved, "pull", "--ff-only", timeout=GIT_NETWORK_TIMEOUT)
-        if pulled.returncode != 0:
-            error_exit(
-                _git_failure("git pull --ff-only", pulled)
-                + "; resolve the state directory's git state by hand, or pass --no-git",
-                json_mode=json_output,
-            )
+        if is_binsync_repo(resolved):
+            fetched = fetch_peers(resolved, remote)
+            if fetched is not None and fetched.returncode != 0:
+                error_exit(_git_failure(f"git fetch {remote}", fetched), json_mode=json_output)
+        else:
+            pulled = run_git(resolved, "pull", "--ff-only", timeout=GIT_NETWORK_TIMEOUT)
+            if pulled.returncode != 0:
+                error_exit(
+                    _git_failure("git pull --ff-only", pulled)
+                    + "; resolve the state directory's git state by hand, or pass --no-git",
+                    json_mode=json_output,
+                )
 
-    result = importer.import_state(
+    result = importer.import_from_repo(
         cfg,
         resolved,
+        user=user,
         dry_run=dry_run,
         json_output=json_output,
         module=module,
         accept_binsync=accept_binsync,
         accept_local=accept_local,
         create_missing=create_missing,
+        remote=remote,
     )
     importer.print_import_result(result, json_output=json_output, dry_run=dry_run)
 
@@ -209,6 +235,7 @@ def summary(
     target: str | None = TargetOption,
 ) -> None:
     """Preview what push and pull would change, without writing or touching git."""
+    require_declib(json_mode=json_output)
     resolved = importer.resolve_state_dir(state_dir, json_mode=json_output)
     cfg: ProjectConfig = require_config(target=target, json_mode=json_output)
 
@@ -219,15 +246,13 @@ def summary(
         module=module,
         git_commit=False,
     )
-    pull_result = importer.import_state(
+    pull_result = importer.import_from_repo(
         cfg,
         resolved,
+        user=None,
         dry_run=True,
         json_output=True,
         module=module,
-        accept_binsync=False,
-        accept_local=False,
-        create_missing=False,
     )
 
     if json_output:

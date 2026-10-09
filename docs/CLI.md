@@ -2362,7 +2362,13 @@ and offsets as your project file.
 | `--module NAME` | Only this module (e.g. SERVER) |
 | `--git` | Stage + `git commit` the state directory after writing |
 | `--clean` | Delete orphan `functions/<hex>.toml` no longer in the catalog/annotations |
+| `--user NAME` | BinSync user written to `metadata.toml` (default as for `init`); in a BinSync repo the export first checks out `binsync/<user>` |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
+
+Functions export their C name (the linker symbol undecorated). A migrated row's
+prototype is read from its C definition. JSON `warnings` lists a VA with two
+identities and a row name that is not a C identifier (exported as
+`func_<va>`). State files are written mode 0644 so BinSync can commit over them.
 
 ### `rebrew binsync import`
 
@@ -2405,12 +2411,13 @@ preview before an import.
 Create the git envelope upstream BinSync's `Client` requires: a git repo whose
 `binsync/__root__` branch root commit carries `.gitignore` (`.git/*`) and
 `binary_hash` (the target binary's MD5), plus a `binsync/<user>` branch created
-from that root. The root commit adds only those two files (never `-A`), so
-files already in the state directory stay untracked.
+from that root, and records the user as `rebrew.user` in the repo's local git
+config so later `push`/`pull` runs use it. The root commit adds only those two
+files (never `-A`), so files already in the state directory stay untracked.
 
 | Flag | Description |
 |------|-------------|
-| `--user NAME` | BinSync user name, used for the `binsync/<user>` branch (defaults to `git config user.name`, else `rebrew`) |
+| `--user NAME` | BinSync user rebrew writes as: the `binsync/<user>` branch and the `metadata.toml` user (default `targets.<name>.binsync_user`, else the user an earlier init recorded in `git config --local rebrew.user`, else `rebrew`; never `git config user.name`). A name git cannot branch on (spaces, `/`, `__root__`) exits `2` |
 | `--dry-run` | Preview changes without writing |
 | `--json` | Output results as JSON |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
@@ -2462,9 +2469,13 @@ and Git orchestration. `export` and `import` handle state artifacts; `push`,
 
 | Command | Description |
 |---------|-------------|
-| `rebrew binsync push STATE_DIR` | Export into the state dir and commit it. `--no-git` skips the commit; `--git-push` also pushes `binsync/__root__` and the current branch to `--remote` (default `origin`); `--module`, `--dry-run`, `--json`, `--target` |
-| `rebrew binsync pull STATE_DIR` | `git pull --ff-only` in the state dir (unless `--no-git` or `--dry-run`), then import. Import flags: `--accept-binsync`, `--accept-local`, `--module`, `--create-missing`, `--dry-run`, `--json`, `--target`; unresolved conflicts exit `1` |
-| `rebrew binsync summary STATE_DIR` | Read-only preview: export and import in dry-run mode, reporting what push/pull would change (`--module`, `--json`, `--target`). Writes nothing, touches no git |
+| `rebrew binsync push STATE_DIR` | Check out rebrew's own branch `binsync/<user>` (refusing a dirty tree on another user's branch), export into it and commit. `--user` (same default as `init`); `--no-git` skips the commit; `--git-push` also pushes `binsync/__root__` and rebrew's branch to `--remote` (default `origin`); `--module`, `--dry-run`, `--json`, `--target` |
+| `rebrew binsync pull STATE_DIR` | In a BinSync repo: fetch `binsync/*` from `--remote` when it exists (unless `--no-git` or `--dry-run`), then import every other user's branch from a detached worktree under `.rebrew/sync/peers/`, each against its own baseline; JSON `peers` names them and `skipped_details` lists refused edits with a reason. A plain state dir is fast-forwarded with `git pull --ff-only` and imported from its working tree. Flags: `--user`, `--remote`, `--accept-binsync`, `--accept-local`, `--module`, `--create-missing`, `--dry-run`, `--json`, `--target`; unresolved conflicts exit `1` |
+| `rebrew binsync summary STATE_DIR` | Read-only preview: export and import in dry-run mode, reporting what push/pull would change (`--module`, `--json`, `--target`). Writes no state or project file and moves no branch; peers are read through temporary worktrees |
+
+Without declib (the `binsync` extra) every command here except `init` exits `2`
+with the install command before writing anything; so do `rebrew sync push`,
+`pull` and `summary`.
 | `init` / `diff` / `overlay` | Options and behavior are described in their sections above |
 
 ### `rebrew diagnose near`
@@ -3700,7 +3711,9 @@ Use `rebrew binary asm <operation> --help` for exact arguments and examples.
 
 ### `rebrew sync push`
 
-Export fields to a local BinSync state directory.
+Export fields to a local BinSync state directory. In a BinSync repo the export
+writes rebrew's own branch `binsync/<user>` (see `rebrew binsync push`); it does
+not commit.
 
 | Argument or option | Meaning |
 | --- | --- |
@@ -3715,7 +3728,9 @@ rebrew sync push --dry-run --json
 
 ### `rebrew sync pull`
 
-Import fields and optionally create the accepted functions.
+Import fields and optionally create the accepted functions. In a BinSync repo
+every other user's branch is imported, as `rebrew binsync pull` does (without
+its fetch).
 
 | Argument or option | Meaning |
 | --- | --- |

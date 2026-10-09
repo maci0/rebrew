@@ -57,6 +57,24 @@ class TestParseProcs:
     def test_none(self) -> None:
         assert _parse_procs("nothing") == []
 
+    def test_record_kind_in_name_is_not_a_record_boundary(self) -> None:
+        text = (
+            " 0 | S_GPROC32 [size = 64]\n"
+            "        flags = none, name = 'S_GPROC32'\n"
+            " 100 | S_LPROC32_ID [size = 32]\n"
+            "        flags = none, name = 'S_LPROC32_ID'\n"
+        )
+        assert [entry["name"] for entry in _parse_procs(text)] == ["S_GPROC32", "S_LPROC32_ID"]
+
+    def test_missing_proc_name_does_not_take_another_records_name(self) -> None:
+        text = (
+            " 0 | S_GPROC32 [size = 64]\n"
+            "        flags = none\n"
+            " 100 | S_GDATA32 [size = 32]\n"
+            "        name = 'global_value'\n"
+        )
+        assert _parse_procs(text) == []
+
 
 class TestExtract:
     def _mock(self, monkeypatch, syms: str = "", mods: str = "") -> None:

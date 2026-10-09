@@ -657,7 +657,7 @@ def _plan_symbol_rows(
             va,
         )
         if is_selected or (row_path is not None and row_path in written):
-            plan.rows.append(RowChange("data", module, va, {"name": old}, {"name": new}))
+            plan.rows.append(RowChange("data", module, va, *_data_row_names(row, old, new)))
         else:
             plan.notes.append(
                 f"left data row {module}.0x{va:08x} ({row.get('file') or 'no file'}): "
@@ -668,9 +668,27 @@ def _plan_symbol_rows(
         and store == KIND_DATA
         and not any((r.module, r.va) == (selected.module, selected.va) for r in plan.rows)
     ):
+        row = project.data_rows().get((selected.module, selected.va), {})
         plan.rows.append(
-            RowChange("data", selected.module, selected.va, {"name": old}, {"name": new})
+            RowChange("data", selected.module, selected.va, *_data_row_names(row, old, new))
         )
+
+
+def _data_row_names(
+    row: dict[str, Any], old: str, new: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Old and new name fields of a data row: ``name`` plus a ``link_symbol`` spelling *old*.
+
+    ``link_symbol`` is the native symbol the linker emits for the definition
+    being renamed, so it follows the C name with its decoration kept.
+    """
+    old_fields: dict[str, Any] = {"name": old}
+    new_fields: dict[str, Any] = {"name": new}
+    link = str(row.get("link_symbol") or "")
+    if link and c_name_from_symbol(link) == old:
+        old_fields["link_symbol"] = link
+        new_fields["link_symbol"] = redecorated_symbol(link, new)
+    return old_fields, new_fields
 
 
 def _check_acknowledged(

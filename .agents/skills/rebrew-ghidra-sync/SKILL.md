@@ -54,10 +54,17 @@ side watches/commits the same dir.
 If the directory does not exist yet:
 
 ```bash
-rebrew binsync init ./binsync-state          # create root + binsync/<user> branches
+rebrew binsync init ./binsync-state --user rebrew   # root + binsync/rebrew branch
 ```
 
 Then pass that path as `--state-dir` on every `sync push` / `sync pull`.
+
+rebrew is one BinSync user. `--user`, else `targets.<name>.binsync_user`, else
+the user `init` recorded, else `rebrew`, names both `metadata.toml` and the
+branch `binsync/<user>`; never a person's `git config user.name`. A name with
+a space or `/` is refused (exit 2). Push writes only that branch; pull imports
+every other user's branch (e.g. the Ghidra analyst's `binsync/<name>`).
+Without declib (`uv sync --extra binsync`) every sync command exits 2 first.
 
 ## 2. Sync Commands
 
@@ -85,7 +92,8 @@ Notes:
 - `sync watch` tracks sources/headers, metadata, config, binary, and remote state;
   unchanged exports preserve mtimes. It never exits on its own; start
   it only when the user wants a live loop.
-- A collaborator's tool must chmod the 0444 state TOMLs writable first (§5).
+- State TOMLs stay writable: BinSync's own client commits over them on the
+  same tree.
 - **`sync pull --create-functions` is the chain**: functions imported from the
   state dir are created in Ghidra via MCP, so "add a function to the state →
   it appears in Ghidra" needs no external plugin.
@@ -127,9 +135,14 @@ enums, and typedefs. Function size is push-only.
 STATUS/CFLAGS stay in `rebrew-functions.toml` (STATUS is verify-earned).
 
 **Pull <- state dir:** names (renames the `.c` file, rewrites extern
-cross-references), prototypes (C signature updated through the AST; whitespace-normalized compare,
-differing locals gate as conflicts), notes, global names + differing
-type/size, structs (unknown definitions land in `binsync_types.h`);
+cross-references), prototypes (C signature updated through the AST, keeping
+the brace layout; a respelling of the same types or Ghidra's `undefined4`
+placeholders leaves the source alone), notes (compared ignoring declib's
+100-column re-wrap), global renames through the data rename engine
+(definition, references, `link_symbol`) plus differing type/size, struct
+member renames through the field rename engine, structs (unknown definitions
+land in `binsync_types.h`); refused edits are listed in `skipped_details`
+with a reason; a repeated pull writes nothing;
 `--create-missing` materializes STUB files.  A binary-scoped local sidecar tracks last-shared fields, so remote-only changes
 apply automatically. Conflicts are reported and
 skipped until resolved with `--accept-binsync` / `--accept-local`. Type imports
@@ -149,8 +162,11 @@ chained after `sync pull`), status bookmarks (`sync bookmarks`), data labels
 
 - **STATUS is never synced**: `rebrew test` and `rebrew verify` earn it;
   a pull does not. The next test or verify replaces PROVEN with the byte result.
-- **Metadata write-lock**: the state TOMLs and rebrew's metadata are 0444;
-  direct edits fail with Permission denied, the CLI chmods/updates/re-locks.
+- **Metadata write-lock**: rebrew's metadata stores are 0444; direct edits fail
+  with Permission denied, the CLI chmods/updates/re-locks. State TOMLs are
+  0644 because BinSync writes them too.
+- **Own branch only**: push checks out `binsync/<user>` and refuses a dirty
+  tree on another user's branch; other users' branches are only read.
 - **External origins and verification evidence remain separate**: imported fields
   record their source facts; a rename/note cannot replace the measurement record.
 - **No accidental overwrites**: generic names are never pulled; meaningful

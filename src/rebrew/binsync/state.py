@@ -23,6 +23,7 @@ import tomlkit
 from rebrew.c_parser import type_from_declaration
 from rebrew.catalog import build_function_registry, cached_function_list, scan_reversed_dir
 from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.types import StructDef
 from rebrew.utils import is_safe_c_ident, preset_module_key
 
 log = logging.getLogger(__name__)
@@ -30,16 +31,18 @@ log = logging.getLogger(__name__)
 _NOTE_PREFIX = "[rebrew:note]"
 _GHIDRA_PREFIX = "[rebrew:ghidra]"
 
-#: Per-address source comment marker (line comment only).  This is the single
-#: prefix import writes and export scans; format::
+#: Per-address source comment marker.  Import writes the block-comment form,
+#: valid in C89; export and import also read the older line-comment form::
 #:
+#:     /* ANALYSIS @ 0x401010: some note */
 #:     // ANALYSIS @ 0x401010: some note
-ANALYSIS_MARKER_PREFIX = "// ANALYSIS @ "
+_ANALYSIS_MARKER_RE = re.compile(
+    r"^(?:/\*\s*ANALYSIS\s*@\s*(0x[0-9a-fA-F]+)\s*:\s?(.*?)\s*\*/"
+    r"|//\s*ANALYSIS\s*@\s*(0x[0-9a-fA-F]+)\s*:\s?(.*))$"
+)
 
-_ANALYSIS_MARKER_RE = re.compile(r"^//\s*ANALYSIS\s*@\s*(0x[0-9a-fA-F]+)\s*:\s?(.*)$")
-
-#: A comment lands inside a ``//`` line in a real source file, so it must
-#: stay on that one line.  BinSync state is written by collaborators, and a
+#: A comment lands inside one marker line in a real source file, so it must
+#: stay on that line.  BinSync state is written by collaborators, and a
 #: comment carrying a newline would add live source lines to the file.
 _MARKER_CONTROL_RE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
 
@@ -47,10 +50,15 @@ _MARKER_CONTROL_RE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
 def marker_comment_text(comment: str) -> str:
     """One-line form of a BinSync comment, safe to splice into a ``.c`` file.
 
-    Line breaks and control characters become spaces, so the text cannot end
-    the ``//`` marker line and start new source of its own.
+    Line breaks and control characters become spaces and ``*/`` is split, so
+    the text can neither end the marker comment nor start source of its own.
     """
-    return _MARKER_CONTROL_RE.sub(" ", str(comment)).rstrip()
+    return _MARKER_CONTROL_RE.sub(" ", str(comment)).replace("*/", "* /").rstrip()
+
+
+def analysis_marker(addr: int, comment: str) -> str:
+    """The source line that carries *comment* for *addr* (a C89 block comment)."""
+    return f"/* ANALYSIS @ 0x{addr:08x}: {comment} */"
 
 
 def parse_analysis_markers(text: str) -> dict[int, str]:
@@ -59,7 +67,8 @@ def parse_analysis_markers(text: str) -> dict[int, str]:
     for line in text.splitlines():
         match = _ANALYSIS_MARKER_RE.match(line.strip())
         if match:
-            out[int(match.group(1), 16)] = match.group(2).rstrip()
+            addr = match.group(1) or match.group(3)
+            out[int(addr, 16)] = (match.group(2) or match.group(4) or "").rstrip()
     return out
 
 
@@ -101,9 +110,7 @@ def write_analysis_markers(path: Path, comments: dict[int, str]) -> bool:
     ]
     while kept and not kept[-1].strip():
         kept.pop()
-    block = "\n".join(
-        f"{ANALYSIS_MARKER_PREFIX}0x{addr:08x}: {merged[addr]}" for addr in sorted(merged)
-    )
+    block = "\n".join(analysis_marker(addr, merged[addr]) for addr in sorted(merged))
     body = "\n".join(kept)
     new_text = f"{body}\n\n{block}\n" if body else f"{block}\n"
     if new_text == text:
@@ -245,7 +252,7 @@ def load_manifest(state_dir: Path) -> dict[str, str]:
 def load_binsync_structs(state_dir: Path) -> dict[str, dict[str, object]]:
     """Load ``structs/*.toml`` declib Structs.
 
-    Returns ``{name: {"definition": synthesized_typedef, "fields": {name:
+    Returns ``{name: {"definition": synthesized_typedef, "size": total_size, "fields": {name:
     {"type", "offset", "size"}}}}``.  The synthesized definition lets the
     import path reuse the same shared type-model validation as before.
     """
@@ -280,7 +287,11 @@ def load_binsync_structs(state_dir: Path) -> dict[str, dict[str, object]]:
             }
             lines.append(f"\t{member_type} {member.name};")
         definition = f"typedef struct {name} {{\n" + "\n".join(lines) + f"\n}} {name};"
-        structs[name.strip()] = {"definition": definition, "fields": fields}
+        structs[name.strip()] = {
+            "definition": definition,
+            "fields": fields,
+            "size": int(struct.size or 0),
+        }
     return structs
 
 
@@ -704,6 +715,22 @@ def normalize_prototype(proto: str) -> str:
     return re.sub(r"\s*([(),;*])\s*", r"\1", text)
 
 
+def normalize_comment_text(text: Any) -> str:
+    """Comment text with every whitespace run folded to one space.
+
+    declib's ``Comment`` re-wraps text at 100 columns when it loads or builds
+    an artifact, so a note that went out as one line comes back with line
+    breaks, including one after the hyphen of a hyphenated word
+    (``double-\nfree``).  Comparing the folded text lets that round trip
+    settle instead of reading as a remote edit on every pull.
+    """
+    return " ".join(_WRAPPED_HYPHEN_RE.sub("-", str(text or "")).split())
+
+
+#: A line break textwrap inserted after a hyphen (it breaks on hyphens).
+_WRAPPED_HYPHEN_RE = re.compile(r"(?<=\w)-\n[ \t]*")
+
+
 def normalize_sync_value(field: str, value: Any, *, kind: str = "function") -> Any:
     """Normalize native fields identically for baseline, push, pull and diff."""
     from rebrew.metadata import as_metadata_int
@@ -733,8 +760,17 @@ def normalize_sync_value(field: str, value: Any, *, kind: str = "function") -> A
             if isinstance(v, dict)
         }
     if field == "comments":
-        return {f"0x{int(str(k), 0):08x}": v for k, v in (value or {}).items()}
-    if field in {"note", "ghidra", "type"}:
+        return {
+            f"0x{int(str(k), 0):08x}": (
+                {**v, "comment": normalize_comment_text(v.get("comment"))}
+                if isinstance(v, dict)
+                else v
+            )
+            for k, v in (value or {}).items()
+        }
+    if field == "note":
+        return normalize_comment_text(value)
+    if field in {"ghidra", "type"}:
         return str(value or "").strip()
     if isinstance(value, str):
         return value.strip()
@@ -777,8 +813,24 @@ def local_sync_records(
             fields["name"] = fields.get("name") or names.get(va) or f"g_{va:08x}"
             fields["type"] = fields.get("type") or types.get(va) or "char"
         else:
-            fields["name"] = fields.get("name") or getattr(entry, "name", "") or f"func_{va:08x}"
-            if fields.get("ghidra") == fields["name"]:
+            from rebrew.rename_ops import c_name_from_symbol
+
+            # The linker symbol's C name: undecorated for Ghidra (``_x@4`` is
+            # ``x``), the decorated spelling stays local.
+            fields["name"] = (
+                c_name_from_symbol(str(fields.get("name") or ""))
+                or str(getattr(entry, "name", "") or "")
+                or f"func_{va:08x}"
+            )
+            if not is_safe_c_ident(fields["name"]):
+                # A catalog label (``fcn.<va>``) or a prose row name cannot be
+                # a symbol in Ghidra; export reports the prose case.
+                fields["name"] = f"func_{va:08x}"
+            # A Ghidra name that is the function's own name, decorated or not,
+            # is not an alternate name.
+            if normalize_sync_value("name", fields.get("ghidra")) == normalize_sync_value(
+                "name", fields["name"]
+            ):
                 fields["ghidra"] = ""
             metadata = get_entry(cfg.metadata_dir, va, module)
             fields["stack_vars"] = metadata.get("locals") or fields.get("stack_vars") or {}
@@ -905,7 +957,21 @@ def load_sync_baseline(cfg: ProjectConfig, state_dir: Path) -> dict[str, dict[st
     records = doc["records"]
     if any(not isinstance(v, dict) for v in records.values()):
         raise ValueError(f"invalid sync baseline records in {path}")
-    return {str(k): dict(v) for k, v in records.items()}
+    result = {str(k): dict(v) for k, v in records.items()}
+    for key, fields in result.items():
+        definition = fields.get("definition")
+        if (
+            key.startswith("struct.")
+            and isinstance(definition, dict)
+            and not isinstance(definition.get("size"), int)
+        ):
+            # Old baselines shared only the member extent, without tail padding.
+            extent = max(
+                (int(member["offset"]) + int(member["size"]) for member in definition.values()),
+                default=0,
+            )
+            fields["definition"] = {"size": extent, "members": definition}
+    return result
 
 
 def sync_action(
@@ -952,6 +1018,55 @@ def acknowledge_sync(
             atomic_write_locked(path, tomlkit.dumps(doc))
 
 
+def seed_peer_baseline(cfg: ProjectConfig, state_dir: Path, peer_dir: Path) -> None:
+    """Fill a peer's baseline from what rebrew last shared through *state_dir*.
+
+    A peer branch is reconciled against its own baseline (keyed by the
+    peer's snapshot directory), so a field rebrew changed after the peer last
+    synced reads as a local edit, not as the peer reverting it.  Fields the
+    peer baseline has never recorded start from rebrew's own baseline: the
+    value rebrew published, which a peer's differing value then edited.
+    Only identities present in the peer's state are seeded.
+    """
+    from rebrew.utils import atomic_write_locked, file_lock
+
+    own = load_sync_baseline(cfg, state_dir)
+    if not own:
+        return
+    present = remote_sync_records(cfg, peer_dir).keys()
+    path = sync_baseline_path(cfg, peer_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with file_lock(path.with_suffix(".lock")):
+        baseline = load_sync_baseline(cfg, peer_dir)
+        before = {k: dict(v) for k, v in baseline.items()}
+        for key in present & own.keys():
+            baseline[key] = {**own[key], **baseline.get(key, {})}
+        if baseline != before:
+            doc = {"format": 1, "binary_hash": binary_identity(cfg), "records": baseline}
+            atomic_write_locked(path, tomlkit.dumps(doc))
+
+
+def has_state_data(state_dir: Path) -> bool:
+    """True when *state_dir* carries any artifact beyond ``metadata.toml``."""
+    from rebrew.binsync import serial
+
+    funcs = state_dir / serial.FUNCTIONS_DIR
+    structs = state_dir / serial.STRUCTS_DIR
+    return (
+        (funcs.is_dir() and any(funcs.glob("*.toml")))
+        or (structs.is_dir() and any(structs.glob("*.toml")))
+        or any(
+            (state_dir / name).is_file()
+            for name in (
+                serial.GLOBAL_VARS_FILE,
+                serial.COMMENTS_FILE,
+                serial.ENUMS_FILE,
+                serial.TYPEDEFS_FILE,
+            )
+        )
+    )
+
+
 def sync_origin(state_dir: Path) -> dict[str, str]:
     """External source facts, distinct from the rebrew command applying them."""
     import tomllib
@@ -975,8 +1090,15 @@ def sync_health(
     state_dir: Path,
     local: dict[str, dict[str, Any]],
     remote: dict[str, dict[str, Any]],
+    *,
+    peer: bool = False,
 ) -> dict[str, Any]:
-    """Actionable freshness and field decisions shared by previews and sync commands."""
+    """Actionable freshness and field decisions shared by previews and sync commands.
+
+    *peer* marks *state_dir* as another BinSync user's branch: that user holds
+    only what they synced or edited, so an identity absent from it is not a
+    removal and is left out of the field decisions.
+    """
     import json
 
     from rebrew.metadata import FORMAT_VERSION, SYNC_FIELD_RULES
@@ -998,6 +1120,8 @@ def sync_health(
     baseline = load_sync_baseline(cfg, state_dir)
     items: list[dict[str, Any]] = []
     for key in sorted(local.keys() | remote.keys()):
+        if peer and key not in remote:
+            continue
         kind = key.split(".", 1)[0]
         left, right = local.get(key, {}), remote.get(key, {})
         for field, (_attr, direction) in SYNC_FIELD_RULES[kind].items():
@@ -1142,13 +1266,14 @@ def prepare_sync_import(
     *,
     accept_binsync: bool,
     accept_local: bool,
+    peer: bool = False,
 ) -> tuple[
     dict[int, dict[str, Any]], dict[int, dict[str, Any]], set[tuple[int, str]], list[dict[str, str]]
 ]:
     """Filter incoming native fields with the same three-way decisions used by diff."""
     if accept_binsync and accept_local:
         raise ValueError("accept-binsync and accept-local are mutually exclusive")
-    health = sync_health(cfg, state_dir, local, remote)
+    health = sync_health(cfg, state_dir, local, remote, peer=peer)
     if health["blocked"]:
         raise ValueError(f"sync refused: {', '.join(health['issues'])}")
     from rebrew.metadata import SYNC_FIELD_RULES
@@ -1272,90 +1397,214 @@ def merge_sync_record(
     return result
 
 
-def parse_struct_fields(typedef_text: str) -> list[dict[str, Any]]:
-    """Extract ``{name, type, offset, size}`` field dicts from a typedef-struct string.
+#: Spellings of C types that Win32 headers and Ghidra use for the same type.
+#: Project typedefs (:func:`type_aliases`) extend and override these.
+_BUILTIN_TYPE_ALIASES: dict[str, str] = {
+    "BOOL": "int",
+    "BYTE": "unsigned char",
+    "CHAR": "char",
+    "DWORD": "unsigned long",
+    "HANDLE": "void *",
+    "INT": "int",
+    "LONG": "long",
+    "LPCSTR": "const char *",
+    "LPDWORD": "unsigned long *",
+    "LPSTR": "char *",
+    "LPVOID": "void *",
+    "PVOID": "void *",
+    "SHORT": "short",
+    "UCHAR": "unsigned char",
+    "UINT": "unsigned int",
+    "ULONG": "unsigned long",
+    "USHORT": "unsigned short",
+    "WORD": "unsigned short",
+    "byte": "unsigned char",
+    "uchar": "unsigned char",
+    "uint": "unsigned int",
+    "ulong": "unsigned long",
+    "ushort": "unsigned short",
+}
 
-    Parses via the shared :mod:`rebrew.types` model (tree-sitter), which
-    supplies real member offsets and scalar sizes for the declib Struct.
-    Falls back to the legacy brace/body splitter for definitions the shared
-    model cannot size, so unrecognized declarator forms still export.
+#: An alias's underlying type must be this simple to substitute textually:
+#: words and trailing pointers, nothing a function-pointer typedef carries.
+_SIMPLE_TYPE_RE = re.compile(r"[A-Za-z_][\w ]*[\s*]*\Z")
+
+#: Rounds of alias substitution (an alias may name another alias).
+_ALIAS_DEPTH = 4
+
+_WORD_RE = re.compile(r"\b[A-Za-z_]\w*\b")
+
+
+def type_aliases(cfg: ProjectConfig) -> dict[str, str]:
+    """``{alias: underlying}`` for simple typedefs, Win32 spellings included."""
+    aliases = dict(_BUILTIN_TYPE_ALIASES)
+    for name, (_raw, underlying) in collect_typedef_definitions(cfg).items():
+        if underlying and _SIMPLE_TYPE_RE.match(underlying):
+            aliases[name] = underlying
+    return aliases
+
+
+def expand_type_aliases(text: str, aliases: dict[str, str]) -> str:
+    """*text* with every alias word replaced by its underlying type, to a fixed point."""
+    for _round in range(_ALIAS_DEPTH):
+        expanded = _WORD_RE.sub(lambda m: aliases.get(m.group(), m.group()), text)
+        if expanded == text:
+            break
+        text = expanded
+    return text
+
+
+def _expand_member_types(source_text: str, aliases: dict[str, str]) -> str:
+    """Expand member type identifiers without changing names, bounds or pragmas."""
+    from rebrew.c_parser import node_text, parse_c_source
+
+    tree, source = parse_c_source(source_text)
+    declared: set[str] = set()
+    member_types: list[Any] = []
+    edits: list[tuple[int, int, str]] = []
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if node.type == "struct_specifier" and node.child_by_field_name("body") is not None:
+            parent = node.parent
+            if parent is not None and parent.type == "type_definition":
+                declared.update(
+                    node_text(child, source)
+                    for child in parent.children
+                    if child.type == "type_identifier"
+                )
+        if node.type == "field_declaration":
+            base = node.child_by_field_name("type")
+            if base is not None and base.type == "type_identifier":
+                member_types.append(base)
+        pending.extend(node.children)
+    aliases = {name: spelling for name, spelling in aliases.items() if name not in declared}
+    for base in member_types:
+        spelling = node_text(base, source)
+        expanded = expand_type_aliases(spelling, aliases)
+        if expanded != spelling:
+            edits.append((base.start_byte, base.end_byte, expanded))
+    for start, end, spelling in sorted(edits, reverse=True):
+        source = source[:start] + spelling.encode("utf-8", errors="surrogateescape") + source[end:]
+    return source.decode("utf-8", errors="surrogateescape")
+
+
+def parse_struct_fields(
+    typedef_text: str, aliases: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """``{name, type, offset, size}`` field dicts of one struct definition.
+
+    Laid out by the shared :mod:`rebrew.types` model (tree-sitter, 32-bit
+    MSVC alignment) after simple typedef *aliases* are expanded, so a
+    ``DWORD`` member is sized as ``unsigned long`` and exported under that
+    spelling.  A member whose size the model cannot know (a nested or
+    unknown aggregate, a bitfield, a function pointer) ends the layout: it
+    and every later member are left out with a warning naming the struct,
+    because their offsets are unknown and declib keys members by offset.
+    Members are never guessed.
     """
-    try:
-        from rebrew.types import parse_structs, type_size
+    from rebrew.types import parse_structs
 
-        parsed = parse_structs(typedef_text)
-        if parsed:
-            struct = next(iter(parsed.values()))
-            if struct.fields:
-                return [
-                    {
-                        "name": name,
-                        "type": spelling,
-                        "offset": offset,
-                        "size": type_size(spelling) or 0,
-                    }
-                    for name, spelling, offset in struct.fields
-                ]
-    except Exception:
-        log.debug("shared struct parse failed, falling back to regex", exc_info=True)
-
-    # Regex fallback: extract body between { and } then split on ;
-    m = re.search(r"\{(.*)\}", typedef_text, flags=re.DOTALL)
-    if not m:
+    text = _expand_member_types(typedef_text, aliases) if aliases else typedef_text
+    parsed = parse_structs(text)
+    if not parsed:
         return []
-    body = m.group(1)
-    out: list[dict[str, Any]] = []
-    for raw_field in body.split(";"):
-        raw_field = raw_field.strip()
-        if not raw_field:
-            continue
-        raw_field = raw_field.split("//")[0].strip()
-        if not raw_field:
-            continue
-        # Expect "<type> <name>[array]"
-        parts = raw_field.rsplit(None, 1)
-        if len(parts) != 2:
-            continue
-        type_part, name_part = parts
-        name_match = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*(\[.*\])?", name_part)
-        if not name_match:
-            continue
-        fname = name_match.group(1)
-        arr = name_match.group(2) or ""
-        ftype = type_part.strip() + arr
-        out.append({"name": fname, "type": ftype})
-    return out
+    name = _struct_name(text)
+    struct = parsed.get(name) or next(iter(parsed.values()))
+    return _parsed_struct_fields(name, struct, parsed)
+
+
+def _parsed_struct_fields(
+    name: str, struct: StructDef, known: dict[str, StructDef]
+) -> list[dict[str, Any]]:
+    """Convert the shared layout without losing its file's packing context."""
+    from rebrew.types import type_size
+
+    fields = [
+        {"name": field, "type": spelling, "offset": offset, "size": type_size(spelling, known) or 0}
+        for field, spelling, offset in struct.fields
+    ]
+    if not struct.complete:
+        after = f"after member {fields[-1]['name']}" if fields else "at its first member"
+        log.warning(
+            "struct %s: layout stops %s (a member of unknown size: nested or unknown "
+            "aggregate, bitfield, or function pointer); %d member(s) exported, the rest omitted",
+            name or "?",
+            after,
+            len(fields),
+        )
+    return fields
 
 
 def _struct_name(typedef_text: str) -> str:
-    """Struct name: the typedef alias before ``;``, else the ``struct Name {`` tag."""
-    name_match = re.search(r"\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;", typedef_text)
+    """Struct name: the typedef alias after the closing brace, else the ``struct Name {`` tag.
+
+    The alias follows the outermost ``}``; a nested member aggregate
+    (``struct { ... } check;``) closes earlier and is not the type's name.
+    """
+    name_match = re.search(r"\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;\s*\Z", typedef_text.strip())
     if name_match:
         return name_match.group(1)
     sm = re.search(r"struct\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{", typedef_text)
     return sm.group(1) if sm else ""
 
 
-def collect_struct_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, list[dict[str, Any]]]]:
+def collect_struct_definitions(
+    cfg: ProjectConfig,
+) -> dict[str, tuple[str, list[dict[str, Any]], int | None]]:
     """Collect struct definitions from ``reversed_dir`` headers and sources.
 
-    Returns ``{struct_name: (raw_typedef_text, fields)}``.  Prefers the
+    Returns ``{struct_name: (raw_typedef_text, fields, complete_size)}``. Prefers the
     header definition when a name appears in both.
     """
     from rebrew.struct_parser import extract_structs_from_file
+    from rebrew.types import parse_structs
+    from rebrew.utils import read_source_text
 
-    result: dict[str, tuple[str, list[dict[str, Any]]]] = {}
+    result: dict[str, tuple[str, list[dict[str, Any]], int | None]] = {}
+    duplicates: set[str] = set()
+    aliases = type_aliases(cfg)
     for path in _iter_definition_files(cfg):
         try:
-            for typedef_text in extract_structs_from_file(path):
+            definitions = list(extract_structs_from_file(path))
+            if not definitions:
+                continue
+            source, _ = read_source_text(path)
+            # shortcut: include packing is unknown, use preprocessed input to resolve it.
+            parsed = parse_structs(_expand_member_types(source, aliases))
+            for typedef_text in definitions:
                 name = _struct_name(typedef_text)
-                if not name or name in result:
+                if not name:
                     continue
-                result[name] = (typedef_text.strip(), parse_struct_fields(typedef_text))
+                if name in result:
+                    if " ".join(result[name][0].split()) != " ".join(typedef_text.split()):
+                        duplicates.add(name)
+                    continue
+                struct = parsed.get(name)
+                if struct is not None:
+                    result[name] = (
+                        typedef_text.strip(),
+                        _parsed_struct_fields(name, struct, parsed),
+                        struct.size if struct.complete else None,
+                    )
         except Exception:
             # One malformed file must not drop every later definition from the export.
             log.warning("struct collection failed for %s; skipped", path, exc_info=True)
+    if duplicates:
+        listed = ", ".join(sorted(duplicates)[:_DUPLICATE_LIST_LIMIT])
+        more = len(duplicates) - _DUPLICATE_LIST_LIMIT
+        log.warning(
+            "%d struct name(s) have more than one differing definition; only the first "
+            "(headers before sources) is synced: %s%s",
+            len(duplicates),
+            listed,
+            f" and {more} more" if more > 0 else "",
+        )
     return result
+
+
+#: Duplicate struct names listed by name in the collection warning.
+_DUPLICATE_LIST_LIMIT = 10
 
 
 def _iter_definition_files(cfg: ProjectConfig) -> list[Path]:
@@ -1504,7 +1753,7 @@ def type_sync_records(cfg: ProjectConfig) -> dict[str, dict[str, Any]]:
     from rebrew.types import type_size
 
     records: dict[str, dict[str, Any]] = {}
-    for name, (_text, fields) in collect_struct_definitions(cfg).items():
+    for name, (_text, fields, total_size) in collect_struct_definitions(cfg).items():
         members = {}
         next_offset = 0
         for field in fields:
@@ -1512,7 +1761,12 @@ def type_sync_records(cfg: ProjectConfig) -> dict[str, dict[str, Any]]:
             offset = int(field.get("offset", next_offset))
             members[field["name"]] = {"type": field["type"], "offset": offset, "size": size}
             next_offset = offset + size
-        records[f"struct.{name}"] = {"definition": members}
+        records[f"struct.{name}"] = {
+            "definition": {
+                "size": total_size if total_size is not None else next_offset,
+                "members": members,
+            }
+        }
     for name, (_text, members_) in collect_enum_definitions(cfg).items():
         records[f"enum.{name}"] = {"definition": members_}
     for name, (_text, underlying) in collect_typedef_definitions(cfg).items():
@@ -1524,7 +1778,9 @@ def incoming_type_records(state_dir: Path) -> dict[str, dict[str, Any]]:
     """Read external type projections through the shared artifact readers."""
     records: dict[str, dict[str, Any]] = {}
     for name, entry in load_binsync_structs(state_dir).items():
-        records[f"struct.{name}"] = {"definition": entry["fields"]}
+        records[f"struct.{name}"] = {
+            "definition": {"size": entry["size"], "members": entry["fields"]}
+        }
     for name, entry in load_binsync_enums(state_dir).items():
         records[f"enum.{name}"] = {"definition": entry["members"]}
     for name, entry in load_binsync_typedefs(state_dir).items():

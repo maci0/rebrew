@@ -478,6 +478,8 @@ mypy_path = ["tests"]
 module = [
     "capstone",
     "capstone.*",  # no stubs / py.typed shipped upstream
+    "binsync",
+    "binsync.*",  # never installed here: only tests/binsync_peer.py imports it, under REBREW_BINSYNC_PYTHON
     "diskcache",
     "diskcache.*",  # GHSA-w8v5-vhqr-4h9v mitigated via NoPickleDisk; stubs still absent
     "declib",

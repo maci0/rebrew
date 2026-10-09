@@ -41,7 +41,12 @@ from rebrew.annotation import (
     function_rows_for_file,
     min_valid_va_for,
 )
-from rebrew.c_parser import CALLING_CONVENTION
+from rebrew.c_parser import (
+    CALLING_CONVENTION,
+    find_function_name_in_node,
+    mask_msvc_syntax,
+    parse_c_source,
+)
 from rebrew.cli import (
     EXIT_MISMATCH,
     AllTargetsOption,
@@ -1685,72 +1690,104 @@ def _check_E023_naked_asm(
 def _check_W020_asm_dump(
     result: LintResult,
     code_lines: list[str],
-    claimed_statuses: set[str] | None = None,
-    has_blocker: bool = False,
+    source: str,
+    rows: list[tuple[str, int, dict[str, Any]]],
+    headers: list[tuple[dict[str, str], dict[str, bool]]],
+    marker: str | None,
 ) -> None:
-    """Flag asm-dump placeholder implementations (W020).
+    """Warn once per undocumented assembly function, using its own target rows.
 
-    Non-naked ``__asm``/``__emit`` bodies are pasted disassembly, not real C
-    source.  Whole-function ``__declspec(naked)`` + ``__asm`` is escalated to
-    E023 (error); this warning covers the remaining non-naked asm dumps.
-    Warn once per file at the first hit.
-
-    Status-aware: a file whose metadata claims a non-stub status
-    (``EXACT``/``RELOC``/...) while its body is an asm dump escalates the
-    warning — an asm dump cannot be a byte-match, so the STATUS is wrong.
-    That is how "documented STUB" (expected) is told apart from a "claimed
-    match on an asm dump" (a metadata bug) at a glance.
-
-    A recorded ``BLOCKER`` is the remedy the escalated message names, so an
-    asm body under one is documented and not reported at all.  Measured on a
-    project where three partial block-fill ``__asm`` bodies sit inside
-    functions that do byte-match (RELOC) and carry blockers: the rule fired on
-    all three, and its advice could not clear them.
+    A byte match alone does not establish original assembly provenance.
+    Documented partial assembly can match bytes; its blocker suppresses only
+    that definition. Naked assembly is handled by E023.
     """
-    if has_blocker:
+    if not any("__asm" in code or "_emit" in code for code in code_lines):
         return
-    # Whole-function naked asm is handled by E023 — don't double-report W020.
-    # Scan CODE, not raw lines: a block comment's interior lines need not start
-    # with `*`, and counting them reported an asm dump that is only commented out.
-    for code in code_lines:
-        if "__declspec(naked)" in code:
-            return
-    claimed = sorted((claimed_statuses or set()) - _UNCLAIMED_STATUSES)
+    from rebrew.rename_ops import c_name_from_symbol
+
+    selected_rows = [
+        row
+        for module, _, row in rows
+        if not marker or preset_module_key(module) == preset_module_key(marker)
+    ]
+    function_headers = [
+        keys for keys, _ in headers if keys.get("MARKER") in {"FUNCTION", "LIBRARY", "STUB"}
+    ]
+    if (
+        marker
+        and (rows or function_headers)
+        and not selected_rows
+        and not any(
+            preset_module_key(keys.get("MODULE", "")) == preset_module_key(marker)
+            for keys in function_headers
+        )
+    ):
+        return
+    definitions: list[tuple[int, int, str]] = []
+    parsed = b""
+    try:
+        tree, parsed = parse_c_source(mask_msvc_syntax(source))
+    except ImportError:
+        tree = None
+    pending = [tree.root_node] if tree is not None else []
+    while pending:
+        node = pending.pop()
+        if node.type == "function_definition":
+            declarator = node.child_by_field_name("declarator")
+            name = find_function_name_in_node(declarator, parsed) if declarator else None
+            definitions.append((node.start_point[0] + 1, node.end_point[0] + 1, name or ""))
+        else:
+            pending.extend(reversed(node.children))
+    definitions.sort()
+    seen: set[int] = set()
     for i, code in enumerate(code_lines, start=1):
-        # "_emit", not "__emit": `rebrew binary asm show` writes the bare spelling, so
-        # matching only the old prefixed form missed every dump it produced.
-        if "_emit" in code:
-            if claimed:
-                result.warning(
-                    i,
-                    "W020",
-                    f"_emit byte dump but STATUS claims {', '.join(claimed)} — an asm "
-                    "placeholder cannot be a byte-match; fix the STATUS or mark BLOCKER",
-                )
-            else:
-                result.warning(
-                    i,
-                    "W020",
-                    "_emit byte dump — function is an asm placeholder, not real C "
-                    "source; rewrite it as C (or mark it STUB/BLOCKER with a note)",
-                )
-            return
-        if "__asm" in code:
-            if claimed:
-                result.warning(
-                    i,
-                    "W020",
-                    f"inline __asm block but STATUS claims {', '.join(claimed)} — an asm "
-                    "dump cannot be a byte-match; fix the STATUS or mark BLOCKER",
-                )
-            else:
-                result.warning(
-                    i,
-                    "W020",
-                    "inline __asm block — asm-dump placeholder instead of real C "
-                    "source; rewrite the function as C where possible",
-                )
-            return
+        if "_emit" not in code and "__asm" not in code:
+            continue
+        start, end, name = next(
+            (definition for definition in definitions if definition[0] <= i <= definition[1]),
+            (0, len(code_lines), ""),
+        )
+        if start in seen:
+            continue
+        seen.add(start)
+        if start and any("__declspec(naked)" in line for line in code_lines[start - 1 : end]):
+            continue
+        definition_rows = [
+            row
+            for _, _, row in rows
+            if name and name in (row.get("name"), c_name_from_symbol(str(row.get("symbol") or "")))
+        ]
+        own_rows = [row for row in definition_rows if row in selected_rows]
+        previous_end = max((hi for _, hi, _ in definitions if hi < start), default=0)
+        definition_headers = [
+            keys
+            for keys, _ in headers
+            if start
+            and previous_end < int(keys.get("_LINE", "0")) <= start
+            and keys.get("MARKER") in {"FUNCTION", "LIBRARY", "STUB"}
+        ]
+        own_headers = [
+            keys
+            for keys in definition_headers
+            if not marker or preset_module_key(keys.get("MODULE", "")) == preset_module_key(marker)
+        ]
+        if marker and (definition_rows or definition_headers) and not (own_rows or own_headers):
+            continue
+        if any(row.get("blocker") for row in own_rows) or any(
+            keys.get("BLOCKER") for keys in own_headers
+        ):
+            continue
+        statuses = {canonical_status(str(row.get("status") or "")) for row in own_rows}
+        statuses.update(canonical_status(keys.get("STATUS", "")) for keys in own_headers)
+        claimed = sorted(statuses - _UNCLAIMED_STATUSES - {""})
+        kind = "_emit byte dump" if "_emit" in code else "inline __asm block"
+        suffix = f"; STATUS claims {', '.join(claimed)}" if claimed else ""
+        result.warning(
+            i,
+            "W020",
+            f"{kind}{suffix} — rewrite as C where possible or record a BLOCKER "
+            "documenting original assembly provenance",
+        )
 
 
 def _check_W021_duplicate_globals(
@@ -2382,13 +2419,8 @@ def lint_file(
     _known_markers = getattr(cfg, "all_markers", None) or ({_own_marker} if _own_marker else set())
     _known_folded = {preset_module_key(str(item)) for item in _known_markers if item}
 
-    # Statuses claimed by this file's annotations (for W020 escalation: a
-    # non-STUB claim on an asm-dump body is a metadata error).
+    # Statuses claimed by this file's annotations (for E023 diagnostics).
     _file_statuses: set[str] = set()
-    # A recorded BLOCKER documents why the body is what it is; W020's own text
-    # tells the author to add one, so an asm block under a blocker is the
-    # documented end state, not a placeholder to flag.
-    _file_has_blocker = False
     # CFLAGS from metadata/inline annotations (for the E023 REBREW_ALLOW_NAKED
     # guard — the flag lives in rebrew-functions.toml, not in source lines).
     _file_cflags: set[str] = set()
@@ -2403,8 +2435,6 @@ def lint_file(
         ):
             if _own_marker and preset_module_key(_row_module) != preset_module_key(_own_marker):
                 continue
-            if _row.get("blocker"):
-                _file_has_blocker = True
             _row_status = canonical_status(str(_row.get("status") or ""))
             if _row_status:
                 _file_statuses.add(_row_status)
@@ -2568,8 +2598,6 @@ def lint_file(
             # feed E015/E017/MATCHED_STATUSES the same way update_source_status does.
             status = canonical_status(found_keys.get("STATUS", ""))
             _file_cflags.update(found_keys.get("CFLAGS", "").split())
-            if found_keys.get("BLOCKER"):
-                _file_has_blocker = True
 
             # Collect summary data during the lint pass (used by _print_summary).
             if marker:
@@ -2612,7 +2640,16 @@ def lint_file(
     _data_section_names = _data_section_names_for(_data_metadata_entries)
     code_lines = _strip_all(lines)  # one strip pass shared by E023/W020/W022
     _check_E023_naked_asm(result, lines, code_lines, _file_statuses, " ".join(_file_cflags))
-    _check_W020_asm_dump(result, code_lines, _file_statuses, _file_has_blocker)
+    _check_W020_asm_dump(
+        result,
+        code_lines,
+        text,
+        function_rows_for_file(
+            filepath, cfg.metadata_dir if cfg else filepath.parent, _metadata_entries
+        ),
+        all_headers,
+        _own_marker,
+    )
     _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
     _check_W022_zero_init_bss(result, code_lines, _data_section_names)
     if cfg is not None:

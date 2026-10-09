@@ -1491,6 +1491,16 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
             fix="Set targets.<name>.binsync_state_dir in rebrew-project.toml "
             "(or pass --state-dir to rebrew sync push).",
         )
+    from rebrew.binsync.serial import declib_available
+
+    if not declib_available():
+        return CheckResult(
+            name="BinSync sync",
+            status=_FAIL,
+            message="BinSync state dir configured but declib (the binsync extra) is not "
+            "installed — every sync push/pull/summary exits before writing",
+            fix="uv sync --extra binsync (or reinstall the tool as 'rebrew[binsync]').",
+        )
     state_path = Path(state).expanduser()
     if not state_path.exists():
         return CheckResult(

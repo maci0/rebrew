@@ -146,9 +146,11 @@ def _parse_procs(text: str) -> list[dict[str, object]]:
     out: list[dict[str, object]] = []
     # Detail-block form (name = '...' inside the record block).
     for m in re.finditer(
-        r"S_(?:G|L)PROC32(?:_ID)? \[size = \d+\](?:\s+`([^`]+)`)?(.*?)(?=\n[^\n]*S_(?:G|L)PROC32(?:_ID)?|\Z)",
+        r"^[ \t]*(?:\d+[ \t]*\|[ \t]*)?S_(?:G|L)PROC32(?:_ID)? \[size = \d+\]"
+        r"(?:[^\S\n]+`([^`]+)`)?(.*?)"
+        r"(?=\n[ \t]*(?:\d+[ \t]*\|[ \t]*)?S_[A-Z0-9_]+ \[size = \d+\]|\Z)",
         text,
-        re.S,
+        re.S | re.M,
     ):
         inline = m.group(1)
         block = m.group(2) or ""

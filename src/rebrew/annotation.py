@@ -1584,6 +1584,7 @@ def _function_annotations_from_metadata(
 
     rel = rel_display_path(filepath, base_dir)
     results: list[Annotation] = []
+    prototypes: _DefinitionPrototypes | None = None
     for module, va, entry in matches:
         if target_name and module and preset_module_key(module) != preset_module_key(target_name):
             continue
@@ -1596,8 +1597,59 @@ def _function_annotations_from_metadata(
             filepath=rel,
         )
         apply_metadata_entry(ann, entry)
+        if prototypes is None:
+            prototypes = _DefinitionPrototypes(filepath)
+        ann.prototype = prototypes.get(ann.name)
         results.append(ann)
     return results
+
+
+class _DefinitionPrototypes:
+    """Signatures of the C function definitions in one marker-free file.
+
+    A migrated file carries no marker, so the signature an inline-marker
+    parse takes from the line after the marker comes from the definition
+    itself: return type, calling convention, name and parameters, without
+    the body, whitespace folded.  The AST pass
+    (:func:`rebrew.c_parser.function_signatures`) finds most; a definition
+    tree-sitter buries in an error node falls back to the same one-line
+    reading the inline parse uses (a line that names the function, ends in
+    no ``;``, and opens a body on it or on the next non-blank line).  An
+    unreadable file gives no prototypes: the identities still load.
+    """
+
+    def __init__(self, filepath: Path) -> None:
+        from rebrew.c_parser import function_signatures
+
+        try:
+            text, _ = read_source_text(filepath)
+        except OSError as exc:
+            logger.warning("cannot read %s for its function prototypes: %s", filepath, exc)
+            text = ""
+        self._lines = text.splitlines()
+        self._found = function_signatures(text) if text else {}
+
+    def get(self, name: str) -> str:
+        """The signature of *name*'s definition, or ``""``."""
+        if not name:
+            return ""
+        if name not in self._found:
+            self._found[name] = self._line_signature(name)
+        return self._found[name]
+
+    def _line_signature(self, name: str) -> str:
+        lines = self._lines
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if f"{name}(" not in stripped.replace(" (", "(") or stripped.endswith(";"):
+                continue
+            following = next((ln.strip() for ln in lines[index + 1 :] if ln.strip()), "")
+            if not (stripped.endswith("{") or following.startswith("{")):
+                continue
+            parsed = extract_function_name_from_line(stripped)
+            if parsed is not None and parsed[0] == name:
+                return " ".join(parsed[1].split())
+        return ""
 
 
 def _data_annotations_from_metadata(

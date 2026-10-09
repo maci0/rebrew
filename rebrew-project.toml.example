@@ -119,6 +119,7 @@ source_ext = ".c"
 # ghidra_program_path = "/Game/game.exe"
 # ghidra_backend = "reva"  # "reva" (MCP) or "cli" (headless)
 # binsync_state_dir = "sync/binsync"
+# binsync_user = "rebrew"  # BinSync branch binsync/<user> rebrew writes
 
 # Known symbol filters and exclusions
 # ignored_symbols = ["_alloca_probe", "__chkstk"]

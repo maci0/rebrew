@@ -550,6 +550,25 @@ class TestFieldRename:
 
 
 class TestMsvcSyntax:
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "__asm {\n\0\n\0\n}",
+            "__asm {\r\n\0\r\n\0\r\n}",
+            "__declspec(\né\n) int __cdecl f(void) { return 0; }\n",
+        ],
+    )
+    def test_mask_preserves_multiline_tokens_and_unicode_bytes(self, source: str) -> None:
+        from rebrew.c_parser import mask_msvc_syntax
+
+        raw = source.encode("utf-8", "surrogateescape")
+        masked = mask_msvc_syntax(source).encode("utf-8", "surrogateescape")
+        assert len(masked) == len(raw)
+        assert all(after in (before, 0x20) for before, after in zip(raw, masked, strict=True))
+        assert [i for i, byte in enumerate(raw) if byte in (10, 13)] == [
+            i for i, byte in enumerate(masked) if byte in (10, 13)
+        ]
+
     def test_mask_keeps_offsets_and_parses_msvc_definitions(self) -> None:
         from rebrew.c_parser import mask_msvc_syntax, parse_c_source
 

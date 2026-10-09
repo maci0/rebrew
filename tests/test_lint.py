@@ -1033,6 +1033,142 @@ class TestW020AsmDump:
         result = self._pure_c(tmp_path, None)
         assert any(c == "W020" for _, c, _ in result.warnings)
 
+    def test_shared_file_uses_only_the_asm_functions_metadata(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_function_identity, set_fields, update_source_status
+
+        for va, name in ((0x10008880, "documented"), (0x10008900, "pending")):
+            record_function_identity(
+                tmp_path,
+                module="SERVER",
+                va=va,
+                file="shared.c",
+                marker_type="FUNCTION",
+                symbol="_" + name,
+                name=name,
+            )
+        update_source_status(tmp_path, "EXACT", "SERVER", 0x10008880)
+        set_fields(tmp_path, 0x10008880, {"blocker": "original asm"}, "SERVER")
+        update_source_status(tmp_path, "STUB", "SERVER", 0x10008900)
+        source = (
+            "int documented(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+            "int pending(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "shared.c", source))
+        warnings = [(line, msg) for line, code, msg in result.warnings if code == "W020"]
+        assert len(warnings) == 1
+        assert warnings[0][0] == 6
+        assert "EXACT" not in warnings[0][1]
+
+    def test_unrelated_status_does_not_escalate_asm(self, tmp_path: Path) -> None:
+        source = (
+            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n"
+            "int complete(void) { return 0; }\n"
+            "// FUNCTION: SERVER 0x10008900\n// STATUS: STUB\n"
+            "int pending(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "shared.c", source))
+        warnings = [msg for _, code, msg in result.warnings if code == "W020"]
+        assert len(warnings) == 1
+        assert "EXACT" not in warnings[0]
+
+    def test_naked_function_does_not_hide_another_functions_asm(self, tmp_path: Path) -> None:
+        source = (
+            "// FUNCTION: SERVER 0x10008880\n"
+            "__declspec(naked) void dump(void) {\n    __asm { _emit 0x55 }\n}\n"
+            "// FUNCTION: SERVER 0x10008900\n"
+            "int pending(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "shared.c", source))
+        assert any(code == "E023" for _, code, _ in result.errors)
+        assert [line for line, code, _ in result.warnings if code == "W020"] == [7]
+
+    def test_reports_each_undocumented_function(self, tmp_path: Path) -> None:
+        source = (
+            "// FUNCTION: SERVER 0x10008880\n"
+            "int first(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+            "// FUNCTION: SERVER 0x10008900\n"
+            "int second(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "shared.c", source))
+        assert [line for line, code, _ in result.warnings if code == "W020"] == [3, 8]
+
+    def test_store_blocker_and_status_do_not_leak_between_targets(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_function_identity, set_fields, update_source_status
+
+        for module, va, status in (("SERVER", 0x10008880, "EXACT"), ("GOLDTL", 0x408880, "STUB")):
+            record_function_identity(
+                tmp_path,
+                module=module,
+                va=va,
+                file="shared.c",
+                marker_type="FUNCTION",
+                symbol="_shared",
+                name="shared",
+            )
+            update_source_status(tmp_path, status, module, va)
+        set_fields(tmp_path, 0x10008880, {"blocker": "original asm"}, "SERVER")
+        cfg = _make_cfg(marker="GOLDTL", reversed_dir=tmp_path)
+        cfg.root = tmp_path
+        cfg.all_markers = {"SERVER", "GOLDTL"}
+        source = "int shared(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        result = lint_file(_write_c(tmp_path, "shared.c", source), cfg=cfg)
+        warnings = [msg for _, code, msg in result.warnings if code == "W020"]
+        assert len(warnings) == 1
+        assert "EXACT" not in warnings[0]
+        cfg.marker = "SERVER"
+        assert not any(
+            code == "W020" for _, code, _ in lint_file(tmp_path / "shared.c", cfg=cfg).warnings
+        )
+
+    def test_inline_target_status_does_not_leak(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(marker="GOLDTL", reversed_dir=tmp_path)
+        cfg.root = tmp_path
+        cfg.all_markers = {"SERVER", "GOLDTL"}
+        source = (
+            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n"
+            "// FUNCTION: GOLDTL 0x408880\n// STATUS: STUB\n"
+            "int shared(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "shared.c", source), cfg=cfg)
+        warnings = [msg for _, code, msg in result.warnings if code == "W020"]
+        assert len(warnings) == 1
+        assert "EXACT" not in warnings[0]
+
+    def test_foreign_target_assembly_is_not_reported(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(marker="SERVER", reversed_dir=tmp_path)
+        cfg.root = tmp_path
+        cfg.all_markers = {"SERVER", "GOLDTL"}
+        source = (
+            "static void fill(void) {\n    __asm { mov eax, 1 }\n}\n"
+            "// FUNCTION: GOLDTL 0x408880\n"
+            "int client(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        )
+        assert not any(
+            code == "W020"
+            for _, code, _ in lint_file(_write_c(tmp_path, "client.c", source), cfg=cfg).warnings
+        )
+
+    def test_string_literals_do_not_break_function_ownership(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_function_identity, set_fields
+
+        record_function_identity(
+            tmp_path,
+            module="SERVER",
+            va=0x10008880,
+            file="strings.c",
+            marker_type="FUNCTION",
+            symbol="_f",
+            name="display_name",
+        )
+        set_fields(tmp_path, 0x10008880, {"blocker": "original asm"}, "SERVER")
+        source = (
+            'char* f(void) {\n    char* text[] = { "a", "b" };\n'
+            "    __asm { mov eax, 1 }\n    return text[0];\n}\n"
+            "int pending(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "strings.c", source))
+        assert [line for line, code, _ in result.warnings if code == "W020"] == [7]
+
     def test_bare_emit_spelling_warns(self, tmp_path: Path) -> None:
         """`rebrew asm` writes the bare `_emit 0xNN` form, so W020 must match it."""
         body = "int f(void) {\n    __asm { _emit 0x55 }\n    return 0;\n}\n"
@@ -1055,7 +1191,7 @@ class TestW020AsmDump:
         result = lint_file(_write_c(tmp_path, "stub.c", content))
         msg = next(m for _, c, m in result.warnings if c == "W020")
         assert "cannot be a byte-match" not in msg  # STUB is fine — not escalated
-        assert "asm" in msg.lower()
+        assert "assembly" in msg.lower()
 
     def test_exact_claim_on_asm_dump_escalates(self, tmp_path: Path) -> None:
         """EXACT + asm dump is a metadata contradiction — W020 escalates."""
@@ -1067,7 +1203,7 @@ class TestW020AsmDump:
         result = lint_file(_write_c(tmp_path, "claimed.c", content))
         msg = next(m for _, c, m in result.warnings if c == "W020")
         assert "EXACT" in msg
-        assert "cannot be a byte-match" in msg
+        assert "original assembly provenance" in msg
 
     def test_recorded_blocker_documents_the_asm_body(self, tmp_path: Path) -> None:
         """A BLOCKER is the remedy the escalated message names, so it must

@@ -7,6 +7,7 @@ model.  This module parses struct definitions once via tree-sitter into
 sizes scalar/array/pointer type spellings.  Pure logic, no I/O.
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -55,6 +56,7 @@ class StructDef:
     fields: list[tuple[str, str, int]] = field(default_factory=list)
     size: int = 0
     complete: bool = True
+    alignment: int = 1
 
 
 def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) -> int | None:
@@ -73,7 +75,8 @@ def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) 
     if text.startswith(("struct ", "union ", "enum ")):
         struct_name = text.split(None, 1)[1].strip()
         if known_structs and struct_name in known_structs:
-            return known_structs[struct_name].size
+            struct = known_structs[struct_name]
+            return struct.size if struct.complete else None
         return None
     if text == "void":
         # Incomplete type, never a struct field.  Size 0 would let the next
@@ -115,7 +118,8 @@ def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) 
         base_size = type_size(base, known_structs)
         return None if base_size is None else base_size * count
     if known_structs and text in known_structs:
-        return known_structs[text].size
+        struct = known_structs[text]
+        return struct.size if struct.complete else None
     return None
 
 
@@ -251,11 +255,44 @@ def _struct_name(spec: Any, source: bytes) -> str:
     return ""
 
 
+def _packing_after(text: str, current: int, stack: list[tuple[str, int]]) -> int:
+    """Apply an MSVC pack pragma, including named push/pop records."""
+    match = re.match(r"\s*#\s*pragma\s+pack\s*\(([^)]*)\)", text)
+    if not match:
+        return current
+    args = [arg.strip() for arg in match[1].split(",")]
+    if args == [""]:
+        return 8
+    if args == ["show"]:
+        return current
+    operation = args.pop(0) if args[0] in {"push", "pop"} else ""
+    label = ""
+    number = None
+    for arg in args:
+        if arg in {"1", "2", "4", "8", "16"} and number is None:
+            number = int(arg)
+        elif operation and not label and re.fullmatch(r"[A-Za-z_]\w*", arg):
+            label = arg
+        else:
+            return current
+    if operation == "push":
+        stack.append((label, current))
+    elif operation == "pop":
+        index = next(
+            (i for i in range(len(stack) - 1, -1, -1) if not label or stack[i][0] == label),
+            None,
+        )
+        if index is not None:
+            current = stack[index][1]
+            del stack[index:]
+    return number if number is not None else current
+
+
 def parse_structs(source_text: str) -> dict[str, StructDef]:
     """Parse ``typedef struct {...} Name;`` and ``struct Tag {...};`` definitions.
 
     Returns ``{name: StructDef}`` with MSVC 32-bit field offsets (natural
-    alignment, struct size padded to the max field alignment).  Fields whose
+    alignment capped by source pack pragmas, with padded struct size). Fields whose
     type size is unknown (nested structs, bitfields, function pointers) end
     the parseable prefix — the struct keeps the fields before the gap with
     its size set to what is known so far.
@@ -268,9 +305,14 @@ def parse_structs(source_text: str) -> dict[str, StructDef]:
     from rebrew.c_parser import parse_c_source
 
     tree, source = parse_c_source(source_text)
-    bodies: dict[str, Any] = {}
+    bodies: dict[str, tuple[Any, int]] = {}
+    packing = 8
+    pack_stack: list[tuple[str, int]] = []
 
     def collect(node: Any) -> None:
+        nonlocal packing
+        if node.type == "preproc_call":
+            packing = _packing_after(_field_text(node, source), packing, pack_stack)
         if node.type == "struct_specifier":
             body = next((c for c in node.children if c.type == "field_declaration_list"), None)
             if body is not None:
@@ -288,19 +330,20 @@ def parse_structs(source_text: str) -> dict[str, StructDef]:
                 if not name:
                     name = _struct_name(node, source)
                 if name:
-                    bodies.setdefault(name, body)
+                    bodies.setdefault(name, (body, packing))
         for child in node.children:
             collect(child)
 
     collect(tree.root_node)
 
-    def signature(defs: dict[str, StructDef]) -> dict[str, tuple[int, bool, tuple[Any, ...]]]:
-        return {n: (d.size, d.complete, tuple(d.fields)) for n, d in defs.items()}
+    def signature(defs: dict[str, StructDef]) -> dict[str, tuple[int, bool, int, tuple[Any, ...]]]:
+        return {n: (d.size, d.complete, d.alignment, tuple(d.fields)) for n, d in defs.items()}
 
     structs: dict[str, StructDef] = {}
     for _ in range(len(bodies) + 1):
         updated = {
-            name: _build_struct(name, body, source, structs) for name, body in bodies.items()
+            name: _build_struct(name, body, source, structs, pack)
+            for name, (body, pack) in bodies.items()
         }
         if signature(updated) == signature(structs):
             structs = updated
@@ -309,8 +352,10 @@ def parse_structs(source_text: str) -> dict[str, StructDef]:
     return structs
 
 
-def _build_struct(name: str, body: Any, source: bytes, known: dict[str, StructDef]) -> StructDef:
-    """Lay out one struct_specifier body with natural alignment."""
+def _build_struct(
+    name: str, body: Any, source: bytes, known: dict[str, StructDef], pack: int
+) -> StructDef:
+    """Lay out one struct_specifier body under its active packing cap."""
     fields: list[tuple[str, str, int]] = []
     offset = 0
     max_align = 1
@@ -327,7 +372,7 @@ def _build_struct(name: str, body: Any, source: bytes, known: dict[str, StructDe
         if size is None:
             complete = False
             break
-        align = _field_align(spelling, size, known)
+        align = min(_field_align(spelling, size, known), pack)
         offset = _align_up(offset, align)
         max_align = max(max_align, align)
         fields.append((field_name, spelling, offset))
@@ -337,6 +382,7 @@ def _build_struct(name: str, body: Any, source: bytes, known: dict[str, StructDe
         fields=fields,
         size=_align_up(offset, max_align) if fields else 0,
         complete=complete,
+        alignment=max_align,
     )
 
 
@@ -366,6 +412,9 @@ def _field_align(spelling: str, size: int, known: dict[str, StructDef] | None) -
         # capped at 4 like a scalar 8-byte type would be.
         return _field_align(base, base_size, known)
     canon = text.removeprefix("unsigned ").removeprefix("signed ")
+    aggregate = canon.removeprefix("struct ")
+    if known and aggregate in known:
+        return known[aggregate].alignment
     if canon in _EIGHT_BYTE_ALIGNED:
         return 8
     # size <= 0 (flexible ``T[0]``, or a caller that slipped past type_size)

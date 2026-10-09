@@ -110,7 +110,7 @@ class TestBinsyncExportBasic:
         assert toml_file.exists()
         func = _load_func(toml_file)
         assert func.addr == 0x10001000
-        assert func.name == "_foo"
+        assert func.name == "foo"  # the C name; the decorated symbol stays local
         assert func.size == 31
 
     def test_size_zero_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -380,6 +380,20 @@ class TestBinsyncExportJson:
 
 
 class TestBinsyncWriters:
+    def test_struct_size_cannot_truncate_a_member(self, tmp_path: Path) -> None:
+        from rebrew.binsync.export import _write_struct_toml
+
+        path = tmp_path / "Point.toml"
+        path.write_text("preserved")
+        with pytest.raises(ValueError, match="smaller than member extent"):
+            _write_struct_toml(
+                path,
+                "Point",
+                [{"name": "x", "type": "int", "offset": 0, "size": 4}],
+                total_size=1,
+            )
+        assert path.read_text() == "preserved"
+
     def test_global_vars_sizes(self, tmp_path: Path) -> None:
         from rebrew.binsync.export import _write_global_vars_toml
 
@@ -416,25 +430,33 @@ class TestBinsyncGhidraComment:
         assert comments[0].func_addr == 0x1000
         assert comments[0].comment == "[rebrew:ghidra] ghidra_name"
 
-    def test_export_toml_left_readonly(self, tmp_path: Path) -> None:
-        """binsync exports (functions/*.toml, global_vars.toml, structs/*.toml)
-        are write-locked 0444 — direct edits fail, tools chmod+update+re-lock."""
-        from rebrew.binsync.export import (
-            _write_function_toml,
-            _write_global_vars_toml,
-            _write_struct_toml,
+    def test_export_leaves_state_files_writable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """BinSync's own State.dump rewrites these files on the same tree, so
+        an export leaves every state file writable, and an identical re-export
+        unlocks a file an older rebrew left 0444."""
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": "// FUNCTION: SERVER 0x10001000\n// SIZE: 11\n// NOTE: n\n"
+                "int foo(void) { return 1; }\n"
+                "// GLOBAL: SERVER 0x10003000\nint g_count;\n",
+            },
         )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        written = [p for p in outdir.rglob("*") if p.is_file()]
+        assert any(p.name == "metadata.toml" for p in written)
+        assert any(p.name == "manifest.toml" for p in written)
+        for path in written:
+            assert path.stat().st_mode & 0o200, path
 
-        fn = tmp_path / "functions" / "1000.toml"
-        fn.parent.mkdir(parents=True)
-        _write_function_toml(fn, name="f", va=0x1000, size=4, prototype="")
-        gv = tmp_path / "global_vars.toml"
-        _write_global_vars_toml(gv, [(0x2000, "g_var", 4, "char", None)])
-        st = tmp_path / "structs" / "S.toml"
-        st.parent.mkdir(parents=True)
-        _write_struct_toml(st, "S", fields=[{"name": "x", "type": "int"}])
-        for path in (fn, gv, st):
-            assert (path.stat().st_mode & 0o777) == 0o444, path
+        legacy = outdir / "metadata.toml"
+        legacy.chmod(0o444)
+        result, _ = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert legacy.stat().st_mode & 0o200
 
     def test_ghidra_name_matching_symbol_omitted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -917,7 +939,7 @@ class TestBinaryHashAndSharedTypes:
     def test_failing_header_does_not_drop_later_structs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.binsync.state as state_mod
+        import rebrew.types as types_mod
 
         _make_project(tmp_path, {"foo.c": self._FOO})
         src = tmp_path / "src"
@@ -925,14 +947,14 @@ class TestBinaryHashAndSharedTypes:
         (src / "point.h").write_text(
             "typedef struct {\n    int x;\n    int y;\n} Point;\n", encoding="utf-8"
         )
-        real_parse = state_mod.parse_struct_fields
+        real_parse = types_mod.parse_structs
 
-        def _parse(text: str) -> list[dict[str, Any]]:
+        def _parse(text: str) -> dict[str, types_mod.StructDef]:
             if "Bad" in text:
                 raise ValueError("boom")
             return real_parse(text)
 
-        monkeypatch.setattr("rebrew.binsync.state.parse_struct_fields", _parse)
+        monkeypatch.setattr("rebrew.types.parse_structs", _parse)
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0, result.output
         assert (outdir / "structs" / "Point.toml").exists()
@@ -1021,7 +1043,7 @@ class TestDeclibParse:
 
         func = Function.loads((outdir / "functions" / "10001000.toml").read_text())
         assert func.addr == 0x10001000
-        assert func.name == "_foo"
+        assert func.name == "foo"
         comments = Comment.loads_many((outdir / "comments.toml").read_text())
         assert any((c.comment or "").startswith("[rebrew:note]") for c in comments)
         gvars = GlobalVariable.loads_many((outdir / "global_vars.toml").read_text())
@@ -1085,3 +1107,267 @@ class TestDeclibParse:
         assert result.exit_code == 0, result.output
         func_b = _load_func(state_b / "functions" / "10001000.toml")
         assert func_b.stack_vars[-4].name == "ret"
+
+
+class TestMigratedPrototypes:
+    """A marker-free source exports the prototype of its C definition."""
+
+    def test_migrated_function_exports_its_signature(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "server.c": "typedef void *LPVOID;\n"
+                "// FUNCTION: SERVER 0x10001000\n// SIZE: 16\n"
+                "int __cdecl Init(LPVOID param)\n{\n    return 0;\n}\n"
+                "// FUNCTION: SERVER 0x10001010\n// SIZE: 16\n"
+                "static void __stdcall Pump(int a, int b)\n{\n}\n",
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+        migrated = runner.invoke(app, ["source", "migrate-markers"], catch_exceptions=False)
+        assert migrated.exit_code == 0, migrated.output
+        source = tmp_path / "src" / "server.c"
+        text = source.read_text(encoding="utf-8")
+        assert "// FUNCTION" not in text
+        # Reformatted after migration: the signature now spans two lines.
+        source.write_text(
+            text.replace("Pump(int a, int b)", "Pump(int a,\n                           int b)"),
+            encoding="utf-8",
+        )
+
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        init = _load_func(outdir / "functions" / "10001000.toml")
+        assert init.header.type == "int __cdecl Init(LPVOID param)"
+        pump = _load_func(outdir / "functions" / "10001010.toml")
+        assert pump.header.type == "static void __stdcall Pump(int a, int b)"
+
+
+class TestStructLayouts:
+    """Exported struct members carry real names, types and offsets, never parser debris."""
+
+    _FOO = "// FUNCTION: SERVER 0x10001000\n// SIZE: 4\nint foo() { return 1; }\n"
+
+    def test_tail_padding_is_exported_and_acknowledged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.binsync.serial import load_artifact
+        from rebrew.binsync.state import incoming_type_records, type_sync_records
+        from rebrew.config import load_config
+
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        (tmp_path / "src" / "types.h").write_text(
+            "typedef struct { int id; char tag; } Padded;\n"
+            "#pragma pack(push, 1)\n"
+            "typedef struct { int id; char tag; } Packed;\n#pragma pack(pop)\n",
+            encoding="utf-8",
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        padded = load_artifact(outdir / "structs" / "Padded.toml", "struct")
+        packed = load_artifact(outdir / "structs" / "Packed.toml", "struct")
+        assert padded is not None and padded.size == 8
+        assert packed is not None and packed.size == 5
+        cfg = load_config(tmp_path)
+        local = type_sync_records(cfg)
+        remote = incoming_type_records(outdir)
+        assert local["struct.Padded"] == remote["struct.Padded"]
+        assert local["struct.Packed"] == remote["struct.Packed"]
+
+    def test_struct_name_survives_alias_expansion(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        (tmp_path / "src" / "aliases.h").write_text(
+            "typedef struct { int x; int y; } Canonical;\ntypedef Canonical Point;\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "src" / "point.h").write_text(
+            "#pragma pack(push, 1)\n"
+            "typedef struct { char tag; int value; } Point;\n"
+            "typedef struct { Point point; char tail; } Holder;\n#pragma pack(pop)\n",
+            encoding="utf-8",
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert self._members(outdir, "Point") == {0: ("tag", "char"), 1: ("value", "int")}
+        assert self._members(outdir, "Holder") == {0: ("point", "Point"), 5: ("tail", "char")}
+
+    def _members(self, outdir: Path, name: str) -> dict[int, tuple[str, str]]:
+        from rebrew.binsync.serial import load_artifact
+
+        struct = load_artifact(outdir / "structs" / f"{name}.toml", "struct")
+        assert struct is not None, name
+        return {off: (m.name, m.type) for off, m in struct.members.items()}
+
+    def test_packing_context_survives_definition_extraction(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        (tmp_path / "src" / "types.h").write_text(
+            "#pragma pack(push, 1)\n"
+            "typedef struct EntityQueryRecord {\n"
+            "char type; int entity_id; char pad_05[0x20];\n"
+            "unsigned short filter_25; unsigned short slot_index; char pad_29[0x80];\n"
+            "} EntityQueryRecord;\n"
+            "typedef struct { char kind; unsigned short ids[10]; } BuildingDefaults;\n"
+            "typedef struct { char tag; int value; } Inner;\n"
+            "#pragma pack(pop)\n"
+            "typedef struct { char tag; Inner rows[2]; int tail; } Outer;\n"
+            "typedef struct { char c; int x; } Natural;\n",
+            encoding="utf-8",
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert self._members(outdir, "EntityQueryRecord") == {
+            0: ("type", "char"),
+            1: ("entity_id", "int"),
+            5: ("pad_05", "char[0x20]"),
+            0x25: ("filter_25", "unsigned short"),
+            0x27: ("slot_index", "unsigned short"),
+            0x29: ("pad_29", "char[0x80]"),
+        }
+        from rebrew.binsync.serial import load_artifact
+
+        entity = load_artifact(outdir / "structs" / "EntityQueryRecord.toml", "struct")
+        defaults = load_artifact(outdir / "structs" / "BuildingDefaults.toml", "struct")
+        assert entity is not None and entity.size == 0xA9
+        assert defaults is not None and defaults.size == 0x15
+        outer = load_artifact(outdir / "structs" / "Outer.toml", "struct")
+        assert outer is not None
+        assert outer.members[1].size == 10
+        assert self._members(outdir, "Outer") == {
+            0: ("tag", "char"),
+            1: ("rows", "Inner[2]"),
+            12: ("tail", "int"),
+        }
+        assert self._members(outdir, "Natural") == {0: ("c", "char"), 4: ("x", "int")}
+
+    def test_comments_typedefs_and_nested_members(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        (tmp_path / "src" / "types.h").write_text(
+            "typedef unsigned long DWORD;\n"
+            "typedef struct gz {\n"
+            "    int  z_err;   /* error code for last stream operation */\n"
+            "    DWORD crc;    /* crc32 of 'w' or 'r' data */\n"
+            "    char  mode;   /* 'w' or 'r' */\n"
+            "    struct { int adler; } check;\n"
+            "    int  after;\n"
+            "} gz;\n"
+            "typedef struct VT {\n"
+            "    int count;\n"
+            "    long (__stdcall *Release)(struct VT *self, int flags);\n"
+            "} VT;\n",
+            encoding="utf-8",
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert self._members(outdir, "gz") == {
+            0: ("z_err", "int"),
+            4: ("crc", "unsigned long"),
+            8: ("mode", "char"),
+        }
+        assert self._members(outdir, "VT") == {0: ("count", "int")}
+        assert not (outdir / "structs" / "check.toml").exists()
+        assert "struct gz: layout stops after member mode" in caplog.text
+        assert "struct VT: layout stops after member count" in caplog.text
+
+    def test_differing_duplicate_definitions_are_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": self._FOO,
+                "a.c": "typedef struct Ent { int id; } Ent;\n",
+                "b.c": "typedef struct Ent { short id; short kind; } Ent;\n",
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert self._members(outdir, "Ent") == {0: ("id", "int")}
+        assert "1 struct name(s) have more than one differing definition" in caplog.text
+        assert ": Ent" in caplog.text
+
+    def test_alias_expansion_preserves_member_identifiers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.binsync.serial import load_artifact
+        from rebrew.binsync.state import parse_struct_fields
+
+        definition = "typedef struct DWORD { DWORD DWORD; char tag; } Record;\n"
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": self._FOO,
+                "types.h": "typedef unsigned long DWORD;\n" + definition,
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert self._members(outdir, "Record") == {
+            0: ("DWORD", "unsigned long"),
+            4: ("tag", "char"),
+        }
+        struct = load_artifact(outdir / "structs" / "Record.toml", "struct")
+        assert struct is not None and struct.size == 8
+        assert parse_struct_fields(definition, {"DWORD": "unsigned long"}) == [
+            {"name": "DWORD", "type": "unsigned long", "offset": 0, "size": 4},
+            {"name": "tag", "type": "char", "offset": 4, "size": 1},
+        ]
+
+
+class TestExportIdentityWarnings:
+    def test_prose_name_and_duplicate_identity_are_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        _make_project(
+            tmp_path,
+            {
+                "a.c": "// FUNCTION: SERVER 0x10001000\n// SIZE: 4\nint foo(void) { return 1; }\n",
+                "b.c": "// FUNCTION: SERVER 0x10001000\n// SIZE: 4\nint foo2(void) { return 2; }\n",
+                "lib.c": "/* identified by its archive bytes */\n",
+            },
+        )
+        # A library row whose name is the header's prose, as an identification
+        # tool recorded it.
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10002000"]\nfile = "lib.c"\nmarker_type = "LIBRARY"\n'
+            'name = "(static, no archive symbol)"\nsize = 4\n',
+            encoding="utf-8",
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        warnings = json.loads(result.stdout)["warnings"]
+        assert any("0x10001000 has two identities (a.c, b.c)" in w for w in warnings), warnings
+        assert any("is not a C identifier; exported as func_10002000" in w for w in warnings)
+        assert _load_func(outdir / "functions" / "10002000.toml").name == "func_10002000"
+
+
+class TestMigratedPrototypeFallback:
+    def test_definition_the_ast_misses_reads_from_its_line(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A definition tree-sitter buries in an error node (seen with some
+        inline-asm bodies) still exports the signature its first line spells."""
+        _make_project(
+            tmp_path,
+            {
+                "server.c": "// FUNCTION: SERVER 0x10001000\n// SIZE: 16\n"
+                "int __cdecl Init(void *param)\n{\n    return 0;\n}\n",
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+        migrated = runner.invoke(app, ["source", "migrate-markers"], catch_exceptions=False)
+        assert migrated.exit_code == 0, migrated.output
+        monkeypatch.setattr("rebrew.c_parser.function_signatures", lambda _source: {})
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        init = _load_func(outdir / "functions" / "10001000.toml")
+        assert init.header.type == "int __cdecl Init(void *param)"

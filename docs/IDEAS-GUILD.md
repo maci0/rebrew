@@ -583,3 +583,28 @@ Evidence: guild-rebrew/.scratch/goal-tl-callee-identities/{resolver-binding-conf
   Feature: `rebrew binary relocs --reservation` reporting kept, discarded and
   import-thunk records per input against the reference's `12 * N`. Evidence:
   guild `.scratch/measure/dir32_count.py`, `discarded_dir32.py`.
+
+## Assembly provenance for definitions without a target VA (2026-10-09)
+
+Pain: correcting W020 to use each definition's own target metadata exposes
+assembly in unannotated helpers and discarded shared-TU functions. A helper
+has no standalone target address at which to store a BLOCKER. A blocker on a
+different function previously hid it, which also hid genuinely undocumented
+assembly elsewhere in that file. A containing source file alone does not
+establish that the definition contributes bytes to the selected target.
+
+Proposed feature: managed provenance for a source definition identified by
+file and C symbol, separate from target-VA identity and byte-verification
+rows. Preserve evidence and target participation explicitly; do not fabricate
+a VA or STATUS for an inline helper. W020 should report the affected C symbol
+and permit only that definition's documented provenance to clear its warning.
+Compiler/map reachability can distinguish discarded code from participating
+helpers, without treating file membership or one unrelated blocker as proof.
+
+Evidence: guild-rebrew/.scratch/goal20/asm-context-audit.json and
+names-integration-lint-{server,goldtl,gold}-scoped.json. SERVER findings are
+vfs_AddFile and vfs_fwrite; neither has an identity row or appears in the
+existing raw server map. GOLDTL also has fill helpers without standalone
+identities. Existing block-fill evidence lives in docs/msvc6-allocator.md
+(Finding 19); source comments and historical matches are evidence to review,
+not fresh verification or permission to suppress a whole file.
