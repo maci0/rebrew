@@ -937,6 +937,16 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
     rendered = {rel: data for rel, data in expected.items() if rel.startswith(".agents/skills/")}
     if rendered or manifest:
         _write_scaffold_manifest(cwd, rendered)
+    if json_output:
+        json_print(
+            {
+                "written": written,
+                "removed": len(stale) - len(kept),
+                "kept": kept,
+                "compiler": compiler_profile,
+            }
+        )
+        return
     console.print(
         f"[green]Refreshed {written} scaffold file(s)[/] "
         f"(AGENTS.md, PRINCIPLES.md, .agents/skills/) for profile {compiler_profile}"

@@ -1565,6 +1565,64 @@ class TestRefreshAgents:
         with pytest.raises(Exit):
             _refresh_agents(tmp_path, tmp_path / "rebrew-project.toml", json_output=False)
 
+    @pytest.mark.parametrize("state, written", [("fresh", 3), ("unchanged", 0), ("stale", 1)])
+    def test_refresh_json_reports_writes(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        state: str,
+        written: int,
+    ) -> None:
+        from rebrew import init as init_mod
+
+        root = self._project(tmp_path, "msvc-5.0")
+        monkeypatch.setattr(
+            init_mod, "agent_skill_files", lambda _target: {"sample/SKILL.md": b"# sample\n"}
+        )
+        if state != "fresh":
+            init_mod._refresh_agents(root, root / "rebrew-project.toml", json_output=False)
+        if state == "stale":
+            (root / "AGENTS.md").write_text("stale\n")
+        capsys.readouterr()
+        init_mod._refresh_agents(root, root / "rebrew-project.toml", json_output=True)
+        assert json.loads(capsys.readouterr().out) == {
+            "written": written,
+            "removed": 0,
+            "kept": [],
+            "compiler": "msvc-5.0",
+        }
+
+    def test_refresh_json_reports_pruned_and_preserved_skills(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from rebrew import init as init_mod
+
+        root = self._project(tmp_path, "msvc-5.0")
+        monkeypatch.setattr(
+            init_mod,
+            "agent_skill_files",
+            lambda _target: {"old/SKILL.md": b"# old\n", "edited/SKILL.md": b"# edited\n"},
+        )
+        init_mod._refresh_agents(root, root / "rebrew-project.toml", json_output=False)
+        edited = root / ".agents/skills/edited/SKILL.md"
+        edited.write_text("# user edited\n")
+        monkeypatch.setattr(init_mod, "agent_skill_files", lambda _target: {})
+        capsys.readouterr()
+        init_mod._refresh_agents(root, root / "rebrew-project.toml", json_output=True)
+        report = json.loads(capsys.readouterr().out)
+        assert report == {
+            "written": 0,
+            "removed": 1,
+            "kept": [".agents/skills/edited/SKILL.md"],
+            "compiler": "msvc-5.0",
+        }
+        assert not (root / ".agents/skills/old/SKILL.md").exists()
+        assert edited.read_text() == "# user edited\n"
+
     def test_unknown_profile_fails(self, tmp_path: Path) -> None:
         from rebrew.init import _refresh_agents
 

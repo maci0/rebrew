@@ -181,6 +181,8 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- `init --refresh-agents --json` emits write/removal counts and the paths of
+  edited stale skills it preserved, including a no-op refresh result.
 - Data verification does not label identical sections as possibly copied when
   the image is acknowledged as a raw link by the flag or project configuration.
   Unacknowledged images retain the warning and guarded status write-back.
