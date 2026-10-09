@@ -181,6 +181,9 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- Data verification does not label identical sections as possibly copied when
+  the image is acknowledged as a raw link by the flag or project configuration.
+  Unacknowledged images retain the warning and guarded status write-back.
 - MSVC syntax masking preserves newlines inside malformed assembly tokens and
   UTF-8 byte widths inside multiline `__declspec` attributes, keeping rename
   and prototype edits at their original source offsets.

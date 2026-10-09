@@ -1085,14 +1085,14 @@ def main(
                     break
         except (OSError, ValueError, KeyError, AttributeError):
             _dsec = None
-        if _dsec and not json_output:
+        if _dsec and not raw_link and not json_output:
             console.print(
                 f"[yellow]warning:[/yellow] {untrusted_ident(built_path.name)}'s "
                 f"{untrusted_ident(_dsec)} is byte-identical to the "
                 f"reference. If the build postlinks by copying that section, these results are "
                 f"tautological — point --built at the raw link instead."
             )
-        if _dsec:
+        if _dsec and not raw_link:
             data_report["section_copied_warning"] = _dsec
         if not dry_run:
             from rebrew.data_metadata import (

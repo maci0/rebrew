@@ -581,6 +581,44 @@ class TestDiffReports:
 
 
 class TestVerifyCli:
+    @pytest.mark.parametrize("acknowledgement", ["flag", "configured", "none"])
+    def test_section_copy_warning_requires_an_unacknowledged_image(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, acknowledgement: str
+    ) -> None:
+        from bin_util import append_pe_section, make_pe
+
+        from rebrew.binary_loader import load_binary
+        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        image = append_pe_section(make_pe(b"\xc3"), ".data", b"abcdefgh")
+        cfg.target_binary.write_bytes(image)
+        built_path = tmp_path / "built.dll"
+        built_path.write_bytes(image)
+        if acknowledgement == "configured":
+            cfg.raw_link = built_path
+        section = load_binary(cfg.target_binary).sections[".data"]
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": section.va,
+                    "fields": {"name": "value", "size": 8, "section": ".data"},
+                }
+            ],
+        )
+        self._patch_flow(monkeypatch, cfg, passed=0)
+        args = ["--data", "--json", "--built", str(built_path)]
+        if acknowledgement == "flag":
+            args.append("--raw-link")
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 0, result.output
+        report = json.loads(result.stdout)
+        assert report["data"]["matched"] == 1
+        assert ("section_copied_warning" in report["data"]) is (acknowledgement == "none")
+
     @pytest.mark.parametrize(
         "acknowledgement",
         [
