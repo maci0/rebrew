@@ -20,7 +20,9 @@ same tiers and the data/globals/layout pipeline.
 
 `rebrew-source.toml` is managed by `rebrew source document-assembly` (API:
 `rebrew.source_provenance.document_assembly`) with the shared locked, atomic
-0444 writer. It records reviewed original-assembly evidence for a definition
+0444 writer. Keep `rebrew-source.toml` in version control and ignore its
+`rebrew-source.toml.lock` coordination file, just like the function/data locks.
+It records reviewed original-assembly evidence for a definition
 without requiring a VA. `format = 1` and
 `definitions."metadata-relative/file.c".C_symbol.MODULE` identify each record;
 its only fields are `source_hash` and `evidence`. The SHA-256 binds the parsed

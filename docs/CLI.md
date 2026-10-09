@@ -2884,8 +2884,10 @@ rebrew source document-assembly src/game.c --symbol fill0 --target client --clea
 ```
 
 The CLI owns `rebrew-source.toml` in `cfg.metadata_dir`, using the same locked,
-atomic writer as other metadata. Do not edit it by hand. Records bind the
-metadata-relative file, C identifier, target module and SHA-256 of the parsed
+atomic writer as other metadata. Do not edit it by hand.
+Ignore `rebrew-source.toml.lock` in the project's `.gitignore`, like the
+function/data lock files; keep the canonical `rebrew-source.toml` in version control.
+Records bind the metadata-relative file, C identifier, target module and SHA-256 of the parsed
 definition's source text (signature and body, including comments). A duplicate
 or unparseable definition refuses before writing; malformed existing stores
 are never overwritten. `--dry-run` creates neither a store nor a lock.
