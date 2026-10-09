@@ -751,7 +751,7 @@ class ProjectConfig:
 
     @property
     def metadata_dir(self) -> Path:
-        """Directory for rebrew-functions.toml and rebrew-data.toml.
+        """Directory for function, data and source-provenance metadata.
 
         The store sits one level above the source tree — the project root
         when ``reversed_dir`` is ``src/<target>`` or ``src`` itself.  A
@@ -762,6 +762,8 @@ class ProjectConfig:
         All metadata reads/writes must go through this property so the
         location is centralized.
         """
+        if self.root == self.reversed_dir:
+            return self.reversed_dir
         parent = self.reversed_dir.parent
         # No store one level above the source tree: the project may still
         # keep its TOMLs inside the source tree, or further up at ``root``.

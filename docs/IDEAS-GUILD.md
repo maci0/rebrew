@@ -593,13 +593,14 @@ different function previously hid it, which also hid genuinely undocumented
 assembly elsewhere in that file. A containing source file alone does not
 establish that the definition contributes bytes to the selected target.
 
-Proposed feature: managed provenance for a source definition identified by
+Implemented: `rebrew source document-assembly` manages provenance identified by
 file and C symbol, separate from target-VA identity and byte-verification
-rows. Preserve evidence and target participation explicitly; do not fabricate
-a VA or STATUS for an inline helper. W020 should report the affected C symbol
-and permit only that definition's documented provenance to clear its warning.
-Compiler/map reachability can distinguish discarded code from participating
-helpers, without treating file membership or one unrelated blocker as proof.
+rows. It records the target and current definition hash without fabricating
+a VA or STATUS. W020 reports the affected C symbol and accepts only current
+evidence for that file, symbol and target; W031 reports invalid/stale records.
+Compiler/map reachability remains future work: a review record does not prove
+that the helper participates in a target, and file membership or an unrelated
+blocker never establishes that fact.
 
 Evidence: guild-rebrew/.scratch/goal20/asm-context-audit.json and
 names-integration-lint-{server,goldtl,gold}-scoped.json. SERVER findings are

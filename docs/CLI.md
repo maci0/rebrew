@@ -183,6 +183,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew export decompme` | `decompme.py` | Upload a function to decomp.me as a scratch |
 | `rebrew binary functions` | `discover.py` | Function enumeration via `rebrew.discoverers` plugins (packaged: rizin analysis, capstone sweep, `.eh_frame`, `pdata`, NE loader, MZ sweep) |
 | `rebrew source document-unmatched` | `document_unmatched.py` | STUB skeletons + blockers for remaining functions |
+| `rebrew source document-assembly` | `document_assembly.py` | Reviewed assembly evidence for a named source definition without a VA |
 | `rebrew source fix` | `fixup.py` | DecBench-style compilability fixup for decompiler output |
 | `rebrew build layout` | `gen_layout.py` | Linker-script scaffolding from a target binary (writes `layout.fingerprint`) |
 | `rebrew build layout-map` | `layout_map.py` | Reference-side layout measurement dump (sections, gaps, IAT, exports; writes `text-map/`) |
@@ -2869,6 +2870,39 @@ for indentation, block scalars (`|`/`>`), anchors/aliases/tags, multiple
 documents and duplicate keys raise an error naming the line, so a config this
 importer cannot read fails loudly instead of half-importing.
 
+### `rebrew source document-assembly`
+
+`rebrew source document-assembly FILE --symbol NAME (--evidence TEXT | --clear) [--dry-run] [--json] [--target NAME]`
+
+Record positive evidence that a named C definition contains original assembly,
+including a file-local inline helper with no standalone target VA. For example:
+
+```bash
+rebrew source document-assembly src/game.c --symbol fill0 --target client \
+  --evidence 'Original fill macro at 0x401123; disassembly and archive exclusions in docs/asm.md'
+rebrew source document-assembly src/game.c --symbol fill0 --target client --clear
+```
+
+The CLI owns `rebrew-source.toml` in `cfg.metadata_dir`, using the same locked,
+atomic writer as other metadata. Do not edit it by hand. Records bind the
+metadata-relative file, C identifier, target module and SHA-256 of the parsed
+definition's source text (signature and body, including comments). A duplicate
+or unparseable definition refuses before writing; malformed existing stores
+are never overwritten. `--dry-run` creates neither a store nor a lock.
+
+W020 accepts evidence only for that exact definition and target while its hash
+is current. W031 reports stale/orphaned records; after a rename, move or body
+edit, clear the old record and review evidence again before recording the new
+definition. Edits outside the definition do not invalidate it. `--clear` works
+even after the old source is removed and preserves other targets' evidence.
+
+Evidence is a review record, not a byte verdict or automatic proof of compiled
+reachability. Cite original disassembly, macro patterns and library exclusions;
+a byte match alone is insufficient. This command invents no VA, changes no
+function/data STATUS and does not exempt whole-function naked assembly (E023).
+Functions that already have a VA may still document provenance with their own
+`rebrew blocker` entry.
+
 ### `rebrew source document-unmatched`
 
 `rebrew source document-unmatched [--dry-run] [--json] [--target]`
@@ -3549,6 +3583,7 @@ Organize C sources, update markers through metadata writers, import related sour
 | `rebrew source fix` | Make raw decompiler output compilable (DecBench-style fixup). |
 | `rebrew source inline-strings` | Inline string-literal globals (s_<hint>_<ADDR>) from the reference binary. |
 | `rebrew source document-unmatched` | Document unmatched functions as STUB skeletons + blockers. |
+| `rebrew source document-assembly` | Record original assembly evidence for a source definition, bound to its target and current body. |
 | `rebrew source graph` | Generate function dependency graph from reversed .c files. |
 | `rebrew source security` | Scan C sources for unsafe API use (unbounded copies, format strings, command execution). |
 | `rebrew source split` | Split multi-function C files into single-function files. |

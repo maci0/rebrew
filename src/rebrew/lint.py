@@ -79,6 +79,11 @@ from rebrew.metadata import (
     is_table_field,
     load_metadata,
 )
+from rebrew.source_provenance import (
+    SOURCE_PROVENANCE_FILENAME,
+    function_definition_hashes,
+    load_source_provenance,
+)
 from rebrew.sources import (
     iter_sources,
     source_exts,
@@ -1112,7 +1117,7 @@ def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     Warn-only: a stray copy is not itself a defect, it is a thing that will be
     read by accident.
     """
-    store_names = {"rebrew-data.toml", "rebrew-functions.toml"}
+    store_names = {"rebrew-data.toml", "rebrew-functions.toml", SOURCE_PROVENANCE_FILENAME}
     dirs: set[Path] = set()
     for attr in ("metadata_dir", "reversed_dir", "shared_dir"):
         value = getattr(cfg, attr, None)
@@ -1687,6 +1692,47 @@ def _check_E023_naked_asm(
     )
 
 
+def _check_W031_source_provenance(cfg: ProjectConfig) -> list[LintResult]:
+    """Surface invalid or stale source evidence rather than silently trusting it."""
+    result = LintResult(Path(SOURCE_PROVENANCE_FILENAME))
+    try:
+        records = load_source_provenance(cfg.metadata_dir)
+    except (OSError, ValueError) as exc:
+        result.warning(1, "W031", f"invalid source provenance store: {exc}")
+        return [result]
+    known = {
+        preset_module_key(str(module))
+        for module in (getattr(cfg, "all_markers", None) or [cfg.marker])
+        if module
+    }
+    hashes: dict[str, dict[str, str]] = {}
+    for record in records:
+        label = f"{record.module}:{record.file}:{record.symbol}"
+        if known and record.module not in known:
+            result.warning(1, "W031", f"source provenance {label} names an unknown target module")
+            continue
+        if cfg.marker and record.module != preset_module_key(cfg.marker):
+            continue
+        try:
+            if record.file not in hashes:
+                path = (cfg.metadata_dir / record.file).resolve()
+                path.relative_to(cfg.metadata_dir.resolve())
+                source, _ = read_source_text(path)
+                hashes[record.file] = function_definition_hashes(source)
+            current = hashes[record.file].get(record.symbol)
+        except (OSError, ValueError, ImportError) as exc:
+            result.warning(1, "W031", f"source provenance {label} cannot be checked: {exc}")
+            continue
+        if current != record.source_hash:
+            result.warning(
+                1,
+                "W031",
+                f"stale source provenance for {label} — definition changed, moved or "
+                "is ambiguous; review evidence again or use rebrew source document-assembly --clear",
+            )
+    return [result] if result.warnings else []
+
+
 def _check_W020_asm_dump(
     result: LintResult,
     code_lines: list[str],
@@ -1694,6 +1740,8 @@ def _check_W020_asm_dump(
     rows: list[tuple[str, int, dict[str, Any]]],
     headers: list[tuple[dict[str, str], dict[str, bool]]],
     marker: str | None,
+    filepath: Path,
+    metadata_dir: Path,
 ) -> None:
     """Warn once per undocumented assembly function, using its own target rows.
 
@@ -1739,6 +1787,20 @@ def _check_W020_asm_dump(
         else:
             pending.extend(reversed(node.children))
     definitions.sort()
+    documented: set[str] = set()
+    if marker:
+        try:
+            relative = filepath.resolve().relative_to(metadata_dir.resolve()).as_posix()
+            records = [
+                record
+                for record in load_source_provenance(metadata_dir)
+                if record.file == relative and record.module == preset_module_key(marker)
+            ]
+            hashes = function_definition_hashes(source) if records else {}
+            documented = {r.symbol for r in records if hashes.get(r.symbol) == r.source_hash}
+        except (OSError, ValueError, ImportError):
+            # The batch artifact check reports unusable records; they never exempt assembly.
+            pass
     seen: set[int] = set()
     for i, code in enumerate(code_lines, start=1):
         if "_emit" not in code and "__asm" not in code:
@@ -1777,6 +1839,8 @@ def _check_W020_asm_dump(
             keys.get("BLOCKER") for keys in own_headers
         ):
             continue
+        if name in documented:
+            continue
         statuses = {canonical_status(str(row.get("status") or "")) for row in own_rows}
         statuses.update(canonical_status(keys.get("STATUS", "")) for keys in own_headers)
         claimed = sorted(statuses - _UNCLAIMED_STATUSES - {""})
@@ -1785,8 +1849,9 @@ def _check_W020_asm_dump(
         result.warning(
             i,
             "W020",
-            f"{kind}{suffix} — rewrite as C where possible or record a BLOCKER "
-            "documenting original assembly provenance",
+            f"{kind} in {name or '<unparsed definition>'}{suffix} — rewrite as C where possible "
+            "or document original assembly provenance with a BLOCKER or "
+            "rebrew source document-assembly",
         )
 
 
@@ -2649,6 +2714,8 @@ def lint_file(
         ),
         all_headers,
         _own_marker,
+        filepath,
+        cfg.metadata_dir if cfg else filepath.parent,
     )
     _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
     _check_W022_zero_init_bss(result, code_lines, _data_section_names)
@@ -2993,6 +3060,7 @@ def main(
     if cfg is not None:
         for artifact_result in (
             *_check_W031_metadata_store(cfg),
+            *_check_W031_source_provenance(cfg),
             *_check_W032_coverage_store(cfg),
             *_check_W036_stray_metadata_store(cfg),
             *_check_W034_identity_paths(cfg),

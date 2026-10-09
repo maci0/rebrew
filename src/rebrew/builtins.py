@@ -105,6 +105,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             help="Rewrite raw (T *) 0xVA casts to the data symbols the reference relocates.",
             panel=Panel.MATCHING,
         ),
+        CliComponent(
+            name="document-assembly",
+            module="rebrew.document_assembly",
+            help="Record original assembly evidence for a source definition without a VA.",
+            panel=Panel.DEVELOPMENT,
+        ),
     ),
     "types": (
         CliComponent(

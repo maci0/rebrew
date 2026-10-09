@@ -1,6 +1,14 @@
 ## [Unreleased]
 
 ### Added
+- `rebrew source document-assembly FILE --symbol NAME --evidence TEXT` records
+  reviewed original-assembly evidence for an inline helper without a standalone
+  VA. The managed `rebrew-source.toml` binds the file, C symbol, target and
+  definition hash. W020 accepts only current evidence for that definition;
+  W031 reports malformed, stale, missing or unknown-target records. `--clear`
+  removes just the selected target's record. No function identity or byte
+  verdict is created. Root-level source trees now resolve metadata inside
+  their project rather than writing to the parent directory.
 - `rebrew binsync pull` (and `rebrew sync pull`) in a BinSync repo imports
   every other user's `binsync/<user>` branch, fetched from `--remote` when it
   exists, from a detached worktree under `.rebrew/sync/peers/`, each against
