@@ -2253,10 +2253,9 @@ def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> li
         // _fflush
         // SIZE: 120
 
-    A header with no LIBRARY marker is read from ``rebrew-functions.toml``
-    when *metadata_dir* is set, including an empty file.  A header that
-    still has a LIBRARY marker is not merged with the store: migration is
-    all-or-nothing, same as :func:`parse_c_file_multi`.
+    When *metadata_dir* is set, include managed LIBRARY identities bound to
+    this header even while legacy markers remain. Managed identity wins for
+    the same module and VA; another module at that VA stays separate.
 
     When *metadata_dir* is provided each marker-derived Annotation is
     overlaid with ``rebrew-functions.toml`` the same way
@@ -2362,8 +2361,14 @@ def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> li
             if meta:
                 apply_metadata_entry(entry, meta)
 
-    if not results and metadata_dir is not None:
-        return _library_rows_from_metadata(filepath, metadata_dir)
+    if metadata_dir is not None:
+        by_identity = {
+            (preset_module_key(entry.module or ""), entry.va): entry for entry in results
+        }
+        for entry in _library_rows_from_metadata(filepath, metadata_dir):
+            if entry.marker_type == "LIBRARY":
+                by_identity[(preset_module_key(entry.module or ""), entry.va)] = entry
+        return list(by_identity.values())
     return results
 
 

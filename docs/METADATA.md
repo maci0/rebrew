@@ -167,8 +167,10 @@ for inspection. Sync health reports stale measurement evidence independently.
    marker enters a target's scan only when its module is that target's
    marker or one of its `external_libs`; those rows count as library
    code (`library_identified`), not as matched game code.  Same-VA
-   cross-target entries coexist
-   as separate rows and never collide.
+   cross-target entries coexist as separate rows and never collide. Library
+   header parsing combines remaining legacy markers with managed LIBRARY rows
+   bound to that header; the managed identity wins for the same module/VA.
+   An explicit compiled-source binding wins over the header in status/todo.
 6. **Library attributions are not progress**: `LIBRARY`-marker rows and
    rows whose module is listed in `targets.<name>.external_libs` tally
    into `library_identified`, outside the EXACT/RELOC progress table and

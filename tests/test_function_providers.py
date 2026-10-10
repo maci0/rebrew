@@ -19,6 +19,35 @@ def _project(tmp_path: Path) -> ProjectConfig:
 
 
 class TestCompiledSources:
+    def test_legacy_header_does_not_hide_explicit_compiled_source(self, tmp_path: Path) -> None:
+        from rebrew.naming import load_data
+
+        cfg = _project(tmp_path)
+        source = tmp_path / "vendor.c"
+        source.write_text("int checksum(void) { return 7; }\n")
+        (cfg.reversed_dir / "library_vendor.h").write_text(
+            "// LIBRARY: GAME 0x10001000\n// _checksum\n// SIZE: 7\n"
+        )
+        record_migrated_markers(
+            cfg.metadata_dir,
+            [
+                {
+                    "module": "GAME",
+                    "va": 0x10001000,
+                    "identity": {
+                        "file": "vendor.c",
+                        "symbol": "_checksum",
+                        "name": "checksum",
+                        "marker_type": "LIBRARY",
+                    },
+                    "fields": {"size": 7},
+                }
+            ],
+        )
+        _, existing, covered = load_data(cfg)
+        assert existing[0x10001000]["filename"] == "../vendor.c"
+        assert covered[0x10001000] == "../vendor.c"
+
     @pytest.mark.parametrize("dry_run", [False, True])
     def test_binding_command_preserves_library_origin_and_preview_is_read_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dry_run: bool

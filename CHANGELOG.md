@@ -189,6 +189,11 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- Library headers now include managed LIBRARY rows while legacy markers remain,
+  with canonical identity winning per module/VA. A partial migration no longer
+  hides library attribution from catalog/status/todo. Explicit compiled-library
+  bindings also take precedence over declaration headers in status/todo, including
+  sources outside the reversed tree.
 - `init --refresh-agents --json` emits write/removal counts and the paths of
   edited stale skills it preserved, including a no-op refresh result.
 - Data verification does not label identical sections as possibly copied when
