@@ -609,3 +609,36 @@ existing raw server map. GOLDTL also has fill helpers without standalone
 identities. Existing block-fill evidence lives in docs/msvc6-allocator.md
 (Finding 19); source comments and historical matches are evidence to review,
 not fresh verification or permission to suppress a whole file.
+
+## Explicit binding of unbound function references (2026-10-10)
+
+Pain: TL 0x406510's restored animation builder has an unrelated health-command
+name, while its callers use unbound `fcn_00406510`. Renaming either spelling to
+the other's existing name rightly refuses the duplicate; neither rename order
+can connect them. An ordinary rename must continue protecting independent
+definitions, including the server's real health handler.
+
+Implemented: `source rename PLACEHOLDER MODULE.0xVA` explicitly binds source
+references to a unique existing external function. It does not change the
+destination definition, managed identity or verification. Definitions, bound
+identities, variables, statics, types, macros and ambiguous destinations refuse
+before writes. Existing syntax-aware plans, dry runs and rollback apply.
+Evidence: guild-rebrew/.scratch/goal20/animation-{rename,reference}-preview.json
+and upstream `TestFunctionReferenceBinding`.
+
+## Alignment padding biases cross-target signature scores (2026-10-10)
+
+Pain: GOLD 0x405970 is the same 75-byte animation builder as TL 0x406510,
+except for the allocator call and callback pointer relocations. Discovery gives
+GOLD an 80-byte span containing five trailing NOPs, while the verified TL donor
+owns 75 bytes. The default shared-import preview rejects it: full-span score
+94.393546, actual-body score 100. Lowering the threshold hides the extent issue.
+
+Proposed: use a proven complete function extent consistently before signature
+scoring and import verification, keeping alignment bytes as layout facts. Preserve
+reachable NOPs, multiple-return blocks, tail calls and unresolved extents; do not
+trim at the first return or silently weaken score/gap gates.
+Evidence: guild-rebrew/.scratch/goal20/animation-builder-original-evidence.json,
+`animation_builder_evidence.py`, and `animation-gold-import-preview.json`.
+Callback import preview at GOLD 0x405870 / TL 0x406410 independently passes
+the default structural gate (98.087576); no GOLD row or verdict was written.

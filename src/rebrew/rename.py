@@ -30,6 +30,7 @@ from rebrew.rename_ops import (
     apply_rename_plan,
     is_valid_new_name,
     plan_field_rename,
+    plan_function_reference_binding,
     plan_symbol_rename,
     plan_type_rename,
     redecorated_symbol,
@@ -122,7 +123,9 @@ def main(
             "--data; a type with --type; STRUCT.MEMBER with --field"
         ),
     ),
-    new_name: str = typer.Argument(..., help="New name"),
+    new_name: str = typer.Argument(
+        ..., help="New name, or MODULE.0xVA to bind function references"
+    ),
     new_file: str | None = typer.Option(None, "--file", help="New filename"),
     data: bool = typer.Option(
         False, "--data", help="Rename a global (data row, definition, declarations, uses)"
@@ -158,12 +161,21 @@ def main(
             json_mode=json_output,
             code=EXIT_ERROR,
         )
-    if not is_valid_new_name(new_name):
+    binding = _parse_identity(new_name) if not (data or type_rename or field_rename) else None
+    if binding and (new_file is not None or all_modules):
+        error_exit("reference binding does not rename files or identities", json_mode=json_output)
+    if binding is None and not is_valid_new_name(new_name):
         error_exit(_INVALID_NAME.format(name=new_name), json_mode=json_output)
 
     extra: dict[str, Any] = {}
     try:
-        if type_rename:
+        if binding:
+            module, va = binding
+            plan = plan_function_reference_binding(
+                cfg, target_ident, Selection(KIND_FUNCTION, module, va), comments=comments
+            )
+            extra = {"module": module, "va": va, "reference_binding": True}
+        elif type_rename:
             plan = plan_type_rename(cfg, target_ident, new_name, comments=comments)
         elif field_rename:
             record, sep, member = target_ident.rpartition(".")

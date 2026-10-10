@@ -50,6 +50,7 @@ from rebrew.c_rename import (
     file_scope_type,
     member_sites,
     name_regex,
+    non_external_function_declarations,
     occurrences,
     rewrite,
 )
@@ -450,6 +451,76 @@ class Selection:
     store: str
     module: str
     va: int
+
+
+def plan_function_reference_binding(
+    cfg: ProjectConfig, old_name: str, selected: Selection, *, comments: bool = False
+) -> RenamePlan:
+    """Bind an unbound source name to a unique existing external function.
+
+    The explicit destination identity asserts that the placeholder's references
+    mean this function. Its definition, identity and verification are unchanged.
+    """
+    from rebrew.annotation import parse_library_header
+    from rebrew.metadata import get_entry
+
+    if selected.store != KIND_FUNCTION or not is_valid_new_name(old_name):
+        raise ValueError("function reference binding requires an unbound C function name")
+    project = _Project(cfg)
+    row = get_entry(project.metadata_dir, selected.va, selected.module)
+    new_name = rename_source_name(str(row.get("name") or ""), str(row.get("symbol") or ""))
+    destination = project.path_for_stored(str(row.get("file") or ""))
+    if destination is None or not is_valid_new_name(new_name):
+        raise RenameError("binding destination has no project function definition", files=[])
+    defs = {p: definitions(project.parsed(p), new_name) for p in project.containing(new_name)}
+    if [(p, d.kind, d.static) for p, found in defs.items() for d in found] != [
+        (destination, "function", False)
+    ]:
+        raise RenameError(
+            "binding destination must have one external function definition", files=list(defs)
+        )
+    if old_name == new_name or _row_name_collisions(project, old_name):
+        raise RenameError("binding source must be an unbound placeholder", files=[])
+    hits = project.containing(old_name)
+    if any(
+        rename_source_name(e.name, e.symbol) == old_name
+        for path in hits
+        for e in [
+            *project.annotations(path),
+            *parse_library_header(path, metadata_dir=project.metadata_dir),
+        ]
+    ):
+        raise RenameError("binding source already has a function identity", files=hits)
+    for name, paths in ((old_name, hits), (new_name, list(defs))):
+        invalid = [
+            p
+            for p in paths
+            if non_external_function_declarations(project.parsed(p), name)
+            or any(o.role == ROLE_MACRO_NAME for o in occurrences(project.parsed(p), name))
+            or (name == old_name and definitions(project.parsed(p), name))
+        ]
+        if invalid:
+            raise RenameError(
+                f"cannot bind {name}: it declares a definition, variable, type, static or macro",
+                files=invalid,
+            )
+    plan = RenamePlan(kind=KIND_FUNCTION, old_name=old_name, new_name=new_name)
+    roles = ORDINARY_ROLES | ({ROLE_COMMENT} if comments else set())
+    for path in hits:
+        spans = [
+            (o.start, o.end, o.line, o.column, o.role)
+            for o in occurrences(project.parsed(path), old_name)
+            if o.role in roles
+        ]
+        change = _file_change(project, path, spans, new_name)
+        if change is not None:
+            plan.files.append(change)
+    if not plan.files:
+        raise RenameError(f"no function references to {old_name} were found", files=[])
+    plan.notes.append(
+        f"References bound to {selected.module}.0x{selected.va:08x}; identity unchanged"
+    )
+    return plan
 
 
 def plan_symbol_rename(

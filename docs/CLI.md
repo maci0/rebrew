@@ -497,6 +497,12 @@ refused.
 
 Choosing the symbol:
 
+- With `<new>` set to `MODULE.0xVA`, bind an unbound placeholder's declarations
+  and references to that existing function's C name. This explicitly asserts
+  that those references identify the selected function. Its definition, identity
+  and verification stay unchanged. The destination must have one external source
+  definition; source definitions, existing identities, variables, types, statics
+  and macros refuse before any write. `--file` and `--all-modules` do not apply.
 - `<old>` for a function is a name, symbol, file, VA (active target) or
   `MODULE.0xVA` (any module). For `--data` it is a name, VA or `MODULE.0xVA`.
   A name with rows in several modules prefers the active target's row.

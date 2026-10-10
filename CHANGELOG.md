@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Added
+- `rebrew source rename PLACEHOLDER MODULE.0xVA` binds an unbound function
+  reference name to an existing unique external definition without changing its
+  identity or verdict. Definitions, variables, macros, existing identities and
+  ambiguous destinations refuse before any write; ordinary rename collision
+  checks are unchanged. C declarator classification now distinguishes
+  function-pointer variables from pointer-returning functions.
 - `rebrew source document-assembly FILE --symbol NAME --evidence TEXT` records
   reviewed original-assembly evidence for an inline helper without a standalone
   VA. The managed `rebrew-source.toml` binds the file, C symbol, target and

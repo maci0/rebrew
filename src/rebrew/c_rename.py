@@ -233,16 +233,20 @@ def declarator_name(node: Any, src: ParsedSource) -> str | None:
 
 
 def _declares_function(node: Any) -> bool:
-    """True when the outermost meaningful declarator is a function declarator."""
+    """True when the wrapper nearest the name declares a function, not a pointer."""
+    function = False
     while node is not None:
         if node.type == "function_declarator":
-            return True
+            function = True
+        elif node.type in ("pointer_declarator", "array_declarator"):
+            function = False
         if node.type == "parenthesized_declarator":
-            return False
+            node = next((c for c in node.named_children if c.type != "comment"), None)
+            continue
         if node.type not in _DECLARATOR_WRAPPERS:
-            return False
+            break
         node = node.child_by_field_name("declarator")
-    return False
+    return function
 
 
 def _storage_classes(node: Any, src: ParsedSource) -> set[str]:
@@ -341,6 +345,22 @@ def declares_ordinary(src: ParsedSource, name: str) -> list[int]:
             if owner is not None and owner.type != "type_definition":
                 lines.append(occ.line)
     return lines
+
+
+def non_external_function_declarations(src: ParsedSource, name: str) -> list[int]:
+    """Lines declaring *name* as anything except an external function, at any scope."""
+    return [
+        src.line_col(declarator.start_byte)[0]
+        for node in _walk(src.tree.root_node)
+        if node.type in ("declaration", "parameter_declaration", "type_definition")
+        for declarator in node.children_by_field_name("declarator")
+        if declarator_name(declarator, src) == name
+        and (
+            node.type == "type_definition"
+            or not _declares_function(declarator)
+            or "static" in _storage_classes(node, src)
+        )
+    ]
 
 
 # ---------------------------------------------------------------------------

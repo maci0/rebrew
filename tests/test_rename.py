@@ -1260,6 +1260,159 @@ class TestProtectedSpans:
         assert spans == ["foo", "'f'"]
 
 
+class TestFunctionReferenceBinding:
+    def _invoke(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> Any:
+        from typer.testing import CliRunner
+
+        from rebrew.metadata import record_function_identity
+        from rebrew.rename import app
+
+        record_function_identity(
+            tmp_path,
+            module="CLIENT",
+            va=0x1000,
+            file="builder.c",
+            marker_type="FUNCTION",
+            name="BuildEvent",
+            symbol="_BuildEvent",
+        )
+        cfg = _cfg(tmp_path)
+        cfg.root = tmp_path
+        cfg.marker = "CLIENT"
+        cfg.source_ext = ".c"
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        return CliRunner().invoke(app, ["--json", *args, "placeholder", "CLIENT.0x1000"])
+
+    def test_preview_and_apply_preserve_destination_and_metadata(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        builder = _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
+        caller = _src(
+            tmp_path,
+            "caller.c",
+            "int placeholder(void); int caller(void) { return placeholder(); }\n"
+            'char *label = "placeholder"; /* placeholder */\n',
+        )
+        original = caller.read_bytes()
+        preview = self._invoke(tmp_path, monkeypatch, "--dry-run")
+        assert preview.exit_code == 0, preview.output
+        plan = json.loads(preview.stdout)
+        assert plan["new_name"] == "BuildEvent"
+        assert plan["rows"] == []
+        assert plan["files_updated"] == 1
+        assert caller.read_bytes() == original
+        metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
+        result = self._invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert caller.read_text() == (
+            "int BuildEvent(void); int caller(void) { return BuildEvent(); }\n"
+            'char *label = "placeholder"; /* placeholder */\n'
+        )
+        assert builder.read_text() == "int BuildEvent(void) { return 1; }\n"
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata
+
+    @pytest.mark.parametrize(
+        "conflict",
+        [
+            "int placeholder(void) { return 0; }",
+            "extern int placeholder;",
+            "int caller(int placeholder) { return placeholder; }",
+            "int placeholder(void); int caller(int placeholder) { return placeholder; }",
+            "int (*placeholder)(void);",
+            "typedef int placeholder(void);",
+            "static int placeholder(void);",
+            "#define placeholder() 0",
+            "// LIBRARY: CLIENT 0x2000\n// _placeholder\nint placeholder(void);",
+            "extern int BuildEvent; int placeholder(void);",
+            "#define BuildEvent() 1\nint placeholder(void);",
+        ],
+    )
+    def test_rejects_non_placeholder_names_without_writes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflict: str
+    ) -> None:
+        builder = _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
+        caller = _src(tmp_path, "caller.c", conflict + "\n")
+        result = self._invoke(tmp_path, monkeypatch)
+        assert result.exit_code != 0, result.output
+        assert builder.read_text() == "int BuildEvent(void) { return 1; }\n"
+        assert caller.read_text() == conflict + "\n"
+
+    @pytest.mark.parametrize(
+        "destination",
+        [
+            "static int BuildEvent(void) { return 1; }",
+            "int Other(void) { return 1; }",
+            "int BuildEvent;",
+            "int BuildEvent(void);",
+        ],
+    )
+    def test_requires_external_destination_definition(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, destination: str
+    ) -> None:
+        builder = _src(tmp_path, "builder.c", destination + "\n")
+        caller = _src(tmp_path, "caller.c", "int placeholder(void);\n")
+        result = self._invoke(tmp_path, monkeypatch)
+        assert result.exit_code != 0, result.output
+        assert builder.read_text() == destination + "\n"
+        assert caller.read_text() == "int placeholder(void);\n"
+
+    def test_rejects_independent_destination_twin(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
+        _src(tmp_path, "twin.c", "int BuildEvent(void) { return 2; }\n")
+        caller = _src(tmp_path, "caller.c", "int placeholder(void);\n")
+        result = self._invoke(tmp_path, monkeypatch)
+        assert result.exit_code != 0, result.output
+        assert caller.read_text() == "int placeholder(void);\n"
+
+    def test_rejects_managed_library_identity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import record_function_identity
+
+        _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
+        caller = _src(tmp_path, "caller.c", "int placeholder(void);\n")
+        record_function_identity(
+            tmp_path,
+            module="CLIENT",
+            va=0x2000,
+            file="caller.c",
+            marker_type="LIBRARY",
+            name="placeholder",
+            symbol="_placeholder",
+        )
+        result = self._invoke(tmp_path, monkeypatch)
+        assert result.exit_code != 0, result.output
+        assert caller.read_text() == "int placeholder(void);\n"
+
+    @pytest.mark.parametrize(
+        "declaration,kind",
+        [
+            ("int (*name)(void);", "variable"),
+            ("int *name(void) { return 0; }", "function"),
+            ("int (*name(void))(void) { return 0; }", "function"),
+            ("int (*name[2])(void);", "variable"),
+        ],
+    )
+    def test_declarator_classification(self, declaration: str, kind: str) -> None:
+        from rebrew.c_rename import ParsedSource, definitions
+
+        assert [d.kind for d in definitions(ParsedSource.parse(declaration), "name")] == [kind]
+
+    @pytest.mark.parametrize("options", [("--file", "other.c"), ("--all-modules",), ("--data",)])
+    def test_rejects_identity_and_non_function_modes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: tuple[str, ...]
+    ) -> None:
+        _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
+        caller = _src(tmp_path, "caller.c", "int placeholder(void);\n")
+        result = self._invoke(tmp_path, monkeypatch, *options)
+        assert result.exit_code != 0, result.output
+        assert caller.read_text() == "int placeholder(void);\n"
+
+
 class TestRenameDoesNotTouchLiterals:
     def test_rename_keeps_string_literal(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
