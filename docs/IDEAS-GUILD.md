@@ -743,3 +743,14 @@ The cleanup also must use migration's existing file-borne comment policy:
 SOURCE stays only when naked, while STRUCT/CALLERS stay in the source. A
 follow-up regression catches ordinary SOURCE metadata incorrectly surviving
 the retired claim; share the policy instead of cloning its rules.
+
+## Preserve the original include search for a source in its workdir (2026-10-11)
+
+Pain: a guild-rebrew helper call-order probe wrote its C candidate directly
+in compile_to_obj's workdir. MSVC failed to find a valid parent-relative header:
+the source runs at /work, but the original source directory was omitted when
+it equaled the host workdir. Always retain an authorized original-path include
+search in this case; the /work alias has different ancestors. Evidence:
+guild-rebrew/.scratch/goal20/stat-helper-order-probe-variants.log and
+compiler-source-in-workdir-before-corrected.log. The MSVC regression fails first;
+the GCC case is a passing control. No game header or include-path workaround.

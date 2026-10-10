@@ -1827,7 +1827,12 @@ def compile_to_obj(
             # 16-bit toolchain under a 32-bit project profile).
             if spec.effective_arg_style != "dos":
                 extra_inc: list[str] = []
-                if src_parent.resolve() != workdir.resolve():
+                prefix = "/I" if spec.flags_style == "msvc" else "-I"
+                if src_parent.resolve() == workdir.resolve():
+                    # /work loses the original ancestors of parent-relative includes.
+                    mounts.append((str(src_parent), str(src_parent)))
+                    all_flags.append(f"{prefix}{src_parent}")
+                else:
                     extra_inc.append(str(src_parent))
                 if inc_path and not _is_vendored_toolchain_tree(Path(inc_path)):
                     extra_inc.append(str(inc_path))
@@ -1835,7 +1840,6 @@ def compile_to_obj(
                 # pass the original source's parent (for relative includes)
                 # mount those dirs too.
                 extra_inc.extend(d for d in (extra_include_dirs or []) if d)
-                prefix = "/I" if spec.flags_style == "msvc" else "-I"
                 for d in extra_inc:
                     rewritten, extra_mounts = _docker_include_rewrite(
                         [f"{prefix}{d}"], workdir, allowed_roots=allowed

@@ -556,6 +556,54 @@ class TestCompileToObjPosix:
         assert "-o" not in captured["args"]
 
 
+class TestSourceInWorkdir:
+    @pytest.mark.parametrize("profile", ["msvc-6.0", "gcc-14.2.0"])
+    def test_parent_include_resolves_when_source_is_in_workdir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str
+    ) -> None:
+        project = tmp_path / "project"
+        workdir = project / "source"
+        workdir.mkdir(parents=True)
+        includes = project / "sdk" / "includes"
+        includes.mkdir(parents=True)
+        header = project / "header.h"
+        header.write_text("#define VALUE 7\n")
+        source = workdir / "f.c"
+        source.write_text('#include "../header.h"\nint f(void){return VALUE;}\n')
+
+        def fake_run(spec, args, *, workdir, timeout, mounts=None):
+            # The copied source sees /work; only an original-path include can
+            # find its parent header through an authorized same-path mount.
+            dirs = [Path(a[2:]) for a in args if a.startswith(("/I", "-I"))]
+            found = any(
+                d.is_absolute()
+                and (d / "../header.h").resolve() == header
+                and any(header.is_relative_to(Path(target)) for _host, target in mounts or [])
+                for d in dirs
+            )
+            if not found:
+                return SimpleNamespace(returncode=1, stdout="", stderr="missing parent header")
+            (workdir / "f.obj").write_bytes(b"object")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", fake_run)
+        cfg: Any = SimpleNamespace(
+            root=project,
+            compiler_includes=includes,
+            base_cflags="/nologo /c /MT" if profile.startswith("msvc") else "-c",
+            compile_timeout=3,
+            compiler_command="compiler",
+            compiler_runner="docker",
+            compiler_libs=includes,
+            compiler_profile=profile,
+            posix_style=not profile.startswith("msvc"),
+            msvc_env=lambda: {},
+        )
+        obj, error = compile_to_obj(cast(ProjectConfig, cfg), source, [], workdir, use_cache=False)
+        assert obj is not None, error
+        assert source.read_text() == '#include "../header.h"\nint f(void){return VALUE;}\n'
+
+
 class TestFilterWineStderr:
     def test_filter_strips_wine_err(self) -> None:
         text = "wine: created the configuration directory\n1234:err:module:foo boom\n"

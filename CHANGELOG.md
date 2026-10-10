@@ -195,6 +195,9 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- Compiling a source already in the output directory preserves its original
+  include-search path, so parent-relative headers resolve through the same-path
+  Docker mount rather than the flat `/work` alias.
 - Shared imports retire an old source file only after its last target/function/
   data owner moves. Other definitions and storage survive, and removal of the
   superseded inline claim preserves line numbers, encoding and commented markers.
