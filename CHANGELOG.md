@@ -195,6 +195,11 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- The shared relocation catalog includes verified data `link_symbol` spellings
+  alongside analysis labels, scoped to the active target. Test, verify and
+  symbol resolution can now validate native field views and compiler literals
+  whose COFF symbol differs from the inventory label; unknown targets retain
+  the existing relocation policy.
 - The shared provenance stamper rejects unknown tool tags before changing an
   entry. Single-field and grouped function metadata writers can no longer
   create a store that immediately fails lint W031; existing store bytes and

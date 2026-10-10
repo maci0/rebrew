@@ -776,3 +776,16 @@ shared stamper, before changing an open entry. Five failing regressions cover
 fresh and existing stores through single and grouped writes, plus the open
 entry itself; no new tag or lint exception is needed. Evidence:
 guild-rebrew/.scratch/goal20/provenance-field-writer-before.log.
+
+## Validate recorded native data spellings (2026-10-11)
+
+Pain: the shared name-to-VA catalog ignored data link_symbol even though the
+locked writer and ownership tools preserve it. A scalar year field shares
+an address with a packed calendar view in the client; recording its verified
+COFF spelling could not validate the shared formatter without replacing the
+analysis label or inventing another allocation. Include the exact native
+spelling in the common marker-scoped catalog alongside the label. Four
+regressions fail first and cover test/verify catalog construction, another
+target's conflicting spelling, compiler-literal spellings, symbol resolution,
+and rejecting a wrong known target. Existing unknown-address policy remains.
+Evidence: guild-rebrew/.scratch/goal20/native-data-catalog-final-before.log.

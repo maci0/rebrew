@@ -62,6 +62,44 @@ def test_library_rows_stay_out_of_the_catalog(tmp_path: Path) -> None:
     assert "fclose" not in m
 
 
+@pytest.mark.parametrize("provided_annotations", [False, True])
+@pytest.mark.parametrize("native_symbol", ["_current_year", "??_C@format@"])
+def test_verified_native_data_symbol_enters_marker_scoped_catalog(
+    tmp_path: Path, provided_annotations: bool, native_symbol: str
+) -> None:
+    from rebrew.coff_reloc import build_symbol_resolver, smart_reloc_compare
+    from rebrew.data_metadata import set_data_fields_batch
+
+    (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    set_data_fields_batch(
+        tmp_path,
+        [
+            {
+                "module": "GAME",
+                "va": 0x401000,
+                "fields": {"name": "analysis_label", "link_symbol": native_symbol},
+            },
+            {
+                "module": "OTHER",
+                "va": 0x501000,
+                "fields": {"name": "other_label", "link_symbol": native_symbol},
+            },
+            {"module": "GAME", "va": 0x401004, "fields": {"name": "wrong_target"}},
+        ],
+    )
+    names = build_name_to_va(
+        load_config(root=tmp_path), annotations=[] if provided_annotations else None
+    )
+    assert names["analysis_label"] == names[native_symbol] == 0x401000
+    assert "other_label" not in names
+    assert build_symbol_resolver({}, names)(native_symbol) == 0x401000
+    reference = (0x401000).to_bytes(4, "little")
+    assert smart_reloc_compare(bytes(4), reference, {0: native_symbol}, name_to_va=names)[0]
+    wrong = (0x401004).to_bytes(4, "little")
+    assert not smart_reloc_compare(bytes(4), wrong, {0: native_symbol}, name_to_va=names)[0]
+
+
 def test_name_map_does_not_walk_variable_roles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

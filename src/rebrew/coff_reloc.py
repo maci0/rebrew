@@ -280,9 +280,10 @@ def build_name_to_va(
                 and preset_module_key(_module) != preset_module_key(active_marker)
             ):
                 continue
-            name = entry.get("name", "")
-            if isinstance(name, str) and name and isinstance(va, int):
-                name_to_va[name] = va
+            for field in ("name", "link_symbol"):
+                name = entry.get(field, "")
+                if isinstance(name, str) and name and isinstance(va, int):
+                    name_to_va[name] = va
 
         # Function catalog: exported symbols + annotated function names.  The
         # REL32 callee validation needs them — a data-only map misses every
