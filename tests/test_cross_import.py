@@ -1677,11 +1677,10 @@ class TestSharedSupersede:
         entry = load_metadata(tmp_path).get(("DST", 0x401040), {})
         assert entry.get("status") == "EXACT"
 
-    def test_unverified_rollback_removes_new_cflags_override(
+    def test_unverified_import_does_not_create_new_cflags_override(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        """With no prior override, the withdrawn claim's cflags write is
-        retracted entirely — no stale field steers the stub's compiles."""
+        """A rejected claim writes no flags or empty metadata table."""
         from rebrew.compile import CompareResult
         from rebrew.metadata import get_entry
 
@@ -1711,10 +1710,8 @@ class TestSharedSupersede:
         assert res["message"].endswith(
             "(destination already annotates this VA; claim not recorded)"
         )
-        # The attempt created the entry, so the rollback removes it: an empty
-        # table would be left behind otherwise.
         assert get_entry(tmp_path, 0x401040, "DST") == {}
-        assert "0x00401040" not in (tmp_path / "rebrew-functions.toml").read_text()
+        assert not (tmp_path / "rebrew-functions.toml").exists()
 
     def test_failed_reverify_of_stacked_claim_applies_status(
         self, tmp_path: Path, monkeypatch
@@ -2627,6 +2624,257 @@ class TestMergedInventoryEntry:
         self._verify(monkeypatch)
         res = ci.import_shared_function(cfg_dst, cfg_src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
         assert res["action"] == "imported-shared"
+
+    @pytest.mark.parametrize("shared", [True, False])
+    def test_body_retry_records_its_own_comparison_inputs(
+        self, tmp_path: Path, monkeypatch, shared: bool
+    ) -> None:
+        import hashlib
+
+        import rebrew.verify as verify
+        from rebrew.binary_loader import extract_raw_bytes
+        from rebrew.metadata import get_entry
+
+        src, dst = self._cfgs(tmp_path, _merged_pe())
+        apply_updates = verify.apply_status_updates
+        self._verify(monkeypatch)
+        original_verify = verify.verify_entry
+
+        def measured(entry, cfg, **kw):
+            result = original_verify(entry, cfg, **kw)
+            reference = extract_raw_bytes(cfg.target_binary, entry.va, entry.size)
+            entry.comparison_inputs = {
+                "reference_size": str(entry.size),
+                "reference_hash": hashlib.sha256(reference).hexdigest(),
+                "input_hash": hashlib.sha256(reference).hexdigest(),
+            }
+            return result
+
+        monkeypatch.setattr(verify, "verify_entry", measured)
+        monkeypatch.setattr(verify, "apply_status_updates", apply_updates)
+        if shared:
+            result = ci.import_shared_function(dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
+        else:
+            dst.reversed_dir = tmp_path / "destination"
+            dst.reversed_dir.mkdir()
+            result = ci.import_function(dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
+        assert result["status"] == "RELOC"
+        row = get_entry(tmp_path, _MERGED_VA, "DST")
+        assert row["size"] == _MERGED_BODY
+        assert row["verification"]["reference_size"] == str(_MERGED_BODY)
+        reference = extract_raw_bytes(dst.target_binary, _MERGED_VA, _MERGED_BODY)
+        assert row["verification"]["reference_hash"] == hashlib.sha256(reference).hexdigest()
+
+    @pytest.mark.parametrize("shared", [True, False])
+    def test_verified_import_replaces_wrong_identity_name(
+        self, tmp_path: Path, monkeypatch, shared: bool
+    ) -> None:
+        from rebrew.metadata import get_entry, record_function_identity
+
+        src, dst = self._cfgs(tmp_path, _merged_pe())
+        identity_file = "src/f.c"
+        if not shared:
+            dst.reversed_dir = tmp_path / "destination"
+            dst.reversed_dir.mkdir()
+            (dst.reversed_dir / "f.c").write_text(
+                "// FUNCTION: DST 0x401000\nint other(void){return 0;}\n"
+            )
+            identity_file = "destination/f.c"
+        record_function_identity(
+            tmp_path,
+            module="DST",
+            va=_MERGED_VA,
+            file=identity_file,
+            marker_type="FUNCTION",
+            name="other",
+            symbol="_other",
+            size=_MERGED_ENTRY,
+        )
+        self._verify(monkeypatch)
+        importer = ci.import_shared_function if shared else ci.import_function
+        result = importer(dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY, dst_file="f.c")
+        assert result["status"] == "RELOC"
+        row = get_entry(tmp_path, _MERGED_VA, "DST")
+        assert row["name"] == "f"
+        assert row["symbol"] == "_f"
+
+    def test_shared_import_uses_selected_function_flags(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.verify as verify
+        from rebrew.metadata import record_function_identity
+
+        src, dst = self._cfgs(tmp_path, _merged_pe())
+        path = src.reversed_dir / "f.c"
+        path.write_text("int first(void){return 0;}\nint selected(void){return 1;}\n")
+        for module, va, name, flags in [
+            ("SRC", A_F1, "first", "/O1 /DFIRST"),
+            ("SRC", A_F2, "selected", "/O2 /DSELECTED"),
+            ("OTHER", A_F2, "selected", "/O1 /DFOREIGN"),
+        ]:
+            record_function_identity(
+                tmp_path,
+                module=module,
+                va=va,
+                file="src/f.c",
+                marker_type="FUNCTION",
+                name=name,
+                symbol="_" + name,
+                size=62,
+                cflags=flags,
+            )
+        # Keep the real flag resolver; only compilation is substituted.
+        from rebrew.compile import CompareResult
+
+        observed = []
+
+        def measured(entry, cfg, **kw):
+            observed.append(entry.cflags)
+            return CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x" * entry.size,
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            )
+
+        monkeypatch.setattr(verify, "verify_entry", measured)
+        result = ci.import_shared_function(dst, src, _MERGED_VA, A_F2, "f.c", _MERGED_BODY)
+        assert result["status"] == "EXACT"
+        assert observed == ["/O2 /DSELECTED"]
+
+    def test_failed_body_retry_keeps_original_comparison_inputs(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import rebrew.verify as verify
+        from rebrew.annotation import Annotation
+        from rebrew.compile import CompareResult
+
+        _src, dst = self._cfgs(tmp_path, _merged_pe())
+        self._verify(monkeypatch)
+        first_verify = verify.verify_entry
+
+        def measured(entry, cfg, **kw):
+            entry.comparison_inputs = {"reference_size": str(entry.size)}
+            if entry.size == _MERGED_BODY:
+                return CompareResult(
+                    matched=False,
+                    status="NEAR_MATCHING",
+                    match_percent=90.0,
+                    delta=1,
+                    obj_bytes=b"x" * entry.size,
+                    reloc_offsets=[],
+                    message="NEAR",
+                )
+            return first_verify(entry, cfg, **kw)
+
+        monkeypatch.setattr(verify, "verify_entry", measured)
+        entry = Annotation(
+            va=_MERGED_VA,
+            name="f",
+            symbol="_f",
+            size=_MERGED_ENTRY,
+            filepath="f.c",
+            marker_type="FUNCTION",
+            module="DST",
+        )
+        result, body = ci._verify_import(entry, dst, cache=None, name_to_va=None)
+        assert not result.matched and body is None
+        assert entry.size == _MERGED_ENTRY
+        assert entry.comparison_inputs == {"reference_size": str(_MERGED_ENTRY)}
+
+    def test_failed_import_keeps_existing_identity_name(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.metadata import get_entry, record_function_identity
+
+        src, dst = self._cfgs(tmp_path, _merged_pe())
+        record_function_identity(
+            tmp_path,
+            module="DST",
+            va=_MERGED_VA,
+            file="src/f.c",
+            marker_type="FUNCTION",
+            name="other",
+            symbol="_other",
+            size=_MERGED_ENTRY,
+        )
+        self._verify(monkeypatch, prefix_diffs=1)
+        result = ci.import_shared_function(
+            dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY, dst_file="f.c"
+        )
+        assert result["status"] != "RELOC"
+        row = get_entry(tmp_path, _MERGED_VA, "DST")
+        assert row["name"] == "other" and row["symbol"] == "_other"
+
+    def test_inherited_flags_remove_stale_destination_override(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from rebrew.metadata import get_entry, record_function_identity
+
+        src, dst = self._cfgs(tmp_path, _merged_pe())
+        dst.cflags = "/O2 /Gd"
+        record_function_identity(
+            tmp_path,
+            module="DST",
+            va=_MERGED_VA,
+            file="src/f.c",
+            marker_type="FUNCTION",
+            name="f",
+            symbol="_f",
+            size=_MERGED_ENTRY,
+            cflags="/O1 /DOLD",
+        )
+        self._verify(monkeypatch)
+        monkeypatch.setattr(ci, "_source_flags", lambda *a, **k: "/O2 /Gd")
+        result = ci.import_shared_function(
+            dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY, dst_file="f.c"
+        )
+        assert result["status"] == "RELOC"
+        assert "cflags" not in get_entry(tmp_path, _MERGED_VA, "DST")
+
+    def test_failed_managed_retarget_preserves_entire_prior_record(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import rebrew.verify as verify
+        from rebrew.metadata import (
+            get_entry,
+            record_function_identity,
+            update_field,
+            update_statuses_batch,
+        )
+
+        src, dst = self._cfgs(tmp_path, _merged_pe())
+        record_function_identity(
+            tmp_path,
+            module="DST",
+            va=_MERGED_VA,
+            file="src/f.c",
+            marker_type="FUNCTION",
+            name="other",
+            symbol="_other",
+            size=_MERGED_ENTRY,
+            cflags="/O1 /DOLD",
+        )
+        update_field(tmp_path, _MERGED_VA, "note", "keep prior evidence", "DST")
+        update_statuses_batch(
+            tmp_path, [{"module": "DST", "va": _MERGED_VA, "new_status": "RELOC"}]
+        )
+        prior = get_entry(tmp_path, _MERGED_VA, "DST")
+        source = (src.reversed_dir / "f.c").read_bytes()
+        preview = ci.import_shared_function(
+            dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY, dst_file="f.c", dry_run=True
+        )
+        assert preview["message"].startswith("would retarget DST")
+        assert get_entry(tmp_path, _MERGED_VA, "DST") == prior
+        apply_updates = verify.apply_status_updates
+        self._verify(monkeypatch, prefix_diffs=1)
+        monkeypatch.setattr(verify, "apply_status_updates", apply_updates)
+        monkeypatch.setattr(ci, "_source_flags", lambda *a, **k: "/O2 /Gd")
+        result = ci.import_shared_function(
+            dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY, dst_file="f.c"
+        )
+        assert result["action"] == "skipped-unverified"
+        assert get_entry(tmp_path, _MERGED_VA, "DST") == prior
+        assert (src.reversed_dir / "f.c").read_bytes() == source
 
     def test_aligned_body_needs_no_padding(self, tmp_path: Path, monkeypatch) -> None:
         """A body ending on the boundary: the next function starts right there."""

@@ -702,3 +702,27 @@ manual managed-store edit, new CLI option or weakened gate. Evidence:
 guild-rebrew/.scratch/goal20/plant-server-gate.log (failed) and
 plant-callers-byte-preservation.json. Implement upstream before completing
 the plant checkpoint and rerunning its raw-link gate.
+
+## Shared import identity and measurement repair (2026-10-11)
+
+Pain: importing SERVER10016f80 onto GOLDTL503e80 verifies the shared iterator
+at341 bytes but leaves the previous gm_AddObjekt name beside its new
+_gm_FindNextFilteredEntity symbol. The next GOLD501030 import inherits that
+wrong name. Both341-byte records retain reference_size352 and the padded
+reference hash from the rejected first comparison. The source flag helper
+also selects another function's /DREBREW_ALLOW_NAKED flag from the same file.
+
+Repair the shared import paths: choose flags by source module and VA, replace
+the identity name after verification, and retain the successful retry's
+comparison inputs. Keep marker migration's existing-name protection and
+failed-retry evidence unchanged. No game source workaround or relaxed match
+threshold. Evidence: guild-rebrew/.scratch/goal20/stat-iterator-{tl,gold}-import.json,
+stat-shared-iterator-audit.json and stat-import-regressions-before-corrected.log.
+
+Further replay checks reproduce a stale destination override surviving an
+inherited flag selection, and a failed managed move between definitions in
+one file overwriting the old verdict. Persist flags only after an accepted
+measurement and recognize the managed destination symbol when previewing
+or rejecting a move. This removes provisional store writes and their
+rollback code. Evidence: shared-import-fields-reproduction.json and
+stat-import-additional-before.log in the same guild-rebrew scratch directory.

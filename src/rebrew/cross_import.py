@@ -342,9 +342,12 @@ def _verify_import(
     body = _merged_entry_body_size(cfg_dst, entry.va, entry.size, result)
     if body is None:
         return result, None
-    retry = verify_entry(replace(entry, size=body), cfg_dst, cache=cache, name_to_va=name_to_va)
+    body_entry = replace(entry, size=body)
+    retry = verify_entry(body_entry, cfg_dst, cache=cache, name_to_va=name_to_va)
     if not retry.matched:
         return result, None
+    entry.size = body
+    entry.comparison_inputs = body_entry.comparison_inputs
     return retry, body
 
 
@@ -849,6 +852,21 @@ def import_shared_function(
     # STATUS: the file text no longer changes, so that is not the signal.
     new_claim = not superseded and not already_on_source
 
+    from rebrew.metadata import get_entry
+
+    # Managed identities can bind another definition in this same file.
+    name, symbol = _symbol_for_va(text, src_module, src_va, target_path.stem)
+    if name == target_path.stem:
+        for ann in parse_c_file_multi(
+            target_path, target_name=src_module, metadata_dir=getattr(cfg_src, "metadata_dir", None)
+        ):
+            if ann.va == src_va and ann.name and ann.marker_type in FUNCTION_MARKERS:
+                name, symbol = ann.name, ann.symbol or ("_" + ann.name)
+                break
+    prior = get_entry(cfg_dst.metadata_dir, dst_va, module)
+    if prior.get("symbol") and prior["symbol"] != symbol:
+        needs_move = True
+
     if dry_run:
         if needs_move:
             note = f"would retarget {module} 0x{dst_va:x} onto the 0x{src_va:x} body"
@@ -866,10 +884,10 @@ def import_shared_function(
         )
 
     from rebrew.annotation import Annotation
-    from rebrew.metadata import delete_entries_batch, get_entry, remove_field, update_field
+    from rebrew.metadata import remove_field, update_field
     from rebrew.verify import apply_status_updates
 
-    src_flags = _source_flags(cfg_src, target_path)
+    src_flags = _source_flags(cfg_src, target_path, src_va)
     # No source-dir /I here (unlike the copy path): the shared file moves
     # WITH its tree under src/shared, so relative #include chains resolve
     # against its own directory already (compile.py always adds src_parent).
@@ -882,32 +900,9 @@ def import_shared_function(
     # one more thing to keep in sync (guild-rebrew round 1293 imported 25
     # functions and 25 W029 rows appeared).
     inherited = str(getattr(cfg_dst, "cflags", "") or "").strip()
-    prior_cflags = ""
-    prior_entry = True
-    wrote_cflags = False
-    if cflags and cflags != inherited:
-        prior = get_entry(cfg_dst.metadata_dir, dst_va, module)
-        prior_entry = bool(prior)
-        prior_cflags = str(prior.get("cflags") or "")
-        update_field(
-            cfg_dst.metadata_dir, dst_va, "cflags", cflags, module, updated_by="cross-import"
-        )
-        wrote_cflags = True
-
     # The verify filepath resolves against the destination's reversed_dir —
     # a shared file becomes ``../shared/f.c`` via the standard helper.
     rel_dst = rel_display_path(target_path, cfg_dst.reversed_dir)
-    # The symbol verified is the one the SOURCE VA's block defines — not the
-    # file's first definition, which is a different function in a
-    # multi-function file whose marker moved onto a later block.
-    name, symbol = _symbol_for_va(text, src_module, src_va, target_path.stem)
-    if name == target_path.stem:
-        for ann in parse_c_file_multi(
-            target_path, target_name=src_module, metadata_dir=cfg_src.metadata_dir
-        ):
-            if ann.va == src_va and ann.name and ann.marker_type in FUNCTION_MARKERS:
-                name, symbol = ann.name, ann.symbol or ("_" + ann.name)
-                break
     entry = Annotation(
         va=dst_va,
         name=name,
@@ -930,20 +925,6 @@ def import_shared_function(
         update_field(cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import")
         message = f"{message} {_merged_entry_note(body)}".strip()
     if reject:
-        if wrote_cflags:
-            if prior_cflags:
-                update_field(
-                    cfg_dst.metadata_dir,
-                    dst_va,
-                    "cflags",
-                    prior_cflags,
-                    module,
-                    updated_by="cross-import",
-                )
-            elif not prior_entry:
-                delete_entries_batch(cfg_dst.metadata_dir, [(module, dst_va)])
-            else:
-                remove_field(cfg_dst.metadata_dir, dst_va, "cflags", module)
         action = "skipped-unverified"
         message = (
             f"{message} (destination already annotates this VA; claim not recorded)"
@@ -958,20 +939,6 @@ def import_shared_function(
             if NEW_FUNC_RE.search(text):
                 migrated = migrate_source_file(cfg_src, target_path, None, dry_run=False)
                 if migrated and migrated.get("skipped") == "unrecorded-markers":
-                    if wrote_cflags:
-                        if prior_cflags:
-                            update_field(
-                                cfg_dst.metadata_dir,
-                                dst_va,
-                                "cflags",
-                                prior_cflags,
-                                module,
-                                updated_by="cross-import",
-                            )
-                        elif not prior_entry:
-                            delete_entries_batch(cfg_dst.metadata_dir, [(module, dst_va)])
-                        else:
-                            remove_field(cfg_dst.metadata_dir, dst_va, "cflags", module)
                     return _import_result(
                         dst_va,
                         src_va,
@@ -989,11 +956,18 @@ def import_shared_function(
                 name=name,
                 symbol=symbol,
                 size=body if body is not None else dst_size,
+                overwrite_name=True,
             )
             if needs_move:
                 message = (
                     f"{message} (retargeted {module} 0x{dst_va:x} onto the 0x{src_va:x} body)"
                 ).strip()
+        if cflags and cflags != inherited:
+            update_field(
+                cfg_dst.metadata_dir, dst_va, "cflags", cflags, module, updated_by="cross-import"
+            )
+        else:
+            remove_field(cfg_dst.metadata_dir, dst_va, "cflags", module)
         apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
     if result.matched and dst_file:
         stub_path = contained_path(source_roots(cfg_dst), dst_file)
@@ -1228,7 +1202,7 @@ def import_function(
     # its metadata counterpart (lint W019).  The absolute path is a known
     # portability wart (breaks on clone/move) — the shared path avoids it
     # because the file itself moves with its headers.
-    src_flags = _source_flags(cfg_src, src_path)
+    src_flags = _source_flags(cfg_src, src_path, src_va)
     include = "-I" if cfg_dst.posix_style else "/I"
     cflags = f"{src_flags} {include}{src_path.parent}".strip()
     from rebrew.metadata import identity_file, record_function_identity
@@ -1260,6 +1234,17 @@ def import_function(
     )
     result, body = _verify_import(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
     message = result.message
+    if result.matched:
+        record_function_identity(
+            cfg_dst.metadata_dir,
+            module=module,
+            va=dst_va,
+            file=identity_file(dst_path, cfg_dst.metadata_dir),
+            marker_type="FUNCTION",
+            name=copied_name,
+            symbol=copied_symbol,
+            overwrite_name=True,
+        )
     if body is not None:
         update_field(cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import")
         message = f"{message} {_merged_entry_note(body)}".strip()
@@ -1296,7 +1281,7 @@ def _symbol_for_va(text: str, module: str, va: int, fallback: str) -> tuple[str,
     return fallback, "_" + fallback
 
 
-def _source_flags(cfg_src: ProjectConfig, src_path: Path) -> str:
+def _source_flags(cfg_src: ProjectConfig, src_path: Path, src_va: int) -> str:
     """The source entry's effective flags: inline CFLAGS, else preset, else default.
 
     The copy must compile with the flags its source build used — a MSVCRT
@@ -1313,8 +1298,11 @@ def _source_flags(cfg_src: ProjectConfig, src_path: Path) -> str:
         )
     except OSError:
         anns = []
-    if anns:
-        return resolve_cflags(cfg_src, anns[0].cflags, anns[0].module)
+    for ann in anns:
+        if ann.va == src_va and preset_module_key(ann.module) == preset_module_key(
+            target_marker(cfg_src) or ""
+        ):
+            return resolve_cflags(cfg_src, ann.cflags, ann.module)
     return resolve_cflags(cfg_src, "", "")
 
 

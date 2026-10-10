@@ -195,6 +195,13 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- Cross-target imports use the selected source function's compiler flags,
+  including in files with several functions or target identities. Verified
+  shared and copied imports replace stale destination identity names. A
+  successful body-size retry records that body's comparison inputs and
+  reference hash, instead of the rejected padded inventory span's evidence.
+  Accepted shared imports remove stale inherited flag overrides; failed
+  moves between managed definitions preserve every prior field and verdict.
 - Function and global renames include target-scoped layout linker response
   files. Exact `/INCLUDE`, `/ALTERNATENAME` and `/EXPORT` internal symbols follow
   their managed identities without changing exported public names, decoration,
