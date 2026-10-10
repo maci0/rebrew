@@ -685,3 +685,20 @@ probe-selection-regressions-before.log. Separately, TL499a50 itself is falsely
 bound to the chain processor; its native four-argument125-byte body is unlike
 the true130-byte dispatcher at TL4c4d30/GOLD4c43c0/SERVER1000ca00. That source
 identity cleanup must follow trustworthy diagnostics and native evidence.
+
+### 2026-10-11: symbol rename leaves linker response references stale
+
+Pain: renaming shared lb_SearchRecordTable to inferred plt_FindPlantInfo updates
+four C sources and all three identity rows, but not the tracked
+layout/server.dll/game-includes.rsp /INCLUDE:_lb_SearchRecordTable anchor.
+The next raw link fails LNK2001/LNK1120 although all98 compiled function
+measurements and whole-section relocation locations remain unchanged.
+
+Resolution: include target-scoped linker response references in the existing
+rename plan, preview and rollback path. Preserve native decoration, independent
+target twins, paths and public export names. Explicit reference binding to an
+existing identity must also repair a leftover linker anchor. No game alias,
+manual managed-store edit, new CLI option or weakened gate. Evidence:
+guild-rebrew/.scratch/goal20/plant-server-gate.log (failed) and
+plant-callers-byte-preservation.json. Implement upstream before completing
+the plant checkpoint and rerunning its raw-link gate.

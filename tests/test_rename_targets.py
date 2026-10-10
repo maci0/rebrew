@@ -245,6 +245,166 @@ def _snapshot(root: Path) -> dict[Path, bytes]:
     return {p: p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
 
 
+def _response(root: Path, target: str, text: str) -> Path:
+    path = root / "layout" / target / "game.rsp"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(text.encode())
+    return path
+
+
+class TestLinkerReferences:
+    def test_shared_rename_updates_each_bound_target(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _project(tmp_path)
+        paths = [
+            _response(
+                root,
+                target,
+                '/INCLUDE:"_gm_InitEntitySlots"\r\n/INCLUDE:_gm_InitEntitySlotsExtra\r\n',
+            )
+            for target in ("server.dll", "tl.exe", "gold.exe")
+        ]
+        untouched = _response(root, "other.exe", "/INCLUDE:_gm_InitEntitySlots\n")
+        result = _run(root, monkeypatch, "gm_InitEntitySlots", "gm_KillAllSpieler", "--all-modules")
+        assert result.exit_code == 0, result.output
+        for path in paths:
+            assert (
+                path.read_bytes()
+                == b'/INCLUDE:"_gm_KillAllSpieler"\r\n/INCLUDE:_gm_InitEntitySlotsExtra\r\n'
+            )
+        assert untouched.read_text() == "/INCLUDE:_gm_InitEntitySlots\n"
+
+    def test_independent_twin_keeps_its_linker_anchor(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _project(tmp_path)
+        server = _response(root, "server.dll", "/INCLUDE:_cm_ExCreateCitizen\n")
+        tl = _response(root, "tl.exe", "/INCLUDE:_cm_ExCreateCitizen\n")
+        result = _run(root, monkeypatch, "SERVER.0x10004000", "cm_ExAllocCharacter")
+        assert result.exit_code == 0, result.output
+        assert server.read_text() == "/INCLUDE:_cm_ExAllocCharacter\n"
+        assert tl.read_text() == "/INCLUDE:_cm_ExCreateCitizen\n"
+
+    def test_preview_lists_linker_edits_without_writing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _project(tmp_path)
+        _response(root, "server.dll", "/INCLUDE:_lb_SendLobbyConfig\n")
+        before = _snapshot(root)
+        result = _run(root, monkeypatch, "lb_SendLobbyConfig", "lb_Ready", "--dry-run", "--json")
+        assert result.exit_code == 0, result.output
+        files = json.loads(result.stdout)["files"]
+        assert any(row["file"] == "layout/server.dll/game.rsp" for row in files)
+        assert _snapshot(root) == before
+
+    @pytest.mark.parametrize(
+        ("native", "new"),
+        [
+            ("_lb_SendLobbyConfig@4", "_lb_Ready@4"),
+            ("@lb_SendLobbyConfig@4", "@lb_Ready@4"),
+            ("lb_SendLobbyConfig@@4", "lb_Ready@@4"),
+        ],
+    )
+    def test_preserves_decoration_exports_and_unrelated_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, native: str, new: str
+    ) -> None:
+        from rebrew.metadata import record_function_identity
+
+        root = _project(tmp_path)
+        record_function_identity(
+            root,
+            module="SERVER",
+            va=0x10002000,
+            file="src/command/lobby.c",
+            marker_type="FUNCTION",
+            name="lb_SendLobbyConfig",
+            symbol=native,
+        )
+        before = (
+            f'/include:"{native}"\r\n'
+            f"/ALTERNATENAME:{native}={native}\r\n"
+            f"/EXPORT:Public={native},@2,NONAME\r\n"
+            f"/EXPORT:{native},DATA\r\n"
+            f"/OUT:C:/INCLUDE:{native}\r\n"
+            f"/INCLUDE:{native}Extra\r\n"
+        )
+        rsp = _response(root, "server.dll", before)
+        result = _run(root, monkeypatch, "lb_SendLobbyConfig", "lb_Ready")
+        assert result.exit_code == 0, result.output
+        assert (
+            rsp.read_bytes()
+            == (
+                f'/include:"{new}"\r\n'
+                f"/ALTERNATENAME:{new}={new}\r\n"
+                f"/EXPORT:Public={new},@2,NONAME\r\n"
+                f"/EXPORT:{native}={new},DATA\r\n"
+                f"/OUT:C:/INCLUDE:{native}\r\n"
+                f"/INCLUDE:{native}Extra\r\n"
+            ).encode()
+        )
+
+    def test_data_rename_updates_its_native_linker_anchor(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _project(tmp_path)
+        rsp = _response(root, "server.dll", "/INCLUDE:_g_entity_type_table\n")
+        result = _run(
+            root, monkeypatch, "g_entity_type_table", "lpEntityTypes", "--data", "--all-modules"
+        )
+        assert result.exit_code == 0, result.output
+        assert rsp.read_text() == "/INCLUDE:_lpEntityTypes\n"
+
+    def test_escaped_linker_file_refuses_before_any_write(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _project(tmp_path)
+        rsp = _response(root, "server.dll", "")
+        outside = tmp_path / "external.rsp"
+        outside.write_text("/INCLUDE:_lb_SendLobbyConfig\n")
+        rsp.unlink()
+        rsp.symlink_to(outside)
+        before = _snapshot(root)
+        result = _run(root, monkeypatch, "lb_SendLobbyConfig", "lb_Ready")
+        assert result.exit_code == 2, result.output
+        assert "escapes the project" in result.output
+        assert _snapshot(root) == before
+        assert outside.read_text() == "/INCLUDE:_lb_SendLobbyConfig\n"
+
+    def test_reference_binding_repairs_only_linker_references(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _project(tmp_path)
+        rsp = _response(root, "server.dll", "/INCLUDE:_fcn_old\n")
+        before_sources = {p: p.read_bytes() for p in (root / "src").rglob("*") if p.is_file()}
+        before_rows = (root / "rebrew-functions.toml").read_bytes()
+        result = _run(root, monkeypatch, "fcn_old", "SERVER.0x10002000")
+        assert result.exit_code == 0, result.output
+        assert rsp.read_text() == "/INCLUDE:_lb_SendLobbyConfig\n"
+        assert (root / "rebrew-functions.toml").read_bytes() == before_rows
+        assert all(p.read_bytes() == body for p, body in before_sources.items())
+
+    def test_linker_write_failure_rolls_back_sources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import rename_ops
+
+        root = _project(tmp_path)
+        rsp = _response(root, "server.dll", "/INCLUDE:_lb_SendLobbyConfig\n")
+        before = _snapshot(root)
+        write = rename_ops.atomic_write_text
+
+        def fail_response(path: Path, text: str, *, encoding: str) -> None:
+            if path == rsp:
+                raise OSError("blocked linker write")
+            write(path, text, encoding=encoding)
+
+        monkeypatch.setattr(rename_ops, "atomic_write_text", fail_response)
+        result = _run(root, monkeypatch, "lb_SendLobbyConfig", "lb_Ready")
+        assert result.exit_code == 2, result.output
+        assert _snapshot(root) == before
+
+
 class TestFunctionIdentity:
     def test_selected_identity_rewrites_definition_declarations_and_callers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

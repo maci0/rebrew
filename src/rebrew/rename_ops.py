@@ -453,6 +453,80 @@ class Selection:
     va: int
 
 
+def _linker_reference_changes(
+    cfg: ProjectConfig, symbols: dict[str, dict[str, str]]
+) -> list[FileChange]:
+    """Plan exact MSVC symbol references in each affected target's layout response files."""
+    from rebrew.config import load_config
+    from rebrew.utils import preset_module_key
+
+    root = _root(cfg)
+    if root is None or not symbols or not (root / "layout").is_dir():
+        return []
+    names = getattr(cfg, "all_targets", [])
+    targets = [load_config(root, target=name) for name in names] if names else [cfg]
+    pattern = re.compile(r'(?<!\S)/(INCLUDE|ALTERNATENAME|EXPORT):("[^"\r\n]*"|[^\s"]+)', re.I)
+    changes = []
+    for target in targets:
+        mapping = {
+            old: new
+            for module, names in symbols.items()
+            if preset_module_key(module) == preset_module_key(target.marker)
+            for old, new in names.items()
+        }
+        if not mapping:
+            continue
+        directory = root / "layout" / (target.target_name or target.target_binary.name)
+        for path in sorted(directory.rglob("*.rsp")):
+            if not path.resolve().is_relative_to(root.resolve()):
+                raise RenameError("linker response file escapes the project", files=[path])
+            try:
+                text, encoding = read_source_text(path)
+            except (OSError, UnicodeDecodeError) as exc:
+                raise RenameError("cannot read linker response file", files=[path]) from exc
+            edits: list[SourceEdit] = []
+
+            def replace(
+                match: re.Match[str],
+                *,
+                mapping: dict[str, str] = mapping,
+                text: str = text,
+                edits: list[SourceEdit] = edits,
+            ) -> str:
+                """Change internal symbols while preserving export names and other options."""
+                option, value = match.groups()
+                quote = '"' if value.startswith('"') else ""
+                body = value[1:-1] if quote else value
+                binding, separator, qualifiers = body.partition(",")
+                if option.upper() == "INCLUDE":
+                    updated = mapping.get(binding, binding)
+                elif option.upper() == "ALTERNATENAME":
+                    updated = "=".join(mapping.get(part, part) for part in binding.split("="))
+                elif "=" in binding:
+                    public, internal = binding.split("=", 1)
+                    updated = public + "=" + mapping.get(internal, internal)
+                elif binding in mapping:
+                    updated = binding + "=" + mapping[binding]
+                else:
+                    updated = binding
+                if updated == binding:
+                    return match.group()
+                offset = match.start(2)
+                edits.append(
+                    SourceEdit(
+                        text.count("\n", 0, offset) + 1,
+                        offset - text.rfind("\n", 0, offset),
+                        "linker",
+                    )
+                )
+                return "/" + option + ":" + quote + updated + separator + qualifiers + quote
+
+            updated = pattern.sub(replace, text)
+            if edits:
+                changes.append(FileChange(path, text, updated, encoding, edits))
+    return changes
+
+
 def plan_function_reference_binding(
     cfg: ProjectConfig, old_name: str, selected: Selection, *, comments: bool = False
 ) -> RenamePlan:
@@ -515,6 +589,12 @@ def plan_function_reference_binding(
         change = _file_change(project, path, spans, new_name)
         if change is not None:
             plan.files.append(change)
+    symbol = str(row.get("symbol") or "_" + new_name)
+    plan.files.extend(
+        _linker_reference_changes(
+            cfg, {selected.module: {redecorated_symbol(symbol, old_name): symbol}}
+        )
+    )
     if not plan.files:
         raise RenameError(f"no function references to {old_name} were found", files=[])
     plan.notes.append(
@@ -614,6 +694,16 @@ def plan_symbol_rename(
 
     if rename_file and store == KIND_FUNCTION and definition_file is not None:
         _plan_file_move(project, plan, definition_file, old_name, new_name, new_filename)
+    symbols: dict[str, dict[str, str]] = {}
+    for row in plan.rows:
+        if "name" not in row.new:
+            continue
+        old = str(row.old.get("symbol") or row.old.get("link_symbol") or "_" + old_name)
+        new = str(
+            row.new.get("symbol") or row.new.get("link_symbol") or redecorated_symbol(old, new_name)
+        )
+        symbols.setdefault(row.module, {})[old] = new
+    plan.files.extend(_linker_reference_changes(cfg, symbols))
     return plan
 
 

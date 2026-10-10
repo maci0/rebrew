@@ -195,6 +195,13 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- Function and global renames include target-scoped layout linker response
+  files. Exact `/INCLUDE`, `/ALTERNATENAME` and `/EXPORT` internal symbols follow
+  their managed identities without changing exported public names, decoration,
+  qualifiers or paths. They participate in preview and rollback; explicit
+  reference binding repairs linker-only stale symbols. This fixes a successful
+  shared plant lookup rename leaving guild-rebrew's server `/INCLUDE` anchor
+  behind and breaking the next link.
 - The shared annotation selector preserves a positional VA after resolving its
   source file, so `diagnose probe`, `diagnose gap` and `match qualifiers` use
   the requested function's symbol, size and compiler fields in multi-function

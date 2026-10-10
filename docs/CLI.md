@@ -536,6 +536,14 @@ Modules and shared sources:
   definitions cannot be attributed while another definition exists, and the
   rename refuses with the file list.
 - A `static` definition renames only within its own file.
+- Function and global renames also update exact native symbols in each affected
+  target's `layout/<target>/**/*.rsp` linker response files: `/INCLUDE`,
+  `/ALTERNATENAME` and `/EXPORT` internal bindings. Exported public names,
+  decoration, qualifiers and unrelated paths remain unchanged. Preview output
+  lists these as `linker` edits, and a write failure restores them with the C
+  sources. Explicit placeholder binding can repair a remaining linker reference
+  even when no C reference remains. Response files outside the project refuse
+  before any write.
 
 Syntax rules:
 
