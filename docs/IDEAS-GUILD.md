@@ -850,3 +850,19 @@ function or replace stock runtime bodies to satisfy a template.
 Evidence: guild-rebrew/.scratch/goal20/random-unit-probe/GOLD-srand-provider.json,
 GOLD-srand-libc-provider.json and runtime-providers.json. GOLD's `_rand` origin
 was already recorded in guild-rebrew/.scratch/goal-crt-retirement/.
+
+## Acknowledge the selected shared definition without renaming independent twins (2026-10-11)
+
+Pain: GOLDTL40ce80/GOLD40bf60 share a sound wrapper falsely named
+cm_ChkSetGebBesitzer; SERVER1000cfe0 independently defines the attested command
+validator. Identity-selected CLI rename refuses the shared client rows without
+--all-modules, whose preview also renames the unrelated SERVER definition,
+its dispatch table and linker include. Neither preview is the intended repair.
+The existing source-definition library entry point can preserve the independent
+server twin while renaming both client rows. Expose acknowledgement limited to
+rows bound to the selected definition, retaining --all-modules' current meaning
+and the refusal of ambiguous references. Preview must name every included row
+and excluded independent twin; test a shared two-client definition plus server
+validator, attributed users and linker references.
+Evidence: guild-rebrew .scratch/goal20/sound-wrapper-rename-preview.json,
+sound-wrapper-rename-all-preview.json and sound-wrapper/rename-preview.json.
