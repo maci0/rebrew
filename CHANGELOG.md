@@ -195,6 +195,11 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- `verify --text` uses an available MSVC link map for placement counts and
+  drift checks as well as linked-EXACT promotion. The object walk is now only
+  the fallback without a map; stale object order cannot hide mapped drift or
+  report mapped functions missing. C symbol normalization is shared with the
+  expected-function inventory, including leading underscores and stdcall names.
 - Nested sources now use the single-file compiler path during verification.
   Batch staging passed a different filename to the compiler: VC6 changed
   register allocation even with identical preprocessed C, and `__FILE__` also

@@ -1194,29 +1194,32 @@ def main(
                 json_mode=json_output,
             )
         expected = expected_text_functions(cfg)
-        try:
-            actual = collect_actual_vas(cfg.root, built_path)
-        except (RuntimeError, OSError, ValueError) as exc:
-            error_exit(f"cannot inventory build objects: {exc}", json_mode=json_output)
-        rows, n_ok, n_bad, n_missing = audit_text(expected, actual)
         # Linked-EXACT placement: the link map names the symbol the linker put
         # at each address, so prefer it over the object walk, which assumes
         # plain concatenation in link order.
         text_map = link_map or built_path.with_suffix(".map")
         if text_map.is_file():
             from rebrew.data_ownership import parse_link_map
+            from rebrew.rename_ops import c_name_from_symbol
 
-            text_mapped = {
-                (s.name, s.va)
-                for s in parse_link_map(text_map.read_text(encoding="utf-8", errors="replace"))
-                if s.is_function
-            }
+            symbols = parse_link_map(text_map.read_text(encoding="utf-8", errors="replace"))
+            text_mapped = {(s.name, s.va) for s in symbols if s.is_function}
+            actual: dict[str, int] = {}
+            for symbol in symbols:
+                if symbol.is_function:
+                    actual.setdefault(c_name_from_symbol(symbol.name), symbol.va)
             placement_source = str(text_map)
         elif link_map is not None:
             error_exit(f"link map not found: {link_map}", json_mode=json_output)
         else:
-            placed_vas = {int(r["expected"], 16) for r in rows if r["status"] == "OK"}
+            try:
+                actual = collect_actual_vas(cfg.root, built_path)
+            except (RuntimeError, OSError, ValueError) as exc:
+                error_exit(f"cannot inventory build objects: {exc}", json_mode=json_output)
             placement_source = "objects"
+        rows, n_ok, n_bad, n_missing = audit_text(expected, actual)
+        if text_mapped is None:
+            placed_vas = {int(r["expected"], 16) for r in rows if r["status"] == "OK"}
         text_report = {
             "functions": len(expected),
             "found": n_ok + n_bad,

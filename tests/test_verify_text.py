@@ -98,6 +98,56 @@ def _make_built(tmp_path: Path) -> Path:
 
 
 class TestVerifyText:
+    @pytest.mark.parametrize("explicit", [False, True])
+    def test_link_map_precedes_object_walk(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, explicit: bool
+    ) -> None:
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        _patch_flow(monkeypatch, cfg)
+        _patch_text(monkeypatch, expected={"f": 0x1000, "_hidden": 0x1010, "hook": 0x1020})
+        built = _make_built(tmp_path)
+        link_map = tmp_path / "explicit.map" if explicit else built.with_suffix(".map")
+        link_map.write_text(
+            " 0001:00000000 _f 00001000 f first.obj\n"
+            " 0001:00000010 __hidden 00001010 f first.obj\n"
+            " 0001:00000020 _hook@8 00001020 f second.obj\n"
+        )
+
+        def refuse_object_walk(*args: object) -> dict[str, int]:
+            raise AssertionError("The available map is the placement authority")
+
+        monkeypatch.setattr("rebrew.text_audit.collect_actual_vas", refuse_object_walk)
+        args = ["--text", "--json"]
+        if explicit:
+            args += ["--link-map", str(link_map)]
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 0, result.output
+        text = json.loads(result.output)["text"]
+        assert (text["found"], text["correct"], text["misplaced"], text["missing"]) == (3, 3, 0, 0)
+        assert text["linked"]["placement"] == str(link_map)
+
+    def test_link_map_drift_is_not_hidden_by_matching_objects(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        _patch_flow(monkeypatch, cfg)
+        _patch_text(
+            monkeypatch, actual={"f": 0x1000, "g": 0x2000}, expected={"f": 0x1000, "g": 0x2000}
+        )
+        built = _make_built(tmp_path)
+        built.with_suffix(".map").write_text(
+            " 0001:00000010 _f 00001010 f first.obj\n 0002:00000000 _g 00002000 first.obj\n"
+        )
+        result = CliRunner().invoke(app, ["--text", "--json"])
+        assert result.exit_code == EXIT_MISMATCH
+        text = json.loads(result.output)["text"]
+        assert (text["correct"], text["misplaced"], text["missing"]) == (0, 1, 1)
+        assert text["misplaced_list"][0]["delta"] == 16
+
     def test_flag_off_by_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Without --text no placement check runs and the report carries null."""
         from rebrew.verify import app
