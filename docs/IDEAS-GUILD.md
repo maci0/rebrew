@@ -665,3 +665,23 @@ Reuse the existing shared import path and locked writers rather than hand-editin
 rows or copying C. No new option or matching algorithm is needed.
 Evidence: guild-rebrew/.scratch/goal20/padded-signature-evidence.json and
 `padded-{builder,caller}-gold-preview.json`; no imports were applied.
+
+## Preserve requested identity in single-function diagnostics (2026-10-10)
+
+Pain: `diagnose probe 0x499a50 --target Europa1400Gold_TL.exe` resolves the shared
+alchemistry source, then silently measures its first function, TL47ddf0,
+_ahm_ResetEntityState, yielding66/66 instead of checking the requested wrong-body
+identity. Shared cli.select_annotation discards the positional VA. Explicit
+`--va` absent from the file also pairs a new reference with the first symbol/size.
+The same helper feeds diagnose gap and match qualifiers, which can edit C.
+
+Resolution: select the active target's annotation at either positional VA or
+`--va`; missing entries error before measurement/editing. Preserve direct-file
+and decorated-symbol selection without a VA. Fix the shared helper, with inline
+and managed/overlapping-target regressions and an actual probe CLI flow check;
+no caller-specific workaround or new option. Evidence:
+guild-rebrew/.scratch/goal20/ahm-chain-current-probe.json and
+probe-selection-regressions-before.log. Separately, TL499a50 itself is falsely
+bound to the chain processor; its native four-argument125-byte body is unlike
+the true130-byte dispatcher at TL4c4d30/GOLD4c43c0/SERVER1000ca00. That source
+identity cleanup must follow trustworthy diagnostics and native evidence.

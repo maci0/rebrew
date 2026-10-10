@@ -369,6 +369,10 @@ way back to the source as it was.
 A candidate must meet or beat the target size (the composition trims an
 overrun but cannot pad a gap).
 
+A positional hex VA or `--va` selects that function's annotation in the active
+target, including its size and compiler fields. A VA absent from the resolved
+file errors before any source edit; it cannot reuse the first function's identity.
+
 | Option | Description |
 | --- | --- |
 | `--va HEX` | Select the annotated function by VA (multi-function files) |
@@ -391,6 +395,12 @@ fixed-offset saturates), and COMDAT span vs trimmed code length. Unlike
 for edit → measure loops. Compare with `rebrew test --no-promote` only
 when a metadata write must be anatomically impossible rather than merely
 skipped.
+
+A positional hex VA selects the requested annotation even in a shared,
+multi-function file. `--va` selects an annotated entry in the resolved file;
+an absent entry errors before compiling. A file without a VA selector uses its
+first annotation. `--size` and `--cflags` override that selected function's
+measurement inputs.
 
 ### `rebrew build residue`
 
@@ -2551,6 +2561,10 @@ The window defaults to the reference real body (next function VA), not the
 metadata size, so table bytes are not decoded as phantom instructions.
 Counts include trailing alignment fill: compare code-end offsets, not
 instruction counts.
+
+A positional hex VA or `--va` selects the active target's annotation, including
+its symbol and compiler fields. An absent entry in the resolved file errors
+before compiling; another function's identity is never used as a fallback.
 
 ### `rebrew diagnose config`
 

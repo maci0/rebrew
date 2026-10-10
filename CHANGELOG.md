@@ -195,6 +195,11 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- The shared annotation selector preserves a positional VA after resolving its
+  source file, so `diagnose probe`, `diagnose gap` and `match qualifiers` use
+  the requested function's symbol, size and compiler fields in multi-function
+  files. An explicit VA missing from that file errors before compilation or
+  edits instead of pairing the requested reference with the first function.
 - Cross-target imports and BinSync related-target overlays no longer score
   proven trailing x86 NOP/int3 alignment bytes as function instructions. The
   bounded extent walker preserves forward-target blocks and return operands;
