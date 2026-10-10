@@ -467,6 +467,15 @@ Pain: shared TL442c00/442cb0 and Gold4471b0/447260 callers refer to fcn_00450a00
 Pain: TL full gate57178 reports322 shorter SIZE_MISMATCH bodies with zero common-prefix differences;309 have native terminal ret/tailjmp and exclusively NOP tails. These discovery/alignment sizes make already recovered bodies appear unfinished. Existing `test --fix-sizes`, `verify --fix-sizes`, and catalog backfill address size repair; they do not provide the joint strict CFG, complete relocation/literal binding, negative-control, library-exclusion evidence preview described here. Proposed CLI preview/apply operation combining conservative native CFG/end evidence, retained padding/layout accounting, complete object/native binding validation, library exclusion, and target-scoped locked SIZE updates; never shorten solely from object length or a masked prefix score. Surface ambiguous branches/data separately and verify every affected/shared build. Evidence guild-rebrew/.scratch/goal-small-client-helpers/{zero-diff-candidates,native-extent-screen}.json. Current supported metadata APIs can apply individually evidenced repairs; no game-code padding or raw assembly workaround.
 
 
+Additional evidence (2026-10-11): TL `ahm_SlotClearMatch` at `0x4ee9c0`
+and GOLD at `0x4ecbc0` both have 110 reachable bytes plus two alignment NOPs,
+but managed SIZE112 makes the unchanged shared C appear mismatched. Complete
+CFG, both call operands, numeric native helper identities, library exclusion
+and wrong-target controls prove all 220 code bytes. The canonical client
+callee names are still unbound, so operand evidence must remain explicit.
+Evidence: `guild-rebrew/.scratch/goal20/ahm-slot-clear-extent/native-proof.json`.
+This also exercises the declaration-only native function binding proposal above.
+
 ## Metadata-backed source split / extraction after marker migration
 
 Landed: `rebrew source split` reads the function row when the file has no marker block. It slices that C definition, leaves file-scope storage in the original, refuses a static or preprocessor-wrapped dependency, and retargets every row that shares the definition. `--dry-run` writes nothing, and a failed retarget restores the source.
