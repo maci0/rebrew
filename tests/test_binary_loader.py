@@ -693,6 +693,12 @@ class TestFunctionExtentFromDisasm:
             lambda info, va, size, trim_padding=True: jmp_text[:size],
         )
         assert function_extent_from_disasm(exe, 0x1000, with_kind=True) == (10, "jmp")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_bytes_at_va",
+            lambda info, va, size, trim_padding=True: b"\xcc\x90\x90",
+        )
+        assert function_extent_from_disasm(exe, 0x1000) == 1
+        assert function_extent_from_disasm(exe, 0x1000, with_kind=True) == (1, "padding")
 
 
 def test_mz_extent_uses_16bit_disasm() -> None:

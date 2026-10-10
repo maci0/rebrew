@@ -2197,9 +2197,11 @@ from a configured target.  Same-arch binaries only.
 
 ### `rebrew source import-related`
 
-`rebrew source import-related --from TARGET [--min-score N] [--min-gap N] [--va 0x...] [--limit N] [--shared] [--promote] [--dry-run] [--json] [--target NAME]`
+`rebrew source import-related --from TARGET [--min-score N] [--min-gap N] [--va 0x...] [--source-va 0x...] [--limit N] [--shared] [--promote] [--dry-run] [--json] [--target NAME]`
 
-Import functions already matched in **another target** of the same project into the target the command runs against: for binary versions (same code, different VAs) or a DLL+EXE pair sharing code. The source target's EXACT/RELOC/PROVEN functions are structurally matched (from their target bytes; no compile needed) against this target's unmatched functions; an unambiguous match above the threshold is imported, then **compiled + verified against this target** before STATUS is promoted via the standard verify flow, so a wrong match simply fails verification and stays untouched.
+Import functions already matched in **another target** of the same project into the target the command runs against: for binary versions (same code, different VAs) or a DLL+EXE pair sharing code. The source target's EXACT/RELOC functions are structurally matched (from their target bytes; no compile needed) against this target's unmatched functions; an unambiguous match above the threshold is imported, then **compiled + verified against this target** before STATUS is promoted via the standard verify flow, so a wrong match simply fails verification and stays untouched.
+
+Signatures exclude trailing x86 `0x90`/`0xCC` alignment bytes only when a bounded disassembly walk reaches a real return covering all observed forward conditional targets and the entire suffix is padding. Reachable NOPs and later return blocks remain in the body; jumps, incomplete extents and non-padding tails keep the supplied span. BinSync related-target overlays use the same signature rule. The original inventory span still reaches compile verification; a structural score alone never establishes a byte match.
 
 | Flag | Description |
 |------|-------------|
@@ -2207,6 +2209,7 @@ Import functions already matched in **another target** of the same project into 
 | `--min-score N` | Minimum similarity score to import (default: **95**; identical code scores 100; structural siblings with a shared prologue score high 80s–low 90s) |
 | `--min-gap N` | Best match must beat the runner-up by at least this (default: 5) |
 | `--va 0x...` | Restrict to one destination VA |
+| `--source-va 0x...` | Restrict to one available EXACT/RELOC donor; pair with `--va` for a reviewed counterpart. Score/gap and byte verification still apply |
 | `--limit N` | Import at most N functions |
 | `--shared` | Record the destination `MODULE.0xVA` row on the shared source (one file, one row per target) instead of copying into the destination tree. Auto-promotes a per-target source into `src/shared` first when needed, and retargets rows whose `file` named the old path |
 | `--promote` | Move the source file into `src/shared` (preserving relative path) without importing: the manual step before `--shared` |

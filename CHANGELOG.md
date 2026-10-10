@@ -195,6 +195,12 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- Cross-target imports and BinSync related-target overlays no longer score
+  proven trailing x86 NOP/int3 alignment bytes as function instructions. The
+  bounded extent walker preserves forward-target blocks and return operands;
+  incomplete bodies, jumps and non-padding tails retain their supplied span.
+  Int3 terminators are distinguished from real returns. Match thresholds and
+  full compiled-body verification remain unchanged.
 - Library headers now include managed LIBRARY rows while legacy markers remain,
   with canonical identity winning per module/VA. A partial migration no longer
   hides library attribution from catalog/status/todo. Explicit compiled-library

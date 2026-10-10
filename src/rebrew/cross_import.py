@@ -110,7 +110,24 @@ def cross_match(
 
 
 def signature_for(cfg: ProjectConfig, code: bytes, va: int) -> dict[str, Any] | None:
-    """Structural signature for *code*, honouring the config's arch/mode."""
+    """Structural signature excluding proven x86 alignment padding."""
+    from rebrew.binary_loader import PADDING_BYTES, function_extent_from_bytes, load_binary
+
+    if code and code[-1] in PADDING_BYTES:
+        try:
+            info = load_binary(cfg.target_binary)
+            if info.arch in ("x86_16", "x86_32", "x86_64"):
+                got = function_extent_from_bytes(info, code, va, with_kind=True)
+                if isinstance(got, tuple):
+                    extent, kind = got
+                    if (
+                        kind == "ret"
+                        and 0 < extent < len(code)
+                        and all(b in PADDING_BYTES for b in code[extent:])
+                    ):
+                        code = code[:extent]
+        except (OSError, ValueError):
+            pass
     return disasm_signature(
         code,
         va,

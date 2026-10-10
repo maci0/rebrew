@@ -321,6 +321,72 @@ class TestExtractSingleFunction:
         assert seen["row"]["file"] == "src_GOLDTL/shared.c"
 
 
+class TestPaddedSignatures:
+    def _cfg(self, tmp_path: Path, code: bytes) -> SimpleNamespace:
+        binary = tmp_path / "padded.exe"
+        binary.write_bytes(make_pe(code))
+        return SimpleNamespace(target_binary=binary, arch="x86_32")
+
+    @pytest.mark.parametrize("padding", [b"\x90" * 5, b"\xcc" * 5, b"\x90\xcc\x90"])
+    def test_padding_does_not_lower_the_default_match_score(
+        self, tmp_path: Path, padding: bytes
+    ) -> None:
+        code = F1 + padding
+        cfg = self._cfg(tmp_path, code)
+        body = ci.signature_for(cfg, F1, A_F1)
+        padded = ci.signature_for(cfg, code, A_F1)
+        assert padded == body
+        assert ci.cross_match({B_F1: padded}, {A_F1: body}) == {B_F1: (A_F1, 100.0)}
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            bytes.fromhex("85 c0 75 03 31 c0 c3 b8 01 00 00 00 c3"),
+            bytes.fromhex("85 c0 75 01 c3 90 c3"),
+            bytes.fromhex("c2 90 90"),
+        ],
+    )
+    def test_complete_body_keeps_later_blocks_and_return_operands(
+        self, tmp_path: Path, body: bytes
+    ) -> None:
+        code = body + b"\x90" * 5
+        sig = ci.signature_for(self._cfg(tmp_path, code), code, A_F1)
+        assert sig is not None and sig["size"] == len(body)
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            bytes.fromhex("75 20 c3 90 90 90"),
+            bytes.fromhex("85 c0 74 04 eb fa 90 90 c3 90 90"),
+            bytes.fromhex("e9 20 00 00 00 90 90"),
+            bytes.fromhex("cc 90 90"),
+            bytes.fromhex("90 90 90"),
+            bytes.fromhex("c3 00 90"),
+        ],
+    )
+    def test_ambiguous_or_unterminated_extent_is_not_shortened(
+        self, tmp_path: Path, code: bytes
+    ) -> None:
+        sig = ci.signature_for(self._cfg(tmp_path, code), code, A_F1)
+        assert sig is not None and sig["size"] == len(code)
+
+    def test_missing_binary_keeps_the_supplied_span(self, tmp_path: Path) -> None:
+        cfg = SimpleNamespace(target_binary=tmp_path / "missing.exe")
+        code = F1 + b"\x90" * 5
+        sig = ci.signature_for(cfg, code, A_F1)
+        assert sig is not None and sig["size"] == len(code)
+
+    def test_x86_padding_rule_does_not_trim_other_architectures(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "rebrew.binary_loader.load_binary", lambda *a: SimpleNamespace(arch="arm32")
+        )
+        code = F1 + b"\x90" * 5
+        sig = ci.signature_for(self._cfg(tmp_path, code), code, A_F1)
+        assert sig is not None and sig["size"] == len(code)
+
+
 class TestOnlyVaGuard:
     def test_only_va_does_not_bypass_matched_status(self, monkeypatch) -> None:
         """``--va`` on an already matched destination function must not re-add
@@ -799,15 +865,16 @@ class TestSizelessMatching:
         assert sizes == {A_F1: 11, A_F2: 11}
         assert refused == []
 
-    def test_disasm_sizes_refuses_jmp_and_none(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("kind", ["jmp", "padding", "ud2"])
+    def test_disasm_sizes_refuses_nonreturn_and_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
     ) -> None:
         (tmp_path / "x.exe").write_bytes(_pe_a())
         cfg = self._cfg(tmp_path, "DST", tmp_path / "x.exe")
 
         def fake_extent(_p: Path, va: int, with_kind: bool = False):  # type: ignore[no-untyped-def]
             if va == A_F1:
-                return (8, "jmp") if with_kind else 8
+                return (8, kind) if with_kind else 8
             return None
 
         monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", fake_extent)
@@ -2538,6 +2605,21 @@ class TestMergedInventoryEntry:
         assert "destination inventory entry merges functions" in res["message"]
         assert "62-byte body" in res["message"]
         assert sizes == [_MERGED_ENTRY, _MERGED_BODY]
+        assert self._dst_sizes(cfg_dst, cfg_src.reversed_dir / "f.c") == (62, 62)
+
+    def test_padded_signature_passes_default_gate_then_verifies_the_body(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        cfg_src, cfg_dst = self._cfgs(tmp_path, _merged_pe())
+        code = ci.target_bytes_by_va(cfg_dst, {_MERGED_VA: 64})[_MERGED_VA]
+        src_sig = ci.signature_for(cfg_dst, code[:_MERGED_BODY], A_F1)
+        dst_sig = ci.signature_for(cfg_dst, code, _MERGED_VA)
+        assert src_sig is not None and dst_sig is not None
+        assert ci.cross_match({_MERGED_VA: dst_sig}, {A_F1: src_sig}) == {_MERGED_VA: (A_F1, 100.0)}
+        sizes = self._verify(monkeypatch)
+        res = ci.import_shared_function(cfg_dst, cfg_src, _MERGED_VA, A_F1, "f.c", 64)
+        assert res["action"] == "imported-shared" and res["status"] == "RELOC"
+        assert sizes == [64, _MERGED_BODY]
         assert self._dst_sizes(cfg_dst, cfg_src.reversed_dir / "f.c") == (62, 62)
 
     def test_int3_padding_accepted(self, tmp_path: Path, monkeypatch) -> None:

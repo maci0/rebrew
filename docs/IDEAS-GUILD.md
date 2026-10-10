@@ -634,11 +634,34 @@ GOLD an 80-byte span containing five trailing NOPs, while the verified TL donor
 owns 75 bytes. The default shared-import preview rejects it: full-span score
 94.393546, actual-body score 100. Lowering the threshold hides the extent issue.
 
-Proposed: use a proven complete function extent consistently before signature
-scoring and import verification, keeping alignment bytes as layout facts. Preserve
-reachable NOPs, multiple-return blocks, tail calls and unresolved extents; do not
-trim at the first return or silently weaken score/gap gates.
+Implemented: the shared cross-import/BinSync signature helper uses the existing
+bounded extent walker on the supplied bytes. Only a real return covering observed
+forward targets followed entirely by NOP/int3 padding shortens the signature.
+Reachable NOPs, multiple-return blocks, tail calls and unresolved extents keep
+their bodies; int3 is no longer classified as a real return. The original
+inventory span still reaches full-body compile verification and its existing
+verified size retry. Default score/gap gates are unchanged.
 Evidence: guild-rebrew/.scratch/goal20/animation-builder-original-evidence.json,
 `animation_builder_evidence.py`, and `animation-gold-import-preview.json`.
 Callback import preview at GOLD 0x405870 / TL 0x406410 independently passes
-the default structural gate (98.087576); no GOLD row or verdict was written.
+the default structural gate (98.087576); no GOLD row or verdict was written at
+that checkpoint. Regression coverage: `TestPaddedSignatures` and
+`TestMergedInventoryEntry.test_padded_signature_passes_default_gate_then_verifies_the_body`.
+
+## Select an attested cross-target donor explicitly (2026-10-10)
+
+Pain: after the extent repair, GOLD's builder 0x405970 and caller 0x40c870
+both score 100 against their TL counterparts (0x406510 / 0x40d790), but the
+automatic importer correctly refuses: unrelated histogram siblings score
+96.325483 / 96.275310, inside the default five-point gap. Original instruction
+and compiled-body evidence establish the intended pairs; lowering the global
+gap would also admit genuinely ambiguous automatic matches.
+
+Resolution: the CLI already supports `--source-va`, but its CLI reference omitted
+the option. Document and use that selector with `--va` for a reviewed pair;
+the donor's EXACT/RELOC requirement, score/gap gates and complete byte verification
+still apply to the selected pool. Automatic selection keeps its runner-up gap.
+Reuse the existing shared import path and locked writers rather than hand-editing
+rows or copying C. No new option or matching algorithm is needed.
+Evidence: guild-rebrew/.scratch/goal20/padded-signature-evidence.json and
+`padded-{builder,caller}-gold-preview.json`; no imports were applied.

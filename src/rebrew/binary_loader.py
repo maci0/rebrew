@@ -805,7 +805,8 @@ def function_extent_from_disasm(
     padding).
 
     With ``with_kind=True``, returns ``(extent, kind)`` where ``kind`` is
-    ``"ret"`` or ``"jmp"`` — callers that need to distinguish a real
+    ``"ret"``, ``"jmp"``, ``"padding"`` (int3), or ``"ud2"`` (ud2/hlt).
+    Callers that need to distinguish a real
     epilogue from a branch-merge jmp (e.g. padding past a mid-function
     jmp to reach the true epilogue) can branch on it.
 
@@ -841,6 +842,22 @@ def function_extent_from_disasm(
         log.debug("failed to load bytes at 0x%x from %s", va, path, exc_info=True)
         return None
 
+    return function_extent_from_bytes(info, data, va, with_kind=with_kind)
+
+
+def function_extent_from_bytes(
+    info: BinaryInfo,
+    data: bytes,
+    va: int,
+    *,
+    with_kind: bool = False,
+) -> int | tuple[int, str] | None:
+    """Walk a bounded byte window using the image's architecture.
+
+    Uses the same terminator and forward-target rules as
+    :func:`function_extent_from_disasm`, without reading beyond *data*.
+    A real return has kind ``"ret"``; an int3 terminator has kind ``"padding"``.
+    """
     import capstone
 
     # Per-arch walker config (multi-arch P0): the disassembler arch/mode
@@ -881,6 +898,9 @@ def function_extent_from_disasm(
                 # sp restore in the epilogue) — include it.
                 extent = min(offset + insn.size + delay_slot, len(data))
                 return (extent, "ret") if with_kind else extent
+            if mnem == "int3" and insn.address >= forward_target:
+                extent = offset + insn.size
+                return (extent, "padding") if with_kind else extent
             if mnem in jmps:
                 # Unconditional jump: tail call / thunk terminator (a backward
                 # loop jump underestimates the extent — callers refuse, which is
@@ -949,7 +969,7 @@ def function_extent_from_disasm(
     # x86 walker).
     md = capstone.Cs(cs_arch, mode)
     md.skipdata = False
-    return _walk(md, {"ret", "retf", "iret", "iretd", "int3"}, {"jmp"})
+    return _walk(md, {"ret", "retf", "iret", "iretd"}, {"jmp"})
 
 
 class ExportParseError(RebrewError, RuntimeError):
