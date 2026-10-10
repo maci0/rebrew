@@ -789,3 +789,22 @@ regressions fail first and cover test/verify catalog construction, another
 target's conflicting spelling, compiler-literal spellings, symbol resolution,
 and rejecting a wrong known target. Existing unknown-address policy remains.
 Evidence: guild-rebrew/.scratch/goal20/native-data-catalog-final-before.log.
+
+## Retire a fully superseded multi-body source unit (2026-10-11)
+
+Pain: the shared importer deliberately retires only single-body sources. A
+two-body office-query unit remains after all three target claims move to the
+verified shared server.c definitions. Its conservative guard correctly avoids
+deleting unannotated helpers, but completing this source consolidation requires
+an explicit operator audit: every former claim, every definition, data and source
+provenance ownership, remaining callers, and all native bytes/operands of both
+old bodies and their shared replacements. An unowned leftover can also become
+an unintended input to the unannotated-source build fallback.
+
+Proposed feature: a previewable retirement operation accepting explicit complete
+replacement evidence for every definition. Reject helpers, storage, remaining
+claims/references, stale measurements or incomplete mappings. Keep the current
+automatic single-body guard; do not generalize its definition-count condition.
+Evidence: guild-rebrew/.scratch/goal20/retire_office_query_duplicates.py and
+office-query-duplicate-retirement/receipt.json. This is a missing workflow
+feature, not a reason to relax the existing import safety check.
