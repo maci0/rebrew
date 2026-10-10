@@ -754,3 +754,14 @@ search in this case; the /work alias has different ancestors. Evidence:
 guild-rebrew/.scratch/goal20/stat-helper-order-probe-variants.log and
 compiler-source-in-workdir-before-corrected.log. The MSVC regression fails first;
 the GCC case is a passing control. No game header or include-path workaround.
+
+## Find definitions after an assembly prelude (2026-10-11)
+
+Pain: the guild-rebrew statistic formatter preservation check omitted every
+function after server.c's assembly fill. The shared definition finder stripped
+calling conventions but fed inline assembly to the C grammar, which swallowed
+later functions into the earlier body. Use the existing same-length MSVC syntax
+mask before walking definitions. LF/CRLF fill regressions fail first; multiline
+attributes also demonstrate shifted following line numbers. This fixes every
+caller, including retirement, without a game-side parser workaround. Evidence:
+guild-rebrew/.scratch/goal20/function-discovery-after-asm-before.log.

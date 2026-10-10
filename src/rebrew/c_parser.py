@@ -1307,7 +1307,7 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
     if not source or not source.strip():
         return []
     try:
-        tree, src_bytes = parse_c_source(strip_cc(source))
+        tree, src_bytes = parse_c_source(mask_msvc_syntax(source))
     except ImportError:
         return []
 

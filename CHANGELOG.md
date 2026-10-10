@@ -195,6 +195,10 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- The shared C function-definition finder masks MSVC extensions before parsing.
+  Inline assembly no longer hides later functions in a translation unit, and
+  multiline `__declspec` attributes retain the original following line numbers.
+  Source retirement, rehome, CRT discovery and other callers use the same fix.
 - Compiling a source already in the output directory preserves its original
   include-search path, so parent-relative headers resolve through the same-path
   Docker mount rather than the flat `/work` alias.
