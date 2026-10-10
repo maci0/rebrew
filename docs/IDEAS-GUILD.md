@@ -726,3 +726,20 @@ measurement and recognize the managed destination symbol when previewing
 or rejecting a move. This removes provisional store writes and their
 rollback code. Evidence: shared-import-fields-reproduction.json and
 stat-import-additional-before.log in the same guild-rebrew scratch directory.
+
+## Shared-import source retirement must honor remaining owners (2026-10-11)
+
+Pain: the numeric slot helper guild-rebrew/src/GOLDTL.fcn_0050dac0.c owns both
+GOLDTL50dac0 and GOLD50a640. `import_shared_function(..., dst_file=...)` unlinks
+the entire old file after moving one identity, orphaning the other target.
+It would also delete other functions and globals in a larger source file.
+Preserve files with remaining managed or inline function/data identities, other
+function definitions or storage. Remove only the superseded inline claim,
+preserving other claims and line numbers. Retire a single-body stub when its
+last owner moves. Reuse the annotation lexer and C storage-role inventory;
+do not work around this with duplicated game code or manual store edits.
+
+The cleanup also must use migration's existing file-borne comment policy:
+SOURCE stays only when naked, while STRUCT/CALLERS stay in the source. A
+follow-up regression catches ordinary SOURCE metadata incorrectly surviving
+the retired claim; share the policy instead of cloning its rules.

@@ -553,22 +553,79 @@ def _block_marker(block: str) -> tuple[str, int] | None:
 
 
 def _strip_claim(block: str, claim: tuple[str, int]) -> str:
-    """*block* without *claim*'s marker line and the ``SIZE`` line under it.
+    """Blank a superseded claim, keeping other owners and every source line."""
+    from rebrew.annotation import FUNC_NAME_HINT_RE, scan_annotation_lines
+    from rebrew.marker_migration import file_borne_comment
 
-    A block often stacks several targets' markers on one body; removing the
-    whole block for one superseded claim deletes the others and the body.
-    """
     lines = block.splitlines(keepends=True)
-    out: list[str] = []
-    skip_size = False
-    for line in lines:
-        if skip_size and line.strip().startswith("// SIZE:"):
-            skip_size = False
-            continue
-        skip_size = _block_marker(line) == claim
-        if not skip_size:
-            out.append(line)
-    return "".join(out)
+    indexes, covered = scan_annotation_lines(lines)
+    markers = set(indexes)
+    matching = {
+        i
+        for i in indexes
+        if (m := _MARKER_RE.match(lines[i].strip())) is not None
+        and preset_module_key(m.group("module")) == preset_module_key(claim[0])
+        and int(m.group("va"), 16) == claim[1]
+    }
+    if not matching:
+        return block
+    start = 0
+    for i in range(len(lines) + 1):
+        if i < len(lines):
+            stripped = lines[i].strip()
+            if not stripped or covered[i] or stripped.startswith(("//", "/*")):
+                continue
+        header = set(range(start, i))
+        selected = matching & header
+        if selected:
+            blank = set(selected)
+            if not (markers & header) - selected:
+                for j in header:
+                    if covered[j]:
+                        continue
+                    text = lines[j].strip()
+                    if (
+                        _KV_RE.match(text) or FUNC_NAME_HINT_RE.match(text)
+                    ) and not file_borne_comment(text):
+                        blank.add(j)
+            for j in blank:
+                lines[j] = lines[j][len(lines[j].rstrip("\r\n")) :]
+        start = i + 1
+    return "".join(lines)
+
+
+def _retire_shared_stub(cfg: ProjectConfig, path: Path, claim: tuple[str, int]) -> bool:
+    """Delete only an unowned single-body stub; return whether it was retired."""
+    from rebrew.annotation import scan_annotation_lines
+    from rebrew.c_parser import find_c_function_definitions, find_variable_roles
+    from rebrew.data_metadata import load_data_metadata
+    from rebrew.metadata import identity_file, load_metadata, stored_file_matches
+    from rebrew.utils import SOURCE_BACKUP_DIRNAME, source_backup
+
+    text, encoding = read_source_text(path)
+    rel = identity_file(path, cfg.metadata_dir)
+    owners = [
+        *load_metadata(cfg.metadata_dir).values(),
+        *load_data_metadata(cfg.metadata_dir).values(),
+    ]
+    kept = _strip_claim(text, claim)
+    indexes, _covered = scan_annotation_lines(kept.splitlines(keepends=True))
+    definitions, _declarations, _uses = find_variable_roles(text)
+    remaining = any(stored_file_matches(str(row.get("file") or ""), rel) for row in owners)
+    if remaining or indexes or definitions or len(find_c_function_definitions(text)) != 1:
+        if kept != text:
+            with source_backup(
+                path,
+                text,
+                encoding,
+                Path(cfg.root) / SOURCE_BACKUP_DIRNAME,
+                label="shared-import",
+                keep=True,
+            ):
+                atomic_write_text(path, kept, encoding=encoding)
+        return False
+    path.unlink()
+    return True
 
 
 def stack_marker_on_block(
@@ -787,10 +844,10 @@ def import_shared_function(
     path: a mismatch reports ``imported-unverified``, never a false match.
 
     When *dst_file* names the destination's existing stub for *dst_va* (a
-    different file than the shared target), a matched import deletes it.
-    Otherwise the old stub and the new row claim the same VA and lint E013
-    fires. Deletion happens only on a matched verify; an unverified import
-    leaves the stub in place.
+    different file than the shared target), a matched import retires it only
+    when no other target, function or data owner remains. Otherwise only the
+    superseded inline claim is blanked, preserving line numbers and the other
+    owners. An unverified import leaves the stub in place.
     """
     shared_root = getattr(cfg_src, "shared_dir", None)
     shared_path = contained_path(shared_root, src_file) if shared_root is not None else None
@@ -973,8 +1030,13 @@ def import_shared_function(
         stub_path = contained_path(source_roots(cfg_dst), dst_file)
         if stub_path is not None and stub_path != target_path and stub_path.is_file():
             try:
-                stub_path.unlink()
-                message = f"{message} (superseded {dst_file})".strip()
+                retired = _retire_shared_stub(cfg_dst, stub_path, (module, dst_va))
+                note = (
+                    f"superseded {dst_file}"
+                    if retired
+                    else f"kept {dst_file}: other source owners remain"
+                )
+                message = f"{message} ({note})".strip()
             except OSError as exc:
                 return _import_result(
                     dst_va,

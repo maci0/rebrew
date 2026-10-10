@@ -17,7 +17,7 @@ from rebrew.annotation import (
 from rebrew.utils import SOURCE_BACKUP_DIRNAME, atomic_write_text, read_source_text, source_backup
 
 
-def _file_borne_comment(stripped: str) -> bool:
+def file_borne_comment(stripped: str) -> bool:
     """True for a comment the strip must leave in the file.
 
     ``// SOURCE: naked`` is the round-trip fence. ``// STRUCT:`` and
@@ -98,7 +98,7 @@ def strip_marker_blocks(lines: list[str]) -> Iterator[str]:
             ):
                 library_hint_pending = False
                 continue  # native hints may start with @ or contain C++ punctuation
-            if is_comment and _file_borne_comment(stripped):
+            if is_comment and file_borne_comment(stripped):
                 yield line
                 continue
             if is_comment and (NEW_KV_RE.search(stripped) or FUNC_NAME_HINT_RE.match(stripped)):

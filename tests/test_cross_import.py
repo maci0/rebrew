@@ -1636,6 +1636,184 @@ class TestSharedSupersede:
         assert (cfg_dst.reversed_dir / "stub.c").is_file()
         assert "FUNCTION: DST" not in (cfg_src.shared_dir / "f1.c").read_text()
 
+    @pytest.mark.parametrize(
+        "owner",
+        [
+            "other_target",
+            "managed_target",
+            "inline_target",
+            "other_function",
+            "data",
+            "data_declaration",
+            "unmarked_function",
+            "unmarked_global",
+        ],
+    )
+    def test_shared_import_preserves_other_stub_owners(
+        self, tmp_path: Path, monkeypatch, owner: str
+    ) -> None:
+        from rebrew.data_metadata import load_data_metadata, record_migrated_data_markers
+        from rebrew.metadata import load_metadata, record_function_identity, update_field
+
+        cfg_src, cfg_dst = self._cfgs(tmp_path)
+        (cfg_src.shared_dir / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+        )
+        stub = cfg_dst.reversed_dir / "stub.c"
+        text = "// FUNCTION: DST 0x401040\n// SIZE: 11\n"
+        if owner in {"other_target", "managed_target", "inline_target"}:
+            if owner != "managed_target":
+                text += "// FUNCTION: OTHER 0x501040\n"
+            module, va, symbol = "OTHER", 0x501040, "_f1"
+            if owner == "inline_target":
+                module = ""
+        elif owner == "other_function":
+            module, va, symbol = "DST", B_F2, "_second"
+        else:
+            module, va, symbol = "", 0, ""
+        text += "int f1(void){ return __LINE__; }\n"
+        if owner in {"other_function", "unmarked_function"}:
+            text += "int second(void){ return __LINE__; }\n"
+        if owner in {"data", "unmarked_global"}:
+            text += "int counter = 3;\n"
+        if owner == "data_declaration":
+            text += "extern int counter;\n"
+        text += "/*\n// FUNCTION: DST 0x401040\n*/\n"
+        stub.write_text(text)
+        if module:
+            record_function_identity(
+                tmp_path,
+                module=module,
+                va=va,
+                file="src_DST/stub.c",
+                marker_type="FUNCTION",
+                name=symbol[1:],
+                symbol=symbol,
+                size=11,
+            )
+            update_field(tmp_path, va, "note", "preserve this owner", module)
+        if owner in {"data", "data_declaration"}:
+            record_migrated_data_markers(
+                tmp_path,
+                [
+                    {
+                        "module": "DST",
+                        "va": 0x403000,
+                        "identity": {
+                            "file": "src_DST/stub.c",
+                            "name": "counter",
+                            "marker_type": "DATA",
+                        },
+                        "fields": {"size": 4, "type": "int"},
+                    }
+                ],
+            )
+        before_functions = load_metadata(tmp_path)
+        before_data = load_data_metadata(tmp_path)
+        self._ok_verify(monkeypatch)
+        result = ci.import_shared_function(
+            cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c"
+        )
+        assert result["action"] == "imported-shared"
+        assert stub.exists(), "importing one identity must not delete other source owners"
+        kept = stub.read_text()
+        assert len(kept.splitlines()) == len(text.splitlines())
+        assert "int f1(void){ return __LINE__; }" in kept
+        assert "/*\n// FUNCTION: DST 0x401040\n*/" in kept
+        assert not kept.startswith("// FUNCTION: DST")
+        if owner in {"other_target", "inline_target"}:
+            assert "// FUNCTION: OTHER 0x501040" in kept and "// SIZE: 11" in kept
+        for identity, row in before_functions.items():
+            assert load_metadata(tmp_path)[identity] == row
+        assert load_data_metadata(tmp_path) == before_data
+
+    @pytest.mark.parametrize("ending", [b"\n", b"\r\n"])
+    def test_preserved_stub_keeps_legacy_encoding_and_line_endings(
+        self, tmp_path: Path, monkeypatch, ending: bytes
+    ) -> None:
+        src, dst = self._cfgs(tmp_path)
+        (src.shared_dir / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+        )
+        stub = dst.reversed_dir / "stub.c"
+        lines = [
+            b"// FUNCTION: DST 0x401040",
+            b"// FUNCTION: OTHER 0x501040",
+            b"/* caf\xe9 */",
+            b"int old(void){ return __LINE__; }",
+        ]
+        original = ending.join(lines) + ending
+        stub.write_bytes(original)
+        self._ok_verify(monkeypatch)
+        result = ci.import_shared_function(dst, src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
+        assert result["action"] == "imported-shared"
+        assert stub.read_bytes() == ending + ending.join(lines[1:]) + ending
+
+    def test_shared_stub_is_retired_only_after_its_last_target_moves(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from rebrew.metadata import get_entry, record_function_identity
+
+        src, dst = self._cfgs(tmp_path)
+        (src.shared_dir / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+        )
+        stub = dst.reversed_dir / "stub.c"
+        stub.write_text(
+            "// FUNCTION: DST 0x401040\n// FUNCTION: OTHER 0x501040\nint old(void){ return 0; }\n"
+        )
+        for module, va in [("DST", B_F1), ("OTHER", 0x501040)]:
+            record_function_identity(
+                tmp_path,
+                module=module,
+                va=va,
+                file="src_DST/stub.c",
+                marker_type="FUNCTION",
+                name="old",
+                symbol="_old",
+                size=11,
+            )
+        self._ok_verify(monkeypatch)
+        first = ci.import_shared_function(dst, src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
+        assert first["action"] == "imported-shared" and stub.exists()
+        other = SimpleNamespace(**{**vars(dst), "target_name": "OTHER", "marker": "OTHER"})
+        last = ci.import_shared_function(other, src, 0x501040, A_F1, "f1.c", 11, dst_file="stub.c")
+        assert last["action"] == "imported-shared" and not stub.exists()
+        for module, va in [("DST", B_F1), ("OTHER", 0x501040)]:
+            assert get_entry(tmp_path, va, module)["file"] == "src/shared/f1.c"
+
+    @pytest.mark.parametrize(
+        "comment, keep",
+        [
+            ("// SOURCE: naked", True),
+            ("/* SOURCE: NAKED */", True),
+            ("// STRUCT: Entity", True),
+            ("// CALLERS: 0x401080", True),
+            ("// SOURCE: imported", False),
+            ("// NOTE: obsolete identity", False),
+        ],
+    )
+    def test_retired_claim_keeps_only_file_borne_metadata(
+        self, tmp_path: Path, monkeypatch, comment: str, keep: bool
+    ) -> None:
+        src, dst = self._cfgs(tmp_path)
+        (src.shared_dir / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+        )
+        stub = dst.reversed_dir / "stub.c"
+        original = (
+            "// FUNCTION: DST 0x401040\n"
+            + comment
+            + "\nint old(void){ return __LINE__; }\nint retained_storage;\n"
+        )
+        stub.write_text(original)
+        self._ok_verify(monkeypatch)
+        result = ci.import_shared_function(dst, src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
+        assert result["action"] == "imported-shared" and stub.exists()
+        kept = stub.read_text()
+        assert (comment in kept) == keep
+        assert len(kept.splitlines()) == len(original.splitlines())
+
     def test_unverified_rollback_restores_cflags_and_status(
         self, tmp_path: Path, monkeypatch
     ) -> None:

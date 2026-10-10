@@ -95,6 +95,7 @@ __all__ = [
     "remove_annotation_key",
     "remove_inline_annotation_key",
     "resolve_symbol",
+    "scan_annotation_lines",
     "split_annotation_sections",
     "update_annotation_key",
     "update_size_annotation",
@@ -264,7 +265,7 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     merge/split operations.
     """
     lines = split_source_lines(text, keepends=True)
-    marker_indexes, in_block_comment = _scan_annotation_lines(lines)
+    marker_indexes, in_block_comment = scan_annotation_lines(lines)
 
     if not marker_indexes:
         return text, []
@@ -338,7 +339,7 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     return preamble, blocks
 
 
-def _scan_annotation_lines(lines: Sequence[str]) -> tuple[list[int], list[bool]]:
+def scan_annotation_lines(lines: Sequence[str]) -> tuple[list[int], list[bool]]:
     """Marker line indexes, and per line whether a ``/* ... */`` run covers it.
 
     One definition of "is this a marker" and of "is this line commented out",
@@ -380,11 +381,11 @@ def block_markers(block: str) -> list[tuple[str, int]]:
     (ADR-010/022), so callers must not stop at the first marker.
     """
     lines = split_source_lines(block)
-    marker_indexes, _ = _scan_annotation_lines(lines)
+    marker_indexes, _ = scan_annotation_lines(lines)
     out: list[tuple[str, int]] = []
     for idx in marker_indexes:
         m = NEW_FUNC_CAPTURE_RE.match(lines[idx].strip())
-        assert m is not None  # _scan_annotation_lines matched this very line
+        assert m is not None  # scan_annotation_lines matched this very line
         out.append((unicodedata.normalize("NFC", m.group("module")), int(m.group("va"), 16)))
     return out
 

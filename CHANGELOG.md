@@ -195,6 +195,9 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- Shared imports retire an old source file only after its last target/function/
+  data owner moves. Other definitions and storage survive, and removal of the
+  superseded inline claim preserves line numbers, encoding and commented markers.
 - Cross-target imports use the selected source function's compiler flags,
   including in files with several functions or target identities. Verified
   shared and copied imports replace stale destination identity names. A
