@@ -195,6 +195,8 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- Text placement inventories exclude DATA, GLOBAL, STRING and VTABLE rows;
+  only function annotations contribute expected code addresses.
 - `verify --text` uses an available MSVC link map for placement counts and
   drift checks as well as linked-EXACT promotion. The object walk is now only
   the fallback without a map; stale object order cannot hide mapped drift or

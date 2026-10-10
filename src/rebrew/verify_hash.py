@@ -501,6 +501,8 @@ def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
         iter_sources(cfg.reversed_dir, cfg), target=marker, metadata_dir=cfg.metadata_dir
     ):
         for ann in annos:
+            if not ann.is_function:
+                continue
             sym = ann.symbol if ann.symbol and ann.symbol != "?" else "_" + path.stem
             out.setdefault(c_name_from_symbol(sym), ann.va)
     return out
