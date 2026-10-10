@@ -137,6 +137,57 @@ class TestCallerCounts:
 
 
 class TestCollectors:
+    @pytest.mark.parametrize(
+        ("status", "category", "score"),
+        [("COMPILE_ERROR", CAT_COMPILE_ERROR, 200.0), ("EXTRACT_ERROR", CAT_EXTRACT_ERROR, 150.0)],
+    )
+    def test_durable_errors_without_cache(self, status: str, category: str, score: float) -> None:
+        existing = {0x1000: {"status": status, "symbol": "_broken", "filename": "broken.c"}}
+        items = _collect_active_functions(existing, {0x1000: 38}, {}, {})
+        assert len(items) == 1
+        assert (items[0].category, items[0].roi_score, items[0].status) == (category, score, status)
+        assert items[0].command == "rebrew test 0x00001000"
+
+    @pytest.mark.parametrize("status", ["COMPILE_ERROR", "EXTRACT_ERROR"])
+    def test_cached_exact_supersedes_durable_error(self, status: str) -> None:
+        from rebrew.verify_cache import VerifyCacheEntry
+
+        entry = VerifyCacheEntry(
+            source_hash="",
+            filepath="a.c",
+            mtime_ns=0,
+            status="EXACT",
+            va=0x1000,
+            size=38,
+            name="a",
+            message="",
+            passed=True,
+        )
+        assert not _collect_active_functions(
+            {0x1000: {"status": status, "symbol": "_a"}}, {}, {}, {"0x00001000": entry}
+        )
+
+    @pytest.mark.parametrize("status", ["COMPILE_ERROR", "EXTRACT_ERROR"])
+    def test_proven_precedence_applies_to_cached_errors(self, status: str) -> None:
+        from rebrew.verify_cache import VerifyCacheEntry
+
+        entry = VerifyCacheEntry(
+            source_hash="",
+            filepath="a.c",
+            mtime_ns=0,
+            status=status,
+            va=0x1000,
+            size=38,
+            name="a",
+            message="",
+            passed=False,
+        )
+        items = _collect_active_functions(
+            {0x1000: {"status": "PROVEN", "symbol": "_a"}}, {}, {}, {"0x00001000": entry}
+        )
+        assert len(items) == 1
+        assert (items[0].category, items[0].status) == (CAT_IMPROVE_MATCH, "PROVEN")
+
     def test_active_functions_compile_error(self, tmp_path: Path) -> None:
         _cfg = _make_cfg(tmp_path)
         from rebrew.verify_cache import VerifyCacheEntry

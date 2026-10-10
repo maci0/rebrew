@@ -195,6 +195,9 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- `rebrew todo` classifies durable compile/extract errors even when no current
+  verification cache entry exists, using the same effective verdict as `status`.
+  A newer cached byte match and the existing PROVEN precedence still win.
 - Text placement inventories exclude DATA, GLOBAL, STRING and VTABLE rows;
   only function annotations contribute expected code addresses.
 - `verify --text` uses an available MSVC link map for placement counts and

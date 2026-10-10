@@ -413,12 +413,12 @@ def _collect_active_functions(
         # (populated in the improve-match branch below).
         mutations: list[str] = []
 
-        if v_status == "COMPILE_ERROR":
+        if status == "COMPILE_ERROR":
             category = CAT_COMPILE_ERROR
             desc = "Compile error — fix syntax/includes"
             score = 200.0  # High priority blocker
 
-        elif v_status == "EXTRACT_ERROR":
+        elif status == "EXTRACT_ERROR":
             # The symbol was not found in the compiled .obj (wrong symbol,
             # optimized-away function, or a STUB marker whose decorated name
             # doesn't match).  delta is 0 (no bytes extracted), so without
