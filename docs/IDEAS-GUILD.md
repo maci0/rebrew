@@ -808,3 +808,18 @@ automatic single-body guard; do not generalize its definition-count condition.
 Evidence: guild-rebrew/.scratch/goal20/retire_office_query_duplicates.py and
 office-query-duplicate-retirement/receipt.json. This is a missing workflow
 feature, not a reason to relax the existing import safety check.
+
+## Nested compiler batches with single-file input parity (2026-10-11)
+
+Nested sources currently fall back to individual compiles. VC6 emits an
+861-byte `gm_Open` when invoked with `spiel.c`, but 859 bytes with
+`Develop/DieGildeAddOn/game/spiel.c`, even with identical preprocessed C.
+Adding the missing include paths or a basename `#line` does not restore parity.
+Caching the nested batch object under the single-file key poisoned verification.
+
+Proposed feature: batch nested units only when compiler-visible basenames,
+include order and header resolution equal the single-file path, for example by
+grouping sources by their original directory. Prove complete body and operand
+parity before sharing object-cache keys; preserve the individual fallback.
+Evidence: guild-rebrew/.scratch/goal20/pool-first-next-gm-open-cache/receipt.json,
+pool-first-next-gm-open-batch/receipt.json and its empty preprocessed.diff.

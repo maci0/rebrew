@@ -2107,6 +2107,10 @@ def precompile_batch(
                 # A ``file`` escaping the source trees is read below for the
                 # cache key and staged for the build; refuse the group.
                 continue
+            # Single-file compiles pass a basename. A nested batch argv changes
+            # __FILE__ and VC6 register allocation, even with identical tokens.
+            if cfile.parent != Path(cfg.reversed_dir).resolve():
+                continue
             toolchain, cflags = resolve_compile_overrides(
                 cfg,
                 cfile.parent,

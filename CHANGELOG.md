@@ -195,6 +195,12 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- Nested sources now use the single-file compiler path during verification.
+  Batch staging passed a different filename to the compiler: VC6 changed
+  register allocation even with identical preprocessed C, and `__FILE__` also
+  differed. **Breaking:** `compile_cache.CACHE_SCHEMA_VERSION` is now 8 to reject
+  objects cached by the old batch path; the existing package-logic hash
+  invalidates their cached verification verdicts.
 - The shared relocation catalog includes verified data `link_symbol` spellings
   alongside analysis labels, scoped to the active target. Test, verify and
   symbol resolution can now validate native field views and compiler literals

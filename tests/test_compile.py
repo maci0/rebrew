@@ -1733,6 +1733,9 @@ class TestPrecompileBatchCleanup:
         rev.mkdir()
         for name in ("a.c", "b.c"):
             (rev / name).write_text(f"int {name[0]}(void){{return 1;}}\n", encoding="utf-8")
+        nested = rev / "nested"
+        nested.mkdir()
+        (nested / "c.c").write_text("int c(void){return 1;}\n", encoding="utf-8")
 
         workdirs: list[Path] = []
         lasting_dirs: list[Path] = []
@@ -1748,6 +1751,7 @@ class TestPrecompileBatchCleanup:
         monkeypatch.setattr("rebrew.temp_dirs.writable_temp_dir", _tracking_wtd)
 
         def _fake_batch(spec, src_names, flags, workdir, mounts, timeout):
+            assert src_names == ["a.c", "b.c"]
             out = {}
             for src in src_names:
                 obj = workdir / (Path(src).stem + ".o")
@@ -1777,6 +1781,7 @@ class TestPrecompileBatchCleanup:
         entries = [
             SimpleNamespace(filepath="a.c", toolchain="", cflags="", module=""),
             SimpleNamespace(filepath="b.c", toolchain="", cflags="", module=""),
+            SimpleNamespace(filepath="nested/c.c", toolchain="", cflags="", module=""),
         ]
         cfg = SimpleNamespace(
             reversed_dir=rev,
@@ -1789,6 +1794,7 @@ class TestPrecompileBatchCleanup:
         )
         out = precompile_batch(cfg, entries)
         assert len(out) == 2
+        assert id(entries[2]) not in out
         assert workdirs, "expected at least one staged group workdir"
         for wd in workdirs:
             assert not wd.exists(), f"staged workdir leaked: {wd}"

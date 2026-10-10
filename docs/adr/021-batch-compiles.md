@@ -14,6 +14,8 @@ hundreds.
 
 ## Decision
 
+Amended 2026-10-11: nested sources use the single-file path.
+
 - `precompile_batch(cfg, entries, ...)` / `compile_batch_objs(...)`:
   group by (toolchain image, cflags), one `docker run` per group with N
   source files, default-named outputs collected per file. Grouping ignores
@@ -21,6 +23,10 @@ hundreds.
 - Only `posix`/`msvc` arg styles batch. dos/borland/watcom profiles, the
   recompile backend, context-merged units, and groups of one compile
   individually.
+  Nested sources also compile individually: the single-file path passes a
+  basename, while batch staging passed a tree-relative name. VC6 can change
+  register allocation with that filename alone, even when preprocessed tokens
+  are identical; `__FILE__` changes too. Their objects must not share a cache key.
   GCC: `gcc -O2 -c a.c b.c ...` in one workdir (objects land in the
   workdir root); MSVC: `cl /c a.c b.c ...` (same). Per-file `/Fo`/`-o` is
   dropped: outputs are renamed from defaults after the run.
