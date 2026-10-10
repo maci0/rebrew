@@ -195,6 +195,10 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- The shared provenance stamper rejects unknown tool tags before changing an
+  entry. Single-field and grouped function metadata writers can no longer
+  create a store that immediately fails lint W031; existing store bytes and
+  open entries remain unchanged after a rejected stamp.
 - The shared C function-definition finder masks MSVC extensions before parsing.
   Inline assembly no longer hides later functions in a translation unit, and
   multiline `__declspec` attributes retain the original following line numbers.

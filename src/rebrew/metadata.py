@@ -753,6 +753,8 @@ def stamp_provenance(
     writes from a seed passes the same instant, so the store lands the same
     bytes; left unset it reads the wall clock.
     """
+    if updated_by not in PROVENANCE_TAGS:
+        raise ValueError(f"Unknown provenance tag {updated_by!r}")
     entry["updated_by"] = updated_by
     entry["updated_at"] = (now or datetime.now(UTC)).isoformat(timespec="seconds")
 

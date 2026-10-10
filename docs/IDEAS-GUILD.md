@@ -765,3 +765,14 @@ mask before walking definitions. LF/CRLF fill regressions fail first; multiline
 attributes also demonstrate shifted following line numbers. This fixes every
 caller, including retirement, without a game-side parser workaround. Evidence:
 guild-rebrew/.scratch/goal20/function-discovery-after-asm-before.log.
+
+## Reject unsupported provenance at the common stamp (2026-10-11)
+
+Pain: a guild-rebrew formatter identity note passed an unsupported tool tag
+to update_field. The public field writer accepted it although the batch writer
+refused the same input, and all-target lint then reported W031 against the
+managed store. Validate against the existing provenance vocabulary in the
+shared stamper, before changing an open entry. Five failing regressions cover
+fresh and existing stores through single and grouped writes, plus the open
+entry itself; no new tag or lint exception is needed. Evidence:
+guild-rebrew/.scratch/goal20/provenance-field-writer-before.log.
