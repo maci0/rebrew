@@ -823,3 +823,21 @@ grouping sources by their original directory. Prove complete body and operand
 parity before sharing object-cache keys; preserve the individual fallback.
 Evidence: guild-rebrew/.scratch/goal20/pool-first-next-gm-open-cache/receipt.json,
 pool-first-next-gm-open-batch/receipt.json and its empty preprocessed.diff.
+
+## Distinguish library template hits from operand-supported identities (2026-10-11)
+
+Pain: GOLD's 12-byte seed setter at 0x5de77a matches LIBCMT's
+`___set_app_type` template. Stock LIBC reports both that template and `_srand`.
+The setter writes the same native word at 0x62e108 that the independently
+matched LIBC `_rand` reads; this supports the random binding, while a unique
+template hit in the configured archive alone does not prove its identity.
+
+Proposed feature: expose template-only scope and unresolved operand ownership
+in library match results, and optionally compare typed data operands against
+independently established native allocations and companion archive members.
+Keep ambiguous candidates visible and require raw-link evidence before claiming
+a configured storage provider. Do not infer a complete CRT selection from one
+function or replace stock runtime bodies to satisfy a template.
+Evidence: guild-rebrew/.scratch/goal20/random-unit-probe/GOLD-srand-provider.json,
+GOLD-srand-libc-provider.json and runtime-providers.json. GOLD's `_rand` origin
+was already recorded in guild-rebrew/.scratch/goal-crt-retirement/.
