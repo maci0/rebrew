@@ -138,8 +138,7 @@ you what to attack next.
   `E017` (contradictory STUB marker on earned status), `E023` (whole-function
   `__declspec(naked)` + `__asm`/`__emit` block instead of real C).
 - Warnings: `W003` (file has no function implementation), `W005` (STUB without BLOCKER),
-  `W006` (library module missing `// SOURCE:` marker), `W007` (struct(s) defined without a
-  `// SIZE` marker), `W010` (unknown marker key),
+  `W006` (library module missing `// SOURCE:` marker), `W010` (unknown marker key),
   `W015` (mixed-case VA hex digits), `W016` (DATA/GLOBAL missing SECTION), `W018` (missing CFLAGS),
   `W019` (inline metadata should be in `rebrew-functions.toml`), `W020` (asm-dump
   placeholder instead of real C source), `W021` (duplicate global symbol across files),
