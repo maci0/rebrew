@@ -107,13 +107,14 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install dependencies
         run: uv sync --locked --all-extras --group similarity
-      - name: Install nasm (NASM round-trip verification in asm tests)
+      - name: Install nasm and GNU patch (assembly and vendor tests)
         # apt mirrors flake under load; the helper retries update and install
         # (same posture as the resembl clone) instead of failing the job.
         run: |
           set -euo pipefail
-          bash tools/ci_apt_install.sh nasm
+          bash tools/ci_apt_install.sh nasm patch
           nasm -v
+          patch --version
       - name: Set up bun (dashboard interaction tests)
         # tests/dashboard_*.mjs run through `bun`, and test_dashboard.py skips
         # them when it is absent, so a job without it would report green

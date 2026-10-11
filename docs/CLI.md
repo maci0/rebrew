@@ -1405,6 +1405,47 @@ Field synchronization is BinSync-primary: `sync push`, `pull`, `summary`, and `w
 
 Use `rebrew sync <operation> --help` for exact arguments and examples.
 
+### `rebrew library vendor`
+
+`rebrew library vendor MANIFEST... [--sync] [--root PATH] [--json]`
+
+Check a vendored source tree against its pinned pristine files and ordered patches.
+The default only compares; `--sync` regenerates the output tree and removes unlisted
+output files. Every manifest is validated and staged before any output is changed.
+Staging uses temporary directories that are removed automatically. Requires GNU
+`patch` on PATH when patches are listed (`-p1 --batch --forward --fuzz=0`).
+
+Each TOML manifest requires:
+
+```toml
+name = "mylib"
+version = "1.0"
+url = "https://example.org/mylib-1.0.tar.gz"
+sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+pristine = "references/mylib-1.0"
+checksums = "references/vendor/mylib/pristine.sha256"
+output = "references/mylib"
+files = ["mylib.c", "mylib.h"]
+patches = ["0001-native-allocator.patch"]
+```
+
+Manifest arguments, `pristine`, `checksums` and `output` are relative to the project
+root (`--root` supports standalone trees). Patch paths are relative to the manifest.
+The checksum list uses `SHA256  root-relative-path`, one file per line; it must pin
+all pristine files, including files not selected for output. Several manifests may
+share a checksum list and pristine tree. Every selected output file must be pinned,
+and patches must preserve that complete file inventory. Symlinks, escaping paths,
+duplicate checksums and overlapping outputs/inputs are rejected. The URL, version
+and archive digest document provenance; this command does not download or verify an
+archive, it verifies the unpacked files against the checksum list.
+
+```bash
+rebrew library vendor references/vendor/mylib/vendor.toml
+rebrew library vendor references/vendor/mylib/vendor.toml --sync
+```
+
+Exit 1 means drift, invalid manifest or patch failure; missing files or tools exit 2.
+
 ### `rebrew library bind-source`
 
 `rebrew library bind-source VA SOURCE --symbol NATIVE_SYMBOL [--dry-run] [--json] [--target NAME]`

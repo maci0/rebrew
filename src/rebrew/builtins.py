@@ -395,6 +395,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     ),
     "library": (
         CliComponent(
+            name="vendor",
+            module="rebrew.vendor",
+            help="Check or regenerate vendored sources from pristine files and ordered patches.",
+            panel=Panel.PROJECT_SETUP,
+        ),
+        CliComponent(
             name="crt-match",
             module="rebrew.crt_match",
             help="CRT source cross-reference matcher.",
