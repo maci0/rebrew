@@ -1506,18 +1506,42 @@ def main(
             )
         confirm_abort(f"Delete {len(included_inputs)} input file(s) after merge?")
 
+    # Legacy markers can coexist with managed identities; those rows must move
+    # before --delete removes the files they still name.
+    meta, new_file = _destination(cfg, output_path, json_output)
+    entries = load_metadata(meta)
+    data_entries = load_data_metadata(meta)
+    function_rows: list[tuple[str, int, str]] = []
+    data_rows: list[tuple[str, int, str]] = []
+    from rebrew.c_parser import find_c_function_definitions
+
+    defined = {name for name, _span in find_c_function_definitions(merged_text)}
+    for file_path in included_inputs:
+        rel = identity_file(file_path, meta)
+        for module, va, entry in _function_rows(entries, rel):
+            if not row_labels(entry) & defined:
+                error_exit(
+                    f"Managed function {module}.0x{va:08x} is absent from merged output. "
+                    "Nothing was written; use --shared to retain other targets' definitions.",
+                    json_mode=json_output,
+                )
+        function_rows.extend(
+            (module, va, str(entry["file"])) for module, va, entry in _function_rows(entries, rel)
+        )
+        data_rows.extend(
+            (module, va, str(entry["file"])) for module, va, entry in _data_rows(data_entries, rel)
+        )
     if not dry_run:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            atomic_write_text(output_path, merged_text, encoding=out_encoding)
-        except UnicodeEncodeError as exc:
-            offending = exc.object[exc.start : exc.end]
-            error_exit(
-                f"merged source cannot be encoded as {out_encoding} "
-                f"(offending text {offending!r}); convert the inputs to a common "
-                "encoding first",
-                json_mode=json_output,
-            )
+        _commit_markerless(
+            meta=meta,
+            new_file=new_file,
+            output_path=output_path,
+            merged_text=merged_text,
+            out_encoding=out_encoding,
+            function_rows=function_rows,
+            data_rows=data_rows,
+            json_output=json_output,
+        )
         if delete:
             for file_path in included_inputs:
                 if file_path.resolve() == output_path.resolve():
@@ -1535,6 +1559,8 @@ def main(
         "vas": [f"0x{va:08x}" for va, _ in sorted(blocks_with_va, key=lambda x: x[0])],
         "extern_dropped": extern_report.dropped if extern_report else [],
         "extern_conflicts": dict(extern_report.conflicts) if extern_report else {},
+        "retargeted": [f"{module}.0x{va:08x}" for module, va, _old in function_rows],
+        "data_retargeted": [f"{module}.0x{va:08x}" for module, va, _old in data_rows],
     }
     if json_output:
         json_print(payload)

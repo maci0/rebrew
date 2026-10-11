@@ -200,6 +200,9 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- Legacy-marker source merges now retarget existing managed function and data
+  identities across targets before deleting inputs. A merge refuses to discard
+  a managed function body; failed store updates restore the output and bindings.
 - `rebrew todo` reports managed C identities whose file or definition is missing
   as source repairs, retaining their names and blockers instead of suggesting
   a new skeleton. Missing definitions do not count as source coverage, and a

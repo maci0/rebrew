@@ -890,6 +890,130 @@ class TestRebaseIncludes:
 class TestMarkerlessMerge:
     """A migrated file is merged from its function rows, not from a marker line."""
 
+    @pytest.mark.parametrize("delete", [False, True])
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_legacy_markers_retarget_existing_managed_rows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, delete: bool, dry_run: bool
+    ) -> None:
+        from rebrew.data_metadata import load_data_metadata, record_migrated_data_markers
+        from rebrew.metadata import load_metadata, update_source_status
+
+        a = _write(tmp_path / "a.c", _single(0x401000, "_func_a", module="GOLD"))
+        b = _write(tmp_path / "b.c", _single(0x402000, "_func_b", module="GOLD"))
+        _seed(
+            tmp_path, [("GOLD", 0x401000, "_func_a"), ("GOLDTL", 0x501000, "_func_a")], file="a.c"
+        )
+        _seed(tmp_path, [("GOLD", 0x402000, "_func_b")], file="b.c")
+        _seed(tmp_path, [("GOLD", 0x403000, "_unrelated")], file="other.c")
+        update_source_status(
+            tmp_path,
+            "EXACT",
+            "GOLD",
+            0x401000,
+            updated_by="verify",
+            verification={"status": "EXACT", "writer": "verify", "input_hash": "a" * 64},
+        )
+        record_migrated_data_markers(
+            tmp_path,
+            [
+                {
+                    "module": "GOLDTL",
+                    "va": 0x601000,
+                    "identity": {"file": "a.c", "name": "view", "marker_type": "GLOBAL"},
+                }
+            ],
+        )
+        old_functions = load_metadata(tmp_path)
+        old_data = load_data_metadata(tmp_path)
+        old_sources = (a.read_bytes(), b.read_bytes())
+        args = ["--force", "--shared", "--json"]
+        if delete:
+            args.append("--delete")
+        if dry_run:
+            args.append("--dry-run")
+        args.extend([str(a), str(b)])
+        result, out = _invoke_meta(tmp_path, monkeypatch, *args)
+        assert result.exit_code == 0, result.output
+        if dry_run:
+            assert not out.exists()
+            assert load_metadata(tmp_path) == old_functions
+            assert load_data_metadata(tmp_path) == old_data
+            assert (a.read_bytes(), b.read_bytes()) == old_sources
+            return
+        current = load_metadata(tmp_path)
+        for key in [("GOLD", 0x401000), ("GOLDTL", 0x501000), ("GOLD", 0x402000)]:
+            assert current[key]["file"] == "merged.c"
+            ignore = {"file", "updated_at", "updated_by"}
+            assert {k: v for k, v in current[key].items() if k not in ignore} == {
+                k: v for k, v in old_functions[key].items() if k not in ignore
+            }
+        assert current[("GOLD", 0x403000)] == old_functions[("GOLD", 0x403000)]
+        assert load_data_metadata(tmp_path)[("GOLDTL", 0x601000)]["file"] == "merged.c"
+        assert "// FUNCTION: GOLD" in out.read_text()
+        assert a.exists() is not delete and b.exists() is not delete
+
+    def test_legacy_merge_restores_output_and_inputs_if_data_retarget_fails(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew.data_metadata import record_migrated_data_markers
+        from rebrew.metadata import load_metadata
+
+        a = _write(tmp_path / "a.c", _single(0x401000, "_func_a", module="GOLD"))
+        b = _write(tmp_path / "b.c", _single(0x402000, "_func_b", module="GOLD"))
+        _seed(tmp_path, [("GOLD", 0x401000, "_func_a")], file="a.c")
+        _seed(tmp_path, [("GOLD", 0x402000, "_func_b")], file="b.c")
+        record_migrated_data_markers(
+            tmp_path,
+            [
+                {
+                    "module": "GOLD",
+                    "va": 0x601000,
+                    "identity": {"file": "a.c", "name": "view", "marker_type": "GLOBAL"},
+                }
+            ],
+        )
+        output = _write(tmp_path / "merged.c", "existing output\n")
+        old = (a.read_bytes(), b.read_bytes(), output.read_bytes())
+
+        def fail(*args: Any, **kwargs: Any) -> None:
+            raise OSError("data writer unavailable")
+
+        monkeypatch.setattr("rebrew.merge.record_migrated_data_markers", fail)
+        result, out = _invoke_meta(
+            tmp_path, monkeypatch, "--force", "--shared", "--delete", str(a), str(b)
+        )
+        assert result.exit_code != 0
+        assert "data writer unavailable" in result.output
+        assert (a.read_bytes(), b.read_bytes(), out.read_bytes()) == old
+        assert load_metadata(tmp_path)[("GOLD", 0x401000)]["file"] == "a.c"
+
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_legacy_merge_refuses_to_drop_a_managed_foreign_definition(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dry_run: bool
+    ) -> None:
+        from rebrew.metadata import load_metadata
+
+        a = _write(
+            tmp_path / "a.c",
+            _single(0x10001000, "_func_a") + _single(0x401000, "_foreign", module="GOLD"),
+        )
+        b = _write(tmp_path / "b.c", _single(0x10002000, "_func_b"))
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("GOLD", 0x401000, "_foreign")],
+            file="a.c",
+        )
+        _seed(tmp_path, [("SERVER", 0x10002000, "_func_b")], file="b.c")
+        old = (a.read_bytes(), b.read_bytes(), load_metadata(tmp_path))
+        args = ["--force", "--delete"]
+        if dry_run:
+            args.append("--dry-run")
+        result, out = _invoke_meta(tmp_path, monkeypatch, *args, str(a), str(b))
+        assert result.exit_code != 0
+        assert "absent from merged output" in result.output
+        assert not out.exists()
+        assert (a.read_bytes(), b.read_bytes(), load_metadata(tmp_path)) == old
+
     def test_files_sort_by_the_active_targets_va(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A shared body's lower client VA must not sort it ahead of earlier server code."""
         _write(tmp_path / "a.c", "int func_a(void) { return 0; }\n")
