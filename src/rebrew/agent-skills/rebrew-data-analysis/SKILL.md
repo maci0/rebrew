@@ -25,6 +25,14 @@ Inspect global variables and detect type conflicts across translation units.
 - Function bodies / disassembly / matching → use `rebrew-workflow` or `rebrew-matching`
 - Pulling data labels back from Ghidra → use `rebrew-ghidra-sync` (`rebrew sync pull-data`)
 
+## Use the Existing Data and Link Tools
+
+Use the commands below before creating a data inventory, map/PE parser, placement
+checker, raw-address rewriter or storage emitter. For choosing tools and composing
+public APIs, see the `rebrew-workflow/references/tool-selection.md`. Keep native
+VAs/extents and independent project acceptance tests local; generic machinery
+should use Rebrew's existing APIs or an upstream improvement, not a parallel store.
+
 ## Ownership first
 
 A storage definition owns a global; an `extern`, annotation, or referring function
