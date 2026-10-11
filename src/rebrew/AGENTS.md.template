@@ -54,7 +54,8 @@ Use `--json` for structured output (preferred for agents).
 | `rebrew lint --json` | Validate annotations and the stores: inline metadata (W019), stale marker VAs (W028), redundant cflags (W029), function/data store shapes the writers reject (W031), data rows whose size disagrees with the owning definition (W037) or overlaps another row (W038), coverage-store hygiene — leftover `coverage.db`/grid JSON/CSV and documents the dashboards cannot serve (W032) |
 | `rebrew data list --json` | Inventory globals in .data/.rdata/.bss |
 | `rebrew data move 0xOLD 0xNEW` | Re-address a data row; drops its verdict, keeps verification history |
-| `rebrew types check` | Check struct layouts |
+| `rebrew types check` | Check layouts and stale type bindings; `--compile` repeats target sizeof/offsetof assertions |
+| `rebrew types bind ID FILE C_NAME --size N --native-size N --evidence TEXT` | Register or refresh a stable type ID and target layout in managed `rebrew-types.toml` |
 | `rebrew types apply` | Rewrite signature types; preview with `--dry-run` |
 | `rebrew orphans list` | List metadata identities whose source is missing |
 | `rebrew orphans prune` | Remove orphaned metadata through the locked writer; preview with `--dry-run` |
@@ -151,6 +152,14 @@ inputs and measurement time independently of ordinary `updated_by` /
 These facts survive removal of derived coverage and compile caches.
 
 `CFLAGS` is optional — falls back to the target default from `rebrew-project.toml`.
+
+Types have stable IDs rather than instance VAs. Put definitions in the owning
+subsystem header or private C file and bind them with `rebrew types bind`.
+Keep C size separate from evidenced native allocation/stride extent; unknown
+semantic fields can remain byte regions. `rebrew-types.toml` is CLI/API-managed
+(locked + atomic), never hand-edited. After a rename, move or layout/context
+change, review the native evidence and rebind the same ID. Heap instances are
+identified by allocation/use sites; static instances keep their data VAs.
 
 ## Compiler Constraints ({compiler_profile})
 

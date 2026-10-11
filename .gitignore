@@ -105,6 +105,7 @@ Thumbs.db
 # Cross-process write locks (flock sidecars — must persist)
 rebrew-functions.toml.lock
 rebrew-data.toml.lock
+rebrew-types.toml.lock
 rebrew-libraries.toml.lock
 rebrew-project.toml.lock
 

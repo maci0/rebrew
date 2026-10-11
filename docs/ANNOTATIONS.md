@@ -385,8 +385,17 @@ Struct declarations do not need `// SIZE` comments. Function sizes belong in
 `rebrew-functions.toml`; global byte extents belong in `rebrew-data.toml`.
 Neither establishes the size of a type or its complete native allocation.
 
-Use the C declaration, target compiler layout checks and `rebrew types check`
-against decompiler field-offset evidence to validate a recovered struct.
+`rebrew types bind ID FILE C_NAME --size N --native-size N --evidence TEXT`
+records a stable type identity and target layout in managed `rebrew-types.toml`.
+Definitions belong in their subsystem header or private translation unit.
+The type ID has no address: an instance has an address, while a heap instance
+is evidenced by allocation/use sites. Record those sites in the type evidence;
+static instances keep their VA in `rebrew-data.toml`.
+The command compiles C89 sizeof and optional `--field member=offset` assertions
+with the target compiler before writing. C size and native allocation/stride
+extent are separate facts; unknown fields can remain explicit byte regions.
+`rebrew types check` and W031 report stale bindings; `--compile` repeats the
+compiler assertions. Review evidence and rebind the same ID after changes.
 BinSync `structs/*.toml` carries external type-layout evidence for synchronization.
 A partial accessed view must not be reported as a complete native allocation.
 Legacy struct-size comments remain ordinary comments; they are not validated

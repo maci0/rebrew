@@ -1732,6 +1732,16 @@ def _check_W031_source_provenance(cfg: ProjectConfig) -> list[LintResult]:
     return [result] if result.warnings else []
 
 
+def _check_W031_type_metadata(cfg: ProjectConfig) -> list[LintResult]:
+    """Report invalid/stale managed type bindings without invoking the compiler."""
+    from rebrew.type_metadata import TYPE_METADATA_FILENAME, check_types
+
+    result = LintResult(Path(TYPE_METADATA_FILENAME))
+    for finding in check_types(cfg):
+        result.warning(1, "W031", f"type {finding['id']}:{finding['module']}: {finding['issue']}")
+    return [result] if result.warnings else []
+
+
 def _check_W020_asm_dump(
     result: LintResult,
     code_lines: list[str],
@@ -3026,6 +3036,7 @@ def main(
         for artifact_result in (
             *_check_W031_metadata_store(cfg),
             *_check_W031_source_provenance(cfg),
+            *_check_W031_type_metadata(cfg),
             *_check_W032_coverage_store(cfg),
             *_check_W036_stray_metadata_store(cfg),
             *_check_W034_identity_paths(cfg),
