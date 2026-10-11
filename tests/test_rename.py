@@ -1261,6 +1261,90 @@ class TestProtectedSpans:
 
 
 class TestFunctionReferenceBinding:
+    @pytest.mark.parametrize(
+        "header_text", ["// LIBRARY: CLIENT 0x1000\n// _free\n", "void free(void*);\n"]
+    )
+    @pytest.mark.parametrize("preview", [True, False])
+    def test_binds_linked_library_without_creating_source_or_changing_identity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preview: bool, header_text: str
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.metadata import record_function_identity
+        from rebrew.rename import app
+
+        header = _src(tmp_path, "library_crt.h", header_text)
+        caller = _src(
+            tmp_path,
+            "caller.c",
+            "void placeholder(void*); void caller(void* p) { placeholder(p); }\n",
+        )
+        _src(tmp_path, "other.c", "void free(void*); void other(int free) { free++; }\n")
+        record_function_identity(
+            tmp_path,
+            module="CLIENT",
+            va=0x1000,
+            file="library_crt.h",
+            marker_type="LIBRARY",
+            name="free",
+            symbol="_free",
+        )
+        cfg = _cfg(tmp_path)
+        cfg.root, cfg.marker, cfg.source_ext = tmp_path, "CLIENT", ".c"
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        original = caller.read_bytes()
+        metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
+        result = CliRunner().invoke(
+            app, ["--json", *(["--dry-run"] if preview else []), "placeholder", "CLIENT.0x1000"]
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["rows"] == []
+        assert caller.read_bytes() == (
+            original if preview else original.replace(b"placeholder", b"free")
+        )
+        assert header.read_text() == header_text
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata
+        assert not any("free(void* p) {" in p.read_text() for p in tmp_path.glob("*.c"))
+
+    @pytest.mark.parametrize("conflict", ["missing-header", "project-definition", "variable"])
+    def test_refuses_unbacked_or_shadowed_library_binding(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflict: str
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.metadata import record_function_identity
+        from rebrew.rename import app
+
+        if conflict != "missing-header":
+            _src(tmp_path, "library_crt.h", "// LIBRARY: CLIENT 0x1000\n// _free\n")
+        caller = _src(tmp_path, "caller.c", "void placeholder(void*);\n")
+        if conflict == "project-definition":
+            _src(tmp_path, "shadow.c", "void free(void* p) {}\n")
+        elif conflict == "variable":
+            caller.write_text("void placeholder(void*); extern int free;\n")
+        record_function_identity(
+            tmp_path,
+            module="CLIENT",
+            va=0x1000,
+            file="library_crt.h",
+            marker_type="LIBRARY",
+            name="free",
+            symbol="_free",
+        )
+        cfg = _cfg(tmp_path)
+        cfg.root, cfg.marker, cfg.source_ext = tmp_path, "CLIENT", ".c"
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
+        result = CliRunner().invoke(app, ["--json", "placeholder", "CLIENT.0x1000"])
+        assert result.exit_code == 2, result.output
+        expected = "void placeholder(void*);" + (
+            " extern int free;" if conflict == "variable" else ""
+        )
+        assert caller.read_text() == expected + "\n"
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata
+
     def _invoke(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> Any:
         from typer.testing import CliRunner
 

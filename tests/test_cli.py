@@ -30,6 +30,98 @@ from rebrew.utils import console as utils_console
 # ---------------------------------------------------------------------------
 
 
+class TestMissingTargetArgument:
+    @pytest.mark.parametrize("selection", [[], ["--target", "beta"], ["-t", "beta"]])
+    def test_normal_invocations_still_run_command(self, selection: list[str]) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.cli import TargetOption, VersionedGroup
+
+        app = typer.Typer(cls=VersionedGroup)
+
+        @app.callback()
+        def main() -> None:
+            pass
+
+        seen: list[tuple[str, str | None]] = []
+
+        @app.command()
+        def command(source: str, target: str | None = TargetOption) -> None:
+            seen.append((source, target))
+
+        result = CliRunner().invoke(app, ["command", "caller.c", *selection])
+        assert result.exit_code == 0, result.output
+        assert seen == [("caller.c", "beta" if selection else None)]
+
+    @pytest.mark.parametrize("flag", ["--target", "-t"])
+    @pytest.mark.parametrize("json_mode", [False, True])
+    def test_lists_targets_without_running_command(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str, json_mode: bool
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.cli import RootOption, TargetOption, VersionedGroup
+
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "beta"\n'
+            '[targets.alpha]\nbinary = "alpha.exe"\nreversed_dir = "src"\n'
+            '[targets.beta]\nbinary = "beta.exe"\nreversed_dir = "src"\n'
+            '[compiler]\nprofile = "gcc-14.2.0"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+        app = typer.Typer(cls=VersionedGroup)
+
+        @app.callback()
+        def main() -> None:
+            pass
+
+        @app.command()
+        def command(
+            source: str = typer.Argument(...),
+            root: Path | None = RootOption,
+            json_output: bool = typer.Option(False, "--json"),
+            target: str | None = TargetOption,
+        ) -> None:
+            pytest.fail("target discovery must not run a command or write metadata")
+
+        argv = ["command", "--root", str(project)] + (["--json"] if json_mode else []) + [flag]
+        result = CliRunner().invoke(app, argv)
+        assert result.exit_code == 0, result.output
+        if json_mode:
+            assert json.loads(result.stdout) == {
+                "targets": ["alpha", "beta"],
+                "default_target": "beta",
+            }
+        else:
+            assert "Configured targets:" in result.output
+            assert "alpha" in result.output and "beta (default)" in result.output
+
+    @pytest.mark.parametrize("flag", ["--output", "-t", "--target"])
+    def test_other_missing_arguments_still_fail(self, flag: str) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.cli import VersionedGroup
+
+        app = typer.Typer(cls=VersionedGroup)
+
+        @app.callback()
+        def main() -> None:
+            pass
+
+        @app.command()
+        def command(
+            output: str | None = typer.Option(None, "--output", "-t"),
+            target: str | None = typer.Option(None, "--target", help="Create a target"),
+        ) -> None:
+            pytest.fail("invalid invocation must not run the command")
+
+        result = CliRunner().invoke(app, ["command", flag])
+        assert result.exit_code == 2 and "requires an argument" in result.output
+
+
 class TestErrorExit:
     def test_plain_stderr_and_exit(self, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(typer.Exit) as exc_info:
