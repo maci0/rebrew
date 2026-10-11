@@ -61,3 +61,13 @@ the identity through the locked writer, then verify the function normally. A
 unique member of a configured external archive is the statically linked
 provider. Origin and provider stay separate; a declaration with neither stays
 unresolved.
+
+## Reproduce a vendored library tree
+
+`rebrew library vendor MANIFEST...` checks pinned pristine files plus ordered
+patches. Use `--sync` only to regenerate the declared output trees after editing
+patches. All manifests stage before any writes. Paths are root-relative, patch
+paths are manifest-relative, and GNU patch is required when patches are listed.
+Keep the manifest, checksum list, pristine sources and reviewed patches as inputs;
+do not edit the generated source tree or patch a stock archive. The archive URL
+and SHA-256 document provenance; the command verifies the unpacked file pins.
