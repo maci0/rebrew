@@ -610,6 +610,11 @@ Use `rebrew types <operation> --help` for exact arguments and examples.
 carry a `mutations` array in `--json` (the GA operators to try next) and a
 `[try: ...]` hint in the terminal description.
 
+`extract-error` also reports managed C identities whose source file or definition
+is missing. Restore or repair the named source before testing; these items retain
+the stored name and blocker, never suggest a new skeleton, and do not count as
+source coverage. A cached match cannot establish a currently absent definition.
+
 Two categories answer "what is left until the build is identical straight out
 of the toolchain", so a project at 100% byte-matched still reports its
 remaining gap instead of "no action items":

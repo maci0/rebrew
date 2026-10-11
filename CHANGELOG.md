@@ -200,6 +200,10 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- `rebrew todo` reports managed C identities whose file or definition is missing
+  as source repairs, retaining their names and blockers instead of suggesting
+  a new skeleton. Missing definitions do not count as source coverage, and a
+  cached match cannot hide them. Other targets and library identities stay excluded.
 - `build cmake-flags` preserves configured target defines as CMake
   `COMPILE_DEFINITIONS`, including explicitly listed support sources. The JSON
   report names those defines; metadata-only reconstruction guards stay excluded.
