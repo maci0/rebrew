@@ -1180,12 +1180,15 @@ def _write_skeleton_metadata(
     func_name: str,
     *,
     kind_module: str = "",
+    overwrite_name: bool = False,
 ) -> None:
     """Record identity and fill SIZE when the store lacks it.
 
     The row key is ``module_val`` (the address module). ``kind_module``
     selects FUNCTION or LIBRARY: a library module under the game marker is
     LIBRARY. Never overwrites an existing SIZE and never writes STATUS.
+    An existing row keeps its name unless *overwrite_name* (an explicit
+    ``--name``), which otherwise would disagree with the rewritten symbol.
     """
     from rebrew.annotation import derive_c_symbol, marker_for_module
     from rebrew.metadata import get_entry, identity_file, record_function_identity
@@ -1206,6 +1209,7 @@ def _write_skeleton_metadata(
         symbol=derive_c_symbol(name, ""),
         size=size if "size" not in existing and size else 0,
         updated_by="skeleton",
+        overwrite_name=overwrite_name,
     )
 
 
@@ -1335,6 +1339,7 @@ def _run_append_mode(
             size,
             module_val,
             name if name else ghidra_name,
+            overwrite_name=bool(name),
         )
 
     rel_path_val = rel_display_path(append_path, root)
@@ -1435,6 +1440,7 @@ def _run_single_va_mode(
             size,
             module_val,
             name if name else ghidra_name,
+            overwrite_name=bool(name),
         )
 
     # Compute test commands

@@ -152,6 +152,9 @@
   sort, hint/name table, `.reloc` reservation and Rich header record functions
   that `/OPT:REF` dropped, and how to reconstruct them from sibling binaries
   built from the same sources.
+- `rebrew source rehome 0xVA=PATH:NAME` binds a row to the existing definition
+  NAME in PATH: the row takes NAME and keeps its symbol decoration. A client
+  row joins a shared definition this way; no command could bind it before.
 
 ### Changed
 - BinSync: `metadata.toml` `user` and the branch are one validated name
@@ -346,6 +349,18 @@
 - `rebrew source rename --data` renames every data row bound to the global
   (with `--all-modules` for other modules); it renamed one row and left the
   other modules' rows naming a symbol the sources no longer declared.
+- `rebrew source rename` checks the new name against the rows of the modules it
+  renames only. A row of another module (a library row of another image) no
+  longer refuses the rename; a shared source definition is still refused by the
+  source-level check.
+- `rebrew source rename MODULE.0xVA` renames a function row that only a header
+  marker names (a `// LIBRARY:` identification with no C definition): the line
+  under the marker and the row get the new name, also when that line held prose
+  or nothing, and an MSVC-decorated new name is accepted there. The row was left
+  unchanged as "bound to another definition".
+- `rebrew skeleton --name NAME` on a VA that already has a row writes NAME into
+  the row with the new symbol and file. The row kept its old name, so name and
+  symbol disagreed and `source rename` refused to fix it.
 
 ## [2.24.0] - 2026-10-07
 
