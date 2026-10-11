@@ -1284,8 +1284,28 @@ def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
     :class:`RenameError`; the stores are written only after every source
     landed.
     """
+    from rebrew.source_provenance import SOURCE_PROVENANCE_FILENAME, rename_source_provenance
+
+    metadata_dir = getattr(cfg, "metadata_dir", None) or cfg.reversed_dir
+    provenance_edits = {c.path: (c.old_text, c.new_text) for c in plan.files}
+    if plan.move and plan.move[0] not in provenance_edits:
+        text, _ = read_source_text(plan.move[0])
+        provenance_edits[plan.move[0]] = (text, text)
+    symbol_rename = (plan.old_name, plan.new_name) if plan.kind == KIND_FUNCTION else None
+    try:
+        rename_source_provenance(
+            metadata_dir,
+            provenance_edits,
+            symbol_rename=symbol_rename,
+            move=plan.move,
+            dry_run=True,
+        )
+    except (OSError, ValueError) as exc:
+        raise RenameError(f"source provenance prevents rename: {exc}", files=[]) from exc
+
     written: list[FileChange] = []
     current: Path | None = None
+    moved = False
     try:
         for change in plan.files:
             current = change.path
@@ -1294,7 +1314,20 @@ def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
         if plan.move is not None:
             current = plan.move[0]
             plan.move[0].rename(plan.move[1])
-    except (OSError, UnicodeEncodeError) as exc:
+            moved = True
+        current = Path(metadata_dir) / SOURCE_PROVENANCE_FILENAME
+        rename_source_provenance(
+            metadata_dir,
+            provenance_edits,
+            symbol_rename=symbol_rename,
+            move=plan.move,
+        )
+    except (OSError, UnicodeEncodeError, ValueError) as exc:
+        if moved and plan.move is not None:
+            try:
+                plan.move[1].rename(plan.move[0])
+            except OSError:
+                logger.exception("could not restore %s after a failed rename", plan.move[0])
         for change in reversed(written):
             try:
                 atomic_write_text(change.path, change.old_text, encoding=change.encoding)
@@ -1306,7 +1339,6 @@ def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
             files=[current] if current is not None else [],
         ) from exc
 
-    metadata_dir = getattr(cfg, "metadata_dir", None) or cfg.reversed_dir
     function_rows = [
         {
             "module": r.module,

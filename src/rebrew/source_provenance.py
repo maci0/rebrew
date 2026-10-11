@@ -176,3 +176,63 @@ def document_assembly(
         doc["format"] = 1
         atomic_write_locked(path, tomlkit.dumps(doc))
     return report
+
+
+def rename_source_provenance(
+    directory: Path,
+    edits: dict[Path, tuple[str, str]],
+    *,
+    symbol_rename: tuple[str, str] | None = None,
+    move: tuple[Path, Path] | None = None,
+    dry_run: bool = False,
+) -> None:
+    """Follow mechanical source renames without making stale evidence current."""
+    directory = directory.resolve()
+    path = directory / SOURCE_PROVENANCE_FILENAME
+    if not edits or not path.exists():
+        return
+    with metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
+        doc = load_toml_for_write_strict(path, "source provenance")
+        _validate(doc)
+        definitions = doc["definitions"]
+        changed = False
+        for file, (before, after) in edits.items():
+            file = file.resolve()
+            if not file.is_relative_to(directory):
+                continue
+            relative = file.relative_to(directory).as_posix()
+            records = definitions.get(relative)
+            if not records:
+                continue
+            destination = move[1].resolve() if move and file == move[0].resolve() else file
+            new_relative = destination.relative_to(directory).as_posix()
+            if new_relative != relative and new_relative in definitions:
+                raise ValueError(f"source provenance already exists for {new_relative}")
+            old_hashes, new_hashes = (function_definition_hashes(text) for text in (before, after))
+            for symbol in list(records):
+                new_symbol = (
+                    symbol_rename[1] if symbol_rename and symbol == symbol_rename[0] else symbol
+                )
+                if new_symbol != symbol and new_symbol in records:
+                    raise ValueError(
+                        f"source provenance already exists for {relative}:{new_symbol}"
+                    )
+                modules = records[symbol]
+                for entry in modules.values():
+                    if (
+                        entry["source_hash"] == old_hashes.get(symbol)
+                        and new_symbol in new_hashes
+                        and entry["source_hash"] != new_hashes[new_symbol]
+                    ):
+                        entry["source_hash"] = new_hashes[new_symbol]
+                        changed = True
+                if new_symbol != symbol:
+                    del records[symbol]
+                    records[new_symbol] = modules
+                    changed = True
+            if new_relative != relative:
+                del definitions[relative]
+                definitions[new_relative] = records
+                changed = True
+        if changed and not dry_run:
+            atomic_write_locked(path, tomlkit.dumps(doc))

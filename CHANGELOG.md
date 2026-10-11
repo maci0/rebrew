@@ -19,6 +19,10 @@
   Destination conflicts are checked in the affected files; unrelated local
   variables no longer prevent a binding. Identity, verdict and ordinary rename
   collision checks are preserved.
+- `rebrew source rename` carries assembly provenance through definition/file
+  renames and refreshes current evidence in mechanically changed callers.
+  Already stale evidence stays stale; corrupt or conflicting records prevent
+  source changes, and a failed provenance write restores renamed sources.
 
 ## [2.25.0] - 2026-10-11
 
