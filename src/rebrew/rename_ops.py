@@ -63,6 +63,7 @@ from rebrew.c_rename import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.errors import RebrewError
+from rebrew.function_providers import bind_library_source
 from rebrew.sources import iter_sources_and_headers
 from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
 
@@ -284,10 +285,22 @@ class _Project:
     """Every source and header of one rename, read and parsed at most once."""
 
     def __init__(self, cfg: ProjectConfig, first: Sequence[Path] = ()) -> None:
+        from rebrew.metadata import load_metadata
+
         self.cfg = cfg
+        library_sources: list[Path] = []
+        if getattr(cfg, "root", None) is not None:
+            # Include every target's providers so an independent vendor twin still collides.
+            for (module, va), row in load_metadata(self.metadata_dir, deepcopy=False).items():
+                if row.get("marker_type") == "LIBRARY":
+                    entry = bind_library_source(
+                        cfg, Annotation(module=module, va=va, marker_type="LIBRARY"), row
+                    )
+                    if entry.filepath:
+                        library_sources.append((Path(cfg.reversed_dir) / entry.filepath).resolve())
         seen: set[Path] = set()
         self.paths: list[Path] = []
-        for path in [*first, *iter_sources_and_headers(cfg.reversed_dir, cfg)]:
+        for path in [*first, *iter_sources_and_headers(cfg.reversed_dir, cfg), *library_sources]:
             key = path.resolve()
             if key not in seen:
                 seen.add(key)
