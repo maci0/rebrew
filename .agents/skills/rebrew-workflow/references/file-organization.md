@@ -38,6 +38,9 @@ rebrew recommend --json                   # all lanes: TU layout + hygiene + nex
 - `rebrew source rename` rewrites whole identifiers only: never inside string
   literals, inside comments only with `--comments`. Read the `--dry-run` list
   (`file:line:column role` plus row changes) before writing.
+  Reviewed assembly provenance follows definitions and file moves. Only records
+  current before the mechanical rename receive refreshed hashes; stale evidence
+  stays stale. Reverify byte matches after renaming.
 - A definition shared by several modules' rows renames only with
   `--all-modules`; a per-target twin keeps its name unless `--all-modules`
   is given. Pick one twin by `MODULE.0xVA`. A name with no row in the active
