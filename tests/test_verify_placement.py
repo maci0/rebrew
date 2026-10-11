@@ -70,7 +70,7 @@ def _patch_layout(
     monkeypatch.setattr(vp, "built_data_va", lambda _dll: FAKE_DATA_VA)
     if expected is None:
         expected = {"sym_a": 0x3000, "sym_b": 0x3020}
-    monkeypatch.setattr(dl, "data_symbols", lambda _metadata: expected)
+    monkeypatch.setattr(dl, "data_symbols", lambda _metadata, **_kwargs: expected)
     if fail is not None:
         monkeypatch.setattr(dl, "link_objects", lambda _root: (_ for _ in ()).throw(fail))
         return
@@ -245,3 +245,18 @@ class TestVerifyPlacement:
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 1
         assert "mean delta -0.50B" in result.output
+
+
+def test_data_symbols_keeps_only_the_requested_module(tmp_path: Path) -> None:
+    """A project with several binaries stores one address per name per target."""
+    from rebrew.data_layout import data_symbols
+
+    toml = tmp_path / "rebrew-data.toml"
+    toml.write_text(
+        '["GOLDTL.0x00677918"]\nname = "g_table"\nsection = ".data"\n\n'
+        '["SERVER.0x10027078"]\nname = "g_table"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
+
+    assert data_symbols(toml, module="SERVER") == {"g_table": 0x10027078}
+    assert data_symbols(toml, module="GOLDTL") == {"g_table": 0x677918}

@@ -854,6 +854,16 @@ class TestCheckBinsyncState:
         assert r.status == _WARN
         assert "binsync_state_dir" in r.message
 
+    def test_configured_without_declib_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import sys
+
+        monkeypatch.setitem(sys.modules, "declib", None)
+        r = self._check(tmp_path, binsync_state_dir=str(tmp_path / "state"))
+        assert r.status == _FAIL
+        assert "declib" in r.message
+
     def test_configured_missing_warns(self, tmp_path: Path) -> None:
         r = self._check(tmp_path, binsync_state_dir=str(tmp_path / "state"))
         assert r.status == _WARN

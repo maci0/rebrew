@@ -1,4 +1,4 @@
-"""types_cli.py - `rebrew types check` command: check structs, apply types to signatures."""
+"""Manage type identities, check struct layouts and apply types to signatures."""
 
 import logging
 from pathlib import Path
@@ -9,12 +9,13 @@ import typer
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 
 app = typer.Typer(
-    help="Check declared struct layouts; apply types to C signatures.",
+    help="Manage type identities; check layouts; apply types to C signatures.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew types check · · · · · · · · · Check declared structs against decompiler evidence\n\n"
         "  rebrew types check --json · · · · · · Same check, machine-readable\n\n"
+        "  rebrew types bind engine.object src/object.h OBJECT --size 0x228 --native-size 0x228 --evidence 'native allocation' · Bind a compiler-checked target type\n\n"
         "  rebrew types apply src/f.c --param 2 --type MAT4 · Rewrite one parameter type\n\n"
         "  rebrew types apply 0x10009310 --param 0 --type VEC3 --dry-run · Preview the edit\n\n"
         "[dim]A bare invocation reports every declared struct whose field widths disagree "
@@ -63,12 +64,16 @@ def collect_evidence(files: list[Path]) -> dict[str, dict[int, int]]:
     epilog="Examples:\n\n  rebrew types check --json\n\nDeclarations do not allocate storage. Preview edits and verify affected functions afterwards.",
 )
 def check(
+    compile_layouts: bool = typer.Option(
+        False, "--compile", help="Recompile managed sizeof/offsetof assertions"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Check declared structs against decompiler offset evidence."""
     cfg = require_config(target=target, json_mode=json_output)
     from rebrew.sources import iter_sources
+    from rebrew.type_metadata import check_types
     from rebrew.types import check_struct, parse_structs
 
     declared: dict[str, Any] = {}
@@ -92,7 +97,10 @@ def check(
         for finding in check_struct(struct, ev, known_structs=declared):
             findings.append({"struct": name, **finding})
     if json_output:
-        json_print({"structs": len(declared), "findings": findings})
+        bindings = check_types(cfg, compile_layouts=compile_layouts)
+        json_print({"structs": len(declared), "findings": findings, "type_findings": bindings})
+        if bindings:
+            raise typer.Exit(1)
         return
     console.print(f"structs: {len(declared)}  findings: {len(findings)}")
     for f in findings:
@@ -101,6 +109,73 @@ def check(
             f"evidenced width {f['evidenced_width']} ({f['issue']}"
             + (f" on {f['field']}" if f.get("field") else "")
             + ")"
+        )
+    bindings = check_types(cfg, compile_layouts=compile_layouts)
+    for binding_finding in bindings:
+        console.print(
+            f"  [yellow]{binding_finding['id']}:{binding_finding['module']}[/yellow] {binding_finding['issue']}"
+        )
+    if bindings:
+        raise typer.Exit(1)
+
+
+@app.command(
+    "bind",
+    epilog="Examples:\n\n  rebrew types bind engine.object src/object.h OBJECT --size 0x228 --native-size 0x228 --evidence 'allocation at A.0x401000' --field name=0 --json\n\nIdentity has no VA. Instance addresses belong to function/data records. Rebind the same ID after reviewing stale evidence.",
+)
+def bind(
+    identity: str = typer.Argument(..., help="Stable type ID, independent of the C name"),
+    file: Path = typer.Argument(..., help="Owning C source or header"),
+    symbol: str = typer.Argument(..., help="C typedef or struct tag"),
+    size: str = typer.Option(..., "--size", help="C sizeof in bytes (decimal or hex)"),
+    native_size: str = typer.Option(..., "--native-size", help="Evidenced native extent in bytes"),
+    evidence: str = typer.Option(
+        ..., "--evidence", help="Native allocation/stride and instance evidence"
+    ),
+    extent: str = typer.Option(
+        "allocation", "--extent", help="Native extent kind: allocation or stride"
+    ),
+    fields: list[str] = typer.Option(
+        [], "--field", help="Compiler-check member=offset (repeatable; no bitfields)"
+    ),
+    cflags: str | None = typer.Option(
+        None, "--cflags", help="Compile flags; defaults to target flags"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Bind a type to a target layout after sizeof/offsetof compiler checks."""
+    from rebrew.type_metadata import bind_type
+
+    cfg = require_config(target=target, json_mode=json_output)
+    try:
+        offsets: dict[str, int] = {}
+        for field in fields:
+            name, offset = field.split("=", 1)
+            if name in offsets:
+                raise ValueError(f"duplicate member offset {name!r}")
+            offsets[name] = int(offset, 0)
+        report = bind_type(
+            cfg,
+            identity,
+            file,
+            symbol,
+            int(size, 0),
+            int(native_size, 0),
+            extent,
+            evidence,
+            offsets,
+            cflags=cflags,
+            dry_run=dry_run,
+        )
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), json_mode=json_output)
+    if json_output:
+        json_print(report)
+    else:
+        console.print(
+            f"{'Would bind' if dry_run else 'Bound'} {identity}:{report['module']} → {report['file']}:{symbol}"
         )
 
 

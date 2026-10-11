@@ -27,7 +27,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         CliComponent(
             name="rename",
             module="rebrew.rename",
-            help="Rename a function and update all cross-references.",
+            help="Rename a function, global, type or struct member and update every reference.",
             panel=Panel.DEVELOPMENT,
         ),
         CliComponent(
@@ -92,6 +92,24 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             module="rebrew.splat_config",
             help="Seed a project from splat configuration (preview by default).",
             panel=Panel.PROJECT_SETUP,
+        ),
+        CliComponent(
+            name="rehome",
+            module="rebrew.rehome",
+            help="Point function rows at the source file that now defines them.",
+            panel=Panel.DEVELOPMENT,
+        ),
+        CliComponent(
+            name="symbolize",
+            module="rebrew.symbolize",
+            help="Rewrite raw (T *) 0xVA casts to the data symbols the reference relocates.",
+            panel=Panel.MATCHING,
+        ),
+        CliComponent(
+            name="document-assembly",
+            module="rebrew.document_assembly",
+            help="Record original assembly evidence for a source definition without a VA.",
+            panel=Panel.DEVELOPMENT,
         ),
     ),
     "types": (
@@ -226,6 +244,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             module="rebrew.layout_map",
             help="Dump reference-side layout measurements (sections, gaps, IAT, exports).",
             panel=Panel.ANALYSIS,
+        ),
+        CliComponent(
+            name="check-tu-data",
+            module="rebrew.tu_data_check",
+            help="Flag linked objects whose .data/.rdata breaks the MSVC6 one-TU shape.",
+            panel=Panel.MATCHING,
         ),
     ),
     "diagnose": (
@@ -362,6 +386,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             panel=Panel.ANALYSIS,
             is_group=True,
         ),
+        CliComponent(
+            name="relocs",
+            module="rebrew.reloc_diff",
+            help="Compare PE base relocation sites of the reference and a built image.",
+            panel=Panel.ANALYSIS,
+        ),
     ),
     "library": (
         CliComponent(
@@ -400,6 +430,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             name="signatures",
             module="rebrew.gen_flirt_pat",
             help="Generate FLIRT .pat files from COFF .lib and ELF .a archives.",
+            panel=Panel.ANALYSIS,
+        ),
+        CliComponent(
+            name="inspect",
+            module="rebrew.lib_inspect",
+            help="List COFF archive members: sections, defined/COMMON/undefined symbols, imports.",
             panel=Panel.ANALYSIS,
         ),
     ),
@@ -496,6 +532,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             name="symbols",
             module="rebrew.symbol_addrs",
             help="Export function symbols as a splat-style symbol_addrs.csv.",
+            panel=Panel.EXPORT_SYNC,
+        ),
+        CliComponent(
+            name="pdb",
+            module="rebrew.pdb_export",
+            help="Write a synthetic PDB for the target, stamped with its debug-record GUID/age.",
             panel=Panel.EXPORT_SYNC,
         ),
         CliComponent(

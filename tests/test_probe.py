@@ -125,3 +125,84 @@ class TestProbeRelocationContext:
         result = self._invoke(tmp_path, monkeypatch, catalog_error=True)
         assert result.exit_code == 2, result.output
         assert "catalog unavailable" in result.stdout
+
+
+class TestProbeAnnotationSelection:
+    """A positional VA reaches the compiler with that function's complete identity."""
+
+    def test_second_function_uses_its_symbol_size_and_flags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.coff_reloc as relocs
+        import rebrew.compile_overrides as overrides
+        import rebrew.matcher.parsers as parsers
+        import rebrew.probe as probe
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            marker="GAME",
+            target_binary=tmp_path / "original.dll",
+            capstone_arch=capstone.CS_ARCH_X86,
+            capstone_mode=capstone.CS_MODE_32,
+        )
+        source = tmp_path / "pair.c"
+        source.write_text(
+            "// FUNCTION: GAME 0x1000\n// SIZE: 3\n// CFLAGS: /O1\n"
+            "int first(void) { return 0; }\n\n"
+            "// FUNCTION: GAME 0x2000\n// SIZE: 6\n// CFLAGS: /O2 /Gd\n"
+            "int second(void) { return 1; }\n"
+        )
+        candidate = b"\xb8\x01\x00\x00\x00\xc3"
+        calls = []
+
+        def reference(_binary: Path, va: int, size: int) -> bytes:
+            assert (va, size) == (0x2000, 6)
+            return candidate
+
+        def flags(
+            _cfg: Any, _parent: Path, _toolchain: str, cflags: str, module: str
+        ) -> tuple[str, str]:
+            assert (cflags, module) == ("/O2 /Gd", "GAME")
+            return "msvc-6.0", cflags
+
+        def compile_obj(
+            _cfg: Any, path: Path, cflags: list[str], *_args: Any, **_kwargs: Any
+        ) -> tuple[str, str]:
+            assert path == source and cflags == ["/O2", "/Gd"]
+            calls.append(path)
+            return str(tmp_path / "pair.obj"), ""
+
+        def extract(_obj: str, symbol: str) -> tuple[bytes, dict[int, str], list[CoffRelocRecord]]:
+            assert symbol == "_second"
+            return candidate, {}, []
+
+        monkeypatch.setattr(probe, "require_config", lambda **_kw: cfg)
+        monkeypatch.setattr(probe, "load_binary", lambda _path: None)
+        monkeypatch.setattr(probe, "extract_raw_bytes", reference)
+        monkeypatch.setattr(probe, "compile_to_obj", compile_obj)
+        monkeypatch.setattr(overrides, "resolve_compile_overrides", flags)
+        monkeypatch.setattr(parsers, "parse_obj_symbol_and_relocs", extract)
+        monkeypatch.setattr(relocs, "build_name_to_va", lambda _cfg: {})
+        monkeypatch.setattr(relocs, "build_iat_region", lambda _cfg: frozenset())
+        app = typer.Typer()
+        app.command()(probe.main)
+        result = CliRunner().invoke(app, ["0x2000", "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert (payload["va"], payload["symbol"], payload["size"], payload["matched"]) == (
+            "0x2000",
+            "_second",
+            6,
+            6,
+        )
+        assert calls == [source]
+        assert not (tmp_path / "rebrew-functions.toml").exists()
+
+        calls.clear()
+        missing = CliRunner().invoke(app, [str(source), "--va", "0x3000", "--json"])
+        assert missing.exit_code == 2
+        assert "0x3000" in json.loads(missing.stdout)["error"]
+        assert calls == []

@@ -48,6 +48,7 @@ from rebrew.binsync.importer import (
     resolve_state_dir,
     strip_cdecl_prefix,
 )
+from rebrew.binsync.serial import require_declib
 from rebrew.binsync.state import (
     load_binsync_comments,
     load_binsync_enums,
@@ -852,6 +853,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Overlay a related target's BinSync data onto structurally-matched functions."""
+    require_declib(json_mode=json_output)
     if accept_binsync and accept_local:
         error_exit(
             "--accept-binsync and --accept-local are mutually exclusive", json_mode=json_output

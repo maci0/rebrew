@@ -69,6 +69,47 @@ def _mock_cfg(tmp_path: Path, pe_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 class TestLibMatch:
     @pytest.mark.parametrize("single_va", [False, True])
+    @pytest.mark.parametrize("scope", ["archive", "archive-and-objects", "project"])
+    def test_explicit_archive_excludes_automatic_vendored_objects(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, single_va: bool, scope: str
+    ) -> None:
+        import rebrew.lib_match as lm
+
+        pe, lib, va = _write_project(tmp_path)
+        lib.write_bytes(make_lib_archive([("other.obj", make_coff_obj(b"\x90" * 40))]))
+        _mock_cfg(tmp_path, pe, monkeypatch)
+        monkeypatch.setattr(lm, "external_archive_args", lambda cfg: ([lib], []))
+        obj = tmp_path / "build" / "vendored.obj"
+        obj.parent.mkdir()
+        obj.write_bytes(make_coff_obj(CODE, func_symbol="_vendor"))
+        db = obj.parent / "compile_commands.json"
+        db.write_text(
+            json.dumps(
+                [
+                    {
+                        "file": str(tmp_path / "references" / "zlib" / "vendored.c"),
+                        "command": f"cl /c /Fo{obj}",
+                    }
+                ]
+            )
+        )
+        args = ["--json"]
+        if scope != "project":
+            args += ["--lib", str(lib)]
+        if scope == "archive-and-objects":
+            args += ["--compile-commands", str(db)]
+        if single_va:
+            args += ["--va", hex(va)]
+        result = CliRunner().invoke(lm.app, args)
+        expected_match = scope != "archive"
+        assert result.exit_code == int(expected_match), result.output
+        report = json.loads(result.stdout)
+        if single_va:
+            assert report["library"] is expected_match
+        else:
+            assert report["count"] == int(expected_match)
+
+    @pytest.mark.parametrize("single_va", [False, True])
     @pytest.mark.parametrize("machine", [0, 0x14C])
     def test_weak_aliases_remain_ambiguous(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, single_va: bool, machine: int
@@ -463,7 +504,8 @@ class TestStockLib:
         assert lm.ensure_stock_lib(dest, profile="msvc-6.0-sp6", name="LIBCMT.LIB") is True
         argv = seen[0]
         assert "rebrew/msvc:6.0-sp6-win32" in argv
-        assert "/opt/msvc6.0-sp6/VC98/Lib/LIBCMT.LIB" in argv
+        assert "/opt/msvc6.0-sp6/VC98/Lib" in argv
+        assert "LIBCMT.LIB" in argv
         assert "--network=none" in argv
         # The mount source is resolved, so a relative or symlinked scratch dir
         # still names one absolute host path (docker reads a relative -v source

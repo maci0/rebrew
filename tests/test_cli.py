@@ -512,7 +512,7 @@ class TestSelectAnnotation:
 
     @pytest.mark.parametrize(
         ("va", "want_anno_va", "want_va"),
-        [(None, 0x1000, 0x1000), ("0x2000", 0x2000, 0x2000), ("0x3000", 0x1000, 0x3000)],
+        [(None, 0x1000, 0x1000), ("0x2000", 0x2000, 0x2000)],
     )
     def test_selects_by_va(
         self, tmp_path: Path, va: str | None, want_anno_va: int, want_va: int
@@ -527,6 +527,87 @@ class TestSelectAnnotation:
         with pytest.raises(typer.Exit) as exc_info:
             select_annotation(self._cfg(tmp_path), "no_such_func", None)
         assert exc_info.value.exit_code == EXIT_ERROR
+
+    @pytest.mark.parametrize("source_arg", ["0x2000", "0X2000", " 0x2000 "])
+    def test_positional_va_selects_the_requested_entry(
+        self, tmp_path: Path, source_arg: str
+    ) -> None:
+        src = self._write_two(tmp_path)
+        path, anno, va_int = select_annotation(self._cfg(tmp_path), source_arg, None)
+        assert path == src
+        assert (anno.va, anno.symbol, va_int) == (0x2000, "_b", 0x2000)
+
+    @pytest.mark.parametrize("json_mode", [False, True])
+    def test_explicit_va_missing_from_the_file_exits(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], json_mode: bool
+    ) -> None:
+        src = self._write_two(tmp_path)
+        with pytest.raises(typer.Exit) as exc_info:
+            select_annotation(self._cfg(tmp_path), str(src), "0x3000", json_mode=json_mode)
+        assert exc_info.value.exit_code == EXIT_ERROR
+        captured = capsys.readouterr()
+        message = json.loads(captured.out)["error"] if json_mode else captured.err
+        assert "0x3000" in message and "annotation" in message
+
+    @pytest.mark.parametrize(("module", "symbol", "size"), [("GAME", "_b", 23), ("ALT", "_c", 31)])
+    def test_managed_va_uses_the_active_target_and_its_compile_fields(
+        self, tmp_path: Path, module: str, symbol: str, size: int
+    ) -> None:
+        from rebrew.metadata import record_migrated_markers
+
+        src = tmp_path / "pair.c"
+        src.write_text(
+            "int a(void) { return 0; }\nint b(void) { return 1; }\nint c(void) { return 2; }\n"
+        )
+        record_migrated_markers(
+            tmp_path,
+            [
+                {
+                    "module": target,
+                    "va": address,
+                    "identity": {
+                        "file": "pair.c",
+                        "name": name,
+                        "symbol": f"_{name}",
+                        "marker_type": "FUNCTION",
+                    },
+                    "fields": {"size": extent, "cflags": "/O1" if name == "b" else "/Od"},
+                }
+                for target, address, name, extent in [
+                    ("GAME", 0x1000, "a", 3),
+                    ("ALT", 0x1000, "a", 3),
+                    ("GAME", 0x2000, "b", 23),
+                    ("ALT", 0x2000, "c", 31),
+                ]
+            ],
+        )
+        cfg = self._cfg(tmp_path)
+        cfg.metadata_dir = tmp_path
+        cfg.marker = module
+        path, anno, va_int = select_annotation(cfg, "0x2000", None)
+        assert path == src
+        assert (anno.module, anno.va, anno.symbol, anno.size, va_int) == (
+            module,
+            0x2000,
+            symbol,
+            size,
+            0x2000,
+        )
+        assert anno.cflags == ("/O1" if module == "GAME" else "/Od")
+
+    def test_existing_hex_named_file_keeps_file_selection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = self._write_two(tmp_path)
+        src.rename(tmp_path / "0x2000")
+        monkeypatch.chdir(tmp_path)
+        _path, anno, va_int = select_annotation(self._cfg(tmp_path), "0x2000", None)
+        assert anno.va == va_int == 0x1000
+
+    def test_explicit_va_overrides_a_positional_va_within_the_file(self, tmp_path: Path) -> None:
+        self._write_two(tmp_path)
+        _path, anno, va_int = select_annotation(self._cfg(tmp_path), "0x2000", "0x1000")
+        assert anno.va == va_int == 0x1000
 
     def test_no_annotation_exits(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         src = tmp_path / "bare.c"

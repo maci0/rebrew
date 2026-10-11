@@ -96,6 +96,12 @@ def main(
     root = Path(cfg.root)
     metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
     if not metadata.exists():
+        # A project whose stores sit in the metadata directory (the project
+        # root) has no src/rebrew-data.toml.
+        stored = Path(cfg.metadata_dir) / "rebrew-data.toml"
+        if stored.exists():
+            metadata = stored
+    if not metadata.exists():
         error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
     built = option_default(built, None)
     if built is None:
@@ -112,7 +118,7 @@ def main(
     from rebrew.data_layout import data_symbols, link_objects, obj_data_symbol_offsets
 
     data_va = built_data_va(dll)
-    expected = data_symbols(metadata)
+    expected = data_symbols(metadata, module=getattr(cfg, "marker", None))
 
     here: dict[str, int] = {}
     tot = 0

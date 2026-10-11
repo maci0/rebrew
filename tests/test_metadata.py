@@ -1645,6 +1645,21 @@ class TestIdentityFileValidator:
         assert validate_identity_file("src/server/a.c") == "src/server/a.c"
         assert validate_identity_file("") == ""
 
+    def test_identity_name_replacement_is_explicit(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_function_identity
+
+        fields = {"module": "SERVER", "va": 0x1000, "file": "src/f.c", "marker_type": "FUNCTION"}
+        record_function_identity(tmp_path, **fields, name="original", symbol="_original")
+        update_field(tmp_path, 0x1000, "note", "preserve this evidence", "SERVER")
+        record_function_identity(tmp_path, **fields, name="replacement", symbol="_replacement")
+        assert get_entry(tmp_path, 0x1000, "SERVER")["name"] == "original"
+        record_function_identity(
+            tmp_path, **fields, name="replacement", symbol="_replacement", overwrite_name=True
+        )
+        row = get_entry(tmp_path, 0x1000, "SERVER")
+        assert row["name"] == "replacement" and row["symbol"] == "_replacement"
+        assert row["note"] == "preserve this evidence"
+
     def test_absolute_and_escaping_paths_raise(self) -> None:
         from rebrew.metadata import validate_identity_file
 

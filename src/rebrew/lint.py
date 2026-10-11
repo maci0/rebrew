@@ -17,9 +17,10 @@ import bisect
 import contextlib
 import logging
 import re
+import shlex
 import threading
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -37,9 +38,15 @@ from rebrew.annotation import (
     NEW_KV_RE,
     VALID_MARKERS,
     file_backed_by_metadata,
+    function_rows_for_file,
     min_valid_va_for,
 )
-from rebrew.c_parser import CALLING_CONVENTION
+from rebrew.c_parser import (
+    CALLING_CONVENTION,
+    find_function_name_in_node,
+    mask_msvc_syntax,
+    parse_c_source,
+)
 from rebrew.cli import (
     EXIT_MISMATCH,
     AllTargetsOption,
@@ -72,6 +79,11 @@ from rebrew.metadata import (
     is_table_field,
     load_metadata,
 )
+from rebrew.source_provenance import (
+    SOURCE_PROVENANCE_FILENAME,
+    function_definition_hashes,
+    load_source_provenance,
+)
 from rebrew.sources import (
     iter_sources,
     source_exts,
@@ -91,7 +103,6 @@ log = logging.getLogger(__name__)
 # accepts `//` and `/*` (the C89-strict form intake emits for borland-2.0/msvc-1.52), so
 # lint must not report E001/E002 on a file the parser reads fine.
 _HEADER_MARKER_RE = re.compile(r"(?://|/\*)\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
-_SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
 
 
 def _is_comment_line(text: str) -> bool:
@@ -1105,7 +1116,7 @@ def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     Warn-only: a stray copy is not itself a defect, it is a thing that will be
     read by accident.
     """
-    store_names = {"rebrew-data.toml", "rebrew-functions.toml"}
+    store_names = {"rebrew-data.toml", "rebrew-functions.toml", SOURCE_PROVENANCE_FILENAME}
     dirs: set[Path] = set()
     for attr in ("metadata_dir", "reversed_dir", "shared_dir"):
         value = getattr(cfg, attr, None)
@@ -1130,6 +1141,219 @@ def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
         )
         results.append(res)
     return results
+
+
+def _type_spelling(text: str) -> str:
+    """*text* with whitespace collapsed and dropped beside punctuation."""
+    return re.sub(r"\s*([^\w\s])\s*", r"\1", " ".join(text.split()))
+
+
+def _check_W037_data_definition(
+    result: LintResult, text: str, filepath: Path, cfg: ProjectConfig
+) -> None:
+    """W037: a data row's ``type`` / ``size`` disagree with its owning source.
+
+    For every ``rebrew-data.toml`` row whose ``file`` names *filepath* and
+    whose module belongs to the active target, find the file-scope definition
+    of the row's ``name`` and compare its byte size with the extent of the
+    row.  A row's ``size`` drives layout, verification and accounting, so a
+    stale one silently claims bytes its symbol no longer owns (guild-rebrew
+    ``g_gap_10034644``: the row said ``char[44]`` after a generator shrank the
+    definition to 36 bytes, and the stale extent overlapped two globals).
+
+    ``extern`` declarations are users, not the definition, and are ignored,
+    except for ``storage_kind = "span"`` rows: a layout span has no standalone
+    owner, so its owning file may hold only an ``extern`` inventory view
+    (``extern unsigned char g_span[0x7];``), and that view is the extent the
+    file records.  A definition still wins when the file has one.
+
+    A tiled allocation is one reference allocation the source splits into a
+    short leading definition plus separate definitions for its interior names
+    and pads (guild-rebrew ``g_slot_table``: code needs the interior names as
+    separate symbols for byte-identical codegen).  Its row keeps the full
+    extent; each piece is an ``alias`` row whose ``backing`` names the
+    allocation and whose name is defined in the same file.  The source extent
+    is then the leading definition plus the pieces, walked in VA order while
+    each starts where the previous one ends; a backed row without a definition
+    here is a view and takes no part.  A hole before the next piece is
+    reported as such; a tiling that ends short of or past the row is compared
+    like a single definition.
+
+    Skipped rather than guessed: a row or file without the name, a name with
+    no definition (or span view) in the file, definitions that disagree with
+    each other (``#if`` branches), and any size the x86_32 data model of
+    :func:`rebrew.data_layout.data_symbol_size` cannot compute (struct, union
+    and unknown typedef types, unsized arrays, other architectures).  Only
+    byte sizes are compared, the row's ``size`` and its ``type``'s extent each
+    against the source's: a spelling difference with equal size (``[0x104]``
+    against ``[260]``, a typedef against its expansion) is not reported.
+    """
+    from rebrew.c_parser import find_extern_variables, find_variable_roles
+    from rebrew.data_layout import data_symbol_size
+    from rebrew.data_metadata import data_rows_for_path, module_visible_to_target
+
+    try:
+        rows = data_rows_for_path(cfg.metadata_dir, filepath)
+    except (OSError, ValueError):
+        return  # W031 reports an unreadable store.
+    rows = [
+        (module, va, entry)
+        for module, va, entry in rows
+        if entry.get("name") and module_visible_to_target(module, cfg)
+    ]
+    if not rows:
+        return
+    variables = find_extern_variables(text, include_definitions=True)
+    defined, _declared, _uses = find_variable_roles(text)
+    arch = str(getattr(cfg, "arch", "") or "x86_32")
+
+    def source_extent(name: str, *, span: bool) -> tuple[str, int, int] | None:
+        """``(type, bytes, line)`` of *name*'s definition (or span view) here."""
+        named = [v for v in variables if v.name == name]
+        externs = [v for v in named if re.match(r"\s*extern\b", v.declaration)]
+        if name in defined:
+            candidates = [v for v in named if v not in externs] or externs
+        elif span:
+            candidates = externs
+        else:
+            return None
+        spellings = {_type_spelling(v.type_str) for v in candidates}
+        if len(spellings) != 1:
+            return None
+        source_type = spellings.pop()
+        size = data_symbol_size({"type": source_type}, arch=arch)
+        return (source_type, size, candidates[0].line) if size else None
+
+    pieces: dict[tuple[str, str], list[tuple[int, str]]] = {}
+    for module, va, entry in rows:
+        if (
+            entry.get("storage_kind") == "alias"
+            and entry.get("backing")
+            and str(entry["name"]) in defined
+        ):
+            pieces.setdefault((module, str(entry["backing"])), []).append((va, str(entry["name"])))
+    for module, va, entry in rows:
+        name = str(entry["name"])
+        found = source_extent(name, span=entry.get("storage_kind") == "span")
+        if found is None:
+            continue
+        source_type, source_size, line = found
+        row_type = _type_spelling(str(entry.get("type") or ""))
+        row_type_size = data_symbol_size({"type": row_type}, arch=arch) if row_type else 0
+        row_size = data_symbol_size({"size": entry.get("size")}, arch=arch)
+        row_desc = f"type {row_type!r} ({row_type_size or '?'} bytes)" if row_type else "no type"
+        if row_size:
+            row_desc += f", size {row_size}"
+        where = f"data row {module}.0x{va:08x} {untrusted_ident(name)} says {row_desc}"
+        tiles = sorted(p for p in pieces.get((module, name), []) if p[0] > va)
+        if tiles:
+            source_size, hole = _tiled_extent(va + source_size, tiles, source_extent)
+            source_size -= va
+            if hole is not None and hole[0] < va + max(row_size, row_type_size):
+                result.warning(
+                    line,
+                    "W037",
+                    f"{where} but its tiled definition here leaves "
+                    f"[0x{hole[0]:08x}, 0x{hole[1]:08x}) uncovered before "
+                    f"{untrusted_ident(hole[2])}; define the missing piece and record it "
+                    "with rebrew data set --storage-kind 0xVA=alias and "
+                    f"rebrew data set --backing {shlex.quote(f'0xVA={name}')}",
+                )
+                continue
+            source_type = f"{source_type} plus {len(tiles)} backed definition(s)"
+        fixes: list[str] = []
+        if row_type_size and row_type_size != source_size:
+            fixes.append(
+                f"rebrew data set --type 0x{va:08x}=TYPE ({source_size} bytes)"
+                if tiles
+                else f"rebrew data set --type {shlex.quote(f'0x{va:08x}={source_type}')}"
+            )
+        if row_size and row_size != source_size:
+            fixes.append(f"rebrew data set --size 0x{va:08x}={source_size}")
+        if not fixes:
+            continue
+        kind = "tiled definition" if tiles else "definition" if name in defined else "span view"
+        result.warning(
+            line,
+            "W037",
+            f"{where} but its {kind} here is {source_type!r} ({source_size} bytes); "
+            f"fix: {' and '.join(fixes)}",
+        )
+
+
+def _tiled_extent(
+    end: int,
+    tiles: list[tuple[int, str]],
+    measure: Callable[..., tuple[str, int, int] | None],
+) -> tuple[int, tuple[int, int, str] | None]:
+    """End of a tiled allocation's contiguous definitions, and the first hole.
+
+    *end* is where the leading definition stops; *tiles* are the backed
+    ``(va, name)`` pieces in VA order.  A piece that starts inside the covered
+    bytes is skipped: the walk measures coverage, and ``rebrew verify --data``
+    checks where each definition lands.  A piece that starts later leaves a
+    hole ``(start, stop, next piece)``; an unmeasurable piece ends the walk.
+    """
+    for piece_va, piece_name in tiles:
+        if piece_va < end:
+            continue
+        if piece_va > end:
+            return end, (end, piece_va, piece_name)
+        piece = measure(piece_name, span=False)
+        if piece is None:
+            break
+        end += piece[1]
+    return end, None
+
+
+def _check_W038_data_row_overlap(cfg: ProjectConfig) -> list[LintResult]:
+    """W038: two named ``rebrew-data.toml`` rows of one module overlap.
+
+    Each row's extent is ``[va, va + size)`` with the size from
+    :func:`rebrew.data_layout.data_symbol_size` (explicit ``size``, else a
+    computable ``type``); a row with no computable extent is skipped.  An
+    ``alias`` row with a ``backing`` is a view inside another allocation and
+    is excluded.  Two storage owners cannot share a byte, so an overlap is a
+    stale extent (W037 usually names which row) or a view not yet recorded
+    as one; ``rebrew status`` otherwise reports only the byte count it had to
+    discount.  Rows touching end-to-start do not overlap.
+    """
+    from rebrew.data_layout import data_symbol_size
+    from rebrew.data_metadata import DATA_METADATA_FILENAME
+
+    arch = str(getattr(cfg, "arch", "") or "x86_32")
+    by_module: dict[str, list[tuple[int, int, str]]] = {}
+    for (module, va), entry in load_data_metadata(cfg.metadata_dir).items():
+        name = str(entry.get("name") or "")
+        if not name:
+            continue
+        if entry.get("storage_kind") == "alias" and entry.get("backing"):
+            continue
+        size = data_symbol_size(entry, arch=arch)
+        if size > 0:
+            by_module.setdefault(str(module), []).append((va, va + size, name))
+    problems: list[str] = []
+    for module, spans in sorted(by_module.items()):
+        spans.sort()
+        reach: tuple[int, int, str] | None = None
+        for span in spans:
+            if reach is not None and span[0] < reach[1]:
+                shared = min(reach[1], span[1]) - span[0]
+                problems.append(
+                    f"{module}.0x{reach[0]:08x} {untrusted_ident(reach[2])} "
+                    f"[0x{reach[0]:08x}, 0x{reach[1]:08x}) overlaps "
+                    f"{module}.0x{span[0]:08x} {untrusted_ident(span[2])} by {shared} bytes; "
+                    "correct the stale size/type, or record a view with "
+                    "rebrew data set --storage-kind 0xVA=alias --backing 0xVA=GLOBAL"
+                )
+            if reach is None or span[1] > reach[1]:
+                reach = span
+    if not problems:
+        return []
+    res = LintResult((Path(cfg.metadata_dir) / DATA_METADATA_FILENAME).resolve())
+    for problem in problems:
+        res.warning(1, "W038", problem)
+    return [res]
 
 
 def _check_W032_coverage_store(cfg: ProjectConfig) -> list[LintResult]:
@@ -1467,75 +1691,177 @@ def _check_E023_naked_asm(
     )
 
 
+def _check_W031_source_provenance(cfg: ProjectConfig) -> list[LintResult]:
+    """Surface invalid or stale source evidence rather than silently trusting it."""
+    result = LintResult(Path(SOURCE_PROVENANCE_FILENAME))
+    try:
+        records = load_source_provenance(cfg.metadata_dir)
+    except (OSError, ValueError) as exc:
+        result.warning(1, "W031", f"invalid source provenance store: {exc}")
+        return [result]
+    known = {
+        preset_module_key(str(module))
+        for module in (getattr(cfg, "all_markers", None) or [cfg.marker])
+        if module
+    }
+    hashes: dict[str, dict[str, str]] = {}
+    for record in records:
+        label = f"{record.module}:{record.file}:{record.symbol}"
+        if known and record.module not in known:
+            result.warning(1, "W031", f"source provenance {label} names an unknown target module")
+            continue
+        if cfg.marker and record.module != preset_module_key(cfg.marker):
+            continue
+        try:
+            if record.file not in hashes:
+                path = (cfg.metadata_dir / record.file).resolve()
+                path.relative_to(cfg.metadata_dir.resolve())
+                source, _ = read_source_text(path)
+                hashes[record.file] = function_definition_hashes(source)
+            current = hashes[record.file].get(record.symbol)
+        except (OSError, ValueError, ImportError) as exc:
+            result.warning(1, "W031", f"source provenance {label} cannot be checked: {exc}")
+            continue
+        if current != record.source_hash:
+            result.warning(
+                1,
+                "W031",
+                f"stale source provenance for {label} — definition changed, moved or "
+                "is ambiguous; review evidence again or use rebrew source document-assembly --clear",
+            )
+    return [result] if result.warnings else []
+
+
+def _check_W031_type_metadata(cfg: ProjectConfig) -> list[LintResult]:
+    """Report invalid/stale managed type bindings without invoking the compiler."""
+    from rebrew.type_metadata import TYPE_METADATA_FILENAME, check_types
+
+    result = LintResult(Path(TYPE_METADATA_FILENAME))
+    for finding in check_types(cfg):
+        result.warning(1, "W031", f"type {finding['id']}:{finding['module']}: {finding['issue']}")
+    return [result] if result.warnings else []
+
+
 def _check_W020_asm_dump(
     result: LintResult,
     code_lines: list[str],
-    claimed_statuses: set[str] | None = None,
-    has_blocker: bool = False,
+    source: str,
+    rows: list[tuple[str, int, dict[str, Any]]],
+    headers: list[tuple[dict[str, str], dict[str, bool]]],
+    marker: str | None,
+    filepath: Path,
+    metadata_dir: Path,
 ) -> None:
-    """Flag asm-dump placeholder implementations (W020).
+    """Warn once per undocumented assembly function, using its own target rows.
 
-    Non-naked ``__asm``/``__emit`` bodies are pasted disassembly, not real C
-    source.  Whole-function ``__declspec(naked)`` + ``__asm`` is escalated to
-    E023 (error); this warning covers the remaining non-naked asm dumps.
-    Warn once per file at the first hit.
-
-    Status-aware: a file whose metadata claims a non-stub status
-    (``EXACT``/``RELOC``/...) while its body is an asm dump escalates the
-    warning — an asm dump cannot be a byte-match, so the STATUS is wrong.
-    That is how "documented STUB" (expected) is told apart from a "claimed
-    match on an asm dump" (a metadata bug) at a glance.
-
-    A recorded ``BLOCKER`` is the remedy the escalated message names, so an
-    asm body under one is documented and not reported at all.  Measured on a
-    project where three partial block-fill ``__asm`` bodies sit inside
-    functions that do byte-match (RELOC) and carry blockers: the rule fired on
-    all three, and its advice could not clear them.
+    A byte match alone does not establish original assembly provenance.
+    Documented partial assembly can match bytes; its blocker suppresses only
+    that definition. Naked assembly is handled by E023.
     """
-    if has_blocker:
+    if not any("__asm" in code or "_emit" in code for code in code_lines):
         return
-    # Whole-function naked asm is handled by E023 — don't double-report W020.
-    # Scan CODE, not raw lines: a block comment's interior lines need not start
-    # with `*`, and counting them reported an asm dump that is only commented out.
-    for code in code_lines:
-        if "__declspec(naked)" in code:
-            return
-    claimed = sorted((claimed_statuses or set()) - _UNCLAIMED_STATUSES)
+    from rebrew.rename_ops import c_name_from_symbol
+
+    selected_rows = [
+        row
+        for module, _, row in rows
+        if not marker or preset_module_key(module) == preset_module_key(marker)
+    ]
+    function_headers = [
+        keys for keys, _ in headers if keys.get("MARKER") in {"FUNCTION", "LIBRARY", "STUB"}
+    ]
+    if (
+        marker
+        and (rows or function_headers)
+        and not selected_rows
+        and not any(
+            preset_module_key(keys.get("MODULE", "")) == preset_module_key(marker)
+            for keys in function_headers
+        )
+    ):
+        return
+    definitions: list[tuple[int, int, str]] = []
+    parsed = b""
+    try:
+        tree, parsed = parse_c_source(mask_msvc_syntax(source))
+    except ImportError:
+        tree = None
+    pending = [tree.root_node] if tree is not None else []
+    while pending:
+        node = pending.pop()
+        if node.type == "function_definition":
+            declarator = node.child_by_field_name("declarator")
+            name = find_function_name_in_node(declarator, parsed) if declarator else None
+            definitions.append((node.start_point[0] + 1, node.end_point[0] + 1, name or ""))
+        else:
+            pending.extend(reversed(node.children))
+    definitions.sort()
+    documented: set[str] = set()
+    if marker:
+        try:
+            relative = filepath.resolve().relative_to(metadata_dir.resolve()).as_posix()
+            records = [
+                record
+                for record in load_source_provenance(metadata_dir)
+                if record.file == relative and record.module == preset_module_key(marker)
+            ]
+            hashes = function_definition_hashes(source) if records else {}
+            documented = {r.symbol for r in records if hashes.get(r.symbol) == r.source_hash}
+        except (OSError, ValueError, ImportError):
+            # The batch artifact check reports unusable records; they never exempt assembly.
+            pass
+    seen: set[int] = set()
     for i, code in enumerate(code_lines, start=1):
-        # "_emit", not "__emit": `rebrew binary asm show` writes the bare spelling, so
-        # matching only the old prefixed form missed every dump it produced.
-        if "_emit" in code:
-            if claimed:
-                result.warning(
-                    i,
-                    "W020",
-                    f"_emit byte dump but STATUS claims {', '.join(claimed)} — an asm "
-                    "placeholder cannot be a byte-match; fix the STATUS or mark BLOCKER",
-                )
-            else:
-                result.warning(
-                    i,
-                    "W020",
-                    "_emit byte dump — function is an asm placeholder, not real C "
-                    "source; rewrite it as C (or mark it STUB/BLOCKER with a note)",
-                )
-            return
-        if "__asm" in code:
-            if claimed:
-                result.warning(
-                    i,
-                    "W020",
-                    f"inline __asm block but STATUS claims {', '.join(claimed)} — an asm "
-                    "dump cannot be a byte-match; fix the STATUS or mark BLOCKER",
-                )
-            else:
-                result.warning(
-                    i,
-                    "W020",
-                    "inline __asm block — asm-dump placeholder instead of real C "
-                    "source; rewrite the function as C where possible",
-                )
-            return
+        if "_emit" not in code and "__asm" not in code:
+            continue
+        start, end, name = next(
+            (definition for definition in definitions if definition[0] <= i <= definition[1]),
+            (0, len(code_lines), ""),
+        )
+        if start in seen:
+            continue
+        seen.add(start)
+        if start and any("__declspec(naked)" in line for line in code_lines[start - 1 : end]):
+            continue
+        definition_rows = [
+            row
+            for _, _, row in rows
+            if name and name in (row.get("name"), c_name_from_symbol(str(row.get("symbol") or "")))
+        ]
+        own_rows = [row for row in definition_rows if row in selected_rows]
+        previous_end = max((hi for _, hi, _ in definitions if hi < start), default=0)
+        definition_headers = [
+            keys
+            for keys, _ in headers
+            if start
+            and previous_end < int(keys.get("_LINE", "0")) <= start
+            and keys.get("MARKER") in {"FUNCTION", "LIBRARY", "STUB"}
+        ]
+        own_headers = [
+            keys
+            for keys in definition_headers
+            if not marker or preset_module_key(keys.get("MODULE", "")) == preset_module_key(marker)
+        ]
+        if marker and (definition_rows or definition_headers) and not (own_rows or own_headers):
+            continue
+        if any(row.get("blocker") for row in own_rows) or any(
+            keys.get("BLOCKER") for keys in own_headers
+        ):
+            continue
+        if name in documented:
+            continue
+        statuses = {canonical_status(str(row.get("status") or "")) for row in own_rows}
+        statuses.update(canonical_status(keys.get("STATUS", "")) for keys in own_headers)
+        claimed = sorted(statuses - _UNCLAIMED_STATUSES - {""})
+        kind = "_emit byte dump" if "_emit" in code else "inline __asm block"
+        suffix = f"; STATUS claims {', '.join(claimed)}" if claimed else ""
+        result.warning(
+            i,
+            "W020",
+            f"{kind} in {name or '<unparsed definition>'}{suffix} — rewrite as C where possible "
+            "or document original assembly provenance with a BLOCKER or "
+            "rebrew source document-assembly",
+        )
 
 
 def _check_W021_duplicate_globals(
@@ -1772,7 +2098,8 @@ def _check_W022_zero_init_bss(
     is exactly the np-rebrew .data bloat (41K of zero-init arrays).  Leave
     the global uninitialized for .bss.
 
-    Exception: a global whose name appears in ``rebrew-data.toml`` with
+    Exception: a global whose name, or ``link_symbol`` without its leading
+    underscore, appears in ``rebrew-data.toml`` with
     ``section = ".data"`` or ``section = ".bss"`` (passed via
     *data_section_names*). A recorded ``.data`` zero-init is in the original
     image. A recorded ``.bss`` ``= 0`` is a placement pin: dropping it moves
@@ -1910,7 +2237,6 @@ def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
 
 
 _SUPPORT_MARKER_RE = re.compile(r"//\s*SUPPORT:\s*(\S+)(?:\s+(.*))?")
-_STRUCT_BRACE_RE = re.compile(r"\bstruct\s+\w+\s*\{")
 
 #: TOML field name -> uppercase ``found_keys`` name.
 _METADATA_TO_FOUND: dict[str, str] = {
@@ -1956,45 +2282,12 @@ def support_declaration(lines: list[str]) -> tuple[int, str, str] | None:
 
 
 def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> None:
-    """Check struct SIZE comments and code presence (W003, W007)."""
-    has_code = False
-    has_struct = False
-    first_struct_line = 1
-    struct_has_size = False
-    for i, line in enumerate(lines, start=1):
-        stripped = line.strip()
-        if (
-            stripped
-            and not stripped.startswith("//")
-            and not stripped.startswith("/*")
-            and not stripped.startswith("*")
-        ):
-            has_code = True
-        # Guard the struct regex with its literal substring: every match
-        # contains "struct", and the search ran on all ~140k lines of a
-        # 400-file batch before this (second-hottest lint rule).
-        if (
-            "struct" in stripped
-            and ("typedef struct" in stripped or _STRUCT_BRACE_RE.search(stripped))
-            and not stripped.startswith("//")
-            and not stripped.startswith("/*")
-            and not stripped.startswith("*")
-        ):
-            if not has_struct:
-                first_struct_line = i
-            has_struct = True
-        if not struct_has_size and _SIZE_ANNOTATION_RE.match(stripped):
-            struct_has_size = True
-
+    """Check code presence (W003); struct size comments are not required."""
+    has_code = any(
+        line.strip() and not line.strip().startswith(("//", "/*", "*")) for line in lines
+    )
     if not has_code and has_new:
         result.warning(1, "W003", "File has no function implementation")
-
-    if has_struct and not struct_has_size:
-        result.warning(
-            first_struct_line,
-            "W007",
-            "File defines struct(s) without // SIZE 0xNN marker (reccmp recommendation)",
-        )
 
 
 #: W022 exemption set per loaded data-metadata document, and the document
@@ -2026,9 +2319,15 @@ def _data_section_names_for(entries: dict[tuple[str, int], dict[str, Any]]) -> f
             if cached is not None:
                 return cached
     names = frozenset(
-        str(entry["name"])
+        name
         for entry in entries.values()
-        if entry.get("section") in (".data", ".bss") and entry.get("name")
+        if entry.get("section") in (".data", ".bss")
+        for name in (
+            str(entry.get("name") or ""),
+            # A C data definition links as ``_name``; the source spells ``name``.
+            str(entry.get("link_symbol") or "").removeprefix("_"),
+        )
+        if name
     )
     with _DATA_SECTION_NAMES_LOCK:
         if len(_DATA_SECTION_NAMES) >= _DATA_SECTION_NAMES_MAX:
@@ -2103,7 +2402,7 @@ def lint_file(
     # A support TU declares itself with `// SUPPORT: <MODULE> <reason>` and
     # carries no VA-anchored marker by design.  Blessed here: no E001, and
     # none of the annotation checks below apply (there are no headers to
-    # check).  Body rules (W003/W007) still run — a support file with no
+    # check).  The code-presence rule (W003) still runs — a support file with no
     # code at all is dead weight, not support.
     support = support_declaration(lines)
     if support is not None:
@@ -2160,16 +2459,25 @@ def lint_file(
     _known_markers = getattr(cfg, "all_markers", None) or ({_own_marker} if _own_marker else set())
     _known_folded = {preset_module_key(str(item)) for item in _known_markers if item}
 
-    # Statuses claimed by this file's annotations (for W020 escalation: a
-    # non-STUB claim on an asm-dump body is a metadata error).
+    # Statuses claimed by this file's annotations (for E023 diagnostics).
     _file_statuses: set[str] = set()
-    # A recorded BLOCKER documents why the body is what it is; W020's own text
-    # tells the author to add one, so an asm block under a blocker is the
-    # documented end state, not a placeholder to flag.
-    _file_has_blocker = False
     # CFLAGS from metadata/inline annotations (for the E023 REBREW_ALLOW_NAKED
     # guard — the flag lives in rebrew-functions.toml, not in source lines).
     _file_cflags: set[str] = set()
+
+    if metadata_backed:
+        # A pure-C file carries no marker blocks: its blockers and statuses are
+        # the store rows that name it, for this target only.
+        for _row_module, _row_va, _row in function_rows_for_file(
+            filepath,
+            cfg.metadata_dir if cfg is not None else filepath.parent,
+            _metadata_entries,
+        ):
+            if _own_marker and preset_module_key(_row_module) != preset_module_key(_own_marker):
+                continue
+            _row_status = canonical_status(str(_row.get("status") or ""))
+            if _row_status:
+                _file_statuses.add(_row_status)
 
     for found_keys, flags in all_headers:
         result.marker_line = int(found_keys.get("_LINE", "1"))
@@ -2330,8 +2638,6 @@ def lint_file(
             # feed E015/E017/MATCHED_STATUSES the same way update_source_status does.
             status = canonical_status(found_keys.get("STATUS", ""))
             _file_cflags.update(found_keys.get("CFLAGS", "").split())
-            if found_keys.get("BLOCKER"):
-                _file_has_blocker = True
 
             # Collect summary data during the lint pass (used by _print_summary).
             if marker:
@@ -2374,9 +2680,22 @@ def lint_file(
     _data_section_names = _data_section_names_for(_data_metadata_entries)
     code_lines = _strip_all(lines)  # one strip pass shared by E023/W020/W022
     _check_E023_naked_asm(result, lines, code_lines, _file_statuses, " ".join(_file_cflags))
-    _check_W020_asm_dump(result, code_lines, _file_statuses, _file_has_blocker)
+    _check_W020_asm_dump(
+        result,
+        code_lines,
+        text,
+        function_rows_for_file(
+            filepath, cfg.metadata_dir if cfg else filepath.parent, _metadata_entries
+        ),
+        all_headers,
+        _own_marker,
+        filepath,
+        cfg.metadata_dir if cfg else filepath.parent,
+    )
     _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
     _check_W022_zero_init_bss(result, code_lines, _data_section_names)
+    if cfg is not None:
+        _check_W037_data_definition(result, text, filepath, cfg)
     _check_body_rules(
         result,
         lines,
@@ -2716,10 +3035,13 @@ def main(
     if cfg is not None:
         for artifact_result in (
             *_check_W031_metadata_store(cfg),
+            *_check_W031_source_provenance(cfg),
+            *_check_W031_type_metadata(cfg),
             *_check_W032_coverage_store(cfg),
             *_check_W036_stray_metadata_store(cfg),
             *_check_W034_identity_paths(cfg),
             *_check_W035_unknown_modules(cfg),
+            *_check_W038_data_row_overlap(cfg),
             *_check_W033_agent_scaffold(cfg),
         ):
             all_results.append(artifact_result)

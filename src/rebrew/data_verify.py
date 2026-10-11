@@ -14,7 +14,13 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from rebrew.data_metadata import data_definition_hash, iter_data_symbols
+from rebrew.data_metadata import (
+    DATA_STATUS_DISPLACED,
+    DATA_STATUS_EXACT,
+    DATA_STATUS_VERIFIED,
+    data_definition_hash,
+    iter_data_symbols,
+)
 
 
 def verify_data_bytes(
@@ -25,6 +31,7 @@ def verify_data_bytes(
     sizes: dict[int, int],
     sections: tuple[str, ...] = (".data", ".rdata"),
     cfg: Any | None = None,
+    built_symbols: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Compare per-symbol bytes; return ``matched`` / ``mismatched`` / ``missing``.
 
@@ -47,6 +54,14 @@ def verify_data_bytes(
     reaches *sizes*. ``total`` counts every named symbol, ``not_comparable``
     the difference, and ``coverage`` is the fraction compared, so a caller can
     tell "122 matched" from "122 of 329 matched".
+    **Placement** needs *built_symbols* (link-map name -> built VA, see
+    :func:`link_map_symbols`). Bytes compared at the reference VA cannot see a
+    symbol that the build put elsewhere: two zero-filled spans compare equal. A
+    symbol the map places at its reference VA is ``EXACT`` when its bytes match;
+    one placed elsewhere is ``DISPLACED`` (``built_va`` and ``delta`` on the row)
+    whatever its bytes; one the map does not name keeps its byte verdict, so
+    ``VERIFIED`` means "bytes match, placement unchecked". ``exact``,
+    ``displaced`` and ``unplaced`` count those outcomes.
     """
     from rebrew.data_layout import data_symbol_size
     from rebrew.data_metadata import module_visible_to_target
@@ -58,6 +73,7 @@ def verify_data_bytes(
     missing: list[str] = []
     compared = 0
     results: list[dict[str, Any]] = []
+    row_meta: list[tuple[str, int, dict[str, Any]]] = []
     for module, va, fields in iter_data_symbols(db, section=None):
         if not fields.get("name") or not module_visible_to_target(module, cfg):
             continue
@@ -82,6 +98,7 @@ def verify_data_bytes(
             digest.update(b"missing" if data is None else hashlib.sha256(data[:size]).digest())
         row["input_hash"] = digest.hexdigest()
         results.append(row)
+        row_meta.append((name, va, fields))
         exp = expected.get(va)
         got = actual.get(va)
         if not _section_selected(str(fields.get("section") or ""), sections):
@@ -106,6 +123,23 @@ def verify_data_bytes(
         row["status"] = "DRIFT"
         row["first_diff"] = first_diff
         mismatched.append(dict(row))
+    exact = 0
+    displaced: list[dict[str, Any]] = []
+    unplaced = 0
+    if built_symbols is not None:
+        for row, (name, va, fields) in zip(results, row_meta, strict=True):
+            built_va = _built_va(name, fields, built_symbols)
+            if built_va is None:
+                unplaced += 1
+                continue
+            row["built_va"] = f"0x{built_va:x}"
+            if built_va != va:
+                row["delta"] = built_va - va
+                row["status"] = DATA_STATUS_DISPLACED
+                displaced.append(dict(row))
+            elif row["status"] == DATA_STATUS_VERIFIED:
+                row["status"] = DATA_STATUS_EXACT
+                exact += 1
     total = len(results)
     return {
         "matched": matched,
@@ -115,8 +149,34 @@ def verify_data_bytes(
         "compared": compared,
         "not_comparable": total - compared,
         "coverage": (compared / total) if total else 0.0,
+        "exact": exact,
+        "displaced": displaced,
+        "unplaced": unplaced,
         "results": results,
     }
+
+
+def _built_va(name: str, fields: dict[str, Any], built_symbols: dict[str, int]) -> int | None:
+    """The built VA of a data row: its recorded native symbol, else the cdecl name."""
+    for candidate in (str(fields.get("link_symbol") or ""), f"_{name}", name):
+        if candidate and candidate in built_symbols:
+            return built_symbols[candidate]
+    return None
+
+
+def link_map_symbols(text: str) -> dict[str, int]:
+    """Data symbol name -> VA from an MSVC link map; the first row of a name wins.
+
+    Functions are left out: a data row never names code, and a function that
+    shares a data row's name would otherwise give it a code address.
+    """
+    from rebrew.data_ownership import parse_link_map
+
+    out: dict[str, int] = {}
+    for sym in parse_link_map(text):
+        if not sym.is_function:
+            out.setdefault(sym.name, sym.va)
+    return out
 
 
 # PE images from MSVC keep BSS as the .data tail and the IAT inside .rdata.

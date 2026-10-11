@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner, Result
 
 from rebrew import refactor
@@ -186,8 +187,9 @@ class TestRefactorCommand:
         assert "small.py" not in result.output
 
 
-def test_missing_repository_is_reported(tmp_path: Path) -> None:
+def test_missing_repository_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A missing Python checkout fails before scanning, without project config."""
-    result = CliRunner().invoke(refactor.app, ["--repository", str(tmp_path / "missing"), "--json"])
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(refactor.app, ["--repository", "missing", "--json"])
     assert result.exit_code == 2
     assert "does not exist" in result.output

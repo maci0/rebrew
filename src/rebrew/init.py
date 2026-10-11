@@ -78,6 +78,19 @@ app = typer.Typer(
 
 _AGENTS_MD_TEMPLATE = Path(__file__).parent / "AGENTS.md.template"
 
+# Everything from this line to the end of AGENTS.md belongs to the project:
+# a refresh renders the template above it and keeps the rest verbatim.
+AGENTS_PROJECT_MARKER = "<!-- rebrew: project rules below, kept by --refresh-agents -->"
+
+
+def _agents_project_tail(path: Path) -> str:
+    """Return the project-owned tail of an existing AGENTS.md, marker included."""
+    if not path.is_file():
+        return ""
+    text = path.read_text(encoding="utf-8")
+    at = text.find(AGENTS_PROJECT_MARKER)
+    return text[at:] if at >= 0 else ""
+
 
 _AGENT_SKILLS_SRC = Path(__file__).parent / "agent-skills"
 _PRINCIPLES_SRC = Path(__file__).parent / "PRINCIPLES.md"
@@ -880,6 +893,9 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
         defaults=profile,
     )
 
+    tail = _agents_project_tail(cwd / "AGENTS.md")
+    if tail:
+        content = content.rstrip("\n") + "\n\n" + tail
     expected: dict[str, bytes] = {"AGENTS.md": content.encode("utf-8")}
     expected["PRINCIPLES.md"] = _require_packaged_asset(_PRINCIPLES_SRC).read_bytes()
     for rel, data_bytes in agent_skill_files(target_name).items():
@@ -921,6 +937,16 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
     rendered = {rel: data for rel, data in expected.items() if rel.startswith(".agents/skills/")}
     if rendered or manifest:
         _write_scaffold_manifest(cwd, rendered)
+    if json_output:
+        json_print(
+            {
+                "written": written,
+                "removed": len(stale) - len(kept),
+                "kept": kept,
+                "compiler": compiler_profile,
+            }
+        )
+        return
     console.print(
         f"[green]Refreshed {written} scaffold file(s)[/] "
         f"(AGENTS.md, PRINCIPLES.md, .agents/skills/) for profile {compiler_profile}"

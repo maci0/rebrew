@@ -14,6 +14,7 @@ row, copies that C definition and its file-scope objects into the output,
 and retargets every row that names an input.  ``--dry-run`` writes nothing.
 """
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,6 +46,7 @@ from rebrew.metadata import (
     identity_file,
     load_metadata,
     record_migrated_markers,
+    stored_file_matches,
     validate_identity_file,
 )
 from rebrew.sources import (
@@ -58,7 +60,6 @@ from rebrew.split import (
     shared_preamble,
     source_layout,
     span_extent,
-    stored_file_matches,
 )
 from rebrew.utils import (
     atomic_write_text,
@@ -423,6 +424,29 @@ def _collapse_twins(
     return out
 
 
+_QUOTED_INCLUDE_RE = re.compile(r'^(\s*#\s*include\s*")(\.[^"]*)(")', re.M)
+
+
+def rebase_includes(text: str, source_dir: Path, output_dir: Path) -> str:
+    """Rewrite ``#include "../x.h"`` so it resolves from *output_dir*.
+
+    A relative quoted include names a file next to its source.  Merging into a
+    file in another directory leaves it pointing at the wrong place, so each
+    one that names an existing file is respelled relative to the output.
+    An include that does not exist is left alone for the compiler to report.
+    """
+    out_dir = output_dir.resolve()
+
+    def respell(match: re.Match[str]) -> str:
+        target = (source_dir / match.group(2)).resolve()
+        if not target.exists():
+            return match.group(0)
+        rebased = Path(os.path.relpath(target, out_dir)).as_posix()
+        return f"{match.group(1)}{rebased}{match.group(3)}"
+
+    return _QUOTED_INCLUDE_RE.sub(respell, text)
+
+
 def block_metadata(block: str) -> dict[str, Any] | None:
     """Extract marker module/VA from a function block."""
     for line in block.splitlines():
@@ -482,9 +506,11 @@ def _collect_input_files(
 ) -> list[Path]:
     """Resolve input arguments into unique source-file paths.
 
-    *exclude* (the merge output) is skipped: a directory argument that already
-    contains a previous merge output would otherwise feed it back in as an
-    input, so ``--force`` re-runs failed with a duplicate-VA error.
+    *exclude* (the merge output) is skipped when a directory argument finds it:
+    a directory that already contains a previous merge output would otherwise
+    feed it back in as an input, so ``--force`` re-runs failed with a
+    duplicate-VA error. A file named explicitly is kept even when it is the
+    output: that is an in-place merge of other files into it.
     """
     expected_exts = set(source_exts(cfg)) or {".c"}
     lowered_exts = {e.lower() for e in expected_exts}
@@ -507,8 +533,6 @@ def _collect_input_files(
             continue
         # iter_sources matches case-insensitively (FOO.C counts as .c).
         if p.suffix.lower() not in lowered_exts:
-            continue
-        if resolved_exclude is not None and p.resolve() == resolved_exclude:
             continue
         if p not in seen:
             seen.add(p)
@@ -575,6 +599,10 @@ class _InputLayout:
     va: int
     stores: list[_Piece]
     functions: list[_Piece]
+    #: Data rows naming this file that no object in it defines (an extern
+    #: declaration, a compiler literal).  They move to the output with the code
+    #: that uses them; nothing is lost because the row never anchored a definition.
+    carried: list[tuple[str, int, str]]
 
 
 def _definition_problem(span: SourceSpan, filename: str, *, function: bool) -> str | None:
@@ -722,6 +750,7 @@ def _layout_one(
     data_entries: dict[tuple[str, int], dict[str, Any]],
     claimed: dict[tuple[str, int], str],
     claimed_data: dict[tuple[str, int], str],
+    output_dir: Path,
 ) -> tuple[_InputLayout, list[str]]:
     """Preamble, storage, and functions from one migrated input."""
     rel = identity_file(file_path, meta)
@@ -751,13 +780,20 @@ def _layout_one(
             store_pieces,
             problems,
         )
-    problems.extend(_missing_rows(file_data, seen_data, file_path.name, rel, data=True))
+    carried = [
+        (module, va, str(entry.get("file") or rel))
+        for module, va, entry in file_data
+        if (module, va) not in seen_data
+    ]
     layout = _InputLayout(
         rel=rel,
-        preamble=shared_preamble(raw, spans, [], sole=False),
+        preamble=rebase_includes(
+            shared_preamble(raw, spans, [], sole=False), file_path.parent, output_dir
+        ),
         va=min((piece.va for piece in func_pieces), default=_NO_VA),
         stores=store_pieces,
         functions=func_pieces,
+        carried=carried,
     )
     return layout, problems
 
@@ -774,6 +810,7 @@ def _read_layouts(
     input_files: list[Path],
     entries: dict[tuple[str, int], dict[str, Any]],
     data_entries: dict[tuple[str, int], dict[str, Any]],
+    output_dir: Path,
     json_output: bool,
 ) -> tuple[list[_InputLayout], list[str], str, str]:
     """Read every input.  The last legacy encoding wins, as on the marker path."""
@@ -796,7 +833,7 @@ def _read_layouts(
         except ImportError as exc:
             error_exit(str(exc), json_mode=json_output)
         layout, layout_problems = _layout_one(
-            file_path, raw, spans, meta, entries, data_entries, claimed, claimed_data
+            file_path, raw, spans, meta, entries, data_entries, claimed, claimed_data, output_dir
         )
         layouts.append(layout)
         problems.extend(layout_problems)
@@ -879,11 +916,27 @@ def _require_merged_functions(
         error_exit("No functions found in input files", json_mode=json_output)
 
 
+def _target_va(layout: _InputLayout, marker: str) -> int:
+    """Lowest function VA of *layout* under module *marker*, else under any module."""
+    own = [
+        va
+        for piece in layout.functions
+        for module, va, _old in piece.rows
+        if preset_module_key(module) == preset_module_key(marker)
+    ]
+    return min(own, default=layout.va)
+
+
 def _assemble_pieces(
     layouts: list[_InputLayout], *, shared: bool, marker: str, json_output: bool
 ) -> tuple[list[_Piece], list[_Piece]]:
-    """Storage first, then functions.  Files are ordered by their lowest function VA."""
-    layouts.sort(key=lambda item: (item.va, item.rel))
+    """Storage first, then functions.  Files are ordered by their lowest function VA.
+
+    The VA is the active target's own: a shared body also carries rows for other
+    targets, and a client VA below the server image would sort it ahead of code
+    that precedes it in the linked order.
+    """
+    layouts.sort(key=lambda item: (_target_va(item, marker), item.rel))
     store_out: list[_Piece] = []
     seen_store: dict[str, _Piece] = {}
     for layout in layouts:
@@ -1177,7 +1230,7 @@ def _merge_markerless(
     entries = load_metadata(meta)
     data_entries = load_data_metadata(meta)
     layouts, problems, out_encoding, input_eol = _read_layouts(
-        meta, input_files, entries, data_entries, json_output
+        meta, input_files, entries, data_entries, output_path.parent, json_output
     )
     if problems:
         error_exit(f"{problems[0]}. Nothing was written.", json_mode=json_output)
@@ -1218,7 +1271,8 @@ def _merge_markerless(
         merged_text=merged_text,
         out_encoding=out_encoding,
         function_rows=[row for piece in func_out for row in piece.rows],
-        data_rows=[row for piece in store_out for row in piece.rows],
+        data_rows=[row for piece in store_out for row in piece.rows]
+        + [row for layout in layouts for row in layout.carried],
         json_output=json_output,
     )
     if delete:
@@ -1337,6 +1391,7 @@ def main(
         except OSError as exc:
             error_exit(f"Failed to read {file_path}: {exc}", json_mode=json_output)
 
+        text = rebase_includes(text, file_path.parent, output_path.parent)
         annotations = parse_c_file_text(
             text, file_path, None if shared else target_marker(cfg), None, cfg.metadata_dir
         )
@@ -1356,26 +1411,31 @@ def main(
         included_inputs.append(file_path)
 
         for block in blocks:
-            meta = block_metadata(block)
-            if meta is None:
+            markers = block_markers(block)
+            if not markers:
                 continue
-            module = str(meta["module"])
-            if (
-                not shared
-                and cfg.marker
-                and preset_module_key(module) != preset_module_key(cfg.marker)
-            ):
-                continue
-            va = meta["va"]
-            key = (preset_module_key(module), va)
-            if key in seen_vas:
-                error_exit(
-                    f"Duplicate VA 0x{va:08x} across input files — merge would "
-                    "create duplicate FUNCTION markers (lint E013). Fix the "
-                    "duplicate annotation first.",
-                    json_mode=json_output,
-                )
-            seen_vas.add(key)
+            # A shared source stacks one marker per target above one body, so
+            # the target's marker may sit below another target's.  Only a block
+            # with no marker for this target is skipped.
+            if not shared and cfg.marker:
+                mine = [
+                    m for m in markers if preset_module_key(m[0]) == preset_module_key(cfg.marker)
+                ]
+                if not mine:
+                    continue
+                va = mine[0][1]
+            else:
+                va = markers[0][1]
+            for module, marker_va in markers:
+                key = (preset_module_key(module), marker_va)
+                if key in seen_vas:
+                    error_exit(
+                        f"Duplicate VA 0x{marker_va:08x} across input files — merge would "
+                        "create duplicate FUNCTION markers (lint E013). Fix the "
+                        "duplicate annotation first.",
+                        json_mode=json_output,
+                    )
+                seen_vas.add(key)
             blocks_with_va.append((va, block.strip("\n")))
 
     if shared:
@@ -1446,18 +1506,42 @@ def main(
             )
         confirm_abort(f"Delete {len(included_inputs)} input file(s) after merge?")
 
+    # Legacy markers can coexist with managed identities; those rows must move
+    # before --delete removes the files they still name.
+    meta, new_file = _destination(cfg, output_path, json_output)
+    entries = load_metadata(meta)
+    data_entries = load_data_metadata(meta)
+    function_rows: list[tuple[str, int, str]] = []
+    data_rows: list[tuple[str, int, str]] = []
+    from rebrew.c_parser import find_c_function_definitions
+
+    defined = {name for name, _span in find_c_function_definitions(merged_text)}
+    for file_path in included_inputs:
+        rel = identity_file(file_path, meta)
+        for module, va, entry in _function_rows(entries, rel):
+            if not row_labels(entry) & defined:
+                error_exit(
+                    f"Managed function {module}.0x{va:08x} is absent from merged output. "
+                    "Nothing was written; use --shared to retain other targets' definitions.",
+                    json_mode=json_output,
+                )
+        function_rows.extend(
+            (module, va, str(entry["file"])) for module, va, entry in _function_rows(entries, rel)
+        )
+        data_rows.extend(
+            (module, va, str(entry["file"])) for module, va, entry in _data_rows(data_entries, rel)
+        )
     if not dry_run:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            atomic_write_text(output_path, merged_text, encoding=out_encoding)
-        except UnicodeEncodeError as exc:
-            offending = exc.object[exc.start : exc.end]
-            error_exit(
-                f"merged source cannot be encoded as {out_encoding} "
-                f"(offending text {offending!r}); convert the inputs to a common "
-                "encoding first",
-                json_mode=json_output,
-            )
+        _commit_markerless(
+            meta=meta,
+            new_file=new_file,
+            output_path=output_path,
+            merged_text=merged_text,
+            out_encoding=out_encoding,
+            function_rows=function_rows,
+            data_rows=data_rows,
+            json_output=json_output,
+        )
         if delete:
             for file_path in included_inputs:
                 if file_path.resolve() == output_path.resolve():
@@ -1475,6 +1559,8 @@ def main(
         "vas": [f"0x{va:08x}" for va, _ in sorted(blocks_with_va, key=lambda x: x[0])],
         "extern_dropped": extern_report.dropped if extern_report else [],
         "extern_conflicts": dict(extern_report.conflicts) if extern_report else {},
+        "retargeted": [f"{module}.0x{va:08x}" for module, va, _old in function_rows],
+        "data_retargeted": [f"{module}.0x{va:08x}" for module, va, _old in data_rows],
     }
     if json_output:
         json_print(payload)

@@ -204,6 +204,43 @@ class TestRenameTargetIsolation:
             assert get_entry(tmp_path, va, module)["file"] == "src/new_fn.c"
             assert get_entry(tmp_path, va, module)["status"] == "EXACT"
 
+    def test_globals_follow_the_renamed_file(self, tmp_path: Path) -> None:
+        import tomllib
+
+        from rebrew.metadata import save_metadata
+
+        src = tmp_path / "src"
+        src.mkdir()
+        primary = _src(src, "old_fn.c", "int g_hits;\nint old_fn(void) { return g_hits; }\n")
+        save_metadata(
+            tmp_path,
+            {
+                ("TL", 0x401000): {
+                    "file": "src/old_fn.c",
+                    "name": "old_fn",
+                    "symbol": "_old_fn",
+                    "marker_type": "FUNCTION",
+                }
+            },
+        )
+        data_toml = (
+            '["TL.0x500000"]\nname = "g_hits"\nfile = "src/old_fn.c"\n\n'
+            '["TL.0x500004"]\nname = "g_else"\nfile = "src/else.c"\n'
+        )
+        (tmp_path / "rebrew-data.toml").write_text(data_toml, encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path, reversed_dir=src, metadata_dir=tmp_path)
+        rename_function_everywhere(
+            cfg, primary, "old_fn", "_old_fn", "new_fn", new_filename="new_fn.c", dry_run=True
+        )
+        assert (tmp_path / "rebrew-data.toml").read_text(encoding="utf-8") == data_toml
+        rename_function_everywhere(
+            cfg, primary, "old_fn", "_old_fn", "new_fn", new_filename="new_fn.c"
+        )
+        data = tomllib.loads((tmp_path / "rebrew-data.toml").read_text(encoding="utf-8"))
+        assert data["TL.0x500000"]["file"] == "src/new_fn.c"
+        assert data["TL.0x500000"]["updated_by"] == "rename"
+        assert data["TL.0x500004"]["file"] == "src/else.c"
+
     @pytest.mark.parametrize("dry_run", [False, True])
     def test_shared_owner_does_not_rename_independent_server_symbol(
         self, tmp_path: Path, dry_run: bool
@@ -541,7 +578,7 @@ class TestRenameCli:
         stale = src / "stale.c"
         stale.write_text("extern int old_fn(void);\n", encoding="utf-8")
         monkeypatch.setattr(
-            "rebrew.rename.rename_function_everywhere",
+            "rebrew.rename.plan_symbol_rename",
             lambda *a, **kw: (_ for _ in ()).throw(
                 RenameError("call sites not rewritten", files=[stale])
             ),
@@ -560,7 +597,7 @@ class TestRenameCli:
         src = tmp_path / "src" / "SERVER"
         many = [src / f"f{i:03d}.c" for i in range(_RENAME_FAILURE_FILE_LIMIT + 5)]
         monkeypatch.setattr(
-            "rebrew.rename.rename_function_everywhere",
+            "rebrew.rename.plan_symbol_rename",
             lambda *a, **kw: (_ for _ in ()).throw(
                 RenameError("call sites not rewritten", files=many)
             ),
@@ -789,23 +826,6 @@ class TestRenameCli:
         assert "new_fn" not in f.read_text(encoding="utf-8")
 
 
-class TestCollectMatchingFiles:
-    def test_lists_primary_and_referencing_files(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        import re
-
-        from rebrew.rename_ops import collect_matching_files
-
-        a = _src(tmp_path, "func_a.c", "int func_a(void) { return 1; }\n")
-        b = _src(tmp_path, "other.c", "extern int func_a(void);\n")
-        c = _src(tmp_path, "unrelated.c", "int other(void) { return 0; }\n")
-        _patch_sources(monkeypatch, [a, b, c])
-        pattern = re.compile(r"\bfunc_a\b")
-        matched = collect_matching_files(_cfg(tmp_path), a, pattern)
-        assert set(matched) == {a, b}
-
-
 class TestRenameData:
     def _cfg(self, tmp_path: Path):
         from types import SimpleNamespace
@@ -847,6 +867,27 @@ class TestRenameData:
         assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_new"
         text = (tmp_path / "src" / "use.c").read_text(encoding="utf-8")
         assert "g_new" in text and "g_old" not in text
+
+    def test_rename_data_follows_link_symbol(self, tmp_path: Path, monkeypatch) -> None:
+        """The native linker symbol of the renamed definition keeps its decoration."""
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+
+        self._project(tmp_path)
+        store = tmp_path / "rebrew-data.toml"
+        store.write_text(
+            store.read_text(encoding="utf-8") + 'link_symbol = "_g_old"\n', encoding="utf-8"
+        )
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
+        assert res.exit_code == 0, res.output
+        assert get_data_entry(tmp_path, 0x2000, "SERVER").get("link_symbol") == "_g_new"
 
     def test_rename_data_updates_header(self, tmp_path: Path, monkeypatch) -> None:
         """A header extern is a declaration of the same global and is renamed."""
@@ -901,7 +942,7 @@ class TestRenameData:
         def _boom(_path: Path) -> tuple[str, str]:
             raise OSError(13, "Permission denied")
 
-        monkeypatch.setattr("rebrew.utils.read_source_text", _boom)
+        monkeypatch.setattr("rebrew.rename_ops.read_source_text", _boom)
         res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
         assert res.exit_code != 0
         assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
@@ -988,16 +1029,14 @@ class TestRenameData:
             encoding="utf-8",
         )
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
-        import rebrew.utils as utils_module
-
-        real_read = utils_module.read_source_text
+        real_read = rename_ops.read_source_text
 
         def _read(path: Path) -> tuple[str, str]:
             if path == locked:
                 raise PermissionError(13, "Permission denied")
             return real_read(path)
 
-        monkeypatch.setattr(utils_module, "read_source_text", _read)
+        monkeypatch.setattr(rename_ops, "read_source_text", _read)
         res = CliRunner().invoke(app, ["$SG18890", "g_100313fc", "--data"])
         assert res.exit_code != 0
         assert str(locked) in res.output
@@ -1185,40 +1224,31 @@ class TestUnderscoreNameDerivation:
 
 class TestProtectedSpans:
     def test_substitution_skips_literals_and_macro_names(self) -> None:
-        """`rebrew source rename` documents that macros and string literals are not
-        rewritten: a raw-text substitution rewrote `puts("foo")`, changing the
-        data a byte-matched function emits."""
-        import re
+        """Literals and a macro's own name are not occurrences of the function.
 
-        from rebrew.rename_ops import substitute_name
+        A raw-text substitution rewrote ``puts("foo")``, changing the data a
+        byte-matched function emits.
+        """
+        from rebrew.c_rename import ORDINARY_ROLES, ParsedSource, occurrences, rewrite
 
-        src = (
+        src = ParsedSource.parse(
             "int foo(void) { return 1; }\n"
             'void caller(void) { puts("foo"); foo(); }\n'
             "#define foo(x) ((x) + 1)\n"
         )
-        out = substitute_name(re.compile(r"\bfoo\b"), "bar", src)
+        spans = [(o.start, o.end) for o in occurrences(src, "foo") if o.role in ORDINARY_ROLES]
+        out = rewrite(src, spans, "bar")
         assert "int bar(void)" in out
         assert "bar();" in out
-        # Literal and macro definition keep the old name.
         assert 'puts("foo")' in out
         assert "#define foo(x)" in out
 
-    def test_word_boundary_is_unicode_with_or_without_literals(self) -> None:
-        """A file with a literal must match exactly like one without: a bytes
-        regex treats the UTF-8 bytes of `é` as non-word, so `\\b` split
-        `éfoo` and renamed it only when the file also held a string."""
-        import re
+    def test_word_boundary_is_unicode(self) -> None:
+        """A non-ASCII letter is part of the word: ``éfoo`` is not ``foo``."""
+        from rebrew.c_rename import ParsedSource, occurrences
 
-        from rebrew.rename_ops import substitute_name
-
-        pattern = re.compile(r"\bfoo\b")
-        plain = "/* éfoo */ int foo(void);\n"
-        with_literal = plain + 'char *s = "x";\n'
-        assert substitute_name(pattern, "bar", plain) == "/* éfoo */ int bar(void);\n"
-        assert substitute_name(pattern, "bar", with_literal) == (
-            "/* éfoo */ int bar(void);\n" + 'char *s = "x";\n'
-        )
+        src = ParsedSource.parse("int éfoo; int foo(void);\n")
+        assert [o.column for o in occurrences(src, "foo")] == [15]
 
     def test_macro_name_spans_cover_defines(self) -> None:
         from rebrew.c_parser import protected_spans
@@ -1228,6 +1258,159 @@ class TestProtectedSpans:
         # Exactly two spans: the macro's NAME (not its body) and the char literal.
         # The function's own name is NOT protected (it must be renamed).
         assert spans == ["foo", "'f'"]
+
+
+class TestFunctionReferenceBinding:
+    def _invoke(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> Any:
+        from typer.testing import CliRunner
+
+        from rebrew.metadata import record_function_identity
+        from rebrew.rename import app
+
+        record_function_identity(
+            tmp_path,
+            module="CLIENT",
+            va=0x1000,
+            file="builder.c",
+            marker_type="FUNCTION",
+            name="BuildEvent",
+            symbol="_BuildEvent",
+        )
+        cfg = _cfg(tmp_path)
+        cfg.root = tmp_path
+        cfg.marker = "CLIENT"
+        cfg.source_ext = ".c"
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        return CliRunner().invoke(app, ["--json", *args, "placeholder", "CLIENT.0x1000"])
+
+    def test_preview_and_apply_preserve_destination_and_metadata(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        builder = _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
+        caller = _src(
+            tmp_path,
+            "caller.c",
+            "int placeholder(void); int caller(void) { return placeholder(); }\n"
+            'char *label = "placeholder"; /* placeholder */\n',
+        )
+        original = caller.read_bytes()
+        preview = self._invoke(tmp_path, monkeypatch, "--dry-run")
+        assert preview.exit_code == 0, preview.output
+        plan = json.loads(preview.stdout)
+        assert plan["new_name"] == "BuildEvent"
+        assert plan["rows"] == []
+        assert plan["files_updated"] == 1
+        assert caller.read_bytes() == original
+        metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
+        result = self._invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert caller.read_text() == (
+            "int BuildEvent(void); int caller(void) { return BuildEvent(); }\n"
+            'char *label = "placeholder"; /* placeholder */\n'
+        )
+        assert builder.read_text() == "int BuildEvent(void) { return 1; }\n"
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata
+
+    @pytest.mark.parametrize(
+        "conflict",
+        [
+            "int placeholder(void) { return 0; }",
+            "extern int placeholder;",
+            "int caller(int placeholder) { return placeholder; }",
+            "int placeholder(void); int caller(int placeholder) { return placeholder; }",
+            "int (*placeholder)(void);",
+            "typedef int placeholder(void);",
+            "static int placeholder(void);",
+            "#define placeholder() 0",
+            "// LIBRARY: CLIENT 0x2000\n// _placeholder\nint placeholder(void);",
+            "extern int BuildEvent; int placeholder(void);",
+            "#define BuildEvent() 1\nint placeholder(void);",
+        ],
+    )
+    def test_rejects_non_placeholder_names_without_writes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflict: str
+    ) -> None:
+        builder = _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
+        caller = _src(tmp_path, "caller.c", conflict + "\n")
+        result = self._invoke(tmp_path, monkeypatch)
+        assert result.exit_code != 0, result.output
+        assert builder.read_text() == "int BuildEvent(void) { return 1; }\n"
+        assert caller.read_text() == conflict + "\n"
+
+    @pytest.mark.parametrize(
+        "destination",
+        [
+            "static int BuildEvent(void) { return 1; }",
+            "int Other(void) { return 1; }",
+            "int BuildEvent;",
+            "int BuildEvent(void);",
+        ],
+    )
+    def test_requires_external_destination_definition(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, destination: str
+    ) -> None:
+        builder = _src(tmp_path, "builder.c", destination + "\n")
+        caller = _src(tmp_path, "caller.c", "int placeholder(void);\n")
+        result = self._invoke(tmp_path, monkeypatch)
+        assert result.exit_code != 0, result.output
+        assert builder.read_text() == destination + "\n"
+        assert caller.read_text() == "int placeholder(void);\n"
+
+    def test_rejects_independent_destination_twin(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
+        _src(tmp_path, "twin.c", "int BuildEvent(void) { return 2; }\n")
+        caller = _src(tmp_path, "caller.c", "int placeholder(void);\n")
+        result = self._invoke(tmp_path, monkeypatch)
+        assert result.exit_code != 0, result.output
+        assert caller.read_text() == "int placeholder(void);\n"
+
+    def test_rejects_managed_library_identity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import record_function_identity
+
+        _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
+        caller = _src(tmp_path, "caller.c", "int placeholder(void);\n")
+        record_function_identity(
+            tmp_path,
+            module="CLIENT",
+            va=0x2000,
+            file="caller.c",
+            marker_type="LIBRARY",
+            name="placeholder",
+            symbol="_placeholder",
+        )
+        result = self._invoke(tmp_path, monkeypatch)
+        assert result.exit_code != 0, result.output
+        assert caller.read_text() == "int placeholder(void);\n"
+
+    @pytest.mark.parametrize(
+        "declaration,kind",
+        [
+            ("int (*name)(void);", "variable"),
+            ("int *name(void) { return 0; }", "function"),
+            ("int (*name(void))(void) { return 0; }", "function"),
+            ("int (*name[2])(void);", "variable"),
+        ],
+    )
+    def test_declarator_classification(self, declaration: str, kind: str) -> None:
+        from rebrew.c_rename import ParsedSource, definitions
+
+        assert [d.kind for d in definitions(ParsedSource.parse(declaration), "name")] == [kind]
+
+    @pytest.mark.parametrize("options", [("--file", "other.c"), ("--all-modules",), ("--data",)])
+    def test_rejects_identity_and_non_function_modes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: tuple[str, ...]
+    ) -> None:
+        _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
+        caller = _src(tmp_path, "caller.c", "int placeholder(void);\n")
+        result = self._invoke(tmp_path, monkeypatch, *options)
+        assert result.exit_code != 0, result.output
+        assert caller.read_text() == "int placeholder(void);\n"
 
 
 class TestRenameDoesNotTouchLiterals:

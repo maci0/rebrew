@@ -77,6 +77,7 @@ if TYPE_CHECKING:
     from rebrew.ne_loader import NeParseError as NeParseError
     from rebrew.omf16 import Omf16Error as Omf16Error
     from rebrew.orphans import OrphanInventoryError as OrphanInventoryError
+    from rebrew.pdb_export import PdbExportError as PdbExportError
     from rebrew.plugin import ComponentError as ComponentError
     from rebrew.recompile_client import RecompileError as RecompileError
     from rebrew.recompile_client import RecompileErrorKind as RecompileErrorKind
@@ -246,6 +247,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "NotLzexeError": ("rebrew.lzexe", "NotLzexeError"),
     "Omf16Error": ("rebrew.omf16", "Omf16Error"),
     "OrphanInventoryError": ("rebrew.orphans", "OrphanInventoryError"),
+    "PdbExportError": ("rebrew.pdb_export", "PdbExportError"),
     "RecompileError": ("rebrew.recompile_client", "RecompileError"),
     "RegistryError": ("rebrew.registry", "RegistryError"),
     "RenameError": ("rebrew.rename_ops", "RenameError"),
@@ -343,6 +345,7 @@ __all__ = [
     "NotLzexeError",
     "Omf16Error",
     "OrphanInventoryError",
+    "PdbExportError",
     "RebrewError",
     "RecompileError",
     "RecompileErrorKind",

@@ -379,20 +379,27 @@ section = ".bss"
 > The `rebrew-data.toml` metadata file is created and updated automatically by rebrew tools.
 > **Never edit it manually.**
 
-## Struct SIZE Comments (reccmp recommendation)
+## Struct layouts
 
-When a file defines structs, annotate their size:
+Struct declarations do not need `// SIZE` comments. Function sizes belong in
+`rebrew-functions.toml`; global byte extents belong in `rebrew-data.toml`.
+Neither establishes the size of a type or its complete native allocation.
 
-```c
-// SIZE 0x1c
-typedef struct {
-    int x;       // 0x00
-    int y;       // 0x04
-    char* name;  // 0x08
-} MyStruct;
-```
-
-The linter (W007) will warn if a file defining structs lacks the `// SIZE 0xNN` annotation.
+`rebrew types bind ID FILE C_NAME --size N --native-size N --evidence TEXT`
+records a stable type identity and target layout in managed `rebrew-types.toml`.
+Definitions belong in their subsystem header or private translation unit.
+The type ID has no address: an instance has an address, while a heap instance
+is evidenced by allocation/use sites. Record those sites in the type evidence;
+static instances keep their VA in `rebrew-data.toml`.
+The command compiles C89 sizeof and optional `--field member=offset` assertions
+with the target compiler before writing. C size and native allocation/stride
+extent are separate facts; unknown fields can remain explicit byte regions.
+`rebrew types check` and W031 report stale bindings; `--compile` repeats the
+compiler assertions. Review evidence and rebind the same ID after changes.
+BinSync `structs/*.toml` carries external type-layout evidence for synchronization.
+A partial accessed view must not be reported as a complete native allocation.
+Legacy struct-size comments remain ordinary comments; they are not validated
+metadata. The old file-level W007 recommendation is retired.
 
 ---
 
@@ -462,7 +469,6 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W003 | No function implementation | File has annotations but no C code body |
 | W005 | STUB missing `BLOCKER` | `STATUS: STUB` without BLOCKER in metadata explaining why |
 | W006 | Library missing `SOURCE` | Library module (per `library_modules` config) without `// SOURCE:` pointing to reference file |
-| W007 | Struct without SIZE annotation | File defines `typedef struct` but lacks `// SIZE 0xNN` comment |
 
 #### Format Migration Warnings
 
@@ -481,7 +487,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W019 | Inline metadata annotation | `// STATUS:`, `// SIZE:`, `// CFLAGS:`, `// BLOCKER:`, `// NOTE:`, `// GHIDRA:`, and the other metadata-owned keys: `--fix` moves an equal copy into the store. A disagreement warns and the store wins. `// SOURCE: naked` is exempt (file-borne) |
 | W010 | Unknown annotation key | `// FOOBAR: value`: key not in the known set. `--fix` strips only retired derived keys (`SYMBOL`, `PROTOTYPE`; recomputed from the C source); anything else stays until a human decides |
 | W015 | Mixed-case VA hex digits | `0x10003Da0`: prefer consistent `0x10003da0` or `0x10003DA0` |
-| W020 | Asm-dump placeholder | Body uses `__asm`/`__emit`: pasted disassembly, not real C.  Does **not** fire for whole-function `__declspec(naked)` + asm (that is **E023**; error).  **Escalates** when the file's `STATUS` claims a non-stub match (`EXACT`/`RELOC`/...): an asm dump cannot be a byte-match, so the metadata status is wrong (fix it or mark `BLOCKER`).  `STATUS: STUB` + asm dump is an expected documented placeholder and gets the base message only |
+| W020 | Undocumented assembly | Names each definition using `__asm`/`_emit`, using only its selected-target metadata. Its own `BLOCKER`, or current file/symbol/target evidence recorded by `rebrew source document-assembly`, documents original-assembly provenance and suppresses only that definition's warning. Another function's status, blocker or naked body does not affect it. Foreign-only target files/definitions are excluded. Naked assembly is handled by **E023**. Non-stub statuses appear in the warning, but a byte match alone does not establish original assembly provenance |
 | W021 | Duplicate global | Conflicting addresses for one module/name, or initialized definitions in more than one file; same-address extern references are allowed |
 | W022 | Zero-init `.bss` global | File-scope `= 0` initializer on a `.bss`-style global |
 | W023 | Default function name | Function named `fcn`/`fn`/`fun`/... (pedantic only): rename it; a descriptive name is what the call graph and reports key on |
@@ -492,7 +498,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W028 | Stale annotation VA | FUNCTION/STUB marker VA has no function in the current discovery inventory (`function_structure.json`, removed/shifted) or points inside another function's span (moved/merged): re-annotate or refresh with `rebrew binary functions`; LIBRARY/DATA/GLOBAL markers excluded |
 | W029 | Redundant cflags | Per-function `cflags` in `rebrew-functions.toml` or `compiler.cflags_presets.<MODULE>` that only repeat the inherited value (`resolve_cflags` ladder: function → module preset → project `compiler.cflags`); flagged by `rebrew lint` (project-level `check_redundant_cflags` moved from `rebrew doctor`). `rebrew lint --fix` drops the redundant field; the fallback chain already supplies the same flags |
 | W030 | Markers out of VA order | A file's FUNCTION/STUB markers for one module do not ascend by VA. The linker lays out a translation unit's functions in source order, so a definition above a lower-VA one links at the wrong address and displaces every function between them. Move the definition; keep any `#pragma optimize` pair around the function it scopes. Markers stacked above one body (identical copies at several VAs) count as one definition at their lowest VA. Each module is checked on its own |
-| W031 | Metadata store problem | A `rebrew-functions.toml` / `rebrew-data.toml` entry a reader will not honour: an unknown field (dropped silently, so a typo'd `blocked` looks like a blocker that never applied), a STATUS outside the store's vocabulary, half an `updated_by`/`updated_at` pair, a provenance tag outside `rebrew.metadata.PROVENANCE_TAGS`, a stray top-level key that is neither `format` nor a `MODULE.0xVA` entry, or a missing / foreign top-level `format` stamp |
+| W031 | Metadata store problem | A `rebrew-functions.toml` / `rebrew-data.toml` entry a reader will not honour: an unknown field, a STATUS outside the vocabulary, half an `updated_by`/`updated_at` pair, an unknown provenance tag, a stray top-level key, or a missing / foreign `format` stamp. Also reports malformed `rebrew-source.toml`, unknown target modules and evidence bound to a changed, missing or ambiguous definition; clear the record or review and record evidence again |
 | W032 | Coverage store hygiene | An artifact from a store rebrew no longer writes: `db/coverage.db` (SQLite), `db/data_<target>.json` (catalog grid), `db/*.csv`, or a `db/coverage-<target>.toml` the dashboards cannot serve: unreadable to the loader (foreign `version`, malformed TOML) or one whose `target` key disagrees with its filename, so that target answers with another's data. Re-run `rebrew coverage build` and delete the old artifacts |
 | W033 | Agent scaffold drift | `AGENTS.md`, `PRINCIPLES.md` or `.agents/skills/**` no longer matches the installed rebrew's packaged sources, so an agent follows workflow instructions for a version that is not running. Warn-only; fix with `rebrew init --refresh-agents` (it writes only differing files and prunes a skill the packaged tree no longer ships). `AGENTS.md`'s own comparison is profile-rendered: `rebrew init --refresh-agents --check` reports it in full |
 | W034 | `file` identity is not joinable | A stored `file` in `rebrew-functions.toml` is absolute or contains a `..` segment, so `verify`/`rename`/BinSync would join it to a path outside the checkout. Writers refuse it (`rebrew.metadata.validate_identity_file`); this reports rows written before the gate |
@@ -505,6 +511,8 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 |------|-------------|--------------|
 | W016 | DATA/GLOBAL missing `section` in metadata | `// DATA:` or `// GLOBAL:` marker with no `section` in `rebrew-data.toml` (.data, .rdata, .bss). `--fix` backfills it from the target binary's section table when the VA resolves; otherwise warn-only |
 | W017 | *(not implemented)* | Reserved for detecting auto-generated sync metadata in NOTE |
+| W037 | Data row disagrees with its definition | A `rebrew-data.toml` row of the active target whose `file` names this source, where the file-scope definition of its `name` has a different byte size than the row's `size` or the extent of its `type` (guild-rebrew `g_gap_10034644`: the row said `char[44]` after a generator shrank the definition to 36 bytes). `extern` declarations are users and are ignored, except for `storage_kind = "span"` rows, whose owning file may hold only an extern inventory view; a definition still wins. A tiled allocation (guild-rebrew `g_slot_table`: a short leading definition plus separately defined interior names and pads, each an `alias` row in the same file whose `backing` names the allocation) is measured as the leading definition plus the backed definitions that follow it contiguously; a backed row with no definition there is a view and is ignored, and a hole before the next piece is reported by address. Only byte sizes are compared, so `[0x104]` against `[260]` or a typedef against its expansion is silent. Skipped, not guessed: no definition in the file, conflicting definitions (`#if` branches), and any size `data_symbol_size` cannot compute (struct/union/unknown typedef, unsized array, non-x86_32). The message names both values and the fix: `rebrew data set --type '0xVA=TYPE'` / `--size 0xVA=BYTES` |
+| W038 | Overlapping data rows | Two named `rebrew-data.toml` rows of one module whose `[va, va + size)` extents intersect (size from `size`, else a computable `type`). An `alias` row with a `backing` is a view and is excluded; rows that only touch end-to-start do not overlap. Two storage owners cannot share a byte, so one extent is stale (W037 often names it) or a view is not recorded as one (`rebrew data set --storage-kind 0xVA=alias --backing 0xVA=GLOBAL`). `rebrew status` otherwise shows only the discounted byte count |
 
 ---
 

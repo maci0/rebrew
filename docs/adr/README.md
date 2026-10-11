@@ -53,3 +53,4 @@ itself, and the consequences (including trade-offs accepted).
 | 026 | One installed CLI for routine commands *(amended by 027)* |
 | 027 | Build hooks under the umbrella CLI *(amended by 028)* |
 | 028 | [CLI domains and explicit operations](028-cli-domains-and-explicit-operations.md) |
+| 029 | [Managed type identities and target layout evidence](029-managed-type-identities.md) |

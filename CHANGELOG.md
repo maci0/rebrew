@@ -1,5 +1,438 @@
 ## [Unreleased]
 
+## [2.25.0] - 2026-10-11
+
+### Added
+- `rebrew types bind` records stable type IDs in managed `rebrew-types.toml`,
+  with per-target definition bindings, C sizeof/member offsets, native allocation
+  or stride extents and evidence. C89 compiler assertions gate writes; stale
+  sources, headers, compiler context and native binaries surface in `types check`
+  and lint W031. `types check --compile` repeats current layout assertions.
+  Raw conditional struct fields now stop inferred layout parsing instead of
+  silently disappearing from a supposedly complete layout.
+- `smart_reloc_compare(..., strict=True)` validates fully bound operand proofs:
+  known DIR32 targets must agree even when the competing native address is
+  absent from the catalog. Unbound, unsupported, out-of-extent and symbol-free
+  relocation claims fail with their offsets; implicit zero masking is disabled.
+  Explicit IAT policy and the default tolerant agreement contract are preserved.
+- `rebrew source rename PLACEHOLDER MODULE.0xVA` binds an unbound function
+  reference name to an existing unique external definition without changing its
+  identity or verdict. Definitions, variables, macros, existing identities and
+  ambiguous destinations refuse before any write; ordinary rename collision
+  checks are unchanged. C declarator classification now distinguishes
+  function-pointer variables from pointer-returning functions.
+- `rebrew source document-assembly FILE --symbol NAME --evidence TEXT` records
+  reviewed original-assembly evidence for an inline helper without a standalone
+  VA. The managed `rebrew-source.toml` binds the file, C symbol, target and
+  definition hash. W020 accepts only current evidence for that definition;
+  W031 reports malformed, stale, missing or unknown-target records. `--clear`
+  removes just the selected target's record. No function identity or byte
+  verdict is created. Root-level source trees now resolve metadata inside
+  their project rather than writing to the parent directory.
+- `rebrew binsync pull` (and `rebrew sync pull`) in a BinSync repo imports
+  every other user's `binsync/<user>` branch, fetched from `--remote` when it
+  exists, from a detached worktree under `.rebrew/sync/peers/`, each against
+  its own baseline seeded from rebrew's; JSON `peers` names them. Refused edits
+  are listed in `skipped_details` with their reason.
+- `targets.<name>.binsync_user` and `--user` on `binsync push`, `pull` and
+  `export` select the one BinSync user rebrew writes as.
+- `tests/test_binsync_roundtrip.py` runs push, BinSync's own `Client`, a
+  second user's edits, two pulls and a push; it needs `REBREW_BINSYNC_PYTHON`
+  (a Python with `binsync`) and skips without it.
+- `rebrew source rename` renames across modules that share sources. `MODULE.0xVA`
+  selects one identity in any module. A definition whose rows span several
+  modules renames only with `--all-modules`, which also renames every other
+  definition of the name (per-target twins); without it, twins and their
+  references keep their name and are listed in `notes`. A name with no row in
+  the active target renames the source symbol (definition, declarations, uses)
+  and the other modules' rows bound to it. A reference that cannot be
+  attributed to one definition refuses before any write.
+- `rebrew source rename --type OLD NEW` renames a struct/union/enum tag or
+  typedef name, its uses, and the `type` strings of data rows and function
+  `locals`. `--field STRUCT.MEMBER NEW` renames one struct's member, resolving
+  each access through declarations, casts, subscripts, member chains, function
+  returns, designated initializers, `offsetof` and macro bodies; an access it
+  cannot resolve while another struct shares the member name refuses the
+  rename with its `file:line`.
+- `rebrew source rename --comments` also rewrites whole-word occurrences in
+  comments. `--dry-run` lists every edit (`file:line:column role`), row change
+  and file move; `--json` returns them as `files`, `rows`, `move` and `notes`.
+- `rebrew.c_parser.mask_msvc_syntax` blanks calling conventions, `__declspec`
+  and inline assembly without moving any byte offset.
+- `rebrew lint` compares data rows with their sources. **W037** reports a
+  `rebrew-data.toml` row whose `size`, or the extent of its `type`, disagrees
+  with the file-scope definition of its `name` in its owning `file`, and names
+  the `rebrew data set --size` / `--type` fix. A `span` row may be checked
+  against an `extern` view, since a span has no definition of its own. Types the
+  data size model cannot measure are skipped. **W038** reports two named rows
+  of one module whose extents overlap; an `alias` row with a `backing` is
+  exempt. A generator had shrunk guild-rebrew's `g_gap_10034644` to 36 bytes
+  while its row still said `char[44]`, so the row ran over two newer rows and
+  only `rebrew status` showed the 8 overlapping bytes.
+- W037 measures a tiled allocation: a row with the reference allocation's full
+  extent whose source is a short leading definition plus separately defined
+  interior names and pads, each an `alias` row in the same file whose `backing`
+  names the allocation. The leading definition plus the contiguous backed
+  definitions must cover the row exactly; a hole is reported by address.
+  guild-rebrew's `g_slot_table`, `g_entity_base`, `g_city_records`,
+  `g_save_info` and `g_connections` were reported although the tiling covers
+  each one.
+- `rebrew data move 0xOLD 0xNEW` re-addresses one data row in one locked write.
+  Every field moves, including its `verification` record; its `status` is
+  dropped. An occupied target address, a missing row, and a row whose source
+  still marks the old VA inline are refused. Moving a span took
+  `rebrew orphans drop` plus six `data set` calls and lost the record.
+- `rebrew data set --marker-type 0xVA=GLOBAL|DATA|VTABLE|STRING` and
+  `--note 0xVA=TEXT`. Both keep the stored verdict. A row `data set` created
+  had no way to get either without editing the store.
+- Linked EXACT: `rebrew verify --text` with an acknowledged raw link
+  (`--raw-link` or the configured `raw_link`) promotes a RELOC function to EXACT
+  when the built image places it at its reference VA (the function row of the
+  link map from `--link-map` or the `.map` beside the image; the `text-audit`
+  object walk without one) and its bytes there equal the reference bytes with no
+  masking. The function's `verification` table
+  records `linked_image` and `linked_image_hash` beside the comparison inputs. A
+  later `rebrew verify` / `rebrew test` object compare of RELOC keeps EXACT while
+  those inputs and the image hash are unchanged; any other verdict, an input
+  change, or a rebuilt image with different bytes records the object verdict.
+  Without the acknowledgement the `text.linked` report block counts the
+  identical functions and writes nothing. A function whose source is newer than
+  the built image stays RELOC.
+- `rebrew init --refresh-agents` keeps a project's own rules in `AGENTS.md`:
+  everything from the line `<!-- rebrew: project rules below, kept by
+  --refresh-agents -->` to the end of the file is kept verbatim below the
+  rendered template, and `--check` does not report it as drift.
+- `rebrew binary relocs` compares the PE base relocation sites of the reference
+  binary and a built image (`--built`, default `build/<target>`). It counts the
+  missing and extra sites per section and lists each with its containing symbol
+  from the build's MSVC link map (or `--link-map`), the pointer it holds, that
+  target's section and nearest symbol, and the `rebrew-data.toml` row covering
+  it. `--pairs START:END` pairs reference and built pointers at shared sites
+  whose reference target is in the range, which shows displaced globals.
+  `rebrew.relocations.pe_relocation_sites` returns the site table with type
+  names.
+- `rebrew library inspect LIBRARY` lists a COFF archive's members: sections
+  with size, alignment and COMDAT flag, external definitions with their
+  section, COMMON data sizes, weak aliases, undefined references, and the DLL
+  and imported name of each short import member. `--refs SYMBOL` and
+  `--defines SYMBOL` answer which members pull or supply a symbol, for working
+  out which members LINK loads only for their data when reproducing link
+  order. `LIBRARY` may name a configured `external_libs` archive.
+- `rebrew source rehome --from OLD --to NEW` retargets every function and data
+  row naming a renamed or moved file, in one locked write per store. It took
+  one `rehome 0xVA=PATH` per function and one `data set --file` per global.
+  NEW must define each moved function.
+- `rebrew source inline-strings --named` inlines a file's own
+  `char s_name[] = "...";` definitions at their uses and removes the definition
+  and the file's `extern char s_name[];` lines. MSVC6 emits a TU's string
+  literals as `??_C@` COMDATs after its plain `.data`, so a literal pool spelled
+  as named arrays regains its original placement. A name used from another
+  file, from `__asm`, or from a macro body is skipped with the reason.
+  Matching data rows get `storage_kind = "literal"` under the new
+  `inline-strings` provenance tag.
+- `rebrew source symbolize <file>` rewrites raw `(T *) 0xVA` casts to `&name`
+  or `((char *) &name + 0xOFF)` where the reference has a base relocation the
+  raw link lacks, inside the file's functions as the link map places them,
+  for named data rows the link defines (`link_symbol` over `name`; spans and
+  import slots skipped). `--skip FUNC` leaves a definition's body alone,
+  `--declare NAME` appends `extern char NAME[];` to an existing top-level
+  extern line so no line numbers shift. Re-test the file afterwards.
+- `rebrew build check-tu-data` reads the build's link map and, per object,
+  orders its `.data`/`.rdata` symbols by VA against the MSVC6 one-TU shape
+  (plain data, then its `??_C@`/`__real@` literals). Plain data after a
+  literal marks a TU boundary inside the object; trailing `s_*` named strings
+  look like a literal pool spelled as globals. Exits 1 when an object is
+  flagged.
+- `rebrew data mark-literals` marks `rebrew-data.toml` rows whose VA the link
+  map shows to be a compiler literal as `storage_kind = "literal"` with the
+  literal's `link_symbol`. Alias, span, and import rows are reported, not
+  rewritten. `--dry-run` previews.
+- `rebrew.data_ownership.LinkSymbol` carries the map section of each symbol
+  (`section`), resolved from the map's segment table.
+- The rebrew-data-analysis skill covers whole-image gaps left by discarded
+  code (`references/link-fingerprints.md`): how MSVC 6 LINK's load order, IAT
+  sort, hint/name table, `.reloc` reservation and Rich header record functions
+  that `/OPT:REF` dropped, and how to reconstruct them from sibling binaries
+  built from the same sources.
+- `rebrew source rehome 0xVA=PATH:NAME` binds a row to the existing definition
+  NAME in PATH: the row takes NAME and keeps its symbol decoration. A client
+  row joins a shared definition this way; no command could bind it before.
+
+### Changed
+- BinSync: `metadata.toml` `user` and the branch are one validated name
+  (`--user`, `binsync_user`, the user `init` recorded, else `rebrew`), never
+  `git config user.name`; a name git cannot branch on exits 2. Push checks out
+  `binsync/<user>` before writing and refuses a dirty tree on another user's
+  branch. State files are written 0644 so BinSync's own commits succeed.
+- BinSync export: functions carry their C name (the symbol undecorated), a
+  migrated row's prototype comes from its C definition, simple typedefs are
+  expanded in struct layouts, a layout stops (with a warning) at a member of
+  unknown size instead of the regex fallback, and duplicate identities,
+  differing duplicate struct names and non-identifier names are reported.
+- BinSync pull: a prototype that only respells the local types, or uses
+  Ghidra's `undefined` placeholders, leaves the source alone; a real change
+  keeps the brace layout. Global and struct member renames go through the
+  `rebrew source rename` engine. `ANALYSIS` markers are written as `/* */`.
+- **Breaking:** `rebrew.binsync.serial.state_user` is removed; the BinSync
+  user comes from `rebrew.binsync.repo.resolve_user`.
+  `rebrew.binsync.state.ANALYSIS_MARKER_PREFIX` is removed;
+  `rebrew.binsync.state.analysis_marker` builds the marker line. The
+  re-imports `rebrew.binsync.export.atomic_write_locked`,
+  `rebrew.binsync.init.atomic_write_locked` and `rebrew.binsync.serial.run_git`
+  are gone; import them from `rebrew.utils` and `rebrew.binsync.git`.
+  `rebrew.config.KNOWN_TARGET_KEYS` (also seen as `cfg.KNOWN_TARGET_KEYS`)
+  gains `binsync_user`. `rebrew.metadata.SYNC_FIELD_RULES` now reads global
+  `name` from the data row's `name`; function names still read `symbol` and
+  are compared as C names.
+- **Breaking:** `lib_match.stock_lib_source` is now `lib_match.stock_lib_dir`
+  and returns the image's `Lib` directory, not the archive path; the archive is
+  found there ignoring letter case.
+- **Breaking:** `rehome.main` takes `from_file` and `to_file` after `specs`,
+  and `specs` defaults to `None`. The CLI keeps its `0xVA=PATH` form.
+- `rebrew source rename` no longer rewrites comments unless `--comments` is
+  given, and no longer renames struct members, goto labels or struct tags that
+  share a function's or global's name.
+- A failed source write during `rebrew source rename` restores every source
+  already written and leaves the stores unchanged; it used to leave the
+  definition renamed and name the stale files.
+- `rebrew source rename` refuses a new name already used as an identifier or
+  macro anywhere in the project's code, or by a function or data row of any
+  module; it checked only the active target's annotations.
+- **Breaking:** `rebrew.rename_ops.substitute_name`,
+  `rebrew.rename_ops.collect_matching_files` and
+  `rebrew.rename_ops.collect_function_rename_files` are removed; plan with
+  `rebrew.rename_ops.plan_symbol_rename` and write with
+  `rebrew.rename_ops.apply_rename_plan`. `rename_function_everywhere` keeps its
+  signature. The re-imports `rebrew.rename.substitute_name`,
+  `rebrew.rename.collect_matching_files` and
+  `rebrew.rename.collect_function_rename_files` go with them;
+  `rebrew.rename.is_safe_c_ident` (use `rebrew.utils.is_safe_c_ident`) and
+  `rebrew.rename_ops.find_c_function_definitions` (use
+  `rebrew.c_parser.find_c_function_definitions`) are gone too.
+  `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
+
+### Fixed
+- Retire lint W007's file-level struct `// SIZE` recommendation. Pure C and
+  legacy sources no longer need a redundant size comment; function/data sizes
+  remain in their managed TOML stores, and recovered type layouts are checked
+  through C declarations, compiler layout checks and decompiler evidence.
+- Legacy-marker source merges now retarget existing managed function and data
+  identities across targets before deleting inputs. A merge refuses to discard
+  a managed function body; failed store updates restore the output and bindings.
+- `rebrew todo` reports managed C identities whose file or definition is missing
+  as source repairs, retaining their names and blockers instead of suggesting
+  a new skeleton. Missing definitions do not count as source coverage, and a
+  cached match cannot hide them. Other targets and library identities stay excluded.
+- `build cmake-flags` preserves configured target defines as CMake
+  `COMPILE_DEFINITIONS`, including explicitly listed support sources. The JSON
+  report names those defines; metadata-only reconstruction guards stay excluded.
+- `rebrew todo` classifies durable compile/extract errors even when no current
+  verification cache entry exists, using the same effective verdict as `status`.
+  A newer cached byte match and the existing PROVEN precedence still win.
+- Text placement inventories exclude DATA, GLOBAL, STRING and VTABLE rows;
+  only function annotations contribute expected code addresses.
+- `verify --text` uses an available MSVC link map for placement counts and
+  drift checks as well as linked-EXACT promotion. The object walk is now only
+  the fallback without a map; stale object order cannot hide mapped drift or
+  report mapped functions missing. C symbol normalization is shared with the
+  expected-function inventory, including leading underscores and stdcall names.
+- Nested sources now use the single-file compiler path during verification.
+  Batch staging passed a different filename to the compiler: VC6 changed
+  register allocation even with identical preprocessed C, and `__FILE__` also
+  differed. **Breaking:** `compile_cache.CACHE_SCHEMA_VERSION` is now 8 to reject
+  objects cached by the old batch path; the existing package-logic hash
+  invalidates their cached verification verdicts.
+- The shared relocation catalog includes verified data `link_symbol` spellings
+  alongside analysis labels, scoped to the active target. Test, verify and
+  symbol resolution can now validate native field views and compiler literals
+  whose COFF symbol differs from the inventory label; unknown targets retain
+  the existing relocation policy.
+- The shared provenance stamper rejects unknown tool tags before changing an
+  entry. Single-field and grouped function metadata writers can no longer
+  create a store that immediately fails lint W031; existing store bytes and
+  open entries remain unchanged after a rejected stamp.
+- The shared C function-definition finder masks MSVC extensions before parsing.
+  Inline assembly no longer hides later functions in a translation unit, and
+  multiline `__declspec` attributes retain the original following line numbers.
+  Source retirement, rehome, CRT discovery and other callers use the same fix.
+- Compiling a source already in the output directory preserves its original
+  include-search path, so parent-relative headers resolve through the same-path
+  Docker mount rather than the flat `/work` alias.
+- Shared imports retire an old source file only after its last target/function/
+  data owner moves. Other definitions and storage survive, and removal of the
+  superseded inline claim preserves line numbers, encoding and commented markers.
+- Cross-target imports use the selected source function's compiler flags,
+  including in files with several functions or target identities. Verified
+  shared and copied imports replace stale destination identity names. A
+  successful body-size retry records that body's comparison inputs and
+  reference hash, instead of the rejected padded inventory span's evidence.
+  Accepted shared imports remove stale inherited flag overrides; failed
+  moves between managed definitions preserve every prior field and verdict.
+- Function and global renames include target-scoped layout linker response
+  files. Exact `/INCLUDE`, `/ALTERNATENAME` and `/EXPORT` internal symbols follow
+  their managed identities without changing exported public names, decoration,
+  qualifiers or paths. They participate in preview and rollback; explicit
+  reference binding repairs linker-only stale symbols. This fixes a successful
+  shared plant lookup rename leaving guild-rebrew's server `/INCLUDE` anchor
+  behind and breaking the next link.
+- The shared annotation selector preserves a positional VA after resolving its
+  source file, so `diagnose probe`, `diagnose gap` and `match qualifiers` use
+  the requested function's symbol, size and compiler fields in multi-function
+  files. An explicit VA missing from that file errors before compilation or
+  edits instead of pairing the requested reference with the first function.
+- Cross-target imports and BinSync related-target overlays no longer score
+  proven trailing x86 NOP/int3 alignment bytes as function instructions. The
+  bounded extent walker preserves forward-target blocks and return operands;
+  incomplete bodies, jumps and non-padding tails retain their supplied span.
+  Int3 terminators are distinguished from real returns. Match thresholds and
+  full compiled-body verification remain unchanged.
+- Library headers now include managed LIBRARY rows while legacy markers remain,
+  with canonical identity winning per module/VA. A partial migration no longer
+  hides library attribution from catalog/status/todo. Explicit compiled-library
+  bindings also take precedence over declaration headers in status/todo, including
+  sources outside the reversed tree.
+- `init --refresh-agents --json` emits write/removal counts and the paths of
+  edited stale skills it preserved, including a no-op refresh result.
+- Data verification does not label identical sections as possibly copied when
+  the image is acknowledged as a raw link by the flag or project configuration.
+  Unacknowledged images retain the warning and guarded status write-back.
+- MSVC syntax masking preserves newlines inside malformed assembly tokens and
+  UTF-8 byte widths inside multiline `__declspec` attributes, keeping rename
+  and prototype edits at their original source offsets.
+- Lint W020 checks each assembly definition's own target metadata. An
+  unrelated function's status, blocker or naked body no longer changes its
+  warning, and every undocumented assembly function is reported. A matched
+  body still needs documented original-assembly provenance; assembly itself
+  does not invalidate a byte comparison.
+- PDB procedure parsing recognizes record headers at line boundaries. A
+  function named `S_GPROC32` is retained, and an unnamed procedure does not
+  borrow a name from a following data record.
+- BinSync expands simple aliases only in member type nodes. A field or struct
+  tag named like a typedef (such as `DWORD DWORD`) keeps its identifier and
+  layout instead of being rewritten into an invalid declaration. A local
+  aggregate typedef takes precedence over an alias collected from another file.
+- The missing-repository CLI regression uses a relative path, keeping its error
+  text assertion independent of Rich's wrapping of a long temporary directory.
+- BinSync struct artifacts preserve natural tail padding. Struct size and members
+  reconcile together; legacy member-only baselines retain their previous extent,
+  allowing an unchanged old export to receive the corrected size. A peer size edit
+  without a layout edit is reported for local resolution rather than rewriting C.
+  **Breaking:** `rebrew.binsync.state.collect_struct_definitions` returns a third
+  tuple item (complete size or unknown); `load_binsync_structs` includes `size`.
+  `type_sync_records`, `incoming_type_records` and `load_sync_baseline` project
+  struct `definition` as `{size, members}` instead of a bare member map.
+- BinSync preserves file-local `#pragma pack` when exporting struct members.
+  The shared layout model also uses embedded structs' alignment and stops
+  before an incomplete embedded type instead of guessing later offsets.
+  **Breaking:** `rebrew.types.StructDef` gains `alignment`; `parse_structs`
+  honors packing pragmas, and `type_size` returns unknown for incomplete structs.
+- `rebrew library match --lib` and `--stock-lib` check only the selected archives.
+  Previously they also indexed vendored objects from `build/compile_commands.json`,
+  so a D3DX8-only scan reported unrelated zlib matches. Pass `--compile-commands`
+  explicitly to include those objects; project-wide scans still include them by default.
+- BinSync: all migrated functions exported without a prototype; BinSync's
+  `Client` could not load rebrew's state (user/branch mismatch) or commit on
+  it (0444 files); a push overwrote another user's branch; a pull without an
+  upstream failed; sync commands without declib died with a traceback (now
+  exit 2; `rebrew doctor` fails the BinSync check); notes re-wrapped by declib
+  never settled; a pull rewrote every global row and every per-instruction
+  comment; a pulled global rename left the source and `link_symbol` behind; a
+  struct member rename was dropped with only a log line; nested member
+  structs were exported as top-level types.
+- `rebrew source rename --data` keeps a row's `link_symbol` in step with the
+  renamed definition.
+- `rebrew library inspect` and `rebrew library match` extract a stock archive
+  whose configured spelling differs in case from the toolchain image's file
+  (`LIBCMT.lib` against `VC98/Lib/LIBCMT.LIB`): the image's `Lib` directory is
+  searched ignoring case, and several matches are an error. The copy failed
+  whenever no cached archive existed.
+- `rebrew source rename --file` moves the data rows of the renamed file with
+  its function rows. They kept naming the old path.
+- `rebrew source rename --data` renames every data row bound to the global
+  (with `--all-modules` for other modules); it renamed one row and left the
+  other modules' rows naming a symbol the sources no longer declared.
+- `rebrew source rename` checks the new name against the rows of the modules it
+  renames only. A row of another module (a library row of another image) no
+  longer refuses the rename; a shared source definition is still refused by the
+  source-level check.
+- `rebrew source rename MODULE.0xVA` renames a function row that only a header
+  marker names (a `// LIBRARY:` identification with no C definition): the line
+  under the marker and the row get the new name, also when that line held prose
+  or nothing, and an MSVC-decorated new name is accepted there. The row was left
+  unchanged as "bound to another definition".
+- `rebrew skeleton --name NAME` on a VA that already has a row writes NAME into
+  the row with the new symbol and file. The row kept its old name, so name and
+  symbol disagreed and `source rename` refused to fix it.
+
+## [2.24.0] - 2026-10-07
+
+### Added
+- `rebrew source rehome 0xVA=PATH` points a function row at the file that now
+  defines it, after a definition moved by hand between multi-function files.
+  `rebrew test` looked for the symbol in the old file's object and reported
+  `EXTRACT_ERROR`. PATH must define the row's function.
+- `rebrew data set --file 0xVA=PATH` points a global at the source file that
+  defines it. A merge retargets rows through function rows, so the globals of
+  a data-only file had no writer once they needed to move.
+- `rebrew verify --data` checks where the link put each data symbol. It reads
+  the MSVC link map beside the built image (or `--link-map`) and writes two new
+  verdicts: `EXACT` when the symbol sits at its reference VA and its bytes
+  match, `DISPLACED` (with `built_va` and `delta` in the JSON row) when the map
+  places it elsewhere. Bytes compared at the reference VA could not see a moved
+  symbol: two zero-filled BSS spans compare equal, so a layout hundreds of KB
+  off still reported every BSS row `VERIFIED`. `VERIFIED` now means "bytes
+  match, placement unchecked". `rebrew status` reports exact and displaced
+  counts inside the verified and drift totals, and `rebrew todo` lists
+  displaced symbols as data work.
+- `rebrew export pdb` writes a synthetic PDB for the target (function publics
+  and sized procedures, typed data labels, optional PE symbols, section
+  headers), stamped with the target's RSDS GUID/age or NB10 signature/age.
+  Needs `llvm-pdbutil`.
+
+### Fixed
+- The public-surface gate reads a tuple, list or dict constant that only
+  appended entries as a feature. Adding a command the documented way (a
+  `CliComponent` at the end of its `DOMAIN_COMPONENTS` family) failed
+  `TestSurfaceGate` and demanded a `**Breaking:**` note for a change no caller
+  can observe; an inserted, dropped or edited entry still reads as a break.
+- `rebrew lint` W022 exempts a zero-initialized global defined under a
+  `.data`/`.bss` row's `link_symbol` (leading underscore dropped), not only
+  under the row's `name`. A placement pin whose source name differs from the
+  analysis label was reported as `.data` bloat.
+- `rebrew source merge` keeps an explicitly named input that is also the
+  output, so fragments can be merged into an existing file in place. The
+  output was dropped from the inputs and the merge stopped with "No function
+  row matches the input files".
+- `find_extern_variables` (behind `rebrew data list` conflicts) skips a
+  declaration that tree-sitter could not parse. Error recovery spliced tokens
+  from the next line into it, so a malformed `extern unsigned long a];` was
+  reported as a variable named `long` with an unbalanced type.
+- `rebrew build check-data-placement` finds `rebrew-data.toml` in the metadata
+  directory when `src/rebrew-data.toml` does not exist, and compares only the
+  active target's rows. In a project that holds several binaries the last row
+  with a name won, usually another target's address.
+- `rebrew source merge` of a pure-C file keeps the `;` after a bare `struct`
+  or `union` definition in the shared preamble. The span ended at the closing
+  brace and the merged file no longer compiled.
+- `rebrew source merge` keeps a block whose target marker is not the first
+  marker above its body. A shared function stacks one marker per target, and a
+  block that opened with another target's marker lost its body silently.
+- `rebrew source merge` of pure-C files carries a data row that no object in
+  its file defines (an extern declaration, a compiler literal) to the output
+  instead of refusing the whole merge. The row never anchored a definition, so
+  nothing is dropped.
+- `rebrew source merge` rewrites a relative quoted include (`"../x.h"`) when
+  the output file sits in another directory, and orders pure-C inputs by the
+  active target's own VA. A shared body that also carries a lower client VA
+  used to sort ahead of server code that precedes it in the linked order.
+- The C source parser behind `split` and `merge` recognizes `Type* __cdecl f()`
+  definitions with a typedef'd return type and functions that contain an
+  inline `__asm` block. Both parsed as errors and the function was invisible.
+  A prototype that returns a pointer is no longer reported as storage.
+- Lint reads blockers and statuses for a pure-C file from the function store.
+  W020 fired on an inline-asm body that carries a recorded BLOCKER once its
+  file was migrated, because only marker blocks were consulted.
+
 ## [2.23.0] - 2026-10-05
 
 ### Fixed

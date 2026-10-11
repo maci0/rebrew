@@ -76,6 +76,7 @@ __all__ = [
     "VALID_MARKERS",
     "derive_c_symbol",
     "file_backed_by_metadata",
+    "function_rows_for_file",
     "block_markers",
     "has_skip_annotation",
     "iter_annotations",
@@ -94,6 +95,7 @@ __all__ = [
     "remove_annotation_key",
     "remove_inline_annotation_key",
     "resolve_symbol",
+    "scan_annotation_lines",
     "split_annotation_sections",
     "update_annotation_key",
     "update_size_annotation",
@@ -263,7 +265,7 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     merge/split operations.
     """
     lines = split_source_lines(text, keepends=True)
-    marker_indexes, in_block_comment = _scan_annotation_lines(lines)
+    marker_indexes, in_block_comment = scan_annotation_lines(lines)
 
     if not marker_indexes:
         return text, []
@@ -337,7 +339,7 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     return preamble, blocks
 
 
-def _scan_annotation_lines(lines: Sequence[str]) -> tuple[list[int], list[bool]]:
+def scan_annotation_lines(lines: Sequence[str]) -> tuple[list[int], list[bool]]:
     """Marker line indexes, and per line whether a ``/* ... */`` run covers it.
 
     One definition of "is this a marker" and of "is this line commented out",
@@ -379,11 +381,11 @@ def block_markers(block: str) -> list[tuple[str, int]]:
     (ADR-010/022), so callers must not stop at the first marker.
     """
     lines = split_source_lines(block)
-    marker_indexes, _ = _scan_annotation_lines(lines)
+    marker_indexes, _ = scan_annotation_lines(lines)
     out: list[tuple[str, int]] = []
     for idx in marker_indexes:
         m = NEW_FUNC_CAPTURE_RE.match(lines[idx].strip())
-        assert m is not None  # _scan_annotation_lines matched this very line
+        assert m is not None  # scan_annotation_lines matched this very line
         out.append((unicodedata.normalize("NFC", m.group("module")), int(m.group("va"), 16)))
     return out
 
@@ -1452,6 +1454,25 @@ def _path_suffixes(rel_path: str) -> list[str]:
     return ["/".join(parts[i:]) for i in range(len(parts))]
 
 
+def function_rows_for_file(
+    filepath: Path,
+    metadata_dir: Path,
+    function_entries: dict[tuple[str, int], dict[str, Any]],
+) -> list[tuple[str, int, dict[str, Any]]]:
+    """Function-store rows whose ``file`` names *filepath*.
+
+    A pure-C file has no marker blocks, so its blockers and statuses live only
+    in these rows.
+    """
+    rel = os.path.relpath(filepath, metadata_dir).replace(os.sep, "/")
+    index = _metadata_file_index(function_entries)
+    seen: dict[tuple[str, int], tuple[str, int, dict[str, Any]]] = {}
+    for suffix in _path_suffixes(rel):
+        for row in index.get(suffix, []):
+            seen[(row[0], row[1])] = row
+    return list(seen.values())
+
+
 def file_backed_by_metadata(
     filepath: Path,
     metadata_dir: Path,
@@ -1564,6 +1585,7 @@ def _function_annotations_from_metadata(
 
     rel = rel_display_path(filepath, base_dir)
     results: list[Annotation] = []
+    prototypes: _DefinitionPrototypes | None = None
     for module, va, entry in matches:
         if target_name and module and preset_module_key(module) != preset_module_key(target_name):
             continue
@@ -1576,8 +1598,59 @@ def _function_annotations_from_metadata(
             filepath=rel,
         )
         apply_metadata_entry(ann, entry)
+        if prototypes is None:
+            prototypes = _DefinitionPrototypes(filepath)
+        ann.prototype = prototypes.get(ann.name)
         results.append(ann)
     return results
+
+
+class _DefinitionPrototypes:
+    """Signatures of the C function definitions in one marker-free file.
+
+    A migrated file carries no marker, so the signature an inline-marker
+    parse takes from the line after the marker comes from the definition
+    itself: return type, calling convention, name and parameters, without
+    the body, whitespace folded.  The AST pass
+    (:func:`rebrew.c_parser.function_signatures`) finds most; a definition
+    tree-sitter buries in an error node falls back to the same one-line
+    reading the inline parse uses (a line that names the function, ends in
+    no ``;``, and opens a body on it or on the next non-blank line).  An
+    unreadable file gives no prototypes: the identities still load.
+    """
+
+    def __init__(self, filepath: Path) -> None:
+        from rebrew.c_parser import function_signatures
+
+        try:
+            text, _ = read_source_text(filepath)
+        except OSError as exc:
+            logger.warning("cannot read %s for its function prototypes: %s", filepath, exc)
+            text = ""
+        self._lines = text.splitlines()
+        self._found = function_signatures(text) if text else {}
+
+    def get(self, name: str) -> str:
+        """The signature of *name*'s definition, or ``""``."""
+        if not name:
+            return ""
+        if name not in self._found:
+            self._found[name] = self._line_signature(name)
+        return self._found[name]
+
+    def _line_signature(self, name: str) -> str:
+        lines = self._lines
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if f"{name}(" not in stripped.replace(" (", "(") or stripped.endswith(";"):
+                continue
+            following = next((ln.strip() for ln in lines[index + 1 :] if ln.strip()), "")
+            if not (stripped.endswith("{") or following.startswith("{")):
+                continue
+            parsed = extract_function_name_from_line(stripped)
+            if parsed is not None and parsed[0] == name:
+                return " ".join(parsed[1].split())
+        return ""
 
 
 def _data_annotations_from_metadata(
@@ -2181,10 +2254,9 @@ def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> li
         // _fflush
         // SIZE: 120
 
-    A header with no LIBRARY marker is read from ``rebrew-functions.toml``
-    when *metadata_dir* is set, including an empty file.  A header that
-    still has a LIBRARY marker is not merged with the store: migration is
-    all-or-nothing, same as :func:`parse_c_file_multi`.
+    When *metadata_dir* is set, include managed LIBRARY identities bound to
+    this header even while legacy markers remain. Managed identity wins for
+    the same module and VA; another module at that VA stays separate.
 
     When *metadata_dir* is provided each marker-derived Annotation is
     overlaid with ``rebrew-functions.toml`` the same way
@@ -2290,8 +2362,14 @@ def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> li
             if meta:
                 apply_metadata_entry(entry, meta)
 
-    if not results and metadata_dir is not None:
-        return _library_rows_from_metadata(filepath, metadata_dir)
+    if metadata_dir is not None:
+        by_identity = {
+            (preset_module_key(entry.module or ""), entry.va): entry for entry in results
+        }
+        for entry in _library_rows_from_metadata(filepath, metadata_dir):
+            if entry.marker_type == "LIBRARY":
+                by_identity[(preset_module_key(entry.module or ""), entry.va)] = entry
+        return list(by_identity.values())
     return results
 
 

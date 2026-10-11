@@ -689,6 +689,7 @@ class ProjectConfig:
     ghidra_program_path: str = ""
     ghidra_backend: str = "reva"  # "reva" (MCP) or "cli" (ghidra-cli binary)
     binsync_state_dir: str = ""  # BinSync state dir for field sync (--state-dir default)
+    binsync_user: str = ""  # BinSync user rebrew writes as (branch binsync/<user>)
     inventory_file: str = (
         ""  # Function inventory path override (default: reversed_dir/function_structure.json)
     )
@@ -704,6 +705,12 @@ class ProjectConfig:
 
     # --- All known target markers (E012 allows stacked shared markers) ---
     all_markers: set[str] = field(default_factory=set)
+
+    # --- External library modules declared by ANY target, not just the active
+    # one. A LIBRARY row for a module another target links (D3DX8 on the TL
+    # client) is not a stale row, so lint W035 reads this while server.dll is
+    # the default target. ---
+    all_library_modules: set[str] = field(default_factory=set)
 
     # --- Linker settings for byte-identical reconstruction ([link]) ---
     link: LinkConfig = field(default_factory=LinkConfig)
@@ -744,7 +751,7 @@ class ProjectConfig:
 
     @property
     def metadata_dir(self) -> Path:
-        """Directory for rebrew-functions.toml and rebrew-data.toml.
+        """Directory for function, data and source-provenance metadata.
 
         The store sits one level above the source tree — the project root
         when ``reversed_dir`` is ``src/<target>`` or ``src`` itself.  A
@@ -755,6 +762,8 @@ class ProjectConfig:
         All metadata reads/writes must go through this property so the
         location is centralized.
         """
+        if self.root == self.reversed_dir:
+            return self.reversed_dir
         parent = self.reversed_dir.parent
         # No store one level above the source tree: the project may still
         # keep its TOMLs inside the source tree, or further up at ``root``.
@@ -851,6 +860,7 @@ class ProjectConfig:
             "ghidra_program_path": self.ghidra_program_path,
             "ghidra_backend": self.ghidra_backend,
             "binsync_state_dir": self.binsync_state_dir,
+            "binsync_user": self.binsync_user,
             "inventory_file": self.inventory_file,
             "source_ext": self.source_ext,
             "lint_naming_convention": self.lint_naming_convention,
@@ -2180,6 +2190,7 @@ KNOWN_TARGET_KEYS = {
     "ghidra_program_path",
     "ghidra_backend",
     "binsync_state_dir",
+    "binsync_user",
     "inventory_file",
     "origins",  # written by `rebrew cfg target add`; editor/UI only — NOT
     # used for annotation filtering (module filters come from the
@@ -2534,6 +2545,20 @@ def load_config(
         if isinstance(n, str)
     }
 
+    # Every target's external libraries and library_modules, not just the
+    # active one's: a LIBRARY row belongs to whichever target links that
+    # archive, so checked under the default target it would look orphaned.
+    all_library_modules: set[str] = set()
+    for _t in targets_dict.values():
+        if not isinstance(_t, dict):
+            continue
+        for _name in _parse_str_list(_t.get("library_modules", []), "library_modules"):
+            if _name:
+                all_library_modules.add(_name)
+        _ext = _t.get("external_libs")
+        if isinstance(_ext, dict):
+            all_library_modules.update(k for k in _ext if k)
+
     cfg = ProjectConfig(
         root=root,
         target_name=target or "",
@@ -2623,9 +2648,11 @@ def load_config(
         binsync_state_dir=_as_str(
             tgt.get("binsync_state_dir"), "", f"targets.{target}.binsync_state_dir"
         ),
+        binsync_user=_as_str(tgt.get("binsync_user"), "", f"targets.{target}.binsync_user"),
         inventory_file=_as_str(tgt.get("inventory_file"), "", f"targets.{target}.inventory_file"),
         all_targets=all_target_names,
         all_markers=set(markers_by_target.values()),
+        all_library_modules=all_library_modules,
         # lint configuration — validated enums; unknown keys warn like other sections
         **_load_lint_settings(project_raw),
     )

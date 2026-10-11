@@ -212,6 +212,10 @@ def execute_sync(
             state_dir = Path(configured).expanduser()
 
     # --- BinSync field sync ---
+    if push or summary or pull:
+        from rebrew.binsync.serial import require_declib
+
+        require_declib(json_mode=json_output)
     if push or summary:
         out = _require_state_dir(state_dir, json_output)
         from rebrew.binsync.export import export_state, print_export_result
@@ -234,11 +238,12 @@ def execute_sync(
 
     if pull:
         src = _require_state_dir(state_dir, json_output)
-        from rebrew.binsync.importer import import_state, print_import_result
+        from rebrew.binsync.importer import import_from_repo, print_import_result
 
-        result = import_state(
+        result = import_from_repo(
             cfg,
             src,
+            user=None,
             dry_run=dry_run,
             json_output=json_output,
             accept_binsync=accept_binsync,

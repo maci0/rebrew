@@ -867,14 +867,14 @@ class TestLintFix:
         src.mkdir()
         f = src / "g.c"
         f.write_text(
-            "// DATA: SERVER 0x2000\n// STATUS: EXACT\n// BLOCKER: pending\nint g;\n",
+            "// DATA: SERVER 0x2000\n// STATUS: RELOC\n// BLOCKER: pending\nint g;\n",
             encoding="utf-8",
         )
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output
         text = f.read_text(encoding="utf-8")
-        assert "// STATUS: EXACT" in text
+        assert "// STATUS: RELOC" in text
         assert "// BLOCKER: pending" in text
         assert get_data_entry(tmp_path, 0x2000, "SERVER") == {}
 
@@ -1005,6 +1005,170 @@ class TestW020AsmDump:
         result = self._lint(tmp_path, body)
         assert not any(c == "W020" for _, c, _ in result.warnings)
 
+    def _pure_c(self, tmp_path: Path, blocker: str | None) -> LintResult:
+        """A pure-C file: its blocker lives only in the function store."""
+        from rebrew.metadata import record_function_identity, set_fields
+
+        record_function_identity(
+            tmp_path,
+            module="SERVER",
+            va=0x10008880,
+            file="foo.c",
+            marker_type="FUNCTION",
+            symbol="_f",
+            name="f",
+        )
+        if blocker:
+            set_fields(tmp_path, 0x10008880, {"blocker": blocker}, "SERVER")
+        f = _write_c(
+            tmp_path, "foo.c", "int f(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        )
+        return lint_file(f)
+
+    def test_pure_c_asm_under_a_store_blocker_does_not_warn(self, tmp_path: Path) -> None:
+        result = self._pure_c(tmp_path, "inline asm kept by decision")
+        assert not any(c == "W020" for _, c, _ in result.warnings)
+
+    def test_pure_c_asm_without_a_blocker_warns(self, tmp_path: Path) -> None:
+        result = self._pure_c(tmp_path, None)
+        assert any(c == "W020" for _, c, _ in result.warnings)
+
+    def test_shared_file_uses_only_the_asm_functions_metadata(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_function_identity, set_fields, update_source_status
+
+        for va, name in ((0x10008880, "documented"), (0x10008900, "pending")):
+            record_function_identity(
+                tmp_path,
+                module="SERVER",
+                va=va,
+                file="shared.c",
+                marker_type="FUNCTION",
+                symbol="_" + name,
+                name=name,
+            )
+        update_source_status(tmp_path, "EXACT", "SERVER", 0x10008880)
+        set_fields(tmp_path, 0x10008880, {"blocker": "original asm"}, "SERVER")
+        update_source_status(tmp_path, "STUB", "SERVER", 0x10008900)
+        source = (
+            "int documented(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+            "int pending(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "shared.c", source))
+        warnings = [(line, msg) for line, code, msg in result.warnings if code == "W020"]
+        assert len(warnings) == 1
+        assert warnings[0][0] == 6
+        assert "EXACT" not in warnings[0][1]
+
+    def test_unrelated_status_does_not_escalate_asm(self, tmp_path: Path) -> None:
+        source = (
+            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n"
+            "int complete(void) { return 0; }\n"
+            "// FUNCTION: SERVER 0x10008900\n// STATUS: STUB\n"
+            "int pending(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "shared.c", source))
+        warnings = [msg for _, code, msg in result.warnings if code == "W020"]
+        assert len(warnings) == 1
+        assert "EXACT" not in warnings[0]
+
+    def test_naked_function_does_not_hide_another_functions_asm(self, tmp_path: Path) -> None:
+        source = (
+            "// FUNCTION: SERVER 0x10008880\n"
+            "__declspec(naked) void dump(void) {\n    __asm { _emit 0x55 }\n}\n"
+            "// FUNCTION: SERVER 0x10008900\n"
+            "int pending(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "shared.c", source))
+        assert any(code == "E023" for _, code, _ in result.errors)
+        assert [line for line, code, _ in result.warnings if code == "W020"] == [7]
+
+    def test_reports_each_undocumented_function(self, tmp_path: Path) -> None:
+        source = (
+            "// FUNCTION: SERVER 0x10008880\n"
+            "int first(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+            "// FUNCTION: SERVER 0x10008900\n"
+            "int second(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "shared.c", source))
+        assert [line for line, code, _ in result.warnings if code == "W020"] == [3, 8]
+
+    def test_store_blocker_and_status_do_not_leak_between_targets(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_function_identity, set_fields, update_source_status
+
+        for module, va, status in (("SERVER", 0x10008880, "EXACT"), ("GOLDTL", 0x408880, "STUB")):
+            record_function_identity(
+                tmp_path,
+                module=module,
+                va=va,
+                file="shared.c",
+                marker_type="FUNCTION",
+                symbol="_shared",
+                name="shared",
+            )
+            update_source_status(tmp_path, status, module, va)
+        set_fields(tmp_path, 0x10008880, {"blocker": "original asm"}, "SERVER")
+        cfg = _make_cfg(marker="GOLDTL", reversed_dir=tmp_path)
+        cfg.root = tmp_path
+        cfg.all_markers = {"SERVER", "GOLDTL"}
+        source = "int shared(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        result = lint_file(_write_c(tmp_path, "shared.c", source), cfg=cfg)
+        warnings = [msg for _, code, msg in result.warnings if code == "W020"]
+        assert len(warnings) == 1
+        assert "EXACT" not in warnings[0]
+        cfg.marker = "SERVER"
+        assert not any(
+            code == "W020" for _, code, _ in lint_file(tmp_path / "shared.c", cfg=cfg).warnings
+        )
+
+    def test_inline_target_status_does_not_leak(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(marker="GOLDTL", reversed_dir=tmp_path)
+        cfg.root = tmp_path
+        cfg.all_markers = {"SERVER", "GOLDTL"}
+        source = (
+            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n"
+            "// FUNCTION: GOLDTL 0x408880\n// STATUS: STUB\n"
+            "int shared(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "shared.c", source), cfg=cfg)
+        warnings = [msg for _, code, msg in result.warnings if code == "W020"]
+        assert len(warnings) == 1
+        assert "EXACT" not in warnings[0]
+
+    def test_foreign_target_assembly_is_not_reported(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(marker="SERVER", reversed_dir=tmp_path)
+        cfg.root = tmp_path
+        cfg.all_markers = {"SERVER", "GOLDTL"}
+        source = (
+            "static void fill(void) {\n    __asm { mov eax, 1 }\n}\n"
+            "// FUNCTION: GOLDTL 0x408880\n"
+            "int client(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        )
+        assert not any(
+            code == "W020"
+            for _, code, _ in lint_file(_write_c(tmp_path, "client.c", source), cfg=cfg).warnings
+        )
+
+    def test_string_literals_do_not_break_function_ownership(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_function_identity, set_fields
+
+        record_function_identity(
+            tmp_path,
+            module="SERVER",
+            va=0x10008880,
+            file="strings.c",
+            marker_type="FUNCTION",
+            symbol="_f",
+            name="display_name",
+        )
+        set_fields(tmp_path, 0x10008880, {"blocker": "original asm"}, "SERVER")
+        source = (
+            'char* f(void) {\n    char* text[] = { "a", "b" };\n'
+            "    __asm { mov eax, 1 }\n    return text[0];\n}\n"
+            "int pending(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "strings.c", source))
+        assert [line for line, code, _ in result.warnings if code == "W020"] == [7]
+
     def test_bare_emit_spelling_warns(self, tmp_path: Path) -> None:
         """`rebrew asm` writes the bare `_emit 0xNN` form, so W020 must match it."""
         body = "int f(void) {\n    __asm { _emit 0x55 }\n    return 0;\n}\n"
@@ -1027,7 +1191,7 @@ class TestW020AsmDump:
         result = lint_file(_write_c(tmp_path, "stub.c", content))
         msg = next(m for _, c, m in result.warnings if c == "W020")
         assert "cannot be a byte-match" not in msg  # STUB is fine — not escalated
-        assert "asm" in msg.lower()
+        assert "assembly" in msg.lower()
 
     def test_exact_claim_on_asm_dump_escalates(self, tmp_path: Path) -> None:
         """EXACT + asm dump is a metadata contradiction — W020 escalates."""
@@ -1039,7 +1203,7 @@ class TestW020AsmDump:
         result = lint_file(_write_c(tmp_path, "claimed.c", content))
         msg = next(m for _, c, m in result.warnings if c == "W020")
         assert "EXACT" in msg
-        assert "cannot be a byte-match" in msg
+        assert "original assembly provenance" in msg
 
     def test_recorded_blocker_documents_the_asm_body(self, tmp_path: Path) -> None:
         """A BLOCKER is the remedy the escalated message names, so it must
@@ -1264,6 +1428,23 @@ class TestW021W022:
         )
         kept = [line for line, c, _ in exempt.warnings if c == "W022"]
         assert kept == [3]
+
+    def test_zero_init_link_symbol_exempt(self, tmp_path: Path) -> None:
+        """A ``.bss`` row whose source defines it under ``link_symbol`` is a placement pin."""
+        content = "char g_entity_end[4] = {0};\nint g_other = 0;\n"
+        f = _write_c(tmp_path, "pin.c", content)
+        result = lint_file(
+            f,
+            preloaded_metadata={},
+            preloaded_data_metadata={
+                ("SERVER", 0x1009B760): {
+                    "name": "g_town_records",
+                    "section": ".bss",
+                    "link_symbol": "_g_entity_end",
+                }
+            },
+        )
+        assert [line for line, c, _ in result.warnings if c == "W022"] == [2]
 
     def test_duplicate_nested_bracket_global(self, tmp_path: Path) -> None:
         """W021 names the global when its bound contains a bracket."""
@@ -3037,9 +3218,11 @@ class TestW031MetadataStore:
 
     def test_non_verdict_status_is_reported(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-data.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nstatus = "EXACT"\n', encoding="utf-8"
+            'format = 1\n\n["SERVER.0x1000"]\nstatus = "RELOC"\n', encoding="utf-8"
         )
-        assert "not one of DRIFT, UNCHECKED, VERIFIED" in self._warnings(self._cfg(tmp_path))
+        assert "not one of DISPLACED, DRIFT, EXACT, UNCHECKED, VERIFIED" in self._warnings(
+            self._cfg(tmp_path)
+        )
 
     def test_half_a_provenance_pair_is_reported(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-data.toml").write_text(
@@ -3221,7 +3404,7 @@ class TestW031W032Cli:
 
         cfg = self._cfg(tmp_path)
         (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "EXACT"\n', encoding="utf-8"
+            '["SERVER.0x1000"]\nstatus = "RELOC"\n', encoding="utf-8"
         )
         (tmp_path / "db" / "coverage.db").write_bytes(b"SQLite format 3\x00")
         with patch("rebrew.lint.load_config", return_value=cfg):
@@ -3559,3 +3742,227 @@ def test_markerless_library_binding_uses_project_root(
     unrelated.write_text(provider.read_text())
     result = lint_file(unrelated, cfg=cfg, preloaded_metadata=entries, preloaded_data_metadata={})
     assert any(code == "E001" for _, code, _ in result.errors)
+
+
+class TestW037W038DataRows:
+    """W037: a data row that disagrees with its owning definition. W038: rows
+    whose extents overlap. Driven through ``rebrew lint --json`` on a real
+    project file, the way guild-rebrew hit it: a generator shrank
+    ``g_gap_10034644`` to 36 bytes while its row still said ``char[44]``, so
+    the stale row ran over the next two globals."""
+
+    def _project(self, tmp_path: Path, source: str, rows: str) -> Path:
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "server.dll"\n\n'
+            '[targets."server.dll"]\nbinary = "server.dll"\nmarker = "SERVER"\n'
+            'reversed_dir = "src"\n',
+            encoding="utf-8",
+        )
+        src = tmp_path / "src"
+        src.mkdir()
+        owner = src / "bss_head2.c"
+        owner.write_text(source, encoding="utf-8")
+        (tmp_path / "rebrew-data.toml").write_text("format = 1\n" + rows, encoding="utf-8")
+        return owner
+
+    def _row(self, va: int, name: str, type_: str, size: int, **extra: str) -> str:
+        fields = "".join(f'{key} = "{value}"\n' for key, value in extra.items())
+        return (
+            f'\n["SERVER.0x{va:08x}"]\nfile = "src/bss_head2.c"\nmarker_type = "GLOBAL"\n'
+            f'name = "{name}"\ntype = "{type_}"\nsize = {size}\nsection = ".bss"\n{fields}'
+        )
+
+    def _lint(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> list[tuple[str, int, str, str]]:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--json"])
+        payload = json.loads(result.stdout)
+        return [
+            (entry["file"], warning["line"], warning["code"], warning["message"])
+            for entry in payload["files"]
+            for warning in entry["warnings"]
+            if warning["code"] in {"W037", "W038"}
+        ]
+
+    def test_stale_row_size_is_reported_with_the_fix(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._project(
+            tmp_path,
+            "/* layout */\nchar g_gap_10034644[36] = {0};\nvoid *g_vfs_root;\n",
+            self._row(0x10034644, "g_gap_10034644", "char[44]", 44)
+            + self._row(0x10034668, "g_vfs_root", "void*", 4),
+        )
+        found = [w for w in self._lint(tmp_path, monkeypatch) if w[2] == "W037"]
+        assert len(found) == 1, found
+        file, line, _code, message = found[0]
+        assert file.endswith("bss_head2.c")
+        assert line == 2
+        assert "SERVER.0x10034644" in message
+        assert "type 'char[44]' (44 bytes), size 44" in message
+        assert "'char[36]' (36 bytes)" in message
+        assert "rebrew data set --size 0x10034644=36" in message
+        assert "rebrew data set --type '0x10034644=char[36]'" in message
+
+    def test_matching_rows_are_silent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Spelling differences (`void*` / `void *`, `[0x104]` / `[260]`) are
+        not a disagreement: only byte sizes are compared."""
+        self._project(
+            tmp_path,
+            "char g_gap[36] = {0};\nvoid * g_root;\nunsigned  short g_w;\nchar g_path[0x104];\n",
+            self._row(0x1000, "g_gap", "char[36]", 36)
+            + self._row(0x1024, "g_root", "void*", 4)
+            + self._row(0x1028, "g_w", "unsigned short", 2)
+            + self._row(0x102C, "g_path", "char[260]", 260),
+        )
+        assert self._lint(tmp_path, monkeypatch) == []
+
+    def test_extern_declaration_is_not_the_definition(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only the definition is compared: an extern of another extent in the
+        owning file is a user, and a file with only the extern is skipped."""
+        self._project(
+            tmp_path,
+            "extern char g_a[];\nchar g_a[8];\nextern int g_b[4];\n",
+            self._row(0x1000, "g_a", "char[8]", 8) + self._row(0x1008, "g_b", "char[3]", 3),
+        )
+        assert self._lint(tmp_path, monkeypatch) == []
+
+    def test_unsized_types_are_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A struct the size model cannot measure is skipped, not guessed."""
+        self._project(
+            tmp_path,
+            "struct Pool { int a; };\nstruct Pool g_pool;\n",
+            self._row(0x1000, "g_pool", "struct Pool", 12),
+        )
+        assert self._lint(tmp_path, monkeypatch) == []
+
+    def test_overlapping_rows_are_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._project(
+            tmp_path,
+            "char g_gap[44];\nvoid *g_root;\n",
+            self._row(0x1000, "g_gap", "char[44]", 44) + self._row(0x1024, "g_root", "void*", 4),
+        )
+        found = [w for w in self._lint(tmp_path, monkeypatch) if w[2] == "W038"]
+        assert len(found) == 1, found
+        file, _line, _code, message = found[0]
+        assert file == "rebrew-data.toml"
+        assert "SERVER.0x00001000 g_gap" in message
+        assert "SERVER.0x00001024 g_root" in message
+        assert "by 4 bytes" in message
+
+    def test_views_and_disjoint_rows_do_not_overlap(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An alias with a backing is a view of its allocation, not a second
+        owner; adjacent rows touch without intersecting."""
+        self._project(
+            tmp_path,
+            "char g_buf[16];\nint g_next;\n",
+            self._row(0x1000, "g_buf", "char[16]", 16)
+            + self._row(0x1004, "g_buf_tail", "char[4]", 4, storage_kind="alias", backing="g_buf")
+            + self._row(0x1010, "g_next", "int", 4),
+        )
+        assert self._lint(tmp_path, monkeypatch) == []
+
+    def test_span_row_is_compared_with_its_extern_view(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A span has no standalone owner: its owning file may hold only an
+        extern inventory view, and that view's extent is what the row must
+        match (guild-rebrew `g_before_g_array_count`, declared 7 bytes against
+        a 3-byte span). A non-span row with only an extern stays skipped."""
+        self._project(
+            tmp_path,
+            "extern unsigned char g_before[0x7];\nextern unsigned char g_other[0x7];\n",
+            self._row(0x1000, "g_before", "unsigned char[3]", 3, storage_kind="span")
+            + self._row(0x1010, "g_other", "unsigned char[3]", 3, storage_kind="object"),
+        )
+        found = [w for w in self._lint(tmp_path, monkeypatch) if w[2] == "W037"]
+        assert len(found) == 1, found
+        message = found[0][3]
+        assert "g_before" in message
+        assert "span view" in message
+        assert "'unsigned char[0x7]' (7 bytes)" in message
+        assert "--size 0x00001000=7" in message
+
+    def test_stale_type_alone_gets_the_type_fix(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._project(
+            tmp_path,
+            "char g_gap[36];\n",
+            self._row(0x1000, "g_gap", "char[44]", 36),
+        )
+        found = [w for w in self._lint(tmp_path, monkeypatch) if w[2] == "W037"]
+        assert len(found) == 1, found
+        message = found[0][3]
+        assert "rebrew data set --type '0x00001000=char[36]'" in message
+        assert "--size" not in message
+
+    def _view(self, va: int, name: str, type_: str, size: int, backing: str) -> str:
+        return self._row(va, name, type_, size, storage_kind="alias", backing=backing)
+
+    def test_tiled_allocation_is_silent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """guild-rebrew `g_slot_table`: the row keeps the reference allocation's
+        full extent while the source splits it into a short leading definition
+        and separate definitions for its interior names and pads, each an alias
+        row backed by the allocation. Covering the extent exactly is a match."""
+        self._project(
+            tmp_path,
+            "unsigned char g_tab[2] = {0};\nshort g_field = 0;\nchar g_gap_4[12] = {0};\n"
+            "extern int g_peek;\nint g_next;\n",
+            self._row(0x1000, "g_tab", "unsigned char[16]", 16)
+            + self._view(0x1002, "g_field", "char[2]", 2, "g_tab")
+            + self._view(0x1004, "g_gap_4", "char[12]", 12, "g_tab")
+            + self._view(0x1008, "g_peek", "int", 4, "g_tab")
+            + self._row(0x1010, "g_next", "int", 4),
+        )
+        assert self._lint(tmp_path, monkeypatch) == []
+
+    def test_tiling_with_a_hole_names_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A missing piece leaves bytes of the allocation no definition owns."""
+        self._project(
+            tmp_path,
+            "unsigned char g_tab[2] = {0};\nchar g_gap_8[8] = {0};\n",
+            self._row(0x1000, "g_tab", "unsigned char[16]", 16)
+            + self._view(0x1008, "g_gap_8", "char[8]", 8, "g_tab"),
+        )
+        found = [w for w in self._lint(tmp_path, monkeypatch) if w[2] == "W037"]
+        assert len(found) == 1, found
+        message = found[0][3]
+        assert "tiled" in message
+        assert "[0x00001002, 0x00001008)" in message
+        assert "--size" not in message
+
+    def test_tiling_that_overruns_the_row_reports_its_extent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._project(
+            tmp_path,
+            "unsigned char g_tab[2] = {0};\nchar g_gap_2[20] = {0};\n",
+            self._row(0x1000, "g_tab", "unsigned char[16]", 16)
+            + self._view(0x1002, "g_gap_2", "char[20]", 20, "g_tab"),
+        )
+        found = [w for w in self._lint(tmp_path, monkeypatch) if w[2] == "W037"]
+        assert len(found) == 1, found
+        message = found[0][3]
+        assert "tiled" in message
+        assert "22 bytes" in message
+        assert "rebrew data set --size 0x00001000=22" in message

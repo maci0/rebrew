@@ -14,6 +14,7 @@ Rebrew recompiles your C with the compiler that built the target and compares th
 - Library identification, globals/types, data layout, and whole-binary verification.
 - Prioritized work and separate file, executable-byte, and stored data-verdict accounting.
 - BinSync field reconciliation and provenance, plus live Ghidra structural operations.
+- Symbol exports: splat `symbol_addrs`, and a synthetic PDB stamped with the target's own debug-record GUID/age (`rebrew export pdb`, needs `llvm-pdbutil`).
 - Config-driven toolchains, compile caching, and six packaged agent workflows.
 
 See the [documentation index](https://github.com/maci0/rebrew/blob/main/docs/README.md)
@@ -71,6 +72,8 @@ rebrew coverage build                          # refresh the coverage dashboard'
 
 Check library attribution before implementing a function. `test` and `verify`
 earn byte verdicts, including regressions. EXACT and RELOC count as matched;
+a RELOC function whose bytes in the raw link equal the reference becomes EXACT
+through `rebrew verify --text --raw-link` (linked EXACT);
 PROVEN records semantic evidence under the proof's assumptions and earns no
 byte-match credit. See [match types](https://github.com/maci0/rebrew/blob/main/docs/MATCH_TYPES.md).
 
@@ -97,7 +100,8 @@ processes require an explicit request. See
 `rebrew init` copies AGENTS.md, PRINCIPLES.md, and packaged skills into a project.
 `rebrew skills list --json` lists the effective packaged/user-overlaid skills;
 load the skill matching the task and only the references needed for it.
-`rebrew init --check` detects scaffold drift; `--refresh-agents` regenerates it.
+`rebrew init --check` detects scaffold drift; `--refresh-agents` regenerates it and keeps
+anything after the `<!-- rebrew: project rules below, kept by --refresh-agents -->` line.
 
 The [Python API guide](https://github.com/maci0/rebrew/blob/main/docs/PYTHON_API.md)
 covers library imports, registry views, structured errors, and injectable clients.

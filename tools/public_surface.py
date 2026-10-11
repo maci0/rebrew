@@ -29,7 +29,9 @@ naming it is not a signature change, while a value that moved is.  Two
 value-preserving spellings read as the same name for the same reason: a keyword
 argument in a constant's constructor call that repeats the field's own default
 (``CliComponent(..., is_group=False)``), and a parameter annotation widened to
-admit ``None`` where the default already passed one.
+admit ``None`` where the default already passed one.  A tuple, list or dict
+constant that only appends entries (a command added at the end of its
+``DOMAIN_COMPONENTS`` family) keeps every old entry where it was and is a feature.
 
 Run from the repo root::
 
@@ -590,12 +592,48 @@ def _widened_only_optional(before: tuple[str, ...], after: tuple[str, ...]) -> b
     return [_unwiden(p) for p in before[1:-1]] == [_unwiden(p) for p in after[1:-1]]
 
 
+def _appended_only(before: ast.expr, after: ast.expr) -> bool:
+    """True when ``after`` keeps ``before`` and only appends entries.
+
+    A registry grows this way (a command appended to its family's tuple): every
+    old entry is still there at its old index, or under its old key, so nothing
+    that read the old value breaks.  A dropped, edited or reordered entry does.
+    """
+    if isinstance(before, (ast.Tuple, ast.List)) and type(before) is type(after):
+        old = [ast.dump(e) for e in before.elts]
+        return [ast.dump(e) for e in after.elts[: len(old)]] == old
+    if isinstance(before, ast.Dict) and isinstance(after, ast.Dict):
+        new = {
+            ast.dump(k): v for k, v in zip(after.keys, after.values, strict=True) if k is not None
+        }
+        for key, value in zip(before.keys, before.values, strict=True):
+            if key is None or ast.dump(key) not in new:
+                return False
+            grown = new[ast.dump(key)]
+            if ast.dump(value) != ast.dump(grown) and not _appended_only(value, grown):
+                return False
+        return True
+    return False
+
+
+def _constant_appended_only(before: tuple[str, ...], after: tuple[str, ...]) -> bool:
+    """True when both descriptors are constant values and ``after`` only appended entries."""
+    if len(before) != 1 or len(after) != 1:
+        return False
+    try:
+        old = ast.parse(before[0], mode="eval").body
+        new = ast.parse(after[0], mode="eval").body
+    except SyntaxError:
+        return False
+    return _appended_only(old, new)
+
+
 def _is_breaking(before: tuple[str, ...], after: tuple[str, ...]) -> bool:
     if before == after:
         return False
     if before[0].startswith("def ") and after[0].startswith("def "):
         return not (_appends_only_optional(before, after) or _widened_only_optional(before, after))
-    return True
+    return not _constant_appended_only(before, after)
 
 
 def diff_surfaces(

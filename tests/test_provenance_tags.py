@@ -116,3 +116,39 @@ class TestBatchWriterStampsProvenance:
                 ],
             )
         assert not (tmp_path / "rebrew-functions.toml").exists()
+
+
+class TestFieldWriterProvenance:
+    @pytest.mark.parametrize("writer", ["one", "several"])
+    @pytest.mark.parametrize("existing", [False, True])
+    def test_unknown_tag_cannot_change_the_store(
+        self, tmp_path: Path, writer: str, existing: bool
+    ) -> None:
+        from rebrew.metadata import get_entry, set_fields, update_field
+
+        path = tmp_path / "rebrew-functions.toml"
+        if existing:
+            update_field(tmp_path, 0x24000, "note", "keep", "APP", updated_by="lint")
+        before = path.read_bytes() if path.exists() else None
+        with pytest.raises(ValueError, match="Unknown provenance tag"):
+            if writer == "one":
+                update_field(tmp_path, 0x24000, "note", "changed", "APP", updated_by="not-a-tool")
+            else:
+                set_fields(
+                    tmp_path,
+                    0x24000,
+                    {"note": "changed", "size": 17},
+                    "APP",
+                    updated_by="not-a-tool",
+                )
+        assert (path.read_bytes() if path.exists() else None) == before
+        assert get_entry(tmp_path, 0x24000, "APP").get("note") == ("keep" if existing else None)
+
+    def test_unknown_stamp_keeps_the_open_entry_unchanged(self) -> None:
+        from rebrew.metadata import stamp_provenance
+
+        entry = {"note": "keep", "updated_by": "lint", "updated_at": "2026-01-01T00:00:00+00:00"}
+        before = dict(entry)
+        with pytest.raises(ValueError, match="Unknown provenance tag"):
+            stamp_provenance(entry, "not-a-tool")
+        assert entry == before

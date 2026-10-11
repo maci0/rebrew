@@ -29,25 +29,41 @@ def relocation_spans(info: BinaryInfo) -> list[tuple[int, int]]:
     return sorted(set(spans))
 
 
-def _pe_spans(info: BinaryInfo) -> list[tuple[int, int]]:
+#: Bytes a PE base relocation patches, by type name; the other types patch a
+#: 16-bit half or are architecture specific, so their operand is not an address.
+PE_RELOCATION_WIDTHS = {"HIGHLOW": 4, "DIR64": 8}
+
+
+def pe_relocation_sites(info: BinaryInfo) -> dict[int, str]:
+    """Absolute address -> type name of every non-ABSOLUTE PE base relocation.
+
+    Raises ``ValueError`` when the image does not parse as the loaded PE layout,
+    a block is not page aligned, or the table exceeds the span limit.
+    """
     binary = lief.PE.parse(info.data)
     if binary is None or binary.optional_header.imagebase != info.image_base:
         raise ValueError("PE relocation image does not match its loaded layout")
     kinds = lief.PE.RelocationEntry.BASE_TYPES
-    widths = {kinds.HIGHLOW: 4, kinds.DIR64: 8}
-    spans: list[tuple[int, int]] = []
+    sites: dict[int, str] = {}
     for block in binary.relocations:
         if block.virtual_address % 4096:
             raise ValueError("PE relocation block is not page aligned")
         for entry in block.entries:
             if entry.type == kinds.ABS:
                 continue
-            width = widths.get(entry.type)
-            if width is None:
-                raise NotImplementedError(f"unsupported PE relocation: {entry.type}")
-            spans.append((info.image_base + entry.address, width))
-            if len(spans) > _MAX_SPANS:
+            sites[info.image_base + entry.address] = entry.type.name
+            if len(sites) > _MAX_SPANS:
                 raise ValueError("relocation span limit exceeded")
+    return sites
+
+
+def _pe_spans(info: BinaryInfo) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    for address, kind in pe_relocation_sites(info).items():
+        width = PE_RELOCATION_WIDTHS.get(kind)
+        if width is None:
+            raise NotImplementedError(f"unsupported PE relocation: {kind}")
+        spans.append((address, width))
     return spans
 
 

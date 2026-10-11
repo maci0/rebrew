@@ -34,6 +34,7 @@ import typer
 from rebrew.annotation import span_contains_factory
 from rebrew.binsync import serial
 from rebrew.binsync.git import run_git
+from rebrew.binsync.repo import checkout_user_branch, is_binsync_repo, resolve_user
 from rebrew.binsync.state import (
     acknowledge_sync,
     artifact_hash,
@@ -51,7 +52,7 @@ from rebrew.binsync.state import (
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
 from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.utils import atomic_write_locked, md5_file, strip_body
+from rebrew.utils import is_safe_c_ident, md5_file, strip_body
 
 app = typer.Typer(
     help="Export rebrew annotations to a BinSync state directory.",
@@ -181,6 +182,7 @@ def _write_struct_toml(
     path: Path,
     name: str,
     fields: list[dict[str, Any]] | None = None,
+    total_size: int | None = None,
 ) -> None:
     """Write one declib ``Struct`` artifact (members keyed by byte offset).
 
@@ -203,7 +205,10 @@ def _write_struct_toml(
         member_size = int(size) if size is not None else (type_size(member_type) or 0)
         members[int(offset)] = (member_name, member_type, member_size)
         next_offset = int(offset) + member_size
-    size_total = max((off + (m[2] or 0) for off, m in members.items()), default=0)
+    extent = max((off + (m[2] or 0) for off, m in members.items()), default=0)
+    size_total = total_size if total_size is not None else extent
+    if size_total < extent:
+        raise ValueError(f"struct {name}: size {size_total} is smaller than member extent {extent}")
     serial.dump_artifact(path, serial.new_struct(name, size_total, members))
 
 
@@ -325,6 +330,12 @@ def main(
     clean: bool = typer.Option(
         False, "--clean", help="Remove orphan function TOMLs no longer in the catalog/annotations"
     ),
+    user: str | None = typer.Option(
+        None,
+        "--user",
+        help="BinSync user to write as (default: targets.<name>.binsync_user, the user "
+        "'rebrew binsync init' recorded, else rebrew)",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -333,6 +344,7 @@ def main(
     Produces a ``functions/`` tree, ``global_vars.toml``, and ``structs/``
     placeholders compatible with BinSync's TOML state format.
     """
+    serial.require_declib(json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
 
     result = export_state(
@@ -342,6 +354,7 @@ def main(
         module=module,
         git_commit=git_commit,
         clean=clean,
+        user=user,
     )
     print_export_result(result, json_output=json_output, dry_run=dry_run)
 
@@ -354,13 +367,26 @@ def export_state(
     module: str | None = None,
     git_commit: bool = False,
     clean: bool = False,
+    user: str | None = None,
 ) -> dict[str, object]:
     """Export rebrew annotations to a BinSync state directory (programmatic).
 
     Returns the result dict (counts + written paths + warnings).  ``empty``
     is True when there was nothing to export — the CLI turns that into an
     error, programmatic callers decide.
+
+    *user* (resolved by :func:`rebrew.binsync.repo.resolve_user`) is written
+    as the ``metadata.toml`` user.  When *outdir* is a BinSync repo, a real
+    export first checks out ``binsync/<user>``, so it never writes into
+    another user's branch.
+
+    Raises:
+        ValueError: the user is not a valid BinSync user, the repo cannot be
+            switched to the user's branch, or the sync is blocked.
     """
+    user = resolve_user(cfg, outdir, user)
+    if not dry_run and is_binsync_repo(outdir):
+        checkout_user_branch(outdir, user)
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
     # Optional module filter applies to both annotations and catalog entries
     if module is not None:
@@ -510,9 +536,18 @@ def export_state(
     written_funcs: list[str] = []
     comment_artifacts: list[tuple[int, int, str]] = []
     metadata_comments: dict[int, tuple[int, str]] = {}
+    identity_warnings: list[str] = []
+    exported_from: dict[int, str] = {}
     for entry in all_func_entries:
         va = entry.va  # type: ignore[attr-defined]
         name = getattr(entry, "symbol", "") or getattr(entry, "name", "") or f"func_{va:08x}"
+        origin_file = str(getattr(entry, "filepath", "") or "catalog")
+        if va in exported_from:
+            identity_warnings.append(
+                f"0x{va:08x} has two identities ({exported_from[va]}, {origin_file}); "
+                "the later one is exported"
+            )
+        exported_from[va] = origin_file
 
         key = next(
             k for k in local_records if k.startswith("function.") and k.endswith(f".0x{va:x}")
@@ -520,6 +555,14 @@ def export_state(
         fields = merged_records.get(key)
         if fields is None:
             continue  # remote removal needs explicit resolution; do not resurrect it
+        own_name = str(getattr(entry, "name", "") or "")
+        if own_name and not is_safe_c_ident(own_name) and not isinstance(entry, _CatalogFunction):
+            # A catalog label (``fcn.<va>``) is a placeholder by design; a row's
+            # prose name (a library-header comment line) is a finding.
+            identity_warnings.append(
+                f"0x{va:08x} name {own_name!r} ({origin_file}) is not a C identifier; "
+                f"exported as func_{va:08x}"
+            )
         name = fields.get("name", name)
         func_path = outdir / "functions" / f"{va:08x}.toml"
         if not dry_run:
@@ -545,7 +588,7 @@ def export_state(
             if isinstance(comment, dict):
                 metadata_comments[int(str(addr), 0)] = (va, str(comment.get("comment") or ""))
 
-    # A source ``// ANALYSIS @ 0xADDR: text`` marker wins over the metadata
+    # A source ``/* ANALYSIS @ 0xADDR: text */`` marker wins over the metadata
     # entry for the same address (the analyst edited it in source), so edits
     # flow out to comments.toml.
     merged_comments = dict(metadata_comments)
@@ -591,12 +634,15 @@ def export_state(
         if not key.startswith("struct."):
             continue
         sname = key.split(".", 1)[1]
-        fields_ = record.get("definition") or {}
+        definition = record.get("definition") or {}
+        fields_ = definition.get("members") or {}
         struct_fields = [{"name": name, **member} for name, member in fields_.items()]
         spath = outdir / "structs" / f"{serial.sanitize_name(sname)}.toml"
         if not dry_run:
             spath.parent.mkdir(parents=True, exist_ok=True)
-            _write_struct_toml(spath, sname, fields=struct_fields or None)
+            _write_struct_toml(
+                spath, sname, fields=struct_fields or None, total_size=definition.get("size")
+            )
         written_structs.append(str(spath))
 
     written_enums = ""
@@ -623,10 +669,11 @@ def export_state(
             _write_typedefs_toml(typedef_path, merged_typedefs)
         written_typedefs = str(typedef_path)
 
-    # State.parse requires metadata.toml; user is the repo identity or rebrew.
+    # State.parse requires metadata.toml; BinSync's Client reads the user from
+    # it and checks out binsync/<user>, so it is the branch's own user.
     metadata_file = ""
     if not dry_run:
-        serial.write_metadata(outdir, user=serial.state_user(outdir))
+        serial.write_metadata(outdir, user=user)
         metadata_file = str(outdir / serial.METADATA_FILE)
 
     # BinSync binds a repo to one binary through the MD5 at its root.  Emit it
@@ -664,11 +711,11 @@ def export_state(
             )
 
     # Validation warnings (non-fatal)
-    warnings_list: list[str] = []
+    warnings_list: list[str] = list(identity_warnings)
     if not dry_run:
-        warnings_list = _validate_binsync_dir(outdir)
-        for w in warnings_list:
-            console.print(f"[yellow]warning:[/yellow] {w}")
+        warnings_list += _validate_binsync_dir(outdir)
+    for w in warnings_list:
+        console.print(f"[yellow]warning:[/yellow] {w}", markup=False)
 
     # Freshness manifest BEFORE git so an unchanged re-export leaves a clean
     # tree (no post-commit timestamp dirt that the next --git would commit).
@@ -714,6 +761,7 @@ def export_state(
         "manifest": manifest_hash,
         "binary_hash": binary_hash,
         "module": module,
+        "user": user,
         "empty": False,
         "health": health,
     }
@@ -791,7 +839,7 @@ def _write_manifest(
             if binary_hash or existing.get("binary_hash"):
                 doc["binary_hash"] = binary_hash or existing.get("binary_hash")
             doc["commit"] = commit_hash
-            atomic_write_locked(manifest_path, tomlkit.dumps(doc), encoding="utf-8")
+            serial.write_state_text(manifest_path, tomlkit.dumps(doc))
             return content_hash
     doc = tomlkit.document()
     doc["exported_at"] = datetime.now(UTC).isoformat()
@@ -805,7 +853,7 @@ def _write_manifest(
         doc["binary_hash"] = binary_hash
     if commit_hash:
         doc["commit"] = commit_hash
-    atomic_write_locked(manifest_path, tomlkit.dumps(doc), encoding="utf-8")
+    serial.write_state_text(manifest_path, tomlkit.dumps(doc))
     return content_hash
 
 
@@ -843,6 +891,8 @@ def print_export_result(result: dict[str, object], *, json_output: bool, dry_run
             "comments_file": result.get("comments_file"),
             "metadata_file": result.get("metadata_file"),
         }
+        if result.get("user"):
+            payload["user"] = result["user"]
         if "health" in result:
             payload["health"] = result["health"]
         if warnings_list:

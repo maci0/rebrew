@@ -137,6 +137,57 @@ class TestCallerCounts:
 
 
 class TestCollectors:
+    @pytest.mark.parametrize(
+        ("status", "category", "score"),
+        [("COMPILE_ERROR", CAT_COMPILE_ERROR, 200.0), ("EXTRACT_ERROR", CAT_EXTRACT_ERROR, 150.0)],
+    )
+    def test_durable_errors_without_cache(self, status: str, category: str, score: float) -> None:
+        existing = {0x1000: {"status": status, "symbol": "_broken", "filename": "broken.c"}}
+        items = _collect_active_functions(existing, {0x1000: 38}, {}, {})
+        assert len(items) == 1
+        assert (items[0].category, items[0].roi_score, items[0].status) == (category, score, status)
+        assert items[0].command == "rebrew test 0x00001000"
+
+    @pytest.mark.parametrize("status", ["COMPILE_ERROR", "EXTRACT_ERROR"])
+    def test_cached_exact_supersedes_durable_error(self, status: str) -> None:
+        from rebrew.verify_cache import VerifyCacheEntry
+
+        entry = VerifyCacheEntry(
+            source_hash="",
+            filepath="a.c",
+            mtime_ns=0,
+            status="EXACT",
+            va=0x1000,
+            size=38,
+            name="a",
+            message="",
+            passed=True,
+        )
+        assert not _collect_active_functions(
+            {0x1000: {"status": status, "symbol": "_a"}}, {}, {}, {"0x00001000": entry}
+        )
+
+    @pytest.mark.parametrize("status", ["COMPILE_ERROR", "EXTRACT_ERROR"])
+    def test_proven_precedence_applies_to_cached_errors(self, status: str) -> None:
+        from rebrew.verify_cache import VerifyCacheEntry
+
+        entry = VerifyCacheEntry(
+            source_hash="",
+            filepath="a.c",
+            mtime_ns=0,
+            status=status,
+            va=0x1000,
+            size=38,
+            name="a",
+            message="",
+            passed=False,
+        )
+        items = _collect_active_functions(
+            {0x1000: {"status": "PROVEN", "symbol": "_a"}}, {}, {}, {"0x00001000": entry}
+        )
+        assert len(items) == 1
+        assert (items[0].category, items[0].status) == (CAT_IMPROVE_MATCH, "PROVEN")
+
     def test_active_functions_compile_error(self, tmp_path: Path) -> None:
         _cfg = _make_cfg(tmp_path)
         from rebrew.verify_cache import VerifyCacheEntry
@@ -1883,6 +1934,19 @@ class TestDataDrift:
         assert items[0].name == "g_a"
         assert items[0].va == 0x1000
 
+    def test_displaced_symbol_surfaces(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_field
+        from rebrew.todo import _collect_data_drift
+
+        cfg = _make_cfg(tmp_path)
+        set_data_field(tmp_path, 0x1000, "name", "g_moved", "TEST")
+        set_data_field(tmp_path, 0x1000, "status", "DISPLACED", "TEST")
+        set_data_field(tmp_path, 0x2000, "name", "g_here", "TEST")
+        set_data_field(tmp_path, 0x2000, "status", "EXACT", "TEST")
+        items = _collect_data_drift(cfg)
+        assert [(i.name, i.status) for i in items] == [("g_moved", "DISPLACED")]
+        assert "away from its reference address" in items[0].description
+
     def test_other_target_drift_is_omitted(self, tmp_path: Path) -> None:
         from rebrew.data_metadata import set_data_field
         from rebrew.todo import _collect_data_drift
@@ -2136,3 +2200,118 @@ class TestLibraryAndCrossTargetScoping:
         set_data_field(tmp_path, 0x10027000, "status", "UNCHECKED", "TEST")
         items = _collect_start_data(cfg)
         assert [i.name for i in items] == ["g_mine"]
+
+
+class TestMissingManagedBindings:
+    @pytest.mark.parametrize("source_present", [False, True])
+    @pytest.mark.parametrize("status", ["EXACT", "NEAR_MATCHING"])
+    def test_missing_binding_is_repair_not_new_work(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_present: bool, status: str
+    ) -> None:
+        from rebrew.metadata import record_function_identity, update_statuses_batch
+        from rebrew.verify_cache import VerifyCacheEntry
+
+        cfg = _make_cfg(tmp_path)
+        cfg.reversed_dir.mkdir()
+        if source_present:
+            (cfg.reversed_dir / "owner.c").write_text("int neighbor(void) { return 1; }\n")
+        record_function_identity(
+            tmp_path,
+            module="TEST",
+            va=0x1000,
+            file="src/owner.c",
+            marker_type="FUNCTION",
+            name="KnownQuery",
+            symbol="_KnownQuery",
+            size=56,
+        )
+        update_statuses_batch(
+            tmp_path,
+            [
+                {
+                    "module": "TEST",
+                    "va": 0x1000,
+                    "new_status": status,
+                    "fields": {"blocker": "Existing codegen wall"},
+                }
+            ],
+        )
+        store = (tmp_path / "rebrew-functions.toml").read_bytes()
+        # A cached match cannot establish a definition that is absent now.
+        cached = VerifyCacheEntry(
+            source_hash="old",
+            filepath="owner.c",
+            mtime_ns=0,
+            status="EXACT",
+            va=0x1000,
+            size=56,
+            name="KnownQuery",
+            message="old match",
+            passed=True,
+        )
+        monkeypatch.setattr("rebrew.todo.load_verify_entries", lambda cfg: {"0x00001000": cached})
+        items = collect_all(cfg, [FunctionEntry(va=0x1000, size=64, name="fcn.00001000")], {}, {})
+        item = next(i for i in items if i.va == 0x1000)
+        assert item.category == CAT_EXTRACT_ERROR
+        assert (item.name, item.filename, item.size, item.blocker) == (
+            "_KnownQuery",
+            "owner.c",
+            56,
+            "Existing codegen wall",
+        )
+        assert "missing" in item.description.lower()
+        assert item.command == "rebrew test 0x00001000"
+        assert not any(i.category == CAT_START_FUNCTION and i.va == 0x1000 for i in items)
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == store
+
+    def test_target_library_skip_and_unbound_rows_are_ignored(self, tmp_path: Path) -> None:
+        from rebrew.metadata import (
+            record_function_identity,
+            set_fields_batch,
+            update_statuses_batch,
+        )
+        from rebrew.todo import _collect_missing_bindings
+
+        cfg = _make_cfg(tmp_path)
+        for module, va, kind in [
+            ("OTHER", 0x1000, "FUNCTION"),
+            ("TEST", 0x2000, "LIBRARY"),
+            ("TEST", 0x3000, "FUNCTION"),
+        ]:
+            record_function_identity(
+                tmp_path,
+                module=module,
+                va=va,
+                file="src/missing.c",
+                marker_type=kind,
+                name="Missing",
+                symbol="_Missing",
+                size=32,
+            )
+        update_statuses_batch(tmp_path, [{"module": "TEST", "va": 0x3000, "new_status": "SKIP"}])
+        set_fields_batch(
+            tmp_path,
+            [
+                {"module": "TEST", "va": 0x4000, "fields": {"size": 32}},
+            ],
+        )
+        assert _collect_missing_bindings(cfg, {}) == []
+
+    def test_live_binding_and_definition_outside_tree_are_not_missing(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_function_identity
+        from rebrew.todo import _collect_missing_bindings
+
+        cfg = _make_cfg(tmp_path)
+        (tmp_path / "outside.c").write_text("int Outside(void) { return 1; }\n")
+        for va, file, name in [(0x1000, "src/live.c", "Live"), (0x2000, "outside.c", "Outside")]:
+            record_function_identity(
+                tmp_path,
+                module="TEST",
+                va=va,
+                file=file,
+                marker_type="FUNCTION",
+                name=name,
+                symbol="_" + name,
+                size=32,
+            )
+        assert _collect_missing_bindings(cfg, {0x1000: {"symbol": "_Live"}}) == []

@@ -356,6 +356,28 @@ class TestBreakClassification:
         removed, changed = self._classify("PAGE_SIZE = 100", "PAGE_SIZE = 50")
         assert not removed and changed
 
+    def test_registry_entry_appended_is_not_a_break(self) -> None:
+        """A command appended to its ``DOMAIN_COMPONENTS`` family keeps every old entry."""
+        old = {"builtins": {"T": ("{'source': (C(name='a'),), 'types': (C(name='b'),)}",)}}
+        new = {
+            "builtins": {
+                "T": ("{'source': (C(name='a'), C(name='z')), 'types': (C(name='b'),), 'x': ()}",)
+            }
+        }
+        removed, changed, added = diff_surfaces(old, new)
+        assert (removed, changed, added) == ({}, {}, {})
+
+    def test_registry_entry_inserted_dropped_or_edited_is_a_break(self) -> None:
+        old = "{'source': (C(name='a'), C(name='b'))}"
+        for after in (
+            "{'source': (C(name='z'), C(name='a'), C(name='b'))}",
+            "{'source': (C(name='a'),)}",
+            "{'source': (C(name='a'), C(name='c'))}",
+            "{'other': (C(name='a'), C(name='b'))}",
+        ):
+            _, changed, _ = diff_surfaces({"m": {"T": (old,)}}, {"m": {"T": (after,)}})
+            assert changed, after
+
     def test_move_reads_as_removal_plus_addition(self) -> None:
         """A moved helper is the case the gate exists for: gone here, there now."""
         old = {"utils": {"helper": ("def helper", "!a: int", "")}}

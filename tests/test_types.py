@@ -9,6 +9,64 @@ from rebrew.types import StructDef, parse_structs
 
 
 class TestParseStructs:
+    def test_pack_push_pop_and_reset(self) -> None:
+        structs = parse_structs(
+            "#pragma pack(2)\n"
+            "typedef struct { char c; int x; } Two;\n"
+            "#pragma pack(push, saved, 1)\n"
+            "typedef struct { char c; int x; } One;\n"
+            "#pragma pack(push, 4)\n"
+            "#pragma pack(pop, absent)\n"
+            "typedef struct { char c; int x; } Four;\n"
+            "#pragma pack(pop, saved)\n"
+            "typedef struct { char c; int x; } Restored;\n"
+            "#pragma pack()\n"
+            "typedef struct { char c; double x; } Default;\n"
+        )
+        assert [
+            (structs[n].fields[1][2], structs[n].size, structs[n].alignment)
+            for n in ("Two", "One", "Four", "Restored", "Default")
+        ] == [(2, 6, 2), (1, 5, 1), (4, 8, 4), (2, 6, 2), (8, 16, 8)]
+
+    def test_embedded_packed_struct_array_keeps_its_alignment(self) -> None:
+        structs = parse_structs(
+            "#pragma pack(push, 1)\n"
+            "typedef struct { char c; int x; } Inner;\n"
+            "#pragma pack(pop)\n"
+            "typedef struct { char tag; Inner rows[2]; double tail; } Outer;\n"
+        )
+        assert structs["Inner"].size == 5
+        assert structs["Outer"].fields == [
+            ("tag", "char", 0),
+            ("rows", "Inner[2]", 1),
+            ("tail", "double", 16),
+        ]
+        assert structs["Outer"].size == 24
+
+    def test_pop_override_and_reset_preserve_the_stack(self) -> None:
+        structs = parse_structs(
+            "#pragma pack(push, 1)\n#pragma pack()\n#pragma pack(pop, 2)\n"
+            "typedef struct { char c; int x; } Two;\n"
+            "#pragma pack(push, 1)\n#pragma pack(push, 3)\n#pragma pack(pop)\n"
+            "typedef struct { char c; int x; } Restored;\n"
+        )
+        assert structs["Two"].fields[1][2] == 2
+        assert structs["Restored"].fields[1][2] == 2
+
+    def test_comment_and_invalid_pack_do_not_change_alignment(self) -> None:
+        struct = parse_structs(
+            "/* #pragma pack(1) */\n#pragma pack(3)\ntypedef struct { char c; int x; } S;\n"
+        )["S"]
+        assert struct.fields[1][2] == 4
+
+    def test_incomplete_embedded_struct_does_not_guess_later_offsets(self) -> None:
+        structs = parse_structs(
+            "typedef struct { int known; Missing missing; } Inner;\n"
+            "typedef struct { char tag; Inner inner; int tail; } Outer;\n"
+        )
+        assert not structs["Outer"].complete
+        assert structs["Outer"].fields == [("tag", "char", 0)]
+
     def test_flat_struct_offsets(self) -> None:
         structs = parse_structs("typedef struct { int x; char y; short z; } Foo;")
         foo = structs["Foo"]

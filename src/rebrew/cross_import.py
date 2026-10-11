@@ -110,7 +110,24 @@ def cross_match(
 
 
 def signature_for(cfg: ProjectConfig, code: bytes, va: int) -> dict[str, Any] | None:
-    """Structural signature for *code*, honouring the config's arch/mode."""
+    """Structural signature excluding proven x86 alignment padding."""
+    from rebrew.binary_loader import PADDING_BYTES, function_extent_from_bytes, load_binary
+
+    if code and code[-1] in PADDING_BYTES:
+        try:
+            info = load_binary(cfg.target_binary)
+            if info.arch in ("x86_16", "x86_32", "x86_64"):
+                got = function_extent_from_bytes(info, code, va, with_kind=True)
+                if isinstance(got, tuple):
+                    extent, kind = got
+                    if (
+                        kind == "ret"
+                        and 0 < extent < len(code)
+                        and all(b in PADDING_BYTES for b in code[extent:])
+                    ):
+                        code = code[:extent]
+        except (OSError, ValueError):
+            pass
     return disasm_signature(
         code,
         va,
@@ -325,9 +342,12 @@ def _verify_import(
     body = _merged_entry_body_size(cfg_dst, entry.va, entry.size, result)
     if body is None:
         return result, None
-    retry = verify_entry(replace(entry, size=body), cfg_dst, cache=cache, name_to_va=name_to_va)
+    body_entry = replace(entry, size=body)
+    retry = verify_entry(body_entry, cfg_dst, cache=cache, name_to_va=name_to_va)
     if not retry.matched:
         return result, None
+    entry.size = body
+    entry.comparison_inputs = body_entry.comparison_inputs
     return retry, body
 
 
@@ -533,22 +553,79 @@ def _block_marker(block: str) -> tuple[str, int] | None:
 
 
 def _strip_claim(block: str, claim: tuple[str, int]) -> str:
-    """*block* without *claim*'s marker line and the ``SIZE`` line under it.
+    """Blank a superseded claim, keeping other owners and every source line."""
+    from rebrew.annotation import FUNC_NAME_HINT_RE, scan_annotation_lines
+    from rebrew.marker_migration import file_borne_comment
 
-    A block often stacks several targets' markers on one body; removing the
-    whole block for one superseded claim deletes the others and the body.
-    """
     lines = block.splitlines(keepends=True)
-    out: list[str] = []
-    skip_size = False
-    for line in lines:
-        if skip_size and line.strip().startswith("// SIZE:"):
-            skip_size = False
-            continue
-        skip_size = _block_marker(line) == claim
-        if not skip_size:
-            out.append(line)
-    return "".join(out)
+    indexes, covered = scan_annotation_lines(lines)
+    markers = set(indexes)
+    matching = {
+        i
+        for i in indexes
+        if (m := _MARKER_RE.match(lines[i].strip())) is not None
+        and preset_module_key(m.group("module")) == preset_module_key(claim[0])
+        and int(m.group("va"), 16) == claim[1]
+    }
+    if not matching:
+        return block
+    start = 0
+    for i in range(len(lines) + 1):
+        if i < len(lines):
+            stripped = lines[i].strip()
+            if not stripped or covered[i] or stripped.startswith(("//", "/*")):
+                continue
+        header = set(range(start, i))
+        selected = matching & header
+        if selected:
+            blank = set(selected)
+            if not (markers & header) - selected:
+                for j in header:
+                    if covered[j]:
+                        continue
+                    text = lines[j].strip()
+                    if (
+                        _KV_RE.match(text) or FUNC_NAME_HINT_RE.match(text)
+                    ) and not file_borne_comment(text):
+                        blank.add(j)
+            for j in blank:
+                lines[j] = lines[j][len(lines[j].rstrip("\r\n")) :]
+        start = i + 1
+    return "".join(lines)
+
+
+def _retire_shared_stub(cfg: ProjectConfig, path: Path, claim: tuple[str, int]) -> bool:
+    """Delete only an unowned single-body stub; return whether it was retired."""
+    from rebrew.annotation import scan_annotation_lines
+    from rebrew.c_parser import find_c_function_definitions, find_variable_roles
+    from rebrew.data_metadata import load_data_metadata
+    from rebrew.metadata import identity_file, load_metadata, stored_file_matches
+    from rebrew.utils import SOURCE_BACKUP_DIRNAME, source_backup
+
+    text, encoding = read_source_text(path)
+    rel = identity_file(path, cfg.metadata_dir)
+    owners = [
+        *load_metadata(cfg.metadata_dir).values(),
+        *load_data_metadata(cfg.metadata_dir).values(),
+    ]
+    kept = _strip_claim(text, claim)
+    indexes, _covered = scan_annotation_lines(kept.splitlines(keepends=True))
+    definitions, _declarations, _uses = find_variable_roles(text)
+    remaining = any(stored_file_matches(str(row.get("file") or ""), rel) for row in owners)
+    if remaining or indexes or definitions or len(find_c_function_definitions(text)) != 1:
+        if kept != text:
+            with source_backup(
+                path,
+                text,
+                encoding,
+                Path(cfg.root) / SOURCE_BACKUP_DIRNAME,
+                label="shared-import",
+                keep=True,
+            ):
+                atomic_write_text(path, kept, encoding=encoding)
+        return False
+    path.unlink()
+    return True
 
 
 def stack_marker_on_block(
@@ -767,10 +844,10 @@ def import_shared_function(
     path: a mismatch reports ``imported-unverified``, never a false match.
 
     When *dst_file* names the destination's existing stub for *dst_va* (a
-    different file than the shared target), a matched import deletes it.
-    Otherwise the old stub and the new row claim the same VA and lint E013
-    fires. Deletion happens only on a matched verify; an unverified import
-    leaves the stub in place.
+    different file than the shared target), a matched import retires it only
+    when no other target, function or data owner remains. Otherwise only the
+    superseded inline claim is blanked, preserving line numbers and the other
+    owners. An unverified import leaves the stub in place.
     """
     shared_root = getattr(cfg_src, "shared_dir", None)
     shared_path = contained_path(shared_root, src_file) if shared_root is not None else None
@@ -832,6 +909,21 @@ def import_shared_function(
     # STATUS: the file text no longer changes, so that is not the signal.
     new_claim = not superseded and not already_on_source
 
+    from rebrew.metadata import get_entry
+
+    # Managed identities can bind another definition in this same file.
+    name, symbol = _symbol_for_va(text, src_module, src_va, target_path.stem)
+    if name == target_path.stem:
+        for ann in parse_c_file_multi(
+            target_path, target_name=src_module, metadata_dir=getattr(cfg_src, "metadata_dir", None)
+        ):
+            if ann.va == src_va and ann.name and ann.marker_type in FUNCTION_MARKERS:
+                name, symbol = ann.name, ann.symbol or ("_" + ann.name)
+                break
+    prior = get_entry(cfg_dst.metadata_dir, dst_va, module)
+    if prior.get("symbol") and prior["symbol"] != symbol:
+        needs_move = True
+
     if dry_run:
         if needs_move:
             note = f"would retarget {module} 0x{dst_va:x} onto the 0x{src_va:x} body"
@@ -849,10 +941,10 @@ def import_shared_function(
         )
 
     from rebrew.annotation import Annotation
-    from rebrew.metadata import delete_entries_batch, get_entry, remove_field, update_field
+    from rebrew.metadata import remove_field, update_field
     from rebrew.verify import apply_status_updates
 
-    src_flags = _source_flags(cfg_src, target_path)
+    src_flags = _source_flags(cfg_src, target_path, src_va)
     # No source-dir /I here (unlike the copy path): the shared file moves
     # WITH its tree under src/shared, so relative #include chains resolve
     # against its own directory already (compile.py always adds src_parent).
@@ -865,32 +957,9 @@ def import_shared_function(
     # one more thing to keep in sync (guild-rebrew round 1293 imported 25
     # functions and 25 W029 rows appeared).
     inherited = str(getattr(cfg_dst, "cflags", "") or "").strip()
-    prior_cflags = ""
-    prior_entry = True
-    wrote_cflags = False
-    if cflags and cflags != inherited:
-        prior = get_entry(cfg_dst.metadata_dir, dst_va, module)
-        prior_entry = bool(prior)
-        prior_cflags = str(prior.get("cflags") or "")
-        update_field(
-            cfg_dst.metadata_dir, dst_va, "cflags", cflags, module, updated_by="cross-import"
-        )
-        wrote_cflags = True
-
     # The verify filepath resolves against the destination's reversed_dir —
     # a shared file becomes ``../shared/f.c`` via the standard helper.
     rel_dst = rel_display_path(target_path, cfg_dst.reversed_dir)
-    # The symbol verified is the one the SOURCE VA's block defines — not the
-    # file's first definition, which is a different function in a
-    # multi-function file whose marker moved onto a later block.
-    name, symbol = _symbol_for_va(text, src_module, src_va, target_path.stem)
-    if name == target_path.stem:
-        for ann in parse_c_file_multi(
-            target_path, target_name=src_module, metadata_dir=cfg_src.metadata_dir
-        ):
-            if ann.va == src_va and ann.name and ann.marker_type in FUNCTION_MARKERS:
-                name, symbol = ann.name, ann.symbol or ("_" + ann.name)
-                break
     entry = Annotation(
         va=dst_va,
         name=name,
@@ -913,20 +982,6 @@ def import_shared_function(
         update_field(cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import")
         message = f"{message} {_merged_entry_note(body)}".strip()
     if reject:
-        if wrote_cflags:
-            if prior_cflags:
-                update_field(
-                    cfg_dst.metadata_dir,
-                    dst_va,
-                    "cflags",
-                    prior_cflags,
-                    module,
-                    updated_by="cross-import",
-                )
-            elif not prior_entry:
-                delete_entries_batch(cfg_dst.metadata_dir, [(module, dst_va)])
-            else:
-                remove_field(cfg_dst.metadata_dir, dst_va, "cflags", module)
         action = "skipped-unverified"
         message = (
             f"{message} (destination already annotates this VA; claim not recorded)"
@@ -941,20 +996,6 @@ def import_shared_function(
             if NEW_FUNC_RE.search(text):
                 migrated = migrate_source_file(cfg_src, target_path, None, dry_run=False)
                 if migrated and migrated.get("skipped") == "unrecorded-markers":
-                    if wrote_cflags:
-                        if prior_cflags:
-                            update_field(
-                                cfg_dst.metadata_dir,
-                                dst_va,
-                                "cflags",
-                                prior_cflags,
-                                module,
-                                updated_by="cross-import",
-                            )
-                        elif not prior_entry:
-                            delete_entries_batch(cfg_dst.metadata_dir, [(module, dst_va)])
-                        else:
-                            remove_field(cfg_dst.metadata_dir, dst_va, "cflags", module)
                     return _import_result(
                         dst_va,
                         src_va,
@@ -972,18 +1013,30 @@ def import_shared_function(
                 name=name,
                 symbol=symbol,
                 size=body if body is not None else dst_size,
+                overwrite_name=True,
             )
             if needs_move:
                 message = (
                     f"{message} (retargeted {module} 0x{dst_va:x} onto the 0x{src_va:x} body)"
                 ).strip()
+        if cflags and cflags != inherited:
+            update_field(
+                cfg_dst.metadata_dir, dst_va, "cflags", cflags, module, updated_by="cross-import"
+            )
+        else:
+            remove_field(cfg_dst.metadata_dir, dst_va, "cflags", module)
         apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
     if result.matched and dst_file:
         stub_path = contained_path(source_roots(cfg_dst), dst_file)
         if stub_path is not None and stub_path != target_path and stub_path.is_file():
             try:
-                stub_path.unlink()
-                message = f"{message} (superseded {dst_file})".strip()
+                retired = _retire_shared_stub(cfg_dst, stub_path, (module, dst_va))
+                note = (
+                    f"superseded {dst_file}"
+                    if retired
+                    else f"kept {dst_file}: other source owners remain"
+                )
+                message = f"{message} ({note})".strip()
             except OSError as exc:
                 return _import_result(
                     dst_va,
@@ -1211,7 +1264,7 @@ def import_function(
     # its metadata counterpart (lint W019).  The absolute path is a known
     # portability wart (breaks on clone/move) — the shared path avoids it
     # because the file itself moves with its headers.
-    src_flags = _source_flags(cfg_src, src_path)
+    src_flags = _source_flags(cfg_src, src_path, src_va)
     include = "-I" if cfg_dst.posix_style else "/I"
     cflags = f"{src_flags} {include}{src_path.parent}".strip()
     from rebrew.metadata import identity_file, record_function_identity
@@ -1243,6 +1296,17 @@ def import_function(
     )
     result, body = _verify_import(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
     message = result.message
+    if result.matched:
+        record_function_identity(
+            cfg_dst.metadata_dir,
+            module=module,
+            va=dst_va,
+            file=identity_file(dst_path, cfg_dst.metadata_dir),
+            marker_type="FUNCTION",
+            name=copied_name,
+            symbol=copied_symbol,
+            overwrite_name=True,
+        )
     if body is not None:
         update_field(cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import")
         message = f"{message} {_merged_entry_note(body)}".strip()
@@ -1279,7 +1343,7 @@ def _symbol_for_va(text: str, module: str, va: int, fallback: str) -> tuple[str,
     return fallback, "_" + fallback
 
 
-def _source_flags(cfg_src: ProjectConfig, src_path: Path) -> str:
+def _source_flags(cfg_src: ProjectConfig, src_path: Path, src_va: int) -> str:
     """The source entry's effective flags: inline CFLAGS, else preset, else default.
 
     The copy must compile with the flags its source build used — a MSVCRT
@@ -1296,8 +1360,11 @@ def _source_flags(cfg_src: ProjectConfig, src_path: Path) -> str:
         )
     except OSError:
         anns = []
-    if anns:
-        return resolve_cflags(cfg_src, anns[0].cflags, anns[0].module)
+    for ann in anns:
+        if ann.va == src_va and preset_module_key(ann.module) == preset_module_key(
+            target_marker(cfg_src) or ""
+        ):
+            return resolve_cflags(cfg_src, ann.cflags, ann.module)
     return resolve_cflags(cfg_src, "", "")
 
 

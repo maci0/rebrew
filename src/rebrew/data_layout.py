@@ -42,6 +42,7 @@ from rebrew.utils import (
     join_source_lines,
     load_tomllib,
     parse_c_integer_literal,
+    preset_module_key,
     read_source_text,
     split_source_lines,
 )
@@ -336,8 +337,16 @@ def obj_text_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
 # ---------------------------------------------------------------------------
 
 
-def data_symbols(metadata: Path, section: str | Sequence[str] | None = ".data") -> dict[str, int]:
+def data_symbols(
+    metadata: Path,
+    section: str | Sequence[str] | None = ".data",
+    module: str | None = None,
+) -> dict[str, int]:
     """``{name: full VA}`` for every symbol in *section* of the metadata.
+
+    *module* keeps one target's rows.  A project that holds several binaries
+    stores each binary's address for the same name; without the filter the
+    last row wins, which is usually another target's.
 
     *section* is one name, a set of names, or ``None`` for every section.  The
     default (``.data``) is the historical contract; callers that model the
@@ -349,8 +358,10 @@ def data_symbols(metadata: Path, section: str | Sequence[str] | None = ".data") 
     wanted = None if section is None else {section} if isinstance(section, str) else set(section)
     return {
         str(val["name"]): va
-        for _, va, val in iter_data_symbols(db, None)
-        if val.get("name") and (wanted is None or val.get("section") in wanted)
+        for row_module, va, val in iter_data_symbols(db, None)
+        if val.get("name")
+        and (wanted is None or val.get("section") in wanted)
+        and (module is None or preset_module_key(row_module) == preset_module_key(module))
     }
 
 

@@ -883,36 +883,46 @@ def select_annotation(
 ) -> tuple[Path, Annotation, int | None]:
     """Resolve *source_arg* and pick its annotation, exiting when either is missing.
 
-    Returns ``(path, annotation, va)``: the annotation whose VA equals *va*
-    (else the file's first), and *va* parsed when given, else the
-    annotation's own VA (``None`` when it has none).
+    Returns ``(path, annotation, va)``. An explicit ``--va`` or positional
+    hex VA selects that entry in the active target; a missing entry errors.
+    Without a VA, select the requested symbol or the file's first entry.
     """
     path = require_source_arg(cfg, source_arg, json_mode=json_mode)
 
     annos = parse_c_file_multi(path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir)
     if not annos:
         error_exit("No // FUNCTION annotation found in the source", json_mode=json_mode)
-    if not va:
-        if not source_arg.strip().lower().startswith("0x") and not Path(source_arg).exists():
-            from rebrew.rename_ops import c_name_from_symbol
-            from rebrew.utils import fold_ident
+    requested_va = va
+    if (
+        requested_va is None
+        and source_arg.strip().lower().startswith("0x")
+        and not Path(source_arg).is_file()
+    ):
+        requested_va = source_arg
+    if requested_va is not None:
+        want = parse_va(requested_va, json_mode=json_mode)
+        selected = next((a for a in annos if a.va == want), None)
+        if selected is None:
+            error_exit(f"No function annotation at 0x{want:x} in {path}", json_mode=json_mode)
+        return path, selected, want
+    if not source_arg.strip().lower().startswith("0x") and not Path(source_arg).exists():
+        from rebrew.rename_ops import c_name_from_symbol
+        from rebrew.utils import fold_ident
 
-            # The C name and the symbol both count. ``hook@@12`` answers
-            # ``hook``. ``__foo`` answers ``_foo``, not ``foo``.
-            want_sym = fold_ident(source_arg.strip())
-            for a in annos:
-                candidates = []
-                if a.name:
-                    candidates.append(fold_ident(a.name.strip()))
-                if a.symbol:
-                    symbol = a.symbol.strip()
-                    candidates.append(fold_ident(symbol))
-                    candidates.append(fold_ident(c_name_from_symbol(symbol)))
-                if want_sym in candidates:
-                    return path, a, a.va
-        return path, annos[0], annos[0].va
-    want = parse_va(va, json_mode=json_mode)
-    return path, next((a for a in annos if a.va == want), annos[0]), want
+        # The C name and the symbol both count. ``hook@@12`` answers
+        # ``hook``. ``__foo`` answers ``_foo``, not ``foo``.
+        want_sym = fold_ident(source_arg.strip())
+        for a in annos:
+            candidates = []
+            if a.name:
+                candidates.append(fold_ident(a.name.strip()))
+            if a.symbol:
+                symbol = a.symbol.strip()
+                candidates.append(fold_ident(symbol))
+                candidates.append(fold_ident(c_name_from_symbol(symbol)))
+            if want_sym in candidates:
+                return path, a, a.va
+    return path, annos[0], annos[0].va
 
 
 __all__ = [

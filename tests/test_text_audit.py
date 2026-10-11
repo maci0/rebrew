@@ -122,6 +122,28 @@ def _export_pe(path: Path, names: list[str]) -> Path:
 
 
 class TestTextAuditCli:
+    @pytest.mark.parametrize("marker", ["DATA", "GLOBAL", "STRING", "VTABLE"])
+    def test_function_inventory_excludes_data_markers(self, tmp_path: Path, marker: str) -> None:
+        from rebrew.config import load_config
+        from rebrew.verify_hash import expected_text_functions
+
+        _project(
+            tmp_path,
+            {
+                "code.c": (
+                    "// FUNCTION: GAME 0x00001000\nint actual(void) { return 1; }\n"
+                    "// LIBRARY: GAME 0x00001010\nint library(void) { return 2; }\n"
+                    "// STUB: GAME 0x00001020\nint stub(void) { return 0; }\n"
+                ),
+                "data.c": f"// {marker}: GAME 0x00002000\nint value = 7;\n",
+            },
+        )
+        assert expected_text_functions(load_config(tmp_path)) == {
+            "actual": 0x1000,
+            "library": 0x1010,
+            "stub": 0x1020,
+        }
+
     def test_missing_built_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.text_audit import app
 

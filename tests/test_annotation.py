@@ -1830,6 +1830,37 @@ class TestUpdateSizeAnnotation:
 
 
 class TestParseLibraryHeaderKv:
+    def test_partial_header_keeps_managed_rows_and_canonical_identity(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_function_identity
+
+        header = tmp_path / "library_crt.h"
+        header.write_text(
+            "// LIBRARY: SERVER 0x10001000\n// _old\n"
+            "// LIBRARY: CLIENT 0x10001000\n// _client\n"
+            "// LIBRARY: SERVER 0x10003000\n// _legacy\n"
+        )
+        for module, va, symbol in (
+            ("SERVER", 0x10001000, "_renamed"),
+            ("SERVER", 0x10002000, "_managed"),
+        ):
+            record_function_identity(
+                tmp_path,
+                module=module,
+                va=va,
+                file=header.name,
+                marker_type="LIBRARY",
+                symbol=symbol,
+                name=symbol[1:],
+                size=26,
+            )
+        results = parse_library_header(header, metadata_dir=tmp_path)
+        by_identity = {(entry.module, entry.va): entry for entry in results}
+        assert len(results) == len(by_identity) == 4
+        assert by_identity[("SERVER", 0x10001000)].symbol == "_renamed"
+        assert by_identity[("CLIENT", 0x10001000)].symbol == "_client"
+        assert by_identity[("SERVER", 0x10002000)].size == 26
+        assert by_identity[("SERVER", 0x10003000)].symbol == "_legacy"
+
     def test_kv_lines_collected(self, tmp_path: Path) -> None:
         from rebrew.annotation import parse_library_header
 

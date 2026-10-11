@@ -31,7 +31,7 @@ from pathlib import Path
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.c_parser import ExternVar, find_extern_variables, protected_spans
+from rebrew.c_parser import ExternVar, find_extern_variables, mask_msvc_syntax, protected_spans
 from rebrew.struct_parser import (
     extract_enums_from_file,
     extract_structs_from_file,
@@ -134,3 +134,24 @@ def test_protected_spans_are_ordered_and_bounded(source: str) -> None:
     assert all(0 <= start <= end <= len(raw) for start, end in spans)
     assert spans == sorted(spans)
     assert all(spans[i][1] <= spans[i + 1][0] for i in range(len(spans) - 1))
+
+
+_ASM_NOISE = st.sampled_from(
+    ["__asm { mov eax, a }", "_asm mov eax, b\n", "__asm {", "}", "int __cdecl", "/* __asm */"]
+)
+
+
+@settings(max_examples=100, deadline=None)
+@given(st.lists(st.one_of(_UNIT, _ASM_NOISE), max_size=6).map("\n".join))
+def test_msvc_mask_keeps_every_byte_offset(source: str) -> None:
+    """``mask_msvc_syntax`` only blanks bytes: lengths and newlines are unchanged.
+
+    ``rebrew source rename`` parses the masked text and rewrites the original
+    at the tree's offsets, so a shifted byte would rewrite the wrong text.
+    """
+    masked = mask_msvc_syntax(source)
+    raw = source.encode("utf-8", "surrogateescape")
+    out = masked.encode("utf-8", "surrogateescape")
+    assert len(out) == len(raw)
+    assert all(b in (a, 0x20) for a, b in zip(raw, out, strict=True))
+    assert [i for i, b in enumerate(raw) if b == 10] == [i for i, b in enumerate(out) if b == 10]

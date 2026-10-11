@@ -131,6 +131,45 @@ class TestFindFunctionDefinitions:
         )
         assert find_c_function_definitions(src) == [("deflate", 1)]
 
+    @pytest.mark.parametrize("newline", ["\n", "\r\n"])
+    def test_definitions_after_msvc_assembly(self, newline: str) -> None:
+        """A fill prelude must not hide later functions in the same unit."""
+        lines = [
+            "void __cdecl fill(void)",
+            "{",
+            "    volatile int n = 0x3f0;",
+            "    __asm {",
+            "        mov edi, offset slots",
+            "        mov ebx, n",
+            "        xor eax, eax",
+            "        lea ecx, [edi+edi*2]",
+            "        and ecx, 3",
+            "        sub ebx, ecx",
+            "        jle short L1",
+            "        rep stosb",
+            "        mov ecx, ebx",
+            "        and ebx, 3",
+            "        shr ecx, 2",
+            "        rep stosd",
+            "    L1:",
+            "        add ecx, ebx",
+            "        rep stosb",
+            "    }",
+            "}",
+            "int __cdecl next(void) { return 7; }",
+            "char* __cdecl last(void) { return 0; }",
+        ]
+        assert find_c_function_definitions(newline.join(lines) + newline) == [
+            ("fill", 1),
+            ("next", 22),
+            ("last", 23),
+        ]
+
+    def test_multiline_declspec_preserves_following_line_numbers(self) -> None:
+        src = "__declspec(\n    noinline\n) int first(void) { return 0; }\nint second(void) { return 1; }\n"
+        # The attribute is masked; the first C type begins on original line 3.
+        assert find_c_function_definitions(src) == [("first", 3), ("second", 4)]
+
 
 class TestFindExternFunctionNames:
     def test_simple_extern(self) -> None:
@@ -635,3 +674,12 @@ class TestVariableInventory:
 def test_function_returning_function_pointer_is_not_variable_storage() -> None:
     source = "extern int (*factory(void))(int); extern int (*callback)(int);"
     assert [v.name for v in find_extern_variables(source)] == ["callback"]
+
+
+def test_find_extern_variables_skips_a_declaration_with_a_parse_error() -> None:
+    """Hypothesis found this: error recovery handed back name 'long' and an unbalanced type."""
+    from rebrew.c_parser import find_extern_variables
+
+    source = "extern unsigned long a];\nint __cdecl __declspec(unsigned long, int) { return 0; }"
+    assert find_extern_variables(source) == []
+    assert [v.name for v in find_extern_variables("extern unsigned long a[2];\n")] == ["a"]

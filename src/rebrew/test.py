@@ -809,7 +809,12 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
     obj_len, total, match_count = _resolve_total_and_match_count(cmp, target_bytes)
 
     if cmp.matched:
-        if relocs:
+        if cmp.status == "EXACT" and relocs:
+            console.print(
+                f"EXACT MATCH: {total}/{total} bytes in the raw link "
+                f"({len(relocs)} relocations resolved; object compare is RELOC)"
+            )
+        elif relocs:
             console.print(
                 f"RELOC-NORMALIZED MATCH: {total}/{total} bytes ({len(relocs)} relocations)"
             )
@@ -1138,6 +1143,19 @@ def _run_test_impl(
     _obj_len, total, match_count = _resolve_total_and_match_count(cmp, target_bytes)
     if not comparison_inputs_current(cfg, Path(source), measured_inputs):
         measured_inputs = None
+    if cmp.status == "RELOC":
+        # Recorded linked EXACT evidence that still describes this compare
+        # (same inputs, same raw-link image) keeps the function EXACT.
+        from rebrew.linked_exact import LINKED_MESSAGE, linked_exact_holds
+
+        _stored_ann = sel_ann if sel_ann is not None else (lint_annos[0] if lint_annos else None)
+        kept = linked_exact_holds(
+            cfg, _stored_ann.verification if _stored_ann else None, measured_inputs
+        )
+        if kept is not None:
+            cmp.status = "EXACT"
+            cmp.message = LINKED_MESSAGE
+            measured_inputs = kept
 
     if cmp.status == "COMPILE_ERROR":
         error_exit(f"COMPILE ERROR:\n{cmp.message}", json_mode=json_output, code=EXIT_ERROR)
@@ -1812,6 +1830,35 @@ def _test_multi(
             )
             if not matched:
                 any_failed = True
+            measured_inputs = group_inputs.get(_effective_overrides(ann))
+            if measured_inputs and not comparison_inputs_current(
+                cfg, Path(source), measured_inputs
+            ):
+                measured_inputs = None
+            if measured_inputs:
+                measured_inputs = dict(measured_inputs)
+                measured_reference = (
+                    extract_raw_bytes(cfg.target_binary, ann.va, ann.size)
+                    if fixed_size
+                    else target_bytes
+                )
+                measured_inputs["reference_hash"] = hashlib.sha256(measured_reference).hexdigest()
+                measured_inputs["reference_size"] = str(len(measured_reference))
+                measured_inputs["module"] = ann.module
+                measured_inputs["va"] = f"0x{ann.va:x}"
+                measured_inputs.pop("input_hash", None)
+                measured_inputs["input_hash"] = hashlib.sha256(
+                    json.dumps(measured_inputs, sort_keys=True, ensure_ascii=True).encode()
+                ).hexdigest()
+            if new_status == "RELOC":
+                # Same linked-EXACT rule as the single-function path.
+                from rebrew.linked_exact import LINKED_MESSAGE, linked_exact_holds
+
+                kept = linked_exact_holds(cfg, ann.verification, measured_inputs)
+                if kept is not None:
+                    cmp.status = new_status = "EXACT"
+                    cmp.message = LINKED_MESSAGE
+                    measured_inputs = kept
 
             if json_output:
                 result_dict = build_result_dict_from_compare(
@@ -1833,7 +1880,7 @@ def _test_multi(
                     result_dict["mismatches"] = []
                 results_list.append(result_dict)
             elif matched:
-                if relocs:
+                if relocs and new_status == "RELOC":
                     console.print(
                         f"[green]RELOC[/green] {untrusted_ident(sym)} — "
                         f"{total}/{total}B ({len(relocs)} relocs)"
@@ -1859,26 +1906,6 @@ def _test_multi(
             # (the single-function path at _promote_status does not) made the
             # batch path drop the verdict into no metadata write at all.
             old_status = ann.status or ""
-            measured_inputs = group_inputs.get(_effective_overrides(ann))
-            if measured_inputs and not comparison_inputs_current(
-                cfg, Path(source), measured_inputs
-            ):
-                measured_inputs = None
-            if measured_inputs:
-                measured_inputs = dict(measured_inputs)
-                measured_reference = (
-                    extract_raw_bytes(cfg.target_binary, ann.va, ann.size)
-                    if fixed_size
-                    else target_bytes
-                )
-                measured_inputs["reference_hash"] = hashlib.sha256(measured_reference).hexdigest()
-                measured_inputs["reference_size"] = str(len(measured_reference))
-                measured_inputs["module"] = ann.module
-                measured_inputs["va"] = f"0x{ann.va:x}"
-                measured_inputs.pop("input_hash", None)
-                measured_inputs["input_hash"] = hashlib.sha256(
-                    json.dumps(measured_inputs, sort_keys=True, ensure_ascii=True).encode()
-                ).hexdigest()
 
             # Auto-promote: update STATUS in metadata (mirrors single-function path)
             if not no_promote:

@@ -326,6 +326,18 @@ reversed_dir = "{outside.as_posix()}"
         cfg = load_config(root)
         assert cfg.all_targets == ["server_dll", "client_exe"]
 
+    @pytest.mark.parametrize("outside_store", [False, True])
+    def test_root_source_tree_never_adopts_parent_metadata(
+        self, tmp_path: Path, outside_store: bool
+    ) -> None:
+        """A project with reversed_dir='.' still owns its metadata inside root."""
+        root = tmp_path / "project"
+        root.mkdir()
+        if outside_store:
+            (tmp_path / "rebrew-functions.toml").write_text("format = 1\n", encoding="utf-8")
+        cfg = ProjectConfig(root=root, reversed_dir=root)
+        assert cfg.metadata_dir == root
+
     def test_missing_target_raises(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.MULTI_TOML)
         with pytest.raises(KeyError, match="nonexistent"):

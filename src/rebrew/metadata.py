@@ -255,6 +255,7 @@ __all__ = [
     "update_field",
     "update_source_status",
     "update_statuses_batch",
+    "stored_file_matches",
 ]
 
 
@@ -684,11 +685,13 @@ PROVENANCE_TAGS: frozenset[str] = frozenset(
         "document-unmatched",
         "fix-sizes",
         "import-splat",
+        "inline-strings",
         "intake",
         "lint",
         "match",
         "near-diag",
         "prove",
+        "rehome",
         "rename",
         "skeleton",
         "test",
@@ -750,6 +753,8 @@ def stamp_provenance(
     writes from a seed passes the same instant, so the store lands the same
     bytes; left unset it reads the wall clock.
     """
+    if updated_by not in PROVENANCE_TAGS:
+        raise ValueError(f"Unknown provenance tag {updated_by!r}")
     entry["updated_by"] = updated_by
     entry["updated_at"] = (now or datetime.now(UTC)).isoformat(timespec="seconds")
 
@@ -965,6 +970,15 @@ def identity_file(filepath: Path | str, metadata_dir: Path | str) -> str:
     return Path(os.path.relpath(filepath, metadata_dir)).as_posix()
 
 
+def stored_file_matches(stored: str, rel: str) -> bool:
+    """True when *stored* is *rel* or a path suffix of it."""
+    stored = stored.replace("\\", "/")
+    if not stored:
+        return False
+    parts = rel.split("/")
+    return stored in {"/".join(parts[i:]) for i in range(len(parts))}
+
+
 def record_function_identity(
     metadata_dir: Path | str | Any,
     *,
@@ -978,12 +992,14 @@ def record_function_identity(
     cflags: str = "",
     source: str = "",
     updated_by: str = "",
+    overwrite_name: bool = False,
 ) -> None:
     """Record one function's identity in ``rebrew-functions.toml``.
 
     ``size``, ``cflags``, and ``source`` are written only when set.  A
     ``source`` of ``naked`` stays in the ``.c`` and is not stored.  STATUS
-    is not written.
+    is not written. ``overwrite_name`` replaces an existing name only for
+    an explicit, verified identity replacement; marker migration keeps it.
     """
     fields: dict[str, Any] = {}
     if size:
@@ -1008,6 +1024,7 @@ def record_function_identity(
             }
         ],
         updated_by=updated_by,
+        overwrite_name=overwrite_name,
     )
 
 

@@ -41,6 +41,52 @@ def _pull(cfg: Any, state: Path, **options: Any) -> dict[str, Any]:
 
 
 class TestThreeWaySync:
+    def test_old_member_only_baseline_allows_tail_padding_repair(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "types.h").write_text("typedef struct { int id; char tag; } Padded;\n")
+        state = tmp_path / "state"
+        export_state(cfg, state, dry_run=False)
+        path = state / "structs/Padded.toml"
+        artifact = load_artifact(path, "struct")
+        artifact.size = 5
+        dump_artifact(path, artifact)
+        baseline_path = sync_baseline_path(cfg, state)
+        doc = tomlkit.parse(baseline_path.read_text())
+        record = doc["records"]["struct.Padded"]
+        record["definition"] = record["definition"]["members"]
+        baseline_path.chmod(0o644)
+        baseline_path.write_text(tomlkit.dumps(doc))
+
+        result = export_state(cfg, state, dry_run=False)
+        assert load_artifact(path, "struct").size == 8
+        assert not any(result["health"]["pending"].values())
+        before = (path.read_bytes(), path.stat().st_mtime_ns, baseline_path.read_bytes())
+        export_state(cfg, state, dry_run=False)
+        assert before == (path.read_bytes(), path.stat().st_mtime_ns, baseline_path.read_bytes())
+
+    def test_remote_size_only_change_is_retained_and_reported(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        header = cfg.reversed_dir / "types.h"
+        original = "typedef struct { int id; char tag; } Padded;\n"
+        header.write_text(original)
+        state = tmp_path / "state"
+        export_state(cfg, state, dry_run=False)
+        path = state / "structs/Padded.toml"
+        artifact = load_artifact(path, "struct")
+        artifact.size = 12
+        dump_artifact(path, artifact)
+        baseline = load_sync_baseline(cfg, state)
+
+        result = _pull(cfg, state)
+        assert result["skipped"] == 1
+        assert result["applied_structs"] == 0
+        assert "size changed" in result["skipped_details"][0]["reason"]
+        assert header.read_text() == original
+        assert load_sync_baseline(cfg, state) == baseline
+        result = export_state(cfg, state, dry_run=False)
+        assert load_artifact(path, "struct").size == 12
+        assert result["health"]["pending"]["pull"] == 1
+
     def test_local_note_survives_pull_and_push_is_idempotent(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
         state = tmp_path / "state"

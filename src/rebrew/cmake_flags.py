@@ -11,8 +11,10 @@ behind the numbers recorded in its own notes (its annotation said
 ``rebrew build cmake-flags`` closes that gap: it resolves each annotated source file's
 effective flags through the same chain the tools use (per-function metadata →
 nearest ``rebrew-libraries.toml`` → module preset → ``[compiler].cflags``) and
-writes a CMake include that sets ``COMPILE_FLAGS`` for those files.  A CMake
-project then does
+writes a CMake include that sets ``COMPILE_FLAGS`` for those files.
+It also sets ``COMPILE_DEFINITIONS`` from the selected target's ``defines``;
+these select shared source branches and are separate from metadata guards.
+A CMake project then does
 
     execute_process(COMMAND ${REBREW} cmake-flags -o ${CMAKE_BINARY_DIR}/rebrew-cflags.cmake)
     include(${CMAKE_BINARY_DIR}/rebrew-cflags.cmake)
@@ -159,6 +161,7 @@ def _emit_json(
     emit: Mapping[str, str],
     problems: list[str],
     notes: list[str],
+    defines: list[str],
 ) -> None:
     """Print the result payload shared by the success and problem paths.
 
@@ -171,7 +174,15 @@ def _emit_json(
             "files": dict(emit),
             "problems": problems,
             "notes": notes,
+            "defines": defines,
         }
+    )
+
+
+def _cmake_definitions(defines: list[str]) -> str:
+    """Quote a CMake list without splitting a definition's literal semicolon."""
+    return ";".join(
+        define.replace("\\", "\\\\").replace('"', '\\"').replace(";", "\\;") for define in defines
     )
 
 
@@ -234,16 +245,20 @@ def main(
             )
 
     lines = [HEADER]
+    definitions = _cmake_definitions(cfg.defines)
     for rel, flags in sorted(emit.items()):
         lines.append(
             f'set_source_files_properties("${{CMAKE_CURRENT_SOURCE_DIR}}/{rel}"\n'
-            f'    PROPERTIES COMPILE_FLAGS "{flags}")\n'
+            f'    PROPERTIES COMPILE_FLAGS "{flags}"'
         )
+        if definitions:
+            lines.append(f' COMPILE_DEFINITIONS "{definitions}"')
+        lines.append(")\n")
     text = "".join(lines)
 
     if problems:
         if json_output:
-            _emit_json(None, emit, problems, notes)
+            _emit_json(None, emit, problems, notes, cfg.defines)
         raise typer.Exit(code=EXIT_ERROR)
 
     written: str | None = None
@@ -258,7 +273,7 @@ def main(
         # Report the same table the include uses (emit), including
         # --sources-file entries that lack annotations — not collect()'s
         # annotated-only map.
-        _emit_json(written, emit, problems, notes)
+        _emit_json(written, emit, problems, notes, cfg.defines)
     elif not dry_run:
         console.print(f"[green]cmake-flags:[/] wrote {output} ({len(emit)} source files)")
 

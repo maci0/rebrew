@@ -11,12 +11,37 @@ same tiers and the data/globals/layout pipeline.
 
 | Tier | Stores | Contract |
 |---|---|---|
-| **Canonical (durable)** | pure C sources, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | Source/config are editable; function/data identity and other non-derivable fields are CLI/API-managed. An unmigrated marker line is legacy input. Derived views are rebuilt from these plus the binary; recorded history is identified separately below. |
+| **Canonical (durable)** | pure C sources, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-source.toml`, `rebrew-types.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | Source/config are editable; identity and other non-derivable evidence are CLI/API-managed. An unmigrated marker line is legacy input. Derived views are rebuilt from these plus the binary; recorded history is identified separately below. |
 | **Derived, VCS-intended** | `src/<target>/function_structure.json` (discovery inventory), `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (gen-layout, discover-functions, catalog, gen-link-stubs, `rebrew data fix-bss` / `--gen-header`, flirt).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
 | **Derived, gitignored (build output)** | `db/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew coverage build` / `rebrew verify` / `rebrew binary extract` / `rebrew coverage report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.toml` (the old `db/verify_results.json` snapshot was unguarded and is no longer written; see `verify_cache.load_baseline`). |
 | **Cache (delete-safe)** | `.rebrew/verify_cache.toml`, `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, `.rebrew/source-backups/*.orig`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache; it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce, each record is fsynced before `rebrew match run` reports the run so a host that loses power does not take the win with it, and only the non-winning lines are capped (newest `_LOSS_RECORD_RETENTION`, wins kept forever).  `.rebrew/source-backups/` holds a copy of a `.c` that `rebrew match climb` / `rebrew match qualifiers` is about to rewrite in place: it exists only while that run is in flight, is removed when the run finishes, and is the way back to the pre-run bytes after a kill that runs no cleanup (SIGKILL, OOM, power cut).  Two one-shot rewrites keep their copy after a clean run instead, because neither has a restore: `rebrew source migrate-markers` (`*.pre-migration.*.orig`, the pre-strip bytes) and `rebrew skeleton --force` (`*.pre-skeleton.*.orig`, the replaced file).  They accumulate one file per rewrite; prune the directory when the migration or the overwrite is confirmed good.  There is no per-run build diskcache: same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
 
 ## Who owns which fact
+
+`rebrew-types.toml` is a canonical managed store for stable type identity and
+target layout evidence (see [ADR 029](adr/029-managed-type-identities.md)).
+`types.ID.MODULE` binds a C definition file/name to compiler-checked `size` and
+`offsets`, separate `native_size` and `extent` (`allocation` or `stride`),
+reviewed `evidence`, `cflags`, and input fingerprints. `rebrew types bind` owns
+the locked atomic 0444 writes; never hand-edit this store. Keep it in version
+control and ignore its `.lock`. `types check`/lint W031 report stale evidence;
+`types check --compile` repeats layout assertions. Rebind the same ID after
+reviewing a changed definition/context. A type has no instance address and
+these records create no game progress or function/data verdict.
+
+`rebrew-source.toml` is managed by `rebrew source document-assembly` (API:
+`rebrew.source_provenance.document_assembly`) with the shared locked, atomic
+0444 writer. Keep `rebrew-source.toml` in version control and ignore its
+`rebrew-source.toml.lock` coordination file, just like the function/data locks.
+It records reviewed original-assembly evidence for a definition
+without requiring a VA. `format = 1` and
+`definitions."metadata-relative/file.c".C_symbol.MODULE` identify each record;
+its only fields are `source_hash` and `evidence`. The SHA-256 binds the parsed
+definition text, including its signature/body/comments, to the selected target.
+The review record neither asserts compiled reachability nor creates a byte
+STATUS. Renames, moves and definition edits require clearing the old record
+and reviewing evidence again; malformed or stale records warn through W031
+and cannot exempt W020. See [the CLI contract](CLI.md#rebrew-source-document-assembly).
 
 | Fact | Canonical store | Derived/cached copies |
 |---|---|---|
@@ -48,10 +73,10 @@ supplies its own tag.
   leaves the stored stamp alone, so an un-tagged programmatic write is never
   mistaken for a tool's work.
 - **The tag vocabulary is closed.**
-  `rebrew.metadata.PROVENANCE_TAGS` lists the eighteen writers (`binsync-import`,
-  `blocker`, `cross-import`, `crt-match`, `data`, `diff`, `document-unmatched`,
-  `fix-sizes`, `identify-library`, `intake`, `lint`, `match`, `near-diag`,
-  `prove`, `rename`, `skeleton`, `test`, `verify`).  A tag outside it is a typo
+  `rebrew.metadata.PROVENANCE_TAGS` lists the nineteen writers (`binsync-import`,
+  `blocker`, `cross-import`, `data`, `diff`, `document-unmatched`, `fix-sizes`,
+  `import-splat`, `inline-strings`, `intake`, `lint`, `match`, `near-diag`,
+  `prove`, `rehome`, `rename`, `skeleton`, `test`, `verify`).  A tag outside it is a typo
   or a tool nobody updated the list for; `rebrew lint` reports both (W031)
   rather than letting "who wrote this" be answerable only by grepping the
   writers.
@@ -108,7 +133,9 @@ supplies its own tag.
 `UPDATED_BY/AT` remains the last ordinary row change. `verification` separately
 records the comparison `status`, `writer` (`test` or `verify`), `input_hash`
 (SHA256), and `measured_at`, plus available source/reference/header/compiler
-fingerprints. Function evidence is captured before compilation. Data evidence
+fingerprints. Function evidence is captured before compilation. A linked EXACT
+(`rebrew verify --text --raw-link`) adds `linked_image` and `linked_image_hash`, the
+raw link it was measured on; see [linked EXACT](CLI.md#rebrew-verify). Data evidence
 includes the definition and compared bytes. Repeating the same evidence preserves
 its time and does not replace a note editor's stamp; a changed input digest is
 recorded even if the verdict stays the same. `measured_at` is the first observation
@@ -151,8 +178,10 @@ for inspection. Sync health reports stale measurement evidence independently.
    marker enters a target's scan only when its module is that target's
    marker or one of its `external_libs`; those rows count as library
    code (`library_identified`), not as matched game code.  Same-VA
-   cross-target entries coexist
-   as separate rows and never collide.
+   cross-target entries coexist as separate rows and never collide. Library
+   header parsing combines remaining legacy markers with managed LIBRARY rows
+   bound to that header; the managed identity wins for the same module/VA.
+   An explicit compiled-source binding wins over the header in status/todo.
 6. **Library attributions are not progress**: `LIBRARY`-marker rows and
    rows whose module is listed in `targets.<name>.external_libs` tally
    into `library_identified`, outside the EXACT/RELOC progress table and

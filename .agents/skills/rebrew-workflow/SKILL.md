@@ -69,7 +69,7 @@ function source counts do not measure matched bytes.
 - `documented`: audit-only, hidden from the default list.
 - `extract-error`: symbol missing from `.obj`; fix the row or the definition before GA.
 - `naked-reconstruction` (`// SOURCE: naked`): byte-exact asm, stays listed until real C matches.
-- `exact-only` (RELOC) and `postlink-mangled`: the work a build that comes straight out of the toolchain clears (EXACT instead of masked, raw-link bytes instead of postlink-rewritten ones).
+- `exact-only` (RELOC) and `postlink-mangled`: the work a build that comes straight out of the toolchain clears (EXACT instead of masked, raw-link bytes instead of postlink-rewritten ones). Once the raw link is byte-identical, `rebrew verify --text --raw-link` clears `exact-only` by recording linked EXACT.
 - Any other `--category` value errors. BLOCKER text is the item's `blocker` field; there is no `blocked` category.
 
 > [!IMPORTANT]
@@ -189,6 +189,8 @@ against a live loop, and stop it when they are done.
 clears BLOCKER unless the `.c` still has `__asm`, `_asm`, or `__emit` (kept;
 lint W020). NEAR_MATCHING (≥60%) updates; STUB (<60%) demotes; PROVEN is
 replaced by the byte result; SKIP stays parked (`--force-status` unparks).
+A linked EXACT stays EXACT on an object RELOC while its raw-link evidence holds
+(`references/verify-and-progress.md`).
 `rebrew verify` uses the same clear rule. `diff --fix-blocker` still clears a
 clean diff; do not use it to drop an asm BLOCKER. Exit: `0` EXACT/RELOC · `1`
 NEAR/STUB · `2` compile/extract error.

@@ -70,6 +70,9 @@ function at once (objdiff rebuilds base objects via `rebrew build objdiff-driver
 
 Relocations are resolved from the COFF object's symbols against the data catalog.
 If the diff shows only `~~` lines, the function is already RELOC: `rebrew test` will promote it.
+RELOC to EXACT needs no source change when the linker resolves those slots to the
+reference values: link, and once the raw link places the function with identical
+bytes, `rebrew verify --text --raw-link` records linked EXACT.
 
 Exit codes: `0` = no structural differences (EXACT/RELOC), `1` = structural `**` lines
 found (fix them), `2` = build error. With `--json`, read `summary.exact / summary.reloc /

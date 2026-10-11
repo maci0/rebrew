@@ -1303,3 +1303,203 @@ class TestSetDataSection:
     def test_rejects_a_spec_without_an_equals(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="0xVA=SECTION"):
             set_data_sections(_cfg(tmp_path), ["0x1000"])
+
+
+class TestSetDataFile:
+    """`rebrew data set --file`: move a global to the source file that defines it.
+
+    A merge retargets rows through function rows; a data-only file has none, so
+    splitting its globals back out of a merged file had no writer.
+    """
+
+    def test_points_a_row_at_an_existing_source(self, tmp_path: Path) -> None:
+        import tomllib
+
+        from rebrew.data_annotate import set_data_files
+
+        cfg = _cfg(tmp_path)
+        meta = cfg.metadata_dir / "rebrew-data.toml"
+        meta.write_text('["SERVER.0x1000"]\nname = "g_x"\nfile = "src/a.c"\n', encoding="utf-8")
+        src = cfg.root / "src" / "data_only.c"
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_text("int g_x = 1;\n", encoding="utf-8")
+        rows = set_data_files(cfg, ["0x1000=src/data_only.c"], dry_run=True)
+        assert rows[0]["file"].endswith("data_only.c")
+        assert 'file = "src/a.c"' in meta.read_text(encoding="utf-8")
+        set_data_files(cfg, ["0x1000=src/data_only.c"])
+        fields = tomllib.loads(meta.read_text(encoding="utf-8"))["SERVER.0x1000"]
+        assert fields["file"] == rows[0]["file"]
+        assert fields["name"] == "g_x"
+
+    def test_rejects_a_missing_source(self, tmp_path: Path) -> None:
+        from rebrew.data_annotate import set_data_files
+
+        cfg = _cfg(tmp_path)
+        with pytest.raises(ValueError, match="missing source"):
+            set_data_files(cfg, ["0x1000=src/nope.c"])
+
+
+class TestDataSetMarkerTypeAndNote:
+    """`rebrew data set --marker-type` / `--note`: the two identity fields a row
+    created through `data set` could not get without hand-editing the store."""
+
+    def _invoke(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
+    ) -> tuple[object, Path]:
+        from rebrew.data import app
+
+        cfg = _cfg(tmp_path)
+        monkeypatch.setattr("rebrew.data.require_config", lambda **kw: cfg)
+        meta = cfg.metadata_dir / "rebrew-data.toml"
+        if not meta.exists():
+            meta.write_text(
+                '["SERVER.0x1000"]\nname = "g_x"\nsize = 4\nstatus = "EXACT"\n', encoding="utf-8"
+            )
+        return CliRunner().invoke(app, ["set", *args, "--json"]), meta
+
+    def test_marker_type_is_written_and_keeps_the_verdict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import tomllib
+
+        result, meta = self._invoke(tmp_path, monkeypatch, ["--marker-type", "0x1000=GLOBAL"])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["set"] == [
+            {"va": "0x1000", "marker_type": "GLOBAL", "module": "SERVER"}
+        ]
+        row = tomllib.loads(meta.read_text(encoding="utf-8"))["SERVER.0x1000"]
+        assert row["marker_type"] == "GLOBAL"
+        assert row["status"] == "EXACT"
+        assert row["updated_by"] == "data"
+
+    def test_marker_type_outside_the_data_markers_is_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, meta = self._invoke(tmp_path, monkeypatch, ["--marker-type", "0x1000=FUNCTION"])
+        assert result.exit_code != 0
+        assert "--marker-type" in json.loads(result.stdout)["error"]
+        assert "marker_type" not in meta.read_text(encoding="utf-8")
+
+    def test_note_is_written_and_dry_run_writes_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import tomllib
+
+        result, meta = self._invoke(
+            tmp_path, monkeypatch, ["--note", "0x1000=listen socket = fd", "--dry-run"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "note" not in meta.read_text(encoding="utf-8")
+        result, meta = self._invoke(tmp_path, monkeypatch, ["--note", "0x1000=listen socket = fd"])
+        assert result.exit_code == 0, result.output
+        row = tomllib.loads(meta.read_text(encoding="utf-8"))["SERVER.0x1000"]
+        assert row["note"] == "listen socket = fd"
+        assert row["status"] == "EXACT"
+
+    def test_empty_note_is_refused(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        result, _meta = self._invoke(tmp_path, monkeypatch, ["--note", "0x1000="])
+        assert result.exit_code != 0
+        assert "--note" in json.loads(result.stdout)["error"]
+
+    def test_still_one_setter_per_call(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, _meta = self._invoke(
+            tmp_path, monkeypatch, ["--note", "0x1000=a", "--marker-type", "0x1000=DATA"]
+        )
+        assert result.exit_code != 0
+        assert "Use only one" in json.loads(result.stdout)["error"]
+
+
+class TestDataMove:
+    """`rebrew data move 0xOLD 0xNEW`: re-address one row through the locked
+    writer. Moving a span used to take `orphans drop` plus six `data set`
+    calls and lost the row's verification history."""
+
+    _ROW = (
+        'format = 1\n\n["SERVER.0x1000"]\nfile = "src/a.c"\nmarker_type = "GLOBAL"\n'
+        'name = "g_before_x"\ntype = "unsigned char[3]"\nsize = 3\nsection = ".bss"\n'
+        'storage_kind = "span"\nnote = "hole"\nstatus = "EXACT"\n\n'
+        '["SERVER.0x1000".verification]\nstatus = "EXACT"\nwriter = "verify"\n'
+        'input_hash = "' + "a" * 64 + '"\nmeasured_at = "2026-10-06T01:18:03+00:00"\n\n'
+        '["SERVER.0x2000"]\nname = "g_other"\nsize = 4\n'
+    )
+
+    def _invoke(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
+    ) -> tuple[object, Path]:
+        from rebrew.data import app
+
+        cfg = _cfg(tmp_path)
+        monkeypatch.setattr("rebrew.data.require_config", lambda **kw: cfg)
+        meta = cfg.metadata_dir / "rebrew-data.toml"
+        if not meta.exists():
+            meta.write_text(self._ROW, encoding="utf-8")
+        return CliRunner().invoke(app, ["move", *args, "--json"]), meta
+
+    def test_moves_every_field_and_drops_only_the_verdict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import tomllib
+
+        result, meta = self._invoke(tmp_path, monkeypatch, ["0x1000", "0x1004"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["moved"] == {
+            "module": "SERVER",
+            "from": "0x1000",
+            "to": "0x1004",
+            "name": "g_before_x",
+            "status_was": "EXACT",
+        }
+        doc = tomllib.loads(meta.read_text(encoding="utf-8"))
+        assert "SERVER.0x1000" not in doc
+        row = doc["SERVER.0x00001004"]
+        assert row["name"] == "g_before_x"
+        assert row["storage_kind"] == "span"
+        assert row["size"] == 3
+        assert row["note"] == "hole"
+        assert "status" not in row
+        assert row["verification"]["input_hash"] == "a" * 64
+        assert row["updated_by"] == "data"
+        assert doc["SERVER.0x2000"]["name"] == "g_other"
+
+    def test_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        result, meta = self._invoke(tmp_path, monkeypatch, ["0x1000", "0x1004", "--dry-run"])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["dry_run"] is True
+        assert meta.read_text(encoding="utf-8") == self._ROW
+
+    @pytest.mark.parametrize(
+        ("old", "new", "reason"),
+        [
+            ("0x1000", "0x2000", "already holds"),
+            ("0x3000", "0x3004", "no data row"),
+            ("0x1000", "0x1000", "same"),
+        ],
+    )
+    def test_refuses_collisions_and_missing_rows(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        old: str,
+        new: str,
+        reason: str,
+    ) -> None:
+        result, meta = self._invoke(tmp_path, monkeypatch, [old, new])
+        assert result.exit_code != 0
+        assert reason in json.loads(result.stdout)["error"]
+        assert meta.read_text(encoding="utf-8") == self._ROW
+
+    def test_refuses_a_row_its_source_still_marks_inline(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unmigrated file names the VA in its marker; moving only the row
+        would leave the marker pointing at the old address."""
+        src = tmp_path / "src" / "a.c"
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_text("// GLOBAL: SERVER 0x1000\nunsigned char g_before_x[3];\n")
+        result, meta = self._invoke(tmp_path, monkeypatch, ["0x1000", "0x1004"])
+        assert result.exit_code != 0
+        assert "migrate-markers" in json.loads(result.stdout)["error"]
+        assert meta.read_text(encoding="utf-8") == self._ROW

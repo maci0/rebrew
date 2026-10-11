@@ -280,9 +280,10 @@ def build_name_to_va(
                 and preset_module_key(_module) != preset_module_key(active_marker)
             ):
                 continue
-            name = entry.get("name", "")
-            if isinstance(name, str) and name and isinstance(va, int):
-                name_to_va[name] = va
+            for field in ("name", "link_symbol"):
+                name = entry.get(field, "")
+                if isinstance(name, str) and name and isinstance(va, int):
+                    name_to_va[name] = va
 
         # Function catalog: exported symbols + annotated function names.  The
         # REL32 callee validation needs them — a data-only map misses every
@@ -436,6 +437,8 @@ def _validate_dir32(
     catalog_va_set: set[int],
     iat_region: frozenset[int] | None = None,
     reloc_table: str = "coff-i386",
+    *,
+    strict: bool = False,
 ) -> bool:
     """Return True if the DIR32 slot is valid (or uncatalogued)."""
     target_va = _resolve_exact_then_stripped(name_to_va, symbol)
@@ -451,10 +454,12 @@ def _validate_dir32(
     if iat_region and actual in iat_region:
         return True
     if target_va is None:
-        return True  # uncatalogued — mask only
+        return not strict  # uncatalogued — agreement only, never a bound proof
     expected = (target_va + addend) & 0xFFFFFFFF
     if actual == expected:
         return True
+    if strict:
+        return False
     # Wrong absolute symbol with the same addend?  The membership test is
     # algebraic: actual == (other + addend) & mask  ⟺  other == (actual -
     # addend) & mask.  O(1) instead of scanning the catalog per failing
@@ -471,11 +476,13 @@ def _validate_rel32(
     name_to_va: dict[str, int],
     section_va: int,
     reloc_table: str = "coff-i386",
+    *,
+    strict: bool = False,
 ) -> bool:
     """Return True if the REL32 slot matches ``symbol_va + addend - pc``."""
     target_va = _resolve_exact_then_stripped(name_to_va, symbol)
     if target_va is None:
-        return True  # uncatalogued — mask only
+        return not strict  # uncatalogued — agreement only, never a bound proof
     fmt = _reloc_fmt(reloc_table)
     try:
         addend = struct.unpack_from(fmt, obj_bytes, offset)[0]
@@ -526,6 +533,7 @@ def smart_reloc_compare(
     section_va: int | None = None,
     iat_region: frozenset[int] | None = None,
     reloc_table: str = "coff-i386",
+    strict: bool = False,
 ) -> tuple[bool, int, int, list[int], list[int]]:
     """Compare bytes with relocation masking and target validation.
 
@@ -568,6 +576,14 @@ def smart_reloc_compare(
             falls back to ``coff-i386``.  A type absent from the table is
             masked as a difference (compare path) — the round-trip
             :func:`apply_coff_relocations` instead raises for it.
+        strict: Require supplied relocation claims to resolve exactly. Known
+            DIR32 targets must equal symbol VA plus addend, even when the
+            competing native address is uncatalogued. Unbound symbols,
+            unsupported types, REL32 without section_va, and plain offset
+            masks fail the proof and appear in invalid_relocs. Implicit zero
+            masking is disabled. Explicit IAT-region policy still applies;
+            bind compiler-local table labels to their actual VAs. The default
+            retains tolerant source agreement.
 
     Returns:
         (matched, match_count, total_bytes, valid_relocs, invalid_relocs)
@@ -609,6 +625,8 @@ def smart_reloc_compare(
             for rec in typed_relocs:
                 r = rec.offset
                 if not _slot_in_prefix(r, min_len):
+                    if strict:
+                        invalid_relocs.append(r)
                     continue
                 valid = True
                 if map_unusable:
@@ -629,6 +647,7 @@ def smart_reloc_compare(
                             catalog_va_set,
                             iat_region,
                             reloc_table,
+                            strict=strict,
                         )
                     elif kind == "rel32" and section_va is not None:
                         valid = _validate_rel32(
@@ -639,8 +658,11 @@ def smart_reloc_compare(
                             name_to_va,
                             section_va,
                             reloc_table,
+                            strict=strict,
                         )
-                    # else: other types / REL32 without section_va → mask only
+                    else:
+                        # Agreement can mask a slot without an address model.
+                        valid = not strict
                 if valid:
                     valid_relocs.append(r)
                 else:
@@ -649,6 +671,8 @@ def smart_reloc_compare(
             # Dict branch: offset -> symbol_name with heuristic DIR32 validation.
             for r, raw_sym in coff_relocs.items():
                 if not _slot_in_prefix(r, min_len):
+                    if strict:
+                        invalid_relocs.append(r)
                     continue
                 valid = True
                 if map_unusable:
@@ -663,6 +687,7 @@ def smart_reloc_compare(
                         catalog_va_set,
                         iat_region,
                         reloc_table,
+                        strict=strict,
                     )
                 if valid:
                     valid_relocs.append(r)
@@ -670,15 +695,21 @@ def smart_reloc_compare(
                     invalid_relocs.append(r)
         else:
             # List[int] branch: plain offset list (no symbol resolution)
-            valid_relocs.extend(
-                r for r in coff_relocs if isinstance(r, int) and _slot_in_prefix(r, min_len)
+            (invalid_relocs if strict else valid_relocs).extend(
+                r
+                for r in coff_relocs
+                if isinstance(r, int) and (strict or _slot_in_prefix(r, min_len))
             )
     # Zero-reloc objects: candidate slots are 4-byte-ALIGNED zero dwords
     # in the object that differ from the target.  Skip the byte-by-byte
     # scan entirely when no zero dword exists — common for leaf functions.
     # Unaligned zero dwords are coincidental data, not linker-filled reloc
     # slots — only offsets divisible by _RELOC_ALIGNMENT are masked.
-    elif min_len >= _RELOC_ALIGNMENT and b"\x00" * _RELOC_ALIGNMENT in obj_bytes[:min_len]:
+    elif (
+        not strict
+        and min_len >= _RELOC_ALIGNMENT
+        and b"\x00" * _RELOC_ALIGNMENT in obj_bytes[:min_len]
+    ):
         i = 0
         while i <= min_len - _RELOC_ALIGNMENT:
             if (
@@ -707,5 +738,7 @@ def smart_reloc_compare(
     match_count = int(np.count_nonzero(match_mask))
     has_mismatch = not np.all(match_mask)
 
-    masked_match = not has_mismatch and len(obj_bytes) == len(target_bytes)
+    masked_match = (
+        not has_mismatch and len(obj_bytes) == len(target_bytes) and not (strict and invalid_relocs)
+    )
     return masked_match, match_count, max_len, valid_relocs, invalid_relocs

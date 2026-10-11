@@ -1028,9 +1028,8 @@ class TestAnalysisMarkers:
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
         text = (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
-        assert "// ANALYSIS @ 0x00001006: loop" in text
-        # The block sits at the end, separated from the code by one blank line.
-        assert "}\n\n// ANALYSIS @ 0x00001006: loop\n" in text
+        # A C89 block comment, at the end, separated from the code by one blank line.
+        assert "}\n\n/* ANALYSIS @ 0x00001006: loop */\n" in text
 
     def test_comment_outside_function_is_metadata_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1065,7 +1064,7 @@ class TestAnalysisMarkers:
         src = tmp_path / "src" / "foo.c"
         src.write_text(
             src.read_text(encoding="utf-8").replace(
-                "// ANALYSIS @ 0x00001006: loop", "// ANALYSIS @ 0x00001006: loop edited"
+                "/* ANALYSIS @ 0x00001006: loop */", "/* ANALYSIS @ 0x00001006: loop edited */"
             ),
             encoding="utf-8",
         )
@@ -1081,7 +1080,7 @@ class TestAnalysisMarkers:
         assert _invoke_import(tmp_path, state, monkeypatch, "--json").exit_code == 0
         assert _invoke_import(tmp_path, state, monkeypatch, "--json").exit_code == 0
         text = (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
-        assert text.count("// ANALYSIS @ 0x00001006:") == 1
+        assert text.count("ANALYSIS @ 0x00001006:") == 1
 
     def test_dry_run_writes_no_marker(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -219,3 +219,141 @@ class TestEncodingSafety:
             dry_run=False,
         )
         assert not f.read_bytes().endswith(b"\n")
+
+
+class TestNamedMode:
+    """``--named`` inlines same-file ``char s_x[] = "...";`` definitions."""
+
+    def _project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        from test_data_layout import _write_layout
+
+        _write_layout(tmp_path, 0x10027000, 1, 1)  # named mode reads no binary
+        src = tmp_path / "src"
+        src.mkdir()
+        monkeypatch.chdir(tmp_path)
+        return src
+
+    def _run(self, *args: str) -> dict[str, object]:
+        import json
+
+        from rebrew.inline_strings import app
+
+        result = CliRunner().invoke(app, ["--named", "--json", *args])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert isinstance(payload, dict)
+        return payload
+
+    def test_inlines_escapes_and_drops_externs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = self._project(tmp_path, monkeypatch)
+        a = src / "a.c"
+        a.write_text(
+            "#include <stdio.h>\n"
+            "\n"
+            'char s_quote[] = "say \\"hi\\"\\n\\001";\n'
+            "\n"
+            'static char s_tab[] = "a\\tb" "\\\\c";\n'
+            "\n"
+            "extern char s_quote[];\n"
+            "int f(void)\n"
+            "{\n"
+            "    extern char s_quote[];\n"
+            "    /* s_quote stays in this comment */\n"
+            '    puts("s_quote");\n'
+            "    return s_quote[0] + sizeof(s_tab) + (int)s_tab;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        payload = self._run()
+        assert payload["named"] == 2
+        assert payload["inlined"] == 3
+        assert a.read_text(encoding="utf-8") == (
+            "#include <stdio.h>\n"
+            "\n"
+            "int f(void)\n"
+            "{\n"
+            "    /* s_quote stays in this comment */\n"
+            '    puts("s_quote");\n'
+            '    return "say \\"hi\\"\\n\\001"[0] + sizeof("a\\tb" "\\\\c") + (int)"a\\tb" "\\\\c";\n'
+            "}\n"
+        )
+
+    def test_name_used_from_another_file_is_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = self._project(tmp_path, monkeypatch)
+        a = src / "a.c"
+        a_text = 'char s_shared[] = "x";\nint f(void) { return s_shared[0]; }\n'
+        a.write_text(a_text, encoding="utf-8")
+        (src / "b.c").write_text(
+            "extern char s_shared[];\nint g(void) { return s_shared[0]; }\n", encoding="utf-8"
+        )
+        payload = self._run("--files", "a.c")
+        assert payload["named"] == 0
+        files = payload["files"]
+        assert isinstance(files, list)
+        assert files[0]["skipped"] == {"s_shared": f"used from {src / 'b.c'}"}
+        assert a.read_text(encoding="utf-8") == a_text
+
+    def test_definition_used_only_elsewhere_names_the_user(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = self._project(tmp_path, monkeypatch)
+        (src / "a.c").write_text('char s_err[] = "x";\n', encoding="utf-8")
+        (src / "b.h").write_text("#define ERR s_err\n", encoding="utf-8")
+        payload = self._run()
+        files = payload["files"]
+        assert isinstance(files, list)
+        assert files[0]["skipped"] == {"s_err": f"used from {src / 'b.h'}"}
+
+    def test_asm_use_is_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        src = self._project(tmp_path, monkeypatch)
+        a = src / "a.c"
+        a_text = (
+            'char s_asm[] = "x";\n'
+            "int f(void) {\n"
+            "    __asm { push offset s_asm }\n"
+            "    return s_asm[0];\n"
+            "}\n"
+        )
+        a.write_text(a_text, encoding="utf-8")
+        payload = self._run()
+        assert payload["named"] == 0
+        files = payload["files"]
+        assert isinstance(files, list)
+        assert files[0]["skipped"] == {"s_asm": "line 3: used in __asm or unparsed code"}
+        assert a.read_text(encoding="utf-8") == a_text
+
+    def test_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        src = self._project(tmp_path, monkeypatch)
+        a = src / "a.c"
+        a_text = 'char s_x[] = "x";\nchar *p(void) { return s_x; }\n'
+        a.write_text(a_text, encoding="utf-8")
+        payload = self._run("--dry-run")
+        assert payload["named"] == 1
+        assert a.read_text(encoding="utf-8") == a_text
+
+    def test_data_row_marked_literal(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.data_metadata import load_data_metadata, set_data_fields_batch
+
+        src = self._project(tmp_path, monkeypatch)
+        (src / "a.c").write_text(
+            'char s_x[] = "x";\nchar *p(void) { return s_x; }\n', encoding="utf-8"
+        )
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "game.dll",
+                    "va": 0x10027000,
+                    "fields": {"file": "src/a.c", "name": "s_x", "type": "char[2]"},
+                }
+            ],
+        )
+        payload = self._run()
+        assert payload["data_rows"] == 1
+        row = load_data_metadata(tmp_path)[("game.dll", 0x10027000)]
+        assert row["storage_kind"] == "literal"
+        assert row["updated_by"] == "inline-strings"

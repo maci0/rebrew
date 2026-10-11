@@ -413,12 +413,12 @@ def _collect_active_functions(
         # (populated in the improve-match branch below).
         mutations: list[str] = []
 
-        if v_status == "COMPILE_ERROR":
+        if status == "COMPILE_ERROR":
             category = CAT_COMPILE_ERROR
             desc = "Compile error — fix syntax/includes"
             score = 200.0  # High priority blocker
 
-        elif v_status == "EXTRACT_ERROR":
+        elif status == "EXTRACT_ERROR":
             # The symbol was not found in the compiled .obj (wrong symbol,
             # optimized-away function, or a STUB marker whose decorated name
             # doesn't match).  delta is 0 (no bytes extracted), so without
@@ -1027,7 +1027,8 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
     for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
         if not module_visible_to_target(module, cfg):
             continue
-        if str(fields.get("status") or "").upper() != "DRIFT":
+        verdict = str(fields.get("status") or "").upper()
+        if verdict not in ("DRIFT", "DISPLACED"):
             continue
         name = str(fields.get("name") or f"DAT_{va:08x}")
         size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
@@ -1041,9 +1042,13 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
                 name=name,
                 size=size,
                 filename="",
-                description=f"data symbol {name} differs from reference bytes ({module} 0x{va:x})",
+                description=(
+                    f"data symbol {name} is linked away from its reference address ({module} 0x{va:x})"
+                    if verdict == "DISPLACED"
+                    else f"data symbol {name} differs from reference bytes ({module} 0x{va:x})"
+                ),
                 command="rebrew verify --data",
-                status="DRIFT",
+                status=verdict,
                 blocker=str(fields.get("note") or ""),
             )
         )
@@ -1257,6 +1262,52 @@ def _collect_postlink_rewritten(
     return items
 
 
+def _collect_missing_bindings(
+    cfg: ProjectConfig, existing: dict[int, dict[str, str]]
+) -> list[TodoItem]:
+    """Keep missing managed definitions visible without claiming source coverage."""
+    from rebrew.annotation import derive_c_symbol
+    from rebrew.c_parser import function_signatures
+    from rebrew.metadata import load_metadata
+    from rebrew.sources import target_marker
+    from rebrew.utils import preset_module_key, read_source_text, rel_display_path
+
+    marker = preset_module_key(target_marker(cfg) or "")
+    items: list[TodoItem] = []
+    for (module, va), row in load_metadata(cfg.metadata_dir, deepcopy=False).items():
+        stored = str(row.get("file") or "")
+        if (
+            va in existing
+            or preset_module_key(module) != marker
+            or row.get("marker_type") not in {"FUNCTION", "STUB"}
+            or row.get("status") == "SKIP"
+            or Path(stored).suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"}
+        ):
+            continue
+        path = cfg.root / stored.replace("\\", "/")
+        # A valid definition outside the normal source walk is not missing.
+        if path.is_file():
+            definitions = function_signatures(read_source_text(path)[0])
+            symbol = str(row.get("symbol") or "")
+            if symbol in {derive_c_symbol(name, proto) for name, proto in definitions.items()}:
+                continue
+        items.append(
+            TodoItem(
+                category=CAT_EXTRACT_ERROR,
+                roi_score=150.0,
+                va=va,
+                name=str(row.get("symbol") or row.get("name") or f"FUN_{va:08x}"),
+                size=int(row.get("size") or 0),
+                filename=rel_display_path(path, cfg.reversed_dir),
+                description=f"Managed source {'definition' if path.is_file() else 'file'} missing: {stored}",
+                command=f"rebrew test 0x{va:08x}",
+                status="EXTRACT_ERROR",
+                blocker=str(row.get("blocker") or ""),
+            )
+        )
+    return items
+
+
 def collect_all(
     cfg: ProjectConfig,
     ghidra_funcs: list["FunctionEntry"],
@@ -1276,6 +1327,7 @@ def collect_all(
 
     # Setup steps for fresh/incomplete projects (scored highest)
     items.extend(_collect_setup_steps(cfg, ghidra_funcs, existing))
+    items.extend(_collect_missing_bindings(cfg, existing))
 
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
     name_by_va: dict[int, str] = {f.va: f.name or "" for f in ghidra_funcs}

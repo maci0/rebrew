@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from itertools import pairwise
 from typing import Any
 
-from rebrew.utils import parse_c_integer_literal
+from rebrew.utils import parse_c_integer_literal, strip_body
 
 logger = logging.getLogger(__name__)
 
@@ -1307,7 +1307,7 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
     if not source or not source.strip():
         return []
     try:
-        tree, src_bytes = parse_c_source(strip_cc(source))
+        tree, src_bytes = parse_c_source(mask_msvc_syntax(source))
     except ImportError:
         return []
 
@@ -1576,15 +1576,15 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
         opcode_row = -1
         prefix = False
         comment_row = -1
-        for asm_kind, _start, _end, token_row, word in body:
+        for asm_kind, _start, _end, node_row, word in body:
             if asm_kind == ";":
-                comment_row = token_row
-            if token_row == comment_row or asm_kind not in {"identifier", "type_identifier"}:
+                comment_row = node_row
+            if node_row == comment_row or asm_kind not in {"identifier", "type_identifier"}:
                 continue
             if word in labels or word in {"__asm", "_asm"}:
                 continue
-            if token_row != opcode_row or prefix:
-                opcode_row = token_row
+            if node_row != opcode_row or prefix:
+                opcode_row = node_row
                 prefix = word.lower() in {"rep", "repe", "repne", "repz", "repnz", "lock"}
                 continue
             if word.lower() not in registers | qualifiers:
@@ -1643,6 +1643,11 @@ def find_extern_variables(
             and function_filter is not None
             and not function_filter(src_bytes.count(b"\n", 0, node.start_byte) + 1)
         ):
+            return
+        if node.type == "declaration" and node.has_error:
+            # Error recovery splices tokens from neighbouring lines into the
+            # declaration (`a];` became a type with an unmatched `]`), so
+            # neither its name nor its type can be trusted.
             return
         if node.type == "declaration":
             has_extern = False
@@ -1994,9 +1999,77 @@ def type_from_declaration(decl: str, var_name: str) -> str | None:
 
 def _mask_cc(source: str) -> str:
     """Hide compiler extensions while retaining AST byte offsets in the original text."""
-    return _DECLSPEC_PATTERN.sub(
-        lambda m: " " * len(m.group()), _CC_PATTERN.sub(lambda m: " " * len(m.group()), source)
-    )
+
+    def blank(match: re.Match[str]) -> str:
+        raw = match[0].encode("utf-8", errors="surrogateescape")
+        return re.sub(rb"[^\r\n]", b" ", raw).decode("ascii")
+
+    return _DECLSPEC_PATTERN.sub(blank, _CC_PATTERN.sub(blank, source))
+
+
+_ASM_KEYWORDS = frozenset({"__asm", "_asm"})
+
+
+def mask_msvc_syntax(source: str) -> str:
+    """Same-length copy of *source* whose MSVC extensions are blanked for parsing.
+
+    Calling conventions, ``__declspec(...)`` and inline assembly (``__asm {
+    ... }`` blocks and one-line ``__asm`` statements) become spaces; newlines
+    and comments stay. The C grammar otherwise turns ``Sample* __cdecl f(...)``
+    into an expression and ``mov edi, picks`` into a declaration of ``picks``.
+    Every byte offset of the result is the offset of the same text in
+    *source*, so a tree parsed from it addresses *source* directly.
+    """
+    masked = _mask_cc(source)
+    if not any(keyword in masked for keyword in _ASM_KEYWORDS):
+        return masked
+    tree, data = parse_c_source(masked)
+    tokens: list[tuple[str, int, int, int]] = []
+    row = 0
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        opaque = node.type in ("comment", "string_literal", "char_literal", "preproc_arg")
+        if opaque or node.child_count == 0:
+            if not node.is_missing:
+                row = node.start_point[0]
+                tokens.append((node.type, node.start_byte, node.end_byte, row))
+            continue
+        stack.extend(reversed(node.children))
+    out = bytearray(data)
+    i = 0
+    while i < len(tokens):
+        kind, start, end, row = tokens[i]
+        if data[start:end].decode("utf-8", "replace") not in _ASM_KEYWORDS or i + 1 == len(tokens):
+            i += 1
+            continue
+        if tokens[i + 1][0] == "(":  # GNU asm expressions are valid C grammar.
+            i += 1
+            continue
+        block = tokens[i + 1][0] == "{"
+        j, depth = i + 2 if block else i + 1, 1
+        while j < len(tokens):
+            node_kind, node_start, node_end, node_row = tokens[j]
+            if block:
+                depth += int(node_kind == "{") - int(node_kind == "}")
+                if depth == 0:
+                    break
+            elif (
+                node_row != row
+                or node_kind == "}"
+                or data[node_start:node_end].decode("utf-8", "replace") in _ASM_KEYWORDS
+            ):
+                j -= 1
+                break
+            j += 1
+        if block and j == len(tokens):  # an unterminated block is left to the grammar
+            i += 1
+            continue
+        for node_kind, node_start, node_end, _row in tokens[i : min(j, len(tokens) - 1) + 1]:
+            if node_kind != "comment":
+                out[node_start:node_end] = re.sub(rb"[^\r\n]", b" ", data[node_start:node_end])
+        i = j + 1
+    return bytes(out).decode("utf-8", errors="surrogateescape")
 
 
 def prototype_name_span(prototype: str) -> tuple[str, int, int] | None:
@@ -2016,6 +2089,106 @@ def prototype_name_span(prototype: str) -> tuple[str, int, int] | None:
                 return name, int(node.start_byte), int(node.end_byte)
             pending.extend(reversed(node.children))
     return None
+
+
+def _declarator_identifier(node: Any) -> Any | None:
+    """The identifier a (possibly nested) declarator names, or None when abstract."""
+    while node is not None:
+        if node.type in {"identifier", "field_identifier"}:
+            return node
+        inner = node.child_by_field_name("declarator")
+        if inner is None:
+            inner = next((c for c in node.children if c.type.endswith("declarator")), None)
+        node = inner
+    return None
+
+
+def prototype_type_key(prototype: str) -> str | None:
+    """The types a prototype declares, without its function or parameter names.
+
+    Calling conventions stay, except ``__cdecl``, the C default, which is
+    dropped so an explicit and an implied one compare equal; ``(void)``
+    becomes ``()``.  Spacing is canonical.  Two prototypes with equal keys
+    differ only in names and layout.  Returns None when no function
+    declarator parses.
+    """
+    text = strip_body(prototype).rstrip().rstrip(";") + ";"
+    tree, source = parse_c_source(_mask_cc(text))
+    raw = text.encode("utf-8", errors="surrogateescape")
+    for declaration in tree.root_node.children:
+        declarator = declaration.child_by_field_name("declarator")
+        if declarator is None:
+            continue
+        name = find_function_name_in_node(declarator, source)
+        if not name:
+            continue
+        drop: list[tuple[int, int]] = []
+        pending = [declarator]
+        while pending:
+            node = pending.pop()
+            if node.type == "function_declarator":
+                inner = node.child_by_field_name("declarator")
+                # The declarator whose own name is the function: for a
+                # function returning a function pointer, the inner one.
+                if (
+                    inner is not None
+                    and inner.type == "identifier"
+                    and node_text(inner, source) == name
+                ):
+                    drop.append((inner.start_byte, inner.end_byte))
+                    params = node.child_by_field_name("parameters")
+                    for param in params.children if params is not None else ():
+                        if param.type != "parameter_declaration":
+                            continue
+                        ident = _declarator_identifier(param.child_by_field_name("declarator"))
+                        if ident is not None:
+                            drop.append((ident.start_byte, ident.end_byte))
+                    break
+            pending.extend(reversed(node.children))
+        if not drop:
+            return None
+        pieces: list[bytes] = []
+        cursor = 0
+        for start, end in sorted(drop):
+            pieces.append(raw[cursor:start] + b" ")
+            cursor = end
+        pieces.append(raw[cursor:])
+        key = b"".join(pieces).decode("utf-8", errors="surrogateescape").rstrip(";")
+        key = re.sub(r"\b__cdecl\b", " ", key)
+        key = " ".join(key.split())
+        key = re.sub(r"\s*([(),*\[\]])\s*", r"\1", key)
+        return key.replace("(void)", "()")
+    return None
+
+
+def function_signatures(source: str) -> dict[str, str]:
+    """``{name: signature}`` for every function definition in *source*.
+
+    The signature is the original text from the definition's start to its
+    body (return type, calling convention, name, parameters) with whitespace
+    runs folded to one space.  Calling conventions and ``__declspec`` are
+    masked for the parse only, so definitions tree-sitter would otherwise
+    bury in an ERROR node are found, and the text keeps them.  The first
+    definition of a name wins.
+    """
+    tree, parsed = parse_c_source(_mask_cc(source))
+    raw = source.encode("utf-8", errors="surrogateescape")
+    found: dict[str, str] = {}
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if node.type == "function_definition":
+            declarator = node.child_by_field_name("declarator")
+            body = node.child_by_field_name("body")
+            name = find_function_name_in_node(declarator, parsed) if declarator else None
+            if name and body is not None and name not in found:
+                text = raw[node.start_byte : body.start_byte].decode(
+                    "utf-8", errors="surrogateescape"
+                )
+                found[name] = " ".join(text.split())
+            continue
+        pending.extend(reversed(node.children))
+    return found
 
 
 def replace_function_prototype(source: str, name: str, prototype: str) -> str:
@@ -2044,10 +2217,73 @@ def replace_function_prototype(source: str, name: str, prototype: str) -> str:
                 and body is not None
                 and find_function_name_in_node(declarator, parsed) == name
             ):
-                updated = (
-                    raw[: node.start_byte] + signature.rstrip() + b" " + raw[body.start_byte :]
-                )
+                # Keep everything after the declarator (the line break and
+                # indentation before the brace) as the source wrote it.
+                updated = raw[: node.start_byte] + signature.rstrip() + raw[declarator.end_byte :]
                 return updated.decode("utf-8", errors="surrogateescape")
         elif node.type != "ERROR":
             pending.extend(reversed(node.children))
     raise ValueError(f"no function definition for {name!r}")
+
+
+@dataclass(frozen=True)
+class PointerCastLiteral:
+    """An integer constant cast straight to a pointer inside a function body: ``(T *) 0x1000``.
+
+    *start* and *end* are byte offsets of the constant in the UTF-8 source.
+    """
+
+    function: str
+    start: int
+    end: int
+    value: int
+
+
+def pointer_cast_literals(source: str) -> list[PointerCastLiteral]:
+    """Every ``(T *) <integer constant>`` inside a function definition, in source order.
+
+    Only the definition's own body is searched, so a call site or prototype
+    of the same name never matches. Casts to non-pointer types, function
+    pointer casts, and parenthesized operands are not reported.
+
+    :raises ImportError: tree-sitter is unavailable.
+    """
+    tree, parsed = parse_c_source(_mask_cc(source))
+    found: list[PointerCastLiteral] = []
+
+    def casts(node: Any, function: str) -> None:
+        if node.type == "cast_expression":
+            kind = node.child_by_field_name("type")
+            value = node.child_by_field_name("value")
+            declarator = kind.child_by_field_name("declarator") if kind is not None else None
+            if (
+                declarator is not None
+                and declarator.type == "abstract_pointer_declarator"
+                and value is not None
+                and value.type == "number_literal"
+            ):
+                try:
+                    number = parse_c_integer_literal(node_text(value, parsed))
+                except ValueError:
+                    number = None
+                if number is not None:
+                    found.append(
+                        PointerCastLiteral(
+                            function, int(value.start_byte), int(value.end_byte), number
+                        )
+                    )
+        for child in node.children:
+            casts(child, function)
+
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if node.type == "function_definition":
+            declarator = node.child_by_field_name("declarator")
+            body = node.child_by_field_name("body")
+            name = find_function_name_in_node(declarator, parsed) if declarator else None
+            if name and body is not None:
+                casts(body, name)
+        else:
+            pending.extend(reversed(node.children))
+    return found

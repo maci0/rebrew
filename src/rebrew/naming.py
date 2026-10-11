@@ -353,7 +353,7 @@ def load_data(
 
     floor = min_valid_va_for(cfg)
     for entry in compiled_library_annotations(cfg):
-        if entry.va in existing or entry.va < floor:
+        if entry.va < floor:
             continue
         existing[entry.va] = {
             "filename": entry.filepath,

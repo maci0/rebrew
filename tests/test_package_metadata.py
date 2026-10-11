@@ -120,7 +120,7 @@ def _declared_distributions() -> set[str]:
 def _top_level_imports(root: Path = SRC) -> set[str]:
     """Top-level modules imported by anything under ``root``."""
     found: set[str] = set()
-    for path in root.rglob("*.py"):
+    for path in [root] if root.is_file() else root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -150,7 +150,7 @@ def _dynamic_imports(root: Path = SRC) -> set[str]:
     undeclared distribution would reach a user only as a runtime ImportError.
     """
     found: set[str] = set()
-    for path in root.rglob("*.py"):
+    for path in [root] if root.is_file() else root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -335,6 +335,15 @@ _GROUP_TOOL_ONLY = {
 
 _DEV_TREES = ("tests", "tools")
 
+#: Dev-tree imports that never run in rebrew's environment, with the reason.
+#: Each is imported only by a script a test runs under another interpreter.
+_EXTERNAL_INTERPRETER_IMPORTS = {
+    "tests/binsync_peer.py": {
+        "binsync": "run under REBREW_BINSYNC_PYTHON; "
+        "BinSync (with PySide6) is not a rebrew dependency",
+    },
+}
+
 
 class TestDevTreeDependencies:
     """The manifest's dev half has the same contract as the shipped half.
@@ -380,17 +389,32 @@ class TestDevTreeDependencies:
         local = self._local_module_names()
         undeclared: set[str] = set()
         for tree in self._dev_trees():
-            for name in _top_level_imports(tree) | _dynamic_imports(tree):
-                if name in stdlib or name in local:
-                    continue
-                if name in declared or _IMPORT_NAME_TO_DISTRIBUTION.get(name, name) in declared:
-                    continue
-                undeclared.add(name)
+            for path in tree.rglob("*.py"):
+                external = _EXTERNAL_INTERPRETER_IMPORTS.get(path.relative_to(ROOT).as_posix(), {})
+                for name in _top_level_imports(path) | _dynamic_imports(path):
+                    if name in stdlib or name in local or name in external:
+                        continue
+                    if name in declared or _IMPORT_NAME_TO_DISTRIBUTION.get(name, name) in declared:
+                        continue
+                    undeclared.add(name)
         assert not undeclared, (
             "imported by a test or tool with no requirement line (add it to the "
             "matching [dependency-groups] entry): "
             f"{sorted(undeclared)}"
         )
+
+    def test_external_interpreter_exception_is_file_scoped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+        monkeypatch.setattr(self, "_declared_everywhere", lambda: set())
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "binsync_peer.py").write_text("import binsync\n", encoding="utf-8")
+        self.test_every_dev_tree_import_is_declared()
+        (tests / "ordinary_test.py").write_text("import binsync\n", encoding="utf-8")
+        with pytest.raises(AssertionError, match="binsync"):
+            self.test_every_dev_tree_import_is_declared()
 
     def test_every_group_requirement_is_reachable(self) -> None:
         groups = _pyproject().get("dependency-groups", {})

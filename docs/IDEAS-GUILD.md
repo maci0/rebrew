@@ -467,6 +467,15 @@ Pain: shared TL442c00/442cb0 and Gold4471b0/447260 callers refer to fcn_00450a00
 Pain: TL full gate57178 reports322 shorter SIZE_MISMATCH bodies with zero common-prefix differences;309 have native terminal ret/tailjmp and exclusively NOP tails. These discovery/alignment sizes make already recovered bodies appear unfinished. Existing `test --fix-sizes`, `verify --fix-sizes`, and catalog backfill address size repair; they do not provide the joint strict CFG, complete relocation/literal binding, negative-control, library-exclusion evidence preview described here. Proposed CLI preview/apply operation combining conservative native CFG/end evidence, retained padding/layout accounting, complete object/native binding validation, library exclusion, and target-scoped locked SIZE updates; never shorten solely from object length or a masked prefix score. Surface ambiguous branches/data separately and verify every affected/shared build. Evidence guild-rebrew/.scratch/goal-small-client-helpers/{zero-diff-candidates,native-extent-screen}.json. Current supported metadata APIs can apply individually evidenced repairs; no game-code padding or raw assembly workaround.
 
 
+Additional evidence (2026-10-11): TL `ahm_SlotClearMatch` at `0x4ee9c0`
+and GOLD at `0x4ecbc0` both have 110 reachable bytes plus two alignment NOPs,
+but managed SIZE112 makes the unchanged shared C appear mismatched. Complete
+CFG, both call operands, numeric native helper identities, library exclusion
+and wrong-target controls prove all 220 code bytes. The canonical client
+callee names are still unbound, so operand evidence must remain explicit.
+Evidence: `guild-rebrew/.scratch/goal20/ahm-slot-clear-extent/native-proof.json`.
+This also exercises the declaration-only native function binding proposal above.
+
 ## Metadata-backed source split / extraction after marker migration
 
 Landed: `rebrew source split` reads the function row when the file has no marker block. It slices that C definition, leaves file-scope storage in the original, refuses a static or preprocessor-wrapped dependency, and retargets every row that shares the definition. `--dry-run` writes nothing, and a failed retarget restores the source.
@@ -527,8 +536,354 @@ baseline). No upstream implementation change or verdict promotion.
 
 ## Strict mapped DIR32 proof alongside tolerant source agreement (2026-10-04)
 
+Implemented in the comparison API (2026-10-11): `smart_reloc_compare(..., strict=True)` requires exact mapped DIR32/REL32 operands, rejects unbound/unsupported/out-of-extent claims through `invalid_relocs`, disables symbol-free masks, and retains explicit IAT policy. Compiler-local labels are supplied from their owning COFF section, so switch-table and branch targets can be proved without catalog sentinels. Existing callers retain their documented tolerant agreement; this API change does not silently promote their results to strict proofs. Native switch evidence: `guild-rebrew/.scratch/goal20/entity-class-extent/`.
+
 Pain: the current catalog-limited DIR32 contract masks a mapped-symbol mismatch when the derived native address is absent from the catalog. This can give a RELOC result to a cross-imported body with the wrong table and array bound. Gold 0x004d0a30 compiled from the TL 768-record scan: fixed bytes and all six relocation spans aligned, but native Gold scans 32 records at 0x00930600, while the selected slot-table binding is 0x00770b80. Its two table operands implied different bases (0x00930600 and 0x008cf580) under the incorrect 768-record addend. Neither implied base was catalogued, so the wrong body passed.
 
 Proposed feature: an explicit strict operand-proof mode, distinct from the current tolerant agreement contract, that requires every supplied mapped DIR32 identity to satisfy native_word == bound_va + COFF_addend, even when the competing native address is not catalogued. Report unbound references separately so a fully bound proof cannot silently claim them. Preserve explicit IAT policy and compiler-local jump-table resolution; compare complete code/table extents. Include a regression where the wrong actual address is deliberately absent from the catalog, a wrong array-end addend, and positive compiler-local/IAT controls. Do not silently change the documented tolerant contract without reviewing existing callers and fixtures.
 
 Evidence: guild-rebrew/.scratch/goal-tl-callee-identities/{resolver-binding-conflicts-before,Gold-list-audit,Gold-list-applied}.json. The game repair uses its genuine target-specific C body (32 records, correct array), binds all six operands independently, and rejects every wrong-plus-four control with a correct-native-address sentinel. This is source/data proof and does not establish whole-file equality.
+
+## Translation-unit consolidation (2026-10-06)
+
+- [ ] **`source merge` should keep data pieces in source order.**
+  Pain: the merge emits every storage piece before every function. A tentative
+  definition ahead of its first use changes how the compiler treats the object
+  in the functions that follow, and `#pragma optimize` / `#pragma intrinsic`
+  lines that sat beside one function end up in the shared preamble, where they
+  apply to every function. Feature: keep pragma lines attached to the piece
+  they precede and leave data where its input put it. Evidence: guild
+  `game/spiel.c` (gm_AllocGebaeude, gm_CalculateProductionValue, intrinsic
+  placement).
+- [ ] **Report codegen that depends on the translation unit.**
+  Pain: a function that matches alone can stop matching once its callee is
+  defined earlier in the same file (VC6 uses the callee; the reference does
+  not). The merge reports every function as fine until `test` runs per
+  function. Feature: after a merge, re-test each moved function and list the
+  ones that changed status. Evidence: guild `gm_Open` (calling
+  `gm_InitObjektHersteller` through a pointer restores the bytes).
+- [ ] **`build order-sources --exclude` matches a basename.**
+  Pain: `--exclude gzio.c` meant the zlib reference file and also dropped a
+  game file named `gzio.c` in another directory. Feature: match the path.
+- [ ] **`migrate-markers` refuses a file for a comment that looks like a marker.**
+  Pain: `/* DATA: SERVER 0x1002944c..0x100294a0` inside a block comment counts
+  as a marker line, so the file is skipped as `unrecorded-markers` with no line
+  number. Feature: name the line, and ignore marker text inside comments.
+- [ ] **Generated CMake should depend on the real store path.**
+  Pain: `CMAKE_CONFIGURE_DEPENDS` named `src/rebrew-functions.toml` after the
+  store moved to the project root, so a row change did not re-run the source
+  selection. Feature: emit the path from the loaded config.
+- [ ] **`/OPT:REF` reorders COMDATs, `/OPT:NOREF` keeps dead library code.**
+  Pain: a position-aligned raw link needs every game function kept and every
+  unreferenced library function dropped. Feature: generate the `/INCLUDE`
+  list for all game rows in VA order (guild `layout/server.dll/game-includes.rsp`).
+- [ ] **Reclassify a reversed function as stock library code.**
+  Pain: a decompiled copy of a stock source (guild `gz_stream.c`, zlib 1.1.3
+  `gzio.c` with game names) turned out to compile byte for byte from the stock
+  file, but `library bind-source` refuses its FUNCTION rows ("No library
+  declaration"), so renaming the symbols (`_vfs_GetByte` to `_get_byte`) and
+  setting `marker_type = "LIBRARY"` and the new `file` took a script over
+  `rebrew.metadata.record_migrated_markers`. Feature: `library bind-source
+  --adopt` (or `library adopt <va> <source> --symbol`) that converts a FUNCTION
+  row in place, for every module that shares the file. Evidence: guild
+  round 18, `.scratch/r18/rebind_zlib.py`.
+- [ ] **Count the relocation records discarded code contributes.**
+  Pain: LINK reserves `.reloc` space for every input DIR32 record, discarded
+  COMDATs included, so closing the reservation means counting DIR32 per object
+  and per discarded COMDAT from the `/VERBOSE` log; no command does it.
+  Feature: `rebrew binary relocs --reservation` reporting kept, discarded and
+  import-thunk records per input against the reference's `12 * N`. Evidence:
+  guild `.scratch/measure/dir32_count.py`, `discarded_dir32.py`.
+
+## Assembly provenance for definitions without a target VA (2026-10-09)
+
+Pain: correcting W020 to use each definition's own target metadata exposes
+assembly in unannotated helpers and discarded shared-TU functions. A helper
+has no standalone target address at which to store a BLOCKER. A blocker on a
+different function previously hid it, which also hid genuinely undocumented
+assembly elsewhere in that file. A containing source file alone does not
+establish that the definition contributes bytes to the selected target.
+
+Implemented: `rebrew source document-assembly` manages provenance identified by
+file and C symbol, separate from target-VA identity and byte-verification
+rows. It records the target and current definition hash without fabricating
+a VA or STATUS. W020 reports the affected C symbol and accepts only current
+evidence for that file, symbol and target; W031 reports invalid/stale records.
+Compiler/map reachability remains future work: a review record does not prove
+that the helper participates in a target, and file membership or an unrelated
+blocker never establishes that fact.
+
+Evidence: guild-rebrew/.scratch/goal20/asm-context-audit.json and
+names-integration-lint-{server,goldtl,gold}-scoped.json. SERVER findings are
+vfs_AddFile and vfs_fwrite; neither has an identity row or appears in the
+existing raw server map. GOLDTL also has fill helpers without standalone
+identities. Existing block-fill evidence lives in docs/msvc6-allocator.md
+(Finding 19); source comments and historical matches are evidence to review,
+not fresh verification or permission to suppress a whole file.
+
+## Explicit binding of unbound function references (2026-10-10)
+
+Pain: TL 0x406510's restored animation builder has an unrelated health-command
+name, while its callers use unbound `fcn_00406510`. Renaming either spelling to
+the other's existing name rightly refuses the duplicate; neither rename order
+can connect them. An ordinary rename must continue protecting independent
+definitions, including the server's real health handler.
+
+Implemented: `source rename PLACEHOLDER MODULE.0xVA` explicitly binds source
+references to a unique existing external function. It does not change the
+destination definition, managed identity or verification. Definitions, bound
+identities, variables, statics, types, macros and ambiguous destinations refuse
+before writes. Existing syntax-aware plans, dry runs and rollback apply.
+Evidence: guild-rebrew/.scratch/goal20/animation-{rename,reference}-preview.json
+and upstream `TestFunctionReferenceBinding`.
+
+## Alignment padding biases cross-target signature scores (2026-10-10)
+
+Pain: GOLD 0x405970 is the same 75-byte animation builder as TL 0x406510,
+except for the allocator call and callback pointer relocations. Discovery gives
+GOLD an 80-byte span containing five trailing NOPs, while the verified TL donor
+owns 75 bytes. The default shared-import preview rejects it: full-span score
+94.393546, actual-body score 100. Lowering the threshold hides the extent issue.
+
+Implemented: the shared cross-import/BinSync signature helper uses the existing
+bounded extent walker on the supplied bytes. Only a real return covering observed
+forward targets followed entirely by NOP/int3 padding shortens the signature.
+Reachable NOPs, multiple-return blocks, tail calls and unresolved extents keep
+their bodies; int3 is no longer classified as a real return. The original
+inventory span still reaches full-body compile verification and its existing
+verified size retry. Default score/gap gates are unchanged.
+Evidence: guild-rebrew/.scratch/goal20/animation-builder-original-evidence.json,
+`animation_builder_evidence.py`, and `animation-gold-import-preview.json`.
+Callback import preview at GOLD 0x405870 / TL 0x406410 independently passes
+the default structural gate (98.087576); no GOLD row or verdict was written at
+that checkpoint. Regression coverage: `TestPaddedSignatures` and
+`TestMergedInventoryEntry.test_padded_signature_passes_default_gate_then_verifies_the_body`.
+
+## Select an attested cross-target donor explicitly (2026-10-10)
+
+Pain: after the extent repair, GOLD's builder 0x405970 and caller 0x40c870
+both score 100 against their TL counterparts (0x406510 / 0x40d790), but the
+automatic importer correctly refuses: unrelated histogram siblings score
+96.325483 / 96.275310, inside the default five-point gap. Original instruction
+and compiled-body evidence establish the intended pairs; lowering the global
+gap would also admit genuinely ambiguous automatic matches.
+
+Resolution: the CLI already supports `--source-va`, but its CLI reference omitted
+the option. Document and use that selector with `--va` for a reviewed pair;
+the donor's EXACT/RELOC requirement, score/gap gates and complete byte verification
+still apply to the selected pool. Automatic selection keeps its runner-up gap.
+Reuse the existing shared import path and locked writers rather than hand-editing
+rows or copying C. No new option or matching algorithm is needed.
+Evidence: guild-rebrew/.scratch/goal20/padded-signature-evidence.json and
+`padded-{builder,caller}-gold-preview.json`; no imports were applied.
+
+## Preserve requested identity in single-function diagnostics (2026-10-10)
+
+Pain: `diagnose probe 0x499a50 --target Europa1400Gold_TL.exe` resolves the shared
+alchemistry source, then silently measures its first function, TL47ddf0,
+_ahm_ResetEntityState, yielding66/66 instead of checking the requested wrong-body
+identity. Shared cli.select_annotation discards the positional VA. Explicit
+`--va` absent from the file also pairs a new reference with the first symbol/size.
+The same helper feeds diagnose gap and match qualifiers, which can edit C.
+
+Resolution: select the active target's annotation at either positional VA or
+`--va`; missing entries error before measurement/editing. Preserve direct-file
+and decorated-symbol selection without a VA. Fix the shared helper, with inline
+and managed/overlapping-target regressions and an actual probe CLI flow check;
+no caller-specific workaround or new option. Evidence:
+guild-rebrew/.scratch/goal20/ahm-chain-current-probe.json and
+probe-selection-regressions-before.log. Separately, TL499a50 itself is falsely
+bound to the chain processor; its native four-argument125-byte body is unlike
+the true130-byte dispatcher at TL4c4d30/GOLD4c43c0/SERVER1000ca00. That source
+identity cleanup must follow trustworthy diagnostics and native evidence.
+
+### 2026-10-11: symbol rename leaves linker response references stale
+
+Pain: renaming shared lb_SearchRecordTable to inferred plt_FindPlantInfo updates
+four C sources and all three identity rows, but not the tracked
+layout/server.dll/game-includes.rsp /INCLUDE:_lb_SearchRecordTable anchor.
+The next raw link fails LNK2001/LNK1120 although all98 compiled function
+measurements and whole-section relocation locations remain unchanged.
+
+Resolution: include target-scoped linker response references in the existing
+rename plan, preview and rollback path. Preserve native decoration, independent
+target twins, paths and public export names. Explicit reference binding to an
+existing identity must also repair a leftover linker anchor. No game alias,
+manual managed-store edit, new CLI option or weakened gate. Evidence:
+guild-rebrew/.scratch/goal20/plant-server-gate.log (failed) and
+plant-callers-byte-preservation.json. Implement upstream before completing
+the plant checkpoint and rerunning its raw-link gate.
+
+## Shared import identity and measurement repair (2026-10-11)
+
+Pain: importing SERVER10016f80 onto GOLDTL503e80 verifies the shared iterator
+at341 bytes but leaves the previous gm_AddObjekt name beside its new
+_gm_FindNextFilteredEntity symbol. The next GOLD501030 import inherits that
+wrong name. Both341-byte records retain reference_size352 and the padded
+reference hash from the rejected first comparison. The source flag helper
+also selects another function's /DREBREW_ALLOW_NAKED flag from the same file.
+
+Repair the shared import paths: choose flags by source module and VA, replace
+the identity name after verification, and retain the successful retry's
+comparison inputs. Keep marker migration's existing-name protection and
+failed-retry evidence unchanged. No game source workaround or relaxed match
+threshold. Evidence: guild-rebrew/.scratch/goal20/stat-iterator-{tl,gold}-import.json,
+stat-shared-iterator-audit.json and stat-import-regressions-before-corrected.log.
+
+Further replay checks reproduce a stale destination override surviving an
+inherited flag selection, and a failed managed move between definitions in
+one file overwriting the old verdict. Persist flags only after an accepted
+measurement and recognize the managed destination symbol when previewing
+or rejecting a move. This removes provisional store writes and their
+rollback code. Evidence: shared-import-fields-reproduction.json and
+stat-import-additional-before.log in the same guild-rebrew scratch directory.
+
+## Shared-import source retirement must honor remaining owners (2026-10-11)
+
+Pain: the numeric slot helper guild-rebrew/src/GOLDTL.fcn_0050dac0.c owns both
+GOLDTL50dac0 and GOLD50a640. `import_shared_function(..., dst_file=...)` unlinks
+the entire old file after moving one identity, orphaning the other target.
+It would also delete other functions and globals in a larger source file.
+Preserve files with remaining managed or inline function/data identities, other
+function definitions or storage. Remove only the superseded inline claim,
+preserving other claims and line numbers. Retire a single-body stub when its
+last owner moves. Reuse the annotation lexer and C storage-role inventory;
+do not work around this with duplicated game code or manual store edits.
+
+The cleanup also must use migration's existing file-borne comment policy:
+SOURCE stays only when naked, while STRUCT/CALLERS stay in the source. A
+follow-up regression catches ordinary SOURCE metadata incorrectly surviving
+the retired claim; share the policy instead of cloning its rules.
+
+## Preserve the original include search for a source in its workdir (2026-10-11)
+
+Pain: a guild-rebrew helper call-order probe wrote its C candidate directly
+in compile_to_obj's workdir. MSVC failed to find a valid parent-relative header:
+the source runs at /work, but the original source directory was omitted when
+it equaled the host workdir. Always retain an authorized original-path include
+search in this case; the /work alias has different ancestors. Evidence:
+guild-rebrew/.scratch/goal20/stat-helper-order-probe-variants.log and
+compiler-source-in-workdir-before-corrected.log. The MSVC regression fails first;
+the GCC case is a passing control. No game header or include-path workaround.
+
+## Find definitions after an assembly prelude (2026-10-11)
+
+Pain: the guild-rebrew statistic formatter preservation check omitted every
+function after server.c's assembly fill. The shared definition finder stripped
+calling conventions but fed inline assembly to the C grammar, which swallowed
+later functions into the earlier body. Use the existing same-length MSVC syntax
+mask before walking definitions. LF/CRLF fill regressions fail first; multiline
+attributes also demonstrate shifted following line numbers. This fixes every
+caller, including retirement, without a game-side parser workaround. Evidence:
+guild-rebrew/.scratch/goal20/function-discovery-after-asm-before.log.
+
+## Reject unsupported provenance at the common stamp (2026-10-11)
+
+Pain: a guild-rebrew formatter identity note passed an unsupported tool tag
+to update_field. The public field writer accepted it although the batch writer
+refused the same input, and all-target lint then reported W031 against the
+managed store. Validate against the existing provenance vocabulary in the
+shared stamper, before changing an open entry. Five failing regressions cover
+fresh and existing stores through single and grouped writes, plus the open
+entry itself; no new tag or lint exception is needed. Evidence:
+guild-rebrew/.scratch/goal20/provenance-field-writer-before.log.
+
+## Validate recorded native data spellings (2026-10-11)
+
+Pain: the shared name-to-VA catalog ignored data link_symbol even though the
+locked writer and ownership tools preserve it. A scalar year field shares
+an address with a packed calendar view in the client; recording its verified
+COFF spelling could not validate the shared formatter without replacing the
+analysis label or inventing another allocation. Include the exact native
+spelling in the common marker-scoped catalog alongside the label. Four
+regressions fail first and cover test/verify catalog construction, another
+target's conflicting spelling, compiler-literal spellings, symbol resolution,
+and rejecting a wrong known target. Existing unknown-address policy remains.
+Evidence: guild-rebrew/.scratch/goal20/native-data-catalog-final-before.log.
+
+## Retire a fully superseded multi-body source unit (2026-10-11)
+
+Pain: the shared importer deliberately retires only single-body sources. A
+two-body office-query unit remains after all three target claims move to the
+verified shared server.c definitions. Its conservative guard correctly avoids
+deleting unannotated helpers, but completing this source consolidation requires
+an explicit operator audit: every former claim, every definition, data and source
+provenance ownership, remaining callers, and all native bytes/operands of both
+old bodies and their shared replacements. An unowned leftover can also become
+an unintended input to the unannotated-source build fallback.
+
+Proposed feature: a previewable retirement operation accepting explicit complete
+replacement evidence for every definition. Reject helpers, storage, remaining
+claims/references, stale measurements or incomplete mappings. Keep the current
+automatic single-body guard; do not generalize its definition-count condition.
+Evidence: guild-rebrew/.scratch/goal20/retire_office_query_duplicates.py and
+office-query-duplicate-retirement/receipt.json. This is a missing workflow
+feature, not a reason to relax the existing import safety check.
+
+## Nested compiler batches with single-file input parity (2026-10-11)
+
+Nested sources currently fall back to individual compiles. VC6 emits an
+861-byte `gm_Open` when invoked with `spiel.c`, but 859 bytes with
+`Develop/DieGildeAddOn/game/spiel.c`, even with identical preprocessed C.
+Adding the missing include paths or a basename `#line` does not restore parity.
+Caching the nested batch object under the single-file key poisoned verification.
+
+Proposed feature: batch nested units only when compiler-visible basenames,
+include order and header resolution equal the single-file path, for example by
+grouping sources by their original directory. Prove complete body and operand
+parity before sharing object-cache keys; preserve the individual fallback.
+Evidence: guild-rebrew/.scratch/goal20/pool-first-next-gm-open-cache/receipt.json,
+pool-first-next-gm-open-batch/receipt.json and its empty preprocessed.diff.
+
+## Distinguish library template hits from operand-supported identities (2026-10-11)
+
+Pain: GOLD's 12-byte seed setter at 0x5de77a matches LIBCMT's
+`___set_app_type` template. Stock LIBC reports both that template and `_srand`.
+The setter writes the same native word at 0x62e108 that the independently
+matched LIBC `_rand` reads; this supports the random binding, while a unique
+template hit in the configured archive alone does not prove its identity.
+
+Proposed feature: expose template-only scope and unresolved operand ownership
+in library match results, and optionally compare typed data operands against
+independently established native allocations and companion archive members.
+Keep ambiguous candidates visible and require raw-link evidence before claiming
+a configured storage provider. Do not infer a complete CRT selection from one
+function or replace stock runtime bodies to satisfy a template.
+Evidence: guild-rebrew/.scratch/goal20/random-unit-probe/GOLD-srand-provider.json,
+GOLD-srand-libc-provider.json and runtime-providers.json. GOLD's `_rand` origin
+was already recorded in guild-rebrew/.scratch/goal-crt-retirement/.
+
+## Acknowledge the selected shared definition without renaming independent twins (2026-10-11)
+
+Pain: GOLDTL40ce80/GOLD40bf60 share a sound wrapper falsely named
+cm_ChkSetGebBesitzer; SERVER1000cfe0 independently defines the attested command
+validator. Identity-selected CLI rename refuses the shared client rows without
+--all-modules, whose preview also renames the unrelated SERVER definition,
+its dispatch table and linker include. Neither preview is the intended repair.
+The existing source-definition library entry point can preserve the independent
+server twin while renaming both client rows. Expose acknowledgement limited to
+rows bound to the selected definition, retaining --all-modules' current meaning
+and the refusal of ambiguous references. Preview must name every included row
+and excluded independent twin; test a shared two-client definition plus server
+validator, attributed users and linker references.
+Evidence: guild-rebrew .scratch/goal20/sound-wrapper-rename-preview.json,
+sound-wrapper-rename-all-preview.json and sound-wrapper/rename-preview.json.
+
+## Configured target defines in CMake (2026-10-11)
+
+Resolved: build cmake-flags now emits selected target defines as source
+COMPILE_DEFINITIONS and reports them in JSON. Three regressions and native
+CMake property checks pass; full11,582 passed/51 skipped.
+
+Pain: compile_to_obj applies targets.<name>.defines, but build cmake-flags
+emits only metadata code-generation flags and drops configured target defines.
+A shared implementation can therefore pass test/verify under its server/client
+branch while the configured CMake link compiles a different branch. The
+recursive object-list repair requires a genuine SERVER-only empty cleanup
+versus the existing54-byte client cleanup; inventing compiler-sensitive game
+workarounds would preserve the wrong program. Fix: emit target defines as
+CMake COMPILE_DEFINITIONS for each annotated or explicitly listed source,
+separately from metadata-only reconstruction guards. Verify selected-target
+isolation and CMake's preservation of quoted values, backslashes and literal
+semicolons. Evidence: guild-rebrew .scratch/goal20/recursive-object-list-{asm,
+server-asm,gold-asm,diff}.json and tests/test_cmake_flags.py target-defines cases.
