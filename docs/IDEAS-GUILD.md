@@ -887,3 +887,10 @@ separately from metadata-only reconstruction guards. Verify selected-target
 isolation and CMake's preservation of quoted values, backslashes and literal
 semicolons. Evidence: guild-rebrew .scratch/goal20/recursive-object-list-{asm,
 server-asm,gold-asm,diff}.json and tests/test_cmake_flags.py target-defines cases.
+
+
+## Resolve ambiguous stock-library wrappers through native callees
+
+Pain: full relocation-masked matching leaves fread/fwrite wrappers ambiguous. A legacy TL header called 0x64ed28 fread; its native callee at0x64ed57 uniquely matches __fwrite_lk. Naming it correctly currently needs an ignored project experiment using archive/COFF APIs, following the same pattern as the earlier sprintf/swprintf proof.
+Proposal: extend library match with conservative candidate resolution from native relocation edges. Retain ambiguity for aliases, cycles, out-of-image targets, unresolved data or non-unique callees; return the evidence behind a unique name and keep origin separate from actual linked provider. No automatic store writes or archive edits.
+Evidence: guild-rebrew/.scratch/goal21/shared-vfs-freedirs/fwrite-wrapper-proof.json (47 bytes, three rejected shifted bindings, uniquely matched downstream body); fwrite-stock.json contains both original candidates. Public parse_archive, COFF relocation APIs and lib_match already provide the mechanics. Add synthetic wrapper/alias/cycle/unsupported-relocation regressions before implementation.
