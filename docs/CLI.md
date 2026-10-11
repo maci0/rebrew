@@ -659,6 +659,8 @@ skeleton warns with the real extent and suggests `rebrew binary asm show --size 
 | `--dry-run` | Preview skeletons without writing files or metadata |
 | `--json` | Output results as JSON (for batch mode) |
 
+Strict source/data proof callers can use `rebrew.coff_reloc.smart_reloc_compare(..., strict=True)`. This is an API mode, not a CLI flag. It rejects mapped address mismatches even when the actual address is absent from the catalog, and reports unbound, unsupported, out-of-extent and symbol-free claims in `invalid_relocs`. Compiler-local labels must be bound from their COFF owner; explicit IAT-region policy remains applicable. Ordinary test/verify source agreement keeps its existing tolerant contract.
+
 ### `rebrew verify`
 
 ```mermaid

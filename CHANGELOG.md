@@ -1,6 +1,11 @@
 ## [Unreleased]
 
 ### Added
+- `smart_reloc_compare(..., strict=True)` validates fully bound operand proofs:
+  known DIR32 targets must agree even when the competing native address is
+  absent from the catalog. Unbound, unsupported, out-of-extent and symbol-free
+  relocation claims fail with their offsets; implicit zero masking is disabled.
+  Explicit IAT policy and the default tolerant agreement contract are preserved.
 - `rebrew source rename PLACEHOLDER MODULE.0xVA` binds an unbound function
   reference name to an existing unique external definition without changing its
   identity or verdict. Definitions, variables, macros, existing identities and
