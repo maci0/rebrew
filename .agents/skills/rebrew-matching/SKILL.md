@@ -78,6 +78,10 @@ Exit codes: `0` = no structural differences (EXACT/RELOC), `1` = structural `**`
 found (fix them), `2` = build error. With `--json`, read `summary.exact / summary.reloc /
 summary.reg / summary.structural` instead of parsing lines.
 
+Check `target_size` and `candidate_size` too: the latter is the complete emitted
+body size, even when instruction rows are clipped to the target span. A clean
+prefix diff does not establish a complete match; use `rebrew test` for the verdict.
+
 ### Auto-Classified Blockers
 
 `rebrew diff` auto-classifies systemic compiler differences from `**` / `RR` lines

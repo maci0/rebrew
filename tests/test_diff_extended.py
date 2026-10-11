@@ -97,6 +97,40 @@ def _call_run_diff(
 
 
 class TestRunDiff:
+    @pytest.mark.parametrize("candidate_size", [3, 8, 100])
+    def test_json_reports_unclipped_candidate_size(
+        self,
+        candidate_size: int,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        from rebrew.diff import run_diff
+
+        _patch_matcher(
+            monkeypatch,
+            obj=b"\x90" * candidate_size,
+            summary=_summary(target_size=8, candidate_size=min(candidate_size, 8)),
+        )
+        run_diff(False, False, False, False, True, _params(target_bytes=b"\x90" * 8))
+
+        report = json.loads(capsys.readouterr().out)
+        assert report["target_size"] == 8
+        assert report["candidate_size"] == candidate_size
+
+    def test_human_report_uses_unclipped_candidate_size(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        from rebrew.diff import run_diff
+
+        _patch_matcher(
+            monkeypatch,
+            obj=b"\x90" * 100,
+            summary=_summary(target_size=8, candidate_size=8),
+        )
+        run_diff(False, False, False, False, False, _params(target_bytes=b"\x90" * 8))
+
+        assert "Target (8B) vs Candidate (100B)" in capsys.readouterr().err
+
     def test_build_failure_exits_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
