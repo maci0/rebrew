@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Added
+- `rebrew library vendor MANIFEST...` checks generated source trees against
+  SHA-256-pinned pristine files plus ordered patches. `--sync` regenerates them
+  after all manifests pass staging. Paths stay inside the project root; overlapping
+  inputs/outputs, symlinks and patches that change the file inventory are rejected.
+
 ## [2.25.0] - 2026-10-11
 
 ### Added
