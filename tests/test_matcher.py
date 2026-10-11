@@ -357,6 +357,42 @@ class TestDiffFunctionsEdges:
 
 
 class TestDockerPathForwardsExtraIncludes:
+    @pytest.mark.parametrize("profile", ["msvc-6.0", "gcc-14.2.0"])
+    def test_temp_candidate_keeps_shared_headers(self, tmp_path, monkeypatch, profile) -> None:
+        """Diff and GA candidates retain the shared root after staging their source."""
+        from types import SimpleNamespace
+
+        from rebrew.matcher.compiler import build_candidate_obj_only
+
+        shared = tmp_path / "src"
+        parent = shared / "Units" / "allocator"
+        parent.mkdir(parents=True)
+        (shared / "tracking.h").write_text("int tracked(void);\n")
+        includes = [str(parent)]
+
+        def compile_candidate(cfg, source, flags, workdir, **kwargs):
+            assert source.read_text() == '#include "tracking.h"\nint f(void){return tracked();}\n'
+            roots = [Path(p) for p in kwargs.get("extra_include_dirs", [])]
+            assert any((p / "tracking.h").is_file() for p in roots)
+            assert roots[0] == parent
+            obj = workdir / "cand.obj"
+            obj.write_bytes(_make_minimal_coff_obj("_f", b"\xc3"))
+            return str(obj), ""
+
+        monkeypatch.setattr("rebrew.compile.compile_to_obj", compile_candidate)
+        result = build_candidate_obj_only(
+            '#include "tracking.h"\nint f(void){return tracked();}\n',
+            "cl.exe",
+            "",
+            "/O2",
+            "_f",
+            profile=profile,
+            cfg=SimpleNamespace(shared_dir=shared),
+            extra_include_dirs=includes,
+        )
+        assert result.ok and result.obj_bytes == b"\xc3"
+        assert includes == [str(parent)]
+
     def test_build_candidate_obj_only_passes_extra_include_dirs(self, monkeypatch) -> None:
         """The GA/diff docker path must forward the original source's parent
         dir so relative #includes resolve in the container (rebrew diff on
