@@ -311,6 +311,8 @@ def run_diff(
         cs_mode=cs_mode,
         pointer_size=ptr_size,
     )
+    if isinstance(summary, dict):
+        summary["candidate_size"] = full_obj_size
     if not json_output and not csv_output and isinstance(summary, dict):
         from rebrew.matcher.scoring import print_diff_summary
 
