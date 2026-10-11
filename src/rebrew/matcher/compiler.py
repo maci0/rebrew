@@ -626,6 +626,10 @@ def build_candidate_obj_only(
             src_path.write_text(source_code, encoding="utf-8", errors="surrogateescape")
             workdir = base / "work"
             workdir.mkdir()
+            candidate_includes = list(extra_include_dirs or [])
+            shared = getattr(cfg, "shared_dir", None)
+            if shared is not None and Path(shared).is_dir():
+                candidate_includes.append(str(Path(shared).resolve()))
             obj_file, err = compile_to_obj(
                 cfg,
                 src_path,
@@ -637,7 +641,7 @@ def build_candidate_obj_only(
                 # The source is compiled from a temp copy; the original
                 # source's parent dir must reach the container for relative
                 # #include resolution (rebrew diff / flag sweep).
-                extra_include_dirs=extra_include_dirs,
+                extra_include_dirs=candidate_includes,
                 # A --flag-sweep-toolchains run swaps the compiler per iteration —
                 # the profile must drive the image, not the project default.
                 toolchain=profile,
