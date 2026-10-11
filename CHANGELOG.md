@@ -10,6 +10,15 @@
   inputs/outputs, symlinks and patches that change the file inventory are rejected.
 
 ### Fixed
+- A bare `--target` / `-t` lists configured targets instead of failing with a
+  missing-argument error. Default-target selection and explicit overrides remain
+  unchanged. Status explains when no data byte-verification results are recorded;
+  function matches do not imply verified initialized data.
+- `rebrew source rename PLACEHOLDER MODULE.0xVA` can bind calls to managed
+  library identities in annotation headers without creating replacement source.
+  Destination conflicts are checked in the affected files; unrelated local
+  variables no longer prevent a binding. Identity, verdict and ordinary rename
+  collision checks are preserved.
 - `rebrew source rename` carries assembly provenance through definition/file
   renames and refreshes current evidence in mechanically changed callers.
   Already stale evidence stays stale; corrupt or conflicting records prevent

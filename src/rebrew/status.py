@@ -1147,6 +1147,16 @@ def _data_block(report: StatusReport) -> list[Any]:
     if total == 0 and report.data_total_bytes == 0:
         return []
     block: list[Any] = []
+    if total > 0 and report.data_verified == 0 and report.data_drift == 0:
+        block.append(
+            Text("Data verification: no verified bytes recorded for this target.", style="yellow")
+        )
+        block.append(
+            Text(
+                "Function matches do not verify data bytes. Run verify --data against a raw link.",
+                style="dim",
+            )
+        )
     if report.data_total_bytes > 0:
         headline = Text()
         headline.append(
