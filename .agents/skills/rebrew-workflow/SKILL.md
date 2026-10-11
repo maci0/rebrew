@@ -39,6 +39,13 @@ otherwise, and the batch commands (`test` / `verify` / `lint` / `status` / `todo
 take `--all-targets` instead. For annotation syntax details, see
 `references/annotation-format.md`.
 
+## Before Writing a Helper
+
+Check current CLI help before adding a project script. For inventory, parsing,
+source/store edits, placement or verification, read
+[references/tool-selection.md](references/tool-selection.md) for shipped commands,
+public APIs, scoped scratch experiments and migrating reusable gaps upstream.
+
 ## When NOT to use this skill
 
 - No `rebrew-project.toml` yet (bare directory, or a binary not yet onboarded) →
@@ -239,12 +246,5 @@ Round-trip needs canonical SIZE in `rebrew-functions.toml`: backfill it with
 `rebrew coverage catalog --fix-sizes`, or `rebrew source migrate-markers` on an unmigrated `.c`.
 PROVEN is skipped. Full fallback/drift rules: `references/round-trip.md`.
 
-## Toolchains
-
-Shipped profiles (`msvc-*`, `mingw-*`, …) compile only through their docker image:
-`rebrew toolchain list/status/pull/build`. No host wine/wibo fallback. See rebrew repo `docs/TOOLCHAIN.md`.
-
-## Advanced commands
-
-Linkage / inspection tools outside the main loop:
-`references/advanced-commands.md`.
+Shipped profiles compile only in Docker; no host wine/wibo fallback.
+Toolchain and link/inspection commands: `references/advanced-commands.md`.

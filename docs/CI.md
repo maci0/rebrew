@@ -4,6 +4,9 @@ Suggested gates for reverse-engineering workspaces that use rebrew.
 
 ## Package CI (this repo)
 
+Assembly and vendor tests require nasm and GNU patch; the jobs install both through
+`tools/ci_apt_install.sh` with its retry policy.
+
 GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
 across the supported Python versions (3.13–3.14; the 3.13 entry runs it as
 `make coverage`, failing below `COV_FLOOR`), plus, on that same 3.13 entry,

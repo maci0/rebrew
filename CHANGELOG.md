@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Added
+- Generated `AGENTS.md` and workflow/data skills route common operations to
+  shipped commands and public APIs before adding scripts, with guidance for
+  scoped scratch experiments, upstream gaps and retiring duplicated tooling.
+- `rebrew library vendor MANIFEST...` checks generated source trees against
+  SHA-256-pinned pristine files plus ordered patches. `--sync` regenerates them
+  after all manifests pass staging. Paths stay inside the project root; overlapping
+  inputs/outputs, symlinks and patches that change the file inventory are rejected.
+
 ## [2.25.0] - 2026-10-11
 
 ### Added
