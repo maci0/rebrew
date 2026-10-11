@@ -1261,9 +1261,12 @@ class TestProtectedSpans:
 
 
 class TestFunctionReferenceBinding:
+    @pytest.mark.parametrize(
+        "header_text", ["// LIBRARY: CLIENT 0x1000\n// _free\n", "void free(void*);\n"]
+    )
     @pytest.mark.parametrize("preview", [True, False])
     def test_binds_linked_library_without_creating_source_or_changing_identity(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preview: bool
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preview: bool, header_text: str
     ) -> None:
         import json
 
@@ -1272,7 +1275,7 @@ class TestFunctionReferenceBinding:
         from rebrew.metadata import record_function_identity
         from rebrew.rename import app
 
-        header = _src(tmp_path, "library_crt.h", "// LIBRARY: CLIENT 0x1000\n// _free\n")
+        header = _src(tmp_path, "library_crt.h", header_text)
         caller = _src(
             tmp_path,
             "caller.c",
@@ -1301,7 +1304,7 @@ class TestFunctionReferenceBinding:
         assert caller.read_bytes() == (
             original if preview else original.replace(b"placeholder", b"free")
         )
-        assert header.read_text() == "// LIBRARY: CLIENT 0x1000\n// _free\n"
+        assert header.read_text() == header_text
         assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata
         assert not any("free(void* p) {" in p.read_text() for p in tmp_path.glob("*.c"))
 

@@ -514,8 +514,11 @@ Choosing the symbol:
   and references to that existing function's C name. This explicitly asserts
   that those references identify the selected function. Its definition, identity
   and verification stay unchanged. The destination must have one external source
-  definition; source definitions, existing identities, variables, types, statics
-  and macros refuse before any write. `--file` and `--all-modules` do not apply.
+  definition or a managed `LIBRARY` identity in an annotation header. A library
+  binding creates no replacement body and does not establish its build provider.
+  Definitions or identities for the placeholder, and conflicting variables,
+  types, statics or macros in affected files, refuse before any write.
+  `--file` and `--all-modules` do not apply.
 - `<old>` for a function is a name, symbol, file, VA (active target) or
   `MODULE.0xVA` (any module). For `--data` it is a name, VA or `MODULE.0xVA`.
   A name with rows in several modules prefers the active target's row.

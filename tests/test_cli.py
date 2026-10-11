@@ -31,6 +31,28 @@ from rebrew.utils import console as utils_console
 
 
 class TestMissingTargetArgument:
+    @pytest.mark.parametrize("selection", [[], ["--target", "beta"], ["-t", "beta"]])
+    def test_normal_invocations_still_run_command(self, selection: list[str]) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.cli import TargetOption, VersionedGroup
+
+        app = typer.Typer(cls=VersionedGroup)
+
+        @app.callback()
+        def main() -> None:
+            pass
+
+        seen: list[tuple[str, str | None]] = []
+
+        @app.command()
+        def command(source: str, target: str | None = TargetOption) -> None:
+            seen.append((source, target))
+
+        result = CliRunner().invoke(app, ["command", "caller.c", *selection])
+        assert result.exit_code == 0, result.output
+        assert seen == [("caller.c", "beta" if selection else None)]
+
     @pytest.mark.parametrize("flag", ["--target", "-t"])
     @pytest.mark.parametrize("json_mode", [False, True])
     def test_lists_targets_without_running_command(
