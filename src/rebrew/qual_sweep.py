@@ -59,7 +59,7 @@ app = typer.Typer(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew match qualifiers src/f.c · · · · · · · · Try every qualifier set, keep winners\n\n"
         "  rebrew match qualifiers src/f.c --rounds 5 · · · Re-sweep until the result stops changing\n\n"
-        "  rebrew match qualifiers src/f.c --dry-run · · · Report the winning declaration, write nothing\n\n"
+        "  rebrew match qualifiers src/f.c --dry-run · · · List declaration candidates without compiling\n\n"
         "  rebrew match qualifiers src/f.c --json · · · · · · Machine-readable winner table to stdout\n\n"
         "[bold]Exit codes:[/bold]\n\n"
         "  0   The sweep finished (report the winner on stderr)\n\n"
@@ -109,6 +109,9 @@ _FN_PARAMS = r"(?:\((?:[^()]|\([^()]*\))*\))?"
 
 def _is_decl(unit: str) -> bool:
     s = _strip_literals(unit).strip()
+    words = s.split(maxsplit=1)
+    if words and words[0] in {"return", "goto"}:
+        return False
     # Brackets may repeat, and one bound may contain one nested pair.
     # Stopping at the first ``]`` left ``char g[sizeof(wchar_t[3])];`` and
     # ``char g[2][4];`` out of the sweep. A parenthesized pointer

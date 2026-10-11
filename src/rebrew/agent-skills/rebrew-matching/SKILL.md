@@ -159,6 +159,9 @@ rebrew match qualifiers src/<target>/<file>.c --json            # declaration qu
 rebrew match qualifiers src/<target>/<file>.c --dry-run --json
 ```
 
+`match qualifiers --dry-run` lists candidate declarations without compiling.
+Run without `--dry-run` to score candidates and keep improvements.
+
 `climb` = adjacent statement swaps; `qual-sweep` = exhaustive per-declaration
 qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
 

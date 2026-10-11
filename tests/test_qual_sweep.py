@@ -8,6 +8,7 @@ a docker compile is not needed to pin the ordering rule.
 
 from __future__ import annotations
 
+import json
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -43,6 +44,41 @@ def _prepare(monkeypatch: object, tmp_path: Path, score: object) -> Path:
     )
     monkeypatch.setattr(rebrew.qual_sweep, "score_fn", score)  # type: ignore[attr-defined]
     return src
+
+
+class TestStatementCandidates:
+    @pytest.mark.parametrize(
+        "statement", ["return 0;", "return value;", "return\tvalue;", "goto done;"]
+    )
+    def test_control_flow_is_not_a_declaration(self, statement: str) -> None:
+        assert not rebrew.qual_sweep._is_decl(statement)
+
+    @pytest.mark.parametrize("declaration", ["return_code result;", "goto_target destination;"])
+    def test_typedef_names_with_statement_prefixes_are_declarations(self, declaration: str) -> None:
+        assert rebrew.qual_sweep._is_decl(declaration)
+
+    def test_preview_only_lists_local_declarations(self, monkeypatch, tmp_path, capsys) -> None:
+        src = _prepare(monkeypatch, tmp_path, None)
+        original = SOURCE.replace("return a + b;", "return a;")
+        src.write_text(original, encoding="utf-8")
+
+        main(
+            source=str(src),
+            va=None,
+            symbol=None,
+            rounds=1,
+            jobs=1,
+            dry_run=True,
+            json_output=True,
+            target=None,
+        )
+
+        result = json.loads(capsys.readouterr().out)
+        assert [candidate["text"] for candidate in result["candidates"]] == [
+            "volatile int a;",
+            "volatile int b;",
+        ]
+        assert src.read_text(encoding="utf-8") == original
 
 
 class TestWinnerIsIndependentOfThreadOrder:
