@@ -195,6 +195,9 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- `build cmake-flags` preserves configured target defines as CMake
+  `COMPILE_DEFINITIONS`, including explicitly listed support sources. The JSON
+  report names those defines; metadata-only reconstruction guards stay excluded.
 - `rebrew todo` classifies durable compile/extract errors even when no current
   verification cache entry exists, using the same effective verdict as `status`.
   A newer cached byte match and the existing PROVEN precedence still win.

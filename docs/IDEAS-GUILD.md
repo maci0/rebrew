@@ -866,3 +866,22 @@ and excluded independent twin; test a shared two-client definition plus server
 validator, attributed users and linker references.
 Evidence: guild-rebrew .scratch/goal20/sound-wrapper-rename-preview.json,
 sound-wrapper-rename-all-preview.json and sound-wrapper/rename-preview.json.
+
+## Configured target defines in CMake (2026-10-11)
+
+Resolved: build cmake-flags now emits selected target defines as source
+COMPILE_DEFINITIONS and reports them in JSON. Three regressions and native
+CMake property checks pass; full11,582 passed/51 skipped.
+
+Pain: compile_to_obj applies targets.<name>.defines, but build cmake-flags
+emits only metadata code-generation flags and drops configured target defines.
+A shared implementation can therefore pass test/verify under its server/client
+branch while the configured CMake link compiles a different branch. The
+recursive object-list repair requires a genuine SERVER-only empty cleanup
+versus the existing54-byte client cleanup; inventing compiler-sensitive game
+workarounds would preserve the wrong program. Fix: emit target defines as
+CMake COMPILE_DEFINITIONS for each annotated or explicitly listed source,
+separately from metadata-only reconstruction guards. Verify selected-target
+isolation and CMake's preservation of quoted values, backslashes and literal
+semicolons. Evidence: guild-rebrew .scratch/goal20/recursive-object-list-{asm,
+server-asm,gold-asm,diff}.json and tests/test_cmake_flags.py target-defines cases.

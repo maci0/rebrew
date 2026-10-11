@@ -1058,7 +1058,10 @@ A translation unit is compiled with one flag set, so a file whose functions
 resolve to different **codegen** flags is reported as an error (split the file
 or align the metadata) and nothing is emitted for it.  `--sources-file` names
 the file list the build compiles, so a source nothing annotates still gets an
-entry (its project default) instead of silently losing its flags.  `/D` defines
+entry (its project default) instead of silently losing its flags. The selected
+target's `defines` are emitted as `COMPILE_DEFINITIONS` for every entry, including
+listed support sources, so CMake selects the same shared-source branch as
+`test` and `verify`. JSON reports them in `defines`. Metadata `/D` defines
 are not emitted (this project's are the `DREBREW_ALLOW_NAKED` reconstruction
 guard, which the shipped build must not compile) and each omission is printed as
 a note.  Shared sources

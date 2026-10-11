@@ -10,6 +10,8 @@ which resolves flags from ``rebrew-functions.toml``.  guild-rebrew's
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -55,6 +57,83 @@ def test_metadata_flags_are_emitted(tmp_path: Path) -> None:
     files, problems, _notes = collect(cfg, "SERVER")
     assert problems == []
     assert list(files.values()) == ["/Ox /Gd"]
+
+
+@pytest.mark.parametrize(
+    "defines",
+    [["REBREW_SERVER"], ['LABEL="ab"', r"PATH=C:\data", "CHOICES=a;b"]],
+)
+def test_target_defines_reach_annotated_and_listed_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, defines: list[str]
+) -> None:
+    """CMake must retain the target branch used by test/verify, even for support C."""
+    cmake = shutil.which("cmake")
+    if cmake is None:
+        pytest.skip("cmake is required to check the generated source properties")
+    _project(
+        tmp_path,
+        '["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
+        {
+            "a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n",
+            "extra.c": "int extra(void) { return 1; }\n",
+        },
+    )
+    (tmp_path / "rebrew-project.toml").write_text(
+        TOML.replace('marker = "SERVER"', 'marker = "SERVER"\ndefines = ' + json.dumps(defines)),
+        encoding="utf-8",
+    )
+    listed = tmp_path / "sources.txt"
+    listed.write_text("src/server_dll/a.c\nsrc/server_dll/extra.c\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(app, ["--json", "--sources-file", str(listed), "-o", "flags.cmake"])
+    assert result.exit_code == 0, result.output
+    (tmp_path / "CMakeLists.txt").write_text(
+        "cmake_minimum_required(VERSION 3.15)\nproject(check_defines NONE)\n"
+        "include(flags.cmake)\n"
+        "foreach(name a extra)\n"
+        '  get_source_file_property(defs "${CMAKE_CURRENT_SOURCE_DIR}/src/server_dll/${name}.c" COMPILE_DEFINITIONS)\n'
+        '  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${name}.txt" "")\n'
+        "  foreach(def IN LISTS defs)\n"
+        '    file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/${name}.txt" "${def}\\n")\n'
+        "  endforeach()\n"
+        "endforeach()\n",
+        encoding="utf-8",
+    )
+    configured = subprocess.run(
+        [cmake, "-S", str(tmp_path), "-B", str(tmp_path / "build")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert configured.returncode == 0, configured.stdout + configured.stderr
+    for name in ("a", "extra"):
+        assert (tmp_path / "build" / f"{name}.txt").read_text().splitlines() == defines
+    assert json.loads(result.stdout)["defines"] == defines
+    assert "DREBREW_ALLOW_NAKED" not in json.loads(result.stdout)["files"]["src/server_dll/a.c"]
+
+
+def test_target_defines_do_not_leak_between_targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _project(
+        tmp_path,
+        "",
+        {
+            "a.c": "// FUNCTION: SERVER 0x10001000\n// FUNCTION: CLIENT 0x401000\nint a(void) { return 0; }\n"
+        },
+    )
+    (tmp_path / "rebrew-project.toml").write_text(
+        TOML.replace('marker = "SERVER"', 'marker = "SERVER"\ndefines = ["SERVER_BUILD"]')
+        + '\n[targets.client]\nbinary = "original/client.exe"\nformat = "pe"\n'
+        'arch = "x86_32"\nreversed_dir = "src/server_dll"\nmarker = "CLIENT"\n'
+        'defines = ["CLIENT_BUILD"]\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    for target, define in [("server_dll", "SERVER_BUILD"), ("client", "CLIENT_BUILD")]:
+        result = CliRunner().invoke(app, ["--json", "--dry-run", "--target", target])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["defines"] == [define]
 
 
 def test_conflicting_functions_in_one_file_are_reported(tmp_path: Path) -> None:
