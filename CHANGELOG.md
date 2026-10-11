@@ -1,6 +1,13 @@
 ## [Unreleased]
 
 ### Added
+- `rebrew types bind` records stable type IDs in managed `rebrew-types.toml`,
+  with per-target definition bindings, C sizeof/member offsets, native allocation
+  or stride extents and evidence. C89 compiler assertions gate writes; stale
+  sources, headers, compiler context and native binaries surface in `types check`
+  and lint W031. `types check --compile` repeats current layout assertions.
+  Raw conditional struct fields now stop inferred layout parsing instead of
+  silently disappearing from a supposedly complete layout.
 - `smart_reloc_compare(..., strict=True)` validates fully bound operand proofs:
   known DIR32 targets must agree even when the competing native address is
   absent from the catalog. Unbound, unsupported, out-of-extent and symbol-free

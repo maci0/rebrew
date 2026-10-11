@@ -361,6 +361,10 @@ def _build_struct(
     max_align = 1
     complete = True
     for decl in body.children:
+        if decl.type.startswith("preproc_") or decl.type == "ERROR":
+            # Raw source has no selected target branch; subsequent offsets are unknown.
+            complete = False
+            break
         if decl.type != "field_declaration":
             continue
         parsed = _parse_field(decl, source)

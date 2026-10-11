@@ -591,6 +591,7 @@ Writes and output:
 | Operation | Purpose |
 | --- | --- |
 | `rebrew types check` | Check declared structs against decompiler offset evidence. |
+| `rebrew types bind` | Bind a stable type ID to its C definition and compiler-checked target layout. |
 | `rebrew types apply` | Rewrite one parameter's type in project C source (recovered types reach the compiler). |
 | `rebrew types recover` | Recover struct definitions from decompiler output. |
 
@@ -4185,16 +4186,39 @@ rebrew orphans drop 0x401000 --dry-run --json
 
 ### `rebrew types check`
 
-Check declared structs against decompiler offset evidence.
+Check declared structs against decompiler offset evidence and managed type
+bindings for stale inputs. JSON includes `type_findings`; invalid or stale
+managed bindings exit 1. Registered headers are checked independently of
+decompiler evidence. Raw conditional fields are incomplete until a compiler
+selects the target branch.
 
 | Argument or option | Meaning |
 | --- | --- |
+| `--compile` | Recompile sizeof/offsetof assertions for current managed bindings. |
 | `--json` | Output results as JSON |
 | `--target` / `-t` | Target name from rebrew-project.toml (default: project default target). |
 
 ```bash
 rebrew types check --json
 ```
+
+### `rebrew types bind`
+
+```bash
+rebrew types bind engine.object src/object.h OBJECT --size 0x228 --native-size 0x228 \
+  --extent allocation --field name=0 --evidence 'A.0x401000 allocates 0x228' --json
+```
+
+`ID FILE C_NAME` identifies a type independently of its spelling. Size values
+accept decimal or hex. `--extent` is `allocation` (default) or `stride`;
+`--field member=offset` is repeatable and excludes bitfields. `--cflags` defaults
+to the target flags. `--dry-run` validates and previews without compilation or
+writes. `--target` selects the native binary/compiler context. Successful writes
+require a unique parseable definition, a C view within the native extent, and
+successful target compiler assertions. No link, allocation or function/data
+verdict is created. Rebind the same ID after reviewing stale evidence, including
+after source rename/move. Evidence is reviewed input; Rebrew does not infer a
+native extent from sizeof.
 
 ### `rebrew types apply`
 
