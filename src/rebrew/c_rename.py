@@ -23,7 +23,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+from rebrew.c_parser import find_function_name_in_node, mask_msvc_syntax, parse_c_source
 
 # ---------------------------------------------------------------------------
 # Occurrence roles
@@ -221,6 +221,8 @@ def rewrite(src: ParsedSource, spans: list[tuple[int, int]], new_name: str) -> s
 def declarator_name(node: Any, src: ParsedSource) -> str | None:
     """Name a declarator declares, descending through pointer/array/function wrappers."""
     while node is not None:
+        if node.type == "function_declarator":
+            return find_function_name_in_node(node, src.data)
         if node.type in ("identifier", "field_identifier", "type_identifier"):
             return src.node_text(node)
         if node.type == "parenthesized_declarator":

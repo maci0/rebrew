@@ -980,8 +980,19 @@ def _find_child(node: Any, *types: str) -> Any | None:
 def find_function_name_in_node(declarator: Any, source_bytes: bytes) -> str | None:
     """Recursively walk a declarator to find the function name identifier."""
     if declarator.type == "function_declarator":
+        # Recovery can put an export macro in the name field and the real name in ERROR.
+        children = [c for c in declarator.children if c.type != "comment"]
+        if (
+            len(children) == 3
+            and children[0].type == "identifier"
+            and children[1].type == "ERROR"
+            and children[2].type == "parameter_list"
+        ):
+            recovered = [c for c in children[1].children if c.type != "comment"]
+            if len(recovered) == 1 and recovered[0].type == "identifier":
+                return node_text(recovered[0], source_bytes)
         for child in declarator.children:
-            if child.type == "identifier":
+            if child.type in ("identifier", "type_identifier", "field_identifier"):
                 return node_text(child, source_bytes)
             # Parenthesised declarator: int (*name)(...)
             if child.type == "parenthesized_declarator":
@@ -1002,7 +1013,7 @@ def find_function_name_in_node(declarator: Any, source_bytes: bytes) -> str | No
             name = find_function_name_in_node(child, source_bytes)
             if name:
                 return name
-    elif declarator.type == "identifier":
+    elif declarator.type in ("identifier", "type_identifier", "field_identifier"):
         return node_text(declarator, source_bytes)
     else:
         for child in declarator.children:

@@ -1263,12 +1263,14 @@ class TestProtectedSpans:
 class TestFunctionReferenceBinding:
     @pytest.mark.parametrize("preview", [True, False])
     @pytest.mark.parametrize("conflict", [None, "other-target-definition", "missing", "escape"])
+    @pytest.mark.parametrize("return_type", ["int", "z_off_t"])
     def test_binds_compiled_library_outside_reversed_dir(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         preview: bool,
         conflict: str | None,
+        return_type: str,
     ) -> None:
         import json
 
@@ -1281,15 +1283,24 @@ class TestFunctionReferenceBinding:
         source_dir.mkdir()
         vendor_dir = tmp_path / "vendor"
         vendor_dir.mkdir()
+        _src(
+            vendor_dir,
+            "external.h",
+            "#define ZEXPORT\ntypedef long z_off_t;\ntypedef void *gzFile;\n",
+        )
         provider = _src(
             vendor_dir,
             "writer.c",
-            "#define API\nint API write_item(x)\nint x;\n{ return x; }\n",
+            '#include "external.h"\n'
+            f"{return_type} ZEXPORT gzseek (file, offset, whence) "
+            "gzFile file; z_off_t offset; int whence; { return offset + whence; }\n",
         )
         caller = _src(
             source_dir,
             "caller.c",
-            "int placeholder(int); int caller(void) { return placeholder(1); }\n",
+            '#include "../vendor/external.h"\n'
+            f"{return_type} placeholder(gzFile, z_off_t, int); "
+            "int caller(void) { return placeholder(0, 2, 3); }\n",
         )
         record_function_identity(
             tmp_path,
@@ -1297,19 +1308,19 @@ class TestFunctionReferenceBinding:
             va=0x1000,
             file="vendor/writer.c",
             marker_type="LIBRARY",
-            name="write_item",
-            symbol="_write_item",
+            name="gzseek",
+            symbol="_gzseek",
         )
         if conflict == "other-target-definition":
-            _src(vendor_dir, "twin.c", "int write_item(int x) { return x + 1; }\n")
+            _src(vendor_dir, "twin.c", "int gzseek(int x) { return x + 1; }\n")
             record_function_identity(
                 tmp_path,
                 module="OTHER",
                 va=0x2000,
                 file="vendor/twin.c",
                 marker_type="LIBRARY",
-                name="write_item",
-                symbol="_write_item",
+                name="gzseek",
+                symbol="_gzseek",
             )
         elif conflict == "missing":
             provider.unlink()
@@ -1341,7 +1352,7 @@ class TestFunctionReferenceBinding:
             assert reason in result.output
         for path, content in before.items():
             expected = (
-                content.replace(b"placeholder", b"write_item")
+                content.replace(b"placeholder", b"gzseek")
                 if path == caller and conflict is None and not preview
                 else content
             )
