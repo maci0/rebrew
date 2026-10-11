@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 from rebrew.config import ProjectConfig
 from rebrew.lint import lint_file
 from rebrew.main import app
+from rebrew.rename_ops import RenamePlan
 from rebrew.source_provenance import (
     SOURCE_PROVENANCE_FILENAME,
     document_assembly,
@@ -225,3 +226,124 @@ class TestDocumentAssemblyCLI:
         cleared = runner.invoke(app, [*args, "--clear"])
         assert cleared.exit_code == 0, cleared.output
         assert load_source_provenance(tmp_path) == ()
+
+
+class TestRenameProvenance:
+    def _plan(self, root: Path, *, move: bool = False) -> tuple[ProjectConfig, RenamePlan]:
+        from rebrew.rename_ops import plan_symbol_rename
+
+        cfg = ProjectConfig(root=root, reversed_dir=root, marker="CLIENT")
+        return cfg, plan_symbol_rename(
+            cfg,
+            "fill0",
+            "fill",
+            store="function",
+            definition_file=root / "helpers.c",
+            require_ack=False,
+            rename_file=move,
+            new_filename="renamed.c" if move else None,
+        )
+
+    @pytest.mark.parametrize("stale", [False, True])
+    def test_rename_preserves_targets_callers_and_stale_evidence(
+        self, tmp_path: Path, stale: bool
+    ) -> None:
+        from rebrew.rename_ops import apply_rename_plan
+
+        file = _source(tmp_path)
+        file.write_text(SOURCE + "void caller(void) { fill0(); __asm { nop } }\n")
+        for symbol in ("fill0", "caller"):
+            for module in ("CLIENT", "SERVER"):
+                document_assembly(tmp_path, file, symbol, module, f"Original {symbol} macro")
+        old = {(r.symbol, r.module): r for r in load_source_provenance(tmp_path)}
+        if stale:
+            file.write_text(file.read_text().replace("mov eax, 0", "mov eax, 2"))
+        cfg, plan = self._plan(tmp_path)
+        apply_rename_plan(cfg, plan)
+        hashes = function_definition_hashes(file.read_text())
+        records = load_source_provenance(tmp_path)
+        assert {(r.symbol, r.module) for r in records} == {
+            (s, m) for s in ("fill", "caller") for m in ("CLIENT", "SERVER")
+        }
+        for record in records:
+            before = old[("fill0" if record.symbol == "fill" else record.symbol, record.module)]
+            assert record.evidence == before.evidence
+            if stale and record.symbol == "fill":
+                assert record.source_hash == before.source_hash != hashes[record.symbol]
+            else:
+                assert record.source_hash == hashes[record.symbol]
+
+    def test_file_move_and_definition_name_follow_the_same_rename(self, tmp_path: Path) -> None:
+        from rebrew.rename_ops import apply_rename_plan
+
+        file = _source(tmp_path)
+        document_assembly(tmp_path, file, "fill0", "CLIENT", "Original macro")
+        cfg, plan = self._plan(tmp_path, move=True)
+        apply_rename_plan(cfg, plan)
+        new_file = tmp_path / "renamed.c"
+        assert new_file.exists() and not file.exists()
+        (record,) = load_source_provenance(tmp_path)
+        assert (record.file, record.symbol) == ("renamed.c", "fill")
+        assert record.source_hash == function_definition_hashes(new_file.read_text())["fill"]
+
+    def test_corrupt_store_is_rejected_before_sources_change(self, tmp_path: Path) -> None:
+        from rebrew.rename_ops import RenameError, apply_rename_plan
+
+        file = _source(tmp_path)
+        path = tmp_path / SOURCE_PROVENANCE_FILENAME
+        path.write_text("invalid = [")
+        cfg, plan = self._plan(tmp_path)
+        with pytest.raises(RenameError, match="provenance"):
+            apply_rename_plan(cfg, plan)
+        assert file.read_text() == SOURCE
+        assert path.read_text() == "invalid = ["
+
+    def test_existing_destination_evidence_is_not_overwritten(self, tmp_path: Path) -> None:
+        from rebrew.rename_ops import RenameError, apply_rename_plan
+
+        file = _source(tmp_path)
+        file.write_text(SOURCE + "void fill(void) { __asm { nop } }\n")
+        document_assembly(tmp_path, file, "fill", "CLIENT", "Other reviewed macro")
+        file.write_text(SOURCE)
+        document_assembly(tmp_path, file, "fill0", "CLIENT", "Original macro")
+        cfg, plan = self._plan(tmp_path)
+        before = (tmp_path / SOURCE_PROVENANCE_FILENAME).read_bytes()
+        with pytest.raises(RenameError, match="provenance"):
+            apply_rename_plan(cfg, plan)
+        assert file.read_text() == SOURCE
+        assert (tmp_path / SOURCE_PROVENANCE_FILENAME).read_bytes() == before
+
+    def test_failed_provenance_write_restores_the_source_and_move(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import source_provenance
+        from rebrew.rename_ops import RenameError, apply_rename_plan
+
+        file = _source(tmp_path)
+        document_assembly(tmp_path, file, "fill0", "CLIENT", "Original macro")
+        path = tmp_path / SOURCE_PROVENANCE_FILENAME
+        before = path.read_bytes()
+        cfg, plan = self._plan(tmp_path, move=True)
+
+        def fail_write(*args: object, **kwargs: object) -> None:
+            raise OSError("cannot write provenance")
+
+        monkeypatch.setattr(source_provenance, "atomic_write_locked", fail_write)
+        with pytest.raises(RenameError, match="cannot write provenance"):
+            apply_rename_plan(cfg, plan)
+        assert file.read_text() == SOURCE
+        assert not (tmp_path / "renamed.c").exists()
+        assert path.read_bytes() == before
+
+    def test_data_rename_refreshes_current_evidence_in_users(self, tmp_path: Path) -> None:
+        from rebrew.rename_ops import apply_rename_plan, plan_symbol_rename
+
+        file = _source(tmp_path)
+        file.write_text("int counter;\n" + SOURCE.replace("mov eax, 1", "mov eax, counter"))
+        document_assembly(tmp_path, file, "other", "CLIENT", "Original macro")
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, marker="CLIENT")
+        plan = plan_symbol_rename(cfg, "counter", "total", store="data", require_ack=False)
+        apply_rename_plan(cfg, plan)
+        (record,) = load_source_provenance(tmp_path)
+        assert record.symbol == "other" and "mov eax, total" in file.read_text()
+        assert record.source_hash == function_definition_hashes(file.read_text())["other"]

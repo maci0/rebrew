@@ -9,6 +9,12 @@
   after all manifests pass staging. Paths stay inside the project root; overlapping
   inputs/outputs, symlinks and patches that change the file inventory are rejected.
 
+### Fixed
+- `rebrew source rename` carries assembly provenance through definition/file
+  renames and refreshes current evidence in mechanically changed callers.
+  Already stale evidence stays stale; corrupt or conflicting records prevent
+  source changes, and a failed provenance write restores renamed sources.
+
 ## [2.25.0] - 2026-10-11
 
 ### Added
