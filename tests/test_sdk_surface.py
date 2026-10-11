@@ -156,6 +156,7 @@ class TestErrorsLazyExports:
             "Tc16Error",
             "ToolchainError",
             "UnresolvedSymbolError",
+            "VendorError",
             "WorkspaceConfigError",
             "WorkspaceNotFound",
         }
@@ -213,6 +214,7 @@ class TestErrorsLazyExports:
             "ToolchainError",
             "ToolchainErrorKind",
             "UnresolvedSymbolError",
+            "VendorError",
             "WorkspaceConfigError",
             "WorkspaceNotFound",
         ]
