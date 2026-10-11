@@ -36,6 +36,7 @@ from rich.console import Console
 from typer._click.core import Command as TyperBaseCommand
 from typer._click.core import Context as TyperContext
 from typer._click.core import Parameter as TyperParameter
+from typer._click.exceptions import BadOptionUsage
 from typer.core import TyperGroup, TyperOption
 
 from rebrew.annotation import Annotation, parse_c_file_multi
@@ -85,7 +86,7 @@ TargetOption: str | None = typer.Option(
     None,
     "--target",
     "-t",
-    help="Target name from rebrew-project.toml (default: project default target).",
+    help="Target name from rebrew-project.toml (default: project default target); omit the argument to list targets.",
 )
 
 
@@ -439,6 +440,43 @@ def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
     "errors only", not "logs at warning", so the injector adds ``--verbose``
     there and leaves ``--quiet`` alone.
     """
+    target_option = next(
+        (
+            param
+            for param in cmd.params
+            if isinstance(param, TyperOption)
+            and "--target" in param.opts
+            and param.help
+            and param.help.startswith("Target name from rebrew-project.toml")
+        ),
+        None,
+    )
+    if target_option is not None and not getattr(cmd, "_rebrew_target_listing", False):
+        original_parse_args = cmd.parse_args
+
+        def parse_args(ctx: TyperContext, args: list[str]) -> list[str]:
+            argv = list(args)
+            try:
+                return original_parse_args(ctx, args)
+            except BadOptionUsage as exc:
+                if exc.option_name not in target_option.opts:
+                    raise
+                values, _, _ = cmd.make_parser(ctx).parse_args(args=argv[:-1])
+                json_mode = bool(values.get("json_output"))
+                root = values.get("root")
+                cfg = require_config(root=Path(root) if root else None, json_mode=json_mode)
+                names = list(cfg.all_targets) or [cfg.target_name]
+                if json_mode:
+                    json_print({"targets": names, "default_target": cfg.target_name})
+                else:
+                    console.print("Configured targets:")
+                    for name in names:
+                        suffix = " (default)" if name == cfg.target_name else ""
+                        console.print(f"  {untrusted_text(name)}{suffix}")
+                ctx.exit(EXIT_OK)
+
+        cmd.parse_args = parse_args  # type: ignore[method-assign]
+        cmd._rebrew_target_listing = True  # type: ignore[attr-defined]
     if not _declares(cmd, "--version"):
         cmd.params.append(
             TyperOption(

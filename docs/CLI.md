@@ -15,6 +15,9 @@ See [ADR 027](adr/027-build-hooks-under-umbrella.md).
 
 Most tools support `--target / -t` to select a target from `rebrew-project.toml` and
 read defaults (binary path, reversed_dir, compiler settings) from the project config.
+A bare selection flag lists configured targets without running the command:
+`rebrew status --target` or `rebrew status --json --target`. With no selection
+flag, the command uses the project default target.
 The ones that do not (`postlink`, `cmake-toolchain`, `build-check`, `order-sources`,
 `gen-link-stubs`, `gen-stubs`, `pdb-info`, `discover-functions`, `unpack-lzexe`,
 `gen-flirt-pat`, `dashboard`, plus the `library`, `resource`, and `skills` groups,
@@ -151,7 +154,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew binsync overlay` | `binsync/overlay.py` | Overlay a related target's BinSync names/prototypes/notes onto structurally-matched functions of this target (same code at different VAs; `--from`, `--fields name,prototype,note,global`, `--accept-binsync`/`--accept-local`) |
 | `rebrew binsync` | `binsync/cli.py` | State exchange and reconciliation; `rebrew binsync push --git-push` publishes exported state, while `rebrew binsync pull` fast-forwards Git before importing |
 | `rebrew coverage build` | `build_db.py` (over `coverage_db.py`) | Write one clear-text `db/coverage-<target>.toml` per target by scanning the project ([format docs](COVERAGE_DOCUMENT.md)) |
-| `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
+| `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts). Data percentages report stored byte-verification verdicts; function matches do not verify initialized data |
 | `rebrew similarity function` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
 | `rebrew similarity binary` | `binary_similarity.py` | Whole-binary structural similarity vs another binary: per-function best matches aggregated into a byte-weighted score (versions/DLL+EXE) |
 | `rebrew diagnose near` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match (register, encoding, equivalent, reloc or structural), plus the `EFFECTIVE` verdict, reccmp-adapted equivalences (mirrored conditional jumps) and unique-byte pinning of the alignment when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |

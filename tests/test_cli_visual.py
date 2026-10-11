@@ -45,6 +45,24 @@ def test_zero_bar_has_no_filled_cells() -> None:
     assert bar_plain(0, 10) == "░" * BAR_WIDTH
 
 
+def test_status_explains_unverified_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    import rebrew.status as status_mod
+
+    buf = _console(monkeypatch, status_mod)
+    status_mod._render_terminal(
+        status_mod.StatusReport(
+            target="client.exe",
+            data_unchecked=2,
+            data_total_bytes=100,
+            data_bytes={"drift": 0, "unchecked": 20, "untracked": 80},
+        )
+    )
+    output = buf.getvalue()
+    assert "no verified bytes recorded" in output
+    assert "Function matches do not verify data bytes" in output
+    assert "0.0% of .data+.rdata verified" in output
+
+
 def test_partial_bar_is_mixed() -> None:
     bar = bar_plain(1, 2)
     assert 0 < bar.count("█") < BAR_WIDTH

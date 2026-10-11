@@ -1,6 +1,10 @@
 ## [Unreleased]
 
 ### Fixed
+- A bare `--target` / `-t` lists configured targets instead of failing with a
+  missing-argument error. Default-target selection and explicit overrides remain
+  unchanged. Status explains when no data byte-verification results are recorded;
+  function matches do not imply verified initialized data.
 - `rebrew source rename PLACEHOLDER MODULE.0xVA` can bind calls to managed
   library identities in annotation headers without creating replacement source.
   Destination conflicts are checked in the affected files; unrelated local
