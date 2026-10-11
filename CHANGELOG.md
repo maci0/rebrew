@@ -200,6 +200,10 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- Retire lint W007's file-level struct `// SIZE` recommendation. Pure C and
+  legacy sources no longer need a redundant size comment; function/data sizes
+  remain in their managed TOML stores, and recovered type layouts are checked
+  through C declarations, compiler layout checks and decompiler evidence.
 - Legacy-marker source merges now retarget existing managed function and data
   identities across targets before deleting inputs. A merge refuses to discard
   a managed function body; failed store updates restore the output and bindings.

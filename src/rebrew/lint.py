@@ -103,7 +103,6 @@ log = logging.getLogger(__name__)
 # accepts `//` and `/*` (the C89-strict form intake emits for borland-2.0/msvc-1.52), so
 # lint must not report E001/E002 on a file the parser reads fine.
 _HEADER_MARKER_RE = re.compile(r"(?://|/\*)\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
-_SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
 
 
 def _is_comment_line(text: str) -> bool:
@@ -2228,7 +2227,6 @@ def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
 
 
 _SUPPORT_MARKER_RE = re.compile(r"//\s*SUPPORT:\s*(\S+)(?:\s+(.*))?")
-_STRUCT_BRACE_RE = re.compile(r"\bstruct\s+\w+\s*\{")
 
 #: TOML field name -> uppercase ``found_keys`` name.
 _METADATA_TO_FOUND: dict[str, str] = {
@@ -2274,45 +2272,12 @@ def support_declaration(lines: list[str]) -> tuple[int, str, str] | None:
 
 
 def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> None:
-    """Check struct SIZE comments and code presence (W003, W007)."""
-    has_code = False
-    has_struct = False
-    first_struct_line = 1
-    struct_has_size = False
-    for i, line in enumerate(lines, start=1):
-        stripped = line.strip()
-        if (
-            stripped
-            and not stripped.startswith("//")
-            and not stripped.startswith("/*")
-            and not stripped.startswith("*")
-        ):
-            has_code = True
-        # Guard the struct regex with its literal substring: every match
-        # contains "struct", and the search ran on all ~140k lines of a
-        # 400-file batch before this (second-hottest lint rule).
-        if (
-            "struct" in stripped
-            and ("typedef struct" in stripped or _STRUCT_BRACE_RE.search(stripped))
-            and not stripped.startswith("//")
-            and not stripped.startswith("/*")
-            and not stripped.startswith("*")
-        ):
-            if not has_struct:
-                first_struct_line = i
-            has_struct = True
-        if not struct_has_size and _SIZE_ANNOTATION_RE.match(stripped):
-            struct_has_size = True
-
+    """Check code presence (W003); struct size comments are not required."""
+    has_code = any(
+        line.strip() and not line.strip().startswith(("//", "/*", "*")) for line in lines
+    )
     if not has_code and has_new:
         result.warning(1, "W003", "File has no function implementation")
-
-    if has_struct and not struct_has_size:
-        result.warning(
-            first_struct_line,
-            "W007",
-            "File defines struct(s) without // SIZE 0xNN marker (reccmp recommendation)",
-        )
 
 
 #: W022 exemption set per loaded data-metadata document, and the document
@@ -2427,7 +2392,7 @@ def lint_file(
     # A support TU declares itself with `// SUPPORT: <MODULE> <reason>` and
     # carries no VA-anchored marker by design.  Blessed here: no E001, and
     # none of the annotation checks below apply (there are no headers to
-    # check).  Body rules (W003/W007) still run — a support file with no
+    # check).  The code-presence rule (W003) still runs — a support file with no
     # code at all is dead weight, not support.
     support = support_declaration(lines)
     if support is not None:

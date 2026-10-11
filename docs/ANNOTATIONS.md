@@ -379,20 +379,18 @@ section = ".bss"
 > The `rebrew-data.toml` metadata file is created and updated automatically by rebrew tools.
 > **Never edit it manually.**
 
-## Struct SIZE Comments (reccmp recommendation)
+## Struct layouts
 
-When a file defines structs, annotate their size:
+Struct declarations do not need `// SIZE` comments. Function sizes belong in
+`rebrew-functions.toml`; global byte extents belong in `rebrew-data.toml`.
+Neither establishes the size of a type or its complete native allocation.
 
-```c
-// SIZE 0x1c
-typedef struct {
-    int x;       // 0x00
-    int y;       // 0x04
-    char* name;  // 0x08
-} MyStruct;
-```
-
-The linter (W007) will warn if a file defining structs lacks the `// SIZE 0xNN` annotation.
+Use the C declaration, target compiler layout checks and `rebrew types check`
+against decompiler field-offset evidence to validate a recovered struct.
+BinSync `structs/*.toml` carries external type-layout evidence for synchronization.
+A partial accessed view must not be reported as a complete native allocation.
+Legacy struct-size comments remain ordinary comments; they are not validated
+metadata. The old file-level W007 recommendation is retired.
 
 ---
 
@@ -462,7 +460,6 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W003 | No function implementation | File has annotations but no C code body |
 | W005 | STUB missing `BLOCKER` | `STATUS: STUB` without BLOCKER in metadata explaining why |
 | W006 | Library missing `SOURCE` | Library module (per `library_modules` config) without `// SOURCE:` pointing to reference file |
-| W007 | Struct without SIZE annotation | File defines `typedef struct` but lacks `// SIZE 0xNN` comment |
 
 #### Format Migration Warnings
 

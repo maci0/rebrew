@@ -130,14 +130,14 @@ class TestLintFileEdgeCases:
         result2 = lint_file(f2, seen_vas=seen_vas)
         assert any((code == "E013" for _, code, _ in result2.errors))
 
-    def test_struct_without_size(self, tmp_path: Path) -> None:
+    def test_struct_without_size_comment(self, tmp_path: Path) -> None:
         f = _write(
             tmp_path,
             "struct.c",
             "// FUNCTION: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// SIZE: 64\n// CFLAGS: /O2 /Gd\n// SYMBOL: _f\ntypedef struct {\n    int x;\n} MyStruct;\nvoid _f() {}\n",
         )
         result = lint_file(f)
-        assert any((code == "W007" for _, code, _ in result.warnings))
+        assert not any((code == "W007" for _, code, _ in result.warnings))
 
     def test_stub_without_blocker(self, tmp_path: Path) -> None:
         f = _write(
@@ -204,7 +204,7 @@ class TestLintFileEdgeCases:
 
 class TestBodyRulesFirstLine:
     @pytest.mark.parametrize("has_size", [False, True])
-    def test_pure_c_struct_checks_include_line_one(self, has_size: bool) -> None:
+    def test_pure_c_struct_size_comment_is_optional(self, has_size: bool) -> None:
         from rebrew.lint import LintResult, _check_body_rules
 
         lines = ["typedef struct { int value; } RECORD;"]
@@ -213,4 +213,4 @@ class TestBodyRulesFirstLine:
         result = LintResult(Path("record.c"))
         _check_body_rules(result, lines, False)
         warnings = [(line, code) for line, code, _message in result.warnings]
-        assert warnings == ([] if has_size else [(1, "W007")])
+        assert warnings == []
