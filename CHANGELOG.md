@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.25.0] - 2026-10-11
+
 ### Added
 - `rebrew types bind` records stable type IDs in managed `rebrew-types.toml`,
   with per-target definition bindings, C sizeof/member offsets, native allocation
