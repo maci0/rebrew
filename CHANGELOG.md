@@ -10,6 +10,10 @@
   inputs/outputs, symlinks and patches that change the file inventory are rejected.
 
 ### Fixed
+- `rebrew match qualifiers` excludes `return` and `goto` statements from
+  declaration candidates, avoiding invalid qualifier edits and wasted compiles.
+  Help and matching guidance clarify that `--dry-run` lists candidates without
+  compiling them.
 - A bare `--target` / `-t` lists configured targets instead of failing with a
   missing-argument error. Default-target selection and explicit overrides remain
   unchanged. Status explains when no data byte-verification results are recorded;
