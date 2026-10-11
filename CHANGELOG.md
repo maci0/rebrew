@@ -10,6 +10,9 @@
   inputs/outputs, symlinks and patches that change the file inventory are rejected.
 
 ### Fixed
+- C declarator parsing recovers export-qualified K&R function names when
+  header-defined types make tree-sitter put the name in an error node. Source
+  renames use the shared resolver while preserving typedef and member names.
 - Source renames include explicitly bound compiled library sources outside
   `reversed_dir`, including other targets' providers for collision checks.
   Reference binding preserves provider source and identity; missing or escaping

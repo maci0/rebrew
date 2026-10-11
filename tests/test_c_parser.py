@@ -114,6 +114,15 @@ class TestExtractFunctionNameFromLine:
 
 
 class TestFindFunctionDefinitions:
+    @pytest.mark.parametrize("return_type", ["int", "z_off_t"])
+    def test_exported_kr_definition_with_typed_parameters(self, return_type: str) -> None:
+        src = (
+            '#include "external.h"\n'
+            f"{return_type} ZEXPORT gzseek (file, offset, whence) "
+            "gzFile file; z_off_t offset; int whence; { return offset; }\n"
+        )
+        assert find_c_function_definitions(src) == [("gzseek", 2)]
+
     def test_multiple_functions(self) -> None:
         src = "int a(void) { return 1; }\n\nint b(void) { return 2; }\n"
         defs = find_c_function_definitions(src)
