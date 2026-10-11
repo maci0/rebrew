@@ -10,6 +10,10 @@
   inputs/outputs, symlinks and patches that change the file inventory are rejected.
 
 ### Fixed
+- Source renames include explicitly bound compiled library sources outside
+  `reversed_dir`, including other targets' providers for collision checks.
+  Reference binding preserves provider source and identity; missing or escaping
+  providers are rejected before writing.
 - `rebrew match qualifiers` excludes `return` and `goto` statements from
   declaration candidates, avoiding invalid qualifier edits and wasted compiles.
   Help and matching guidance clarify that `--dry-run` lists candidates without
