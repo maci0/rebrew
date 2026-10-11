@@ -1261,6 +1261,92 @@ class TestProtectedSpans:
 
 
 class TestFunctionReferenceBinding:
+    @pytest.mark.parametrize("preview", [True, False])
+    @pytest.mark.parametrize("conflict", [None, "other-target-definition", "missing", "escape"])
+    def test_binds_compiled_library_outside_reversed_dir(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        preview: bool,
+        conflict: str | None,
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.metadata import record_function_identity
+        from rebrew.rename import app
+
+        source_dir = tmp_path / "src"
+        source_dir.mkdir()
+        vendor_dir = tmp_path / "vendor"
+        vendor_dir.mkdir()
+        provider = _src(
+            vendor_dir,
+            "writer.c",
+            "#define API\nint API write_item(x)\nint x;\n{ return x; }\n",
+        )
+        caller = _src(
+            source_dir,
+            "caller.c",
+            "int placeholder(int); int caller(void) { return placeholder(1); }\n",
+        )
+        record_function_identity(
+            tmp_path,
+            module="CLIENT",
+            va=0x1000,
+            file="vendor/writer.c",
+            marker_type="LIBRARY",
+            name="write_item",
+            symbol="_write_item",
+        )
+        if conflict == "other-target-definition":
+            _src(vendor_dir, "twin.c", "int write_item(int x) { return x + 1; }\n")
+            record_function_identity(
+                tmp_path,
+                module="OTHER",
+                va=0x2000,
+                file="vendor/twin.c",
+                marker_type="LIBRARY",
+                name="write_item",
+                symbol="_write_item",
+            )
+        elif conflict == "missing":
+            provider.unlink()
+        elif conflict == "escape":
+            provider.unlink()
+            provider.symlink_to(tmp_path.parent / "outside-writer.c")
+        cfg = _cfg(tmp_path)
+        cfg.root, cfg.reversed_dir, cfg.marker, cfg.source_ext = (
+            tmp_path,
+            source_dir,
+            "CLIENT",
+            ".c",
+        )
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        result = CliRunner().invoke(
+            app, ["--json", *(["--dry-run"] if preview else []), "placeholder", "CLIENT.0x1000"]
+        )
+        if conflict is None:
+            assert result.exit_code == 0, result.output
+            assert json.loads(result.stdout)["rows"] == []
+        else:
+            assert result.exit_code == 2, result.output
+            reason = {
+                "other-target-definition": "one external function definition",
+                "missing": "could not be read",
+                "escape": "escapes the project",
+            }[conflict]
+            assert reason in result.output
+        for path, content in before.items():
+            expected = (
+                content.replace(b"placeholder", b"write_item")
+                if path == caller and conflict is None and not preview
+                else content
+            )
+            assert path.read_bytes() == expected
+
     @pytest.mark.parametrize(
         "header_text", ["// LIBRARY: CLIENT 0x1000\n// _free\n", "void free(void*);\n"]
     )
