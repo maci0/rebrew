@@ -89,6 +89,7 @@ if TYPE_CHECKING:
     from rebrew.tc16 import Tc16Error as Tc16Error
     from rebrew.toolchain import ToolchainError as ToolchainError
     from rebrew.toolchain import ToolchainErrorKind as ToolchainErrorKind
+    from rebrew.vendor import VendorError as VendorError
     from rebrew.workspace.config import WorkspaceConfigError as WorkspaceConfigError
     from rebrew.workspace.config import WorkspaceNotFound as WorkspaceNotFound
 
@@ -258,6 +259,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "ToolchainError": ("rebrew.toolchain", "ToolchainError"),
     "UnresolvedSymbolError": ("rebrew.coff_reloc", "UnresolvedSymbolError"),
     "CoverageTomlError": ("rebrew.coverage_toml", "CoverageTomlError"),
+    "VendorError": ("rebrew.vendor", "VendorError"),
     "WorkspaceConfigError": ("rebrew.workspace.config", "WorkspaceConfigError"),
     "WorkspaceNotFound": ("rebrew.workspace.config", "WorkspaceNotFound"),
 }
@@ -358,6 +360,7 @@ __all__ = [
     "ToolchainError",
     "ToolchainErrorKind",
     "UnresolvedSymbolError",
+    "VendorError",
     "WorkspaceConfigError",
     "WorkspaceNotFound",
 ]

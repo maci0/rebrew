@@ -14,10 +14,11 @@ from typing import Any
 import typer
 
 from rebrew.cli import EXIT_MISMATCH, RootOption, console, error_exit, json_print, require_root
+from rebrew.errors import RebrewError
 from rebrew.utils import atomic_write_bytes
 
 
-class VendorError(Exception):
+class VendorError(RebrewError, ValueError):
     """A vendored tree does not match its manifest."""
 
 

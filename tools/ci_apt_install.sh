@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install host packages in a CI job, retrying transient apt mirror failures.
 #
-# One helper for every apt step (nasm for the asm round-trip tests, shellcheck
+# One helper for every apt step (nasm for assembly tests, patch for vendoring, shellcheck
 # and yamllint for the pre-commit gate, jq for the nightly drift result gate):
 # apt mirrors
 # flake under load, and a job that dies on the first 503 retries nothing.
