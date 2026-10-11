@@ -41,6 +41,11 @@ rebrew recommend --json                   # all lanes: TU layout + hygiene + nex
   Reviewed assembly provenance follows definitions and file moves. Only records
   current before the mechanical rename receive refreshed hashes; stale evidence
   stays stale. Reverify byte matches after renaming.
+- `rebrew source rename PLACEHOLDER MODULE.0xVA --dry-run` previews binding
+  unbound calls to an existing external definition or header-owned `LIBRARY`
+  identity. Apply the reviewed binding without `--dry-run`; the destination
+  identity/verdict stays unchanged. Verify library providers separately against
+  the configured archive and raw link; binding requires no replacement C body.
 - A definition shared by several modules' rows renames only with
   `--all-modules`; a per-target twin keeps its name unless `--all-modules`
   is given. Pick one twin by `MODULE.0xVA`. A name with no row in the active
