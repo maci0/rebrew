@@ -550,7 +550,7 @@ def _linker_reference_changes(
 def plan_function_reference_binding(
     cfg: ProjectConfig, old_name: str, selected: Selection, *, comments: bool = False
 ) -> RenamePlan:
-    """Bind an unbound source name to a unique existing external function.
+    """Bind an unbound source name to an external definition or library identity.
 
     The explicit destination identity asserts that the placeholder's references
     mean this function. Its definition, identity and verification are unchanged.
@@ -567,7 +567,17 @@ def plan_function_reference_binding(
     if destination is None or not is_valid_new_name(new_name):
         raise RenameError("binding destination has no project function definition", files=[])
     defs = {p: definitions(project.parsed(p), new_name) for p in project.containing(new_name)}
-    if [(p, d.kind, d.static) for p, found in defs.items() for d in found] != [
+    found_defs = [(p, d.kind, d.static) for p, found in defs.items() for d in found]
+    library_identity = (
+        row.get("marker_type") == "LIBRARY"
+        and destination.suffix.lower() == ".h"
+        and destination.is_file()
+        and any(
+            e.module == selected.module and e.va == selected.va and e.symbol == row.get("symbol")
+            for e in parse_library_header(destination, metadata_dir=project.metadata_dir)
+        )
+    )
+    if not (library_identity and not found_defs) and found_defs != [
         (destination, "function", False)
     ]:
         raise RenameError(
@@ -585,7 +595,7 @@ def plan_function_reference_binding(
         ]
     ):
         raise RenameError("binding source already has a function identity", files=hits)
-    for name, paths in ((old_name, hits), (new_name, list(defs))):
+    for name, paths in ((old_name, hits), (new_name, list(dict.fromkeys([destination, *hits])))):
         invalid = [
             p
             for p in paths

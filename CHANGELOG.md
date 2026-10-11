@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Fixed
+- `rebrew source rename PLACEHOLDER MODULE.0xVA` can bind calls to managed
+  library identities in annotation headers without creating replacement source.
+  Destination conflicts are checked in the affected files; unrelated local
+  variables no longer prevent a binding. Identity, verdict and ordinary rename
+  collision checks are preserved.
+
 ## [2.25.0] - 2026-10-11
 
 ### Added
