@@ -5,7 +5,10 @@
   `relumea/recondb` repository; callers cloning the signature corpus need access.
   `toolchain.TOOLCHAINS_REPO_URL` and `toolchain_paths.TOOLCHAINS_REPO_URL`
   now point to the public `maci0/recompile-toolchains` repository. The Python
-  import paths and existing local checkout aliases remain available.
+  import paths and existing local checkout aliases remain available. CLI
+  registration/help metadata in `builtins.DOMAIN_COMPONENTS` has changed, and
+  `toolchain_cli.STATUS_STATIC_TARBALL` now names `recompile-toolchains` in its
+  status text.
 
 ### Added
 - `rebrew library match --va HEX --resolve-callees` checks known direct native
@@ -21,6 +24,9 @@
   inputs/outputs, symlinks and patches that change the file inventory are rejected.
 
 ### Fixed
+- Function inventories recognize pointer-returning K&R definitions, including
+  export macros and declarations inside conditionals. Prototypes remain excluded;
+  AST recovery retains original source lines without rewriting the C.
 - C declarator parsing recovers export-qualified K&R function names when
   header-defined types make tree-sitter put the name in an error node. Source
   renames use the shared resolver while preserving typedef and member names.

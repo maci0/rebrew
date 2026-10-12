@@ -114,14 +114,34 @@ class TestExtractFunctionNameFromLine:
 
 
 class TestFindFunctionDefinitions:
-    @pytest.mark.parametrize("return_type", ["int", "z_off_t"])
-    def test_exported_kr_definition_with_typed_parameters(self, return_type: str) -> None:
+    @pytest.mark.parametrize("return_type", ["int", "z_off_t", "char *", "const char *", "char **"])
+    @pytest.mark.parametrize("export_macro", ["ZEXPORT", ""])
+    def test_exported_kr_definition_with_typed_parameters(
+        self, return_type: str, export_macro: str
+    ) -> None:
         src = (
             '#include "external.h"\n'
-            f"{return_type} ZEXPORT gzseek (file, offset, whence) "
+            f"{return_type} {export_macro} gzseek (file, offset, whence) "
             "gzFile file; z_off_t offset; int whence; { return offset; }\n"
         )
         assert find_c_function_definitions(src) == [("gzseek", 2)]
+
+    def test_pointer_export_macro_with_pointer_kr_parameter(self) -> None:
+        src = "/* header */\nchar * API fetch(file)\n char *file;\n{ return file; }\n"
+        assert find_c_function_definitions(src) == [("fetch", 2)]
+
+    def test_pointer_export_prototype_does_not_become_definition(self) -> None:
+        src = "char * API fetch(char *file);\nvoid other(void) { }\n"
+        assert find_c_function_definitions(src) == [("other", 2)]
+
+    @pytest.mark.parametrize("comment", ["", "/* header comment */"])
+    def test_pointer_prototype_before_top_level_block_is_not_definition(self, comment: str) -> None:
+        src = f"char * API fetch(SomeType) {comment};\nint unrelated;\n{{ }}\n"
+        assert find_c_function_definitions(src) == []
+
+    def test_pointer_kr_definition_inside_conditional(self) -> None:
+        src = "#ifdef LIBRARY\nchar *fetch(file) char *file; { return file; }\n#endif\n"
+        assert find_c_function_definitions(src) == [("fetch", 2)]
 
     def test_multiple_functions(self) -> None:
         src = "int a(void) { return 1; }\n\nint b(void) { return 2; }\n"

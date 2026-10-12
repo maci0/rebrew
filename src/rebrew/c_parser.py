@@ -983,8 +983,8 @@ def find_function_name_in_node(declarator: Any, source_bytes: bytes) -> str | No
         # Recovery can put an export macro in the name field and the real name in ERROR.
         children = [c for c in declarator.children if c.type != "comment"]
         if (
-            len(children) == 3
-            and children[0].type == "identifier"
+            len(children) >= 3
+            and children[0].type in ("identifier", "pointer_declarator")
             and children[1].type == "ERROR"
             and children[2].type == "parameter_list"
         ):
@@ -1310,6 +1310,64 @@ def extract_function_name_from_line(line: str) -> tuple[str, str] | None:
     return None
 
 
+def _pointer_kr_definition(body: Any, source: bytes) -> tuple[str, int] | None:
+    """Recover a pointer-returning K&R header parsed as parameter declarations."""
+    declaration = body.prev_named_sibling
+    while declaration is not None and declaration.type in ("declaration", "comment"):
+        declarator = declaration.child_by_field_name("declarator")
+        stack = (
+            [declarator]
+            if declarator is not None and declarator.type == "pointer_declarator"
+            else []
+        )
+        while stack:
+            node = stack.pop()
+            if node.type == "function_declarator":
+                parameters = node.child_by_field_name("parameters")
+                if (
+                    parameters is None
+                    or not parameters.named_children
+                    or any(
+                        parameter.type != "comment"
+                        and (
+                            parameter.type != "parameter_declaration"
+                            or len(parameter.named_children) != 1
+                            or parameter.named_children[0].type != "type_identifier"
+                        )
+                        for parameter in parameters.named_children
+                    )
+                ):
+                    continue
+                # A prototype's first token after ')' is ';', even with comments.
+                tokens = [declaration]
+                while tokens:
+                    token = tokens.pop()
+                    if token.end_byte <= parameters.end_byte or token.type == "comment":
+                        continue
+                    if token.child_count:
+                        tokens.extend(reversed(token.children))
+                    else:
+                        if token.type in (
+                            "identifier",
+                            "type_identifier",
+                            "primitive_type",
+                            "type_qualifier",
+                            "struct",
+                            "union",
+                            "enum",
+                            "const",
+                            "volatile",
+                            "register",
+                        ):
+                            name = find_function_name_in_node(node, source)
+                            if name:
+                                return name, declaration.start_point[0] + 1
+                        break
+            stack.extend(reversed(node.named_children))
+        declaration = declaration.prev_named_sibling
+    return None
+
+
 def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
     """Find all C function definitions and return ``[(name, line), ...]``.
 
@@ -1333,6 +1391,17 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
             if name:
                 results.append((name, node.start_point[0] + 1))  # 1-based line
         else:
+            if node.type == "compound_statement" and node.parent.type in (
+                "translation_unit",
+                "preproc_if",
+                "preproc_ifdef",
+                "preproc_else",
+                "preproc_elif",
+            ):
+                recovered = _pointer_kr_definition(node, src_bytes)
+                if recovered:
+                    results.append(recovered)
+                    return
             for child in node.children:
                 walk(child)
 
