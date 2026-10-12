@@ -30,8 +30,8 @@ host trees committed next to them.  Three problems grew out of that:
 The docker-image build source (Dockerfiles, wrapper scripts, the shared
 `base/`, the 16-bit media tarballs) and the vendored host trees
 (`<family>/<version>-<arch>/source`, assembled by `rebrew toolchain
-vendor`) live in the standalone **rebrew-toolchains** checkout:
-`github.com/maci0/rebrew-toolchains`, expected as a sibling directory,
+vendor`) live in the standalone **recompile-toolchains** checkout:
+`github.com/maci0/recompile-toolchains`, expected as a sibling directory,
 overridable via `REBREW_TOOLCHAINS_DIR`.
 
 - `rebrew.toolchain_paths.toolchains_repo()` resolves the checkout (returns a

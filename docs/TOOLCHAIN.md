@@ -661,7 +661,7 @@ build <name>` builds `rebrew/msvc:<version>-<arch>` from the same tarball), a
 config/init/detect profile, and a smoke-gate golden.
 
 **Standalone use**: the docker build source lives in
-[`maci0/rebrew-toolchains`](https://github.com/maci0/rebrew-toolchains);
+[`maci0/recompile-toolchains`](https://github.com/maci0/recompile-toolchains);
 Dockerfiles, wrappers, the shared `base` image and the pinned-source
 manifest (`sources.json`), with **no compiler binaries in the repo** (every
 32-bit image curls its sha256-verified source at build time; the six 16-bit
@@ -669,7 +669,7 @@ images document their reconstructed-media tarball prerequisite).  rebrew
 sources its `toolchain build`/`vendor` from a checkout of that repo: the
 sibling directory by default, overridable via `REBREW_TOOLCHAINS_DIR` (a
 missing checkout is an actionable error pointing at
-`git clone https://github.com/maci0/rebrew-toolchains ../rebrew-toolchains`).
+`git clone https://github.com/maci0/recompile-toolchains ../recompile-toolchains`).
 Any tool (e.g. a `recompile`-style compiler-as-a-service) can build or
 pull these images without rebrew itself.
 
@@ -807,7 +807,7 @@ and not the 8168 builds, and `___old_sbh_resize_block` (169 B at `0x1001e638`)
 matched SP5 alone.
 
 Caveat: the container roots above are what the local images carry; the
-Dockerfiles in `maci0/rebrew-toolchains` currently install to
+Dockerfiles in `maci0/recompile-toolchains` currently install to
 `/opt/msvc6.0-spN`.  A rebuild moves those paths, and the registry
 `tool_root` entries must be updated in the same change.
 

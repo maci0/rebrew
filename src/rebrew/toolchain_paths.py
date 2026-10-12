@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-TOOLCHAINS_REPO_URL = "https://github.com/maci0/rebrew-toolchains"
+TOOLCHAINS_REPO_URL = "https://github.com/maci0/recompile-toolchains"
 
 TOOLCHAINS_DIR_ENV = "REBREW_TOOLCHAINS_DIR"
 """Env var overriding the toolchains checkout location.  Unset means the

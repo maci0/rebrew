@@ -35,7 +35,7 @@ _MAX_AMBIGUOUS_REPORT = 12  # cap on candidate names kept per ambiguous match
 #: system ``lib`` that could hold an unrelated directory of the same name.
 NO_SIGS_CHECKOUT = Path("__no_rebrew_flirt_sigs_checkout__")
 
-FLIRT_SIGS_REPO_URL = "https://github.com/maci0/rebrew-flirt-sigs"
+FLIRT_SIGS_REPO_URL = "https://github.com/relumea/recondb"
 
 
 def _flirt_sigs_repo() -> Path:
