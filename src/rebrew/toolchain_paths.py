@@ -1,7 +1,7 @@
-"""toolchain_paths.py — where the rebrew-toolchains build source lives.
+"""toolchain_paths.py — where the recompile-toolchains build source lives.
 
 The Dockerfiles, wrapper scripts, and the shared base live in the sibling
-rebrew-toolchains checkout, overridable with REBREW_TOOLCHAINS_DIR.
+recompile-toolchains checkout, overridable with REBREW_TOOLCHAINS_DIR.
 """
 
 from __future__ import annotations
@@ -12,12 +12,12 @@ from pathlib import Path
 TOOLCHAINS_REPO_URL = "https://github.com/maci0/rebrew-toolchains"
 
 TOOLCHAINS_DIR_ENV = "REBREW_TOOLCHAINS_DIR"
-"""Env var overriding the rebrew-toolchains checkout location.  Unset means the
+"""Env var overriding the toolchains checkout location.  Unset means the
 sibling directory next to this repo."""
 
 
 def toolchains_repo() -> Path:
-    """Root of the standalone rebrew-toolchains docker build source.
+    """Root of the standalone toolchains docker build source.
 
     Defaults to the sibling checkout (same workspace as this repo),
     overridable via REBREW_TOOLCHAINS_DIR for other layouts.  The external
@@ -37,10 +37,12 @@ def toolchains_repo() -> Path:
         return Path(env).expanduser()
     for parent in Path(__file__).resolve().parents:
         if (parent / "pyproject.toml").is_file():
-            return parent.parent / "rebrew-toolchains"
-    return Path("__no_rebrew_toolchains_checkout__")
+            new = parent.parent / "recompile-toolchains"
+            old = parent.parent / "rebrew-toolchains"
+            return new if new.is_dir() or not old.is_dir() else old
+    return Path("__no_recompile_toolchains_checkout__")
 
 
 def vendored_path(sub: str) -> Path:
-    """A path inside the rebrew-toolchains checkout, resolved at call time."""
+    """A path inside the toolchains checkout, resolved at call time."""
     return toolchains_repo() / sub

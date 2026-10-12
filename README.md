@@ -28,7 +28,7 @@ owns compiler/platform support.
 Use Python 3.13+ and Linux x86_64 with Docker for shipped compiler profiles.
 Wine, DOSBox, and native compiler runtimes live inside their images; missing
 images require `rebrew toolchain pull <profile>` or an authorized build from
-[rebrew-toolchains](https://github.com/maci0/rebrew-toolchains).
+[recompile-toolchains](https://github.com/maci0/rebrew-toolchains) (the repository's current remote name).
 
 ```bash
 uv tool install git+https://github.com/maci0/rebrew.git

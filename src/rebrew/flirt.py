@@ -39,7 +39,7 @@ FLIRT_SIGS_REPO_URL = "https://github.com/maci0/rebrew-flirt-sigs"
 
 
 def _flirt_sigs_repo() -> Path:
-    """Root of the standalone rebrew-flirt-sigs checkout (standard library sigs).
+    """Root of the standalone ReconDB checkout (standard library sigs).
 
     Defaults to the sibling checkout (same workspace as this repo), located
     through :data:`rebrew.utils.SOURCE_CHECKOUT`; overridable via
@@ -60,7 +60,9 @@ def _flirt_sigs_repo() -> Path:
         return resolved
     if SOURCE_CHECKOUT is None:
         return NO_SIGS_CHECKOUT
-    return SOURCE_CHECKOUT.parent / "rebrew-flirt-sigs"
+    new = SOURCE_CHECKOUT.parent / "recondb"
+    old = SOURCE_CHECKOUT.parent / "rebrew-flirt-sigs"
+    return new if new.is_dir() or not old.is_dir() else old
 
 
 def _sig_files(dirs: list[Path]) -> list[Path]:
@@ -107,14 +109,14 @@ def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) 
     if not repo.is_dir():
         if repo == NO_SIGS_CHECKOUT:
             error_exit(
-                "no rebrew-flirt-sigs checkout: this rebrew is installed as a "
+                "no ReconDB checkout: this rebrew is installed as a "
                 "package, so no source checkout sits beside it — clone "
-                f"{FLIRT_SIGS_REPO_URL} or set {REBREW_FLIRT_SIGS_DIR_ENV}",
+                f"{FLIRT_SIGS_REPO_URL} into ../recondb or set {REBREW_FLIRT_SIGS_DIR_ENV}",
                 json_mode=json_output,
             )
         error_exit(
-            f"signature source not found: {repo} — clone rebrew-flirt-sigs "
-            f"next to this repo or set {REBREW_FLIRT_SIGS_DIR_ENV}",
+            f"signature source not found: {repo} — clone {FLIRT_SIGS_REPO_URL} "
+            f"into ../recondb or set {REBREW_FLIRT_SIGS_DIR_ENV}",
             json_mode=json_output,
         )
     wanted: set[str] | None = None

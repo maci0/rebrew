@@ -117,7 +117,7 @@ class RunResult:
 
 
 def require_toolchains_repo() -> Path:
-    """The rebrew-toolchains checkout, or an actionable error when missing.
+    """The toolchains checkout, or an actionable error when missing.
 
     Only commands that actually consume the build source (``rebrew
     toolchain build``/``vendor``/``update``) call this — plain
@@ -125,9 +125,9 @@ def require_toolchains_repo() -> Path:
     repo = toolchains_repo()
     if not repo.is_dir():
         raise ToolchainError(
-            f"rebrew-toolchains checkout not found at {repo} — the docker "
+            f"recompile-toolchains checkout not found at {repo} — the docker "
             f"build source lives there now (clone {TOOLCHAINS_REPO_URL} "
-            "next to this repo, or set REBREW_TOOLCHAINS_DIR=<path>)",
+            "into ../recompile-toolchains, or set REBREW_TOOLCHAINS_DIR=<path>)",
             kind="missing",
         )
     return repo

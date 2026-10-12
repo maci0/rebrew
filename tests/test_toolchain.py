@@ -1215,14 +1215,25 @@ class TestCompatLinksRemoved:
 
 
 class TestToolchainsRepoResolver:
-    """toolchains_repo() resolves the rebrew-toolchains build source: the
+    """toolchains_repo() resolves the toolchains build source: the
     sibling checkout by default, REBREW_TOOLCHAINS_DIR otherwise."""
 
     def test_default_is_sibling(self) -> None:
         from rebrew.toolchain_paths import toolchains_repo
 
         repo = Path(__file__).resolve().parents[1]
-        assert toolchains_repo() == repo.parent / "rebrew-toolchains"
+        assert toolchains_repo() == repo.parent / "recompile-toolchains"
+
+    def test_old_sibling_remains_usable(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew import toolchain_paths
+
+        source = tmp_path / "rebrew" / "src" / "rebrew" / "toolchain_paths.py"
+        source.parent.mkdir(parents=True)
+        source.touch()
+        (tmp_path / "rebrew" / "pyproject.toml").touch()
+        (tmp_path / "rebrew-toolchains").mkdir()
+        monkeypatch.setattr(toolchain_paths, "__file__", str(source))
+        assert toolchain_paths.toolchains_repo() == tmp_path / "rebrew-toolchains"
 
     def test_env_override(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.toolchain_paths import toolchains_repo
@@ -1235,7 +1246,7 @@ class TestToolchainsRepoResolver:
         from rebrew.toolchain import ToolchainError, require_toolchains_repo
 
         monkeypatch.setenv("REBREW_TOOLCHAINS_DIR", str(tmp_path / "nope"))
-        with pytest.raises(ToolchainError, match="rebrew-toolchains"):
+        with pytest.raises(ToolchainError, match="recompile-toolchains"):
             require_toolchains_repo()
 
 

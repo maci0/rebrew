@@ -39,7 +39,7 @@ Three ideas carry the whole tool:
 | Python 3.13+ and `uv` | runs rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/); `uv python install 3.13` |
 | docker | **every** compiler runs inside an image (wine/DOSBox live there; there is no host-wine path) | your distro's `docker` |
 | rizin | the main function discoverer (capstone sweep / eh_frame / pdata are fallbacks) | `apt install rizin` |
-| rebrew-flirt-sigs (optional) | signature sets for `rebrew library init-signatures --matched-only`; only `flirt` needs them. from a source checkout rebrew looks for a sibling of that checkout, so clone it next to rebrew (not next to the project); a wheel install finds no checkout, so set `REBREW_FLIRT_SIGS_DIR` at the checkout. a value that is not a directory fails `rebrew library scan-signatures` outright | `git clone https://github.com/maci0/rebrew-flirt-sigs` next to your rebrew checkout, then `export REBREW_FLIRT_SIGS_DIR=../rebrew-flirt-sigs` if rebrew is installed as a package |
+| ReconDB (optional) | signature sets for `rebrew library init-signatures --matched-only`; only `flirt` needs them. from a source checkout rebrew looks for a sibling of that checkout, so clone it next to rebrew (not next to the project); a wheel install finds no checkout, so set `REBREW_FLIRT_SIGS_DIR` at the checkout. a value that is not a directory fails `rebrew library scan-signatures` outright | `git clone https://github.com/maci0/rebrew-flirt-sigs ../recondb` next to your rebrew checkout, then `export REBREW_FLIRT_SIGS_DIR=../recondb` if rebrew is installed as a package |
 | A binary | the thing you are reversing | yours |
 
 Install rebrew itself:
@@ -101,10 +101,10 @@ is **Toolchain**: the docker image isn't built yet. Fix it as instructed:
 
 ```bash
 rebrew toolchain pull msvc-8.0    # prebuilt image
-rebrew toolchain build msvc-8.0   # or build it from the rebrew-toolchains checkout
+rebrew toolchain build msvc-8.0   # or build it from the recompile-toolchains checkout
 ```
 
-(`build` needs the sibling **rebrew-toolchains** checkout, or
+(`build` needs the sibling **recompile-toolchains** checkout, or
 `REBREW_TOOLCHAINS_DIR` pointing at it; `pull` is the download. Either way it
 takes a few minutes once, then never again.) Re-run `rebrew doctor` until the board is green: a red
 `Toolchain alignment` means the detected compiler and the configured

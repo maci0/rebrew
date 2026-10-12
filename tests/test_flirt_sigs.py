@@ -34,7 +34,7 @@ def test_flirt_sigs_repo_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", str(sigs))
     assert _flirt_sigs_repo() == sigs
     monkeypatch.delenv("REBREW_FLIRT_SIGS_DIR")
-    assert _flirt_sigs_repo().name == "rebrew-flirt-sigs"
+    assert _flirt_sigs_repo().name == "recondb"
 
 
 def test_flirt_sigs_repo_wheel_install(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -55,6 +55,13 @@ def test_flirt_sigs_repo_checkout_sibling(monkeypatch: pytest.MonkeyPatch, tmp_p
     """From a source checkout the sigs come from the sibling directory."""
     monkeypatch.delenv("REBREW_FLIRT_SIGS_DIR", raising=False)
     monkeypatch.setattr(flirt, "SOURCE_CHECKOUT", tmp_path / "rebrew")
+    assert _flirt_sigs_repo() == tmp_path / "recondb"
+
+
+def test_flirt_sigs_repo_old_sibling(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("REBREW_FLIRT_SIGS_DIR", raising=False)
+    monkeypatch.setattr(flirt, "SOURCE_CHECKOUT", tmp_path / "rebrew")
+    (tmp_path / "rebrew-flirt-sigs").mkdir()
     assert _flirt_sigs_repo() == tmp_path / "rebrew-flirt-sigs"
 
 

@@ -478,11 +478,11 @@ it is used. A shell does not expand the tilde inside a quoted assignment
 which is where these are usually written, so the literal string is what
 rebrew receives.
 
-- `REBREW_TOOLCHAINS_DIR`: path to the sibling `rebrew-toolchains` checkout
+- `REBREW_TOOLCHAINS_DIR`: path to the sibling `recompile-toolchains` checkout
   (Dockerfiles / wrappers). Default: sibling of this install.
 - `REBREW_TOOLCHAIN_OVERLAY_DIR`: directory of extra toolchain TOML overlays
   (plugin-style profiles without editing host source).
-- `REBREW_FLIRT_SIGS_DIR`: path to the `rebrew-flirt-sigs` checkout.
+- `REBREW_FLIRT_SIGS_DIR`: path to the `recondb` checkout.
   Default: the sibling of the rebrew source checkout, which a wheel install
   has none of, so a packaged rebrew needs this set. When set, a path that is
   not a directory fails `rebrew library scan-signatures` instead of scanning without library
