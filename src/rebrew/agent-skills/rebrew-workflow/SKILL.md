@@ -90,7 +90,7 @@ function source counts do not measure matched bytes.
 > ```
 >
 > A miss is inconclusive. FLIRT can under-match across library builds;
-> `lib-match` settles whole-body identity against the linked archive. Record
+> `library match` compares fixed bytes; resolve wrappers via [native callees](references/tool-selection.md). Record
 > `LIBRARY` as origin. A project `.c` is built from source and verified; a
 > unique member of a configured archive stays statically linked. With neither,
 > the provider stays unresolved. `crt-match` errors with "No crt_sources

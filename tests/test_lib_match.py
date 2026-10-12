@@ -13,6 +13,99 @@ CODE = bytes(range(1, 41))  # 40 distinct bytes; same in lib and target
 LIB_CODE = CODE
 
 
+class TestNativeCallees:
+    @pytest.mark.parametrize("case", ["missing", "outside", "self", "alias", "prefix_only"])
+    def test_unresolved_edges_survive_and_full_callee_differences_reject(
+        self, tmp_path: Path, case: str
+    ) -> None:
+        from rebrew.lib_match import index_library, resolve_native_callees
+
+        wrapper = (b"\x90" * 4 + b"\xe8" + bytes(4) + b"\x90" * 4 + b"\xc3").ljust(16, b"\0")
+        leaf = b"\x90" * 63 + b"\xc3"
+        callee = "_alias" if case == "alias" else "_leaf"
+        members = [
+            (
+                "wrapper.obj",
+                make_coff_obj(wrapper, func_symbol="_wrapper", relocs=[(5, 0x14, callee)]),
+            )
+        ]
+        if case != "missing":
+            members.append(("leaf.obj", make_coff_obj(leaf, func_symbol="_leaf")))
+        if case == "alias":
+            members.append(("alias.obj", _alias_obj("_alias", "_leaf", 0)))
+        archive = tmp_path / "fixture.lib"
+        archive.write_bytes(make_lib_archive(members))
+        va = 0x401000
+        target = 0x900000 if case == "outside" else va if case == "self" else va + 0x80
+        linked = bytearray(wrapper)
+        linked[5:9] = (target - va - 9).to_bytes(4, "little", signed=True)
+        native_leaf = bytearray(leaf)
+        if case == "prefix_only":
+            native_leaf[40] = 0x40
+        binary = tmp_path / "native.exe"
+        binary.write_bytes(make_pe(bytes(linked).ljust(0x80, b"\x90") + native_leaf))
+        match = [("_wrapper", "fixture.lib:wrapper.obj")]
+        kept, evidence = resolve_native_callees(
+            index_library(archive),
+            match,
+            binary=binary,
+            va=va,
+            compared_size=16,
+            archives=[archive],
+            objects=[],
+        )
+        assert kept == ([] if case == "prefix_only" else match)
+        assert evidence[0]["status"] == ("contradicted" if case == "prefix_only" else "unresolved")
+
+    @pytest.mark.parametrize("native", ["reader", "writer", "game"])
+    @pytest.mark.parametrize("opcode", [0xE8, 0xE9])
+    @pytest.mark.parametrize("addend", [0, 4])
+    def test_resolve_wrapper_from_complete_native_callee(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, native: str, opcode: int, addend: int
+    ) -> None:
+        """Masked wrappers cannot identify origin without their called body."""
+        from rebrew.lib_match import app
+
+        pe, lib, va = _write_project(tmp_path)
+        wrapper = (
+            b"\x90" * 4 + bytes([opcode]) + addend.to_bytes(4, "little") + b"\x90" * 4 + b"\xc3"
+        ).ljust(16, b"\0")
+        reader = (b"\x55\x8b\xec" + b"\x90" * 12 + b"\x31\xc0\x5d\xc3").ljust(20, b"\0")
+        writer = (b"\x55\x8b\xec" + b"\x90" * 12 + b"\xb8\x01\x00\x00\x00\x5d\xc3").ljust(24, b"\0")
+        linked = bytearray(wrapper)
+        linked[5:9] = (0x80 - 9 + addend).to_bytes(4, "little", signed=True)
+        child = {"reader": reader, "writer": writer, "game": b"\x40" * 32}[native]
+        pe.write_bytes(make_pe(bytes(linked).ljust(0x80, b"\x90") + child))
+        lib.write_bytes(
+            make_lib_archive(
+                [
+                    (
+                        "reader.obj",
+                        make_coff_obj(wrapper, func_symbol="_read", relocs=[(5, 0x14, "_reader")]),
+                    ),
+                    (
+                        "writer.obj",
+                        make_coff_obj(wrapper, func_symbol="_write", relocs=[(5, 0x14, "_writer")]),
+                    ),
+                    ("readbody.obj", make_coff_obj(reader, func_symbol="_reader")),
+                    ("writebody.obj", make_coff_obj(writer, func_symbol="_writer")),
+                ]
+            )
+        )
+        _mock_cfg(tmp_path, pe, monkeypatch)
+        result = CliRunner().invoke(
+            app, ["--lib", str(lib), "--va", hex(va), "--resolve-callees", "--json"]
+        )
+        assert result.exit_code == (0 if native == "game" else 1), result.output
+        report = json.loads(result.stdout)
+        assert report["library"] == (native != "game")
+        if native != "game":
+            assert report["symbol"] == {"reader": "_read", "writer": "_write"}[native]
+        assert len(report["callee_resolution"]) == 2
+        for candidate in report["callee_resolution"]:
+            assert candidate["calls"][0]["va"] == hex(va + 0x80)
+
+
 def _alias_obj(alias: str, target: str, machine: int) -> bytes:
     """Empty COFF member with a weak alias; target index counts a preceding AUX."""
     strings = target.encode() + b"\0" + alias.encode() + b"\0"

@@ -8,6 +8,10 @@
   import paths and existing local checkout aliases remain available.
 
 ### Added
+- `rebrew library match --va HEX --resolve-callees` checks known direct native
+  callees to distinguish masked wrappers and reject contradictory candidates.
+  JSON includes the supporting/contradicting calls and unresolved evidence;
+  aliases and unavailable targets remain candidates. No metadata is written.
 - Generated `AGENTS.md` and workflow/data skills route common operations to
   shipped commands and public APIs before adding scripts, with guidance for
   scoped scratch experiments, upstream gaps and retiring duplicated tooling.

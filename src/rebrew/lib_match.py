@@ -14,9 +14,9 @@ detectors do not settle it:
 
 This command compares **whole function bodies** against the archives the
 project actually links (.lib / .a), masking each object's relocation slots.
-Whatever is identical outside those slots is library code. That is what a
-linked-in object looks like, so the check has no false negatives from naming
-or signature coverage.
+Equal fixed bytes identify candidates. Masked wrappers can also resemble
+unrelated code; ``--va --resolve-callees`` checks known direct native callees
+before choosing between them. Neither path establishes the linked provider.
 
 Details that matter, learned from real linked CRT code:
 
@@ -69,7 +69,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import module_marker
-from rebrew.gen_flirt_pat import parse_archive, parse_coff_aliases, parse_coff_obj
+from rebrew.gen_flirt_pat import load_coff, parse_archive, parse_coff_aliases, parse_coff_obj
 from rebrew.utils import container_runtime, read_json_text
 from rebrew.workspace.config import config_path
 
@@ -132,7 +132,7 @@ def match_bytes(index: Index, data: bytes) -> list[tuple[str, str]]:
     """Return candidate ``(symbol, object)`` pairs matching fixed bytes.
 
     Relocation masking can make different functions identical, such as
-    fread/fwrite wrappers. A match proves library origin, not a unique name.
+    fread/fwrite wrappers. A match alone does not settle their origin or name.
     """
     matches: list[tuple[str, str]] = []
     if len(data) < MIN_BYTES:
@@ -179,6 +179,119 @@ def match_leading_body(index: Index, data: bytes) -> list[tuple[str, str]]:
                 if candidate not in matches:
                     matches.append(candidate)
     return matches
+
+
+def resolve_native_callees(
+    index: Index,
+    matches: list[tuple[str, str]],
+    *,
+    binary: Path,
+    va: int,
+    compared_size: int,
+    archives: list[Path],
+    objects: list[Path],
+) -> tuple[list[tuple[str, str]], list[dict[str, Any]]]:
+    """Reject masked x86 COFF candidates contradicted by complete native callees.
+
+    This checks direct REL32 calls/tail jumps, not an entire call graph or linked
+    provider. Missing callees, aliases, self-calls and unavailable native bytes
+    remain unresolved. No identity or verdict is written.
+    """
+    contents: dict[str, list[bytes]] = {}
+    for archive in archives:
+        for member, data in parse_archive(str(archive)):
+            contents.setdefault(f"{archive.name}:{member}", []).append(data)
+    for path in objects:
+        contents.setdefault(path.name, []).append(path.read_bytes())
+    kept: list[tuple[str, str]] = []
+    evidence: list[dict[str, Any]] = []
+    for symbol, owner in matches:
+        calls: list[dict[str, Any]] = []
+        record: dict[str, Any] = {"symbol": symbol, "object": owner, "calls": calls}
+        blobs = contents.get(owner, [])
+        loaded = load_coff(blobs[0]) if len(blobs) == 1 else None
+        if loaded is None:
+            record["status"] = "unresolved"
+        else:
+            coff, symbols, names = loaded
+            parent = next(
+                (
+                    s
+                    for s, name in zip(symbols, names, strict=True)
+                    if name == symbol and s.section is not None
+                ),
+                None,
+            )
+            if int(coff.header.machine) != 0x14C or parent is None:
+                record["status"] = "unresolved"
+            else:
+                section = parent.section
+                assert section is not None
+                body = bytes(section.content)
+                size = min(
+                    compared_size, next(len(code) for obj, code, _ in index[symbol] if obj == owner)
+                )
+                for reloc in section.relocations:
+                    offset = reloc.address - parent.value
+                    if not (offset > 0 and offset + 4 <= size):
+                        continue
+                    if int(reloc.type) & 0xFFFF != 20 or body[reloc.address - 1] not in (
+                        0xE8,
+                        0xE9,
+                    ):
+                        continue
+                    reference = extract_raw_bytes(binary, va + offset, 4)
+                    addend = int.from_bytes(
+                        body[reloc.address : reloc.address + 4], "little", signed=True
+                    )
+                    destination = (
+                        va + offset + 4 + int.from_bytes(reference, "little", signed=True) - addend
+                    ) & 0xFFFFFFFF
+                    name = reloc.symbol.name if reloc.symbol is not None else ""
+                    callee = name.decode(errors="replace") if isinstance(name, bytes) else name
+                    call: dict[str, Any] = {
+                        "offset": offset,
+                        "symbol": callee,
+                        "va": hex(destination),
+                        "status": "unresolved",
+                    }
+                    eligible = [
+                        (obj, code, masks)
+                        for obj, code, masks in index.get(callee, [])
+                        if len(code) >= MIN_BYTES
+                        and " -> " not in obj
+                        and sum(i not in masks for i in range(len(code)))
+                        >= MIN_FIXED_FRACTION * len(code)
+                    ]
+                    if eligible and destination != va and callee != symbol:
+                        outcomes: list[bool | None] = []
+                        for obj, code, masks in eligible:
+                            try:
+                                native = extract_raw_bytes(binary, destination, len(code))
+                            except (OSError, ValueError):
+                                outcomes.append(None)
+                                continue
+                            outcomes.append(
+                                bool(match_bytes({callee: [(obj, code, masks)]}, native))
+                                if len(native) == len(code)
+                                else None
+                            )
+                        if any(outcome is True for outcome in outcomes):
+                            call["status"] = "supported"
+                        elif all(outcome is False for outcome in outcomes):
+                            call["status"] = "contradicted"
+                    calls.append(call)
+                record["status"] = (
+                    "contradicted"
+                    if any(c["status"] == "contradicted" for c in calls)
+                    else "supported"
+                    if calls and all(c["status"] == "supported" for c in calls)
+                    else "unresolved"
+                )
+        if record["status"] != "contradicted":
+            kept.append((symbol, owner))
+        evidence.append(record)
+    return kept, evidence
 
 
 def _match_details(matches: list[tuple[str, str]]) -> dict[str, Any]:
@@ -571,6 +684,11 @@ def main(
     allow: Path | None = typer.Option(
         None, "--allow", help="File of VAs known library code, one hex VA per line (# comments)."
     ),
+    resolve_callees: bool = typer.Option(
+        False,
+        "--resolve-callees",
+        help="With --va, check candidates against complete native direct callees; report unresolved edges.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -579,6 +697,8 @@ def main(
 
     cfg = require_config(target=target, json_mode=json_output)
     va_int = parse_va(va, json_mode=json_output) if va is not None else None
+    if resolve_callees and va_int is None:
+        error_exit("--resolve-callees requires --va", json_mode=json_output)
     explicit_archives = bool(lib or stock_lib)
 
     if not lib and not stock_lib:
@@ -627,12 +747,27 @@ def main(
         data = extract_raw_bytes(cfg.target_binary, va_int, size or PREFIX_BYTES)
         hit = match_bytes(index, data)
         if not hit and (size or 0) > PREFIX_BYTES:
-            hit = match_bytes(index, extract_raw_bytes(cfg.target_binary, va_int, PREFIX_BYTES))
+            data = extract_raw_bytes(cfg.target_binary, va_int, PREFIX_BYTES)
+            hit = match_bytes(index, data)
         if not hit and not size:
             hit = match_leading_body(index, data)
+        resolution: dict[str, Any] = {}
+        if resolve_callees:
+            hit, call_evidence = resolve_native_callees(
+                index,
+                hit,
+                binary=cfg.target_binary,
+                va=va_int,
+                compared_size=len(data),
+                archives=archives,
+                objects=objects,
+            )
+            resolution = {"callee_resolution": call_evidence}
         if hit:
             if json_output:
-                json_print({"va": f"0x{va_int:08x}", "library": True, **_match_details(hit)})
+                json_print(
+                    {"va": f"0x{va_int:08x}", "library": True, **_match_details(hit), **resolution}
+                )
             else:
                 console.print(
                     f"[yellow]0x{va_int:08x} is library code:[/yellow] "
@@ -645,7 +780,7 @@ def main(
                 console.print("Do not reverse it; the linker supplies these bytes.")
             raise typer.Exit(code=EXIT_MISMATCH)
         if json_output:
-            json_print({"va": f"0x{va_int:08x}", "library": False})
+            json_print({"va": f"0x{va_int:08x}", "library": False, **resolution})
         else:
             console.print(
                 f"[green]0x{va_int:08x} is not in the given libraries.[/green] Safe to reverse."

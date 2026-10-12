@@ -53,3 +53,17 @@ implementation. Otherwise record the precise gap for follow-up. Local work does
 not authorize publishing or starting live sync/watch loops. Repair the packaged
 AGENTS template/skill when the cause was poor discovery, then refresh generated
 copies with `rebrew init --refresh-agents`; preserve project-specific rules.
+## Masked library wrappers
+
+Whole relocation-masked bodies can resemble unrelated code. Check known direct
+native callees before choosing a wrapper's name:
+
+```bash
+rebrew library match --stock-lib LIBCMT.LIB --va 0x<VA> --resolve-callees --json
+```
+
+Use the target's actual runtime archive (for example LIBC instead of LIBCMT),
+and `--compile-commands` for its compiled source libraries. Inspect
+`callee_resolution`: complete callee bodies reject contradictions; aliases,
+self-calls and unavailable evidence remain unresolved. This checks one level,
+not data relocations, an entire call graph or the actual linked provider.
