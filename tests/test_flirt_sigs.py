@@ -1,4 +1,4 @@
-"""Tests for the FLIRT signature resolution (project dir + rebrew-flirt-sigs repo)."""
+"""Tests for the FLIRT signature resolution (project dir + recondb repo)."""
 
 from __future__ import annotations
 
@@ -56,13 +56,6 @@ def test_flirt_sigs_repo_checkout_sibling(monkeypatch: pytest.MonkeyPatch, tmp_p
     monkeypatch.delenv("REBREW_FLIRT_SIGS_DIR", raising=False)
     monkeypatch.setattr(flirt, "SOURCE_CHECKOUT", tmp_path / "rebrew")
     assert _flirt_sigs_repo() == tmp_path / "recondb"
-
-
-def test_flirt_sigs_repo_old_sibling(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.delenv("REBREW_FLIRT_SIGS_DIR", raising=False)
-    monkeypatch.setattr(flirt, "SOURCE_CHECKOUT", tmp_path / "rebrew")
-    (tmp_path / "rebrew-flirt-sigs").mkdir()
-    assert _flirt_sigs_repo() == tmp_path / "rebrew-flirt-sigs"
 
 
 def test_flirt_sigs_repo_env_typo_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

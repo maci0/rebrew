@@ -60,9 +60,7 @@ def _flirt_sigs_repo() -> Path:
         return resolved
     if SOURCE_CHECKOUT is None:
         return NO_SIGS_CHECKOUT
-    new = SOURCE_CHECKOUT.parent / "recondb"
-    old = SOURCE_CHECKOUT.parent / "rebrew-flirt-sigs"
-    return new if new.is_dir() or not old.is_dir() else old
+    return SOURCE_CHECKOUT.parent / "recondb"
 
 
 def _sig_files(dirs: list[Path]) -> list[Path]:

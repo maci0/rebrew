@@ -10,8 +10,8 @@ from rebrew.delphi16 import Delphi16Error, compile_ne
 from rebrew.toolchain_paths import toolchains_repo
 
 # compile_ne requires BOTH the vendored Delphi 1.0 toolchain
-# (rebrew-toolchains/delphi/1.0-win16) and a dosbox binary on PATH
-# (CI: the tree is vendored into the rebrew-toolchains checkout, not
+# (recompile-toolchains/delphi/1.0-win16) and a dosbox binary on PATH
+# (CI: the tree is vendored into the recompile-toolchains checkout, not
 # committed; dosbox absent).
 _has_delphi_toolchain = (toolchains_repo() / "delphi" / "1.0-win16" / "source" / "DCC.EXE").exists()
 
@@ -37,7 +37,7 @@ def _fake_compile(monkeypatch, sandbox: Path) -> None:
 
 @pytest.mark.skipif(
     not _has_delphi_toolchain,
-    reason="vendored Delphi 1.0 toolchain not present (rebrew-toolchains/delphi/1.0-win16)",
+    reason="vendored Delphi 1.0 toolchain not present (recompile-toolchains/delphi/1.0-win16)",
 )
 class TestCompileNe:
     def test_compiles_and_parses(self, tmp_path: Path, monkeypatch) -> None:
@@ -103,7 +103,7 @@ class TestCompileNe:
 
 @pytest.mark.skipif(
     not _has_delphi_toolchain,
-    reason="vendored Delphi 1.0 toolchain not present (rebrew-toolchains/delphi/1.0-win16)",
+    reason="vendored Delphi 1.0 toolchain not present (recompile-toolchains/delphi/1.0-win16)",
 )
 class TestLongSourceName:
     def test_long_source_name_staged_short(self, tmp_path: Path, monkeypatch) -> None:

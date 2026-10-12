@@ -151,8 +151,8 @@ documents requires no compiler toolchain or original binary.
 Reportal serves a FastAPI JSON API and a Vite/Preact SPA over its own SQLite
 store. It imports Rebrew projects, stores binary analyses and functions,
 compares listings through Resembl, and exposes inspection and source-recovery
-operations. Its [README](../../reportal/README.md) and
-[capability reference](../../reportal/docs/PARITY.md) describe the complete
+operations. Its [README](../../relumea-workbench/README.md) and
+[capability reference](../../relumea-workbench/docs/PARITY.md) describe the complete
 portal surface.
 
 Rebrew is a library dependency. `reportal.engines` owns direct Python calls for
@@ -164,7 +164,7 @@ coverage documents are derived Rebrew inputs.
 
 The default is local operation. LLM endpoints, guarded URL ingestion, external
 sources and sandbox execution are opt-in features configured by the workspace.
-See Reportal's [threat model](../../reportal/docs/THREAT_MODEL.md) for their
+See Reportal's [threat model](../../relumea-workbench/docs/THREAT_MODEL.md) for their
 boundaries.
 
 ### recompile: compiler-as-a-service

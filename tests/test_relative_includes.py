@@ -16,7 +16,7 @@ from rebrew.toolchain_paths import toolchains_repo
 
 _REPO = Path(__file__).resolve().parents[1]
 
-#: A vendored-tree include path under the rebrew-toolchains checkout — the
+#: A vendored-tree include path under the recompile-toolchains checkout — the
 #: docker layer skips bind-mounting these (the image bakes its own), so the
 #: relative-include machinery gets exercised without docker recreating
 #: stray host dirs.

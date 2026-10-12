@@ -11,7 +11,7 @@ from rebrew.tc16 import Tc16Error, compile_c
 
 # The compile_c path symlinks the read-only vendored toolchain into the DOSBox
 # sandbox; without the tree present (CI: trees are vendored into the
-# rebrew-toolchains checkout, not committed) the class can only fail at
+# recompile-toolchains checkout, not committed) the class can only fail at
 # staging, so skip rather than red.
 from rebrew.toolchain_paths import toolchains_repo
 
@@ -35,7 +35,7 @@ def _fake_tcc(monkeypatch, sandbox: Path) -> None:
 
 @pytest.mark.skipif(
     not (_REPO_TC16 / "BIN" / "TCC.EXE").exists(),
-    reason="vendored Turbo C++ 3.1 toolchain not present (rebrew-toolchains/borland/3.1-win16)",
+    reason="vendored Turbo C++ 3.1 toolchain not present (recompile-toolchains/borland/3.1-win16)",
 )
 class TestTc16Compile:
     def test_compile_c_produces_obj(self, tmp_path: Path, monkeypatch) -> None:
@@ -89,7 +89,7 @@ class TestHeadlessDosbox:
 
     @pytest.mark.skipif(
         not _WRAPPER_COMMON.is_file(),
-        reason="rebrew-toolchains checkout not present (base/wrapper-common.sh)",
+        reason="recompile-toolchains checkout not present (base/wrapper-common.sh)",
     )
     def test_wrapper_common_dosbox_is_headless(self) -> None:
         text = _WRAPPER_COMMON.read_text(encoding="utf-8")
@@ -106,7 +106,7 @@ class TestDosboxDriverSync:
 
     @pytest.mark.skipif(
         not _WRAPPER_COMMON.is_file(),
-        reason="rebrew-toolchains checkout not present (base/wrapper-common.sh)",
+        reason="recompile-toolchains checkout not present (base/wrapper-common.sh)",
     )
     def test_host_and_image_conf_templates_match(self) -> None:
         from rebrew import dosbox as dosbox_mod
@@ -141,13 +141,13 @@ class TestDosboxDriverSync:
 
         assert host_conf == image_conf, (
             "host and image DOSBox confs drifted — update both "
-            "(src/rebrew/dosbox.py and rebrew-toolchains/base/wrapper-common.sh)"
+            "(src/rebrew/dosbox.py and recompile-toolchains/base/wrapper-common.sh)"
         )
 
 
 @pytest.mark.skipif(
     not (_REPO_TC16 / "BIN" / "TCC.EXE").exists(),
-    reason="vendored Turbo C++ 3.1 toolchain not present (rebrew-toolchains/borland/3.1-win16)",
+    reason="vendored Turbo C++ 3.1 toolchain not present (recompile-toolchains/borland/3.1-win16)",
 )
 def test_tc16_compile_parse_match_roundtrip() -> None:
     """End-to-end: TCC → Borland OMF → parse → compile_and_compare against
@@ -187,7 +187,7 @@ def test_tc16_compile_parse_match_roundtrip() -> None:
 
 @pytest.mark.skipif(
     not (_REPO_TC16 / "BIN" / "TCC.EXE").exists(),
-    reason="vendored Turbo C++ 3.1 toolchain not present (rebrew-toolchains/borland/3.1-win16)",
+    reason="vendored Turbo C++ 3.1 toolchain not present (recompile-toolchains/borland/3.1-win16)",
 )
 def test_tc16_object_no_trailing_checksum_byte() -> None:
     """TCC/wcc16 LEDATA records end with an OMF checksum byte (whole-record
@@ -208,7 +208,7 @@ def test_tc16_object_no_trailing_checksum_byte() -> None:
 
 @pytest.mark.skipif(
     not (_REPO_TC16 / "BIN" / "TCC.EXE").exists(),
-    reason="vendored Turbo C++ 3.1 toolchain not present (rebrew-toolchains/borland/3.1-win16)",
+    reason="vendored Turbo C++ 3.1 toolchain not present (recompile-toolchains/borland/3.1-win16)",
 )
 def test_mz_fixture_add_matches() -> None:
     """End-to-end DOS match: the `add` function extracted from the MZ
@@ -255,7 +255,7 @@ def test_mz_fixture_add_matches() -> None:
 
 @pytest.mark.skipif(
     not (_REPO_TC16 / "BIN" / "TCC.EXE").exists(),
-    reason="vendored Turbo C++ 3.1 toolchain not present (rebrew-toolchains/borland/3.1-win16)",
+    reason="vendored Turbo C++ 3.1 toolchain not present (recompile-toolchains/borland/3.1-win16)",
 )
 def test_mz_fixture_main_matches_with_reloc() -> None:
     """`main` from the MZ fixture calls `add` (e8 rel16) — the intra-binary
@@ -308,7 +308,7 @@ _REPO_TC20 = toolchains_repo() / "borland" / "2.0-win16" / "source"
 
 @pytest.mark.skipif(
     not (_REPO_TC20 / "BIN" / "TCC.EXE").exists(),
-    reason="vendored Turbo C 2.0 toolchain not present (rebrew-toolchains/borland/2.0-win16)",
+    reason="vendored Turbo C 2.0 toolchain not present (recompile-toolchains/borland/2.0-win16)",
 )
 def test_tc20_compiles_and_parses() -> None:
     """Turbo C 2.0 (the 1988/89 compiler — Keen-era DOS games) compiles to
@@ -329,7 +329,7 @@ def test_tc20_compiles_and_parses() -> None:
 
 @pytest.mark.skipif(
     not (_REPO_TC16 / "BIN" / "TCC.EXE").exists(),
-    reason="vendored Turbo C++ 3.1 toolchain not present (rebrew-toolchains/borland/3.1-win16)",
+    reason="vendored Turbo C++ 3.1 toolchain not present (recompile-toolchains/borland/3.1-win16)",
 )
 def test_tc16_pascal_symbol_matches_via_cdecl_name() -> None:
     """A `pascal` function compiles to an UPPERCASE no-underscore OMF symbol

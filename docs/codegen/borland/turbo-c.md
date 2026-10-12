@@ -9,7 +9,7 @@ Turbo C 2.0 (1988) and Turbo C++ 3.1 (1992): 16-bit DOS compilers
 **Toolchain caveat:** the borland-2.0 image's wrapper runs `TCC.EXE` without
 `PATH=C:\BIN`, so the preprocessor `CPP.EXE` is never found and **any
 source containing `#` fails** ("Illegal character '#'"); a packaging
-bug in the rebrew-toolchains wrapper, not the compiler.  Probe3 for
+bug in the recompile-toolchains wrapper, not the compiler.  Probe3 for
 borland-2.0 was compiled from a pre-resolved `#`-free source variant; real
 borland-2.0 use needs the wrapper fixed first.
 

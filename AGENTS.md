@@ -19,7 +19,7 @@ Names are `"<image-family>-<version>"` (lowercase, version dots kept), e.g. `msv
 
 **Docker-only for every shipped toolchain** (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `ido-*`, `gcc-*`, `clang-*`, `mingw-*`): the image wraps wine / DOSBox / a native Linux compiler. No host wine/wibo/dosbox fallback. Missing image → hard error; run `rebrew toolchain build <name>` or `rebrew toolchain pull <name>`. Inventory and image tags: `rebrew toolchain list` (pins/smoke: `docs/TOOLCHAIN.md`).
 
-Docker build source lives in the sibling **recompile-toolchains** checkout (`REBREW_TOOLCHAINS_DIR` override); the old `rebrew-toolchains` directory remains a fallback during migration. Resolve via `rebrew.toolchain_paths.toolchains_repo()`; commands that need it call `rebrew.toolchain.require_toolchains_repo()`.
+Docker build source lives in the sibling **recompile-toolchains** checkout (`REBREW_TOOLCHAINS_DIR` override). Resolve via `rebrew.toolchain_paths.toolchains_repo()`; commands that need it call `rebrew.toolchain.require_toolchains_repo()`.
 
 **CMake**: `rebrew build cmake-toolchain --toolchain msvc-6.0 --output cmake/` then `cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake`. Tools run as `rebrew build driver <cl|link|lib> -- <arguments>`; compiler flags follow `--` unchanged.
 

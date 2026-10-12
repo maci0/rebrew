@@ -18,7 +18,7 @@ repos:
         # 8 MB: headroom over the largest tracked file (docs/codegen/corpus.json,
         # ~3.8 MB) while still blocking an accidental toolchain tarball or target
         # binary.  The tools/msvc*.tar.gz media this limit used to accommodate is
-        # gitignored (.gitignore) and lives in the sibling rebrew-toolchains repo.
+        # gitignored (.gitignore) and lives in the sibling recompile-toolchains repo.
         args: [--maxkb=8192]
       - id: debug-statements
       - id: end-of-file-fixer

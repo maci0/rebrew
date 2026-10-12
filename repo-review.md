@@ -74,7 +74,7 @@ Review the following:
    `REBREW_CVDUMP` setting) makes a claim the code side settles by the name's absence,
    and reporting it as an undocumented variable is a false positive that this sweep
    reproduces every pass. The same reading settles a name attributed to the sibling
-   `rebrew-toolchains` checkout or to a container, which this sweep cannot see.
+   `recompile-toolchains` checkout or to a container, which this sweep cannot see.
 6. CLI conventions stated as rules. `AGENTS.md` pins the exact help string for `--json` to `Output results as JSON` and for `--dry-run` to `Preview changes without writing`, pins `--json` before `--target` as the last two options, and pins `Console(stderr=True)` with raw `print()` only for piped data. These are code facts written into a rule file, so the rule file is what goes stale. Collect candidates with `rg -n 'Output results as JSON|Preview changes without writing|Console\(stderr=True\)' src/rebrew` and check them against the component modules; where the code changed deliberately, edit the rule and cite the evidence (a CHANGELOG entry or an ADR that covers the change) in the finding.
 7. Exit-code contract. `AGENTS.md` states that `run_standalone` and `run_cli` carry the `141`/`130`/`2` exit contract and that a `main_entry` body must never be a bare `app()`, which loses it. Check those names in `src/rebrew/cli.py` and in the components that define `main_entry`, collected with:
 

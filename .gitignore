@@ -129,12 +129,12 @@ rebrew-project.toml.lock
 
 # Vendored toolchain trees under toolchain/ stay out of git — the docker
 # build source (Dockerfiles, wrappers, the shared base) is no longer
-# vendored in-repo at all: it lives in the sibling rebrew-toolchains repo
+# vendored in-repo at all: it lives in the sibling recompile-toolchains repo
 # (see docs/TOOLCHAIN.md).  A stray dir here is never build source.
 /toolchain/
 
 # tools/ symlinks back to the vendored toolchain/ trees are gone — the
-# toolchain trees now live in the rebrew-toolchains checkout, so there is
+# toolchain trees now live in the recompile-toolchains checkout, so there is
 # nothing to alias (legacy projects repoint rebrew-project.toml paths at
 # the vendored trees in that checkout).
 

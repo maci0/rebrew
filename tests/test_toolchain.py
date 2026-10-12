@@ -1181,7 +1181,7 @@ class TestVc98Wrap:
 
 class TestCompatLinksRemoved:
     """The legacy `tools/<name> → toolchain/<dir>` compat symlinks are gone:
-    the vendored trees now live in the rebrew-toolchains checkout, so there
+    the vendored trees now live in the recompile-toolchains checkout, so there
     is nothing to alias and vendor must not recreate them."""
 
     def test_ensure_compat_links_no_longer_exists(self) -> None:
@@ -1192,7 +1192,7 @@ class TestCompatLinksRemoved:
 
     def test_toolchain_dir_is_gitignored(self) -> None:
         """A stray/accidentally-recreated repo `toolchain/` must never stage
-        (the build source lives in the rebrew-toolchains checkout).  Docker
+        (the build source lives in the recompile-toolchains checkout).  Docker
         bind-mount tests may recreate the empty dir as a side effect — the
         guarantee is that git ignores it."""
         import subprocess
@@ -1224,17 +1224,6 @@ class TestToolchainsRepoResolver:
         repo = Path(__file__).resolve().parents[1]
         assert toolchains_repo() == repo.parent / "recompile-toolchains"
 
-    def test_old_sibling_remains_usable(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew import toolchain_paths
-
-        source = tmp_path / "rebrew" / "src" / "rebrew" / "toolchain_paths.py"
-        source.parent.mkdir(parents=True)
-        source.touch()
-        (tmp_path / "rebrew" / "pyproject.toml").touch()
-        (tmp_path / "rebrew-toolchains").mkdir()
-        monkeypatch.setattr(toolchain_paths, "__file__", str(source))
-        assert toolchain_paths.toolchains_repo() == tmp_path / "rebrew-toolchains"
-
     def test_env_override(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.toolchain_paths import toolchains_repo
 
@@ -1257,7 +1246,7 @@ class TestDockerfileSanity:
     `&& apt-get update` that broke `rebrew toolchain build` for EVERY
     image (build_cmd rebuilds base first).  Static, CI-safe checks (no
     docker required) pin the structure.  The Dockerfiles live in the
-    sibling rebrew-toolchains checkout now."""
+    sibling recompile-toolchains checkout now."""
 
     _REPO: Path | None = None
 
@@ -1265,7 +1254,7 @@ class TestDockerfileSanity:
     def _require_checkout(self) -> None:
         """Skip without the sibling checkout: these read its Dockerfiles."""
         if not (self._repo() / "base" / "Dockerfile").is_file():
-            pytest.skip("rebrew-toolchains checkout not present (base/Dockerfile)")
+            pytest.skip("recompile-toolchains checkout not present (base/Dockerfile)")
 
     @classmethod
     def _repo(cls) -> Path:
@@ -1293,7 +1282,7 @@ class TestDockerfileSanity:
         the same block) by a `RUN ` line — the OCI-label insertion pattern
         dropped RUN prefixes in some files."""
         dockerfiles = sorted((self._repo()).rglob("Dockerfile"))
-        assert dockerfiles, "no Dockerfiles found in the rebrew-toolchains checkout"
+        assert dockerfiles, "no Dockerfiles found in the recompile-toolchains checkout"
         for f in dockerfiles:
             lines = f.read_text(encoding="utf-8").splitlines()
             in_run = False
@@ -1308,7 +1297,7 @@ class TestDockerfileSanity:
 
     def test_every_image_spec_has_dockerfile_in_checkout(self) -> None:
         """Every image-backed toolchain must have its Dockerfile in the
-        rebrew-toolchains checkout — a fresh clone must be able to rebuild
+        recompile-toolchains checkout — a fresh clone must be able to rebuild
         the image (borland-3.1/borland-2.0 images were built from UNTRACKED Dockerfiles,
         silently unreproducible)."""
         from rebrew.toolchain import TOOLCHAINS
@@ -1327,7 +1316,7 @@ class TestDockerfileSanity:
                 missing.append(f"{name} ({df.relative_to(repo)}: untracked)")
         assert not missing, (
             "image-backed toolchains without a git-tracked Dockerfile in the "
-            "rebrew-toolchains checkout (a fresh clone cannot rebuild "
+            "recompile-toolchains checkout (a fresh clone cannot rebuild "
             "them): " + ", ".join(missing)
         )
 

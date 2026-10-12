@@ -37,9 +37,7 @@ def toolchains_repo() -> Path:
         return Path(env).expanduser()
     for parent in Path(__file__).resolve().parents:
         if (parent / "pyproject.toml").is_file():
-            new = parent.parent / "recompile-toolchains"
-            old = parent.parent / "rebrew-toolchains"
-            return new if new.is_dir() or not old.is_dir() else old
+            return parent.parent / "recompile-toolchains"
     return Path("__no_recompile_toolchains_checkout__")
 
 

@@ -275,7 +275,7 @@ rebrew coverage build
 ## Open Questions / Known Limitations
 
 - Rebrew ships no `.sig` files of its own. `rebrew library init-signatures` copies the
-  sibling `rebrew-flirt-sigs` checkout into the project's `flirt_sigs/`
+  sibling `recondb` checkout into the project's `flirt_sigs/`
   (`--matched-only` copies only the sigs matching the target), and
   `gen_flirt_pat.py` can build `.pat` files from `.lib` archives. Converting
   `.pat` → `.sig` still requires the upstream `sigmake` tool.

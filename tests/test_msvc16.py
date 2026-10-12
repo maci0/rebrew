@@ -10,7 +10,7 @@ from rebrew.msvc16 import Msvc16Error, compile_c
 from rebrew.toolchain_paths import toolchains_repo
 
 # The compile_c path symlinks the read-only vendored toolchain into the DOSBox
-# sandbox; without rebrew-toolchains/msvc/1.52-win16 vendored (CI: the tree is
+# sandbox; without recompile-toolchains/msvc/1.52-win16 vendored (CI: the tree is
 # not committed) the whole class can only fail at staging, so skip rather than
 # red.
 _HAS_VENDORED_VC152 = (toolchains_repo() / "msvc" / "1.52-win16" / "source" / "BIN").is_dir()
@@ -29,7 +29,7 @@ def _fake_cl(monkeypatch, sandbox: Path) -> None:
 
 @pytest.mark.skipif(
     not _HAS_VENDORED_VC152,
-    reason="vendored MSVC 1.52 toolchain not present (rebrew-toolchains/msvc/1.52-win16)",
+    reason="vendored MSVC 1.52 toolchain not present (recompile-toolchains/msvc/1.52-win16)",
 )
 class TestCompileC:
     def test_compiles_and_finds_obj(self, tmp_path: Path, monkeypatch) -> None:

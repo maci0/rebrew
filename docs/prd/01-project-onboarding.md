@@ -269,7 +269,7 @@ formatting.
 - `init` always seeds the same `AGENTS.md` template from `src/rebrew/AGENTS.md.template`;
   it cannot be customised per-project at creation time.
 - Toolchain acquisition is now docker-image based: `rebrew toolchain build
-  <profile>` builds the profile's image from the sibling rebrew-toolchains
+  <profile>` builds the profile's image from the sibling recompile-toolchains
   checkout. The legacy `--install-wibo` host runner is a no-op for image-backed
   profiles (kept for old host-runner configs).
 - FIXED: `doctor` now checks FLIRT signature availability (parses every

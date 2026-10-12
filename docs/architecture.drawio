@@ -16,7 +16,7 @@
         <mxCell id="l0" value="L0  Toolchain layer (build source + images). rebrew never vendors compiler binaries." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;fontStyle=1;fontSize=13;" vertex="1" parent="1">
           <mxGeometry x="40" y="76" width="1600" height="170" as="geometry"/>
         </mxCell>
-        <mxCell id="rt" value="&lt;b&gt;rebrew-toolchains&lt;/b&gt;&lt;br&gt;Dockerfiles · wrappers · sources.json&lt;br&gt;sibling checkout (REBREW_TOOLCHAINS_DIR)&lt;br&gt;35 compiler images, sha256-pinned" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="rt" value="&lt;b&gt;recompile-toolchains&lt;/b&gt;&lt;br&gt;Dockerfiles · wrappers · sources.json&lt;br&gt;sibling checkout (REBREW_TOOLCHAINS_DIR)&lt;br&gt;35 compiler images, sha256-pinned" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="64" y="112" width="300" height="110" as="geometry"/>
         </mxCell>
         <mxCell id="img" value="&lt;b&gt;docker images&lt;/b&gt;&lt;br&gt;rebrew/msvc:6.0-win32 (wine in image)&lt;br&gt;rebrew/borland:5.5-win32 · 3.1-win16&lt;br&gt;rebrew/msvc:1.52-win16 · delphi:1.0-win16&lt;br&gt;watcom win32, …  Missing image = hard error" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
@@ -80,7 +80,7 @@
         <mxCell id="reag" value="&lt;b&gt;reagent&lt;/b&gt;&lt;br&gt;autonomous LLM RE agent&lt;br&gt;imports rebrew.* in-process&lt;br&gt;skip / ga_only / llm_then_ga&lt;br&gt;flag_sweep_first / llm_only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="780" y="512" width="280" height="116" as="geometry"/>
         </mxCell>
-        <mxCell id="flirts" value="&lt;b&gt;rebrew-flirt-sigs&lt;/b&gt;&lt;br&gt;sibling .sig / .pat tree&lt;br&gt;REBREW_FLIRT_SIGS_DIR&lt;br&gt;merged under project flirt_sigs/&lt;br&gt;python-flirt, no IDA required" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="flirts" value="&lt;b&gt;recondb&lt;/b&gt;&lt;br&gt;sibling .sig / .pat tree&lt;br&gt;REBREW_FLIRT_SIGS_DIR&lt;br&gt;merged under project flirt_sigs/&lt;br&gt;python-flirt, no IDA required" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1140" y="512" width="280" height="116" as="geometry"/>
         </mxCell>
         <mxCell id="e-rb-res" value="similarity group: scoring.py" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7e22ce;fontSize=10;endArrow=block;" edge="1" parent="1" source="rb" target="res">
@@ -415,7 +415,7 @@
         <mxCell id="disc" value="&lt;b&gt;discover.py&lt;/b&gt;&lt;br&gt;rebrew.discoverers plugins&lt;br&gt;(rizin / capstone / NE / MZ packaged)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="260" y="110" width="200" height="86" as="geometry"/>
         </mxCell>
-        <mxCell id="flirt" value="&lt;b&gt;flirt.py&lt;/b&gt;&lt;br&gt;python-flirt  .sig / .pat&lt;br&gt;rebrew-flirt-sigs + project flirt_sigs/&lt;br&gt;rebrew gen-flirt-pat from .lib" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="flirt" value="&lt;b&gt;flirt.py&lt;/b&gt;&lt;br&gt;python-flirt  .sig / .pat&lt;br&gt;recondb + project flirt_sigs/&lt;br&gt;rebrew gen-flirt-pat from .lib" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="500" y="110" width="280" height="86" as="geometry"/>
         </mxCell>
         <mxCell id="idlib" value="&lt;b&gt;identify_library.py&lt;/b&gt;&lt;br&gt;CRT / zlib backends&lt;br&gt;crt_match.py source xref" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
@@ -679,7 +679,7 @@
         <mxCell id="sv3" value="&lt;b&gt;resembl&lt;/b&gt;&lt;br&gt;rebrew imports resembl.scoring only&lt;br&gt;fills verify_results.similarity&lt;br&gt;&lt;br&gt;resembl CLI has its own LSH DB&lt;br&gt;(SQLite/Postgres/…). rebrew never&lt;br&gt;indexes functions into it.&lt;br&gt;&lt;br&gt;One-way library call.&lt;br&gt;No writeback." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#db2777;fontColor=#9d174d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="720" y="890" width="300" height="210" as="geometry"/>
         </mxCell>
-        <mxCell id="sv4" value="&lt;b&gt;Within-project feedback&lt;/b&gt;&lt;br&gt;solutions.py seeds later GA runs&lt;br&gt;ga_runs.jsonl is history&lt;br&gt;verify demotes stale PROVEN&lt;br&gt;library / FLIRT marks SKIP&lt;br&gt;&lt;br&gt;rebrew-flirt-sigs and&lt;br&gt;rebrew-toolchains are consume-only&lt;br&gt;(images + .sig/.pat in; nothing out)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="sv4" value="&lt;b&gt;Within-project feedback&lt;/b&gt;&lt;br&gt;solutions.py seeds later GA runs&lt;br&gt;ga_runs.jsonl is history&lt;br&gt;verify demotes stale PROVEN&lt;br&gt;library / FLIRT marks SKIP&lt;br&gt;&lt;br&gt;recondb and&lt;br&gt;recompile-toolchains are consume-only&lt;br&gt;(images + .sig/.pat in; nothing out)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1050" y="890" width="300" height="210" as="geometry"/>
         </mxCell>
         <mxCell id="sv5" value="&lt;b&gt;Not shipped (vision)&lt;/b&gt;&lt;br&gt;relumea SaaS workbench&lt;br&gt;recondb placeholder&lt;br&gt;decompedia wiki (markdown only)&lt;br&gt;ML_TRAINING.md snowball / LoRA&lt;br&gt;&lt;br&gt;Intended later: matched pairs +&lt;br&gt;recompile train.jsonl → fine-tune&lt;br&gt;→ reagent. Do not document as live." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;fontColor=#1e293b;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
@@ -689,7 +689,7 @@
         <mxCell id="legend2" value="Amber boxes write into the project. White/pink/grey boxes consume or are vision. Graph is acyclic at the repo layer: toolchains/resembl → rebrew → recovery/recompile; reagent imports rebrew; relumea sits above and is not a dependency." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="40" y="1148" width="1680" height="24" as="geometry"/>
         </mxCell>
-        <mxCell id="see2" value="Workspace: rebrew, rebrew-toolchains, rebrew-flirt-sigs, rebrew-projects, resembl, recovery, recompile, relumea, recondb, guild-rebrew. decompedia and objconv-fork live under third-party/. reagent is documented as a sibling but is not in this checkout." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+        <mxCell id="see2" value="Workspace: rebrew, recompile-toolchains, recondb, rebrew-projects, resembl, recovery, recompile, relumea, recondb, guild-rebrew. decompedia and objconv-fork live under third-party/. reagent is documented as a sibling but is not in this checkout." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="40" y="1172" width="1680" height="24" as="geometry"/>
         </mxCell>
       </root>
@@ -813,7 +813,7 @@
         <mxCell id="env-lane" value="Environment and overlays (not files in the project)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="886" width="1680" height="170" as="geometry"/>
         </mxCell>
-        <mxCell id="e1" value="&lt;b&gt;Sibling checkouts&lt;/b&gt;&lt;br&gt;REBREW_TOOLCHAINS_DIR&lt;br&gt;REBREW_FLIRT_SIGS_DIR&lt;br&gt;default: ../rebrew-toolchains&lt;br&gt;and ../rebrew-flirt-sigs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="e1" value="&lt;b&gt;Sibling checkouts&lt;/b&gt;&lt;br&gt;REBREW_TOOLCHAINS_DIR&lt;br&gt;REBREW_FLIRT_SIGS_DIR&lt;br&gt;default: ../recompile-toolchains&lt;br&gt;and ../recondb" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="926" width="250" height="110" as="geometry"/>
         </mxCell>
         <mxCell id="e2" value="&lt;b&gt;Plugin overlays&lt;/b&gt;&lt;br&gt;REBREW_TOOLCHAIN_OVERLAY_DIR&lt;br&gt;TOML extra ToolchainSpecs&lt;br&gt;REBREW_SKILLS_DIR&lt;br&gt;community SKILL.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
