@@ -1953,6 +1953,67 @@ class TestPinnedImageExecution:
         assert stored
         assert all(value == b"batch" for value in stored.values())
 
+    def test_missing_pinned_image_is_not_pulled_or_cached(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A vanished admitted id fails once. No tag retry and no cache write."""
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import TOOLCHAINS
+
+        calls: list[list[str]] = []
+        puts: list[str] = []
+        presence: list[str] = []
+        tag = TOOLCHAINS["msvc-6.0"].image
+        assert tag is not None
+
+        def _digest(_image: str) -> str:
+            return _ID_A
+
+        def _run(cmd: list[str], **kwargs: object) -> SimpleNamespace:
+            del kwargs
+            calls.append(list(cmd))
+            return SimpleNamespace(
+                returncode=125,
+                stdout="",
+                stderr=f"Unable to find image '{_ID_A}' locally",
+            )
+
+        def _present(image_tag: str) -> bool:
+            presence.append(image_tag)
+            return False
+
+        class _Cache:
+            def get(self, key: str) -> bytes | None:
+                del key
+                return None
+
+            def put(self, key: str, data: bytes) -> None:
+                del data
+                puts.append(key)
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr("rebrew.compile.cached_image_digest", _digest)
+        monkeypatch.setattr(toolchain_mod, "docker_available", lambda: True)
+        monkeypatch.setattr(toolchain_mod, "image_present", _present)
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _run)
+        source = self._source(tmp_path)
+        work = tmp_path / "w"
+        work.mkdir()
+        obj, err = compile_to_obj(
+            cast(ProjectConfig, self._cfg(tmp_path)), source, ["/O2"], work, cache=_Cache()
+        )
+        assert obj is None
+        assert "Unable to find image" in err
+        assert puts == []
+        assert presence == []
+        assert len(calls) == 1
+        argv = calls[0]
+        assert argv[1] == "run"
+        assert "--pull=never" in argv
+        assert "--network=none" in argv
+        assert _ID_A in argv
+        assert tag not in argv
+
 
 class TestBatchGroupKey:
     def test_ignores_include_dirs_and_order(self) -> None:

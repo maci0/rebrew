@@ -42,7 +42,9 @@ service as a second, opt-in backend.
   from the service, artifact download, and a typed `RecompileError` for
   unreachable and non-2xx replies.
 - The local compile cache keys an object on the inspected image id
-  (`sha256:` plus 64 hex), and `docker run` uses that same id. The image
+  (`sha256:` plus 64 hex), and `docker run` uses that same id with
+  `--pull=never`. A missing image is an error, not a daemon pull.
+  `--network=none` stays, and toolchain build/pull are separate. The image
   tag is display metadata. A missing or malformed id compiles uncached.
   The recompile response carries no image id, so remote results are not
   cached and a local Docker id is not used as remote provenance.

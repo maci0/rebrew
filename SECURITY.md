@@ -102,8 +102,10 @@ plugin cache backends or remove the open upstream diskcache advisory.
   would still serve the path.
 - No claim that docker toolchain or cmake-bridge execution is a hardened
   sandbox against a hostile project tree or malicious image. Local container
-  runs use `--network=none` (no egress) and `no-new-privileges`; that does
-  not imply escape resistance. The compile path passes no `--user`, so the
+  runs use `--network=none` (no egress) and `no-new-privileges`. Compile
+  runs through `run_toolchain` also pass `--pull=never`, so a missing image
+  is an error rather than a daemon pull. None of that implies escape
+  resistance. The compile path passes no `--user`, so the
   compiler runs as the image's default user; it mounts the project root
   read-only but can read all of it. The cmake bridge mounts the project root
   and wineprefix read-write.

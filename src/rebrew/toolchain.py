@@ -1194,9 +1194,12 @@ def run_toolchain(
     Image-less specs (a plugin toolchain with no image) exec the
     vendored/PATH binary directly — no wine glue is involved.
 
-    The container runs with ``--network=none`` — compilation is strictly
-    local (source in, object out), and the toolchain image needs no egress
-    (a malformed image cannot reach the network during a build).
+    The container runs with ``--network=none`` and ``--pull=never``.
+    Compilation is strictly local (source in, object out). A missing image
+    is an error: the daemon must not fetch a replacement. That matters when
+    an admitted image id disappears after inspect, because that path does
+    not recheck the tag. ``rebrew toolchain build`` and ``pull`` are
+    unchanged.
 
     Args:
         spec: The toolchain to run.
@@ -1210,8 +1213,8 @@ def run_toolchain(
         image_id: When set, ``docker run`` executes this image id instead of
             ``spec.image``.  It must be ``sha256:`` plus 64 lowercase hex.
             Tag presence is not checked.  When omitted, the run uses the tag
-            after :func:`image_present`.  The tag remains the name in errors
-            on that path.
+            after :func:`image_present`.  Both paths pass ``--pull=never``.
+            The tag remains the name in errors on the unpinned path.
 
     Raises:
         ToolchainError: no docker daemon/image for a docker toolchain, or no
@@ -1259,6 +1262,10 @@ def run_toolchain(
             "run",
             "--rm",
             "--network=none",  # compile-only containers — no egress needed
+            # Docker's default is --pull=missing.  An admitted id skips the
+            # tag presence check, so a vanished image would otherwise be
+            # fetched.  Never pull on this path; build and pull stay explicit.
+            "--pull=never",
             "--security-opt=no-new-privileges",  # no setuid escalation inside the image
             # A stable name lets the timeout path kill the container: when the
             # docker CLI is killed, dockerd keeps the (attached) container

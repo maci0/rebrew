@@ -30,6 +30,9 @@
   requested tag or host binary, but the cache is not read or written.
   Remote recompile results are not cached: the service response has no
   image id, so a local Docker id is not used as remote provenance.
+  Compile `docker run` passes `--pull=never` for pinned and unpinned
+  images, so a missing image is an error instead of a daemon pull.
+  `--network=none` and toolchain build/pull are unchanged.
 - Function inventories recognize pointer-returning K&R definitions, including
   export macros and declarations inside conditionals. Prototypes remain excluded;
   AST recovery retains original source lines without rewriting the C.

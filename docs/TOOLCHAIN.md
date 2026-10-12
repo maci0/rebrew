@@ -12,9 +12,11 @@ routes every compile through the sibling [recompile](https://github.com/relumea/
 service instead: the same pinned images over `POST /api/v1/compile` plus an
 artifact download, with the opt-in `recompile_emit_assembly` training tap.
 The local compile cache keys an object on the inspected image id
-(`sha256:` plus 64 hex) and `docker run` uses that same id. The image tag
-is display metadata. When that id cannot be read, the compile still runs
-against the tag and the cache is not used. The recompile response has no
+(`sha256:` plus 64 hex) and `docker run` uses that same id with
+`--pull=never`, so a missing image is an error rather than a daemon pull.
+`--network=none` stays. Toolchain build and pull are separate commands.
+The image tag is display metadata. When that id cannot be read, the
+compile still runs against the tag and the cache is not used. The recompile response has no
 image id, so remote compiles are not cached and a local Docker id is not
 treated as the remote runner. Switching backends therefore cannot serve
 the other's object. The transport lives in `rebrew/recompile_client.py`.
