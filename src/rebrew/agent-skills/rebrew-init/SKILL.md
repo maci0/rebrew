@@ -75,7 +75,7 @@ Run it right after `rebrew init`. Doctor must report healthy
 failures are not) before handing off. The commonest failure is the toolchain
 image missing: run `rebrew toolchain pull <profile>` (a docker image pull).
 `rebrew toolchain build <profile>` compiles the image from the sibling
-rebrew-toolchains checkout, which is a long job and fails without that
+recompile-toolchains checkout, which is a long job and fails without that
 checkout. Use a pull for setup; build when the task calls for building the image
 or the user has already authorized it. Otherwise clarify before a long build.
 

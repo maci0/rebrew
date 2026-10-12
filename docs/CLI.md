@@ -1464,7 +1464,7 @@ with neither stays unresolved.
 
 ### `rebrew library init-signatures`
 
-Copy shared signature files from the `rebrew-flirt-sigs` checkout into the
+Copy shared signature files from the `recondb` checkout into the
 project's `flirt_sigs/`. Existing project files are retained; this is a setup
 operation, separate from scanning the binary.
 
@@ -1797,7 +1797,7 @@ stamps forward, so history survives without a database to migrate.
 - `--link-tools-from PATH`: symlink `toolchain/<family>/<version>-<arch>` from a master toolchain
   directory (e.g. a checkout holding vendored trees; the vendored trees
   themselves assemble via `rebrew toolchain vendor` into the
-  rebrew-toolchains checkout).  Optional: compiler
+  recompile-toolchains checkout).  Optional: compiler
   command/includes/libs that are missing under the project's `toolchain/`
   resolve against that master automatically, so a fresh project compiles
   out of the box without the symlink.
@@ -2441,7 +2441,7 @@ host binary).  See [TOOLCHAIN.md](TOOLCHAIN.md) for the full model.
 | `rebrew toolchain status NAME` | How one toolchain resolves (image pulled? host binary present? resolved-mirror layout reported when the master is absent) |
 | `rebrew toolchain detect BINARY` | Detect which compiler/toolchain built a binary (diec → PDB → PE metadata: Rich header/linker version → heuristics); pins the exact MSVC version (e.g. 12.00.9782) and suggests the version-exact rebrew profile; with a project present, also reports whether the configured profile can byte-match it (`--json`) |
 | `rebrew toolchain pull NAME` | Pull a toolchain's docker image (locally-built images are reported as already present, not re-pulled; a failed pull on an absent image points at `toolchain build`, since rebrew images are built from pinned sources, not hosted on a registry) |
-| `rebrew toolchain build NAME` | Build a toolchain's docker image from its `<family>/<ver>-<arch>/Dockerfile` in the rebrew-toolchains checkout (builds the shared `rebrew/base` dependency first) |
+| `rebrew toolchain build NAME` | Build a toolchain's docker image from its `<family>/<ver>-<arch>/Dockerfile` in the recompile-toolchains checkout (builds the shared `rebrew/base` dependency first) |
 | `rebrew toolchain vendor NAME` | Assemble the host tree from the pinned source: a sha256-verified download (the six 16-bit trees and the 32-bit ones alike: msvc-1.0/1.5/1.52, borland-2.0/3.1, delphi-1.0, borland 5.5, watcom, msvc-6.0, msvc-4.0/4.2/5.0 via the archaic-toolchains / archaic-msvc / itsmattkc codeload snapshots).  MSVC 6.0 is wrapped into the classic `VC98/` layout; the tree lands in `<family>/<ver>-<arch>/source` under that checkout.  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
 | `rebrew toolchain smoke [NAME]` | Compile the fixed smoke source in each image and verify the object sha256 against the golden bytes: the byte-reproducibility gate (46 profiles: the MSVC 1.0–11.0 line, borland-2.0/3.1/5.5, watcom-2.0 on win32 and win16, delphi-1.0, ido-5.3/7.1, gcc 12.3/14.2, clang 16.0/18.1, mingw 14.2/16.2; all image-only; MSVC's COFF and Turbo C's COMENT build-time stamps are masked).  `--print-goldens` recomputes the masked hashes WITHOUT comparing, so bumping a pinned source is a mechanical two-step (run twice, verify stable, paste into `_SMOKE_GOLDEN`) |
 | `rebrew toolchain check-updates` | Report upstream drift in every pinned toolchain source (GitHub-codeload pins compared via the GitHub API against the live default-branch sha; the moving Open Watcom release re-downloaded and re-hashed; immutable release assets need no check) |

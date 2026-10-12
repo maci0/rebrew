@@ -106,7 +106,7 @@ Every `fail` line names its fix.  The common ones after a fresh intake:
   compiler.profile msvc-6.0`) or document it as a blocker.
 - **`Include path`/`Lib path`**: for docker-backed profiles these are
   provided *by the image* (it is built from the pinned source in the sibling
-  `rebrew-toolchains` checkout), so a dangling host path is informational,
+  `recompile-toolchains` checkout), so a dangling host path is informational,
   not a failure.  Every shipped profile is docker-backed; only a plugin
   toolchain registered without an image uses real host paths.
 

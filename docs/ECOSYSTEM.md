@@ -18,7 +18,7 @@ covers the external tools rebrew interoperates with, chiefly
 ```mermaid
 flowchart TB
     subgraph L0["Toolchain layer"]
-        RT["rebrew-toolchains<br/>Dockerfiles · wrappers · sources.json<br/>build source for 46 compiler images"]
+        RT["recompile-toolchains<br/>Dockerfiles · wrappers · sources.json<br/>build source for 46 compiler images"]
         IMG[("docker images<br/>rebrew/msvc:6.0-win32<br/>rebrew/borland:3.1-win16<br/>rebrew/watcom:2.0-win32 …")]
     end
 
@@ -86,9 +86,9 @@ What rebrew *produces* for the ecosystem:
 - `db/coverage-<target>.toml`: one clear-text coverage document per target,
   consumed by recoverage ([COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md)),
 - GA run history (`ga_runs.jsonl`) and FLIRT signature indexes,
-- docker image names/builds (consumed via rebrew-toolchains).
+- docker image names/builds (consumed via recompile-toolchains).
 
-### rebrew-toolchains: the compiler image source
+### recompile-toolchains: the compiler image source
 
 Standalone docker images for every legacy Windows/DOS compiler. This repo is
 the *build source only*: Dockerfiles, the shared `base` image, wrapper
@@ -103,7 +103,7 @@ The images are self-contained (runtime such as wine/wibo/DOSBox baked in, the
 wrapper is the entrypoint), so any tool can use them without rebrew itself.
 `rebrew toolchain build` (and `vendor`/`update`) reads the Dockerfiles from
 the sibling checkout (`REBREW_TOOLCHAINS_DIR`, defaults to
-`../rebrew-toolchains`); `pull`/`smoke` operate on the built images, and
+`../recompile-toolchains`); `pull`/`smoke` operate on the built images, and
 compilation shells out via `docker run`. The same images back the
 `recompile` service. See [TOOLCHAIN.md](TOOLCHAIN.md).
 
@@ -173,7 +173,7 @@ FastAPI service wrapping the toolchain zoo as an HTTP API:
 `POST /api/v1/compile` accepts C source + a compiler id + flags, runs the
 compile in the matching pinned toolchain container, and returns the
 artifact. It path-depends on rebrew (the compiler catalog comes from
-`rebrew.toolchain`) and needs the rebrew-toolchains images to execute
+`rebrew.toolchain`) and needs the recompile-toolchains images to execute
 compiles.
 
 It is also the dataset side of the ML vision: `emit_assembly: true` appends
@@ -346,7 +346,7 @@ Edges point strictly upward in the diagram above: the graph is acyclic:
 
 | Component | Depends on | Boundary contract |
 |---|---|---|
-| rebrew | resembl (scoring core), rebrew-toolchains (image source) | python import; sibling checkout + `docker run` |
+| rebrew | resembl (scoring core), recompile-toolchains (image source) | python import; sibling checkout + `docker run` |
 | recoverage | rebrew (shared reader, workspace helpers, regeneration) | coverage TOML + direct Python APIs |
 | reportal | rebrew (engine APIs and coverage), optional resembl (scores) | direct Python APIs + coverage TOML |
 | recompile | rebrew (toolchain catalog), toolchain images | path dependency + HTTP API out |
@@ -376,8 +376,8 @@ Decoupling is by stable contract, not shared code:
 ```
 ~/Desktop/Projects/relumea/
 ├── rebrew/              # the core workbench (this repo)
-├── rebrew-toolchains/   # docker image build source (46 images)
-├── rebrew-flirt-sigs/   # FLIRT signatures merged into project flirt_sigs/
+├── recompile-toolchains/ # docker image build source (46 images)
+├── recondb/              # FLIRT signatures merged into project flirt_sigs/
 ├── rebrew-projects/     # *-rebrew project instances (win2k-*, skifree16/32,
 │                        #   test_*, bench, smygb, makehm, ...)
 ├── resembl/             # asm similarity search library
@@ -411,5 +411,5 @@ binary being decompiled.
   bridge in detail
 - [PRINCIPLES.md](PRINCIPLES.md): idempotency, score monotonicity, snowball
   effect
-- Sibling READMEs: `../rebrew-toolchains`, `../resembl`, `../recoverage`,
+- Sibling READMEs: `../recompile-toolchains`, `../resembl`, `../recoverage`,
   `../recompile`, `../relumea`, `../reagent`

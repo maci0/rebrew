@@ -9,7 +9,7 @@ STATUS promotion and the GA matching engine.
 ## Ecosystem
 
 rebrew is one repo in a wider workspace. Sibling projects plug in at stable
-boundaries: `rebrew-toolchains` supplies the docker compiler images,
+boundaries: `recompile-toolchains` supplies the docker compiler images,
 `resembl` supplies the assembly-similarity scoring core, `recovery` serves
 the `db/coverage-<target>.toml` documents this repo builds, `recompile` wraps the toolchain zoo
 as an HTTP API, and `reagent` automates the loop with an LLM. External
@@ -43,7 +43,7 @@ flowchart LR
     FACADE --> MERGED
 
     CFG --> TOOLCHAIN["toolchain.py<br/>spec registry + docker-only runner"]
-    RT["rebrew-toolchains checkout<br/>Dockerfiles (REBREW_TOOLCHAINS_DIR)"] --> IMG[("docker images<br/>rebrew/msvc:6.0-win32 …")]
+    RT["recompile-toolchains checkout<br/>Dockerfiles (REBREW_TOOLCHAINS_DIR)"] --> IMG[("docker images<br/>rebrew/msvc:6.0-win32 …")]
     TOOLCHAIN --> COMPILE["compile.py<br/>compile_and_compare"]
     IMG --> COMPILE
 
@@ -168,7 +168,7 @@ would be a second answer to that question. See
    SIZE, and CFLAGS).
 3. `compile_and_compare()` compiles the source in the pinned toolchain
    image (`toolchain.py`; docker-only for every shipped profile, including
-   gcc/clang/mingw; images built from the `rebrew-toolchains` checkout) and
+   gcc/clang/mingw; images built from the `recompile-toolchains` checkout) and
    byte-compares against the target bytes → `CompareResult`.
 4. `update_source_status()` writes STATUS to the metadata file only: the
    `.c` marker lines are never rewritten. `update_field` / `remove_field`

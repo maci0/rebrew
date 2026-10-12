@@ -204,10 +204,10 @@ for inspection. Sync health reports stale measurement evidence independently.
   `rebrew sync pull-data`.
   `src/<target>/function_structure.json` and `ghidra_data_labels.json` are
   Ghidra exports used as **registry inputs** (not sync outputs).
-- **rebrew-flirt-sigs checkout** (sibling repo, `REBREW_FLIRT_SIGS_DIR`
+- **recondb checkout** (sibling repo, `REBREW_FLIRT_SIGS_DIR`
   overrides): standard-library `.pat` signature sources, merged with the
   project's own `flirt_sigs/` at load time (project sigs win).  Read-only
-  input, like the rebrew-toolchains checkout, it is external, not a
+  input, like the recompile-toolchains checkout, it is external, not a
   project store.
 
 ## Layout package lifecycle
