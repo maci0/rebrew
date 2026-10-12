@@ -1533,6 +1533,7 @@ never ships a `.LIB`.
 | `--stock-lib NAME` | Stock archive from the project toolchain's image (repeatable), e.g. `LIBCMT.LIB`. Extracted into `.scratch/` on first use, refused when it differs from the image's copy |
 | `--compile-commands FILE` | Build database used to index objects built from a source-vendored tree (default `build/compile_commands.json`, skipped when absent). With explicit `--lib` or `--stock-lib`, vendored objects are included only when this option is supplied. |
 | `--va HEX` | Check a single function VA instead of every reversed function |
+| `--resolve-callees` | Requires `--va`; reject x86 COFF candidates contradicted by complete known native direct callees and report unresolved edges |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
 | `--json` | Output results as JSON |
 
@@ -1540,6 +1541,15 @@ A masked wrapper pair can match several library bodies, so a JSON finding
 carries `symbol` and `object` (each `null` when the bytes do not resolve one)
 beside a `candidates` array of every `{symbol, object}` pair; `--va` answers
 the same shape plus `library`.
+
+`--resolve-callees` adds `callee_resolution`, with each original candidate's
+status and its direct REL32 calls/tail jumps (`offset`, `symbol`, native `va`,
+and status). Known callees are compared over their complete indexed bodies,
+with relocation masking; a matching prefix alone cannot support them. A
+contradicted edge rejects its parent candidate. Missing callees, aliases,
+self-calls, insufficient fixed bytes and unavailable native bytes stay
+unresolved. This is a one-level check, not data verification, an entire call
+graph proof or evidence of the actual linked provider. It writes no metadata.
 
 ### `rebrew library inspect`
 
