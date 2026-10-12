@@ -571,7 +571,7 @@
         </mxCell>
 
         <!-- Project hub -->
-        <mxCell id="hub" value="*-rebrew project (guild-rebrew, win2k-notepad-rebrew, … under rebrew-projects/)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+        <mxCell id="hub" value="*-rebrew project (guild-rebrew, win2k-notepad-rebrew, … under rebrew-test-projects/)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;fontStyle=1;fontSize=13;" vertex="1" parent="1">
           <mxGeometry x="480" y="80" width="800" height="210" as="geometry"/>
         </mxCell>
         <mxCell id="h-src" value="&lt;b&gt;C sources&lt;/b&gt;&lt;br&gt;MODULE/VA or TOML identity&lt;br&gt;name/signature derived from C" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
@@ -689,7 +689,7 @@
         <mxCell id="legend2" value="Amber boxes write into the project. White/pink/grey boxes consume or are vision. Graph is acyclic at the repo layer: toolchains/resembl → rebrew → recovery/recompile; reagent imports rebrew; relumea sits above and is not a dependency." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="40" y="1148" width="1680" height="24" as="geometry"/>
         </mxCell>
-        <mxCell id="see2" value="Workspace: rebrew, recompile-toolchains, recondb, rebrew-projects, resembl, recovery, recompile, relumea, recondb, guild-rebrew. decompedia and objconv-fork live under third-party/. reagent is documented as a sibling but is not in this checkout." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+        <mxCell id="see2" value="Workspace: rebrew, recompile-toolchains, recondb, rebrew-test-projects, resembl, recovery, recompile, relumea, recondb, guild-rebrew. decompedia and objconv-fork live under third-party/. reagent is documented as a sibling but is not in this checkout." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="40" y="1172" width="1680" height="24" as="geometry"/>
         </mxCell>
       </root>

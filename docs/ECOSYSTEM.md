@@ -378,7 +378,7 @@ Decoupling is by stable contract, not shared code:
 ├── rebrew/              # the core workbench (this repo)
 ├── recompile-toolchains/ # docker image build source (46 images)
 ├── recondb/              # FLIRT signatures merged into project flirt_sigs/
-├── rebrew-projects/     # *-rebrew project instances (win2k-*, skifree16/32,
+├── rebrew-test-projects/     # *-rebrew project instances (win2k-*, skifree16/32,
 │                        #   test_*, bench, smygb, makehm, ...)
 ├── resembl/             # asm similarity search library
 ├── recoverage/          # coverage dashboard SPA
@@ -391,7 +391,7 @@ Decoupling is by stable contract, not shared code:
 └── objconv-fork/        # objconv fork used by rebrew's tools/
 ```
 
-The `*-rebrew` directories under `rebrew-projects/` are rebrew *project
+The `*-rebrew` directories under `rebrew-test-projects/` are rebrew *project
 instances*, not code: each holds a target binary, the written C sources, its
 `rebrew-project.toml`, per-function metadata, and its own `db/`; one per
 binary being decompiled.

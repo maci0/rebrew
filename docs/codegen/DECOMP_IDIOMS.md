@@ -156,7 +156,7 @@ era).
 The exact VC 6.0 /O2 signatures for `atoi_like`, `checksum`, `clamp8`,
 `clip_rect`, `fixed_div`, `fixed_mul`, `hex_nibble`, the three LCGs,
 `pool_alloc`, `ring_next` and `str_cat` do **not** appear in the
-rebrew-projects win2k set or guild's server.dll (either the idiom is
+rebrew-test-projects win2k set or guild's server.dll (either the idiom is
 unused there or the surrounding context changes the bytes): recorded
 as corpus validation negatives, not claims of absence elsewhere.
 
