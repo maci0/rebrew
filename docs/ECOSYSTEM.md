@@ -375,20 +375,21 @@ Decoupling is by stable contract, not shared code:
 
 ```
 ~/Desktop/Projects/relumea/
-├── rebrew/              # the core workbench (this repo)
-├── recompile-toolchains/ # docker image build source (46 images)
-├── recondb/              # FLIRT signatures merged into project flirt_sigs/
-├── rebrew-test-projects/     # *-rebrew project instances (win2k-*, skifree16/32,
-│                        #   test_*, bench, smygb, makehm, ...)
-├── resembl/             # asm similarity search library
-├── recoverage/          # coverage dashboard SPA
-├── reportal/            # local reverse-engineering portal
-├── recompile/           # compiler-as-a-service API
-├── reagent/             # autonomous LLM RE agent
-├── relumea/             # SaaS workbench vision (Go backend + React frontend)
-├── recondb/             # PyPI name placeholder
-├── decompedia/          # community decomp wiki (markdown vault)
-└── objconv-fork/        # objconv fork used by rebrew's tools/
+└── repos/
+    ├── rebrew/               # matching engine (this repo)
+    ├── recompile-toolchains/ # compiler image build source
+    ├── recondb/              # FLIRT signatures
+    ├── rebrew-test-projects/ # target project instances
+    ├── resembl/              # assembly similarity search
+    ├── recoverage/           # coverage dashboard
+    ├── relumea-workbench/    # product web app, API, and CLI
+    ├── recompile/            # compiler-as-a-service API
+    ├── recondb-reservation/  # package-name placeholder
+    └── third-party/objconv-fork/ # modified OMF converter source
+
+~/Desktop/ai-decomp/third-party/
+├── decompedia/               # community decomp wiki checkout
+└── decompme-api/             # compiler and site checkouts, x86 samples
 ```
 
 The `*-rebrew` directories under `rebrew-test-projects/` are rebrew *project

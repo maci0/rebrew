@@ -689,7 +689,7 @@
         <mxCell id="legend2" value="Amber boxes write into the project. White/pink/grey boxes consume or are vision. Graph is acyclic at the repo layer: toolchains/resembl → rebrew → recovery/recompile; reagent imports rebrew; relumea sits above and is not a dependency." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="40" y="1148" width="1680" height="24" as="geometry"/>
         </mxCell>
-        <mxCell id="see2" value="Workspace: rebrew, recompile-toolchains, recondb, rebrew-test-projects, resembl, recovery, recompile, relumea, recondb, guild-rebrew. decompedia and objconv-fork live under third-party/. reagent is documented as a sibling but is not in this checkout." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+        <mxCell id="see2" value="Workspace: repos/rebrew, recompile-toolchains, recondb, rebrew-test-projects, resembl, recoverage, recompile, relumea-workbench, recondb-reservation. Guild Rebrew is a sibling project. Decompedia is under ~/Desktop/ai-decomp/third-party; objconv-fork remains under repos/third-party." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="40" y="1172" width="1680" height="24" as="geometry"/>
         </mxCell>
       </root>

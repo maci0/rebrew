@@ -18,8 +18,8 @@ toolchain infrastructure.
   - `decompme/decomp.me` (4.3 MB, shallow); the site source (Django
     backend + Next.js frontend) with the API routes and the compiler
     definitions.
-- **Location**: `third-party/decompme-api/` (sibling of the existing
-  `third-party/decompedia/` practice-doc export; see that folder's
+- **Location**: `~/Desktop/ai-decomp/third-party/decompme-api/` (sibling of the
+  `decompedia/` practice-doc checkout; see that folder's
   README).
 - **API surface** (from `site/backend/coreapp/urls.py`, mounted at
   `/api/`): `compilers`, `compiler`, `platform`, `library`, `search`,
@@ -196,7 +196,7 @@ the `next` cursor field in the response envelope.
 
 ## The scrape procedure
 
-Script: `third-party/decompme-api/scrape_snippets.sh` (also in the
+Script: `~/Desktop/ai-decomp/third-party/decompme-api/scrape_snippets.sh` (also in the
 scraped `compilers/`/`site/` trees).  It iterates the x86 compiler ids
 (`msvc4.0 … msvc8.0p`, `bcc2.0/3.1`, `wcc10.x`), pulls
 `/api/scratch?platform=win32&compiler=<id>&page_size=50`, saves each
@@ -221,7 +221,7 @@ User-Agent alone does not help).  Workarounds, in order of preference:
    copy the cookie, then
    `COOKIE='cf_clearance=…' ./scrape_snippets.sh`.
 2. **Self-hosted instance**: `docker compose up` the `decomp.me` repo
-   (scraped in `third-party/decompme-api/site/`) and point `BASE` at
+   (scraped in `~/Desktop/ai-decomp/third-party/decompme-api/site/`) and point `BASE` at
    it.  This also gives you the DB seed (its scratch sample data) and
    full API access without the CF layer.  **This is the recommended
    route for a large scrape.**
@@ -234,7 +234,7 @@ The script stops at the first 403 per compiler: it never hammers.
 
 - **Live API**: blocked (CF 403); the run above confirms the block
   and the script's safe-stop behavior.
-- **Repo-local x86-relevant samples** → `third-party/decompme-api/snippets-x86/`
+- **Local x86-relevant samples** → `~/Desktop/ai-decomp/third-party/decompme-api/snippets-x86/`
   (with `manifest.json`): the only x86-compatible snippets present in
   the repo source (frontend scratch-state fixtures + the portable C
   from the backend tests).  The full corpus is DB-only and needs one
