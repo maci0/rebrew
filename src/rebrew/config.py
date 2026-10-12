@@ -144,7 +144,7 @@ REBREW_SKILLS_DIR_ENV = "REBREW_SKILLS_DIR"
 skill).  Unset means packaged skills only."""
 
 REBREW_FLIRT_SIGS_DIR_ENV = "REBREW_FLIRT_SIGS_DIR"
-"""Env var naming the rebrew-flirt-sigs checkout (``*.sig``/``*.pat`` files).
+"""Env var naming the recondb checkout (``*.sig``/``*.pat`` files).
 
 Absent from the environment the sibling checkout is used.  A wrong value here
 is the quiet kind of misconfiguration: the loader skips a directory that is not

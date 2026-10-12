@@ -294,7 +294,7 @@ def load_signatures_for(dirs: list[Path], arch: str = "") -> list[Any]:
     if not files:
         console.print(
             f"No signature files in {', '.join(str(d) for d in dirs)} — "
-            "clone the rebrew-flirt-sigs checkout next to this repo "
+            "clone the recondb checkout next to this repo "
             "(or set REBREW_FLIRT_SIGS_DIR)."
         )
         return []
@@ -509,7 +509,7 @@ app = typer.Typer(
         "Recognition Technology) signatures to identify known library functions "
         "(MSVCRT, DirectX, Zlib, etc.).\n\n"
         "[dim]Signatures load from the project's flirt_sigs/ merged with the "
-        "rebrew-flirt-sigs checkout (REBREW_FLIRT_SIGS_DIR overrides); or pass "
+        "recondb checkout (REBREW_FLIRT_SIGS_DIR overrides); or pass "
         "a SIG_DIR argument. Reads target binary path from rebrew-project.toml.[/dim]"
     ),
 )

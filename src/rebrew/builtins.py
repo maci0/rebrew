@@ -418,7 +418,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             attr="init_signatures",
             help="Copy shared signature files into the project without overwriting existing files.",
             panel=Panel.PROJECT_SETUP,
-            epilog="Examples:\n\n  rebrew library init-signatures\n\n  rebrew library init-signatures --matched-only --json\n\nRequires the rebrew-flirt-sigs checkout; existing project files are retained.",
+            epilog="Examples:\n\n  rebrew library init-signatures\n\n  rebrew library init-signatures --matched-only --json\n\nRequires the recondb checkout; existing project files are retained.",
         ),
         CliComponent(
             name="identify",

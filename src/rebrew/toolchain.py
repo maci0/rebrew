@@ -1126,7 +1126,7 @@ def _resolve_binary(spec: ToolchainSpec) -> str:
         return found
     raise ToolchainError(
         f"toolchain {spec.name!r}: no native binary ({spec.binary}) found — "
-        "run `rebrew toolchain vendor <name>` into the rebrew-toolchains "
+        "run `rebrew toolchain vendor <name>` into the recompile-toolchains "
         "checkout or install it on PATH",
         kind="missing",
         name=spec.name,
