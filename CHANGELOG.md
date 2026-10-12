@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Changed
+- **Breaking:** `flirt.FLIRT_SIGS_REPO_URL` now points to the private
+  `relumea/recondb` repository; callers cloning the signature corpus need access.
+  `toolchain.TOOLCHAINS_REPO_URL` and `toolchain_paths.TOOLCHAINS_REPO_URL`
+  now point to the public `maci0/recompile-toolchains` repository. The Python
+  import paths and existing local checkout aliases remain available.
+
 ### Added
 - Generated `AGENTS.md` and workflow/data skills route common operations to
   shipped commands and public APIs before adding scripts, with guidance for
