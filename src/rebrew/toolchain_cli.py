@@ -51,12 +51,12 @@ if TYPE_CHECKING:
 
 #: ``check-updates`` row values. The two ``static`` spellings mark a source
 #: that cannot drift (an immutable release asset, a tarball pinned inside the
-#: rebrew-toolchains checkout); the nightly gate in
+#: recompile-toolchains checkout); the nightly gate in
 #: ``.github/workflows/toolchain-sync.yml`` allowlists these exact strings, so
 #: ``tests/test_ci_pins.py`` fails when the two sides drift apart.
 STATUS_CURRENT = "current"
 STATUS_STATIC_ASSET = "static (immutable release asset)"
-STATUS_STATIC_TARBALL = "static (pinned tarball in rebrew-toolchains)"
+STATUS_STATIC_TARBALL = "static (pinned tarball in recompile-toolchains)"
 
 #: Cap on each archive-extraction subprocess in `rebrew toolchain vendor`
 #: (matches the curl download timeout).  Without it a stuck filesystem or
@@ -606,7 +606,7 @@ def vendor_cmd(
     """Assemble the host toolchain tree from the pinned source.
 
     Downloads (sha256-verified) or extracts the pinned tarball into
-    ``<family>/<version>-<arch>/source`` under the rebrew-toolchains
+    ``<family>/<version>-<arch>/source`` under the recompile-toolchains
     checkout — the same source the docker image builds from, so host trees
     and containers are byte-identical.  A *complete* tree is an idempotent
     success (``already_present``), matching ``pull``.  An incomplete
@@ -1307,7 +1307,7 @@ def build_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. watcom-2.0-win32, msvc-6.0)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Build a toolchain's docker image from the rebrew-toolchains checkout."""
+    """Build a toolchain's docker image from the recompile-toolchains checkout."""
 
     from rebrew.toolchain import (
         ToolchainError,
@@ -1622,7 +1622,7 @@ def check_updates_cmd(
     no download) against the commit the pin was taken from.  The Open
     Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded
     and re-hashed.  Immutable release assets (decomp.me, archive.org) and
-    pinned tarballs (16-bit media in the rebrew-toolchains checkout) are
+    pinned tarballs (16-bit media in the recompile-toolchains checkout) are
     reported as static."""
     import hashlib
     import re

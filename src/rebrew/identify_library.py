@@ -474,7 +474,7 @@ def _resolve_lib_dir(cfg: Any, lib_dir: Path | None) -> Path | None:
 
     Order: explicit ``--lib-dir`` → the project's own ``tools/`` trees that
     contain ``*.lib`` files → the vendored
-    ``toolchain/msvc/6.0-win32/source/VC98/Lib`` in the rebrew-toolchains
+    ``toolchain/msvc/6.0-win32/source/VC98/Lib`` in the recompile-toolchains
     checkout.  The project's tree wins over the shared checkout, so a project
     that pins its own MSVC libraries builds signatures from those.
     """

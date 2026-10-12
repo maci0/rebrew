@@ -106,7 +106,7 @@ class ToolchainSpec:
 class ToolchainSource:
     """Pinned assembly source for one toolchain.
 
-    Either a pinned tarball in the rebrew-toolchains checkout (``in_repo``
+    Either a pinned tarball in the recompile-toolchains checkout (``in_repo``
     — the deterministic option, no network) or a remote download verified
     by ``sha256``.  ``host_dir`` is the ``<family>/<version>-<arch>`` dir
     in that checkout that the vendored host tree is assembled into;
@@ -115,7 +115,7 @@ class ToolchainSource:
 
     url: str = ""
     sha256: str = ""
-    in_repo: str = ""  # path relative to the rebrew-toolchains checkout
+    in_repo: str = ""  # path relative to the recompile-toolchains checkout
     # (no profile uses this today: every source is a pinned download; kept
     # for a media tree that has no public URL)
     layout: str = "tar"  # tar | tar-strip1 | zip-installshield

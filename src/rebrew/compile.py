@@ -1084,7 +1084,7 @@ def extract_include_dirs(flags: list[str]) -> list[str]:
 
 
 def _is_vendored_toolchain_tree(p: Path) -> bool:
-    """True when *p* lives under the rebrew-toolchains checkout.
+    """True when *p* lives under the recompile-toolchains checkout.
 
     Those trees are baked into the docker images byte-identical, so the
     container needs no bind mount for them - CL/wcc resolve their own

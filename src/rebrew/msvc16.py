@@ -1,8 +1,8 @@
 """msvc16.py — 16-bit MSVC (1.0 / 1.5 / 1.52) compilation support.
 
 Wraps the vendored 16-bit Microsoft Visual C++ command-line compilers
-(``rebrew-toolchains/msvc/1.0-win16``, ``rebrew-toolchains/msvc/1.5-win16``,
-``rebrew-toolchains/msvc/1.52-win16``): the CL.EXE drivers are Phar Lap TNT
+(``recompile-toolchains/msvc/1.0-win16``, ``recompile-toolchains/msvc/1.5-win16``,
+``recompile-toolchains/msvc/1.52-win16``): the CL.EXE drivers are Phar Lap TNT
 DOS-extender PEs that run headless under DOSBox (wine's DOS-memory
 allocation fails for them).  Produces 16-bit OMF objects — the OMF parser
 (docs/OMF_NOTES.md) is the enabling piece for byte matching.
@@ -50,7 +50,7 @@ def _find_vc152(version: str = "1.52-win16") -> Path:
     }.get(version, version)
     raise Msvc16Error(
         f"vendored MSVC {version} not found under "
-        f"rebrew-toolchains/msvc/{version}/source (BIN/INCLUDE/LIB "
+        f"recompile-toolchains/msvc/{version}/source (BIN/INCLUDE/LIB "
         f"required — run `rebrew toolchain vendor {profile}`, which "
         "downloads the pinned archaic-toolchains tarball)"
     )
@@ -77,7 +77,7 @@ def compile_c(
             breaks on tmpfs mounts; removed at process exit).
         cflags: Extra CL flags (default ``["/c", "/nologo"]``).
         timeout: DOSBox subprocess timeout.
-        version: Vendored tree under ``rebrew-toolchains/msvc/<version>/source``
+        version: Vendored tree under ``recompile-toolchains/msvc/<version>/source``
             (``1.0-win16``, ``1.5-win16``, or ``1.52-win16``).
 
     Raises:

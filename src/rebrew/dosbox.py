@@ -264,7 +264,7 @@ def run_dosbox(
     if shutil.which("dosbox") is None:
         raise DosboxError(
             "dosbox not found in PATH — 16-bit DOS toolchains must run under "
-            "DOSBox (see the rebrew-toolchains 16-bit trees)"
+            "DOSBox (see the recompile-toolchains 16-bit trees)"
         )
     sandbox.mkdir(parents=True, exist_ok=True)
     conf = sandbox / "run.conf"

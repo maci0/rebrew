@@ -2222,7 +2222,7 @@ class TestToolchainSync:
         [
             ("current", [], 0),
             ("static (immutable release asset)", [], 0),
-            ("static (pinned tarball in rebrew-toolchains)", [], 0),
+            ("static (pinned tarball in recompile-toolchains)", [], 0),
             ("DRIFTED old -> new", ["compiler"], 1),
             ("check failed (HTTPStatusError)", [], 1),
             ("unpinned (live abc123)", [], 1),

@@ -2,7 +2,7 @@
 
 Wraps the vendored 16-bit Borland Delphi 1.0 compiler (``DCC.EXE``, a DOS
 DPMI app, run headless under DOSBox per the proven recipe in the
-``rebrew-toolchains/delphi/1.0-win16`` tree) and parses the resulting 16-bit
+``recompile-toolchains/delphi/1.0-win16`` tree) and parses the resulting 16-bit
 NE executable with the native NE loader.
 
 Used for research (compile + NE parse) on Delphi targets.  Note: 16-bit
@@ -58,7 +58,7 @@ class Delphi16Result:
 
 
 def find_dcc() -> Path:
-    """Locate the vendored DCC.EXE (rebrew-toolchains/delphi/1.0-win16)."""
+    """Locate the vendored DCC.EXE (recompile-toolchains/delphi/1.0-win16)."""
     from rebrew.toolchain_paths import toolchains_repo
 
     dcc = toolchains_repo() / "delphi" / "1.0-win16" / "source" / "DCC.EXE"
@@ -66,7 +66,7 @@ def find_dcc() -> Path:
         return dcc
     raise Delphi16Error(
         "vendored Delphi 1.0 toolchain not found under "
-        "rebrew-toolchains/delphi/1.0-win16/source (DCC.EXE + DELPHI.DSL + "
+        "recompile-toolchains/delphi/1.0-win16/source (DCC.EXE + DELPHI.DSL + "
         "DPMI16BI.OVL are required) — run `rebrew toolchain vendor delphi-1.0`, "
         "which downloads the pinned archaic-toolchains/delphi10 tarball"
     )
@@ -212,7 +212,7 @@ def compile_ne(
         _stage_unit_sources(src_path, sandbox, staged_name)
 
     # Stage the RTL/VCL units + a DCC.CFG that points at them, when found.
-    # The mission (rebrew-toolchains/delphi/1.0-win16 tree) established
+    # The mission (recompile-toolchains/delphi/1.0-win16 tree) established
     # DCC.CFG's unit path is required for unit-using programs; DELPHI.DSL
     # alone suffices for the built-in units (System, WinTypes, WinProcs).
     lib_dir: Path | None = None

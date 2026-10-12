@@ -627,7 +627,7 @@ def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
             status=_FAIL if needs_delphi else _WARN,
             message=str(exc),
             fix="Restore the vendored toolchain (DCC.EXE + DELPHI.DSL + "
-            "DPMI16BI.OVL + RTM.EXE) under rebrew-toolchains/delphi/1.0-win16/source.",
+            "DPMI16BI.OVL + RTM.EXE) under recompile-toolchains/delphi/1.0-win16/source.",
         )
 
     rtm = dcc.parent / "RTM.EXE"
@@ -637,7 +637,7 @@ def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
             status=_WARN,
             message=f"{dcc.name} found but RTM.EXE missing — DCC (a DPMI app) "
             "silently fails without the DOS Runtime Manager",
-            fix="Copy RTM.EXE next to DCC.EXE (rebrew-toolchains/delphi/1.0-win16/source).",
+            fix="Copy RTM.EXE next to DCC.EXE (recompile-toolchains/delphi/1.0-win16/source).",
         )
     if shutil.which("dosbox") is None:
         return CheckResult(

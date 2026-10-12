@@ -10,7 +10,7 @@ Execution is **docker-only for every Windows/DOS toolchain** (all wine- and
 dosbox-runtime specs): the host never calls CL.EXE / DCC.EXE / TCC.EXE /
 bcc32.exe directly, and there is no wine/wibo host fallback.  The docker
 build source (Dockerfiles, wrapper scripts, the shared ``base``) lives in
-the standalone **rebrew-toolchains** checkout — the sibling repo
+the standalone **recompile-toolchains** checkout — the sibling repo
 (overridable via ``REBREW_TOOLCHAINS_DIR``) — so rebrew no longer vendors
 build files in-repo; ``rebrew toolchain build``/``vendor`` read them from
 there, and the smoke gate verifies the image output is byte-reproducible.
@@ -1056,7 +1056,7 @@ def vendored_binary(spec: ToolchainSpec) -> Path | None:
     host = Path(spec.host_path)
     # Canonical layout: the actual toolchain lives one level deep under
     # ``source/`` (<family>/<ver>-<arch>/source/... — vendored into the
-    # rebrew-toolchains checkout) so every vendored tree has the same shape.
+    # recompile-toolchains checkout) so every vendored tree has the same shape.
     if (host / "source").is_dir():
         host = host / "source"
     hit = _match_binary(host, spec.binary)

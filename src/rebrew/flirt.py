@@ -68,7 +68,7 @@ def _flirt_sigs_repo() -> Path:
 def _sig_files(dirs: list[Path]) -> list[Path]:
     """All ``.sig``/``.pat`` files under *dirs*, deduped by stem (first wins).
 
-    Recursive: rebrew-flirt-sigs groups signatures by compiler family
+    Recursive: recondb groups signatures by compiler family
     (``sigs/<family>/<toolchain>/``) and mirrors public collections under
     ``sigs/harvested/``.  A flat project ``flirt_sigs/`` keeps working.
 
@@ -252,7 +252,7 @@ ARCH_FAMILIES: dict[str, str] = {
 def _arch_index(dirs: list[Path]) -> dict[str, str]:
     """``name -> arch`` from a ``sigs/index.json`` shipped with the signatures.
 
-    rebrew-flirt-sigs publishes the architecture of every file it could
+    recondb publishes the architecture of every file it could
     classify (``tools/index_sigs.py``); files missing from the index — or
     marked with an empty arch — are unknown and always load.  A checkout
     without an index simply does not filter.
@@ -553,7 +553,7 @@ def main(
     arch = ARCH_FAMILIES.get(native_arch, "")
 
     # 2. Load FLIRT signatures: an explicit dir, else the project flirt_sigs/
-    # merged with the rebrew-flirt-sigs checkout (standard library sigs).
+    # merged with the recondb checkout (standard library sigs).
     if sig_dir is not None:
         sigs = load_signatures_for([Path(sig_dir)], arch)
         sig_sources = [str(sig_dir)]

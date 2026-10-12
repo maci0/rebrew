@@ -448,7 +448,7 @@ SOURCES: dict[str, ToolchainSource] = {
 }
 
 #: The ENTRYPOINT wrapper each image declares, keyed by image tag.  The
-#: Dockerfile in the rebrew-toolchains checkout is the source (rebrew pins
+#: Dockerfile in the recompile-toolchains checkout is the source (rebrew pins
 #: that checkout), and this publishes the wrapper so a consumer that has to
 #: override the image entrypoint names the same one.
 IMAGE_ENTRYPOINTS: dict[str, str] = {
