@@ -109,6 +109,7 @@ class TestRegistry:
             "cached_image_digest",
             "docker_available",
             "get_toolchain",
+            "image_content_id",
             "image_msvc_env",
             "image_present",
             "invalidate_toolchain_digest",
@@ -446,6 +447,35 @@ class TestRunToolchain:
         assert calls[0][11:13] == ["--entrypoint", "/usr/local/bin/dcc"]
         assert calls[0][13] == "rebrew/t:latest"
         assert calls[0][14:] == ["hello.dpr"]
+
+    def test_image_id_pins_the_run_and_skips_tag_presence(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        spec = ToolchainSpec(
+            name="t", image="rebrew/t:latest", binary="cl", image_entrypoint="/usr/local/bin/cl"
+        )
+        calls = _monkey_docker(monkeypatch, image=False)
+        seen = {"n": 0}
+
+        def _present(tag: str) -> bool:
+            del tag
+            seen["n"] += 1
+            return False
+
+        monkeypatch.setattr("rebrew.toolchain.image_present", _present)
+        image_id = "sha256:" + "cd" * 32
+        result = run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, image_id=image_id)
+        assert result.ok
+        assert seen["n"] == 0
+        assert image_id in calls[0]
+        assert spec.image not in calls[0]
+
+    def test_malformed_image_id_is_a_validation_error(self, tmp_path: Path, monkeypatch) -> None:
+        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl")
+        _monkey_docker(monkeypatch)
+        with pytest.raises(ToolchainError, match="not a full sha256 digest") as ei:
+            run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, image_id="sha256:abcd")
+        assert ei.value.kind == "validation"
 
     def test_wine_runtime_without_image_raises(self, tmp_path: Path, monkeypatch) -> None:
         """A wine-runtime spec without an image is not runnable — execution

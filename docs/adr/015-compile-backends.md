@@ -41,8 +41,11 @@ service as a second, opt-in backend.
 - `rebrew.recompile_client` carries the transport: request caps mirrored
   from the service, artifact download, and a typed `RecompileError` for
   unreachable and non-2xx replies.
-- The compile cache keys an object on the backend that produced it, so
-  switching backends cannot serve the other's object.
+- The local compile cache keys an object on the inspected image id
+  (`sha256:` plus 64 hex), and `docker run` uses that same id. The image
+  tag is display metadata. A missing or malformed id compiles uncached.
+  The recompile response carries no image id, so remote results are not
+  cached and a local Docker id is not used as remote provenance.
 - `recompile_emit_assembly` passes the service's opt-in training tap.
 
 The image-backed migration for `gcc-14.2.0`, `mingw-16.2.0`,
@@ -54,8 +57,9 @@ toolchains registered without an `image`.
 ## Consequences
 
 - A compile runs locally (docker images) or against a shared recompile
-  service without a project-config change, and a backend switch cannot
-  serve the other's cached object.
+  service. Local cache entries are pinned to the image id that ran.
+  Remote results are not entered in that cache, so a backend switch
+  cannot serve the other's object.
 - *(Historical; superseded by ADR-016:)* at acceptance, `gcc-14.2.0`,
   `mingw-16.2.0`, `clang-18.1.8` and `watcom-2.0-win16` were still native
   specs and the Decision deferred their images.  That migration landed;

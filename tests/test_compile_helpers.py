@@ -198,14 +198,56 @@ class TestNativeToolchainId:
         _native_binary_cache.clear()
         tid = _native_toolchain_id(self._spec("sh"))
         assert tid.startswith("native:sh@")
-        assert len(tid.split("@")[1]) == 16  # short sha256 content digest
+        assert len(tid.split("@", 1)[1]) == 64
 
-    def test_missing_binary_falls_back(self, monkeypatch) -> None:
+    def test_missing_binary_has_no_identity(self, monkeypatch) -> None:
         from rebrew.compile import _native_binary_cache, _native_toolchain_id
 
         _native_binary_cache.clear()
         monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: None)
-        assert _native_toolchain_id(self._spec("no-such-compiler")) == "native:no-such-compiler"
+        assert _native_toolchain_id(self._spec("no-such-compiler")) is None
+        assert "no-such-compiler" not in _native_binary_cache
+
+    def test_short_digest_is_not_an_identity(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+
+        binary = tmp_path / "cc"
+        binary.write_bytes(b"compiler")
+        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(binary))
+        monkeypatch.setattr("rebrew.compile._native_binary_digest", lambda path: "ab" * 8)
+        _native_binary_cache.clear()
+        assert _native_toolchain_id(self._spec("cc")) is None
+        assert "cc" not in _native_binary_cache
+
+    def test_digests_sharing_a_16_hex_prefix_do_not_collide(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+
+        prefix = "ab" * 8
+        bodies = {
+            "one": prefix + "a" * 48,
+            "two": prefix + "b" * 48,
+        }
+        for name, body in bodies.items():
+            path = tmp_path / name
+            path.write_bytes(body.encode())
+
+        def _digest(path: Path) -> str:
+            return bodies[path.name]
+
+        monkeypatch.setattr("rebrew.compile._native_binary_digest", _digest)
+        _native_binary_cache.clear()
+        ids = []
+        for name in ("one", "two"):
+            monkeypatch.setattr(
+                "rebrew.compile.shutil.which", lambda _name, name=name: str(tmp_path / name)
+            )
+            ids.append(_native_toolchain_id(self._spec(name)))
+        assert ids[0] is not None and ids[1] is not None
+        assert ids[0] != ids[1]
+        assert ids[0].split("@", 1)[1][:16] == ids[1].split("@", 1)[1][:16]
+        assert len(ids[0].split("@", 1)[1]) == 64
 
     def test_match_binary_nfd_nfc(self, tmp_path: Path) -> None:
         from rebrew.toolchain import _match_binary
@@ -355,7 +397,7 @@ class TestInvalidateToolchainDigest:
         assert _toolchain_digest_cache == {}
 
     def test_cached_image_digest_skips_empty_failures(self, monkeypatch) -> None:
-        """A failed inspect must not pin the bare-tag key for the process life."""
+        """A failed inspect must not be memoized as an identity."""
         import rebrew.toolchain as toolchain_mod
         from rebrew.toolchain import cached_image_digest
 
@@ -379,26 +421,23 @@ class TestInvalidateToolchainDigest:
         toolchain_mod._toolchain_digest_cache.clear()
         calls = {"n": 0}
 
+        image_id = "sha256:" + "ab" * 32
+
         def _ok(*_a, **_k):
             calls["n"] += 1
-            return SimpleNamespace(
-                returncode=0,
-                stdout="sha256:abcdef0123456789deadbeef\n",
-                stderr="",
-            )
+            return SimpleNamespace(returncode=0, stdout=image_id + "\n", stderr="")
 
         monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
-        assert cached_image_digest("rebrew/msvc:6.0-win32") == "abcdef012345"
-        assert cached_image_digest("rebrew/msvc:6.0-win32") == "abcdef012345"
+        assert cached_image_digest("rebrew/msvc:6.0-win32") == image_id
+        assert cached_image_digest("rebrew/msvc:6.0-win32") == image_id
         assert calls["n"] == 1
 
     def test_invalidate_during_inspect_does_not_store_old_digest(self, monkeypatch) -> None:
         """A swap landing mid-inspect must not let the pre-swap id be used.
 
-        The digest is half the compile-cache key.  Serving the pre-swap id
-        files a post-swap compile under the old image, which is the stale-key
-        case ``invalidate_toolchain_digest`` exists to prevent — so the result
-        degrades to the bare tag and nothing is cached.
+        Serving the pre-swap id would file a post-swap compile under the old
+        image, which is the stale-key case ``invalidate_toolchain_digest``
+        exists to prevent.  The result is empty and nothing is cached.
         """
         import rebrew.toolchain as toolchain_mod
         from rebrew.toolchain import cached_image_digest, invalidate_toolchain_digest
@@ -414,7 +453,23 @@ class TestInvalidateToolchainDigest:
         assert "rebrew/msvc:6.0-win32" not in toolchain_mod._toolchain_digest_cache
 
     def test_invalidate_during_inspect_prefers_post_swap_refill(self, monkeypatch) -> None:
-        """A worker that already re-inspected wins over degrading to the tag."""
+        """A worker that already re-inspected wins over returning empty."""
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import cached_image_digest, invalidate_toolchain_digest
+
+        toolchain_mod._toolchain_digest_cache.clear()
+        refilled = "sha256:" + "cd" * 32
+
+        def _swap_then_refill(*_a, **_k):
+            invalidate_toolchain_digest("rebrew/msvc:6.0-win32")
+            # Another worker post-swap refilled the memo.
+            toolchain_mod._toolchain_digest_cache["rebrew/msvc:6.0-win32"] = refilled
+            return SimpleNamespace(returncode=0, stdout="sha256:" + "ab" * 32 + "\n", stderr="")
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _swap_then_refill)
+        assert cached_image_digest("rebrew/msvc:6.0-win32") == refilled
+
+    def test_short_refill_after_invalidate_is_rejected(self, monkeypatch) -> None:
         import rebrew.toolchain as toolchain_mod
         from rebrew.toolchain import cached_image_digest, invalidate_toolchain_digest
 
@@ -422,12 +477,116 @@ class TestInvalidateToolchainDigest:
 
         def _swap_then_refill(*_a, **_k):
             invalidate_toolchain_digest("rebrew/msvc:6.0-win32")
-            # Another worker post-swap refilled the memo.
             toolchain_mod._toolchain_digest_cache["rebrew/msvc:6.0-win32"] = "newnewnewnew"
-            return SimpleNamespace(returncode=0, stdout="sha256:0ld0ld0ld0ld99\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout="sha256:" + "ab" * 32 + "\n", stderr="")
 
         monkeypatch.setattr(toolchain_mod.subprocess, "run", _swap_then_refill)
-        assert cached_image_digest("rebrew/msvc:6.0-win32") == "newnewnewnew"
+        assert cached_image_digest("rebrew/msvc:6.0-win32") == ""
+        assert "rebrew/msvc:6.0-win32" not in toolchain_mod._toolchain_digest_cache
+
+    @pytest.mark.parametrize(
+        "stdout",
+        [
+            "",
+            "abcdef0123456789deadbeef",
+            "sha256:abcdef012345",
+            "sha256:" + "AB" * 32,
+            "sha256:" + "ab" * 32 + "ff",
+            "sha256:" + "ab" * 32 + "\nsha256:" + "cd" * 32,
+            "not-an-id",
+        ],
+    )
+    def test_malformed_inspect_is_not_an_identity(self, monkeypatch, stdout: str) -> None:
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import cached_image_digest
+
+        toolchain_mod._toolchain_digest_cache.clear()
+        calls = {"n": 0}
+
+        def _ok(*_a, **_k):
+            calls["n"] += 1
+            return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
+        tag = "rebrew/msvc:6.0-win32"
+        assert cached_image_digest(tag) == ""
+        assert tag not in toolchain_mod._toolchain_digest_cache
+        assert cached_image_digest(tag) == ""
+        assert calls["n"] == 2
+
+    def test_nonzero_inspect_and_timeout_are_not_memoized(self, monkeypatch) -> None:
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import cached_image_digest
+
+        toolchain_mod._toolchain_digest_cache.clear()
+        calls = {"n": 0}
+
+        def _bad(*_a, **_k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return SimpleNamespace(
+                    returncode=1, stdout="sha256:" + "ab" * 32 + "\n", stderr="missing"
+                )
+            raise subprocess.TimeoutExpired(cmd=["docker"], timeout=15)
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _bad)
+        tag = "rebrew/msvc:6.0-win32"
+        assert cached_image_digest(tag) == ""
+        assert cached_image_digest(tag) == ""
+        assert calls["n"] == 2
+        assert tag not in toolchain_mod._toolchain_digest_cache
+
+    def test_short_memo_is_dropped_and_reinspected(self, monkeypatch) -> None:
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import cached_image_digest
+
+        tag = "rebrew/msvc:6.0-win32"
+        image_id = "sha256:" + "ef" * 32
+        toolchain_mod._toolchain_digest_cache.clear()
+        toolchain_mod._toolchain_digest_cache[tag] = "abcdef012345"
+        calls = {"n": 0}
+
+        def _ok(*_a, **_k):
+            calls["n"] += 1
+            return SimpleNamespace(returncode=0, stdout=image_id + "\n", stderr="")
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
+        assert cached_image_digest(tag) == image_id
+        assert calls["n"] == 1
+        assert toolchain_mod._toolchain_digest_cache[tag] == image_id
+
+    def test_full_ids_sharing_a_12_hex_prefix_do_not_collide(self, monkeypatch) -> None:
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.compile import _toolchain_cache_id
+        from rebrew.compile_cache import compile_cache_key
+        from rebrew.toolchain import cached_image_digest
+
+        prefix = "abcdef012345"
+        id_a = "sha256:" + prefix + "a" * 52
+        id_b = "sha256:" + prefix + "b" * 52
+        assert id_a[7:19] == id_b[7:19]
+        assert id_a != id_b
+        stdout = {"rebrew/one:tag": id_a + "\n", "rebrew/two:tag": id_b + "\n"}
+        toolchain_mod._toolchain_digest_cache.clear()
+
+        def _ok(cmd, **_k):
+            return SimpleNamespace(returncode=0, stdout=stdout[cmd[-1]], stderr="")
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
+        assert cached_image_digest("rebrew/one:tag") == id_a
+        assert cached_image_digest("rebrew/two:tag") == id_b
+        spec = SimpleNamespace(image="rebrew/one:tag")
+        tid_a = _toolchain_cache_id(spec, id_a)
+        tid_b = _toolchain_cache_id(spec, id_b)
+        assert tid_a is not None and tid_b is not None
+        assert tid_a != tid_b
+        assert _toolchain_cache_id(spec, "sha256:abcdef012345") is None
+        assert _toolchain_cache_id(spec, None) is None
+
+        def _key(toolchain_id: str) -> str:
+            return compile_cache_key("int f(void){return 1;}", "f.c", ["/O2"], [], toolchain_id)
+
+        assert _key(tid_a) != _key(tid_b)
 
     def test_image_present_does_not_cache_misses(self, monkeypatch) -> None:
         """A miss must re-inspect so an external pull is visible mid-process."""
@@ -500,12 +659,10 @@ class TestInvalidateToolchainDigest:
         toolchain_mod._image_presence.clear()
         monkeypatch.setattr(toolchain_mod, "docker_available", lambda: True)
 
+        image_id = "sha256:" + "ab" * 32
+
         def _ok(*_a, **_k):
-            return SimpleNamespace(
-                returncode=0,
-                stdout="sha256:abcdef0123456789deadbeef\n",
-                stderr="",
-            )
+            return SimpleNamespace(returncode=0, stdout=image_id + "\n", stderr="")
 
         monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
         errors: list[BaseException] = []
@@ -513,7 +670,7 @@ class TestInvalidateToolchainDigest:
         def _worker(i: int) -> None:
             try:
                 tag = f"rebrew/msvc:6.0-win32-{i % 80}"
-                assert cached_image_digest(tag) == "abcdef012345"
+                assert cached_image_digest(tag) == image_id
                 assert image_present(tag) is True
             except BaseException as exc:  # collect; fail outside threads
                 errors.append(exc)

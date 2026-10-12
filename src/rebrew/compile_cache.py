@@ -35,10 +35,12 @@ directory and the ``/I`` dirs) is fingerprinted **per reached header**
 the entries whose translation unit reaches it — an edit to an unrelated
 header in the same include dir is a cache hit.  Headers that cannot be
 resolved on the host (e.g. the MSVC CRT headers inside the immutable
-toolchain image) are not tracked: their content is pinned by the toolchain
-image digest in the key.  An include carrying ``..`` or an absolute path is
-resolved against the same search dirs (the compiler resolves it), and one that
-resolves nowhere on the host also falls back.  When the closure cannot be
+toolchain image) are not tracked: their content is pinned by the full image
+id (``sha256:`` plus 64 hex) in the key.  A compile that cannot admit that
+id is not cached.  Remote recompile results are not cached.  An include carrying
+``..`` or an absolute path is resolved against the same search dirs (the
+compiler resolves it), and one that resolves nowhere on the host also falls
+back.  When the closure cannot be
 resolved statically
 (a non-literal ``#include MACRO``, a ``/FI`` force-include), the key falls
 back to per-directory fingerprints of the source dir and every include dir (the conservative
@@ -1327,9 +1329,10 @@ def compile_cache_key(
       editing a header invalidates exactly the entries that reach it.
       ``/FI``/``-include`` force-includes and non-literal ``#include``
       directives fall back to whole-directory fingerprints.
-    - **toolchain_id** — identifies the compiler: the docker image tag plus
-      its content id when available (``compile._toolchain_cache_id``), or
-      ``native:<name>[@<sha16>]`` for an image-less plugin toolchain
+    - **toolchain_id**: compiler identity.  Local images use
+      ``<image tag>@sha256:<64 hex>`` (``compile._toolchain_cache_id``).
+      Image-less plugin toolchains use ``native:<name>@<64 hex>``.
+      Callers skip the cache when that identity is missing.
     - **source_ext** — file extension (``.c``, ``.cpp``)
     - **source_dir** — directory of the real source file (quote-include
       search anchor; may be ``None`` when compiling a bare source string)

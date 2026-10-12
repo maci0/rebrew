@@ -690,35 +690,49 @@ def build_candidate_obj_only(
     cache_key: str | None = None
     cflags_key = all_flags + ["/c"]
     include_dirs: list[str] = []
-    toolchain_id = ""
+
+    # The compile command is built from this env.  Later wine/headless
+    # adjustments must not change which binaries the cache identity hashes.
+    key_env = env
+
+    def _host_toolchain_id() -> str | None:
+        from rebrew.compile import native_binary_id
+
+        parts: list[str] = []
+        for part in _compiler_cmd_parts(cl_cmd, key_env):
+            ident = native_binary_id(part, _resolve_executable(part))
+            if ident is None:
+                return None
+            parts.append(ident)
+        return " ".join(parts)
+
     if cache is not None:
-        from rebrew.compile import extract_include_dirs, native_binary_id
+        from rebrew.compile import extract_include_dirs
 
         # Key each command part on its executable's content (as compile_to_obj
         # does for native specs): a compiler upgraded in place must never be
-        # served objects built by the old binary.
-        toolchain_id = " ".join(
-            native_binary_id(part, _resolve_executable(part))
-            for part in _compiler_cmd_parts(cl_cmd, env)
-        )
+        # served objects built by the old binary.  A part that cannot be
+        # hashed is not an identity, so the cache is skipped.
+        toolchain_id = _host_toolchain_id()
         include_dirs = [inc_dir, *extra_inc, *extract_include_dirs(all_flags)]
-        cache_key = compile_cache_key(
-            source_content=source_code,
-            source_filename=src_name,
-            cflags=cflags_key,
-            # The /I dirs carried by the flags join the search set so their
-            # headers participate in the per-source dependency fingerprints.
-            include_dirs=include_dirs,
-            toolchain_id=toolchain_id,
-            source_ext=source_ext,
-            source_dir=str(src_parent),
-        )
-        cached_obj = cache.get(cache_key)
-        if cached_obj is not None:
-            with tempfile.TemporaryDirectory(prefix="matcher_hit_") as _td:
-                obj_path = Path(_td) / "cand.obj"
-                obj_path.write_bytes(cached_obj)
-                return _obj_result(obj_path, symbol)
+        if toolchain_id is not None:
+            cache_key = compile_cache_key(
+                source_content=source_code,
+                source_filename=src_name,
+                cflags=cflags_key,
+                # The /I dirs carried by the flags join the search set so their
+                # headers participate in the per-source dependency fingerprints.
+                include_dirs=include_dirs,
+                toolchain_id=toolchain_id,
+                source_ext=source_ext,
+                source_dir=str(src_parent),
+            )
+            cached_obj = cache.get(cache_key)
+            if cached_obj is not None:
+                with tempfile.TemporaryDirectory(prefix="matcher_hit_") as _td:
+                    obj_path = Path(_td) / "cand.obj"
+                    obj_path.write_bytes(cached_obj)
+                    return _obj_result(obj_path, symbol)
 
     with tempfile.TemporaryDirectory(prefix="matcher_") as _td:
         workdir = Path(_td)
@@ -759,21 +773,23 @@ def build_candidate_obj_only(
         if cache is not None and cache_key is not None:
             from rebrew.compile import publish_obj_cache
 
-            with contextlib.suppress(OSError):
-                publish_obj_cache(
-                    cache,
-                    cache_key,
-                    obj_path.read_bytes(),
-                    fresh_key=compile_cache_key(
-                        source_content=source_code,
-                        source_filename=src_name,
-                        cflags=cflags_key,
-                        include_dirs=include_dirs,
-                        toolchain_id=toolchain_id,
-                        source_ext=source_ext,
-                        source_dir=str(src_parent),
-                    ),
-                )
+            fresh_id = _host_toolchain_id()
+            if fresh_id is not None:
+                with contextlib.suppress(OSError):
+                    publish_obj_cache(
+                        cache,
+                        cache_key,
+                        obj_path.read_bytes(),
+                        fresh_key=compile_cache_key(
+                            source_content=source_code,
+                            source_filename=src_name,
+                            cflags=cflags_key,
+                            include_dirs=include_dirs,
+                            toolchain_id=fresh_id,
+                            source_ext=source_ext,
+                            source_dir=str(src_parent),
+                        ),
+                    )
 
         return _obj_result(obj_path, symbol)
 

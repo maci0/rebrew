@@ -337,17 +337,16 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
         cfg.base_cflags,
         compiler_dir(cfg.compiler_includes),
         compiler_dir(cfg.compiler_libs),
-        # The compiler profile selects the toolchain the compile cache keys
-        # on (_toolchain_cache_id), so it changes every verdict.  Left out,
+        # The compiler profile selects the toolchain the local compile cache
+        # keys on (_toolchain_cache_id), so it changes every verdict.  Left out,
         # a `[compiler] profile` edit kept serving results measured under the
         # previous toolchain: cfg.compiler_command is just a command string
         # and defaults to an unrelated "wine CL.EXE".
         getattr(cfg, "compiler_profile", ""),
         source_date_epoch() or "",
-        # The remote backend is part of the compile identity too (compile.py
-        # keys the object cache on it), so a switch between local docker and
-        # the service must not reuse the other one's measurements.  Imported
-        # here because rebrew.compile pulls in the whole toolchain registry.
+        # Local and remote backends must not reuse each other's measurements.
+        # Remote objects are not stored in the compile cache; this hash still
+        # changes when the recompile URL changes so verify results do not either.
         _recompile_url(cfg) or "",
         # Content hash of the comparison/extraction logic: a code change that
         # alters results for the SAME source+compiler (e.g. the EXTRACT_ERROR

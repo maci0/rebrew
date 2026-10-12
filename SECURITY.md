@@ -200,21 +200,16 @@ plugin cache backends or remove the open upstream diskcache advisory.
   to that project's own endpoint, and `[compiler] recompile_url` is not gated
   at all.
 - No claim that a recompile endpoint only receives the source. The object it
-  returns is written to the compile workdir and published into the local
-  compile cache (`publish_obj_cache` in `src/rebrew/compile.py`), keyed on
-  source, flags, and `recompile:<url>/<spec.name>`, and later runs are served
-  those bytes instead of compiling. A hostile endpoint, or a MITM on the plain
-  `http` leg the URL check still allows, therefore plants bytes that persist
-  across runs, carry no provenance marker, are never expired, and are handed
-  to LIEF's COFF parser (or host `objconv` on an OMF profile) on every replay.
-  The response body has no size cap; the cache `size_limit` is the only
-  bound, and that too is project-supplied: the 500 MiB default
-  (`_DEFAULT_SIZE_LIMIT` in `src/rebrew/compile_cache.py`) is replaced by
-  `[cache] size_limit_mib` from `rebrew-project.toml` with no upper clamp
-  (`cache_size_limit` in `src/rebrew/config.py`).
-  Changing the endpoint or toolchain starts from a cache miss, and
-  `rebrew cache clear` drops the entries a same-endpoint change leaves in
-  place.
+  returns is written to the compile workdir and parsed for that run (LIEF's
+  COFF parser, or host `objconv` on an OMF profile). It is not published into
+  the compile cache: the service response has no image id, so a later run
+  compiles again instead of replaying those bytes (`_cache_key_for` in
+  `src/rebrew/compile.py`). The response body has no size cap. The compile
+  cache `size_limit` still bounds locally compiled objects only, and that
+  limit is project-supplied: the 500 MiB default (`_DEFAULT_SIZE_LIMIT` in
+  `src/rebrew/compile_cache.py`) is replaced by `[cache] size_limit_mib` from
+  `rebrew-project.toml` with no upper clamp (`cache_size_limit` in
+  `src/rebrew/config.py`).
 - No claim that a decomp.me upload is revocable, or that it leaves the host
   over TLS. `POST /api/scratch` has no
   idempotency key and mints a public scratch, whose slug and `claim_token`

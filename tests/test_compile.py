@@ -168,7 +168,7 @@ class TestCompileToObj:
         quoted include reaches the docker invocation as one flag."""
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             captured["args"] = args
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -213,11 +213,14 @@ class TestCompileToObj:
             def put(self, key: str, data: bytes) -> None:
                 pass
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr(
+            "rebrew.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+        )
         monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: _FakeCache())
 
         cfg: Any = SimpleNamespace(
@@ -261,7 +264,7 @@ class TestCompileToObj:
         stored: dict[str, bytes] = {}
         real_key = C._cache_key_for
 
-        def _key_then_rewrite(*args: Any, **kwargs: Any) -> str:
+        def _key_then_rewrite(*args: Any, **kwargs: Any) -> str | None:
             key = real_key(*args, **kwargs)
             source.write_text("int f(void){return 2;}\n", encoding="utf-8")
             return key
@@ -273,11 +276,12 @@ class TestCompileToObj:
             def put(self, key: str, data: bytes) -> None:
                 stored[key] = data
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             compiled.append((workdir / "f.c").read_text(encoding="utf-8"))
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
+        monkeypatch.setattr(C, "cached_image_digest", lambda _image: "sha256:" + "ab" * 32)
         monkeypatch.setattr(C, "_cache_key_for", _key_then_rewrite)
         monkeypatch.setattr(C, "run_toolchain", _fake_run)
         cfg: Any = SimpleNamespace(
@@ -323,7 +327,7 @@ class TestCompileToObj:
 
         header_box: dict[str, Path] = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             header = header_box["path"]
             st = header.stat()
             header.write_text("#define V 2\n", encoding="utf-8")
@@ -332,6 +336,9 @@ class TestCompileToObj:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr(
+            "rebrew.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+        )
         cfg: Any = SimpleNamespace(
             root=tmp_path,
             compiler_includes=tmp_path,
@@ -361,28 +368,37 @@ class TestCompileToObj:
         assert obj_path is not None
         assert stored == {}
 
-    def test_remote_backend_publishes_to_the_cache(
+    def test_remote_backend_does_not_use_the_compile_cache(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A remote compile must publish its artifact under the same key the
-        lookup uses.  The remote branch returns before the local publish, so
-        without this its lookup missed on every run and each verify re-POSTed
-        every function to the service."""
+        """The recompile response has no image id, so it is not a cache identity.
+
+        A local Docker inspect must not stand in for the remote runner, a
+        stale local entry must not be served, and a second compile posts again.
+        """
         import rebrew.recompile_client as rc
 
         posted: list[str] = []
+        gets: list[str] = []
         stored: dict[str, bytes] = {}
+        digest_calls: list[str] = []
 
         def _fake_compile_source(url: str, **kwargs: Any) -> Any:
             posted.append(url)
             return rc.RecompileResult(ok=True, obj_bytes=b"\xaa\xbb")
 
+        def _digest(image: str) -> str:
+            digest_calls.append(image)
+            return "sha256:" + "ab" * 32
+
         monkeypatch.setattr(rc, "compile_source", _fake_compile_source)
+        monkeypatch.setattr("rebrew.compile.cached_image_digest", _digest)
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
 
         class _FakeCache:
-            def get(self, key: str) -> None:
-                return None
+            def get(self, key: str) -> bytes:
+                gets.append(key)
+                return b"stale-local"
 
             def put(self, key: str, data: bytes) -> None:
                 stored[key] = data
@@ -404,17 +420,21 @@ class TestCompileToObj:
         src_dir.mkdir()
         source = src_dir / "f.c"
         source.write_text("int f(void){return 1;}\n", encoding="utf-8")
-        workdir = tmp_path / "work"
-        workdir.mkdir()
 
-        obj_path, err = compile_to_obj(
-            cast(ProjectConfig, cfg), source, ["/O2"], workdir, cache=_FakeCache()
-        )
+        for name in ("work", "work2"):
+            workdir = tmp_path / name
+            workdir.mkdir()
+            obj_path, err = compile_to_obj(
+                cast(ProjectConfig, cfg), source, ["/O2"], workdir, cache=_FakeCache()
+            )
+            assert err == ""
+            assert obj_path is not None
+            assert Path(obj_path).read_bytes() == b"\xaa\xbb"
 
-        assert err == ""
-        assert obj_path is not None
-        assert posted == ["http://svc"]
-        assert list(stored.values()) == [b"\xaa\xbb"]
+        assert posted == ["http://svc", "http://svc"]
+        assert gets == []
+        assert stored == {}
+        assert digest_calls == []
 
     def test_remote_failure_is_not_cached(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -475,7 +495,7 @@ class TestCompileToObjPosix:
         toolchain is still POSIX-style: -I/-c/-o, no MSVC /Fo."""
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             captured["args"] = args
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -522,7 +542,7 @@ class TestCompileToObjPosix:
         with MSVC-style flags (/Fo), not a host wine subprocess."""
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             captured["args"] = args
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -571,7 +591,7 @@ class TestSourceInWorkdir:
         source = workdir / "f.c"
         source.write_text('#include "../header.h"\nint f(void){return VALUE;}\n')
 
-        def fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             # The copied source sees /work; only an original-path include can
             # find its parent header through an authorized same-path mount.
             dirs = [Path(a[2:]) for a in args if a.startswith(("/I", "-I"))]
@@ -648,9 +668,15 @@ class TestCompileErrorExcerpt:
         )
 
         def _fail(
-            spec: object, args: list[str], *, workdir: Path, timeout: int, mounts: object = None
+            spec: object,
+            args: list[str],
+            *,
+            workdir: Path,
+            timeout: int,
+            mounts: object = None,
+            image_id: object = None,
         ):
-            del spec, args, timeout, mounts
+            del spec, args, timeout, mounts, image_id
             return SimpleNamespace(returncode=1, stdout="", stderr=stderr)
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fail)
@@ -697,9 +723,15 @@ class TestCompileErrorExcerpt:
         assert len(stderr) > 200
 
         def _fail(
-            spec: object, args: list[str], *, workdir: Path, timeout: int, mounts: object = None
+            spec: object,
+            args: list[str],
+            *,
+            workdir: Path,
+            timeout: int,
+            mounts: object = None,
+            image_id: object = None,
         ):
-            del spec, args, timeout, mounts
+            del spec, args, timeout, mounts, image_id
             return SimpleNamespace(returncode=1, stdout="", stderr=stderr)
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fail)
@@ -747,8 +779,9 @@ class TestPosixDropsMsvcBaseCflags:
             workdir: Path,
             timeout: int,
             mounts: object = None,
+            image_id: object = None,
         ):
-            del spec, timeout, mounts
+            del spec, timeout, mounts, image_id
             captured["args"] = list(args)
             if any(a in {"/nologo", "/c", "/MT"} for a in args):
                 return SimpleNamespace(
@@ -810,8 +843,9 @@ class TestPosixDropsMsvcBaseCflags:
             workdir: Path,
             timeout: int,
             mounts: object = None,
+            image_id: object = None,
         ):
-            del spec, timeout, mounts
+            del spec, timeout, mounts, image_id
             captured["args"] = list(args)
             obj = next(a[3:] for a in args if a.startswith("/Fo"))
             (workdir / obj).write_bytes(b"not-coff")
@@ -870,7 +904,7 @@ class TestCompileToObjToolchainProfiles:
 
         captured: dict = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             captured["args"] = args
             obj = workdir / "t.obj"
             obj.write_bytes(b"OMF")
@@ -901,7 +935,7 @@ class TestCompileToObjToolchainProfiles:
 
         captured: dict = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             captured["args"] = args
             obj = workdir / "t.obj"
             obj.write_bytes(b"OMF")
@@ -928,7 +962,7 @@ class TestCompileToObjToolchainProfiles:
         from rebrew.compile import compile_to_obj
         from rebrew.toolchain import RunResult
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             return RunResult(1, "", "Error! E1139", backend="host")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
@@ -966,7 +1000,7 @@ class TestCompileToObjMsvc152Image:
         captured: dict = {}
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             captured["args"] = args
             # DOSBox FAT-uppercases the object
             (workdir / "T.OBJ").write_bytes(b"OMF")
@@ -994,7 +1028,7 @@ class TestCompileToObjMsvc152Image:
         captured: dict = {}
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             captured["args"] = args
             (workdir / "T.OBJ").write_bytes(b"OMF")
             return RunResult(0, "", "", backend="docker")
@@ -1232,7 +1266,7 @@ class TestCompileToObjBorlandc55:
 
         captured: dict = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             captured["args"] = args
             obj = workdir / "t.obj"
             obj.write_bytes(b"OMF")
@@ -1263,7 +1297,7 @@ class TestPerFunctionOverrideArgShape:
 
         captured: dict = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             captured["args"] = args
             (workdir / "F.OBJ").write_bytes(b"OMF")
             return RunResult(0, "", "", backend="docker")
@@ -1326,7 +1360,7 @@ class TestCompileEdgeCases:
         from rebrew.compile import compile_to_obj
         from rebrew.toolchain import RunResult
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             return RunResult(0, "", "", backend="docker")  # no object written
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
@@ -1576,7 +1610,7 @@ class TestCompileBatchObjs:
 
         calls: list[list[str]] = []
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             calls.append(args)
             for i in (1, 2, 3):
                 (workdir / f"f{i}.o").write_bytes(b"\x00")
@@ -1601,7 +1635,7 @@ class TestCompileBatchObjs:
 
         from rebrew.compile import compile_batch_objs
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             return SimpleNamespace(returncode=1, stdout="", stderr="boom")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
@@ -1620,7 +1654,7 @@ class TestCompileBatchObjs:
 
         calls: list[list[str]] = []
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             calls.append(args)
             for name in ("foo.o", "bar.o"):
                 (workdir / name).write_bytes(b"\x00")
@@ -1646,51 +1680,278 @@ class TestCompileBatchObjs:
 
 
 class TestBatchCacheParity:
-    def test_identical_keys_both_paths(self, tmp_path: Path) -> None:
-        """_cache_key_for is the single computation — same inputs pin the
+    def test_identical_keys_both_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_cache_key_for is the single computation: same inputs pin the
         same key regardless of which path wrote the entry."""
         from types import SimpleNamespace
 
         from rebrew.compile import _cache_key_for
 
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        image_id = "sha256:" + "ab" * 32
+        spec = SimpleNamespace(name="msvc-6.0", image="rebrew/msvc:6.0-win32")
         cfg = SimpleNamespace(
             root=tmp_path, compiler_includes=tmp_path, compiler_command="CL.EXE", compiler_runner=""
         )
-        k1 = _cache_key_for(
-            cfg,
-            None,
-            "int f(void){return 1;}\n",
-            "f.c",
-            ["/O2"],
-            str(tmp_path),
-            tmp_path,
-            None,
-            ".c",
-        )
-        k2 = _cache_key_for(
-            cfg,
-            None,
-            "int f(void){return 1;}\n",
-            "f.c",
-            ["/O2"],
-            str(tmp_path),
-            tmp_path,
-            None,
-            ".c",
-        )
+
+        def _key(source: str) -> str | None:
+            return _cache_key_for(
+                cfg,
+                spec,
+                source,
+                "f.c",
+                ["/O2"],
+                str(tmp_path),
+                tmp_path,
+                None,
+                ".c",
+                image_id=image_id,
+            )
+
+        k1 = _key("int f(void){return 1;}\n")
+        k2 = _key("int f(void){return 1;}\n")
+        assert k1 is not None
         assert k1 == k2
-        k3 = _cache_key_for(
+        k3 = _key("int f(void){return 2;}\n")
+        assert k3 != k1
+        assert _key("int f(void){return 1;}\n") != _cache_key_for(
             cfg,
-            None,
-            "int f(void){return 2;}\n",
+            spec,
+            "int f(void){return 1;}\n",
             "f.c",
             ["/O2"],
             str(tmp_path),
             tmp_path,
             None,
             ".c",
+            image_id="sha256:" + "cd" * 32,
         )
-        assert k3 != k1
+        assert (
+            _cache_key_for(
+                cfg,
+                None,
+                "int f(void){return 1;}\n",
+                "f.c",
+                ["/O2"],
+                str(tmp_path),
+                tmp_path,
+                None,
+                ".c",
+            )
+            is None
+        )
+
+
+_ID_A = "sha256:" + "aa" * 32
+_ID_B = "sha256:" + "bb" * 32
+
+
+class TestPinnedImageExecution:
+    def _cfg(self, tmp_path: Path) -> Any:
+        return SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            base_cflags="/nologo",
+            compile_timeout=3,
+            compiler_command="CL.EXE",
+            compiler_runner="",
+            compiler_libs=tmp_path,
+            compiler_profile="msvc-6.0",
+            posix_style=False,
+            msvc_env=lambda: {},
+        )
+
+    def _source(self, tmp_path: Path) -> Path:
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        return source
+
+    def test_tag_swap_publishes_the_id_that_ran(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A tag moved after admission must not retarget the run or the publish."""
+        current = {"id": _ID_A}
+        digest_calls = {"n": 0}
+        ran: dict[str, str | None] = {}
+        stored: dict[str, bytes] = {}
+
+        def _digest(_image: str) -> str:
+            digest_calls["n"] += 1
+            return current["id"]
+
+        def _run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
+            del spec, args, timeout, mounts
+            ran["image_id"] = image_id
+            current["id"] = _ID_B
+            (workdir / "f.obj").write_bytes(b"from-" + image_id.encode())
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        class _Cache:
+            def get(self, key: str) -> bytes | None:
+                return stored.get(key)
+
+            def put(self, key: str, data: bytes) -> None:
+                stored[key] = data
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr("rebrew.compile.cached_image_digest", _digest)
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _run)
+        source = self._source(tmp_path)
+        work = tmp_path / "w1"
+        work.mkdir()
+        obj, err = compile_to_obj(
+            cast(ProjectConfig, self._cfg(tmp_path)), source, ["/O2"], work, cache=_Cache()
+        )
+        assert err == "" and obj is not None
+        assert ran["image_id"] == _ID_A
+        assert digest_calls["n"] == 1
+        assert list(stored.values()) == [b"from-" + _ID_A.encode()]
+        key_a = next(iter(stored))
+
+        def _run_b(spec, args, *, workdir, timeout, mounts=None, image_id=None):
+            del spec, args, timeout, mounts
+            ran["image_id"] = image_id
+            (workdir / "f.obj").write_bytes(b"from-" + image_id.encode())
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _run_b)
+        work2 = tmp_path / "w2"
+        work2.mkdir()
+        obj2, err = compile_to_obj(
+            cast(ProjectConfig, self._cfg(tmp_path)), source, ["/O2"], work2, cache=_Cache()
+        )
+        assert err == "" and obj2 is not None
+        assert ran["image_id"] == _ID_B
+        assert Path(obj2).read_bytes() == b"from-" + _ID_B.encode()
+        assert stored[key_a] == b"from-" + _ID_A.encode()
+        assert len(stored) == 2
+
+    def test_missing_inspect_compiles_uncached(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No image id: run the tag, and do not read or write the cache."""
+        gets: list[str] = []
+        puts: list[str] = []
+        ran: dict[str, str | None] = {}
+
+        def _digest(_image: str) -> str:
+            return ""
+
+        def _run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
+            del spec, args, timeout, mounts
+            ran["image_id"] = image_id
+            (workdir / "f.obj").write_bytes(b"fresh")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        class _Cache:
+            def get(self, key: str) -> bytes:
+                gets.append(key)
+                return b"stale"
+
+            def put(self, key: str, data: bytes) -> None:
+                puts.append(key)
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr("rebrew.compile.cached_image_digest", _digest)
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _run)
+        source = self._source(tmp_path)
+        work = tmp_path / "w"
+        work.mkdir()
+        obj, err = compile_to_obj(
+            cast(ProjectConfig, self._cfg(tmp_path)), source, ["/O2"], work, cache=_Cache()
+        )
+        assert err == "" and obj is not None
+        assert Path(obj).read_bytes() == b"fresh"
+        assert ran["image_id"] is None
+        assert gets == []
+        assert puts == []
+
+    def test_batch_keeps_the_admitted_id_across_key_and_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Probe, container, and publish share the first admitted id."""
+        from rebrew.compile import _cache_key_for, precompile_batch
+
+        rev = tmp_path / "reversed"
+        rev.mkdir()
+        for name in ("a.c", "b.c"):
+            (rev / name).write_text(f"int {name[0]}(void){{return 1;}}\n", encoding="utf-8")
+        state = {"n": 0, "run": None, "ids": []}
+        stored: dict[str, bytes] = {}
+
+        def _digest(_image: str) -> str:
+            state["n"] += 1
+            return _ID_A if state["n"] == 1 else _ID_B
+
+        real_key = _cache_key_for
+
+        def _key(*args: Any, **kwargs: Any) -> str | None:
+            state["ids"].append(kwargs.get("image_id"))
+            return real_key(*args, **kwargs)
+
+        def _batch(spec, src_names, flags, workdir, mounts, timeout, image_id=None):
+            del spec, flags, mounts, timeout
+            state["run"] = image_id
+            out = {}
+            for src in src_names:
+                obj = workdir / (Path(src).stem + ".o")
+                obj.write_bytes(b"batch")
+                out[src] = str(obj)
+            return out, ""
+
+        class _Cache:
+            def get(self, key: str) -> None:
+                return None
+
+            def put(self, key: str, data: bytes) -> None:
+                stored[key] = data
+
+        monkeypatch.setattr("rebrew.compile.cached_image_digest", _digest)
+        monkeypatch.setattr("rebrew.compile._cache_key_for", _key)
+        monkeypatch.setattr("rebrew.compile.compile_batch_objs", _batch)
+        monkeypatch.setattr("rebrew.compile.recompile_url", lambda cfg: None)
+        monkeypatch.setattr(
+            "rebrew.compile.toolchain_registry",
+            SimpleNamespace(
+                TOOLCHAINS={
+                    "mingw-16.2.0": SimpleNamespace(
+                        name="mingw-16.2.0",
+                        image="rebrew/mingw:16.2.0-win32",
+                        effective_arg_style="posix",
+                        flags_style="posix",
+                    )
+                }
+            ),
+        )
+        monkeypatch.setattr(
+            "rebrew.compile_overrides.resolve_compile_overrides",
+            lambda *a, **k: ("mingw-16.2.0", ""),
+        )
+        entries = [
+            SimpleNamespace(filepath="a.c", toolchain="", cflags="", module=""),
+            SimpleNamespace(filepath="b.c", toolchain="", cflags="", module=""),
+        ]
+        cfg = SimpleNamespace(
+            reversed_dir=rev,
+            root=tmp_path,
+            compiler_profile="mingw-16.2.0",
+            compiler_includes="",
+            base_cflags="",
+            compile_timeout=60,
+            default_jobs=1,
+        )
+        out = precompile_batch(cfg, entries, cache=_Cache())
+        assert len(out) == 2
+        assert state["n"] == 1
+        assert state["run"] == _ID_A
+        assert state["ids"]
+        assert set(state["ids"]) == {_ID_A}
+        assert stored
+        assert all(value == b"batch" for value in stored.values())
 
 
 class TestBatchGroupKey:
@@ -1750,7 +2011,7 @@ class TestPrecompileBatchCleanup:
 
         monkeypatch.setattr("rebrew.temp_dirs.writable_temp_dir", _tracking_wtd)
 
-        def _fake_batch(spec, src_names, flags, workdir, mounts, timeout):
+        def _fake_batch(spec, src_names, flags, workdir, mounts, timeout, image_id=None):
             assert src_names == ["a.c", "b.c"]
             out = {}
             for src in src_names:

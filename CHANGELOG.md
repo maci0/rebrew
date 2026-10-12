@@ -24,6 +24,12 @@
   inputs/outputs, symlinks and patches that change the file inventory are rejected.
 
 ### Fixed
+- Local compile cache identity is the full image or native SHA-256, and
+  `docker run` for that compile uses the inspected image id. The tag stays
+  display metadata. A missing or malformed id still compiles against the
+  requested tag or host binary, but the cache is not read or written.
+  Remote recompile results are not cached: the service response has no
+  image id, so a local Docker id is not used as remote provenance.
 - Function inventories recognize pointer-returning K&R definitions, including
   export macros and declarations inside conditionals. Prototypes remain excluded;
   AST recovery retains original source lines without rewriting the C.

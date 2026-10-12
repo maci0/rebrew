@@ -11,9 +11,13 @@ Setting `[compiler] recompile_url` (or `REBREW_RECOMPILE_URL`, which wins)
 routes every compile through the sibling [recompile](https://github.com/relumea/recompile)
 service instead: the same pinned images over `POST /api/v1/compile` plus an
 artifact download, with the opt-in `recompile_emit_assembly` training tap.
-The compile cache keys an object on the backend that produced it, so
-switching backends cannot serve the other's object, and the transport lives
-in `rebrew/recompile_client.py`.
+The local compile cache keys an object on the inspected image id
+(`sha256:` plus 64 hex) and `docker run` uses that same id. The image tag
+is display metadata. When that id cannot be read, the compile still runs
+against the tag and the cache is not used. The recompile response has no
+image id, so remote compiles are not cached and a local Docker id is not
+treated as the remote runner. Switching backends therefore cannot serve
+the other's object. The transport lives in `rebrew/recompile_client.py`.
 
 Every shipped profile is **image-backed**: `gcc-14.2.0`/`gcc-12.3.0`, `mingw-16.2.0`/`mingw-14.2.0`,
 `clang-18.1.8`/`clang-16.0.4` and `watcom-2.0-win16` hold the compiler inside their image like the
@@ -523,9 +527,10 @@ honor a per-function toolchain:
 - CLI `--toolchain`/`--cflags` still take precedence over the metadata
   value; the override fills the fallback chain (per-function metadata →
   nearest `rebrew-libraries.toml` → project defaults).
-- The compile cache keys on the toolchain image id + flags + include-dir
-  closure, so functions compiled under different toolchains never share
-  cache entries.
+- The compile cache keys on the admitted image id (the tag stays display
+  metadata) plus flags and the include-dir closure, so functions compiled
+  under different images never share cache entries. A compile whose image
+  id cannot be read is not cached.
 - **Execution is docker-only (ADR-008).**  The override selects a
   different *image*, not a patched wine environment: an msvc-5.0 override
   runs `rebrew/msvc:5.0-win32`, whose compiler loads its own matching

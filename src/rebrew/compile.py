@@ -100,6 +100,7 @@ from rebrew.toolchain import (
     ToolchainSpec,
     bind_mount,
     cached_image_digest,
+    image_content_id,
     run_toolchain,
 )
 from rebrew.utils import (
@@ -1157,26 +1158,29 @@ def _docker_include_rewrite(
 # name → (resolved_path, mtime_ns, size, inode, toolchain_id).  Re-stat on
 # each call so a mid-process compiler upgrade (same PATH name, new bytes)
 # does not keep serving objects keyed under the old content digest.  Content
-# is re-hashed when path, mtime, size, or inode changes — inode catches a
+# is re-hashed when path, mtime, size, or inode changes.  Inode catches a
 # same-size rename-over of the compiler binary in one mtime tick.
 # Guarded: verify -j N / GA workers call ``_native_toolchain_id`` concurrently
 # while building cache keys; the eviction path is a multi-step mutation.
+# A missing or unreadable binary is not stored: that is not an identity.
 _native_binary_cache: dict[str, tuple[str, int, int, int, str]] = {}
 _NATIVE_BINARY_CACHE_MAX = 32
 _NATIVE_BINARY_CACHE_LOCK = threading.Lock()
+_SHA256_HEX_LEN = 64
+_SHA256_HEX_RE = re.compile(rf"^[0-9a-f]{{{_SHA256_HEX_LEN}}}$")
 
 
-def _native_toolchain_id(spec: "ToolchainSpec") -> str:
+def _native_toolchain_id(spec: "ToolchainSpec") -> str | None:
     """The compile-cache toolchain id for a host-only (native) compiler.
 
-    Image-backed specs key on the docker content id (:func:`_toolchain_cache_id`);
-    a native binary has no image, so the resolved executable's content hash
-    stands in for identity — upgrading or replacing the compiler on PATH
-    changes the bytes, and objects cached from the OLD binary are never
-    served under the new one.  Falls back to the bare ``native:<name>`` when
-    the binary is missing or unresolvable (the compile itself fails with a
-    clear error).  Memoized per ``(path, mtime, size, inode)`` so an in-process
-    upgrade invalidates without a full restart.
+    Image-backed specs key on the admitted docker image id
+    (:func:`_toolchain_cache_id`).  A native binary has no image, so the
+    resolved executable's full SHA-256 stands in for identity.  Replacing
+    the compiler changes the bytes, and objects cached from the old binary
+    are never served under the new one.  ``None`` when the binary is missing
+    or unreadable: the compile may still run, and the cache is skipped.
+    Memoized per ``(path, mtime, size, inode)`` so an in-process upgrade
+    invalidates without a full restart.
     """
     name = spec.binary
     # Resolve the binary the runner will actually execute, in the same
@@ -1204,33 +1208,46 @@ def _native_cache_hit(name: str, key: tuple[str, int, int, int]) -> str | None:
     return None
 
 
-def native_binary_id(name: str, resolved: Path | None) -> str:
-    """``native:<name>@<content digest>`` for the executable at *resolved*.
+def _valid_native_id(toolchain_id: str, name: str) -> bool:
+    prefix = f"native:{name}@"
+    if not toolchain_id.startswith(prefix):
+        return False
+    return _SHA256_HEX_RE.fullmatch(toolchain_id[len(prefix) :]) is not None
 
-    ``native:<name>`` when *resolved* is None or unreadable.  Memoized per
-    ``(path, mtime, size, inode)`` in :data:`_native_binary_cache`.
+
+def native_binary_id(name: str, resolved: Path | None) -> str | None:
+    """``native:<name>@<64 hex>`` for the executable at *resolved*, or None.
+
+    None when *resolved* is missing, unreadable, or the digest is not 64
+    lowercase hex.  A missing identity is not memoized.  Successful ids are
+    memoized per ``(path, mtime, size, inode)`` in :data:`_native_binary_cache`.
     """
     if resolved is None:
-        return f"native:{name}"
+        return None
 
     try:
         resolved_path = str(Path(resolved).resolve())
         st = Path(resolved_path).stat()
     except OSError:
-        return f"native:{name}"
+        return None
 
     key = (resolved_path, st.st_mtime_ns, st.st_size, st.st_ino)
     with _NATIVE_BINARY_CACHE_LOCK:
         hit = _native_cache_hit(name, key)
+        if hit is not None and not _valid_native_id(hit, name):
+            _native_binary_cache.pop(name, None)
+            hit = None
     if hit is not None:
         return hit
 
     digest = _native_binary_digest(Path(resolved_path))
-    toolchain_id = f"native:{name}@{digest}" if digest is not None else f"native:{name}"
+    if digest is None or _SHA256_HEX_RE.fullmatch(digest) is None:
+        return None
+    toolchain_id = f"native:{name}@{digest}"
     with _NATIVE_BINARY_CACHE_LOCK:
         # Re-check: another worker may have filled it while we hashed.
         hit = _native_cache_hit(name, key)
-        if hit is not None:
+        if hit is not None and _valid_native_id(hit, name):
             return hit
         if (
             len(_native_binary_cache) >= _NATIVE_BINARY_CACHE_MAX
@@ -1243,28 +1260,32 @@ def native_binary_id(name: str, resolved: Path | None) -> str:
 
 
 def _native_binary_digest(path: Path) -> str | None:
-    """Short SHA-256 of a native compiler binary, or None when unreadable."""
+    """SHA-256 hex of a native compiler binary, or None when unreadable."""
     try:
         with path.open("rb") as fh:
-            return hashlib.file_digest(fh, "sha256").hexdigest()[:16]
+            return hashlib.file_digest(fh, "sha256").hexdigest()
     except OSError:
         return None
 
 
-def _toolchain_cache_id(spec: "ToolchainSpec") -> str:
-    """The compile-cache toolchain id: the image tag, extended with the
-    image's content id when docker can report it cheaply (cached per
-    process).  Rebuilding an image under a stable tag (`rebrew toolchain
-    update --apply`) changes the content id, so objects compiled with the
-    OLD image are never served as if they came from the new one.  Falls
-    back to the bare tag when docker is unavailable or the inspect fails.
+def _toolchain_cache_id(spec: "ToolchainSpec", image_id: str | None) -> str | None:
+    """``<tag>@<sha256:64 hex>`` for an admitted image id, or None.
+
+    The tag is display metadata.  A missing or malformed id is not a cache
+    key: the caller may still run the tag, and must not read or write the
+    compile cache.  *image_id* is the id already admitted for this compile.
+    This function does not inspect again.
     """
     image = spec.image
     # A toolchain always carries a non-null image tag for cache identity;
     # assert so mypy knows `image` is a str below.
     assert image is not None, "toolchain cache id requires an image"
-    digest = cached_image_digest(image)
-    return f"{image}@{digest}" if digest else image
+    if image_id is None:
+        return None
+    pinned = image_content_id(image_id)
+    if not pinned:
+        return None
+    return f"{image}@{pinned}"
 
 
 def recompile_url(cfg: ProjectConfig) -> str | None:
@@ -1508,29 +1529,36 @@ def _cache_key_for(
     src_parent: Path,
     extra_include_dirs: list[str] | None,
     source_ext: str,
-) -> str:
-    """Compile-cache key shared by single-file and batch compiles.
+    *,
+    image_id: str | None = None,
+) -> str | None:
+    """Compile-cache key shared by single-file and batch compiles, or None.
 
-    Extracted verbatim from ``compile_to_obj`` so both paths pin identical
-    keys — a batch-built object must hit on the next single-file lookup
-    and vice versa.
+    None means this compile has no immutable toolchain identity, so the
+    caller must not read or write the cache.  That is a remote recompile
+    (the service response carries no image id), an image whose admitted id
+    is missing or malformed, a native binary that cannot be hashed, or no
+    spec at all.  *image_id* is the id already admitted for this compile.
+    A batch-built object must hit on the next single-file lookup and vice
+    versa, so both paths pass the same admitted id.
     """
+    # Remote results are not cached.  A local Docker id is not the identity
+    # of the service's runner, and the response has no image id of its own.
+    if spec is not None and recompile_url(cfg) is not None:
+        return None
     if spec is not None and spec.image is not None:
-        toolchain_id = _toolchain_cache_id(spec)
+        toolchain_id = _toolchain_cache_id(spec, image_id)
+        if toolchain_id is None:
+            return None
     elif spec is not None:
-        # Native (host) spec: the compiler binary IS the toolchain — two
-        # native compilers (gcc vs clang) must never share a cache entry,
-        # and neither may a compiler upgrade (see _native_toolchain_id).
+        # Native (host) spec: the compiler binary is the toolchain.  Two
+        # native compilers must never share a cache entry, and neither may
+        # a compiler upgrade (see _native_toolchain_id).
         toolchain_id = _native_toolchain_id(spec)
+        if toolchain_id is None:
+            return None
     else:
-        toolchain_id = " ".join(resolve_cl_command(cfg))
-    # A remote compile does not see host include dirs (single-file model:
-    # source text + flags only), so key it on its own id: a backend switch
-    # can never serve the other's object.  The image tag alone is not
-    # enough, because the service may run a different image build than
-    # local docker, so pin the identity to the backend that produced it.
-    if recompile_url(cfg) is not None and spec is not None:
-        toolchain_id = f"recompile:{recompile_url(cfg)}/{spec.name}"
+        return None
     # extra_include_dirs feed the /I flags and bind mounts - they are
     # compile inputs and must shape the key (two functions whose
     # relative #include resolves differently would otherwise share
@@ -1723,8 +1751,15 @@ def compile_to_obj(
     # hash the same list the lookup used, not that later list.
     key_flags = list(all_flags)
     source_ext = source_path.suffix or ".c"
+    # Admit the image once.  The cache key, docker run, and publish all use
+    # this id.  A later inspect must not retarget publication after a tag swap.
+    # Remote compiles are not admitted: the service response has no image id,
+    # and a local Docker id is not that runner.
+    admitted_image_id: str | None = None
+    if spec is not None and spec.image is not None and recompile_url(cfg) is None:
+        admitted_image_id = cached_image_digest(spec.image) or None
 
-    def cache_key_now() -> str:
+    def cache_key_now() -> str | None:
         """The key for the current on-disk state of the compile unit."""
         return _cache_key_for(
             cfg,
@@ -1736,12 +1771,13 @@ def compile_to_obj(
             src_parent,
             extra_include_dirs,
             source_ext,
+            image_id=admitted_image_id,
         )
 
     cache_key: str | None = None
     if cc is not None:
         cache_key = cache_key_now()
-        cached_obj = cc.get(cache_key)
+        cached_obj = cc.get(cache_key) if cache_key is not None else None
         if cached_obj is not None:
             obj_file = workdir / obj_name
             try:
@@ -1779,21 +1815,6 @@ def compile_to_obj(
             source_text=compile_text,
             backend_errors=backend_errors,
         )
-        if obj_path is None or cc is None or cache_key is None:
-            return obj_path, remote_err
-        # Publish what the remote run produced, under the same guard the local
-        # path uses.  This branch returns before reaching the publish below, so
-        # without it the lookup above missed on every run and each verify
-        # re-POSTed every function: the cache was read but never written, and
-        # the remote service paid for identical work.
-        try:
-            remote_obj = Path(obj_path).read_bytes()
-        except OSError as exc:
-            logging.getLogger(__name__).debug(
-                "recompile artifact %s unreadable, not caching: %s", obj_path, exc
-            )
-            return obj_path, remote_err
-        publish_obj_cache(cc, cache_key, remote_obj, fresh_key=cache_key_now())
         return obj_path, remote_err
 
     if spec is not None and (spec.image is not None or spec.runtime == "native"):
@@ -1866,7 +1887,14 @@ def compile_to_obj(
         else:
             args = all_flags + [f"/Fo{obj_name}", src_name]
         try:
-            tr = run_toolchain(spec, args, workdir=workdir, timeout=use_timeout, mounts=mounts)
+            tr = run_toolchain(
+                spec,
+                args,
+                workdir=workdir,
+                timeout=use_timeout,
+                mounts=mounts,
+                image_id=admitted_image_id,
+            )
         except ToolchainError as exc:
             return None, str(exc)
         obj_file = workdir / obj_name
@@ -1887,8 +1915,12 @@ def compile_to_obj(
                 err = f"compiler produced no object ({obj_name}) and no output"
             return None, err
         if cc is not None and cache_key is not None:
-            with contextlib.suppress(OSError):
-                publish_obj_cache(cc, cache_key, obj_file.read_bytes(), fresh_key=cache_key_now())
+            fresh_key = cache_key_now()
+            # Identity can disappear between lookup and publish (the native
+            # binary becomes unreadable).  That is not a cache write.
+            if fresh_key is not None:
+                with contextlib.suppress(OSError):
+                    publish_obj_cache(cc, cache_key, obj_file.read_bytes(), fresh_key=fresh_key)
         return str(obj_file), ""
 
     # Unknown/unregistered profile: nothing to run.  Execution is docker-
@@ -1907,6 +1939,8 @@ def compile_batch_objs(
     workdir: Path,
     mounts: list[tuple[str, str]],
     timeout: int,
+    *,
+    image_id: str | None = None,
 ) -> tuple[dict[str, str], str]:
     """Compile N sources already staged in *workdir* with one container run.
 
@@ -1915,6 +1949,9 @@ def compile_batch_objs(
     ``({src_name: obj_path}, error)``.  On nonzero exit the map keeps the
     objects the run did emit and the error carries the combined output
     (caller falls back per file for the rest, per ADR-021).
+
+    *image_id* is the image id admitted for this batch.  When set, the
+    container runs that id.  When omitted, the run uses ``spec.image``.
     """
     style = spec.effective_arg_style
     if style not in ("posix", "msvc"):
@@ -1933,7 +1970,9 @@ def compile_batch_objs(
     argv_srcs = [f"./{s}" if s.startswith(("@", "-")) else s for s in src_names]
     args = all_flags + (["-c", *argv_srcs] if style == "posix" else ["/c", *argv_srcs])
     try:
-        tr = run_toolchain(spec, args, workdir=workdir, timeout=timeout, mounts=mounts)
+        tr = run_toolchain(
+            spec, args, workdir=workdir, timeout=timeout, mounts=mounts, image_id=image_id
+        )
     except ToolchainError as exc:
         return {}, str(exc)
     ext = ".o" if style == "posix" else ".obj"
@@ -2097,6 +2136,23 @@ def precompile_batch(
     out: dict[int, str] = {}
     lasting_root: Path | None = None
     groups: dict[tuple[str, str], list[Any]] = {}
+    # One admitted image id per tag for this batch.  The cache probe, the
+    # container run, and publish share it.  The first admission wins, including
+    # a failed inspect, so a later success cannot split the batch across two ids.
+    pins: dict[str, str | None] = {}
+    pins_lock = threading.Lock()
+
+    def _admit_image(batch_spec: Any) -> str | None:
+        image = getattr(batch_spec, "image", None)
+        if not isinstance(image, str) or not image:
+            return None
+        with pins_lock:
+            if image in pins:
+                return pins[image]
+        admitted = cached_image_digest(image) or None
+        with pins_lock:
+            return pins.setdefault(image, admitted)
+
     # Multi-function .c files share one source body: read once per path for
     # the cache-key probe instead of once per annotation.
     _text_by_path: dict[Path, str] = {}
@@ -2147,8 +2203,9 @@ def precompile_batch(
                         src_parent,
                         None,
                         cfile.suffix or ".c",
+                        image_id=_admit_image(spec),
                     )
-                    if cache.get(key) is not None:
+                    if key is not None and cache.get(key) is not None:
                         continue
                 except Exception as exc:
                     log.debug("batch cache check skipped %s: %s", getattr(e, "name", "?"), exc)
@@ -2165,6 +2222,7 @@ def precompile_batch(
             spec = toolchain_registry.TOOLCHAINS.get(toolchain) if toolchain else base_spec
             if spec is None:
                 return group_out
+            admitted = _admit_image(spec)
             workdir = writable_temp_dir("rebrew_batch_")
             staged: dict[str, list[Any]] = {}
             member_includes: list[str] = []
@@ -2305,7 +2363,7 @@ def precompile_batch(
                     staged_texts[staged_name] = text
                 return text
 
-            def _staged_cache_key(entry: Any, staged_name: str) -> str:
+            def _staged_cache_key(entry: Any, staged_name: str) -> str | None:
                 src = Path(cfg.reversed_dir) / entry.filepath
                 src_parent = src.resolve().parent
                 member_flags = _effective_compile_flags(
@@ -2322,6 +2380,7 @@ def precompile_batch(
                     src_parent,
                     None,
                     src.suffix or ".c",
+                    image_id=admitted,
                 )
 
             # Key before the compiler runs.  A header edit during the batch
@@ -2332,9 +2391,17 @@ def precompile_batch(
                 for staged_name, group_entries in staged.items():
                     for entry in group_entries:
                         with contextlib.suppress(OSError, ValueError):
-                            pre_keys[id(entry)] = _staged_cache_key(entry, staged_name)
+                            staged_key = _staged_cache_key(entry, staged_name)
+                            if staged_key is not None:
+                                pre_keys[id(entry)] = staged_key
             objs, err = compile_batch_objs(
-                spec, sorted(staged), flags, workdir, batch_mounts, cfg.compile_timeout
+                spec,
+                sorted(staged),
+                flags,
+                workdir,
+                batch_mounts,
+                cfg.compile_timeout,
+                image_id=admitted,
             )
             if err and not objs:
                 log.debug("batch group failed, falling back per file: %s", err[:120])
@@ -2375,11 +2442,15 @@ def precompile_batch(
                         # Re-key the staged bytes (not a fresh read of a
                         # source rewritten since staging).  Publish only
                         # when that key still matches the pre-compile one.
+                        # The admitted image id is the one the batch ran.
+                        fresh_key = _staged_cache_key(e, name)
+                        if fresh_key is None:
+                            continue
                         publish_obj_cache(
                             cache,
                             pre_key,
                             obj_bytes,
-                            fresh_key=_staged_cache_key(e, name),
+                            fresh_key=fresh_key,
                         )
             return group_out
         except Exception as exc:

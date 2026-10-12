@@ -124,6 +124,12 @@ class TestContextPinnedCompileCache:
         ctx_a = self._ctx(tmp_path / "a.c", "typedef int myint;\n")
         ctx_b = self._ctx(tmp_path / "b.c", "typedef long myint;\n")
 
+        binary = tmp_path / "fake-cc"
+        binary.write_bytes(b"fake compiler\n")
+        from rebrew.compile import _native_binary_cache
+
+        _native_binary_cache.clear()
+        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(binary))
         fake = _FakeCompiler("f.obj")
         monkeypatch.setattr(
             "rebrew.compile.toolchain_registry", SimpleNamespace(TOOLCHAINS={"fake-1.0": _spec()})

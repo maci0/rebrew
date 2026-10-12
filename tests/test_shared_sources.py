@@ -296,7 +296,7 @@ class TestDefinesCompile:
 
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             captured["args"] = args
             (workdir / "f.obj").write_bytes(b"\x00OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")

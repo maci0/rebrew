@@ -1245,12 +1245,15 @@ class TestCompileToObjCacheIntegration:
 
         subprocess_called = {"count": 0}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             subprocess_called["count"] += 1
             (workdir / "f.obj").write_bytes(b"\x00COFF_OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr(
+            "rebrew.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+        )
 
         cfg: Any = SimpleNamespace(
             compiler_includes=tmp_path,
@@ -1310,12 +1313,15 @@ class TestCompileToObjCacheIntegration:
 
         call_count = {"n": 0}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             call_count["n"] += 1
             (workdir / "f.obj").write_bytes(b"\x00OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr(
+            "rebrew.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+        )
 
         cfg: Any = SimpleNamespace(
             compiler_includes=tmp_path,
@@ -1351,12 +1357,15 @@ class TestCompileToObjCacheIntegration:
 
         call_count = {"n": 0}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             call_count["n"] += 1
             (workdir / "f.obj").write_bytes(b"\x00OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr(
+            "rebrew.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+        )
 
         cfg: Any = SimpleNamespace(
             compiler_includes=tmp_path,
@@ -1429,11 +1438,14 @@ class TestCompileToObjCacheIntegration:
 
         call_count = {"n": 0}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             call_count["n"] += 1
             return SimpleNamespace(returncode=1, stdout="error", stderr="")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr(
+            "rebrew.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+        )
 
         cfg: Any = SimpleNamespace(
             compiler_includes=tmp_path,

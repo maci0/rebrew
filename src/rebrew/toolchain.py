@@ -701,18 +701,20 @@ def docker_available() -> bool:
 _image_presence: dict[str, bool] = {}
 _IMAGE_PRESENCE_MAX = 64
 
-#: Cached short docker content ids for compile-cache keys (image tag → digest).
-#: Cleared by :func:`invalidate_toolchain_digest` after a tag swap/rebuild so
-#: objects compiled against the previous image are never served under the new one.
-#: Empty digests (inspect failure / missing image) are never stored — a
-#: transient docker outage must not pin compile keys to the bare tag for the
-#: rest of the process.
+#: Cached full docker image ids (``sha256:`` plus 64 hex) for compile-cache
+#: keys and pinned ``docker run`` (image tag → id).  Cleared by
+#: :func:`invalidate_toolchain_digest` after a tag swap/rebuild so objects
+#: compiled against the previous image are never served under the new one.
+#: Empty and malformed inspect results are never stored: a transient docker
+#: outage is not an identity.
 #: Mutated under :data:`_DOCKER_MEMO_LOCK` (verify/GA workers share it).
 _toolchain_digest_cache: dict[str, str] = {}
 _TOOLCHAIN_DIGEST_CACHE_MAX = 64
 #: Bumped by :func:`invalidate_toolchain_digest`.  An inspect that started
 #: before an invalidation must not store its (pre-swap) digest afterwards.
 _toolchain_digest_generation = 0
+_IMAGE_ID_HEX_LEN = 64
+_IMAGE_ID_RE = re.compile(rf"^sha256:[0-9a-f]{{{_IMAGE_ID_HEX_LEN}}}$")
 
 
 def invalidate_toolchain_digest(image: str | None = None) -> None:
@@ -756,17 +758,35 @@ def _drop_image_presence(tag: str) -> None:
         _image_presence.pop(tag, None)
 
 
-def cached_image_digest(image: str) -> str:
-    """Short docker content id for *image* (cached per process), or ``""``.
+def image_content_id(raw: str) -> str:
+    """Full docker image id, or ``""`` when *raw* is not one.
 
-    Used by compile-cache keys.  Falls back to empty when docker is
-    unavailable or inspect fails — the bare image tag remains a usable key.
-    Failures are not memoized: the next call retries inspect.
+    A content id is ``sha256:`` plus 64 lowercase hex, the form
+    ``docker image inspect --format {{.Id}}`` prints.  Short, uppercase,
+    unprefixed, and multi-line values are rejected.  Surrounding whitespace
+    is ignored.
+    """
+    candidate = raw.strip()
+    if _IMAGE_ID_RE.fullmatch(candidate):
+        return candidate
+    return ""
+
+
+def cached_image_digest(image: str) -> str:
+    """Full docker image id for *image* (cached per process), or ``""``.
+
+    The id is ``sha256:`` plus 64 lowercase hex (:func:`image_content_id`).
+    Empty means docker is unavailable, inspect failed, or the reported id
+    is not a full content digest.  The image tag is not a substitute.
+    Failures and malformed ids are not memoized: the next call retries.
     """
     with _DOCKER_MEMO_LOCK:
-        digest = _toolchain_digest_cache.get(image)
-        if digest is not None:
-            return digest
+        cached = _toolchain_digest_cache.get(image)
+        if cached is not None:
+            valid = image_content_id(cached)
+            if valid:
+                return valid
+            _toolchain_digest_cache.pop(image, None)
         generation = _toolchain_digest_generation
     digest = ""
     try:
@@ -778,21 +798,21 @@ def cached_image_digest(image: str) -> str:
             errors="replace",
             timeout=15,
         )
-        if r.returncode == 0 and r.stdout.strip():
-            digest = r.stdout.strip().removeprefix("sha256:")[:12]
+        if r.returncode == 0:
+            digest = image_content_id(r.stdout)
     except (OSError, subprocess.TimeoutExpired):
         digest = ""
     if digest:
         with _DOCKER_MEMO_LOCK:
             if generation != _toolchain_digest_generation:
-                # Invalidated mid-inspect: this id predates the swap, and it is
-                # half the compile-cache key.  Do not store it and do not
-                # return it — serving it would file the post-swap compile under
-                # the pre-swap image, which is exactly the stale-key case
-                # invalidate_toolchain_digest exists to prevent.  A worker that
-                # re-inspected after the swap may already have refilled the
-                # cache; prefer that, and otherwise degrade to the bare tag.
-                return _toolchain_digest_cache.get(image, "")
+                # Invalidated mid-inspect: this id predates the swap.  Do not
+                # store it and do not return it.  A worker that re-inspected
+                # after the swap may already have refilled the cache; prefer
+                # that when it is a full id, and otherwise return empty.
+                refilled = image_content_id(_toolchain_digest_cache.get(image, ""))
+                if not refilled:
+                    _toolchain_digest_cache.pop(image, None)
+                return refilled
             # Another worker may have filled it while we inspected.
             if image not in _toolchain_digest_cache:
                 if len(_toolchain_digest_cache) >= _TOOLCHAIN_DIGEST_CACHE_MAX:
@@ -800,7 +820,11 @@ def cached_image_digest(image: str) -> str:
                     _toolchain_digest_cache.pop(oldest, None)
                 _toolchain_digest_cache[image] = digest
             else:
-                digest = _toolchain_digest_cache[image]
+                stored = image_content_id(_toolchain_digest_cache[image])
+                if stored:
+                    digest = stored
+                else:
+                    _toolchain_digest_cache[image] = digest
     return digest
 
 
@@ -1157,6 +1181,7 @@ def run_toolchain(
     workdir: str | Path | None = None,
     timeout: int = _RUN_TIMEOUT,
     mounts: list[tuple[str, str]] | None = None,
+    image_id: str | None = None,
 ) -> RunResult:
     """Invoke a toolchain's compiler through its docker image (uniform backend).
 
@@ -1182,6 +1207,11 @@ def run_toolchain(
             expose project include trees to the container (each host dir is
             mounted read-only at the container path).
         timeout: Subprocess timeout.
+        image_id: When set, ``docker run`` executes this image id instead of
+            ``spec.image``.  It must be ``sha256:`` plus 64 lowercase hex.
+            Tag presence is not checked.  When omitted, the run uses the tag
+            after :func:`image_present`.  The tag remains the name in errors
+            on that path.
 
     Raises:
         ToolchainError: no docker daemon/image for a docker toolchain, or no
@@ -1200,6 +1230,16 @@ def run_toolchain(
         ) from exc
 
     if spec.image is not None:
+        target = spec.image
+        if image_id is not None:
+            pinned = image_content_id(image_id)
+            if not pinned:
+                raise ToolchainError(
+                    f"toolchain {spec.name!r}: image id {image_id!r} is not a full sha256 digest",
+                    kind="validation",
+                    name=spec.name,
+                )
+            target = pinned
         if not docker_available():
             raise ToolchainError(
                 "docker is not available — cannot run toolchain images",
@@ -1207,7 +1247,7 @@ def run_toolchain(
                 name=spec.name,
                 retryable=True,
             )
-        if not image_present(spec.image):
+        if image_id is None and not image_present(spec.image):
             raise ToolchainError(
                 f"toolchain {spec.name!r}: docker image {spec.image} not built — "
                 f"run `rebrew toolchain build {spec.name}`",
@@ -1245,7 +1285,7 @@ def run_toolchain(
             cmd += ["-e", f"SOURCE_DATE_EPOCH={epoch}"]
         if spec.image_entrypoint is not None:
             cmd += ["--entrypoint", spec.image_entrypoint]
-        cmd.append(spec.image)
+        cmd.append(target)
         cmd.extend(args)
         try:
             r = subprocess.run(
@@ -1414,6 +1454,7 @@ __all__ = [
     "cached_image_digest",
     "docker_available",
     "get_toolchain",
+    "image_content_id",
     "image_msvc_env",
     "image_present",
     "invalidate_toolchain_digest",
