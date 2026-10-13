@@ -43,6 +43,7 @@ import inspect
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from functools import partial
+from types import FunctionType, MethodType
 from typing import Any, Protocol, override, runtime_checkable
 
 import typer
@@ -57,31 +58,38 @@ Disposer = Callable[[], None]
 
 
 def _is_coroutine_callable(obj: Any) -> bool:
-    """True if *obj* or its underlying target is an async coroutine or async generator."""
-    while isinstance(obj, partial):
+    """True if *obj* is a native coroutine or async generator function."""
+    while type(obj) is partial:
         obj = obj.func
-    if inspect.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj):
-        return True
-    if callable(obj) and not isinstance(obj, type):
-        for candidate in (
-            inspect.getattr_static(type(obj), "__call__", None),
-            inspect.getattr_static(obj, "__call__", None),
+    for candidate in (obj, inspect.getattr_static(type(obj), "__call__", None)):
+        if type(candidate) is staticmethod or type(candidate) is classmethod:
+            function = candidate.__func__
+        else:
+            function = candidate
+        while type(function) is partial:
+            function = function.func
+        if type(function) is MethodType:
+            function = function.__func__
+        if type(function) is FunctionType and function.__code__.co_flags & (
+            inspect.CO_COROUTINE | inspect.CO_ASYNC_GENERATOR
         ):
-            if inspect.iscoroutinefunction(candidate) or inspect.isasyncgenfunction(candidate):
-                return True
+            return True
     return False
 
 
 def _callable_name(obj: Any) -> str:
-    """Return the name of *obj* or its underlying callable without disclosing bound repr."""
-    while isinstance(obj, partial):
+    """Return the safe diagnostic name of *obj* without invoking descriptors."""
+    while type(obj) is partial:
         obj = obj.func
-    name = getattr(obj, "__qualname__", None) or getattr(obj, "__name__", None)
-    if name:
-        return str(name)
-    target_type = type(obj)
-    type_name = getattr(target_type, "__qualname__", None) or getattr(target_type, "__name__", None)
-    return str(type_name) if type_name else "callable"
+    if type(obj) is staticmethod or type(obj) is classmethod:
+        obj = obj.__func__
+    while type(obj) is partial:
+        obj = obj.func
+    if type(obj) is MethodType:
+        obj = obj.__func__
+    if type(obj) is FunctionType:
+        return obj.__qualname__ or obj.__name__
+    return type(obj).__name__
 
 
 def _check_sync_result(result: Any, target: Any, operation: str) -> None:
@@ -674,7 +682,10 @@ class CoeffectScope:
                 raise ComponentError(f"component {field} must be a tuple of nonempty service keys")
             if len(set(keys)) != len(keys):
                 raise ComponentError(f"component {field} contains duplicate service keys")
-        if _is_coroutine_callable(getattr(component, "apply", None)):
+        apply_target = inspect.getattr_static(type(component), "apply", None)
+        if apply_target is None:
+            apply_target = inspect.getattr_static(component, "apply", None)
+        if _is_coroutine_callable(apply_target):
             name = _callable_name(component)
             target_type = type(component).__name__
             raise ComponentError(

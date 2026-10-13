@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import partial
+from types import MethodType
 from typing import Any
 
 import pytest
@@ -18,6 +19,7 @@ from rebrew.app.plugin import (
     ComponentError,
     Context,
     Panel,
+    _is_coroutine_callable,
     activate,
 )
 
@@ -1834,3 +1836,105 @@ class TestAsyncCallableRefusal:
         assert invoked == []
         ctx.dispose()
         assert invoked == ["descriptor_get"]
+
+    @pytest.mark.parametrize("metadata", ["__code__", "__name__"])
+    @pytest.mark.parametrize("bound", [False, True])
+    def test_native_detection_does_not_read_callable_metadata(
+        self, metadata: str, bound: bool
+    ) -> None:
+        calls: list[str] = []
+
+        class MetadataDescriptor:
+            def __get__(self, _instance: Any, _owner: Any) -> Any:
+                raise RuntimeError("metadata descriptor invoked")
+
+        class BaseCallable:
+            def __call__(self, *args: Any) -> None:
+                calls.append("called")
+
+            def __repr__(self) -> str:
+                raise AssertionError("callable representation must not be inspected")
+
+        callback: Any = type(
+            "MetadataCallback", (BaseCallable,), {metadata: MetadataDescriptor()}
+        )()
+        if bound:
+            callback = MethodType(callback, object())
+
+        ctx = Context()
+        ctx.effect(callback)
+        ctx.dispose()
+        assert calls == ["called"]
+
+    def test_native_detection_does_not_unwrap_partial_subclass_or_ignore_its_override(
+        self,
+    ) -> None:
+        calls: list[str] = []
+
+        async def dummy_async() -> None:
+            pass
+
+        class GuardedPartial(partial[Any]):
+            @property
+            def func(self) -> Any:
+                raise RuntimeError("partial subclass descriptor invoked")
+
+            def __call__(self, *args: Any, **kwargs: Any) -> None:
+                calls.append("override")
+
+        callback = GuardedPartial(dummy_async)
+        ctx = Context()
+        ctx.effect(callback)
+        ctx.dispose()
+        assert calls == ["override"]
+
+    def test_effect_rejects_staticmethod_and_classmethod_async_at_registration(self) -> None:
+        async def async_worker() -> None:
+            pass
+
+        class MethodContainer:
+            @staticmethod
+            async def static_worker() -> None:
+                pass
+
+            @classmethod
+            async def class_worker(cls) -> None:
+                pass
+
+        assert _is_coroutine_callable(staticmethod(async_worker)) is True
+        assert _is_coroutine_callable(classmethod(async_worker)) is True
+
+        ctx = Context()
+        with pytest.raises(ComponentError, match="must be synchronous"):
+            ctx.effect(MethodContainer.static_worker)
+
+        with pytest.raises(ComponentError, match="must be synchronous"):
+            ctx.effect(MethodContainer.class_worker)
+
+        with pytest.raises(ComponentError, match="must be synchronous"):
+            ctx.effect(staticmethod(async_worker))
+
+    def test_effect_rejects_bound_async_method_at_registration(self) -> None:
+        class AsyncWorker:
+            async def cleanup(self) -> None:
+                pass
+
+        instance = AsyncWorker()
+        ctx = Context()
+        with pytest.raises(ComponentError, match="must be synchronous"):
+            ctx.effect(instance.cleanup)
+
+    def test_component_apply_does_not_invoke_apply_descriptor_on_registration(self) -> None:
+        class ThrowingApplyDescriptor:
+            def __get__(self, _instance: Any, _owner: Any) -> Any:
+                raise RuntimeError("apply descriptor invoked during registration inspection")
+
+        class DescribedComponent:
+            needs = ("unmet_service",)
+            provides = ()
+            apply = ThrowingApplyDescriptor()
+
+        scope = CoeffectScope(Context())
+        comp = DescribedComponent()
+        scope.add(comp)
+        assert scope.unresolved() == [comp]
