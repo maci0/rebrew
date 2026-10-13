@@ -682,9 +682,7 @@ class CoeffectScope:
                 raise ComponentError(f"component {field} must be a tuple of nonempty service keys")
             if len(set(keys)) != len(keys):
                 raise ComponentError(f"component {field} contains duplicate service keys")
-        apply_target = inspect.getattr_static(type(component), "apply", None)
-        if apply_target is None:
-            apply_target = inspect.getattr_static(component, "apply", None)
+        apply_target = inspect.getattr_static(component, "apply", None)
         if _is_coroutine_callable(apply_target):
             name = _callable_name(component)
             target_type = type(component).__name__

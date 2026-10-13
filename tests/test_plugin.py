@@ -1938,3 +1938,34 @@ class TestAsyncCallableRefusal:
         comp = DescribedComponent()
         scope.add(comp)
         assert scope.unresolved() == [comp]
+
+    def test_component_apply_instance_async_override_refused_at_registration(self) -> None:
+        async def async_apply(ctx: Any) -> None:
+            pass
+
+        class SyncClassWithAsyncInstance:
+            needs = ("unmet_service",)
+            provides = ()
+
+            def apply(self, ctx: Any) -> None:
+                pass
+
+        scope = CoeffectScope(Context())
+        comp = SyncClassWithAsyncInstance()
+        comp.apply = async_apply  # type: ignore[method-assign]
+        with pytest.raises(ComponentError, match="must be synchronous"):
+            scope.add(comp)
+
+    def test_component_apply_instance_sync_override_accepted_at_registration(self) -> None:
+        class AsyncClassWithSyncInstance:
+            needs = ("unmet_service",)
+            provides = ()
+
+            async def apply(self, ctx: Any) -> None:
+                pass
+
+        scope = CoeffectScope(Context())
+        comp = AsyncClassWithSyncInstance()
+        comp.apply = lambda ctx: None  # type: ignore[method-assign]
+        scope.add(comp)
+        assert scope.unresolved() == [comp]
