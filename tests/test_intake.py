@@ -32,7 +32,7 @@ def _run_main(tmp_path: Path, monkeypatch, *, argv: list[str]) -> str:
     """Invoke the intake CLI (via the real `rebrew intake` command), capturing stdout."""
     from typer.testing import CliRunner
 
-    import rebrew.main as main_mod
+    import rebrew.app.main as main_mod
     from rebrew.metadata.functions import clear_metadata_cache
 
     clear_metadata_cache()
@@ -214,7 +214,7 @@ class TestIntake:
     def test_binary_missing_fails(self, tmp_path: Path, monkeypatch) -> None:
         from typer.testing import CliRunner
 
-        import rebrew.main as main_mod
+        import rebrew.app.main as main_mod
 
         runner = CliRunner()
         monkeypatch.chdir(tmp_path)
@@ -228,7 +228,7 @@ class TestIntake:
         — the first-run message a new user actually acts on."""
         from typer.testing import CliRunner
 
-        import rebrew.main as main_mod
+        import rebrew.app.main as main_mod
 
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")
@@ -253,7 +253,7 @@ class TestIntake:
         with an empty function list is useless and misleading."""
         from typer.testing import CliRunner
 
-        import rebrew.main as main_mod
+        import rebrew.app.main as main_mod
 
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")
@@ -277,7 +277,7 @@ class TestIntake:
         SkiFree NE re-onboarding: 233 orphaned stubs from a broken first run)."""
         from typer.testing import CliRunner
 
-        import rebrew.main as main_mod
+        import rebrew.app.main as main_mod
 
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")
@@ -316,7 +316,7 @@ class TestIntake:
         pattern) must survive re-discovery even if its VA vanishes."""
         from typer.testing import CliRunner
 
-        import rebrew.main as main_mod
+        import rebrew.app.main as main_mod
 
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")
@@ -354,7 +354,7 @@ class TestIntake:
         for every function on every re-run, silently resetting the corpus."""
         from typer.testing import CliRunner
 
-        import rebrew.main as main_mod
+        import rebrew.app.main as main_mod
 
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")

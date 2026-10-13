@@ -75,7 +75,7 @@ binsync = [
 
 [project.scripts]
 # One executable for people and build tools (ADR 027).
-rebrew = "rebrew.main:main"
+rebrew = "rebrew.app.main:main"
 
 [project.urls]
 Homepage = "https://github.com/maci0/rebrew"
@@ -94,7 +94,7 @@ version = { attr = "rebrew.__version__" }
 # future non-markdown reference file cannot silently drop out of the wheel.
 rebrew = ["agent-skills/**/*", "*.template", "PRINCIPLES.md", "**/py.typed", "py.typed"]
 
-# Contributor-only AGENTS.md under subpackages (matcher/, compiler/, formats/, metadata/, catalog/, ghidra/,
+# Contributor-only AGENTS.md under subpackages (app/, matcher/, compiler/, formats/, metadata/, catalog/, ghidra/,
 # binsync/, workspace/) must not
 # ride into the wheel if include-package-data ever widens the sdist file set.
 [tool.setuptools.exclude-package-data]

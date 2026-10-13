@@ -517,7 +517,7 @@ class TestDeclaredScripts:
     def test_only_unified_cli_is_installed(self) -> None:
         """New commands belong under rebrew, without another executable in PATH."""
         assert self._scripts() == {
-            "rebrew": "rebrew.main:main",
+            "rebrew": "rebrew.app.main:main",
         }
 
     def test_every_script_target_resolves(self) -> None:

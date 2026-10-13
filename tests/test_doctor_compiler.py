@@ -851,7 +851,7 @@ class TestRunnerSetupContract:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         cfg = SimpleNamespace(root=tmp_path, compiler_profile="msvc-6.0")
         monkeypatch.setattr("rebrew.toolchain_cli.require_config", lambda **kw: cfg)

@@ -214,7 +214,7 @@ class TestObjdiffProject:
             "rebrew.compiler.overrides.resolve_compile_overrides",
             lambda cfg, d, a, b, c: (None, ""),
         )
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         result = runner.invoke(app, ["build", "objdiff-driver", "T", str(base)])
         assert result.exit_code == 0, result.output
@@ -243,7 +243,7 @@ class TestObjdiffProject:
             "rebrew.compiler.compile.compile_to_obj",
             lambda *a, **kw: calls.append(a) or ("x.o", ""),
         )
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         result = runner.invoke(
             app, ["build", "objdiff-driver", "T", "build/objdiff/current/../../outside.c.o"]
@@ -267,7 +267,7 @@ class TestObjdiffProject:
             "rebrew.compiler.compile.compile_to_obj",
             lambda *a, **kw: calls.append(a) or ("x.o", ""),
         )
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         result = runner.invoke(
             app, ["build", "objdiff-driver", "T", str(outside.with_suffix(".c.o"))]
@@ -277,7 +277,7 @@ class TestObjdiffProject:
 
     def test_build_entry_help_prints_usage(self) -> None:
         """Help succeeds through the installed umbrella command."""
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         result = runner.invoke(app, ["build", "objdiff-driver", "--help"])
         assert result.exit_code == 0
@@ -286,7 +286,7 @@ class TestObjdiffProject:
     @pytest.mark.parametrize("argv", [["-x"], ["-x", "base.o"]])
     def test_build_entry_names_an_unknown_option(self, argv: list[str]) -> None:
         """Stray flags are usage errors rather than target names."""
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         result = runner.invoke(app, ["build", "objdiff-driver", *argv])
         assert result.exit_code == 2
@@ -323,7 +323,7 @@ class TestObjdiffProject:
             "rebrew.compiler.compile.compile_to_obj",
             lambda cfg_, source, cflags, workdir, **kw: (str(workdir / kw["obj_name"]), ""),
         )
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         result = runner.invoke(app, ["build", "objdiff-driver", "T", str(base)])
         assert result.exit_code == 0, result.output

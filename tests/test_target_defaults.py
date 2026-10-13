@@ -102,7 +102,7 @@ def _project(tmp_path: Path) -> Path:
 
 def _command_functions() -> list[tuple[str, str, Any]]:
     """``(component, command, fn)`` for every registered command function."""
-    from rebrew.builtins import BUILTIN_COMPONENTS
+    from rebrew.app.builtins import BUILTIN_COMPONENTS
 
     out: list[tuple[str, str, Any]] = []
     for comp in BUILTIN_COMPONENTS:

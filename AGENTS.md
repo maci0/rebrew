@@ -91,6 +91,7 @@ src/rebrew/          # package; discover modules there; do not rely on an inline
 ├── compiler/        # compile execution, toolchains, compile cache: src/rebrew/compiler/AGENTS.md
 ├── formats/         # executable, object and archive parsers: src/rebrew/formats/AGENTS.md
 ├── metadata/        # source annotations + locked function/data metadata stores: src/rebrew/metadata/AGENTS.md
+├── app/             # umbrella CLI composition (main, builtins, plugin): src/rebrew/app/AGENTS.md
 ├── catalog/         # function registry + coverage grid: src/rebrew/catalog/AGENTS.md
 ├── ghidra/          # BinSync-primary field sync + MCP structural ops: src/rebrew/ghidra/AGENTS.md
 ├── binsync/         # declib BinSync state I/O: src/rebrew/binsync/AGENTS.md
@@ -109,7 +110,7 @@ Dockerfiles / wrappers / 16-bit media: sibling **recompile-toolchains** (not ven
 
 ## CLI Conventions
 
-Install one CLI, `rebrew`, and register all tools as components in `builtins.py`. Do not add `rebrew-<command>` console scripts. `[project.scripts]` contains only the umbrella (`rebrew.main:main`); external build tools use `rebrew build driver <cl|link|lib> -- <arguments>` and `rebrew build objdiff-driver <target> <base-object>` (ADR 027). Regenerate CMake/objdiff configs when upgrading from the old executable hooks. Single-command modules use `@app.callback(invoke_without_command=True)` and may keep `main_entry()` for `python -m` execution.
+Install one CLI, `rebrew`, and register all tools as components in `app/builtins.py`. Do not add `rebrew-<command>` console scripts. `[project.scripts]` contains only the umbrella (`rebrew.app.main:main`); external build tools use `rebrew build driver <cl|link|lib> -- <arguments>` and `rebrew build objdiff-driver <target> <base-object>` (ADR 027). Regenerate CMake/objdiff configs when upgrading from the old executable hooks. Single-command modules use `@app.callback(invoke_without_command=True)` and may keep `main_entry()` for `python -m` execution.
 
 - **Shared helpers** come from `rebrew.cli`: `TargetOption`, `require_config()`, `error_exit(..., json_mode=json_output)`, `json_print`, `parse_va`, `EXIT_*`. `load_config` is in no `__all__` there even though the module imports it; import it from `rebrew.config`, and only for optional loads.
 - **Param order**: `--json` before `--target`, both last. The batch tools (`verify`/`test`/`lint`/`status`/`todo`) put `--all-targets` after `--target`, since it is mutually exclusive with it.
@@ -118,7 +119,7 @@ Install one CLI, `rebrew`, and register all tools as components in `builtins.py`
 - **Output** goes through the shared `console` from `rebrew.utils` (a `Console(stderr=True)`); do not construct a per-module `Console` for normal output. A stdout `Console()` is reserved for data the user pipes (`--version`, `rebrew skills show`). Raw `print()` only for piped data.
 - **`main_entry`** carries the docstring `"""Run the Typer CLI application."""` and a body of `run_standalone(main)` (single-command) or `run_cli(app)` (group), never a bare `app()`, which loses the 141/130/2 exit contract.
 
-Multi-command groups: `is_group=True` in `builtins.py`. A group app's help is a landing page with no per-command examples to fall back on, so every group `typer.Typer(...)` carries an `epilog` with an `Examples:` section.
+Multi-command groups: `is_group=True` in `app/builtins.py`. A group app's help is a landing page with no per-command examples to fall back on, so every group `typer.Typer(...)` carries an `epilog` with an `Examples:` section.
 
 ## Test Patterns
 
@@ -131,9 +132,9 @@ No `conftest.py`: use `tmp_path` + inline helpers. Group by class; helpers `_`-p
 - **Idempotent**: every tool safe to re-run
 - **Source discovery**: `iter_sources` / `iter_library_headers` / `source_glob` from `sources.py`; batch annotations via `iter_annotations` in `metadata/annotation.py`. A command needing several views of one tree (`status`, `catalog`) calls `scan_files` once and threads the result through the `scanned=` keyword rather than re-walking per view
 - **Declarative registration**: toolchains, decompiler backends, CLI commands, mutations, flag sets, library presets, detectors, loaders, MSVC version tables, cache backends, discoverers via `rebrew.registry` entry-point groups (+ `REBREW_TOOLCHAIN_OVERLAY_DIR` / `REBREW_SKILLS_DIR`). Conflict policy: toolchains → `RegistryError` on duplicate; CLI plugin name clashes → warn+skip; tuning groups (`flag_sets`, `library_presets`, `msvc_versions`) extend/override; other optional groups skip broken/duplicate with a warning. `refresh_all()` for long-lived processes. It composes every registry module's refresh under one lock, so two concurrent refreshes cannot interleave; it does not order a refresh against a reader, so build every value first, publish under the owning module's lock, never mutate a published map in place, and read each table you need under its own module's lock (`toolchain_detect.detection_tables()`). Adding a component must not require editing host source
-- **CLI composition**: umbrella app is a component graph (`plugin.py` + `builtins.py`); see ADR 014
+- **CLI composition**: umbrella app is a component graph (`app/plugin.py` + `app/builtins.py`); see ADR 014
 - **No backward compat**: one name per function, no aliases/shims/wrappers
-- **Import direction**: `utils.py` is the leaf (no rebrew binary imports list); the Typer composition layer (`plugin.py`, `builtins.py`, `main.py`, `dashboard.py`) is a sink, imported at module scope only by itself (a command attaches itself to the umbrella inside its `register()`). `make cycles-check` gates cycles, `make layering-check` gates direction (a subpackage leaves itself only through the externals its own `AGENTS.md` lists)
+- **Import direction**: `utils.py` is the leaf (no rebrew binary imports list); the Typer composition layer (`app/plugin.py`, `app/builtins.py`, `app/main.py`, `dashboard.py`) is a sink, imported at module scope only by itself (a command attaches itself to the umbrella inside its `register()`). `make cycles-check` gates cycles, `make layering-check` gates direction (a subpackage leaves itself only through the externals its own `AGENTS.md` lists)
 - **Underscore means module-private**: another module importing a `_name` is a boundary violation. Promote it to a public name, and list it in the owning module's `__all__` when that module has one. The `matcher/mutations/` family is the one exception (a private sub-package)
 - **Volatile metadata** (`METADATA_FIELDS` in `rebrew.metadata.functions`): `STATUS`, `TOOLCHAIN`, `BLOCKER`, … are metadata-only. Unmigrated `.c` files still co-read `SIZE`/`CFLAGS` (inline + TOML). `rebrew source migrate-markers` makes the TOML the only copy, including identity (`file`, `symbol`, `name`, `marker_type`); do not put the marker block back into that `.c`. STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field` (`rebrew blocker` or auto-writers). Written **mode 0444** (`atomic_write_locked`); same lock for `rebrew-data.toml`. BinSync state files are written 0644, since BinSync's own client rewrites them on the same tree
 - **STATUS is earned**: only the byte comparison writes it. `PROVEN` (from `rebrew prove`) is not a byte match and not protected: the next test/verify records the byte result over it. `SKIP` stays parked, and a `STUB` is not replaced by `SIZE_MISMATCH` or `MISSING_SIZE`, unless the writer is called with `force=True`

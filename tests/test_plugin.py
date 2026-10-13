@@ -1,4 +1,4 @@
-"""Tests for the component/context runtime (rebrew.plugin)."""
+"""Tests for the component/context runtime (rebrew.app.plugin)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 import typer
 from rich.console import Console
 
-from rebrew.plugin import (
+from rebrew.app.plugin import (
     CLI_SERVICE,
     CONSOLE_SERVICE,
     CliComponent,
@@ -23,7 +23,7 @@ from rebrew.plugin import (
 
 def test_plugin_public_all() -> None:
     """Star-imports must not leak typing/stdlib names into consumer namespaces."""
-    import rebrew.plugin as plug
+    import rebrew.app.plugin as plug
 
     assert plug.__all__ == [
         "CLI_SERVICE",
@@ -45,7 +45,7 @@ def test_plugin_public_all() -> None:
     for name in plug.__all__:
         assert getattr(plug, name, None) is not None, name
     ns: dict[str, Any] = {}
-    exec("from rebrew.plugin import *", ns)  # noqa: S102
+    exec("from rebrew.app.plugin import *", ns)  # noqa: S102
     exported = {k for k in ns if not k.startswith("_")}
     assert exported == set(plug.__all__)
 
@@ -480,7 +480,7 @@ class TestCliComponent:
     def test_wrong_kind_error_carries_structured_fields(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.plugin as plug
+        import rebrew.app.plugin as plug
         from rebrew.registry import RegistryError
 
         seen: list[Exception] = []
@@ -513,7 +513,7 @@ class TestCliComponent:
 
 class TestBuiltinManifest:
     def test_names_and_targets_are_unique(self) -> None:
-        from rebrew.builtins import BUILTIN_COMPONENTS
+        from rebrew.app.builtins import BUILTIN_COMPONENTS
 
         names = [c.name for c in BUILTIN_COMPONENTS]
         targets = [
@@ -523,7 +523,7 @@ class TestBuiltinManifest:
         assert len(targets) == len(set(targets))
 
     def test_panels_are_declared(self) -> None:
-        from rebrew.builtins import BUILTIN_COMPONENTS
+        from rebrew.app.builtins import BUILTIN_COMPONENTS
 
         assert all(c.panel in Panel.ALL for c in BUILTIN_COMPONENTS)
 
@@ -622,7 +622,13 @@ class TestCliComponentNeeds:
         withdrawing either deactivates every mounted component."""
         import typer
 
-        from rebrew.plugin import CLI_SERVICE, CONSOLE_SERVICE, CliComponent, CoeffectScope, Context
+        from rebrew.app.plugin import (
+            CLI_SERVICE,
+            CONSOLE_SERVICE,
+            CliComponent,
+            CoeffectScope,
+            Context,
+        )
 
         ctx = Context()
         app = typer.Typer()
@@ -1560,7 +1566,7 @@ class TestEntryPointComponents:
         """
         from types import SimpleNamespace
 
-        import rebrew.plugin as plugin_mod
+        import rebrew.app.plugin as plugin_mod
 
         fake_ep = SimpleNamespace(name="third", value="rebrew.diagnose", group="rebrew.commands")
 
@@ -1584,7 +1590,7 @@ class TestEntryPointComponents:
     def test_duplicate_name_warns_and_keeps_builtin(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace
 
-        import rebrew.plugin as plugin_mod
+        import rebrew.app.plugin as plugin_mod
 
         fake_ep = SimpleNamespace(name="status", value="rebrew.status", group="rebrew.commands")
 

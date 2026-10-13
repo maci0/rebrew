@@ -856,7 +856,7 @@ class TestDecompBody:
         from typer.testing import CliRunner
 
         import rebrew.skeleton as sk
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         cfg = self._cfg(tmp_path)
         monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)

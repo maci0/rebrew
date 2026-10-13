@@ -27,8 +27,8 @@ import ast
 import re
 from pathlib import Path
 
-from rebrew.builtins import BUILTIN_COMPONENTS
-from rebrew.plugin import Panel
+from rebrew.app.builtins import BUILTIN_COMPONENTS
+from rebrew.app.plugin import Panel
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_ROOT = ROOT / "src" / "rebrew"
@@ -131,7 +131,7 @@ def test_every_nested_cli_route_is_documented() -> None:
     from typer._click.core import Command
     from typer.core import TyperGroup
 
-    from rebrew.main import app
+    from rebrew.app.main import app
 
     root = typer.main.get_command(app)
     assert isinstance(root, TyperGroup)
@@ -251,7 +251,7 @@ def test_skill_local_reference_paths_exist() -> None:
 
 def test_every_component_main_has_callback_decorator() -> None:
     """Command modules keep runnable Typer apps for direct module execution."""
-    from rebrew.main import cli_components
+    from rebrew.app.main import cli_components
 
     for component in cli_components()[0]:
         if component.origin != "builtin":
@@ -323,7 +323,7 @@ def test_option_help_survives_rich_markup() -> None:
     """
     from typer.testing import CliRunner
 
-    from rebrew.main import app
+    from rebrew.app.main import app
 
     result = CliRunner().invoke(app, ["build", "layout", "--help"])
     assert result.exit_code == 0, result.output
@@ -471,8 +471,11 @@ def _imported_modules(pkg: Path) -> set[str]:
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 if node.module == "rebrew":
-                    # `from rebrew import compile` names rebrew.compiler.compile.
-                    found.update(f"rebrew.{a.name}" for a in node.names)
+                    # `from rebrew import sources` names rebrew.sources; a dunder
+                    # (`__version__`) is a root-package attribute, not a module.
+                    found.update(
+                        f"rebrew.{a.name}" for a in node.names if not a.name.startswith("__")
+                    )
                 elif node.module and node.module.startswith("rebrew."):
                     found.add(node.module)
             elif isinstance(node, ast.Import):
@@ -677,7 +680,7 @@ def test_rule_files_name_real_cli_commands() -> None:
     dropped here sends it to a failing invocation. A second word is checked
     against that command's subcommands.
     """
-    from rebrew.main import app
+    from rebrew.app.main import app
 
     groups = {
         g.name: g.typer_instance for g in app.registered_groups if g.name and g.typer_instance

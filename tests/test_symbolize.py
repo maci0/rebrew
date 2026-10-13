@@ -145,7 +145,7 @@ def _project(tmp_path: Path, source: str = _SOURCE) -> SimpleNamespace:
 
 
 def _run(cfg: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, *args: str) -> tuple[int, str]:
-    from rebrew.main import app as umbrella
+    from rebrew.app.main import app as umbrella
 
     monkeypatch.setattr(symbolize, "require_config", lambda **kwargs: cfg)
     result = CliRunner().invoke(
@@ -285,7 +285,7 @@ def test_missing_raw_link_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 
 def test_mounted_under_source() -> None:
-    from rebrew.main import app as umbrella
+    from rebrew.app.main import app as umbrella
 
     result = CliRunner().invoke(umbrella, ["source", "symbolize", "--help"])
     assert result.exit_code == 0, result.output

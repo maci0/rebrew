@@ -17,7 +17,7 @@ import tomlkit
 from bin_util import make_pe
 from typer.testing import CliRunner
 
-from rebrew.main import app
+from rebrew.app.main import app
 
 runner = CliRunner()
 

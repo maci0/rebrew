@@ -335,7 +335,7 @@ class TestCli:
 
         from typer.testing import CliRunner
 
-        import rebrew.main as main_mod
+        import rebrew.app.main as main_mod
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
@@ -372,7 +372,7 @@ class TestCli:
 
         from typer.testing import CliRunner
 
-        import rebrew.main as main_mod
+        import rebrew.app.main as main_mod
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
@@ -429,7 +429,7 @@ class TestFailureEnvelope:
 
         from typer.testing import CliRunner
 
-        import rebrew.main as main_mod
+        import rebrew.app.main as main_mod
         from rebrew.cli import EXIT_ERROR
 
         src = tmp_path / "src" / "SERVER"
@@ -506,7 +506,7 @@ class TestRecoverProjectStructs:
         assert payload["applied"] is None
         assert any(s["name"] == "PlayerInfo" and s["new"] for s in payload["structs"])
 
-        import rebrew.main as main_mod
+        import rebrew.app.main as main_mod
 
         result = CliRunner().invoke(
             main_mod.app, ["types", "recover", "--functions", "0x401000", "--json"]

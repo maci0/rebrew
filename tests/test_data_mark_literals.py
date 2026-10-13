@@ -81,7 +81,7 @@ def _project(tmp_path: Path) -> Path:
 
 
 def _invoke(*args: str) -> Result:
-    from rebrew.main import app
+    from rebrew.app.main import app
 
     return CliRunner().invoke(app, ["data", "mark-literals", "--link-map", "server.map", *args])
 

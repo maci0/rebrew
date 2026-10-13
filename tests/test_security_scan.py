@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-import rebrew.main
+import rebrew.app.main
 from rebrew.security_scan import (
     _SNIPPET_MAX_CHARS,
     scan_paths,
@@ -278,7 +278,7 @@ class TestSecurityScan:
 class TestSecurityScanCli:
     def test_json_output(self, tmp_path: Path) -> None:
         _write(tmp_path, "one.c", "void f(char *d, char *s) {\n    strcpy(d, s);\n}\n")
-        result = runner.invoke(rebrew.main.app, ["source", "security", str(tmp_path), "--json"])
+        result = runner.invoke(rebrew.app.main.app, ["source", "security", str(tmp_path), "--json"])
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
         assert set(payload) == {"root", "files_scanned", "findings", "count", "by_severity"}
@@ -288,7 +288,7 @@ class TestSecurityScanCli:
     def test_human_output(self, tmp_path: Path) -> None:
         _write(tmp_path, "one.c", "void f(char *d, char *s) {\n    strcpy(d, s);\n}\n")
         result = runner.invoke(
-            rebrew.main.app, ["source", "security", str(tmp_path)], env={"COLUMNS": "200"}
+            rebrew.app.main.app, ["source", "security", str(tmp_path)], env={"COLUMNS": "200"}
         )
         assert result.exit_code == 0
         assert "unbounded-copy" in result.output
@@ -297,7 +297,7 @@ class TestSecurityScanCli:
 
     def test_no_findings_message(self, tmp_path: Path) -> None:
         _write(tmp_path, "safe.c", 'void f(char *s) {\n    printf("%s", s);\n}\n')
-        result = runner.invoke(rebrew.main.app, ["source", "security", str(tmp_path)])
+        result = runner.invoke(rebrew.app.main.app, ["source", "security", str(tmp_path)])
         assert result.exit_code == 0
         assert "no security findings" in result.output.lower()
 
@@ -308,7 +308,7 @@ class TestSecurityScanCli:
             "void f(char *d, char *s, unsigned n) {\n    strcpy(d, s);\n    memcpy(d, s, n);\n}\n",
         )
         result = runner.invoke(
-            rebrew.main.app,
+            rebrew.app.main.app,
             ["source", "security", str(tmp_path), "--min-severity", "high", "--json"],
         )
         assert result.exit_code == 0
@@ -319,7 +319,7 @@ class TestSecurityScanCli:
 
     def test_invalid_min_severity_errors(self, tmp_path: Path) -> None:
         result = runner.invoke(
-            rebrew.main.app,
+            rebrew.app.main.app,
             ["source", "security", str(tmp_path), "--min-severity", "bogus", "--json"],
         )
         assert result.exit_code == 2
@@ -327,7 +327,7 @@ class TestSecurityScanCli:
 
     def test_missing_directory_errors(self, tmp_path: Path) -> None:
         result = runner.invoke(
-            rebrew.main.app,
+            rebrew.app.main.app,
             ["source", "security", str(tmp_path / "absent"), "--json"],
         )
         assert result.exit_code == 2
@@ -341,7 +341,7 @@ class TestSecurityScanCli:
         )
         _write(tmp_path, "src/T/one.c", "void f(char *d, char *s) {\n    strcpy(d, s);\n}\n")
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(rebrew.main.app, ["source", "security", "--json"])
+        result = runner.invoke(rebrew.app.main.app, ["source", "security", "--json"])
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
         assert payload["count"] == 1
@@ -394,7 +394,7 @@ class TestConcurrentQueryInit:
 
         monkeypatch.setattr(scan_mod, "get_ts_parser", lambda: None)
         _write(tmp_path, "a.c", "void f(char *d, char *s) {\n    strcpy(d, s);\n}\n")
-        result = runner.invoke(rebrew.main.app, ["source", "security", str(tmp_path), "--json"])
+        result = runner.invoke(rebrew.app.main.app, ["source", "security", str(tmp_path), "--json"])
         assert result.exit_code == 2, result.output
         assert "did not run" in result.output
         assert "No security findings" not in result.output

@@ -2,7 +2,7 @@
 
 Build a service provider and a command registration, replace the provider,
 then tear down their contributions. This example uses only the public
-`rebrew.plugin` API and a small in-memory command book. It needs no binary,
+`rebrew.app.plugin` API and a small in-memory command book. It needs no binary,
 project config, Docker image, or network connection.
 
 For concepts and exact API behavior, read the [Cordis guide](CORDIS.md).
@@ -32,7 +32,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import cast
 
-from rebrew.plugin import Context, activate
+from rebrew.app.plugin import Context, activate
 
 
 @dataclass
@@ -190,7 +190,7 @@ order shown here.
 ```python
 """Demonstrate inherited dependencies and owned nested composition."""
 
-from rebrew.plugin import Context, activate
+from rebrew.app.plugin import Context, activate
 
 
 class Child:
@@ -254,7 +254,7 @@ retry it. Repairing the object and registering it again starts a new attempt.
 ```python
 """Demonstrate rollback and explicit registration after activation failure."""
 
-from rebrew.plugin import CoeffectScope, Context
+from rebrew.app.plugin import CoeffectScope, Context
 
 
 class Provider:

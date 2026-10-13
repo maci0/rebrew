@@ -29,7 +29,7 @@ Conventions (CLI review will flag drift):
 
 ## 2. Registration
 
-- `src/rebrew/builtins.py`: append a `CliComponent` to the appropriate `DOMAIN_COMPONENTS` family
+- `src/rebrew/app/builtins.py`: append a `CliComponent` to the appropriate `DOMAIN_COMPONENTS` family
   for a specialized operation, or `BUILTIN_COMPONENTS` for a root workflow
   (name, module, help,
   panel, is_group). The `help` string shows in `--help`; keep it one line.

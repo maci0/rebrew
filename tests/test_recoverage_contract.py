@@ -35,9 +35,9 @@ from typing import Any
 
 from typer.testing import CliRunner
 
+from rebrew.app.main import app
 from rebrew.coverage_db import FUNCTION_DB_STATUSES, build_db
 from rebrew.coverage_toml import load_coverage
-from rebrew.main import app
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

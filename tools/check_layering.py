@@ -9,8 +9,8 @@ module may import, and its docstring promises the freedom that buys: it holds
 no rebrew imports, so it can never sit between a caller and a dependency.  The
 first rebrew import in it is a layering regression.
 
-**The composition layer is a sink.**  ``plugin``, ``builtins``, ``main`` and
-``dashboard`` build the Typer app and know every command; nothing they import
+**The composition layer is a sink.**  ``app.plugin``, ``app.builtins``,
+``app.main`` and ``dashboard`` build the Typer app and know every command; nothing they import
 depends on them back.  A module that imports one at *module scope* drags the
 whole command graph in and makes a leaf into a peer of the app, so only the
 layer itself may do it.  Two escapes stay legal because neither runs at
@@ -22,7 +22,7 @@ import time: a command registers itself with the umbrella inside its
 ``src/rebrew/<package>/AGENTS.md`` states the externals that package may
 import, and that line is what keeps ``matcher/`` from becoming a peer of the
 CLI it drives.  Nothing read the line, so it drifted silently while the other
-two rules kept passing.  The list below is transcribed from those eight files;
+two rules kept passing.  The list below is transcribed from those nine files;
 ``tests/test_check_layering.py`` fails when a name in the tool is no longer
 documented, so the two cannot diverge quietly.  Unlike the other rules this
 one reads *every* import, not just the module-scope ones: the catalog's
@@ -67,7 +67,7 @@ from typing import override
 #: Modules that assemble the Typer app.  Nothing outside this set may import
 #: them at module scope.
 COMPOSITION_LAYER = frozenset(
-    {"rebrew.plugin", "rebrew.builtins", "rebrew.main", "rebrew.dashboard"}
+    {"rebrew.app.plugin", "rebrew.app.builtins", "rebrew.app.main", "rebrew.dashboard"}
 )
 
 #: Modules allowed to import no other rebrew module at all.
@@ -80,6 +80,7 @@ LEAF_MODULES = frozenset({"rebrew.utils"})
 #: may read.  A package's own submodules are always allowed and are not
 #: listed.
 PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
+    "app": frozenset({"cli", "errors", "registry"}),
     "matcher": frozenset(
         {
             "coff_reloc",
@@ -308,7 +309,9 @@ def _package_externals(
         if not isinstance(node, (ast.Import, ast.ImportFrom)):
             continue
         for target in _rebrew_targets(module, is_package, node, known):
-            if target == module:
+            # The package root loads before any submodule, so `from rebrew
+            # import __version__` adds no edge the import did not already have.
+            if target in (module, "rebrew"):
                 continue
             rest = target[len("rebrew.") :]
             if rest.split(".")[0] == package:

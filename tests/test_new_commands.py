@@ -312,7 +312,7 @@ class TestCommandWiring:
     def test_commands_mounted(self) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         for cmd in ("diagnose probe", "match qualifiers", "diagnose gap"):
             r = CliRunner().invoke(app, [*cmd.split(), "--help"])

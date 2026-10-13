@@ -420,7 +420,7 @@ def _write_completion_scripts(project_root: Path) -> list[Path]:
     from click.shell_completion import BashComplete, FishComplete, ZshComplete
     from typer.main import get_command
 
-    from rebrew.main import app as umbrella_app
+    from rebrew.app.main import app as umbrella_app
 
     cli_command = get_command(umbrella_app)
     # typer>=0.25 vendors click (typer._click): the command object is no

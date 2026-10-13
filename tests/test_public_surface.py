@@ -572,15 +572,15 @@ class TestBreakClassification:
 
         def _table(is_group: str, panel: str) -> tuple[str, ...]:
             source = {
-                Path("src/rebrew/plugin.py"): plugin,
-                Path("src/rebrew/builtins.py"): (
-                    "from rebrew.plugin import CliComponent\n\n"
+                Path("src/rebrew/app/plugin.py"): plugin,
+                Path("src/rebrew/app/builtins.py"): (
+                    "from rebrew.app.plugin import CliComponent\n\n"
                     "BUILTIN_COMPONENTS = (\n"
                     f"    CliComponent(name='diff', panel={panel}{is_group}),\n"
                     ")\n"
                 ),
             }
-            return public_surface(root, source=source)["builtins"]["BUILTIN_COMPONENTS"]
+            return public_surface(root, source=source)["app.builtins"]["BUILTIN_COMPONENTS"]
 
         spelled = _table(", is_group=False", "'dev'")
         dropped = _table("", "'dev'")

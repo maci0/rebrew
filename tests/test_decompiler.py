@@ -104,7 +104,7 @@ class TestBackendDispatch:
         """
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         result = CliRunner().invoke(app, [*command.split(), "--help"])
         assert result.exit_code == 0, result.output

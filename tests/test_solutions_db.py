@@ -10,7 +10,7 @@ import pytest
 from rich.console import Console
 from typer.testing import CliRunner
 
-from rebrew.main import app
+from rebrew.app.main import app
 from rebrew.solutions_db import _collect_best, _collect_solutions
 
 

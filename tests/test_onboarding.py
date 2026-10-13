@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-import rebrew.main as main_mod
+import rebrew.app.main as main_mod
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mini_pe.exe"
 

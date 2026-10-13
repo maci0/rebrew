@@ -18,8 +18,8 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
+from rebrew.app.main import app
 from rebrew.binsync.git import git_argv, run_git
-from rebrew.main import app
 from rebrew.utils import md5_file
 
 runner = CliRunner()

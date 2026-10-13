@@ -17,7 +17,7 @@ from hypothesis import strategies as st
 from typer.testing import CliRunner
 
 import rebrew.pdb_export as pdb_export
-from rebrew.main import app
+from rebrew.app.main import app
 from rebrew.pdb_export import TypeTable, read_debug_identity
 from rebrew.pdb_info import extract_pdb_info
 

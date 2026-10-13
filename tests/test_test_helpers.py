@@ -228,8 +228,8 @@ class TestSizePersistence:
 
         from typer.testing import CliRunner
 
+        from rebrew.app.main import app as umbrella
         from rebrew.compiler.compile import CompareResult
-        from rebrew.main import app as umbrella
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
         (tmp_path / "original").mkdir()
@@ -272,8 +272,8 @@ class TestSizePersistence:
 
         from typer.testing import CliRunner
 
+        from rebrew.app.main import app as umbrella
         from rebrew.compiler.compile import CompareResult
-        from rebrew.main import app as umbrella
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
         (tmp_path / "original").mkdir()
@@ -320,8 +320,8 @@ class TestSizePersistence:
 
         from typer.testing import CliRunner
 
+        from rebrew.app.main import app as umbrella
         from rebrew.compiler.compile import CompareResult
-        from rebrew.main import app as umbrella
 
         module = "CLIENT" if selector else "SERVER"
         marker = "" if selector else "SERVER"
@@ -372,8 +372,8 @@ class TestSizePersistence:
 
         from typer.testing import CliRunner
 
+        from rebrew.app.main import app as umbrella
         from rebrew.compiler.compile import CompareResult
-        from rebrew.main import app as umbrella
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
         (tmp_path / "original").mkdir()
@@ -463,7 +463,7 @@ class TestFixSize:
     def test_fixes_size_and_promotes(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
         monkeypatch.setattr(
@@ -497,7 +497,7 @@ class TestFixSize:
     def test_real_mismatch_not_fixed(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
         # 90% common-prefix match: real byte differences → --fix-sizes no-op.
@@ -531,7 +531,7 @@ class TestFixSize:
     def test_dry_run_previews_without_writing(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
         monkeypatch.setattr(
@@ -569,7 +569,7 @@ class TestFixSize:
         corrected SIZE lands under B, never under the file's first module A."""
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
         # No marker filter: a genuinely multi-module file (module A and B are
@@ -626,8 +626,8 @@ class TestUnchangedStatusCachePatch:
 
         from typer.testing import CliRunner
 
+        from rebrew.app.main import app as umbrella
         from rebrew.compiler.compile import CompareResult
-        from rebrew.main import app as umbrella
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
         (tmp_path / "original").mkdir()
@@ -812,8 +812,8 @@ class TestCflagsPersistence:
 
         from typer.testing import CliRunner
 
+        from rebrew.app.main import app as umbrella
         from rebrew.compiler.compile import CompareResult
-        from rebrew.main import app as umbrella
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
         (tmp_path / "original").mkdir()
@@ -866,8 +866,8 @@ class TestCliSizeLintSuppression:
 
         from typer.testing import CliRunner
 
+        from rebrew.app.main import app as umbrella
         from rebrew.compiler.compile import CompareResult
-        from rebrew.main import app as umbrella
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
         (tmp_path / "original").mkdir()
@@ -1370,8 +1370,8 @@ class TestRunTest:
 
         from typer.testing import CliRunner
 
+        from rebrew.app.main import app as umbrella
         from rebrew.config import load_config
-        from rebrew.main import app as umbrella
         from rebrew.test import run_test
 
         root = self._project(tmp_path, monkeypatch)
@@ -1426,7 +1426,7 @@ class TestMissingSizeHint:
     def test_hint_names_inventory_size(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
         monkeypatch.setenv("COLUMNS", "200")
@@ -1440,7 +1440,7 @@ class TestMissingSizeHint:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
         (tmp_path / "src" / "x" / "function_structure.json").write_text(
@@ -1534,7 +1534,7 @@ class TestMissingSourceArgument:
     def test_human_output(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
         result = CliRunner().invoke(umbrella, ["test", "nope.c"])
@@ -1546,7 +1546,7 @@ class TestMissingSourceArgument:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
         result = CliRunner().invoke(umbrella, ["test", "nope.c", "--json"])

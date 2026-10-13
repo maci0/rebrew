@@ -504,7 +504,7 @@ class TestPlan:
 class TestRegistration:
     def test_registered_in_the_umbrella_manifest(self) -> None:
         """The declarative source family mounts the import adapter."""
-        from rebrew.builtins import DOMAIN_COMPONENTS
+        from rebrew.app.builtins import DOMAIN_COMPONENTS
 
         component = next(c for c in DOMAIN_COMPONENTS["source"] if c.name == "import-splat")
         assert component.module == "rebrew.splat_config"

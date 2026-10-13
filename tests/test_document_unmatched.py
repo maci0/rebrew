@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from rebrew.main import app
+from rebrew.app.main import app
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -144,7 +144,7 @@ class TestDocumentUnmatched:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
         from rebrew.metadata.functions import get_entry, update_field, update_source_status
 
         update_source_status(project / "src", "STUB", "SERVER", 0x401000)
@@ -169,7 +169,7 @@ class TestDocumentUnmatched:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
         from rebrew.metadata.functions import get_entry, update_field, update_source_status
 
         # A stub with an inline SIZE but no metadata size yet.
@@ -198,7 +198,7 @@ class TestDocumentUnmatched:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
         from rebrew.metadata.functions import get_entry, update_source_status
 
         update_source_status(project / "src", "STUB", "SERVER", 0x401000)

@@ -11,8 +11,7 @@ import importlib
 
 import typer
 
-from rebrew.cli import console
-from rebrew.plugin import (
+from rebrew.app.plugin import (
     CLI_SERVICE,
     CONSOLE_SERVICE,
     CliComponent,
@@ -21,6 +20,7 @@ from rebrew.plugin import (
     Panel,
     activate,
 )
+from rebrew.cli import console
 
 DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     "source": (
@@ -744,7 +744,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="types",
-        module="rebrew.builtins",
+        module="rebrew.app.builtins",
         help="Check declared struct layouts; apply types to signatures.",
         panel=Panel.ANALYSIS,
         is_group=True,
@@ -773,7 +773,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="library",
-        module="rebrew.builtins",
+        module="rebrew.app.builtins",
         help="Per-library toolchain/flags overrides (rebrew-libraries.toml).",
         panel=Panel.PROJECT_SETUP,
         is_group=True,
@@ -788,7 +788,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="binsync",
-        module="rebrew.builtins",
+        module="rebrew.app.builtins",
         help="BinSync state sync: push/pull/summary plus init/diff/overlay.",
         panel=Panel.EXPORT_SYNC,
         is_group=True,
@@ -796,7 +796,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="source",
-        module="rebrew.builtins",
+        module="rebrew.app.builtins",
         attr="source_app",
         help="Source operations.",
         panel=Panel.DEVELOPMENT,
@@ -804,7 +804,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="build",
-        module="rebrew.builtins",
+        module="rebrew.app.builtins",
         attr="build_app",
         help="Build operations.",
         panel=Panel.DEVELOPMENT,
@@ -812,7 +812,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="diagnose",
-        module="rebrew.builtins",
+        module="rebrew.app.builtins",
         attr="diagnose_app",
         help="Diagnose operations.",
         panel=Panel.ANALYSIS,
@@ -820,7 +820,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="binary",
-        module="rebrew.builtins",
+        module="rebrew.app.builtins",
         attr="binary_app",
         help="Binary operations.",
         panel=Panel.ANALYSIS,
@@ -828,7 +828,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="coverage",
-        module="rebrew.builtins",
+        module="rebrew.app.builtins",
         attr="coverage_app",
         help="Coverage operations.",
         panel=Panel.DEVELOPMENT,
@@ -836,7 +836,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="match",
-        module="rebrew.builtins",
+        module="rebrew.app.builtins",
         attr="match_app",
         help="Match operations.",
         panel=Panel.DEVELOPMENT,
@@ -844,7 +844,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="similarity",
-        module="rebrew.builtins",
+        module="rebrew.app.builtins",
         attr="similarity_app",
         help="Similarity operations.",
         panel=Panel.ANALYSIS,
@@ -852,7 +852,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="dev",
-        module="rebrew.builtins",
+        module="rebrew.app.builtins",
         attr="dev_app",
         help="Dev operations.",
         panel=Panel.DEVELOPMENT,
@@ -860,7 +860,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="export",
-        module="rebrew.builtins",
+        module="rebrew.app.builtins",
         attr="export_app",
         help="Export operations.",
         panel=Panel.DEVELOPMENT,

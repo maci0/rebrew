@@ -536,7 +536,7 @@ def test_driver_dispatch_and_run(
     monkeypatch.setattr("rebrew.cmake_tc.Path.cwd", lambda: proj / "build")
     from typer.testing import CliRunner
 
-    from rebrew.main import app
+    from rebrew.app.main import app
 
     args = ["/c", "x.c", "--help", "--version", "-v", "/Ipath with spaces"]
     result = CliRunner().invoke(app, ["build", "driver", mode, "--", *args])

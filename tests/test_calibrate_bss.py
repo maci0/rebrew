@@ -77,7 +77,7 @@ class TestCalibrateLoop:
     def _invoke(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> Any:
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         monkeypatch.chdir(tmp_path)
         return CliRunner().invoke(app, ["build", "calibrate-bss", *args])

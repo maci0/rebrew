@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from rebrew.main import app
+from rebrew.app.main import app
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -165,7 +165,7 @@ class TestSignatureSetup:
         import json
 
         from rebrew import flirt as module
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         repo = tmp_path / "shared"
         repo.mkdir()

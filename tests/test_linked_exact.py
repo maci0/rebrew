@@ -235,7 +235,7 @@ class TestStickiness:
     def test_rebrew_test_keeps_linked_exact(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.main import app
+        from rebrew.app.main import app
         from rebrew.metadata.functions import clear_metadata_cache
 
         _project(tmp_path)
@@ -254,7 +254,7 @@ class TestStickiness:
     def test_rebrew_test_multi_function_file_keeps_linked_exact(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         _project(tmp_path)
         source = tmp_path / "src" / "foo.c"

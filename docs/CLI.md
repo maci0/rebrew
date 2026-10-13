@@ -1,8 +1,7 @@
 # CLI Reference
 
-All 103 CLI commands are registered under the unified `rebrew` entry point in `main.py`
-(102 packaged `CliComponent` entries in `builtins.py` plus `import-splat` from
-`main.py` `_EXTRA_COMPONENTS`).
+All 103 CLI commands are registered under the unified `rebrew` entry point in `app/main.py`
+(`CliComponent` rows in `app/builtins.py`).
 Only `rebrew` is installed. Invoke tools as subcommands:
 `rebrew status`, `rebrew test`, `rebrew binsync push`, and so on. The old
 `rebrew-<command>` executables are removed; reinstall or upgrade Rebrew to
@@ -70,7 +69,7 @@ Byte-match ladder (best → worst): `EXACT` → `RELOC` → `NEAR_MATCHING` → 
 differ. It is not a byte match: the next test/verify records the byte result
 over it.
 
-> The same table is shown in `rebrew --help` (source of truth: `src/rebrew/main.py` epilog).
+> The same table is shown in `rebrew --help` (source of truth: `src/rebrew/app/main.py` epilog).
 
 ## Exit Codes
 
@@ -104,7 +103,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 
 | Command | Script | Description |
 |-------------|--------|-------------|
-| `rebrew` | `main.py` | Unified CLI entry point for all subcommands |
+| `rebrew` | `app/main.py` | Unified CLI entry point for all subcommands |
 | `rebrew source rename` | `rename.py` | Rename a function, global, type or struct member and update every reference |
 | `rebrew init` | `init.py` | Scaffold a new project directory and `rebrew-project.toml` |
 | `rebrew test` | `test.py` | Compile-and-compare; auto-promotes STATUS on EXACT/RELOC; `--no-promote` to skip; `--json` output |
@@ -252,10 +251,10 @@ discovered components merge on top.  Conflict and failure policy per group:
 | Compile-cache backend | `rebrew.cache_backends` | `module:attr`: factory `(cache_dir, size_limit) -> CacheBackend` (get/put/volume/count/clear/close/stats; `stats()` must carry `entries`, `volume_mib`, `size_limit_mib`, the `session_*` counters are optional); selected via `[cache] backend` in `rebrew-project.toml`; the keying semantics are shared and not pluggable |
 | Function discoverer | `rebrew.discoverers` | `module:attr`: `(binary: Path) -> list[(va, size, name)]`; merged into `rebrew binary functions` by entry-point name; return `[]` when nothing is found (a raise, or anything but a list of `(int >= 0, int >= 0, str)` tuples, is skipped with a warning) |
 
-CLI tools (packaged and third-party) mount through `rebrew.plugin`.
+CLI tools (packaged and third-party) mount through `rebrew.app.plugin`.
 `main.compose()` provides the `cli` and `console` services, then
 `activate()` registers every `CliComponent` on a `CoeffectScope`.
-Composition runs at `rebrew.main` import, and the module keeps the
+Composition runs at `rebrew.app.main` import, and the module keeps the
 context and scope (`_COMPOSED`) for the process lifetime: nothing
 unmounts before interpreter exit, and there is no hot-reload. See
 [ADR 014](adr/014-component-composition.md).

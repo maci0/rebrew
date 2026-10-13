@@ -12,13 +12,13 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from typer.testing import CliRunner
 
+from rebrew.app.main import app
 from rebrew.identify_library import (
     LibCandidate,
     collect_candidates,
     infer_module,
     write_candidates,
 )
-from rebrew.main import app
 from rebrew.metadata.functions import get_entry
 from rebrew.utils import library_header_name, pe_name_token
 

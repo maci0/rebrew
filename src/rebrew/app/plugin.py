@@ -1,4 +1,4 @@
-"""plugin.py — component/context runtime for spatiotemporal composability.
+"""app/plugin.py — component/context runtime for spatiotemporal composability.
 
 Implements the composition discipline of Cordis (Shi, Zhang & Cui, "A
 Programming Paradigm for Spatiotemporal Composability", arXiv:2608.25512) at
@@ -29,7 +29,7 @@ A service provision is itself such an effect: its inverse is the restriction of
 the key (Definition 20), so ``unprovide`` or disposal withdraws the binding.
 
 The CLI is composed this way.  Built-in tools and third-party plugins are the
-same kind of :class:`CliComponent`; the umbrella app in :mod:`rebrew.main` is
+same kind of :class:`CliComponent`; the umbrella app in :mod:`rebrew.app.main` is
 the ``"cli"`` service they mount onto.  The loader tier of the paper
 (configuration reconciliation and hot module replacement) is deliberately not
 built: a CLI process composes once and has no module to swap, and

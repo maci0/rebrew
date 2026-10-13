@@ -1,14 +1,14 @@
-"""Tests for rebrew main.py — umbrella CLI registration, logging levels, error paths."""
+"""Tests for rebrew app/main.py — umbrella CLI registration, logging levels, error paths."""
 
 import pytest
 import typer
 from rich.console import Console
 from typer.testing import CliRunner
 
+import rebrew.app.main as main_mod
 import rebrew.cli as cli_mod
-import rebrew.main as main_mod
+from rebrew.app.plugin import make_stub_app, make_stub_command
 from rebrew.cli import EXIT_ERROR
-from rebrew.plugin import make_stub_app, make_stub_command
 
 
 class TestVerbosity:

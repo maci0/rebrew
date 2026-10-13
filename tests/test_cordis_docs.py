@@ -10,7 +10,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from rebrew.plugin import (
+from rebrew.app.plugin import (
     CLI_SERVICE,
     CONSOLE_SERVICE,
     CliComponent,

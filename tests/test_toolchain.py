@@ -633,7 +633,7 @@ class TestCli:
     def test_list_registered_in_umbrella(self) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         result = CliRunner().invoke(umbrella, ["toolchain", "list", "--json"])
         assert result.exit_code == 0, result.output
@@ -650,7 +650,7 @@ class TestCli:
     def test_unknown_status_errors(self) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         result = CliRunner().invoke(umbrella, ["toolchain", "status", "nope"])
         assert result.exit_code != 0
@@ -659,10 +659,10 @@ class TestCli:
     def test_pull_host_only_errors(self, monkeypatch) -> None:
         from typer.testing import CliRunner
 
+        from rebrew.app.main import app as umbrella
         from rebrew.compiler import toolchain as toolchain_mod
         from rebrew.compiler.toolchain import TOOLCHAINS
         from rebrew.compiler.toolchain_spec import ToolchainSpec
-        from rebrew.main import app as umbrella
 
         monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: False)
         monkeypatch.setattr(
@@ -677,7 +677,7 @@ class TestCli:
     def test_pull_unknown_errors(self) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         result = CliRunner().invoke(umbrella, ["toolchain", "pull", "nope"])
         assert result.exit_code == 2
@@ -689,7 +689,7 @@ class TestCli:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
         from rebrew.toolchain_detect import ToolchainInfo
 
         bin_path = tmp_path / "x.exe"
@@ -718,7 +718,7 @@ class TestCli:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
         from rebrew.toolchain_detect import ToolchainInfo
 
         (tmp_path / "rebrew-project.toml").write_text(
@@ -749,7 +749,7 @@ class TestCli:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(umbrella, ["toolchain", "detect", "nope.exe", "--json"])
@@ -760,10 +760,10 @@ class TestCli:
     def test_build_host_only_errors(self, monkeypatch) -> None:
         from typer.testing import CliRunner
 
+        from rebrew.app.main import app as umbrella
         from rebrew.compiler import toolchain as toolchain_mod
         from rebrew.compiler.toolchain import TOOLCHAINS
         from rebrew.compiler.toolchain_spec import ToolchainSpec
-        from rebrew.main import app as umbrella
 
         monkeypatch.setattr(
             toolchain_mod,
@@ -777,7 +777,7 @@ class TestCli:
     def test_build_missing_dockerfile_errors(self, monkeypatch, tmp_path: Path) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         # No checkout needed: point the build source at an empty dir so the
         # command reaches the Dockerfile check (a real checkout has the file).
@@ -791,7 +791,7 @@ class TestCli:
         mutate site-packages, and must fail before any download."""
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         monkeypatch.setattr("rebrew.compiler.toolchain.require_toolchains_repo", lambda: tmp_path)
         monkeypatch.setattr("rebrew.toolchain_cli.SOURCE_CHECKOUT", None)
@@ -888,7 +888,7 @@ class TestPullToolchain:
     def test_cli_reports_already_present(self, monkeypatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
@@ -1113,7 +1113,7 @@ class TestResolveBinaryCaseInsensitive:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         (tmp_path / "BIN").mkdir()
         (tmp_path / "BIN" / "CL.EXE").write_bytes(b"")
@@ -1457,8 +1457,8 @@ class TestSmokePrintGoldens:
 
         from typer.testing import CliRunner
 
+        from rebrew.app.main import app as umbrella
         from rebrew.compiler.toolchain import get_toolchain
-        from rebrew.main import app as umbrella
         from rebrew.toolchain_cli import _SMOKE_GOLDEN
 
         name = "msvc-6.0-sp5-crt"
@@ -1505,7 +1505,7 @@ class TestSmokePrintGoldens:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
         from rebrew.toolchain_cli import _image_smoke_hash
 
         def compile_image(image, prefix, workdir, flags):
@@ -1537,7 +1537,7 @@ class TestSmokePrintGoldens:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         obj = b"OBJ" + b"\x01\x02\x03\x04" + b"TAIL"
 
@@ -1568,7 +1568,7 @@ class TestSmokePrintGoldens:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         names: list[str] = []
         killed: list[str] = []
@@ -1595,7 +1595,7 @@ class TestSmokePrintGoldens:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         def _fake_run(cmd, **kwargs):
             from pathlib import Path
@@ -1617,7 +1617,7 @@ class TestSmokePrintGoldens:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         def _fake_run(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])

@@ -35,7 +35,7 @@ from rebrew.formats.binary_loader import extract_raw_bytes
 from rebrew.metadata.annotation import parse_c_file_multi, parse_source_metadata
 from rebrew.sources import target_marker
 
-# Module-form registration (empty ``attr`` in builtins.py) resolves BOTH a
+# Module-form registration (empty ``attr`` in app/builtins.py) resolves BOTH a
 # ``main`` callable and a module-level ``app``.  A module exposing only ``main``
 # is silently mounted as an *unavailable stub*, which presents as a working
 # command whose ``--help`` lists no options at all -- an easy failure to

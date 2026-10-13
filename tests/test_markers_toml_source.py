@@ -238,7 +238,7 @@ class TestStripMarkerBlocks:
 
 class TestMigrateCommandRegistered:
     def test_cli_component_registered(self) -> None:
-        from rebrew.builtins import DOMAIN_COMPONENTS
+        from rebrew.app.builtins import DOMAIN_COMPONENTS
 
         names = {c.name for c in DOMAIN_COMPONENTS["source"]}
         assert "migrate-markers" in names

@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from rebrew.app.main import app
 from rebrew.config import ProjectConfig
 from rebrew.lint import lint_file
-from rebrew.main import app
 from rebrew.metadata.source_provenance import (
     SOURCE_PROVENANCE_FILENAME,
     document_assembly,

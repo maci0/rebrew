@@ -10,7 +10,7 @@ import pytest
 import tomlkit
 from typer.testing import CliRunner
 
-from rebrew.main import app
+from rebrew.app.main import app
 
 runner = CliRunner()
 

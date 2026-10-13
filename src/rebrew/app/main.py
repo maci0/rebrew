@@ -1,11 +1,11 @@
-"""main.py — umbrella CLI entry point for rebrew.
+"""app/main.py — umbrella CLI entry point for rebrew.
 
 The ``rebrew`` app is composed from components.  Every built-in tool is a
-:class:`rebrew.plugin.CliComponent` in :data:`rebrew.builtins.BUILTIN_COMPONENTS`
+:class:`rebrew.app.plugin.CliComponent` in :data:`rebrew.app.builtins.BUILTIN_COMPONENTS`
 ;
 third-party components come from the ``rebrew.commands`` and
 ``rebrew.multicommands`` entry-point groups.  Both mount through the same
-:func:`rebrew.plugin.activate` call, so built-ins hold no privileged path and a
+:func:`rebrew.app.plugin.activate` call, so built-ins hold no privileged path and a
 component's declared service dependencies decide activation order.
 """
 
@@ -14,9 +14,8 @@ from __future__ import annotations
 import typer
 from rich.console import Console
 
-from rebrew.builtins import BUILTIN_COMPONENTS
-from rebrew.cli import QUIET_HELP, VERBOSE_HELP, VersionedGroup, configure_logging, console, run_cli
-from rebrew.plugin import (
+from rebrew.app.builtins import BUILTIN_COMPONENTS
+from rebrew.app.plugin import (
     CLI_SERVICE,
     CONSOLE_SERVICE,
     CliComponent,
@@ -25,6 +24,7 @@ from rebrew.plugin import (
     activate,
     entry_point_components,
 )
+from rebrew.cli import QUIET_HELP, VERBOSE_HELP, VersionedGroup, configure_logging, console, run_cli
 
 _stdout_console = Console()
 

@@ -47,7 +47,7 @@ for name, spec in sorted(TOOLCHAINS.items()):
 
 Remote compile transport, registry plugins, workspace helpers, and the GA
 matcher follow the same pattern (`rebrew.compiler.recompile_client`, `rebrew.registry`,
-`rebrew.plugin`, `rebrew.workspace`, `rebrew.matcher`). Component declarations,
+`rebrew.app.plugin`, `rebrew.workspace`, `rebrew.matcher`). Component declarations,
 scoped contexts, and teardown are documented in the [Cordis guide](CORDIS.md);
 the [tutorial](CORDIS_TUTORIAL.md) exercises provider replacement with the public API.
 

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-import rebrew.main
+import rebrew.app.main
 import rebrew.similar as similar_mod
 from rebrew.instruction_clones import (
     MAX_SUBMATCH_INSTRUCTIONS,
@@ -208,7 +208,7 @@ class TestSubmatchCli:
             },
         )
         result = runner.invoke(
-            rebrew.main.app,
+            rebrew.app.main.app,
             ["similarity", "function", "0x1000", "--submatch", "--other", "0x2000", "--json"],
         )
         assert result.exit_code == 0
@@ -223,7 +223,7 @@ class TestSubmatchCli:
             lambda target=None, json_mode=False: SimpleNamespace(),
         )
         result = runner.invoke(
-            rebrew.main.app, ["similarity", "function", "0x1000", "--submatch", "--json"]
+            rebrew.app.main.app, ["similarity", "function", "0x1000", "--submatch", "--json"]
         )
         assert result.exit_code == 2
         assert "--other" in json.loads(result.stdout)["error"]
@@ -243,7 +243,8 @@ class TestSubmatchCli:
             },
         )
         result = runner.invoke(
-            rebrew.main.app, ["similarity", "function", "0x1000", "--submatch", "--other", "0x2000"]
+            rebrew.app.main.app,
+            ["similarity", "function", "0x1000", "--submatch", "--other", "0x2000"],
         )
         assert result.exit_code == 0
         assert "No common run" in result.output
@@ -280,7 +281,9 @@ class TestClusterCli:
                 ],
             },
         )
-        result = runner.invoke(rebrew.main.app, ["similarity", "function", "--cluster", "--json"])
+        result = runner.invoke(
+            rebrew.app.main.app, ["similarity", "function", "--cluster", "--json"]
+        )
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
         assert payload["duplicate_groups"] == 1
@@ -293,6 +296,6 @@ class TestClusterCli:
             "require_config",
             lambda target=None, json_mode=False: SimpleNamespace(),
         )
-        result = runner.invoke(rebrew.main.app, ["similarity", "function", "--json"])
+        result = runner.invoke(rebrew.app.main.app, ["similarity", "function", "--json"])
         assert result.exit_code == 2
         assert "--cluster" in json.loads(result.stdout)["error"]

@@ -31,7 +31,7 @@ import pytest
 import typer
 from typer.models import OptionInfo
 
-from rebrew.builtins import BUILTIN_COMPONENTS
+from rebrew.app.builtins import BUILTIN_COMPONENTS
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_ROOT = ROOT / "src" / "rebrew"
@@ -89,7 +89,7 @@ def _options(fn) -> dict[str, OptionInfo]:
 
 class TestSharedOptionHelp:
     def test_every_runtime_callback_is_covered(self) -> None:
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         umbrella = typer.main.get_command(app)
         context = typer._click.core.Context(umbrella)
@@ -260,7 +260,7 @@ class TestVersionFlag:
         from typer.testing import CliRunner
 
         from rebrew import __version__
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         result = CliRunner().invoke(umbrella, ["diff", "--version"])
         assert result.exit_code == 0
@@ -278,7 +278,7 @@ class TestVersionFlag:
         from typer.testing import CliRunner
 
         from rebrew import __version__
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         result = CliRunner().invoke(umbrella, ["-V"])
         assert result.exit_code == 0, result.output
@@ -294,7 +294,7 @@ class TestVersionFlag:
         from typer.testing import CliRunner
 
         from rebrew import __version__
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         result = CliRunner().invoke(umbrella, ["diff", "--version"])
         assert result.exit_code == 0, result.output
@@ -353,7 +353,7 @@ class TestVerbosityFlags:
         from typer.testing import CliRunner
 
         from rebrew import cli
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         cli.reset_verbosity()
         result = CliRunner().invoke(umbrella, ["diff", "-q", "nosuch.c"])
@@ -371,7 +371,7 @@ class TestVerbosityFlags:
         from typer.testing import CliRunner
 
         from rebrew import cli
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         cli.reset_verbosity()
         CliRunner().invoke(umbrella, ["-vv", "diff", "nosuch.c"])
@@ -502,7 +502,7 @@ class TestGroupWithoutSubcommand:
         """A bare group invocation exits 2 with nothing on stdout, like any usage error."""
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         bad = []
         for comp in BUILTIN_COMPONENTS:
@@ -557,7 +557,7 @@ class TestRowCountOptions:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(
@@ -639,7 +639,7 @@ class TestComposedHelp:
     def test_every_route_renders_help_and_version(self) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         command = typer.main.get_command(app)
         pending = [((), command)]
@@ -657,8 +657,8 @@ class TestComposedHelp:
                 pending.append(((*path, name), child))
 
     def test_help_examples_name_real_operations_flags_and_required_arguments(self) -> None:
+        from rebrew.app.main import app
         from rebrew.cli import add_global_options
-        from rebrew.main import app
 
         root = add_global_options(typer.main.get_command(app))
         pending = [((), root)]

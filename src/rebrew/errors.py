@@ -52,6 +52,7 @@ from typing import TYPE_CHECKING, Any
 # Same names ``__getattr__`` loads at runtime.  Present here so a type
 # checker sees ``from rebrew.errors import ConfigError`` as that class.
 if TYPE_CHECKING:
+    from rebrew.app.plugin import ComponentError as ComponentError
     from rebrew.coff_reloc import CatalogScanError as CatalogScanError
     from rebrew.coff_reloc import UnresolvedSymbolError as UnresolvedSymbolError
     from rebrew.compiler.compile import CompareResultError as CompareResultError
@@ -83,7 +84,6 @@ if TYPE_CHECKING:
     from rebrew.metadata.model import MetadataValidationError as MetadataValidationError
     from rebrew.orphans import OrphanInventoryError as OrphanInventoryError
     from rebrew.pdb_export import PdbExportError as PdbExportError
-    from rebrew.plugin import ComponentError as ComponentError
     from rebrew.registry import RegistryError as RegistryError
     from rebrew.rename_ops import RenameError as RenameError
     from rebrew.residue import ResidueError as ResidueError
@@ -227,7 +227,7 @@ class RebrewError(Exception):
 #: here in the same change (``test_errors.py`` scans the package for strays).
 _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "CatalogScanError": ("rebrew.coff_reloc", "CatalogScanError"),
-    "ComponentError": ("rebrew.plugin", "ComponentError"),
+    "ComponentError": ("rebrew.app.plugin", "ComponentError"),
     "CompareResultError": ("rebrew.compiler.compile", "CompareResultError"),
     "ConfigError": ("rebrew.config", "ConfigError"),
     "ConfigKeyError": ("rebrew.config", "ConfigKeyError"),

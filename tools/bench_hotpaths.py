@@ -123,7 +123,7 @@ def bench_catalog_grid() -> dict[str, float]:
     """The real catalog --data-json pipeline on the fixture binary (once)."""
     from typer.testing import CliRunner
 
-    from rebrew.main import app
+    from rebrew.app.main import app
 
     with tempfile.TemporaryDirectory() as d:
         root = Path(d) / "proj"

@@ -531,7 +531,7 @@ class TestCli:
 
         from typer.testing import CliRunner
 
-        import rebrew.main as main_mod
+        import rebrew.app.main as main_mod
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
@@ -577,7 +577,7 @@ class TestCli:
 
         from typer.testing import CliRunner
 
-        import rebrew.main as main_mod
+        import rebrew.app.main as main_mod
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)

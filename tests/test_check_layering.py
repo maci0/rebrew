@@ -54,18 +54,20 @@ class TestRebrewTargets:
 class TestModuleScopeImports:
     def test_function_import_skipped(self) -> None:
         tree = _tree(
-            "from rebrew.cli import error_exit\ndef f():\n    from rebrew.main import app\n"
+            "from rebrew.cli import error_exit\ndef f():\n    from rebrew.app.main import app\n"
         )
         assert len(list(cl._module_scope_imports(tree))) == 1
 
     def test_type_checking_guard_skipped(self) -> None:
         tree = _tree(
-            "from rebrew.cli import error_exit\nif TYPE_CHECKING:\n    from rebrew.main import app\n"
+            "from rebrew.cli import error_exit\nif TYPE_CHECKING:\n    from rebrew.app.main import app\n"
         )
         assert len(list(cl._module_scope_imports(tree))) == 1
 
     def test_try_block_included(self) -> None:
-        tree = _tree("try:\n    from rebrew.main import app\nexcept ImportError:\n    app = None\n")
+        tree = _tree(
+            "try:\n    from rebrew.app.main import app\nexcept ImportError:\n    app = None\n"
+        )
         assert len(list(cl._module_scope_imports(tree))) == 1
 
 
@@ -80,9 +82,9 @@ class TestCheckLayering:
         self._write(pkg, "utils.py", "import os\n")
         self._write(pkg, "cli.py", "from rebrew.utils import console\n")
         self._write(pkg, "verify.py", "from rebrew.cli import error_exit\n")
-        self._write(pkg, "builtins.py", "BUILTIN_COMPONENTS = []\n")
-        self._write(pkg, "main.py", "from rebrew.builtins import BUILTIN_COMPONENTS\n")
-        self._write(pkg, "init.py", "def register():\n    from rebrew.main import app\n")
+        self._write(pkg, "app/builtins.py", "BUILTIN_COMPONENTS = []\n")
+        self._write(pkg, "app/main.py", "from rebrew.app.builtins import BUILTIN_COMPONENTS\n")
+        self._write(pkg, "init.py", "def register():\n    from rebrew.app.main import app\n")
         assert cl.check_layering(str(pkg)) == []
 
     def test_leaf_module_import_is_reported(self, tmp_path: Path) -> None:
@@ -105,8 +107,8 @@ class TestCheckLayering:
 
     def test_composition_layer_may_import_itself(self, tmp_path: Path) -> None:
         pkg = tmp_path / "src" / "rebrew"
-        self._write(pkg, "dashboard.py", "def render() -> None:\n    pass\n")
-        self._write(pkg, "plugin.py", "from rebrew.dashboard import render\n")
+        self._write(pkg, "app/plugin.py", "def render() -> None:\n    pass\n")
+        self._write(pkg, "dashboard.py", "from rebrew.app.plugin import render\n")
         assert cl.check_layering(str(pkg)) == []
 
     def test_relative_import_resolves_inside_package(self, tmp_path: Path) -> None:
@@ -166,6 +168,12 @@ class TestPackageExternals:
         self._write(
             pkg, "workspace/config.py", "from rebrew.workspace.status import KNOWN_STATUSES\n"
         )
+        assert cl.check_layering(str(pkg)) == []
+
+    def test_package_root_import_is_allowed(self, tmp_path: Path) -> None:
+        pkg = self._workspace_pkg(tmp_path)
+        self._write(pkg, "__init__.py", '__version__ = "0"\n')
+        self._write(pkg, "workspace/config.py", "from rebrew import __version__\n")
         assert cl.check_layering(str(pkg)) == []
 
     def test_real_tree_matches_the_allowlist(self) -> None:

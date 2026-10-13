@@ -7,7 +7,7 @@ page owns the concepts, API contracts, and recipes; [ADR 014](adr/014-component-
 records why the CLI uses this design.
 
 Rebrew implements a synchronous Python composition runtime in
-[`rebrew.plugin`](../src/rebrew/plugin.py), following
+[`rebrew.app.plugin`](../src/rebrew/app/plugin.py), following
 [A Programming Paradigm for Spatiotemporal Composability](https://arxiv.org/abs/2608.25512).
 It shares the context, dependency, and inverse discipline with DeepSeek Harness.
 It has its own API and lifetime boundaries.
@@ -170,7 +170,7 @@ import side effects also lie outside the activation's tracked accumulator.
 
 ## Public runtime API
 
-The implementation lives in [`plugin.py`](../src/rebrew/plugin.py). The tutorial
+The implementation lives in [`app/plugin.py`](../src/rebrew/app/plugin.py). The tutorial
 exercises the public API directly; [`test_plugin.py`](../tests/test_plugin.py)
 covers lifecycle, committed views, confinement, and failure behavior.
 
@@ -271,7 +271,7 @@ uv run --frozen python /tmp/rebrew_cordis_resource.py
 import tempfile
 from pathlib import Path
 
-from rebrew.plugin import Context, activate
+from rebrew.app.plugin import Context, activate
 
 
 class ReportDirectory:
@@ -363,7 +363,7 @@ honor service types and ownership.
 The runtime is synchronous and runs on its host thread. Isolation realms,
 service interception, typed event dispatch, asynchronous fibers, YAML loaders,
 configuration reconciliation, and hot module replacement are outside its API.
-The CLI composes at `rebrew.main` import and retains its context and scope in
+The CLI composes at `rebrew.app.main` import and retains its context and scope in
 `_COMPOSED` for process lifetime. Incremental scope operations do not imply
 that the umbrella command surface supports hot reload.
 

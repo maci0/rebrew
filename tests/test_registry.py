@@ -181,11 +181,11 @@ def _activate_cli_plugins(app: typer.Typer, existing: set[str] | None = None) ->
 
     The caller patches ``rebrew.registry.entry_points``; this builds a fresh
     context with the app as the ``cli`` service and activates the discovered
-    components on it, the same path :func:`rebrew.main.compose` uses.
+    components on it, the same path :func:`rebrew.app.main.compose` uses.
     """
     from rich.console import Console
 
-    from rebrew.plugin import (
+    from rebrew.app.plugin import (
         CLI_SERVICE,
         CONSOLE_SERVICE,
         Context,
@@ -756,7 +756,7 @@ class TestCliRegistry:
     ) -> None:
         """A module whose import raises RegistryError (e.g. a conflicting
         plugin registry) degrades to a stub instead of bricking the CLI."""
-        from rebrew.plugin import (
+        from rebrew.app.plugin import (
             CLI_SERVICE,
             CONSOLE_SERVICE,
             CliComponent,

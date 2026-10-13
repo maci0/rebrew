@@ -124,7 +124,7 @@ still reviewed as discovery/ownership boundaries.
 
 | Baseline route (after `rebrew`) | Implemented disposition | Reason / preserved distinction | Source owner |
 |---|---|---|---|
-| `rebrew` | Keep one executable | Use workflow groups to reduce the 103-entry landing page; keep third-party registration on the component graph. | [main.py](../src/rebrew/main.py) |
+| `rebrew` | Keep one executable | Use workflow groups to reduce the 103-entry landing page; keep third-party registration on the component graph. | [app/main.py](../src/rebrew/app/main.py) |
 | `rename` | source rename | Keep rename propagation and canonical metadata writes; do not reduce it to text substitution. | [rename.py](../src/rebrew/rename.py) |
 | `test` | Keep test | Immediate compile/comparison and earned STATUS recording; keep raw-byte and linked comparison inputs distinct. | [test.py](../src/rebrew/test.py) |
 | `verify` | Keep verify | Incremental project/CI verification and regression baselines; separate advanced linked/data scopes in help. | [verify.py](../src/rebrew/verify.py) |

@@ -1,6 +1,14 @@
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** the CLI composition layer moved into the `rebrew.app`
+  package. Old → new import paths: `rebrew.main` → `rebrew.app.main`,
+  `rebrew.builtins` → `rebrew.app.builtins`, `rebrew.plugin` →
+  `rebrew.app.plugin` (`CliComponent`, `Context`, `activate`). The
+  `[project.scripts]` target is now `rebrew.app.main:main`; the installed
+  `rebrew` command, every subcommand, and the `rebrew.commands` /
+  `rebrew.multicommands` entry-point groups are unchanged. Reinstall an
+  editable checkout so its console script points at the new target.
 - **Breaking:** source annotations and the metadata stores moved into the
   `rebrew.metadata` package, which is now a package rather than a module.
   Old → new import paths:

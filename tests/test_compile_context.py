@@ -195,7 +195,7 @@ class TestContextNeverTouchesTheResultCache:
     ) -> tuple[Any, list]:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         seen: list = []
 

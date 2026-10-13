@@ -1238,7 +1238,7 @@ def _apply_safe(cfg: ProjectConfig, recs: list[Recommendation], json_mode: bool)
     """Execute applyable lanes via their owning commands' helpers."""
     from typer.testing import CliRunner
 
-    from rebrew.main import app as umbrella
+    from rebrew.app.main import app as umbrella
 
     applied: list[str] = []
     runner = CliRunner()

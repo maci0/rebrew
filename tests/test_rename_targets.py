@@ -215,7 +215,7 @@ def _project(tmp_path: Path) -> Path:
 def _run(root: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> Any:
     from typer.testing import CliRunner
 
-    from rebrew.main import app
+    from rebrew.app.main import app
 
     monkeypatch.chdir(root)
     return CliRunner().invoke(app, ["source", "rename", *args])

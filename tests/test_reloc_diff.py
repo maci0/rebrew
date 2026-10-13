@@ -15,7 +15,7 @@ import pytest
 from bin_util import make_pe
 from typer.testing import CliRunner
 
-from rebrew.main import app
+from rebrew.app.main import app
 
 _BASE = 0x400000
 _TEXT = _BASE + 0x1000

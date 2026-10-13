@@ -10,7 +10,7 @@ import pytest
 from bin_util import make_lib_archive
 from typer.testing import CliRunner
 
-from rebrew.main import app
+from rebrew.app.main import app
 
 _EXTERNAL = 2
 _STATIC = 3

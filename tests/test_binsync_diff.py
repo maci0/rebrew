@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from rebrew.main import app
+from rebrew.app.main import app
 
 runner = CliRunner()
 

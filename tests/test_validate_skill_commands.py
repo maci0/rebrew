@@ -18,7 +18,7 @@ class TestExtractCommands:
     def test_doc_synopses_and_quoted_diagrams(self, tmp_path: Path) -> None:
         md = _md(
             "`rebrew binsync {push,pull}`\n`rebrew types [--json]`\n"
-            '`rebrew = "rebrew.main:main"`\n`rebrew …`\n'
+            '`rebrew = "rebrew.app.main:main"`\n`rebrew …`\n'
             '```mermaid\nN["rebrew toolchain build"]\n```\n',
             tmp_path,
         )

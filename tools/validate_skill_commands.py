@@ -88,7 +88,7 @@ def _command_tree() -> TyperBaseCommand:
     """Use the composed command tree to resolve arbitrarily nested routes."""
     import typer
 
-    from rebrew.main import app
+    from rebrew.app.main import app
 
     return typer.main.get_command(app)
 

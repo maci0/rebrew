@@ -1,7 +1,7 @@
 """Startup BLAS thread cap (rebrew/__init__.py) — env semantics and CPU band.
 
 NumPy's OpenBLAS pool burned 1.7-2.1 CPU-seconds spinning up on every
-``import rebrew.main``; capping the pool at import cut it to ~0.19.
+``import rebrew.app.main``; capping the pool at import cut it to ~0.19.
 The gate is process CPU time (getrusage), not wall clock, so it holds on
 a loaded machine.
 """
@@ -60,16 +60,16 @@ class TestStartupCpuBand:
         0.8 s separates them with margins both ways on any load level.
         """
         got = _run(
-            "import resource; import rebrew.main; "
+            "import resource; import rebrew.app.main; "
             "print(f'{resource.getrusage(resource.RUSAGE_SELF).ru_utime:.3f}')"
         )
         cpu_seconds = float(got)
         assert cpu_seconds < 0.8, (
-            f"import rebrew.main used {cpu_seconds} CPU-seconds — the OpenBLAS "
+            f"import rebrew.app.main used {cpu_seconds} CPU-seconds — the OpenBLAS "
             "thread pool is spinning again (cap missing or bypassed)"
         )
         assert cpu_seconds > 0.02, (
-            f"import rebrew.main reported {cpu_seconds} CPU-seconds — the measurement did not run"
+            f"import rebrew.app.main reported {cpu_seconds} CPU-seconds — the measurement did not run"
         )
 
 
@@ -83,7 +83,7 @@ class TestDeferredHeavyImports:
         no clock involved.
         """
         got = _run(
-            "import rebrew.main, sys; "
+            "import rebrew.app.main, sys; "
             "print(','.join(m for m in ('numpy', 'httpx', 'lief', 'angr') if m in sys.modules))"
         )
-        assert got == "", f"import rebrew.main pulled heavy modules: {got}"
+        assert got == "", f"import rebrew.app.main pulled heavy modules: {got}"

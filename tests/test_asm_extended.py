@@ -538,7 +538,7 @@ timeout = 60
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         root = self._project(tmp_path)
         # The real function runs past the declared size.
@@ -563,7 +563,7 @@ timeout = 60
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         root = self._project(tmp_path)
         monkeypatch.setattr(
@@ -590,7 +590,7 @@ timeout = 60
         length made extract_raw_bytes return nothing for a valid VA)."""
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         root = self._project(tmp_path)
         monkeypatch.chdir(root)
@@ -608,7 +608,7 @@ timeout = 60
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         root = self._project(tmp_path)
         # Extent EQUAL to the declared size → nothing stale.
@@ -639,7 +639,7 @@ timeout = 60
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         root = self._project(tmp_path)
         # Declared window is 32; the code really ends at 16.
@@ -667,7 +667,7 @@ timeout = 60
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         root = self._project(tmp_path)
         monkeypatch.setattr(
@@ -687,7 +687,7 @@ timeout = 60
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app
+        from rebrew.app.main import app
 
         root = self._project(tmp_path)
         toml = self._PROJECT_TOML.replace('arch = "x86_32"', 'arch = "x86_16"')

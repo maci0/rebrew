@@ -970,7 +970,7 @@ class TestCLI:
     def test_same_target_guard(self, tmp_path: Path, monkeypatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
@@ -984,7 +984,7 @@ class TestCLI:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
@@ -1031,7 +1031,7 @@ class TestCLI:
         first import was already appended."""
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
@@ -1080,7 +1080,7 @@ class TestCLI:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
@@ -1533,7 +1533,7 @@ class TestPromoteToShared:
             },
         )
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         runner = CliRunner()
         result = runner.invoke(
@@ -2374,7 +2374,7 @@ class TestCandidatesOnly:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
@@ -2420,7 +2420,7 @@ class TestCandidatesOnly:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
@@ -3156,7 +3156,7 @@ class TestSourceVA:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._setup(tmp_path, monkeypatch)
         args = ["source", "import-related", "--from", "SRC", "--dry-run", "--json"]
@@ -3180,7 +3180,7 @@ class TestSourceVA:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(
@@ -3206,7 +3206,7 @@ class TestSourceVA:
 
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(

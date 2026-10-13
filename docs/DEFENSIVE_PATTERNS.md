@@ -53,7 +53,7 @@ verbosity.
 
 ## Test the real entry path
 
-Testing a module's app alone misses registration in `builtins.py`: the
+Testing a module's app alone misses registration in `app/builtins.py`: the
 module works while `rebrew <cmd>` fails (the `residue` incident,
 [ADDING_A_COMMAND.md](ADDING_A_COMMAND.md)). Test the mounted command through
 the umbrella. `test_docs_hygiene.py::test_every_component_main_has_callback_decorator`

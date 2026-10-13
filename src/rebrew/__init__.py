@@ -13,7 +13,7 @@ Library consumers typically import submodules directly, for example:
 * ``rebrew.compiler.toolchain`` — ``ToolchainError``, ``get_toolchain``, ``require_toolchains_repo``
 * ``rebrew.compiler.recompile_client`` — remote compile transport
 * ``rebrew.decompme`` — decomp.me scratch upload, same injectable-client shape
-* ``rebrew.registry`` / ``rebrew.plugin`` — entry-point extension hooks
+* ``rebrew.registry`` / ``rebrew.app.plugin`` — entry-point extension hooks
 * ``rebrew.workspace`` — stdlib-light project/root and coverage-directory helpers
 * ``rebrew.matcher`` — GA mutations and scoring
 * ``rebrew.ghidra`` — ``McpError``, ``McpErrorKind``, structural ReVa ops
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 # NumPy's bundled OpenBLAS starts a full-width thread pool at import and
 # busy-spins it while the rest of the interpreter loads.  Importing
-# rebrew.main measured 1.7-2.1 CPU-seconds of startup against 0.20 with a
+# rebrew.app.main measured 1.7-2.1 CPU-seconds of startup against 0.20 with a
 # single thread (wall 0.24 -> 0.20) — every CLI invocation paid it, and it
 # fought --jobs verify / GA batches for cores.  rebrew's array work (reloc
 # fixing, similarity scoring) is small-array work that gains nothing from

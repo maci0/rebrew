@@ -236,7 +236,7 @@ class TestImportsCli:
         assert "not found" in result.output
 
     def test_registered_in_umbrella(self) -> None:
-        from rebrew.main import app as umbrella
+        from rebrew.app.main import app as umbrella
 
         result = CliRunner().invoke(umbrella, ["binary", "--help"])
         assert result.exit_code == 0

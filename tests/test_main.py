@@ -1,9 +1,9 @@
-"""Tests for main.py — the umbrella rebrew CLI."""
+"""Tests for app/main.py — the umbrella rebrew CLI."""
 
 import pytest
 from typer.testing import CliRunner
 
-from rebrew.main import app
+from rebrew.app.main import app
 
 runner = CliRunner()
 
@@ -65,9 +65,9 @@ class TestUmbrellaCli:
     def test_compose_prints_discovery_warnings_via_service(self) -> None:
         """Duplicate-plugin warnings resolve CONSOLE_SERVICE through the
         context instead of the module-global console (bypass)."""
-        from rebrew.main import app as global_app
-        from rebrew.main import compose
-        from rebrew.plugin import CLI_SERVICE, CONSOLE_SERVICE
+        from rebrew.app.main import app as global_app
+        from rebrew.app.main import compose
+        from rebrew.app.plugin import CLI_SERVICE, CONSOLE_SERVICE
 
         before = len(global_app.registered_commands)
         ctx, _scope = compose()
@@ -87,8 +87,8 @@ class TestUmbrellaCli:
         hold that tuple; discarding it would leave registrations with an
         inverse nobody holds.
         """
-        from rebrew import main as main_mod
-        from rebrew.plugin import CLI_SERVICE
+        from rebrew.app import main as main_mod
+        from rebrew.app.plugin import CLI_SERVICE
 
         ctx, scope = main_mod._COMPOSED
         assert not ctx.disposed
@@ -100,11 +100,11 @@ class TestClosedStdout:
     @pytest.mark.parametrize(
         "argv",
         [
-            ["rebrew.main", "skills", "list", "--json"],
+            ["rebrew.app.main", "skills", "list", "--json"],
             # Output past the pipe buffer: the EPIPE hits inside click (JSON)
             # or Rich (markdown), both of which swallow it into exit 1.
-            ["rebrew.main", "skills", "show", "rebrew-workflow", "--json"],
-            ["rebrew.main", "skills", "show", "rebrew-workflow"],
+            ["rebrew.app.main", "skills", "show", "rebrew-workflow", "--json"],
+            ["rebrew.app.main", "skills", "show", "rebrew-workflow"],
             # Direct module execution keeps the same pipe handling.
             ["rebrew.skills", "show", "rebrew-workflow", "--json"],
         ],
@@ -141,7 +141,7 @@ class TestPlainEntryErrorExit:
             [
                 sys.executable,
                 "-m",
-                "rebrew.main",
+                "rebrew.app.main",
                 "objdiff-build",
             ],
             capture_output=True,
