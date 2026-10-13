@@ -53,8 +53,6 @@ import typer
 from rich.table import Table
 
 from rebrew.analysis import data_references, direct_call_target, section_range
-from rebrew.binary_loader import capstone_config_for, extract_bytes_at_va, load_binary
-from rebrew.binary_model import BinaryInfo
 from rebrew.catalog import (
     RegistryEntry,
     build_function_registry,
@@ -62,6 +60,8 @@ from rebrew.catalog import (
 )
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig, arch_pointer_size, inventory_path_for
+from rebrew.formats.binary_loader import capstone_config_for, extract_bytes_at_va, load_binary
+from rebrew.formats.binary_model import BinaryInfo
 
 # ---------------------------------------------------------------------------
 # Optional-signal constants

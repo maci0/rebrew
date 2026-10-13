@@ -24,7 +24,7 @@ from rebrew.compiler.dosbox import make_sandbox_dir
 from rebrew.errors import RebrewError
 
 if TYPE_CHECKING:
-    from rebrew.ne_loader import NeFunction
+    from rebrew.formats.ne_loader import NeFunction
 
 _DCC_FILES = ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE")
 
@@ -264,8 +264,8 @@ def compile_ne(
         raise Delphi16Error(f"DCC produced no executable (compiler log below):\n{log.strip()}")
 
     # Parse the freshly-compiled NE with the native loader.
-    from rebrew.binary_loader import is_ne, load_binary
-    from rebrew.ne_loader import enumerate_ne_functions
+    from rebrew.formats.binary_loader import is_ne, load_binary
+    from rebrew.formats.ne_loader import enumerate_ne_functions
 
     if not is_ne(exe):
         raise Delphi16Error(f"compiled output is not a 16-bit NE executable: {exe}")

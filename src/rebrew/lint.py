@@ -2902,7 +2902,7 @@ def main(
             if not _loaded:
                 _loaded = True  # an unusable binary must not retry per VA
                 try:
-                    from rebrew.binary_loader import load_binary
+                    from rebrew.formats.binary_loader import load_binary
 
                     _info = load_binary(_bin_path)
                     _ranges = sorted(

@@ -90,7 +90,7 @@ def _runpull_data(
 
         monkeypatch.setitem(
             sys.modules,
-            "rebrew.binary_loader",
+            "rebrew.formats.binary_loader",
             SimpleNamespace(load_binary=_fake_load_binary),
         )
 

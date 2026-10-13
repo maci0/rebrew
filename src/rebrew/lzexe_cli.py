@@ -19,7 +19,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import console, error_exit, json_print
-from rebrew.lzexe import NotLzexeError, unpack_lzexe
+from rebrew.formats.lzexe import NotLzexeError, unpack_lzexe
 
 app = typer.Typer(
     help="Unpack an LZEXE 0.90/0.91 compressed DOS executable.",

@@ -37,7 +37,7 @@ def _setup(
 ) -> SimpleNamespace:
     cfg = _cfg(tmp_path)
     monkeypatch.setattr("rebrew.near_diag.require_config", lambda **kw: cfg)
-    monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: _CODE)
+    monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: _CODE)
     obj = tmp_path / "out.obj"
     obj.write_bytes(b"x")
 
@@ -111,7 +111,7 @@ class TestNearDiagCli:
 
     def test_extract_failure_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _setup(tmp_path, monkeypatch)
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: None)
         p = _write_src(cfg, "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n")
         result = CliRunner().invoke(app, ["--json", str(p)])
         assert result.exit_code != 0

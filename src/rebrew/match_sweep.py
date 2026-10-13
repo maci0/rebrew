@@ -23,11 +23,11 @@ from rebrew.annotation import (
     parse_c_file_multi,
     parse_source_metadata,
 )
-from rebrew.binary_loader import capstone_mode_for_arch, extract_raw_bytes
 from rebrew.cli import EXIT_MISMATCH, error_exit, json_print, parse_va
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compiler.compile import resolve_compiler_env
 from rebrew.config import ProjectConfig
+from rebrew.formats.binary_loader import capstone_mode_for_arch, extract_raw_bytes
 from rebrew.match_batch import (
     StubInfo,
 )

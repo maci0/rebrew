@@ -8,7 +8,7 @@ addressing, so this module maps each segment to a synthetic flat VA of
 
 Parses the NE header, segment table, resident name table (named exports),
 module reference table + imported names table (Win16 imports).  Exposes
-:func:`load_ne_binary` which produces a :class:`rebrew.binary_model.BinaryInfo`
+:func:`load_ne_binary` which produces a :class:`rebrew.formats.binary_model.BinaryInfo`
 (``format="ne"``) so the rest of rebrew (strings, analyze, asm, discover)
 can operate on 16-bit targets.
 
@@ -24,8 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import override
 
-from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.errors import RebrewError
+from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 
 logger = logging.getLogger(__name__)
 

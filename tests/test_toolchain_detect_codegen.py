@@ -70,7 +70,8 @@ def _run(
         td, "load_binary", lambda *a, **k: _fake_binary(sections or [".text"], text=text_bytes)
     )
     monkeypatch.setattr(
-        "rebrew.binary_loader.extract_bytes_at_va", lambda binfo, va, size: text_bytes[:size]
+        "rebrew.formats.binary_loader.extract_bytes_at_va",
+        lambda binfo, va, size: text_bytes[:size],
     )
     monkeypatch.setattr(td, "_scan_strings", lambda *a, **k: strings or [])
     return detect_toolchain(Path("/tmp/nonexistent-prog.exe"))

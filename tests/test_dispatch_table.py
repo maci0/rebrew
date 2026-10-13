@@ -245,7 +245,7 @@ class TestNeDispatchTables:
     def test_ne_vmt_detected(self, tmp_path: Path) -> None:
         from test_ne_loader import _build_ne
 
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         # Code segment: 3 functions with push bp prologs (so enumeration is
         # not even needed — the dispatch scan just needs pointer targets in
@@ -268,8 +268,8 @@ class TestNeDispatchTables:
         p.write_bytes(raw)
         info = load_binary(p)
 
-        from rebrew.binary_loader import section_dict
         from rebrew.data_scan import find_dispatch_tables
+        from rebrew.formats.binary_loader import section_dict
 
         sec_dict = section_dict(info)
         tables = find_dispatch_tables(info.data, sec_dict, {}, min_entries=3, info=info)
@@ -284,7 +284,7 @@ class TestNeDispatchTables:
         skip 2 bytes like Borland segments."""
         from test_ne_loader import _build_ne
 
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         code = (
             b"\x01\x00"
@@ -306,8 +306,8 @@ class TestNeDispatchTables:
         p.write_bytes(raw)
         info = load_binary(p)
 
-        from rebrew.binary_loader import section_dict
         from rebrew.data_scan import find_dispatch_tables
+        from rebrew.formats.binary_loader import section_dict
 
         sec_dict = section_dict(info)
         tables = find_dispatch_tables(info.data, sec_dict, {}, min_entries=3, info=info)

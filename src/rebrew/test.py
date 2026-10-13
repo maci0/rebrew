@@ -31,7 +31,6 @@ from rebrew.annotation import (
     parse_c_file_multi,
     parse_source_metadata,
 )
-from rebrew.binary_loader import PADDING_BYTES, extract_raw_bytes
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
@@ -64,6 +63,7 @@ from rebrew.compiler.compile import (
 )
 from rebrew.compiler.context import CompileContext
 from rebrew.config import ProjectConfig
+from rebrew.formats.binary_loader import PADDING_BYTES, extract_raw_bytes
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import (
     is_status_parked,
@@ -792,7 +792,7 @@ def _fix_size_evidence_ok(
 
 def _disasm_extent(cfg: ProjectConfig, va: int) -> int | None:
     """Disassembly-derived function extent at *va* (best-effort)."""
-    from rebrew.binary_loader import function_extent_from_disasm
+    from rebrew.formats.binary_loader import function_extent_from_disasm
 
     try:
         return function_extent_from_disasm(cfg.target_binary, va)

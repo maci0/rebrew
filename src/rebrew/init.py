@@ -191,7 +191,7 @@ def _detect_binary_format(path: Path) -> tuple[str, str] | None:
     when the format cannot be determined (the caller then keeps the profile
     defaults).
     """
-    from rebrew.binary_loader import detect_format_and_arch, is_mz, is_ne
+    from rebrew.formats.binary_loader import detect_format_and_arch, is_mz, is_ne
 
     try:
         fmt, arch = detect_format_and_arch(path)

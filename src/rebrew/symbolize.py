@@ -113,9 +113,9 @@ def missing_relocations(cfg: Any, source: Path, built: Path, link_map: Path) -> 
     function's start, so a build whose layout drifted is compared correctly.
     """
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.binary_loader import extract_bytes_at_va, load_binary
     from rebrew.data_ownership import parse_link_map
-    from rebrew.relocations import relocation_spans
+    from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
+    from rebrew.formats.relocations import relocation_spans
     from rebrew.rename_ops import c_name_from_symbol
     from rebrew.sources import target_marker
 

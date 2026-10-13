@@ -107,7 +107,7 @@ class TestTwoPEFixture:
     """The real scenario: shared functions at different VAs across binaries."""
 
     def _sigs(self, path: Path, blobs: dict[int, bytes]) -> dict[int, dict[str, Any]]:
-        from rebrew.binary_loader import extract_raw_bytes
+        from rebrew.formats.binary_loader import extract_raw_bytes
 
         out: dict[int, dict[str, Any]] = {}
         for va, blob in blobs.items():
@@ -380,7 +380,7 @@ class TestPaddedSignatures:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary", lambda *a: SimpleNamespace(arch="arm32")
+            "rebrew.formats.binary_loader.load_binary", lambda *a: SimpleNamespace(arch="arm32")
         )
         code = F1 + b"\x90" * 5
         sig = ci.signature_for(self._cfg(tmp_path, code), code, A_F1)
@@ -858,7 +858,7 @@ class TestSizelessMatching:
         (tmp_path / "x.exe").write_bytes(_pe_a())
         cfg = self._cfg(tmp_path, "DST", tmp_path / "x.exe")
         monkeypatch.setattr(
-            "rebrew.binary_loader.function_extent_from_disasm",
+            "rebrew.formats.binary_loader.function_extent_from_disasm",
             lambda _p, _va, with_kind=False: (11, "ret") if with_kind else 11,
         )
         sizes, refused = ci.disasm_sizes(cfg, [A_F1, A_F2])
@@ -877,7 +877,7 @@ class TestSizelessMatching:
                 return (8, kind) if with_kind else 8
             return None
 
-        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", fake_extent)
+        monkeypatch.setattr("rebrew.formats.binary_loader.function_extent_from_disasm", fake_extent)
         sizes, refused = ci.disasm_sizes(cfg, [A_F1, A_F2])
         assert sizes == {}
         assert refused == [A_F1, A_F2]
@@ -891,7 +891,7 @@ class TestSizelessMatching:
         monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("STUB", "f1.c")})
         monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": 0}})
         monkeypatch.setattr(
-            "rebrew.binary_loader.function_extent_from_disasm",
+            "rebrew.formats.binary_loader.function_extent_from_disasm",
             lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
         )
         out = ci.unmatched_dest_bytes(cfg)
@@ -906,7 +906,7 @@ class TestSizelessMatching:
         monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("STUB", "f1.c")})
         monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": 0}})
         monkeypatch.setattr(
-            "rebrew.binary_loader.function_extent_from_disasm",
+            "rebrew.formats.binary_loader.function_extent_from_disasm",
             lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
         )
         out = ci.unmatched_dest_bytes(cfg, only_va=A_F1)
@@ -947,7 +947,7 @@ class TestSizelessMatching:
         monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
         monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": 0}})
         monkeypatch.setattr(
-            "rebrew.binary_loader.function_extent_from_disasm",
+            "rebrew.formats.binary_loader.function_extent_from_disasm",
             lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
         )
         out = ci.matched_source_bytes(cfg)
@@ -2810,7 +2810,7 @@ class TestMergedInventoryEntry:
         import hashlib
 
         import rebrew.verify as verify
-        from rebrew.binary_loader import extract_raw_bytes
+        from rebrew.formats.binary_loader import extract_raw_bytes
         from rebrew.metadata import get_entry
 
         src, dst = self._cfgs(tmp_path, _merged_pe())

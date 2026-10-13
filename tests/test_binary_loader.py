@@ -1,16 +1,16 @@
-"""Tests for rebrew.binary_loader — data classes and format detection."""
+"""Tests for rebrew.formats.binary_loader — data classes and format detection."""
 
 from pathlib import Path
 
 import pytest
 from bin_util import make_pe_stub
 
-from rebrew.binary_loader import (
+from rebrew.formats.binary_loader import (
     detect_format_and_arch,
     extract_bytes_at_va,
     va_to_file_offset,
 )
-from rebrew.binary_model import BinaryInfo, SectionInfo
+from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 
 # -------------------------------------------------------------------------
 # SectionInfo
@@ -21,30 +21,30 @@ class TestDecodeBinaryName:
     """A byte name from the binary is decoded with the project's legacy chain."""
 
     def test_ascii_names_are_unchanged(self) -> None:
-        from rebrew.binary_loader import decode_binary_name
+        from rebrew.formats.binary_loader import decode_binary_name
 
         assert decode_binary_name(b"CODE") == "CODE"
         assert decode_binary_name(b".rdata") == ".rdata"
         assert decode_binary_name("already str") == "already str"
 
     def test_cp1252_name_keeps_its_accent(self) -> None:
-        from rebrew.binary_loader import decode_binary_name
+        from rebrew.formats.binary_loader import decode_binary_name
 
         assert decode_binary_name(b"Caf\xe9") == "Caf\u00e9"
 
     def test_shift_jis_name_decodes(self) -> None:
-        from rebrew.binary_loader import decode_binary_name
+        from rebrew.formats.binary_loader import decode_binary_name
 
         assert decode_binary_name(b"\x83e\x83X\x83g") == "\u30c6\u30b9\u30c8"
 
     def test_utf8_name_still_wins(self) -> None:
-        from rebrew.binary_loader import decode_binary_name
+        from rebrew.formats.binary_loader import decode_binary_name
 
         assert decode_binary_name(b"caf\xc3\xa9") == "caf\u00e9"
 
     def test_no_byte_is_ever_replaced(self) -> None:
         """Whatever the guess, Latin-1 fallback keeps every byte recoverable."""
-        from rebrew.binary_loader import decode_binary_name
+        from rebrew.formats.binary_loader import decode_binary_name
 
         for raw in (b"\x81", b"\xff\xfe", b"\xe9\xff", b"\x00\x81"):
             assert "\ufffd" not in decode_binary_name(raw)
@@ -203,7 +203,7 @@ class TestExtractBytesAtVa:
     def test_raw_read_preserves_requested_tail(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tail: bytes
     ) -> None:
-        from rebrew import binary_loader
+        from rebrew.formats import binary_loader
 
         binary = tmp_path / "test.bin"
         code = b"\x55\x8b\xec\xc3" + tail
@@ -280,7 +280,7 @@ class TestPeTextSection:
     def _load(self, tmp_path: Path, section_name: str) -> BinaryInfo:
         from bin_util import make_pe
 
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         f = tmp_path / "test.exe"
         f.write_bytes(make_pe(b"\xc3" * 0x10, section_name=section_name))
@@ -311,7 +311,7 @@ class TestPeTextSection:
     def test_data_only_image_keeps_no_text(self, tmp_path: Path) -> None:
         from bin_util import append_pe_section, make_pe
 
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         f = tmp_path / "data.exe"
         f.write_bytes(append_pe_section(make_pe(b"\xc3" * 0x10), ".rdata", b"\x00" * 0x40))
@@ -352,19 +352,19 @@ class TestDetectFormat:
 
 class TestLoadBinaryCache:
     def setup_method(self) -> None:
-        from rebrew.binary_loader import _iat_slot_cache, _load_binary_cache
+        from rebrew.formats.binary_loader import _iat_slot_cache, _load_binary_cache
 
         _load_binary_cache.clear()
         _iat_slot_cache.clear()
 
     def teardown_method(self) -> None:
-        from rebrew.binary_loader import _iat_slot_cache, _load_binary_cache
+        from rebrew.formats.binary_loader import _iat_slot_cache, _load_binary_cache
 
         _load_binary_cache.clear()
         _iat_slot_cache.clear()
 
     def test_cache_hit(self, tmp_path: Path) -> None:
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         f = make_pe_stub(tmp_path / "test.exe")
         info1 = load_binary(f)
@@ -372,14 +372,18 @@ class TestLoadBinaryCache:
         assert info1 is info2
 
     def test_cache_stores_entry(self, tmp_path: Path) -> None:
-        from rebrew.binary_loader import _load_binary_cache, load_binary
+        from rebrew.formats.binary_loader import _load_binary_cache, load_binary
 
         f = make_pe_stub(tmp_path / "test.exe")
         load_binary(f)
         assert len(_load_binary_cache) == 1
 
     def test_cache_eviction(self, tmp_path: Path) -> None:
-        from rebrew.binary_loader import _LOAD_BINARY_CACHE_MAX, _load_binary_cache, load_binary
+        from rebrew.formats.binary_loader import (
+            _LOAD_BINARY_CACHE_MAX,
+            _load_binary_cache,
+            load_binary,
+        )
 
         paths = []
         for i in range(_LOAD_BINARY_CACHE_MAX):
@@ -404,7 +408,7 @@ class TestLoadBinaryCache:
         """
         import os
 
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         f = make_pe_stub(tmp_path / "test.exe")
         info1 = load_binary(f)
@@ -433,7 +437,7 @@ class TestLoadBinaryCache:
         could hand a caller the pre-rebuild image after the caller had already
         stat'ed the new one.
         """
-        from rebrew.binary_loader import _load_binary_cache, load_binary
+        from rebrew.formats.binary_loader import _load_binary_cache, load_binary
 
         f = make_pe_stub(tmp_path / "test.exe")
         st = f.stat()
@@ -454,7 +458,7 @@ class TestLoadBinaryCache:
         The result is the memo's own ``frozenset``, so a per-function call
         site cannot edit it and the batch path pays no copy.
         """
-        from rebrew.binary_loader import iat_slot_vas
+        from rebrew.formats.binary_loader import iat_slot_vas
 
         f = make_pe_stub(tmp_path / "test.exe")
         first = iat_slot_vas(f)
@@ -465,7 +469,7 @@ class TestLoadBinaryCache:
         """IAT slot memo must not keep slots from the pre-replace image."""
         import os
 
-        from rebrew.binary_loader import _iat_slot_cache, iat_slot_vas
+        from rebrew.formats.binary_loader import _iat_slot_cache, iat_slot_vas
 
         f = make_pe_stub(tmp_path / "test.exe")
         assert iat_slot_vas(f) == set()
@@ -506,7 +510,7 @@ class TestMalformedInputRobustness:
         ],
     )
     def test_garbage_bytes_no_crash(self, tmp_path: Path, data: bytes) -> None:
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         p = tmp_path / "garbage.bin"
         p.write_bytes(data)
@@ -526,7 +530,7 @@ class TestMalformedInputRobustness:
         from hypothesis import given, settings
         from hypothesis import strategies as st
 
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         @given(st.binary(min_size=0, max_size=512))
         @settings(max_examples=100, deadline=None)
@@ -558,13 +562,13 @@ class TestNEDetection:
         return p
 
     def test_is_ne_recognizes_mz_ne(self, tmp_path: Path) -> None:
-        from rebrew.binary_loader import is_ne
+        from rebrew.formats.binary_loader import is_ne
 
         assert is_ne(self._write_ne(tmp_path)) is True
         assert is_ne(tmp_path / "missing.bin") is False
 
     def test_is_ne_rejects_pe(self, tmp_path: Path) -> None:
-        from rebrew.binary_loader import is_ne
+        from rebrew.formats.binary_loader import is_ne
 
         pe = tmp_path / "real_pe.exe"
         pe.write_bytes(b"MZ" + b"\x00" * 0x40 + b"\x00" * 0x40 + b"PE\x00\x00")
@@ -573,8 +577,8 @@ class TestNEDetection:
     def test_load_binary_parses_ne(self, tmp_path: Path) -> None:
         """A minimal NE loads as format='ne' with parsed tables (the old
         behavior rejected NE outright — the 16-bit path is now supported)."""
-        from rebrew.binary_loader import load_binary
-        from rebrew.binary_model import BinaryInfo
+        from rebrew.formats.binary_loader import load_binary
+        from rebrew.formats.binary_model import BinaryInfo
 
         ne = self._write_ne(tmp_path)
         info = load_binary(ne)
@@ -590,7 +594,7 @@ class TestFunctionExtentFromDisasm:
     def _run(self, monkeypatch, text: bytes, tmp_path: Path) -> int | None:
         from types import SimpleNamespace as NS
 
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
 
         exe = tmp_path / "x.exe"
         exe.write_bytes(b"MZ" + text)
@@ -664,7 +668,7 @@ class TestFunctionExtentFromDisasm:
     def test_with_kind_returns_terminator_kind(self, monkeypatch, tmp_path: Path) -> None:
         """with_kind=True returns (extent, kind) so callers can distinguish a
         real epilogue from a branch-merge jmp."""
-        from rebrew.binary_loader import function_extent_from_disasm
+        from rebrew.formats.binary_loader import function_extent_from_disasm
 
         # plain function → ret
         ret_text = bytes.fromhex("8b 44 24 04 c3")
@@ -678,23 +682,23 @@ class TestFunctionExtentFromDisasm:
         # thunk → jmp
         jmp_text = bytes.fromhex("b9 d8 d9 03 01 e9 8a 0f 00 00")
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda *a, **k: type(
                 "I", (), {"text_va": 0x1000, "text_size": len(ret_text), "data": ret_text}
             )(),
         )
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_bytes_at_va",
+            "rebrew.formats.binary_loader.extract_bytes_at_va",
             lambda info, va, size, trim_padding=True: ret_text[:size],
         )
         assert function_extent_from_disasm(exe, 0x1000, with_kind=True) == (5, "ret")
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_bytes_at_va",
+            "rebrew.formats.binary_loader.extract_bytes_at_va",
             lambda info, va, size, trim_padding=True: jmp_text[:size],
         )
         assert function_extent_from_disasm(exe, 0x1000, with_kind=True) == (10, "jmp")
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_bytes_at_va",
+            "rebrew.formats.binary_loader.extract_bytes_at_va",
             lambda info, va, size, trim_padding=True: b"\xcc\x90\x90",
         )
         assert function_extent_from_disasm(exe, 0x1000) == 1
@@ -706,7 +710,7 @@ def test_mz_extent_uses_16bit_disasm() -> None:
     parsing it as 32-bit mis-decodes instructions and truncates the extent
     at a bogus early `ret` (a DOS function's real `ret N` epilogue is
     reached only in 16-bit mode)."""
-    from rebrew.binary_loader import function_extent_from_disasm
+    from rebrew.formats.binary_loader import function_extent_from_disasm
 
     fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
     # `add` at VA 0x291 is 13 bytes; the `eb 00` jmp idiom (offset 9) is
@@ -724,7 +728,7 @@ def test_mz_file_size_exact_512_multiple(tmp_path: Path) -> None:
     512."""
     import struct
 
-    from rebrew.binary_loader import extract_bytes_at_va, load_binary, parse_mz_header
+    from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary, parse_mz_header
 
     data = bytearray(1024)
     data[0:2] = b"MZ"
@@ -746,7 +750,7 @@ def test_mz_code_size_clamped_to_truncated_file(tmp_path: Path) -> None:
     not report a code region past EOF."""
     import struct
 
-    from rebrew.binary_loader import parse_mz_header
+    from rebrew.formats.binary_loader import parse_mz_header
 
     data = bytearray(600)
     data[0:2] = b"MZ"
@@ -773,7 +777,7 @@ class TestLiefLoggingSilenced:
     def test_lief_logger_disabled(self) -> None:
         import lief
 
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
 
         # Silencing happens on first LIEF use (import is deferred) — touch
         # the lazy alias to force it, then check the level.
@@ -786,7 +790,7 @@ class TestLiefLoggingSilenced:
         import io
         import struct
 
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         # minimal PE that LIEF parses cleanly
         data = bytearray(0x400)
@@ -817,7 +821,7 @@ def test_mz_entry_wraps_negative_code_segment(tmp_path: Path) -> None:
     byte: real-mode ``segment*16 + offset`` wraps at 1 MiB."""
     import struct
 
-    from rebrew.binary_loader import parse_mz_header
+    from rebrew.formats.binary_loader import parse_mz_header
 
     data = bytearray(1024)
     data[0:2] = b"MZ"

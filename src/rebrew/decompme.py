@@ -212,7 +212,7 @@ def build_scratch_payload(
     ready for :func:`httpx.post`.  The target object is synthesized from the
     reference binary's function bytes via the objdiff COFF writer.
     """
-    from rebrew.binary_loader import extract_raw_bytes
+    from rebrew.formats.binary_loader import extract_raw_bytes
     from rebrew.objdiff_project import write_coff_object
 
     raw = extract_raw_bytes(cfg.target_binary, va, size)

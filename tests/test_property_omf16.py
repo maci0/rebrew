@@ -14,7 +14,7 @@ import struct
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.omf16 import Omf16Error, Omf16Module, _match_symbol, is_omf16, parse_omf16
+from rebrew.formats.omf16 import Omf16Error, Omf16Module, _match_symbol, is_omf16, parse_omf16
 
 _RECORD_TYPES = (0xA0, 0xC2, 0x90, 0x96, 0xCA, 0x80, 0x88, 0x8A)
 _NEAR_C2_HEADER = 9

@@ -39,7 +39,7 @@ Profiles: `borland-3.1` (Turbo C++ 3.1), `borland-2.0` (Turbo C 2.0, C89-strict
 
 `file` shows "NE version N for MS Windows 3.x". `rebrew intake` handles NE end-to-end
 (native parse, NE-loader discoverer, `format = "ne"` + `arch = "x86_16"`).
-MSVC-style NE byte-matches with `msvc-1.52` (DOSBox CL.EXE → OMF via `rebrew.omf16`).
+MSVC-style NE byte-matches with `msvc-1.52` (DOSBox CL.EXE → OMF via `rebrew.formats.omf16`).
 Borland *Delphi* NE remains unmatchable (ADR-001): document BLOCKER stubs;
 `rebrew.compiler.delphi16.compile_ne` can compile headless. Turbo C/C++ DOS is plain MZ, not NE.
 

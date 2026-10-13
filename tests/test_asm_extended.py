@@ -66,7 +66,7 @@ class TestHexMode:
         from rebrew.asm import _run_hex_mode
 
         cfg = _cfg(tmp_path)
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"")
+        monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: b"")
         with pytest.raises(typer.Exit) as exc:
             _run_hex_mode(0x99999999, 16, cfg, False, False)
         assert exc.value.exit_code == 2
@@ -232,7 +232,7 @@ class TestGenerateInlineC:
         )
         code = bytes.fromhex("558bec83ec08")
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes",
+            "rebrew.formats.binary_loader.extract_raw_bytes",
             lambda *a, **k: code,
         )
         out = tmp_path / "naked"
@@ -287,7 +287,7 @@ class TestGenerateInlineC:
         # stubs_only), g.c stays STUB.
         update_source_status(tmp_path, "EXACT", "SERVER", 0x10001000, force=True)
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes",
+            "rebrew.formats.binary_loader.extract_raw_bytes",
             lambda *a, **k: bytes.fromhex("558bec83ec08"),
         )
         out = tmp_path / "naked"
@@ -358,7 +358,7 @@ class TestBatchExtractNasm:
             "// FUNCTION: SERVER 0x1000\n// SIZE: 12\n// STATUS: STUB\nint f(void) { return 0; }\n",
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: _CODE)
+        monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: _CODE)
         out_dir = tmp_path / "nasm"
         batch_extract_nasm(cfg, out_dir, verify_flag=True)  # type: ignore[arg-type]
         # Multi-function sources share a stem — output names carry the VA.
@@ -374,7 +374,7 @@ class TestBatchExtractNasm:
             "// FUNCTION: SERVER 0x1000\n// SIZE: 12\n// STATUS: EXACT\nint f(void) { return 0; }\n",
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: _CODE)
+        monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: _CODE)
         out_dir = tmp_path / "nasm"
         batch_extract_nasm(cfg, out_dir, stubs_only=True)  # type: ignore[arg-type]
         assert not (out_dir / "f.c.asm").exists()
@@ -393,7 +393,7 @@ class TestBatchExtractNasm:
         def _none(*a: object, **k: object) -> None:
             return None
 
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", _none)
+        monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", _none)
         out_dir = tmp_path / "nasm"
         batch_extract_nasm(cfg, out_dir)  # type: ignore[arg-type]
         assert not (out_dir / "f.c.asm").exists()
@@ -468,7 +468,9 @@ class TestHexModeTruncation:
 
         cfg = _cfg(tmp_path, capstone_arch=CS_ARCH_X86, capstone_mode=CS_MODE_32)
         (tmp_path / "fake.dll").write_bytes(b"MZ")
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        monkeypatch.setattr(
+            "rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 8
+        )
         _run_hex_mode(0x1000, 100, cfg, False, True)  # requested 100, got 8
         captured = capsys.readouterr()
         payload = json.loads(captured.out)
@@ -541,7 +543,7 @@ timeout = 60
         root = self._project(tmp_path)
         # The real function runs past the declared size.
         monkeypatch.setattr(
-            "rebrew.binary_loader.function_extent_from_disasm",
+            "rebrew.formats.binary_loader.function_extent_from_disasm",
             # Mirror the real signature: with_kind=True returns (extent, kind).
             lambda *a, **k: (60, "ret") if k.get("with_kind") else 60,
         )
@@ -565,7 +567,7 @@ timeout = 60
 
         root = self._project(tmp_path)
         monkeypatch.setattr(
-            "rebrew.binary_loader.function_extent_from_disasm",
+            "rebrew.formats.binary_loader.function_extent_from_disasm",
             # Mirror the real signature: with_kind=True returns (extent, kind).
             lambda *a, **k: (60, "ret") if k.get("with_kind") else 60,
         )
@@ -611,7 +613,7 @@ timeout = 60
         root = self._project(tmp_path)
         # Extent EQUAL to the declared size → nothing stale.
         monkeypatch.setattr(
-            "rebrew.binary_loader.function_extent_from_disasm",
+            "rebrew.formats.binary_loader.function_extent_from_disasm",
             lambda *a, **k: (32, "ret") if k.get("with_kind") else 32,
         )
         monkeypatch.chdir(root)
@@ -642,7 +644,7 @@ timeout = 60
         root = self._project(tmp_path)
         # Declared window is 32; the code really ends at 16.
         monkeypatch.setattr(
-            "rebrew.binary_loader.function_extent_from_disasm",
+            "rebrew.formats.binary_loader.function_extent_from_disasm",
             lambda *a, **k: (16, "ret") if k.get("with_kind") else 16,
         )
         monkeypatch.chdir(root)
@@ -669,7 +671,7 @@ timeout = 60
 
         root = self._project(tmp_path)
         monkeypatch.setattr(
-            "rebrew.binary_loader.function_extent_from_disasm",
+            "rebrew.formats.binary_loader.function_extent_from_disasm",
             lambda *a, **k: (16, "jmp") if k.get("with_kind") else 16,
         )
         monkeypatch.chdir(root)
@@ -696,7 +698,7 @@ timeout = 60
             calls.append(a)  # would raise for a 16-bit target if called
             raise AssertionError("extent check must not run for non-x86_32")
 
-        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", _boom)
+        monkeypatch.setattr("rebrew.formats.binary_loader.function_extent_from_disasm", _boom)
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout

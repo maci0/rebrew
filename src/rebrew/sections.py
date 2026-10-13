@@ -21,7 +21,7 @@ def _default_padding() -> bytes:
     """``PADDING_BYTES`` as one ``bytes``, built once."""
     global _DEFAULT_PADDING
     if _DEFAULT_PADDING is None:
-        from rebrew.binary_loader import PADDING_BYTES
+        from rebrew.formats.binary_loader import PADDING_BYTES
 
         _DEFAULT_PADDING = bytes(PADDING_BYTES)
     return _DEFAULT_PADDING
@@ -79,7 +79,7 @@ def has_back_jumps(
 
 
 if TYPE_CHECKING:
-    from rebrew.binary_model import BinaryInfo
+    from rebrew.formats.binary_model import BinaryInfo
 
 
 def sections_from_info(info: "BinaryInfo") -> dict[str, dict[str, int]]:
@@ -205,7 +205,7 @@ def get_text_section_size(bin_path: Path, root: Path | None = None, target: str 
         if hdr is not None:
             return int(hdr["text_size"])
     try:
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         info = load_binary(bin_path)
         return info.text_size

@@ -21,10 +21,10 @@ import typer
 from rich.markup import escape
 
 from rebrew.annotation import parse_c_file_multi
-from rebrew.binary_loader import capstone_mode_for_arch, extract_raw_bytes
 from rebrew.cli import EXIT_MISMATCH, console, json_print
 from rebrew.compiler.compile import resolve_compiler_env
 from rebrew.config import ProjectConfig
+from rebrew.formats.binary_loader import capstone_mode_for_arch, extract_raw_bytes
 from rebrew.limits import NO_DELTA, NO_MAX_SIZE
 from rebrew.match_batch import (
     StubInfo,
@@ -1643,9 +1643,9 @@ def _run_batch_flag_sweep(
             # Re-verify with the authoritative
             # predicate before touching STATUS.
             try:
-                from rebrew.binary_loader import extract_raw_bytes
                 from rebrew.compiler.compile import compile_and_compare
                 from rebrew.compiler.overrides import resolve_compile_overrides
+                from rebrew.formats.binary_loader import extract_raw_bytes
 
                 target_bytes = extract_raw_bytes(cfg.target_binary, int(stub.va, 16), stub.size)
                 if target_bytes:

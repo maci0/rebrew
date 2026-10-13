@@ -312,7 +312,7 @@ def _member_offset_cap(cfg: Any) -> int:
     a member, so the degradation warns instead of failing silently.
     """
     try:
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         base = load_binary(cfg.target_binary).image_base
         if base > 0:

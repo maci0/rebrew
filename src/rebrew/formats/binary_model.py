@@ -1,16 +1,16 @@
 """Format-agnostic data model for a parsed binary.
 
 The types here are the contract every format loader fills in
-(``rebrew.binary_loader`` and the per-format loaders it dispatches to) and
+(``rebrew.formats.binary_loader`` and the per-format loaders it dispatches to) and
 every consumer reads.  They sit in their own module so a format loader can
 build a :class:`BinaryInfo` without importing the dispatcher that selects it:
-keeping them in ``rebrew.binary_loader`` made the loader depend on its own
+keeping them in ``rebrew.formats.binary_loader`` made the loader depend on its own
 loaders.
 
 Usage::
 
-    from rebrew.binary_loader import load_binary
-    from rebrew.binary_model import BinaryInfo
+    from rebrew.formats.binary_loader import load_binary
+    from rebrew.formats.binary_model import BinaryInfo
 
     info: BinaryInfo = load_binary("path/to/binary")
 """
@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 from rebrew.utils import BYTES_PER_MIB
 
 if TYPE_CHECKING:
-    from rebrew.ne_loader import NeHeader, NeImportModule, NeSegment
+    from rebrew.formats.ne_loader import NeHeader, NeImportModule, NeSegment
 
 #: Cap on any single byte request or lazily-read file image, so a corrupt
 #: size field cannot pull a multi-gigabyte file into memory.

@@ -1037,7 +1037,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
         arg_style="dos",
-        obj_ext=".obj",  # 16-bit OMF — parses via rebrew.omf16
+        obj_ext=".obj",  # 16-bit OMF — parses via rebrew.formats.omf16
         host_path=vendored_path("msvc/1.5-win16")
         if vendored_path("msvc/1.5-win16").exists()
         else None,
@@ -1052,7 +1052,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
         arg_style="dos",
-        obj_ext=".obj",  # 16-bit OMF — parses via rebrew.omf16
+        obj_ext=".obj",  # 16-bit OMF — parses via rebrew.formats.omf16
         host_path=vendored_path("msvc/1.0-win16")
         if vendored_path("msvc/1.0-win16").exists()
         else None,
@@ -1067,7 +1067,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="posix",
         arg_style="dos",
-        obj_ext=".obj",  # Borland 16-bit OMF — parses via rebrew.omf16
+        obj_ext=".obj",  # Borland 16-bit OMF — parses via rebrew.formats.omf16
         host_path=vendored_path("borland/2.0-win16")
         if vendored_path("borland/2.0-win16").exists()
         else None,
@@ -1082,7 +1082,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="posix",
         arg_style="dos",
-        obj_ext=".obj",  # Borland 16-bit OMF — parses via rebrew.omf16
+        obj_ext=".obj",  # Borland 16-bit OMF — parses via rebrew.formats.omf16
         host_path=vendored_path("borland/3.1-win16")
         if vendored_path("borland/3.1-win16").exists()
         else None,

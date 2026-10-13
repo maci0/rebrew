@@ -239,8 +239,8 @@ def _flirt_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
 
     import flirt
 
-    from rebrew.binary_loader import load_binary
     from rebrew.flirt import match_text
+    from rebrew.formats.binary_loader import load_binary
 
     try:
         info = load_binary(cfg.target_binary)
@@ -298,7 +298,7 @@ def _import_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
     a name heuristic — DirectDrawCreate is DirectX, not MSVCRT.  Names not
     found in the import table fall back to the CRT-prefix heuristic.
     """
-    from rebrew.import_table import find_import_stubs, parse_imports
+    from rebrew.formats.import_table import find_import_stubs, parse_imports
 
     try:
         stubs = find_import_stubs(cfg.target_binary)

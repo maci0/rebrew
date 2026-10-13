@@ -61,8 +61,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
-from rebrew.binary_loader import REAL_MODE_ADDRESS_MASK, load_binary
-from rebrew.pe_headers import pe_lfanew
+from rebrew.formats.binary_loader import REAL_MODE_ADDRESS_MASK, load_binary
+from rebrew.formats.pe_headers import pe_lfanew
 from rebrew.utils import SOURCE_CHECKOUT
 
 logger = logging.getLogger(__name__)
@@ -1402,7 +1402,7 @@ def _detect_toolchain_core(
     # the decompressor stub); the detection must say so, or the family
     # gets misread from stub strings.  ``unpack-lzexe`` restores the image.
     try:
-        from rebrew.lzexe import lzexe_version
+        from rebrew.formats.lzexe import lzexe_version
 
         lz_ver = lzexe_version(path)
     except Exception:
@@ -1454,7 +1454,7 @@ def _detect_toolchain_core(
 
     # --- 16-bit NE targets: the segment marker convention tells the family ---
     if getattr(binfo, "format", "") == "ne":
-        from rebrew.ne_loader import has_borland_marker
+        from rebrew.formats.ne_loader import has_borland_marker
 
         data = binfo.data
         ne_segments = getattr(binfo, "ne_segments", []) or []
@@ -1576,7 +1576,7 @@ def _detect_toolchain_core(
             imports.add(dll.lower())
     if not imports and getattr(binfo, "format", "") == "pe":
         try:
-            from rebrew.import_table import parse_imports
+            from rebrew.formats.import_table import parse_imports
 
             for entry in parse_imports(path):
                 dll = str(entry.get("dll") or "").lower()
@@ -1642,7 +1642,7 @@ def _detect_toolchain_core(
     const_hoists = 0
     signals = CodegenSignals()
     try:
-        from rebrew.binary_loader import extract_bytes_at_va
+        from rebrew.formats.binary_loader import extract_bytes_at_va
 
         text_bytes = (
             extract_bytes_at_va(binfo, binfo.text_va, binfo.text_size)

@@ -18,8 +18,8 @@ from bin_util import append_pe_section, make_pe
 from typer.testing import CliRunner
 
 from rebrew.analysis import section_range
-from rebrew.binary_loader import load_binary
 from rebrew.describe import app
+from rebrew.formats.binary_loader import load_binary
 
 IMAGE_BASE = 0x400000
 TEXT_VA = 0x1000
@@ -333,8 +333,8 @@ class TestDescribeCli:
         _make_project(tmp_path)
         _make_binary(tmp_path)
         from rebrew.analysis import scan_references
-        from rebrew.binary_loader import load_binary
         from rebrew.describe import _compute_strings
+        from rebrew.formats.binary_loader import load_binary
 
         info = load_binary(tmp_path / "game.exe")
         all_refs = scan_references(info)

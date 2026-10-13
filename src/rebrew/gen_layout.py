@@ -57,9 +57,9 @@ import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import compiler_dir, module_marker
+from rebrew.formats.pe_headers import pe_image_base, pe_layout
+from rebrew.formats.pe_image import PeImport, derive_link_options, parse_pe
 from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
-from rebrew.pe_headers import pe_image_base, pe_layout
-from rebrew.pe_image import PeImport, derive_link_options, parse_pe
 from rebrew.utils import atomic_write_text, container_runtime, fold_ident, pe_name_token
 
 _EPILOG = (

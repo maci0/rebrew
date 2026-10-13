@@ -52,7 +52,6 @@ from typing import TYPE_CHECKING, Any
 # Same names ``__getattr__`` loads at runtime.  Present here so a type
 # checker sees ``from rebrew.errors import ConfigError`` as that class.
 if TYPE_CHECKING:
-    from rebrew.binary_loader import ExportParseError as ExportParseError
     from rebrew.coff_reloc import CatalogScanError as CatalogScanError
     from rebrew.coff_reloc import UnresolvedSymbolError as UnresolvedSymbolError
     from rebrew.compiler.compile import CompareResultError as CompareResultError
@@ -72,15 +71,16 @@ if TYPE_CHECKING:
     from rebrew.decompme import DecompmeErrorKind as DecompmeErrorKind
     from rebrew.doctor import LibIndexUnavailable as LibIndexUnavailable
     from rebrew.fingerprints import FingerprintError as FingerprintError
+    from rebrew.formats.binary_loader import ExportParseError as ExportParseError
+    from rebrew.formats.lzexe import NotLzexeError as NotLzexeError
+    from rebrew.formats.ne_loader import NeParseError as NeParseError
+    from rebrew.formats.omf16 import Omf16Error as Omf16Error
     from rebrew.ghidra.client import McpApplyAborted as McpApplyAborted
     from rebrew.ghidra.client import McpError as McpError
     from rebrew.ghidra.client import McpErrorKind as McpErrorKind
-    from rebrew.lzexe import NotLzexeError as NotLzexeError
     from rebrew.matcher.scoring import SimilarityUnavailable as SimilarityUnavailable
     from rebrew.metadata import LibraryOverrideError as LibraryOverrideError
     from rebrew.metadata_model import MetadataValidationError as MetadataValidationError
-    from rebrew.ne_loader import NeParseError as NeParseError
-    from rebrew.omf16 import Omf16Error as Omf16Error
     from rebrew.orphans import OrphanInventoryError as OrphanInventoryError
     from rebrew.pdb_export import PdbExportError as PdbExportError
     from rebrew.plugin import ComponentError as ComponentError
@@ -235,7 +235,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "DecompmeError": ("rebrew.decompme", "DecompmeError"),
     "Delphi16Error": ("rebrew.compiler.delphi16", "Delphi16Error"),
     "DosboxError": ("rebrew.compiler.dosbox", "DosboxError"),
-    "ExportParseError": ("rebrew.binary_loader", "ExportParseError"),
+    "ExportParseError": ("rebrew.formats.binary_loader", "ExportParseError"),
     "FingerprintError": ("rebrew.fingerprints", "FingerprintError"),
     "LibraryOverrideError": ("rebrew.metadata", "LibraryOverrideError"),
     "LibIndexUnavailable": ("rebrew.doctor", "LibIndexUnavailable"),
@@ -243,10 +243,10 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "McpError": ("rebrew.ghidra.client", "McpError"),
     "MetadataValidationError": ("rebrew.metadata_model", "MetadataValidationError"),
     "Msvc16Error": ("rebrew.compiler.msvc16", "Msvc16Error"),
-    "NeParseError": ("rebrew.ne_loader", "NeParseError"),
+    "NeParseError": ("rebrew.formats.ne_loader", "NeParseError"),
     "NoDecompilationError": ("rebrew.struct_recover", "NoDecompilationError"),
-    "NotLzexeError": ("rebrew.lzexe", "NotLzexeError"),
-    "Omf16Error": ("rebrew.omf16", "Omf16Error"),
+    "NotLzexeError": ("rebrew.formats.lzexe", "NotLzexeError"),
+    "Omf16Error": ("rebrew.formats.omf16", "Omf16Error"),
     "OrphanInventoryError": ("rebrew.orphans", "OrphanInventoryError"),
     "PdbExportError": ("rebrew.pdb_export", "PdbExportError"),
     "RecompileError": ("rebrew.compiler.recompile_client", "RecompileError"),

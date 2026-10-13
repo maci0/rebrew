@@ -1,16 +1,16 @@
 """Unified binary format loader for rebrew.
 
 Provides a format-agnostic interface for reading PE, ELF, Mach-O, NE, and MZ
-binaries.  PE/ELF/Mach-O parse through LIEF; NE goes to ``rebrew.ne_loader``
+binaries.  PE/ELF/Mach-O parse through LIEF; NE goes to ``rebrew.formats.ne_loader``
 and MZ to :func:`_load_mz`, which parses the DOS header itself.
 
-The parsed result is a :class:`rebrew.binary_model.BinaryInfo`, whose type
+The parsed result is a :class:`rebrew.formats.binary_model.BinaryInfo`, whose type
 lives in its own module so this dispatcher can depend on the format loaders
 without the reverse.
 
 Usage::
 
-    from rebrew.binary_loader import load_binary, extract_bytes_at_va
+    from rebrew.formats.binary_loader import load_binary, extract_bytes_at_va
 
     info = load_binary("path/to/binary")
     print(info.format, info.image_base, info.text_va)
@@ -28,8 +28,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
-from rebrew.binary_model import MAX_BINARY_SIZE, BinaryInfo, SectionInfo
 from rebrew.errors import RebrewError
+from rebrew.formats.binary_model import MAX_BINARY_SIZE, BinaryInfo, SectionInfo
 from rebrew.utils import detect_source_encoding
 
 if TYPE_CHECKING:
@@ -529,7 +529,7 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     # Turbo Pascal Windows targets) — segments become sections with synthetic
     # flat VAs of (segment_index << 16).
     if is_ne(path):
-        from rebrew.ne_loader import load_ne_binary
+        from rebrew.formats.ne_loader import load_ne_binary
 
         result = load_ne_binary(path)
         result.arch = "x86_16"

@@ -18,10 +18,10 @@ def _tree(source: str) -> ast.Module:
 
 class TestRebrewTargets:
     def test_absolute_module_import(self) -> None:
-        node = _from_import("from rebrew.pe_image import PeImport")
+        node = _from_import("from rebrew.formats.pe_image import PeImport")
         assert cl._rebrew_targets(
-            "rebrew.verify", False, node, {"rebrew.pe_image", "rebrew.verify"}
-        ) == {"rebrew.pe_image"}
+            "rebrew.verify", False, node, {"rebrew.formats.pe_image", "rebrew.verify"}
+        ) == {"rebrew.formats.pe_image"}
 
     def test_dotted_absolute_import_resolves_to_package(self) -> None:
         node = _from_import("from rebrew.catalog.loaders import cached_function_list")

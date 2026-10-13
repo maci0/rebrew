@@ -38,8 +38,6 @@ from rich.table import Table
 from rich.text import Text
 
 from rebrew.annotation import iter_annotations, resolve_symbol
-from rebrew.binary_loader import load_binary, va_to_file_offset
-from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.cli import (
     EXIT_MISMATCH,
     EXIT_OK,
@@ -57,6 +55,8 @@ from rebrew.coff_reloc import (
 )
 from rebrew.compiler.compile import compile_to_obj
 from rebrew.config import ProjectConfig
+from rebrew.formats.binary_loader import load_binary, va_to_file_offset
+from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.metadata import load_metadata
 from rebrew.sections import trim_trailing_padding
@@ -674,12 +674,12 @@ def _run_round_trip(
     # reasm reports match=True.
     header_parity: list[dict[str, object]] = []
     if fix_headers:
-        from rebrew.pe_headers import (
+        from rebrew.formats.pe_headers import (
             PATCHABLE,
             patch_pe_headers,
             read_pe_header_fields,
         )
-        from rebrew.pe_headers import (
+        from rebrew.formats.pe_headers import (
             header_parity as _header_parity,
         )
 

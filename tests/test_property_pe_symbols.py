@@ -32,7 +32,7 @@ from test_pe_symbols import (
     _patch_directory,
 )
 
-from rebrew.pe_symbols import PeDirectories, pe_directories, pe_symbols
+from rebrew.formats.pe_symbols import PeDirectories, pe_directories, pe_symbols
 
 #: Bytes of fuzzed section body; small enough that every walk ends quickly.
 _BODY_SIZE = 256

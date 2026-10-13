@@ -48,7 +48,6 @@ import typer
 from rebrew import theme
 from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
 from rebrew.annotation import Annotation, iter_annotations, min_valid_va_for, parse_library_header
-from rebrew.binary_loader import load_binary
 from rebrew.cli import (
     TargetOption,
     console,
@@ -58,7 +57,8 @@ from rebrew.cli import (
 from rebrew.compression import precompress
 from rebrew.config import ProjectConfig
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
-from rebrew.import_table import find_import_stubs, parse_imports
+from rebrew.formats.binary_loader import load_binary
+from rebrew.formats.import_table import find_import_stubs, parse_imports
 from rebrew.sources import (
     iter_library_headers,
     iter_sources,
@@ -629,9 +629,9 @@ def _ne_summary(cfg: ProjectConfig) -> dict[str, Any] | None:
     if not bin_p.exists() or not bin_p.is_file():
         return None
     try:
-        from rebrew.binary_loader import load_binary, section_dict
         from rebrew.data_scan import find_dispatch_tables
-        from rebrew.ne_loader import enumerate_ne_functions
+        from rebrew.formats.binary_loader import load_binary, section_dict
+        from rebrew.formats.ne_loader import enumerate_ne_functions
 
         info = load_binary(bin_path)
         if info.format != "ne":
@@ -1233,8 +1233,8 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None, str | None]:
             bin_path = getattr(cfg, "target_binary", None)
             if bin_path and Path(bin_path).exists():
                 try:
-                    from rebrew.binary_loader import load_binary
                     from rebrew.depgraph import binary_call_edges
+                    from rebrew.formats.binary_loader import load_binary
 
                     info = load_binary(bin_path)
                     if info.format == "ne":
@@ -1287,7 +1287,7 @@ def _ne_ranges(info: Any) -> list[tuple[int, int, str]]:
     link to the nodes ``build_graph`` produced; a bare ``fcn_…`` label rendered
     phantom nodes disconnected from the real ones.
     """
-    from rebrew.ne_loader import enumerate_ne_functions
+    from rebrew.formats.ne_loader import enumerate_ne_functions
 
     return [(f.va, f.va + f.size, f"va:0x{f.va:08x}") for f in enumerate_ne_functions(info)]
 
@@ -1554,7 +1554,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     # the totals honestly and leave matched/complete data at 0.
     data_size = 0
     try:
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         info = load_binary(cfg.target_binary)
         for name in (".data", ".rdata", ".bss"):

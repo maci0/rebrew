@@ -32,13 +32,13 @@ if TYPE_CHECKING:
 import typer
 from rich.table import Table
 
-from rebrew.binary_loader import extract_bytes_at_va, load_binary
-from rebrew.binary_model import BinaryInfo
 from rebrew.catalog.loaders import cached_function_list
 from rebrew.catalog.registry import RegistryEntry, build_function_registry
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.cu_map import classify_gap
+from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
+from rebrew.formats.binary_model import BinaryInfo
 from rebrew.utils import atomic_write_text
 
 _EPILOG = (

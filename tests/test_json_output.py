@@ -487,7 +487,9 @@ class TestAsmJsonSchema:
 
         cfg = self._cfg(tmp_path)
         (tmp_path / "fake.dll").write_bytes(b"MZ")
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: self._CODE)
+        monkeypatch.setattr(
+            "rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: self._CODE
+        )
         _run_hex_mode(0x10003DA0, len(self._CODE), cfg, False, True)
         payload = json.loads(capsys.readouterr().out)
         assert payload["va"] == "0x10003da0"
@@ -507,7 +509,9 @@ class TestAsmJsonSchema:
 
         cfg = self._cfg(tmp_path)
         (tmp_path / "fake.dll").write_bytes(b"MZ")
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: self._CODE)
+        monkeypatch.setattr(
+            "rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: self._CODE
+        )
         _run_hex_mode(0x10003DA0, 100, cfg, False, True)
         payload = json.loads(capsys.readouterr().out)
         assert payload["truncated"] is True

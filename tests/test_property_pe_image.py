@@ -1,4 +1,4 @@
-"""Property-based fuzz tests for ``rebrew.pe_image.parse_pe`` on corrupted images.
+"""Property-based fuzz tests for ``rebrew.formats.pe_image.parse_pe`` on corrupted images.
 
 ``parse_pe`` is the hand-rolled PE32 walk behind ``rebrew build layout`` and
 ``rebrew build sweep-link-flags``: it reads a reference binary the user points the CLI at,
@@ -18,8 +18,8 @@ from typing import Any
 from hypothesis import event, given, settings
 from hypothesis import strategies as st
 
-from rebrew.pe_headers import SECTION_ENTRY_SIZE
-from rebrew.pe_image import PeImport, derive_link_options, parse_pe
+from rebrew.formats.pe_headers import SECTION_ENTRY_SIZE
+from rebrew.formats.pe_image import PeImport, derive_link_options, parse_pe
 
 FIXTURES = Path(__file__).parent / "fixtures"
 _SEED = (FIXTURES / "mini_pe.exe").read_bytes()

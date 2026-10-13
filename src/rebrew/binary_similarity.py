@@ -233,8 +233,8 @@ def _load_side(
     cs_mode: str | int,
 ) -> list[dict[str, Any]]:
     """Load ``{va, size, name, signature}`` records for one binary."""
-    from rebrew.binary_loader import extract_raw_bytes
     from rebrew.catalog import load_function_structure
+    from rebrew.formats.binary_loader import extract_raw_bytes
 
     funcs: list[dict[str, Any]] = (
         [

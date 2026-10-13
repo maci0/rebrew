@@ -1,4 +1,4 @@
-"""Tests for pe_symbols.py: PE data directories as records and symbol names."""
+"""Tests for formats/pe_symbols.py: PE data directories as records and symbol names."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from bin_util import append_pe_section, make_pe
 
-from rebrew.pe_symbols import (
+from rebrew.formats.pe_symbols import (
     delay_import_symbol_name,
     iat_symbol_name,
     pe_directories,
@@ -370,7 +370,7 @@ class TestImportNameDecoding:
     """PE import names are raw bytes in the toolchain codepage, not ASCII."""
 
     def test_cp1252_import_name_keeps_its_accent(self) -> None:
-        from rebrew.pe_symbols import _read_hint_name
+        from rebrew.formats.pe_symbols import _read_hint_name
 
         class _Image:
             def read(self, va: int, size: int) -> bytes:
@@ -379,7 +379,7 @@ class TestImportNameDecoding:
         assert _read_hint_name(_Image(), 0) == "Café"  # type: ignore[arg-type]
 
     def test_dll_name_keeps_its_accent(self) -> None:
-        from rebrew.pe_symbols import _read_c_string
+        from rebrew.formats.pe_symbols import _read_c_string
 
         class _Image:
             image_base = 0x400000

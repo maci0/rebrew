@@ -1,6 +1,21 @@
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** the executable, object and archive parsers moved into the
+  `rebrew.formats` package, keeping their module names. Old → new import paths:
+  `rebrew.binary_loader` → `rebrew.formats.binary_loader`,
+  `rebrew.binary_model` → `rebrew.formats.binary_model`,
+  `rebrew.pe_headers` → `rebrew.formats.pe_headers`,
+  `rebrew.pe_image` → `rebrew.formats.pe_image`,
+  `rebrew.pe_symbols` → `rebrew.formats.pe_symbols`,
+  `rebrew.ne_loader` → `rebrew.formats.ne_loader`,
+  `rebrew.omf16` → `rebrew.formats.omf16`,
+  `rebrew.lzexe` → `rebrew.formats.lzexe`,
+  `rebrew.import_table` → `rebrew.formats.import_table`,
+  `rebrew.relocations` → `rebrew.formats.relocations`,
+  `rebrew.archives` → `rebrew.formats.archives`.
+  The old modules are gone, with no aliases. The `rebrew.binary_loaders`
+  entry-point group name and every CLI command are unchanged.
 - **Breaking:** compile execution and the compile cache moved into the
   `rebrew.compiler` package. Old → new import paths:
   `rebrew.compile` → `rebrew.compiler.compile`,

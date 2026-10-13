@@ -46,7 +46,6 @@ if TYPE_CHECKING:
     import angr  # # only for annotations; runtime import is lazy
 
 from rebrew.annotation import parse_c_file_multi, resolve_symbol
-from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
@@ -62,6 +61,7 @@ from rebrew.cli import (
 from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_compare
 from rebrew.compiler.compile import compile_to_obj
 from rebrew.config import ProjectConfig
+from rebrew.formats.binary_loader import extract_raw_bytes
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.prove_simprocs import get_win32_simprocs
 from rebrew.sources import (

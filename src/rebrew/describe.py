@@ -40,8 +40,6 @@ from rebrew.analysis import (
     string_refs,
 )
 from rebrew.annotation import Annotation, parse_c_file_multi
-from rebrew.binary_loader import load_binary
-from rebrew.binary_model import BinaryInfo
 from rebrew.catalog import cached_function_list
 from rebrew.cli import (
     TargetOption,
@@ -53,7 +51,9 @@ from rebrew.cli import (
     untrusted_ident,
 )
 from rebrew.config import ProjectConfig
-from rebrew.import_table import parse_import_table
+from rebrew.formats.binary_loader import load_binary
+from rebrew.formats.binary_model import BinaryInfo
+from rebrew.formats.import_table import parse_import_table
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.sources import (
     iter_sources,

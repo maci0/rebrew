@@ -649,13 +649,13 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
     walker is an x86 disassembler."""
     if getattr(cfg, "arch", "") != "x86_32" or not cfg.target_binary.exists():
         return None
-    from rebrew.binary_loader import function_extent_from_disasm
+    from rebrew.formats.binary_loader import function_extent_from_disasm
 
     # Merged-region check: an entry spanning several functions (a bad
     # inventory boundary) has multiple ret-terminated epilogues within
     # its declared size — the user should split it, not treat it as one.
     try:
-        from rebrew.binary_loader import extract_raw_bytes
+        from rebrew.formats.binary_loader import extract_raw_bytes
 
         raw = extract_raw_bytes(cfg.target_binary, va, min(size, 512))
         if raw:
@@ -850,7 +850,7 @@ def _looks_like_fragment(cfg: ProjectConfig, va: int) -> bool:
     if getattr(cfg, "arch", "") != "x86_32" or not cfg.target_binary.exists():
         return False
     try:
-        from rebrew.binary_loader import extract_raw_bytes
+        from rebrew.formats.binary_loader import extract_raw_bytes
 
         raw = extract_raw_bytes(cfg.target_binary, va, 2)
     except Exception:  # best-effort
@@ -870,7 +870,7 @@ def _is_thunk(cfg: ProjectConfig, va: int) -> bool:
         return False
     try:
         from rebrew.analysis import capstone_handle
-        from rebrew.binary_loader import extract_raw_bytes
+        from rebrew.formats.binary_loader import extract_raw_bytes
 
         raw = extract_raw_bytes(cfg.target_binary, va, 16)
         if len(raw) < 2:

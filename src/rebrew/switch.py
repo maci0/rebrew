@@ -94,7 +94,7 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
     32-bit mode with 4-byte entries.  16-bit dispatches have no scaled
     index (no SIB byte) — the entry count comes from the bounds check only.
     """
-    from rebrew.binary_loader import extract_raw_bytes
+    from rebrew.formats.binary_loader import extract_raw_bytes
 
     try:
         raw = extract_raw_bytes(cfg.target_binary, va, window)
@@ -241,7 +241,7 @@ def _read_table(
     table is walked until a target lands outside the image (with a safety
     cap).  Returns ``[]`` when the table cannot be read.
     """
-    from rebrew.binary_loader import extract_raw_bytes, load_binary
+    from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
 
     count = (bounds + 1) if bounds is not None else _MAX_TABLE_ENTRIES
     count = max(1, min(count, _MAX_TABLE_ENTRIES))

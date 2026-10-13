@@ -155,8 +155,8 @@ def find_similar(
     compared structurally.  Returns the top *top* results (excluding the query
     itself), each as ``{va, size, name, score}``.
     """
-    from rebrew.binary_loader import extract_raw_bytes
     from rebrew.catalog import build_function_registry, cached_function_list
+    from rebrew.formats.binary_loader import extract_raw_bytes
 
     cs_arch = getattr(cfg, "capstone_arch", DEFAULT_CS_ARCH)
     cs_mode = getattr(cfg, "capstone_mode", DEFAULT_CS_MODE)

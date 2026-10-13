@@ -41,8 +41,8 @@ from typing import Any
 import typer
 
 from rebrew.analysis import direct_call_target, iter_instructions
-from rebrew.binary_loader import load_binary
 from rebrew.cli import console, error_exit, json_print
+from rebrew.formats.binary_loader import load_binary
 from rebrew.utils import atomic_write_text, run_process_group
 
 _EPILOG = (
@@ -325,8 +325,8 @@ def _extent_contains(extents: list[tuple[int, int]]) -> Callable[[int], bool]:
 
 def _discover_ne_loader(binary: Path) -> list[tuple[int, int, str]]:
     """Packaged discoverer: 16-bit NE native loader (None unless NE)."""
-    from rebrew.binary_loader import is_ne, load_binary
-    from rebrew.ne_loader import enumerate_ne_functions
+    from rebrew.formats.binary_loader import is_ne, load_binary
+    from rebrew.formats.ne_loader import enumerate_ne_functions
 
     if not is_ne(binary):
         return []
@@ -336,7 +336,7 @@ def _discover_ne_loader(binary: Path) -> list[tuple[int, int, str]]:
 
 def _discover_mz_sweep(binary: Path) -> list[tuple[int, int, str]]:
     """Packaged discoverer: 16-bit DOS MZ sweep (None unless MZ)."""
-    from rebrew.binary_loader import is_mz
+    from rebrew.formats.binary_loader import is_mz
 
     if not is_mz(binary):
         return []
@@ -799,7 +799,7 @@ def _mz_capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
     ``e8 rel16`` call targets inside the region.  VAs are linear
     ``segment*16+offset`` addresses (the DOS convention).
     """
-    from rebrew.binary_loader import parse_mz_header
+    from rebrew.formats.binary_loader import parse_mz_header
 
     h = parse_mz_header(binary)
     with open(binary, "rb") as f:
@@ -940,7 +940,7 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     Plugin discoverers (``rebrew.discoverers``) join every branch under
     their entry-point name.
     """
-    from rebrew.binary_loader import is_mz, is_ne, load_binary
+    from rebrew.formats.binary_loader import is_mz, is_ne, load_binary
 
     d = Discovery()
     with _DISCOVERERS_LOCK:

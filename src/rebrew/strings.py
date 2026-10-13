@@ -29,8 +29,6 @@ import typer
 from rich.table import Table
 
 from rebrew.analysis import Xref, iter_strings, string_refs
-from rebrew.binary_loader import load_binary
-from rebrew.binary_model import BinaryInfo
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
@@ -40,6 +38,8 @@ from rebrew.cli import (
     resolve_binary_arg,
     untrusted_ident,
 )
+from rebrew.formats.binary_loader import load_binary
+from rebrew.formats.binary_model import BinaryInfo
 
 # Data-ish sections scanned when --section is not given; mirrors the
 # analysis.py default so the "nothing to scan" note can be detected here.

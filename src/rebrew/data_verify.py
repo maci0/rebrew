@@ -214,9 +214,9 @@ def section_symbol_bytes(
     is skipped: its VAs are not in this binary, and writing them back as
     UNCHECKED would erase that target's verdict.
     """
-    from rebrew.binary_loader import load_binary
     from rebrew.data_layout import data_symbol_size
     from rebrew.data_metadata import module_visible_to_target
+    from rebrew.formats.binary_loader import load_binary
     from rebrew.utils import load_tomllib
 
     db = load_tomllib(metadata_path)

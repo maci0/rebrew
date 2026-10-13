@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import lief
 
-from rebrew.binary_loader import extract_bytes_at_va
-from rebrew.binary_model import BinaryInfo
+from rebrew.formats.binary_loader import extract_bytes_at_va
+from rebrew.formats.binary_model import BinaryInfo
 
 _MAX_SPANS = 1_000_000
 

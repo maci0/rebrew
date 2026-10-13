@@ -327,7 +327,7 @@ ARCH_PRESETS: dict[str, _ArchPreset] = {
 
 #: Arches whose data (not the host) is big-endian by default.  The IDO, Saturn
 #: and PowerPC targets are; x86 and ARM images are little-endian.  This set must
-#: agree with :func:`rebrew.binary_loader.endian_mode_bits`, or one target is
+#: agree with :func:`rebrew.formats.binary_loader.endian_mode_bits`, or one target is
 #: read little-endian for its data while its instructions decode big-endian.
 #: A target that reverses the default (a little-endian MIPS or PPC build)
 #: overrides this with the image header, the way capstone_mode does.
@@ -381,7 +381,7 @@ def arch_byte_order(arch: str, endian: str = "") -> str:
     ``"little"``, or ``""`` when the header does not say).  It wins whenever it
     is set, so a little-endian MIPS build reads little-endian instead of
     inheriting the arch default, exactly as
-    :func:`rebrew.binary_loader.endian_mode_bits` does for the instruction
+    :func:`rebrew.formats.binary_loader.endian_mode_bits` does for the instruction
     stream.  An empty *endian* falls back to :func:`arch_is_big_endian`.
     """
     if endian == "big":
@@ -736,7 +736,7 @@ class ProjectConfig:
         """
         import capstone
 
-        from rebrew.binary_loader import endian_mode_bits, sniff_image_endian
+        from rebrew.formats.binary_loader import endian_mode_bits, sniff_image_endian
 
         preset = ARCH_PRESETS.get(self.arch)
         name = preset.get("capstone_mode", "CS_MODE_32") if preset else "CS_MODE_32"
@@ -2050,7 +2050,7 @@ def _detect_binary_layout(
                 "text_raw_offset": hdr["text_raw_offset"],
             }
     try:
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         info = load_binary(bin_path, fmt=fmt)
         return {

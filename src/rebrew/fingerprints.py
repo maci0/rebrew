@@ -197,7 +197,7 @@ def imphash(path: str | Path) -> str | None:
     """Mandiant import hash of a PE, or ``None``.
 
     Parses the import table directly (LIEF) instead of
-    :func:`rebrew.import_table.parse_imports`, which drops ordinal imports:
+    :func:`rebrew.formats.import_table.parse_imports`, which drops ordinal imports:
     every entry keeps its declaration order and ordinals become
     ``dll.ord<N>``.  Returns ``None`` for a missing, non-PE, or import-less
     binary.  Raises :class:`FingerprintError` for a PE that cannot be
@@ -374,7 +374,7 @@ def section_entropies(path: str | Path) -> list[dict[str, object]]:
     p = Path(path)
     if not p.exists():
         return []
-    from rebrew.binary_loader import load_binary
+    from rebrew.formats.binary_loader import load_binary
 
     try:
         info = load_binary(p)
@@ -456,7 +456,7 @@ def fingerprint_bundle(path: str | Path) -> dict[str, object]:
 
     Carries ``md5`` / ``sha1`` / ``sha256`` / ``sha512`` plus the SHA-3 family
     and ``crc32`` (from :func:`file_hashes`), ``format`` / ``arch`` (from
-    :func:`rebrew.binary_loader.detect_format_and_arch`), ``size``,
+    :func:`rebrew.formats.binary_loader.detect_format_and_arch`), ``size``,
     ``imphash``, ``export_hash``, ``rich_header_hash``, and
     ``section_entropies``.  The ``tlsh`` / ``ssdeep`` keys appear only when
     their backend is importable.  A field that cannot be derived (unknown
@@ -468,7 +468,7 @@ def fingerprint_bundle(path: str | Path) -> dict[str, object]:
     if not p.exists():
         raise FileNotFoundError(f"Binary not found: {p}")
 
-    from rebrew.binary_loader import detect_format_and_arch
+    from rebrew.formats.binary_loader import detect_format_and_arch
 
     try:
         fmt, arch = detect_format_and_arch(p)

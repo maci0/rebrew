@@ -111,7 +111,7 @@ def cross_match(
 
 def signature_for(cfg: ProjectConfig, code: bytes, va: int) -> dict[str, Any] | None:
     """Structural signature excluding proven x86 alignment padding."""
-    from rebrew.binary_loader import PADDING_BYTES, function_extent_from_bytes, load_binary
+    from rebrew.formats.binary_loader import PADDING_BYTES, function_extent_from_bytes, load_binary
 
     if code and code[-1] in PADDING_BYTES:
         try:
@@ -177,7 +177,7 @@ def target_bytes_by_va(cfg: ProjectConfig, vas: dict[int, int]) -> dict[int, byt
     Raises ``OSError`` / ``ValueError`` when the binary itself is missing or
     unparseable; only a VA whose own extraction fails is skipped.
     """
-    from rebrew.binary_loader import extract_raw_bytes, load_binary
+    from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
 
     out: dict[int, bytes] = {}
     if vas:
@@ -199,7 +199,7 @@ def disasm_sizes(cfg: ProjectConfig, vas: list[int]) -> tuple[dict[int, int], li
     surface the ``sizeless, use --va`` guidance instead of silently dropping
     the function from every match.
     """
-    from rebrew.binary_loader import function_extent_from_disasm
+    from rebrew.formats.binary_loader import function_extent_from_disasm
 
     sizes: dict[int, int] = {}
     refused: list[int] = []
@@ -303,7 +303,7 @@ def _merged_entry_body_size(
     :data:`_FUNCTION_ALIGNMENT` boundary are all padding (none when the end is
     already aligned).  Returns that size, or ``None`` for any other result.
     """
-    from rebrew.binary_loader import PADDING_BYTES, extract_bytes_at_va, load_binary
+    from rebrew.formats.binary_loader import PADDING_BYTES, extract_bytes_at_va, load_binary
 
     body = result.full_obj_size
     if (

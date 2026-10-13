@@ -181,10 +181,10 @@ class TestCompareSnapshots:
             relocations=[],
             data_directory=lambda kind: SimpleNamespace(size=0, has_section=False),
         )
-        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda path: info)
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda path: info)
         monkeypatch.setattr("lief.PE.parse", lambda path: pe)
         monkeypatch.setattr(
-            "rebrew.import_table.parse_imports",
+            "rebrew.formats.import_table.parse_imports",
             lambda path: [{"dll": "kernel32.dll", "name": "ExitProcess"}],
         )
 
@@ -226,13 +226,13 @@ class TestCompareSnapshots:
         from rebrew.binary_gate import compare_snapshots, snapshot_binary
 
         info = SimpleNamespace(sections={}, data=b"", image_base=0x400000)
-        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda path: info)
-        monkeypatch.setattr("rebrew.binary_loader.parse_exports", lambda path: [])
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda path: info)
+        monkeypatch.setattr("rebrew.formats.binary_loader.parse_exports", lambda path: [])
 
         def _boom(path: Path) -> list[dict[str, str]]:
             raise ValueError("bad import table")
 
-        monkeypatch.setattr("rebrew.import_table.parse_imports", _boom)
+        monkeypatch.setattr("rebrew.formats.import_table.parse_imports", _boom)
         snap = snapshot_binary(Path("x.dll"))
         assert "bad import table" in snap["error"]
         assert compare_snapshots(snap, dict(snap))["match"] is False
@@ -247,7 +247,7 @@ class TestLayoutFreshness:
         from bin_util import make_pe
 
         from rebrew.binary_gate import check_layout_freshness, layout_fingerprint
-        from rebrew.pe_headers import pe_layout
+        from rebrew.formats.pe_headers import pe_layout
 
         data = bytearray(make_pe(b"\x90\xc3", pe32_plus=pe32_plus))
         layout = pe_layout(data)

@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.binary_loader import extract_bytes_at_va
-from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.extract import cmd_list, detect_reversed_vas
+from rebrew.formats.binary_loader import extract_bytes_at_va
+from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 from rebrew.utils import console as utils_console
 
 # ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ class TestExtractBytes:
         assert extract_bytes_at_va(bi, 0x20000000, 0) == b""
 
     def test_size_over_the_cap_raises(self, tmp_path: Path) -> None:
-        from rebrew.binary_model import MAX_BINARY_SIZE
+        from rebrew.formats.binary_model import MAX_BINARY_SIZE
 
         data = b"\x55\x8b\xec\xc3"
         bi = self._make_binary_info(data, tmp_path)

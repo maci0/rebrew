@@ -24,7 +24,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 # ---------------------------------------------------------------------------
-# rebrew.ne_loader — header, segment, import and export tables
+# rebrew.formats.ne_loader — header, segment, import and export tables
 # ---------------------------------------------------------------------------
 
 _NE_HEADER_SIZE = 0x40
@@ -187,7 +187,7 @@ def test_ne_tables_robust_on_structured_blobs(data: tuple[bytes, int, NeSpec]) -
     parser either raises :class:`NeParseError` or returns a well-shaped result;
     segments are 1-based and contiguous, absent segments carry no length, and
     every name the parsers report is one that was actually written."""
-    from rebrew.ne_loader import (
+    from rebrew.formats.ne_loader import (
         NeExport,
         NeParseError,
         NeSegment,
@@ -243,7 +243,7 @@ def test_ne_tables_robust_on_structured_blobs(data: tuple[bytes, int, NeSpec]) -
 def test_ne_tables_robust_on_random_bytes(blob: bytes, ne_offset: int) -> None:
     """Fuzz: arbitrary bytes at an arbitrary offset.  Anything the loader
     refuses must surface as :class:`NeParseError`, never a traceback."""
-    from rebrew.ne_loader import (
+    from rebrew.formats.ne_loader import (
         NeParseError,
         parse_exports,
         parse_imports,
@@ -264,7 +264,7 @@ def test_ne_tables_robust_on_random_bytes(blob: bytes, ne_offset: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# rebrew.lzexe — LZEXE 0.90/0.91 bitstream decompressor
+# rebrew.formats.lzexe — LZEXE 0.90/0.91 bitstream decompressor
 # ---------------------------------------------------------------------------
 
 #: End-of-stream token: control bits ``0, 1`` select the word-match path, and
@@ -316,7 +316,7 @@ def test_decompress_random_bytes_no_crash(blob: bytes, stream_off: int) -> None:
     """Fuzz: arbitrary bytes at an arbitrary stream offset.  The decompressor
     either raises :class:`NotLzexeError` or returns output within the budget —
     never a bare ``struct.error``/``IndexError``, never a decompression bomb."""
-    from rebrew.lzexe import NotLzexeError, _decompress
+    from rebrew.formats.lzexe import NotLzexeError, _decompress
 
     max_out = 64
     try:
@@ -331,7 +331,7 @@ def test_decompress_random_bytes_no_crash(blob: bytes, stream_off: int) -> None:
 def test_decompress_derived_budget_is_bounded(blob: bytes) -> None:
     """With the budget derived from the packed size, output can never exceed
     ``16 * len(data) + 64 KiB`` however long the bitstream runs."""
-    from rebrew.lzexe import NotLzexeError, _decompress
+    from rebrew.formats.lzexe import NotLzexeError, _decompress
 
     data = blob + b"\x00" * 2
     try:
@@ -349,7 +349,7 @@ _literal_payload = st.binary(min_size=1, max_size=1024)
 def test_decompress_literal_stream_roundtrip(payload: bytes) -> None:
     """Pair assertion across the compression boundary: a literal-only stream
     decodes to exactly the bytes that were written into it."""
-    from rebrew.lzexe import _decompress
+    from rebrew.formats.lzexe import _decompress
 
     assert _decompress(_literal_stream(payload), 0, max_out=len(payload)) == payload
 
@@ -368,7 +368,7 @@ def test_decompress_respects_budget(data: tuple[bytes, int]) -> None:
     """A stream that would decode to the full payload must stop at the budget
     instead of over-producing."""
     payload, max_out = data
-    from rebrew.lzexe import NotLzexeError, _decompress
+    from rebrew.formats.lzexe import NotLzexeError, _decompress
 
     with pytest.raises(NotLzexeError, match="exceeds"):
         _decompress(_literal_stream(payload), 0, max_out=max_out)
@@ -380,7 +380,7 @@ def test_reloc_tables_robust_on_random_bytes(blob: bytes, offset: int) -> None:
     """Fuzz: the 0.90/0.91 relocation decoders must terminate, report a
     truncated table as :class:`NotLzexeError`, and emit only valid
     offset/segment pairs when they do return."""
-    from rebrew.lzexe import NotLzexeError, _reloc_table90, _reloc_table91
+    from rebrew.formats.lzexe import NotLzexeError, _reloc_table90, _reloc_table91
 
     data = blob + b"\x00" * 2
     for decode in (_reloc_table90, _reloc_table91):

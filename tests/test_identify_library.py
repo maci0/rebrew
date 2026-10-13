@@ -459,11 +459,11 @@ class TestImportModuleFromDll:
         from rebrew.identify_library import _import_candidates
 
         monkeypatch.setattr(
-            "rebrew.import_table.find_import_stubs",
+            "rebrew.formats.import_table.find_import_stubs",
             lambda path: {0x40DCE0: "DirectDrawCreate", 0x40DC00: "_malloc"},
         )
         monkeypatch.setattr(
-            "rebrew.import_table.parse_imports",
+            "rebrew.formats.import_table.parse_imports",
             lambda path: [
                 {"dll": "DDRAW.dll", "name": "DirectDrawCreate", "iat_va": 1},
                 {"dll": "msvcrt.dll", "name": "_malloc", "iat_va": 2},
@@ -478,9 +478,9 @@ class TestImportModuleFromDll:
         from rebrew.identify_library import _import_candidates
 
         monkeypatch.setattr(
-            "rebrew.import_table.find_import_stubs", lambda path: {0x1000: "WeirdAPI"}
+            "rebrew.formats.import_table.find_import_stubs", lambda path: {0x1000: "WeirdAPI"}
         )
-        monkeypatch.setattr("rebrew.import_table.parse_imports", lambda path: [])
+        monkeypatch.setattr("rebrew.formats.import_table.parse_imports", lambda path: [])
         out = _import_candidates(self._cfg(tmp_path), "MSVCRT")
         assert out[0].module == "MSVCRT"  # heuristic default
 
@@ -594,7 +594,7 @@ class TestSigFileModuleAttribution:
         )
         # The fixture PE's .text matches the pattern lead bytes.
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda path: SimpleNamespace(
                 sections={".text": SimpleNamespace(va=0x401000, file_offset=0x200, raw_size=512)},
                 data=(b"\x00" * 0x200)

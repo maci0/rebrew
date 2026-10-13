@@ -134,7 +134,8 @@ class TestObjdiffProject:
             ],
         )
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x55\x8b\xec\x5d\xc3"
+            "rebrew.formats.binary_loader.extract_raw_bytes",
+            lambda p, va, size: b"\x55\x8b\xec\x5d\xc3",
         )
         out = tmp_path / "objdiff.json"
         r = runner.invoke(
@@ -184,7 +185,7 @@ class TestObjdiffProject:
                 raise RuntimeError("bad section")
             return b"\x55\x8b\xec\x5d\xc3"
 
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", _fake_extract)
+        monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", _fake_extract)
         units = objdiff_project._synthesize_target_objects(cfg, tmp_path / "target")
         assert len(units) == 1
         target = Path(units[0]["target_path"])
@@ -350,7 +351,8 @@ class TestObjdiffProject:
             ],
         )
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x55\x8b\xec\x5d\xc3"
+            "rebrew.formats.binary_loader.extract_raw_bytes",
+            lambda p, va, size: b"\x55\x8b\xec\x5d\xc3",
         )
         out = tmp_path / "objdiff.json"
         r = runner.invoke(
@@ -388,7 +390,8 @@ class TestSynthesizeOrdering(TestObjdiffProject):
             ],
         )
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x55\x8b\xec\x5d\xc3"
+            "rebrew.formats.binary_loader.extract_raw_bytes",
+            lambda p, va, size: b"\x55\x8b\xec\x5d\xc3",
         )
         units = objdiff_project._synthesize_target_objects(cfg, tmp_path / "target")
         assert len(units) == 1

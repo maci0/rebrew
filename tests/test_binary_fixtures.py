@@ -14,8 +14,8 @@ from pathlib import Path
 
 import lief
 
-from rebrew.binary_loader import extract_bytes_at_va, load_binary
 from rebrew.coff_reloc import smart_reloc_compare
+from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 from rebrew.gen_flirt_pat import (
     _MAX_RELOC_SPAN,
     _reloc_span,

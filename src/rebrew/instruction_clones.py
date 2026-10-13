@@ -302,7 +302,7 @@ def _cs_pair(cfg: Any) -> tuple[int | str, int | str]:
 def _unit_for(
     cfg: Any, va: int, size: int, name: str, cs_arch: Any, cs_mode: Any
 ) -> FunctionUnit | None:
-    from rebrew.binary_loader import extract_raw_bytes
+    from rebrew.formats.binary_loader import extract_raw_bytes
 
     if size <= 0:
         return None

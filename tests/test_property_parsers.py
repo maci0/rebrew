@@ -502,7 +502,7 @@ def test_rel32_target_bounds(blob: bytes, fn_va: int) -> None:
 @given(st.binary(max_size=64))
 def test_trim_trailing_padding_invariants(data: bytes) -> None:
     """Trimmed length ≤ len; stripped suffix is all padding; prefix is padding-free."""
-    from rebrew.binary_loader import PADDING_BYTES
+    from rebrew.formats.binary_loader import PADDING_BYTES
     from rebrew.sections import trim_trailing_padding
 
     n = trim_trailing_padding(data)
@@ -909,8 +909,8 @@ def test_build_coverage_data_reorder_invariant(statuses: list[str]) -> None:
     import random
 
     from rebrew.annotation import Annotation
-    from rebrew.binary_loader import load_binary
     from rebrew.catalog.grid import build_coverage_data
+    from rebrew.formats.binary_loader import load_binary
 
     fixtures = Path(__file__).parent / "fixtures"
     info = load_binary(fixtures / "mini_pe.exe")
@@ -976,7 +976,7 @@ def test_code_relocs_are_valid_slots(code: bytes) -> None:
     """The 16-bit reloc scan (omf16._code_relocs) must always return
     distinct, in-bounds offsets — never overlapping positions or out-of-
     range indices, on arbitrary bytes."""
-    from rebrew.omf16 import _code_relocs
+    from rebrew.formats.omf16 import _code_relocs
 
     relocs = _code_relocs(code, 0, len(code))
     assert len(relocs) == len(set(relocs))  # no duplicate offsets
@@ -1048,7 +1048,7 @@ def test_parse_omf16_random_bytes_no_crash(blob: bytes) -> None:
     never IndexError/struct.error/UnicodeDecodeError."""
     from contextlib import suppress
 
-    from rebrew.omf16 import Omf16Error, is_omf16, parse_omf16
+    from rebrew.formats.omf16 import Omf16Error, is_omf16, parse_omf16
 
     assert isinstance(is_omf16(blob), bool)
     with suppress(Omf16Error):
@@ -1062,7 +1062,7 @@ def test_parse_omf16_structured_records_no_crash(blob: bytes) -> None:
     (0xA0/0xC2 code, 0x90 publics, 0x96/0xCA names) without crashing."""
     from contextlib import suppress
 
-    from rebrew.omf16 import Omf16Error, is_omf16, parse_omf16
+    from rebrew.formats.omf16 import Omf16Error, is_omf16, parse_omf16
 
     assert isinstance(is_omf16(blob), bool)
     with suppress(Omf16Error):
@@ -1081,7 +1081,7 @@ def test_parse_omf16_fixture_mutation_no_crash(fixture_idx: int, noise: bytes) -
     import random
     from contextlib import suppress
 
-    from rebrew.omf16 import Omf16Error, is_omf16, parse_omf16
+    from rebrew.formats.omf16 import Omf16Error, is_omf16, parse_omf16
 
     fixtures = Path(__file__).parent / "fixtures"
     names = ("tg_msvc16.obj", "tg_msvc16_o1.obj", "tg_msvc16_far.obj")

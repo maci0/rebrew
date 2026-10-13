@@ -318,7 +318,7 @@ def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
     ``(format, arch)``; on ``OSError`` prints a warning to stderr and
     defaults to ``("pe", None)`` instead of raising.
     """
-    from rebrew.binary_loader import is_mz, is_ne
+    from rebrew.formats.binary_loader import is_mz, is_ne
 
     try:
         if is_ne(path):
@@ -331,7 +331,9 @@ def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
         )
         return "pe", None
     try:
-        from rebrew.binary_loader import detect_format_and_arch as _bl_detect_format_and_arch
+        from rebrew.formats.binary_loader import (
+            detect_format_and_arch as _bl_detect_format_and_arch,
+        )
 
         return _bl_detect_format_and_arch(path)
     except OSError:
@@ -764,7 +766,7 @@ def _add_target_locked(
     detected_lang = "C"
     if source_ext is None:
         if resolved.exists():
-            from rebrew.binary_loader import detect_source_language
+            from rebrew.formats.binary_loader import detect_source_language
 
             detected_lang, source_ext = detect_source_language(resolved)
         else:

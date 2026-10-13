@@ -138,7 +138,7 @@ class TestQualSweepCompileOverrides:
 
         from typer.testing import CliRunner
 
-        import rebrew.binary_loader
+        import rebrew.formats.binary_loader
         from rebrew import qual_sweep
 
         src = tmp_path / "f.c"
@@ -149,7 +149,9 @@ class TestQualSweepCompileOverrides:
         )
         monkeypatch.setattr(qual_sweep, "require_config", lambda **_: cfg)
         monkeypatch.setattr(qual_sweep, "select_annotation", lambda *_a, **_k: (src, sel, 0x1000))
-        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *_a: b"\x90" * 16)
+        monkeypatch.setattr(
+            rebrew.formats.binary_loader, "extract_raw_bytes", lambda *_a: b"\x90" * 16
+        )
         seen: list[tuple[object, object]] = []
 
         def _compare(*args: object, toolchain: object = None, **_k: object) -> SimpleNamespace:

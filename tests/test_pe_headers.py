@@ -1,4 +1,4 @@
-"""Tests for rebrew.pe_headers — PE header field read/patch/parity."""
+"""Tests for rebrew.formats.pe_headers — PE header field read/patch/parity."""
 
 import random
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.pe_headers import (
+from rebrew.formats.pe_headers import (
     PATCHABLE,
     header_parity,
     patch_pe_headers,
@@ -30,7 +30,7 @@ class TestReadFields:
 
     def test_returns_plain_dict_not_wrapper(self) -> None:
         """Post-2.6.0: no PeHeaderFields wrapper; index the dict directly."""
-        import rebrew.pe_headers as pe_headers
+        import rebrew.formats.pe_headers as pe_headers
 
         assert not hasattr(pe_headers, "PeHeaderFields")
         assert not hasattr(pe_headers, "COFF_HEADER_SIZE")
@@ -89,7 +89,7 @@ class TestPeChecksum:
     def test_large_file_checksum_keeps_the_length_term(self) -> None:
         """The spec ends with folded-sum + FileLength (the value may exceed
         0xFFFF).  An extra fold reduced a 108 KB file's 0x2A492 to 0xA494."""
-        from rebrew.pe_headers import _pe_checksum
+        from rebrew.formats.pe_headers import _pe_checksum
 
         data = _fixture() + b"\x00" * 200_000
         assert _pe_checksum(data) > 0xFFFF
@@ -101,7 +101,7 @@ class TestPeChecksum:
 
         pefile = pytest.importorskip("pefile")
 
-        from rebrew.pe_headers import _pe_checksum
+        from rebrew.formats.pe_headers import _pe_checksum
 
         data = _fixture() + b"\x00" * 200_000
         patched = patch_pe_headers(data, {"checksum": _pe_checksum(data)})
@@ -128,13 +128,13 @@ class TestHeaderParity:
 
 class TestPeLayout:
     def test_pe_lfanew_on_fixture(self) -> None:
-        from rebrew.pe_headers import pe_lfanew
+        from rebrew.formats.pe_headers import pe_lfanew
 
         e = pe_lfanew(_fixture())
         assert e is not None and e > 0
 
     def test_pe_lfanew_non_pe(self) -> None:
-        from rebrew.pe_headers import pe_lfanew
+        from rebrew.formats.pe_headers import pe_lfanew
 
         assert pe_lfanew(b"\x00" * 256) is None
         assert pe_lfanew(b"MZ" + b"\x00" * 62) is None
@@ -145,7 +145,7 @@ class TestPeLayout:
         assert pe_lfanew(bytes(ne)) is None
 
     def test_pe_layout_geometry(self) -> None:
-        from rebrew.pe_headers import SECTION_ENTRY_SIZE, pe_layout
+        from rebrew.formats.pe_headers import SECTION_ENTRY_SIZE, pe_layout
 
         layout = pe_layout(_fixture())
         assert layout is not None
@@ -161,12 +161,12 @@ class TestPeLayout:
             assert section.header_offset == layout.section_table_offset + SECTION_ENTRY_SIZE * index
 
     def test_pe_layout_non_pe(self) -> None:
-        from rebrew.pe_headers import pe_layout
+        from rebrew.formats.pe_headers import pe_layout
 
         assert pe_layout(b"\x00" * 256) is None
 
     def test_find_section(self) -> None:
-        from rebrew.pe_headers import find_section
+        from rebrew.formats.pe_headers import find_section
 
         data = _fixture()
         first = find_section(data, ".text")
@@ -175,7 +175,7 @@ class TestPeLayout:
         assert find_section(data, ".nope") is None
 
     def test_sections_at_clips_short_buffer(self) -> None:
-        from rebrew.pe_headers import SECTION_ENTRY_SIZE, pe_layout, sections_at
+        from rebrew.formats.pe_headers import SECTION_ENTRY_SIZE, pe_layout, sections_at
 
         layout = pe_layout(_fixture())
         assert layout is not None
@@ -193,7 +193,7 @@ class TestPeLayout:
 
 def _assert_pe_layout_shape(layout: object) -> None:
     """Invariants on a successfully decoded PeLayout."""
-    from rebrew.pe_headers import PeLayout, PeSection
+    from rebrew.formats.pe_headers import PeLayout, PeSection
 
     assert isinstance(layout, PeLayout)
     assert layout.e_lfanew >= 0
@@ -215,7 +215,7 @@ def _assert_pe_layout_shape(layout: object) -> None:
 
 def _exercise_pe_headers(blob: bytes) -> None:
     """Run every public pe_headers entry point; assert shaped output or None."""
-    from rebrew.pe_headers import (
+    from rebrew.formats.pe_headers import (
         _pe_checksum,
         find_section,
         pe_layout,
@@ -303,7 +303,7 @@ def test_pe_headers_patch_read_roundtrip(label: str, value: int) -> None:
     after = read_pe_header_fields(patched)
     assert after is not None
     # Writers mask to the field width; compare the masked form.
-    from rebrew.pe_headers import _FIELD_SPECS
+    from rebrew.formats.pe_headers import _FIELD_SPECS
 
     size = next(s for _o, s, lab in _FIELD_SPECS if lab == label)
     expected = value & ((1 << (8 * size)) - 1)
@@ -317,7 +317,7 @@ def test_pe_headers_patch_read_roundtrip(label: str, value: int) -> None:
 
 class TestPeImageBase:
     def test_pe32(self) -> None:
-        from rebrew.pe_headers import pe_image_base
+        from rebrew.formats.pe_headers import pe_image_base
 
         assert pe_image_base(_fixture()) == 0x400000
 
@@ -326,14 +326,14 @@ class TestPeImageBase:
 
         from bin_util import make_pe
 
-        from rebrew.pe_headers import pe_image_base
+        from rebrew.formats.pe_headers import pe_image_base
 
         data = make_pe(b"\x90" * 8, image_base=0x140000000, pe32_plus=True)
         assert pe_image_base(data) == 0x140000000
         assert pe_image_base(make_pe(b"\x90" * 8, image_base=0x400000)) == 0x400000
 
     def test_non_pe(self) -> None:
-        from rebrew.pe_headers import pe_image_base
+        from rebrew.formats.pe_headers import pe_image_base
 
         assert pe_image_base(b"\x00" * 256) is None
 
@@ -344,7 +344,7 @@ class TestPe32PlusFieldWidths:
 
         from bin_util import make_pe
 
-        from rebrew.pe_headers import header_parity, patch_pe_headers, read_pe_header_fields
+        from rebrew.formats.pe_headers import header_parity, patch_pe_headers, read_pe_header_fields
 
         data = make_pe(b"\x90" * 8, image_base=0x140000000, pe32_plus=True)
         fields = read_pe_header_fields(data)

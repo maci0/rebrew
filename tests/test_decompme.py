@@ -137,7 +137,7 @@ class TestBuildPayload:
             "// FUNCTION: T 0x401000\n// SIZE: 16\nint func_a(void){return 0;}\n", encoding="utf-8"
         )
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes",
+            "rebrew.formats.binary_loader.extract_raw_bytes",
             lambda p, va, size: b"\x55\x8b\xec\x5d\xc3" * 3,
         )
         payload = decompme.build_scratch_payload(
@@ -176,7 +176,8 @@ class TestBuildPayload:
         src = cfg.reversed_dir / "func_a.c"
         src.write_bytes(b"// FUNCTION: T 0x401000\n// \xa9 note\nint func_a(void){return 0;}\n")
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x55\x8b\xec\x5d\xc3"
+            "rebrew.formats.binary_loader.extract_raw_bytes",
+            lambda p, va, size: b"\x55\x8b\xec\x5d\xc3",
         )
         payload = decompme.build_scratch_payload(
             cfg,
@@ -207,7 +208,8 @@ class TestBuildPayload:
         src = cfg.reversed_dir / os.fsdecode(b"caf\xe9.c")
         src.write_text("int func_a(void){return 0;}\n", encoding="utf-8")
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x55\x8b\xec\x5d\xc3"
+            "rebrew.formats.binary_loader.extract_raw_bytes",
+            lambda p, va, size: b"\x55\x8b\xec\x5d\xc3",
         )
         payload = decompme.build_scratch_payload(
             cfg,
@@ -233,7 +235,7 @@ class TestBuildPayload:
         cfg = _cfg(tmp_path)
         src = tmp_path / "f.c"
         src.write_text("int f(void){return 0;}\n", encoding="utf-8")
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"")
+        monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: b"")
         with pytest.raises(ValueError, match="failed to extract"):
             decompme.build_scratch_payload(
                 cfg,
@@ -296,7 +298,7 @@ class TestFunctionIsolation:
             encoding="utf-8",
         )
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x90" * 16
+            "rebrew.formats.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x90" * 16
         )
         payload = decompme.build_scratch_payload(
             cfg,
@@ -329,7 +331,7 @@ class TestFunctionIsolation:
         cfg.reversed_dir.mkdir(exist_ok=True)
         src = cfg.reversed_dir / "two.c"
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x90" * 16
+            "rebrew.formats.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x90" * 16
         )
         cases = (
             (
@@ -674,7 +676,7 @@ class TestCli:
         )
         monkeypatch.setattr(decompme, "require_config", lambda target=None, json_mode=False: cfg)
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes",
+            "rebrew.formats.binary_loader.extract_raw_bytes",
             lambda p, va, size: b"\x55\x8b\xec\x5d\xc3" * 3,
         )
         monkeypatch.setattr(

@@ -14,7 +14,7 @@ counts of the TLS directory, load config, resources, relocations, exports,
 and imports.
 
 The loader directories LIEF parses but does not enumerate are reported in
-full through :mod:`rebrew.pe_symbols`: the delay-import slots (with the DLL
+full through :mod:`rebrew.formats.pe_symbols`: the delay-import slots (with the DLL
 and ordinal), the TLS callback addresses, the SafeSEH handler table, the
 ``/guard:cf`` target table, plus the version resource's company, product,
 file version, and original filename.  A value the image does not carry is
@@ -43,16 +43,16 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.binary_loader import decode_binary_name, detect_format_and_arch
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
-from rebrew.pe_headers import PE32_PLUS_MAGIC
-from rebrew.pe_symbols import (
+from rebrew.formats.binary_loader import decode_binary_name, detect_format_and_arch
+from rebrew.formats.pe_headers import PE32_PLUS_MAGIC
+from rebrew.formats.pe_symbols import (
     PeDirectories,
     export_table,
     forwarder_target,
     pe_directories,
 )
-from rebrew.pe_symbols import (
+from rebrew.formats.pe_symbols import (
     as_list as _safe_list,
 )
 from rebrew.utils import untrusted_ident
@@ -318,7 +318,7 @@ def _pe_payload(pe: Any, path: Path, size: int, arch: str) -> dict[str, object]:
     """Full PE payload: identity, sections, security, exports, debug, Rich.
 
     The loader-directory blocks (delay imports, TLS callbacks, SafeSEH, CFG
-    targets, the security cookie) come from :func:`rebrew.pe_symbols.pe_directories`,
+    targets, the security cookie) come from :func:`rebrew.formats.pe_symbols.pe_directories`,
     the shared reader, so the report and the symbol export never disagree.
     """
     security = _security_flags(pe)

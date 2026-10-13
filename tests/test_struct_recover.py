@@ -467,7 +467,7 @@ class TestMemberOffsetCap:
     def test_uses_image_base(self, tmp_path, monkeypatch) -> None:
         from types import SimpleNamespace
 
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
         from rebrew import struct_recover as sr
 
         monkeypatch.setattr(bl, "load_binary", lambda _p: SimpleNamespace(image_base=0x400000))
@@ -477,7 +477,7 @@ class TestMemberOffsetCap:
     def test_unloadable_binary_warns_and_falls_back(self, tmp_path, monkeypatch, capsys) -> None:
         from types import SimpleNamespace
 
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
         from rebrew import struct_recover as sr
 
         def boom(_p):

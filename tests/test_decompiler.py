@@ -1258,7 +1258,7 @@ class TestM2CBackend:
         assert fetch_m2c(bin_path, 0x1000, tmp_path) is None
 
     def test_x86_returns_none(self, tmp_path: Path, monkeypatch) -> None:
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
         from rebrew.decompiler import fetch_m2c
 
         bin_path = tmp_path / "x.exe"
@@ -1272,7 +1272,7 @@ class TestM2CBackend:
 
     def test_fetch_runs_m2c_with_stdin_asm(self, tmp_path: Path, monkeypatch) -> None:
 
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
         from rebrew.decompiler import fetch_m2c
 
         bin_path = tmp_path / "x.elf"
@@ -1304,7 +1304,7 @@ class TestM2CBackend:
 
     def test_fetch_passes_ctx_when_present(self, tmp_path: Path, monkeypatch) -> None:
 
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
         from rebrew.decompiler import fetch_m2c
 
         (tmp_path / "ctx.c").write_text("struct Foo { int x; };\n", encoding="utf-8")
@@ -1333,7 +1333,7 @@ class TestM2CBackend:
     def test_m2c_end_to_end(self, tmp_path: Path, monkeypatch) -> None:
         """Real m2c subprocess on a synthetic MIPS function (integration)."""
 
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
         from rebrew.decompiler import fetch_m2c
 
         bin_path = tmp_path / "x.elf"
@@ -1366,7 +1366,7 @@ class TestM2CPpc:
     def test_fetch_ppc_uses_mwcc_target(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
         from rebrew.decompiler import fetch_m2c
 
         bin_path = tmp_path / "x.elf"

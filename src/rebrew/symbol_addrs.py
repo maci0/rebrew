@@ -21,7 +21,7 @@ Output modes (one per run, all sorted by VA):
   scan (:func:`rebrew.analysis.scan_references`).
 
 ``--pe-symbols`` extends either mode with symbols named from the target PE's
-data directories (:mod:`rebrew.pe_symbols`): the entry point, exports,
+data directories (:mod:`rebrew.formats.pe_symbols`): the entry point, exports,
 ``__imp_<dll>_<name>`` IAT slots, delay-load slots, TLS callbacks, SafeSEH
 handlers, ``/guard:cf`` targets, and the security cookie.
 
@@ -58,7 +58,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.pe_symbols import KIND_FUNC, PeSymbolTable, pe_symbols
+from rebrew.formats.pe_symbols import KIND_FUNC, PeSymbolTable, pe_symbols
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import atomic_write_text, parse_int_literal
 
@@ -298,7 +298,7 @@ def build_references(rows: list[SymbolRow], binary: Path) -> dict[int, list[str]
     unresolved caller is visible instead of dropped.
     """
     from rebrew.analysis import scan_references
-    from rebrew.binary_loader import load_binary
+    from rebrew.formats.binary_loader import load_binary
 
     targets = {row.va for row in rows if row.va is not None}
     if not targets:

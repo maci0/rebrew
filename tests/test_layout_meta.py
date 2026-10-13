@@ -18,8 +18,8 @@ import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
+from rebrew.formats.pe_headers import pe_header
 from rebrew.layout_meta import extract_layout, write_package
-from rebrew.pe_headers import pe_header
 
 _IMAGE_BASE = 0x400000
 _SEC_ALIGN = 0x1000
@@ -254,7 +254,7 @@ class TestExportNameOffsets:
 
     def test_gen_layout_unterminated_export_name_read_to_eof(self) -> None:
         """pe_image.parse_pe must match layout_meta on unterminated names."""
-        from rebrew.pe_image import parse_pe
+        from rebrew.formats.pe_image import parse_pe
 
         _sections, exports, _imports, pe = parse_pe(
             self._pe_with_one_export(0x1000, b"StraightName")
@@ -441,8 +441,8 @@ def _pe_header_dimensions(draw: st.DrawFn) -> bytes:
 
 def _assert_extract_agrees(blob: bytes, meta: object) -> None:
     """A decoded layout matches ``pe_image.parse_pe`` on the shared fields."""
+    from rebrew.formats.pe_image import parse_pe as parse_gen
     from rebrew.layout_meta import LayoutMetadata
-    from rebrew.pe_image import parse_pe as parse_gen
 
     assert isinstance(meta, LayoutMetadata)
     _assert_layout_shape(meta)

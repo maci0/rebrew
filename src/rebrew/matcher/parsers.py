@@ -5,7 +5,7 @@ object files (COFF and OMF ``.obj``, ELF ``.o``, Mach-O ``.o``) and to extract
 function bytes from linked binaries (PE, ELF, Mach-O).
 
 COFF, ELF, and Mach-O parsing is backed by LIEF.  LIEF cannot read OMF:
-OMF16 objects go through :mod:`rebrew.omf16`, other OMF objects are
+OMF16 objects go through :mod:`rebrew.formats.omf16`, other OMF objects are
 converted to COFF with objconv first.
 """
 
@@ -17,9 +17,9 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from rebrew.binary_loader import PADDING_BYTES as _PADDING_BYTES
-from rebrew.binary_loader import decode_binary_name
 from rebrew.coff_reloc import CoffRelocRecord
+from rebrew.formats.binary_loader import PADDING_BYTES as _PADDING_BYTES
+from rebrew.formats.binary_loader import decode_binary_name
 
 _PADDING_STRIP = bytes(_PADDING_BYTES)
 
@@ -116,7 +116,7 @@ def parse_obj_symbol_and_relocs(
         log.debug("cannot read object %s: %s", obj_path, exc)
         return None, None, []
     if _detect_obj_format_data(magic) == "omf":
-        from rebrew.omf16 import is_omf16, parse_obj_omf16
+        from rebrew.formats.omf16 import is_omf16, parse_obj_omf16
 
         data = Path(obj_path).read_bytes()
         if is_omf16(data):
@@ -562,7 +562,7 @@ def extract_function_from_binary(bin_path: Path, va: int, size: int) -> bytes | 
     Supports PE, ELF, and Mach-O via ``binary_loader``.
     """
     try:
-        from rebrew.binary_loader import extract_bytes_at_va, load_binary
+        from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 
         info = load_binary(bin_path)
         return extract_bytes_at_va(info, va, size, padding_bytes=tuple(_PADDING_BYTES))

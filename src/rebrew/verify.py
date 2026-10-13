@@ -244,7 +244,7 @@ def verify_entry(
     )
     symbol = _entry_symbol(entry)
 
-    from rebrew.binary_loader import extract_raw_bytes
+    from rebrew.formats.binary_loader import extract_raw_bytes
 
     target_bytes = extract_raw_bytes(cfg.target_binary, entry.va, entry.size)
     if not target_bytes:
@@ -342,7 +342,7 @@ def verify_entry(
         # but never produced, so every row was NULL).  Best-effort: any
         # disassembly failure leaves it None.
         try:
-            from rebrew.binary_loader import capstone_mode_for_arch
+            from rebrew.formats.binary_loader import capstone_mode_for_arch
             from rebrew.matcher import diff_functions
 
             d = diff_functions(
@@ -892,7 +892,7 @@ def main(
     # too — otherwise every stub would burn the compile loop into
     # COMPILE_ERROR rows.  (The original skip predated the 16-bit profiles
     # and, later, named only msvc-1.52, which hid the other object pipelines.)
-    from rebrew.binary_loader import is_ne
+    from rebrew.formats.binary_loader import is_ne
 
     if getattr(cfg, "target_binary", None) and is_ne(cfg.target_binary):
         from rebrew.compiler.toolchain import TOOLCHAINS
@@ -1070,7 +1070,7 @@ def main(
         # reporting a vacuous pass.
         _dsec = None
         try:
-            from rebrew.binary_loader import load_binary
+            from rebrew.formats.binary_loader import load_binary
 
             _rb = load_binary(cfg.target_binary)
             _bb = load_binary(built_path)

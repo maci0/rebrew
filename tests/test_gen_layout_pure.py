@@ -13,13 +13,13 @@ import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
+from rebrew.formats.pe_image import derive_link_options, parse_pe
 from rebrew.gen_layout import (
     _imp_suffix,
     _resolve_imports,
     gen_crt_imports,
     gen_def,
 )
-from rebrew.pe_image import derive_link_options, parse_pe
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "mini_pe.exe"
 
@@ -53,7 +53,7 @@ class TestParsePe:
     def test_ordinal_only_import_does_not_break_crt_imports(self) -> None:
         """An ordinal-only import (no name) must carry the ``include`` key so
         gen_crt_imports' ``imp["include"]`` does not raise KeyError."""
-        from rebrew.pe_image import PeImport
+        from rebrew.formats.pe_image import PeImport
 
         resolved = _resolve_imports([PeImport("SHELL32.dll", None, 42)], set())
         assert resolved[0]["include"] is None
@@ -97,7 +97,7 @@ class TestEmitters:
         assert "linker input order also determines IAT placement" in text
 
     def test_resolve_imports_unknown_suffix(self) -> None:
-        from rebrew.pe_image import PeImport
+        from rebrew.formats.pe_image import PeImport
 
         out = _resolve_imports([PeImport("KERNEL32.dll", "Nope", None)], set())
         assert out[0]["include"] is None
@@ -473,9 +473,9 @@ def _assert_parsed(
     pe: dict[str, object],
 ) -> None:
     """Invariants of a successful ``parse_pe``, checked against the header parser."""
-    from rebrew.pe_headers import pe_header as parse_header
-    from rebrew.pe_headers import sections_at
-    from rebrew.pe_image import _MAX_EXPORT_ENTRIES, PeImport, _Section
+    from rebrew.formats.pe_headers import pe_header as parse_header
+    from rebrew.formats.pe_headers import sections_at
+    from rebrew.formats.pe_image import _MAX_EXPORT_ENTRIES, PeImport, _Section
 
     e, nsec, optsz, opt, image_base = parse_header(blob)
     assert pe["e_lfanew"] == e
@@ -582,7 +582,7 @@ class TestImpSuffix:
 
     def test_vectorcall_and_fastcall_thunks_are_included(self) -> None:
         """The ``/include`` name is the thunk the import library actually has."""
-        from rebrew.pe_image import PeImport
+        from rebrew.formats.pe_image import PeImport
 
         symbols = {"__imp__Sleep@4", "__imp_hook@@12", "__imp_@keeps@4"}
         resolved = _resolve_imports(

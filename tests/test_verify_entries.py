@@ -798,8 +798,8 @@ def test_verify_entry_survives_a_raising_logger(
         reloc_offsets=[],
     )
 
-    import rebrew.binary_loader as bl_mod
     import rebrew.compiler.compile as compile_mod
+    import rebrew.formats.binary_loader as bl_mod
 
     monkeypatch.setattr(compile_mod, "compile_and_compare", lambda *a, **k: result)
     monkeypatch.setattr(bl_mod, "extract_raw_bytes", lambda *a, **k: b"\x90\x90\x90\x91")

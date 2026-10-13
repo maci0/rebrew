@@ -32,9 +32,9 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 from test_postlink import make_full_pe
 
+from rebrew.formats.pe_headers import pe_header
 from rebrew.gen_layout import fmt_layout_toml
 from rebrew.layout_meta import extract_layout, load_package, write_package
-from rebrew.pe_headers import pe_header
 
 #: Patches land in the header block, which is where the parser branches.
 _MUTATE_SPAN = 0x400

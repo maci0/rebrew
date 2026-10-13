@@ -8,7 +8,7 @@ import pytest
 from bin_util import make_pe
 from typer.testing import CliRunner
 
-from rebrew.import_table import parse_import_table
+from rebrew.formats.import_table import parse_import_table
 from rebrew.report import app
 from rebrew.status_style import (
     STATUS_HEX,
@@ -407,7 +407,7 @@ class TestAdjacencyListLabels:
         import rebrew.report as report_mod
 
         monkeypatch.setattr(
-            "rebrew.ne_loader.enumerate_ne_functions",
+            "rebrew.formats.ne_loader.enumerate_ne_functions",
             lambda info: [SimpleNamespace(va=0x1000, size=0x20)],
         )
         assert report_mod._ne_ranges(None) == [(0x1000, 0x1020, "va:0x00001000")]

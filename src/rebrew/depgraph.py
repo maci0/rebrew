@@ -846,8 +846,8 @@ def main(
                 json_mode=json_output,
             )
         try:
-            from rebrew.binary_loader import load_binary, section_dict
             from rebrew.data_scan import build_source_known_functions, find_dispatch_tables
+            from rebrew.formats.binary_loader import load_binary, section_dict
 
             info = load_binary(bin_path)
             sec_dict = section_dict(info)
@@ -880,8 +880,8 @@ def main(
                 json_mode=json_output,
             )
         try:
-            from rebrew.binary_loader import load_binary
-            from rebrew.ne_loader import enumerate_ne_functions
+            from rebrew.formats.binary_loader import load_binary
+            from rebrew.formats.ne_loader import enumerate_ne_functions
 
             info = load_binary(bin_path)
             # Map a VA to its containing function name (call sites are inside

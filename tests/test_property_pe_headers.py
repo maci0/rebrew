@@ -1,4 +1,4 @@
-"""Property-based fuzz tests for ``rebrew.pe_headers`` on untrusted images.
+"""Property-based fuzz tests for ``rebrew.formats.pe_headers`` on untrusted images.
 
 ``pe_headers`` is the hand-rolled PE/COFF walk behind ``rebrew build round-trip
 --fix-headers``: ``e_lfanew``, the section table, the optional-header field
@@ -27,7 +27,7 @@ from bin_util import make_pe
 from hypothesis import assume, event, given, settings
 from hypothesis import strategies as st
 
-from rebrew.pe_headers import (
+from rebrew.formats.pe_headers import (
     PATCHABLE,
     SECTION_ENTRY_SIZE,
     header_parity,

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from bin_util import make_pe_stub
 
-import rebrew.binary_loader as bl
+import rebrew.formats.binary_loader as bl
 
 
 class TestLoadMacho:

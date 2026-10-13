@@ -345,7 +345,7 @@ def pull_data(
 
     sections: list[Any] = []
     try:
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         binary_info = load_binary(cfg.target_binary, getattr(cfg, "binary_format", "auto"))
         sections = list(binary_info.sections.values())

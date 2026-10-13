@@ -1,4 +1,4 @@
-"""pe_headers.py — read/patch PE header fields for byte-identical reconstruction.
+"""formats/pe_headers.py — read/patch PE header fields for byte-identical reconstruction.
 
 Byte-identical output needs more than matched function bytes: the PE header
 carries linker/OS/subsystem versions, DLL characteristics (TSAWARE), stack/

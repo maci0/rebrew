@@ -728,7 +728,7 @@ def _load_target_binary(cfg: ProjectConfig) -> Any | None:
     bin_path = getattr(cfg, "target_binary", None)
     if not bin_path or not Path(bin_path).exists():
         return None
-    from rebrew.binary_loader import load_binary
+    from rebrew.formats.binary_loader import load_binary
 
     try:
         return load_binary(Path(bin_path))
@@ -815,7 +815,7 @@ def _collect_new_functions(
         nonlocal _lib_probe_warned
         if _lib_index is None:
             return []
-        from rebrew.binary_loader import extract_raw_bytes
+        from rebrew.formats.binary_loader import extract_raw_bytes
         from rebrew.lib_match import match_bytes
 
         try:
@@ -1078,7 +1078,7 @@ def _zero_fill_tail_checker(cfg: ProjectConfig) -> Callable[[dict[str, Any]], bo
         sections: Any = cache.get("sections", missing)
         if sections is missing:
             try:
-                from rebrew.binary_loader import load_binary
+                from rebrew.formats.binary_loader import load_binary
 
                 sections = load_binary(cfg.target_binary).sections
             except (OSError, ValueError, KeyError, AttributeError, ImportError):
@@ -1182,7 +1182,7 @@ def _postlink_rewritten_checker(cfg: ProjectConfig) -> Callable[[int, int], bool
     the conservative answer, since claiming a rewrite that did not happen would
     invent work.
     """
-    from rebrew.binary_loader import load_binary, va_to_file_offset
+    from rebrew.formats.binary_loader import load_binary, va_to_file_offset
     from rebrew.status import find_built_image
 
     cache: dict[str, Any] = {}

@@ -213,7 +213,7 @@ parse via objconv; vendored from the archive.org `BorlandC55` item),
 `rebrew/watcom:2.0-win16`, the compiler running natively inside it; pinned
 to the dated 2026-09-01 snapshot), `borland-3.1` (Turbo C++ 3.1, 16-bit DOS under DOSBox via
 `rebrew.compiler.tc16`; image `rebrew/borland:3.1-win16`; TCC.EXE produces
-Borland 16-bit OMF that parses via `rebrew.omf16`; vendored
+Borland 16-bit OMF that parses via `rebrew.formats.omf16`; vendored
 from the archive.org `turboc3.1_202112` item; the classic
 DOS-game compiler, e.g. id Software's early titles; verified:
 `compile_and_compare` returns EXACT against a TCC-built object),
@@ -328,7 +328,7 @@ Notes:
   `profile = "watcom-2.0-win32"` compiles through the toolchain runner in
   `rebrew.compiler.compile` (`-fo=`/`-I` flag shape, docker image), so
   `rebrew test`/`verify` work for Watcom targets.
-  objconv crashes on 16-bit OMF: `rebrew.omf16` now decodes the
+  objconv crashes on 16-bit OMF: `rebrew.formats.omf16` now decodes the
   MSVC 1.52 dialect in both flavors (unoptimized: code from 0xA0 records,
   publics from MODEND; **/O-optimized: code from 0xC2 records, publics
   from 0x96/0xCA name lists**; the GA flag sweep emits this), so 16-bit
@@ -718,13 +718,13 @@ Notes:
 
 - **`msvc-1.5`/`msvc-1.52` (16-bit)** compile through their `cl15`/`cl16`
   image wrappers (DOSBox inside the image); objects are 16-bit
-  OMF decoded by `rebrew.omf16`: verified end-to-end (VC 1.5
+  OMF decoded by `rebrew.formats.omf16`: verified end-to-end (VC 1.5
   produces a parseable `push bp`-style function object).
 - **`msvc-1.0` (VC 1.0)** compiles end-to-end: the tree was assembled from
   the WinWorld 3.5" floppy set (SZDD payload decompressed, pinned tarball);
   CL.EXE is a Phar Lap TNT DOS-extender (PE32) that runs headless under
   DOSBox in the image (`cl10` wrapper), producing 16-bit OMF decoded
-  by `rebrew.omf16`; smoke-gated and verified (the object for the
+  by `rebrew.formats.omf16`; smoke-gated and verified (the object for the
   smoke source is byte-identical to 1.5/1.52's, the shared 16-bit codegen).
 - **Service packs share compiler binaries**: the real VC 6.0 compiler line is
   **12.00.8168 through SP3** (the RTM..SP3 driver is byte-identical; sha
@@ -871,7 +871,7 @@ gates byte-reproducibility: every image-backed MSVC profile; `msvc-1.0`
 **16-bit Windows 3.x NE executables** (MZ stub + `NE` header; e.g. 1990s
 DOS/Windows games and Borland Delphi 1.0 apps) are now parsed natively:
 
-1. **NE parsing: DONE** (`src/rebrew/ne_loader.py`): MZ `e_lfanew` → NE
+1. **NE parsing: DONE** (`src/rebrew/formats/ne_loader.py`): MZ `e_lfanew` → NE
    header (segment table with sector math, resident name table = exports,
    module reference + imported names = Win16 imports).  Segments become
    `BinaryInfo` sections with synthetic flat VAs `(segment << 16 | offset)`,
@@ -885,7 +885,7 @@ DOS/Windows games and Borland Delphi 1.0 apps) are now parsed natively:
 2. **16-bit disassembly: DONE**: the `x86_16` arch preset (`CS_MODE_16`,
    2-byte pointers) makes `asm`, `similar`, and `cu_map` disassemble
    segmented x86-16 (far calls, segment registers).
-3. **Function enumeration: DONE**: `rebrew.ne_loader.enumerate_ne_functions`
+3. **Function enumeration: DONE**: `rebrew.formats.ne_loader.enumerate_ne_functions`
    runs a 16-bit linear sweep (`push bp` / `enter` prologs, `ret`/`retf`
    epilogs) that handles both conventions; Borland (skip marker+name) and
    MSVC (code from offset 0, with the segment entry forced as a function
@@ -1081,7 +1081,7 @@ yara /tmp/test.yar target.dll
 | **click** | Shell completion for the installed CLI (`init.py`) |
 | **diskcache** | Persistent shared compile cache (`.rebrew/compile_cache/` via `compiler/cache.py`; GA same-run memo is in-memory) |
 | **httpx** | HTTP client for Ghidra/ReVa MCP communication (`ghidra/cli.py`, `skeleton.py`, `decompiler.py`) |
-| **lief** | PE/ELF/Mach-O parsing: core dependency for `binary_loader.py`, `matcher/parsers.py` |
+| **lief** | PE/ELF/Mach-O parsing: core dependency for `formats/binary_loader.py`, `matcher/parsers.py` |
 | **numpy** | Numeric computation |
 | **python-flirt** | FLIRT signature matching for library identification (`flirt.py`) |
 | **rich** | Terminal formatting |

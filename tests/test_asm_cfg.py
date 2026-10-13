@@ -20,8 +20,8 @@ import typer
 from typer.testing import CliRunner, Result
 
 import rebrew.asm as asm
-import rebrew.binary_loader as binary_loader
 import rebrew.cfg_ged as cfg_ged
+import rebrew.formats.binary_loader as binary_loader
 
 runner = CliRunner()
 

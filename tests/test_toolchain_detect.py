@@ -662,7 +662,7 @@ class TestOptLevelFingerprint:
             td, "load_binary", lambda *a, **k: _fake_binary([".text"], text=text_bytes)
         )
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_bytes_at_va",
+            "rebrew.formats.binary_loader.extract_bytes_at_va",
             lambda binfo, va, size: text_bytes[:size],
         )
         from rebrew.toolchain_detect import detect_toolchain
@@ -721,7 +721,7 @@ class TestOptLevelFingerprint:
         )
         monkeypatch.setattr(td, "load_binary", lambda *a, **k: _fake_binary([".text"]))
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_bytes_at_va",
+            "rebrew.formats.binary_loader.extract_bytes_at_va",
             lambda binfo, va, size: bytes.fromhex("ff 74 24 04 e8") * 6,
         )
         info = detect_toolchain(Path("/tmp/nonexistent-prog.exe"))

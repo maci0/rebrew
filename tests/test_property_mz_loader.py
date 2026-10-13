@@ -89,7 +89,7 @@ def test_parse_mz_header_invariants(mz_dir: Path, blob: bytes) -> None:
     ``ValueError``, or every field is in range: the code region is
     non-negative, ends inside the file, and the entry lands in real-mode
     address space."""
-    from rebrew.binary_loader import parse_mz_header
+    from rebrew.formats.binary_loader import parse_mz_header
 
     path = _write(mz_dir, "inv.exe", blob)
     try:
@@ -110,7 +110,7 @@ def test_mz_section_round_trips_header_geometry(mz_dir: Path, blob: bytes) -> No
     ``.text`` section the loader builds must describe the same code region the
     header parser reported, and the bytes it holds are the file's bytes at
     ``code_offset``."""
-    from rebrew.binary_loader import extract_bytes_at_va, load_binary, parse_mz_header
+    from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary, parse_mz_header
 
     path = _write(mz_dir, "round.exe", blob)
     try:
@@ -139,7 +139,7 @@ def test_mz_probes_reject_non_mz_bytes(mz_dir: Path, blob: bytes, lfanew: int) -
     verdict, the parser either refuses with ``ValueError`` or describes a code
     region that lies inside the file, and a success implies the input really
     did carry an MZ header."""
-    from rebrew.binary_loader import is_mz, parse_mz_header
+    from rebrew.formats.binary_loader import is_mz, parse_mz_header
 
     data = bytearray(blob)
     if len(data) >= _HEADER_SIZE:
@@ -161,7 +161,7 @@ def test_is_mz_rejects_wrappers(mz_dir: Path, lfanew: int) -> None:
     """A 16-bit or 32-bit wrapper signature at ``e_lfanew`` means the file is
     not a plain MZ, so ``load_binary`` must not route it to the DOS path; a
     signature that is absent or unreachable leaves it a plain MZ."""
-    from rebrew.binary_loader import is_mz
+    from rebrew.formats.binary_loader import is_mz
 
     head = bytearray(0x40)
     head[0:2] = b"MZ"

@@ -163,7 +163,7 @@
         <mxCell id="meta" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;identity, fields, origins, verification&lt;br&gt;0444; locked atomic CLI/API writes&lt;br&gt;metadata.py + metadata_model.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="302" width="260" height="90" as="geometry"/>
         </mxCell>
-        <mxCell id="bin" value="&lt;b&gt;target binary&lt;/b&gt;&lt;br&gt;PE / ELF / Mach-O / NE&lt;br&gt;binary_loader.py (LIEF) → bytes at VA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="bin" value="&lt;b&gt;target binary&lt;/b&gt;&lt;br&gt;PE / ELF / Mach-O / NE&lt;br&gt;formats/binary_loader.py (LIEF) → bytes at VA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="408" width="260" height="56" as="geometry"/>
         </mxCell>
 
@@ -328,7 +328,7 @@
         <mxCell id="nat" value="&lt;b&gt;recompile service (remote)&lt;/b&gt;&lt;br&gt;POST /api/v1/compile + artifact GET&lt;br&gt;same images, backend-pinned cache id&lt;br&gt;&lt;br&gt;[compiler] recompile_url&lt;br&gt;or REBREW_RECOMPILE_URL&lt;br&gt;opt-in emit_assembly tap" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1260" y="116" width="360" height="170" as="geometry"/>
         </mxCell>
-        <mxCell id="obj" value="&lt;b&gt;Object parse&lt;/b&gt;&lt;br&gt;parsers.py  COFF/ELF/Mach-O via LIEF&lt;br&gt;omf16.py    16-bit OMF (MSVC 1.52 dialect)&lt;br&gt;→ function bytes + reloc slot offsets" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="obj" value="&lt;b&gt;Object parse&lt;/b&gt;&lt;br&gt;parsers.py  COFF/ELF/Mach-O via LIEF&lt;br&gt;formats/omf16.py    16-bit OMF (MSVC 1.52 dialect)&lt;br&gt;→ function bytes + reloc slot offsets" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="880" y="308" width="360" height="100" as="geometry"/>
         </mxCell>
         <mxCell id="cmake" value="&lt;b&gt;CMake bridge&lt;/b&gt;&lt;br&gt;rebrew cmake-toolchain --output cmake/&lt;br&gt;rebrew cmake-driver <cl|link|lib> -- wrap docker run&lt;br&gt;same images, same wineprefix flock" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">

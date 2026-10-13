@@ -23,7 +23,6 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.binary_model import BinaryInfo
 from rebrew.cli import (
     AllTargetsOption,
     TargetOption,
@@ -34,7 +33,8 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
-from rebrew.pe_symbols import as_list
+from rebrew.formats.binary_model import BinaryInfo
+from rebrew.formats.pe_symbols import as_list
 from rebrew.present import BAR_WIDTH as _BAR_WIDTH
 from rebrew.present import filled_cells as _filled
 from rebrew.present import ratio_bar as _bar
@@ -660,7 +660,7 @@ def _text_gaps(cfg: ProjectConfig, spans: list[tuple[int, int]]) -> tuple[int, i
     if not cfg.target_binary.is_file():
         return None
     try:
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         info = load_binary(cfg.target_binary)
         sec = info.sections[".text"]
@@ -1026,7 +1026,7 @@ def _target_binary(cfg: ProjectConfig) -> tuple[Path, BinaryInfo] | None:
     if path is None or not Path(path).is_file():
         return None
     try:
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         return Path(path), load_binary(Path(path))
     except (OSError, KeyError, ValueError):

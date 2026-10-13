@@ -1,4 +1,4 @@
-"""import_table.py — Import-table parsing and import-stub detection.
+"""formats/import_table.py — Import-table parsing and import-stub detection.
 
 Parses an import table via LIEF — a PE's DLL name → API name → IAT slot VA, or
 an ELF's DT_NEEDED libraries and undefined dynamic symbols — and detects the
@@ -16,7 +16,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from rebrew.pe_headers import PE32_PLUS_MAGIC, pe_layout
+from rebrew.formats.pe_headers import PE32_PLUS_MAGIC, pe_layout
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
     parse failures.
 
     Memoized per ``(resolved path, mtime_ns, size, ino)`` (bounded dict +
-    lock, mirroring ``rebrew.binary_loader.iat_slot_vas``): one run parses the
+    lock, mirroring ``rebrew.formats.binary_loader.iat_slot_vas``): one run parses the
     target from the report, pe_symbols, the binary gate, the decompiler
     dossier and the toolchain detector, and each miss re-ran a full LIEF parse
     of the same multi-megabyte image.  A rebuild at the same path invalidates
@@ -83,7 +83,7 @@ def _parse_imports(binary_path: Path) -> list[dict[str, Any]] | None:
     a different, confident-looking profile from a zero-import target.  A
     failure is never memoized, so a later call in the same run retries it.
     """
-    from rebrew.binary_loader import is_ne, load_binary
+    from rebrew.formats.binary_loader import is_ne, load_binary
 
     if is_ne(binary_path):
         try:
@@ -280,7 +280,7 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
     table = parse_import_table(binary_path)
     if not table:
         return {}
-    from rebrew.binary_loader import load_binary
+    from rebrew.formats.binary_loader import load_binary
 
     try:
         info = load_binary(binary_path)

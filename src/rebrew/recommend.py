@@ -1159,9 +1159,9 @@ def main(
     if not bin_path.exists():
         error_exit(f"Target binary not found: {bin_path}", json_mode=json_output)
 
-    from rebrew.binary_loader import load_binary
     from rebrew.catalog import build_function_registry, cached_function_list
     from rebrew.cu_map import cluster_functions
+    from rebrew.formats.binary_loader import load_binary
 
     funcs = cached_function_list(cfg)
     if not funcs:

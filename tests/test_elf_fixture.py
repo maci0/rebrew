@@ -4,7 +4,7 @@ from pathlib import Path
 
 from bin_util import make_elf
 
-from rebrew.binary_loader import load_binary
+from rebrew.formats.binary_loader import load_binary
 from rebrew.sections import sections_from_info
 
 CODE = b"\x55\x8b\xec\x5d\xc3\x90" * 8

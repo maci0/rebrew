@@ -195,7 +195,7 @@ def build_iat_region(cfg: ProjectConfig) -> frozenset[int]:
     configured thunks, both fixed for a run; the batch paths call this once
     per function, so the union is memoized and the stored ``frozenset`` is
     handed back unshared.  Invalidation keys on the binary's stat
-    fingerprint, matching :func:`rebrew.binary_loader.iat_slot_vas`, so an
+    fingerprint, matching :func:`rebrew.formats.binary_loader.iat_slot_vas`, so an
     ``iat_thunks`` edit still takes effect immediately.
     """
     binary = getattr(cfg, "target_binary", None)
@@ -217,8 +217,8 @@ def build_iat_region(cfg: ProjectConfig) -> frozenset[int]:
         # Configured jmp-stub trampolines first (works even without LIEF).
         region.update(thunks)
         # The raw import-address table (shared LIEF scan with the catalog
-        # registry — see rebrew.binary_loader.iat_slot_vas).
-        from rebrew.binary_loader import iat_slot_vas
+        # registry — see rebrew.formats.binary_loader.iat_slot_vas).
+        from rebrew.formats.binary_loader import iat_slot_vas
 
         region |= iat_slot_vas(binary)
     frozen = frozenset(region)

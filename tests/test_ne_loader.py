@@ -1,4 +1,4 @@
-"""Tests for rebrew.ne_loader — 16-bit Windows NE parsing.
+"""Tests for rebrew.formats.ne_loader — 16-bit Windows NE parsing.
 
 Builds synthetic NE executables (MZ stub + NE header + segment table) so
 the parser is exercised without depending on any real 16-bit binary.
@@ -16,7 +16,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.ne_loader import (
+from rebrew.formats.ne_loader import (
     NeFunction,
     NeParseError,
     parse_exports,
@@ -139,13 +139,13 @@ class TestParseNeHeader:
         assert hdr.module_reference_count == 0  # no modules in this build
 
     def test_not_ne_raises(self) -> None:
-        from rebrew.ne_loader import NeParseError
+        from rebrew.formats.ne_loader import NeParseError
 
         with pytest.raises(NeParseError, match="not an NE executable"):
             parse_ne_header(b"\x00" * 0x40 + b"XX" + b"\x00" * 0x3E, 0x40)
 
     def test_truncated_header_raises(self) -> None:
-        from rebrew.ne_loader import NeParseError
+        from rebrew.formats.ne_loader import NeParseError
 
         with pytest.raises(NeParseError, match="NE header truncated"):
             parse_ne_header(b"\x00" * 0x40 + b"NE\x00\x00", 0x40)
@@ -219,7 +219,7 @@ class TestParseImports:
 
 class TestLoadNeBinary:
     def test_full_segment_size_sentinel(self, tmp_path: Path) -> None:
-        from rebrew.binary_loader import extract_bytes_at_va, load_binary
+        from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 
         content = _CODE + b"\x90" * (0x10000 - len(_CODE) - 1) + b"\xc3"
         path = tmp_path / "full.ne"
@@ -234,7 +234,7 @@ class TestLoadNeBinary:
     def test_zero_filled_segment_size(
         self, tmp_path: Path, allocation: int, expected_size: int
     ) -> None:
-        from rebrew.binary_loader import extract_bytes_at_va, load_binary
+        from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 
         raw = bytearray(_build_ne(segments=[(_DATA, 1)]))
         struct.pack_into("<HHHH", raw, 0x140, 0, 0, 1, allocation)
@@ -247,8 +247,8 @@ class TestLoadNeBinary:
         assert extract_bytes_at_va(info, 0x10000, 1) == b""
 
     def test_binary_info_shape(self, tmp_path: Path) -> None:
-        from rebrew.binary_loader import load_binary
-        from rebrew.binary_model import BinaryInfo
+        from rebrew.formats.binary_loader import load_binary
+        from rebrew.formats.binary_model import BinaryInfo
 
         raw = _build_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)], modules=["KERNEL"])
         p = tmp_path / "app.ne"
@@ -287,8 +287,8 @@ class TestProbeIsCode:
 
 class TestEnumerateFunctions:
     def test_finds_function(self, tmp_path: Path) -> None:
-        from rebrew.binary_loader import load_binary
-        from rebrew.ne_loader import enumerate_ne_functions
+        from rebrew.formats.binary_loader import load_binary
+        from rebrew.formats.ne_loader import enumerate_ne_functions
 
         code = (
             b"\x01\x00"  # Borland segment index marker
@@ -307,7 +307,7 @@ class TestEnumerateFunctions:
         # Both functions must terminate with a ret epilog.
         import capstone
 
-        from rebrew.binary_loader import extract_bytes_at_va
+        from rebrew.formats.binary_loader import extract_bytes_at_va
 
         md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
         for f in funcs[:2]:
@@ -319,8 +319,8 @@ class TestEnumerateFunctions:
         # An MSVC-style segment (no Borland marker) starts directly with the
         # entry function, even when it opens with push ds/pop ax/nop/inc bp
         # rather than a push bp prolog.  The entry function must be found.
-        from rebrew.binary_loader import load_binary
-        from rebrew.ne_loader import enumerate_ne_functions
+        from rebrew.formats.binary_loader import load_binary
+        from rebrew.formats.ne_loader import enumerate_ne_functions
 
         entry = bytes.fromhex("1e 58 90 45 55 8b ec 83 ec 02 5d c3")  # entry + ret
         code = entry + bytes.fromhex("90 90 90 90") + _CODE
@@ -335,7 +335,7 @@ class TestEnumerateFunctions:
         """Regression: a corrupt segment-table entry pointing past EOF made
         ``min(length, len(data) - file_offset)`` negative, poisoning raw-size
         math downstream.  The loader must clamp to 0 instead."""
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         raw = bytearray(_build_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)]))
         # Point segment 1 at sector 0xFFFF (file offset 0xFFFF0 — past EOF).
@@ -353,7 +353,7 @@ class TestSegmentSectorZero:
         allocated zero-filled); reading offset 0 reported the MZ/NE header as
         the segment's content."""
         from rebrew.analysis import extract_bytes
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         raw = bytearray(_build_ne(segments=[(_CODE, 0x01)]))
         struct.pack_into("<H", raw, 0x100 + 0x40, 0)  # segment 1: sector offset 0
@@ -375,7 +375,7 @@ class TestSegmentSectorZero:
 def test_parse_ne_tables_random_bytes_no_crash(blob: bytes, ne_off: int) -> None:
     """Random bytes with an ``NE`` magic poke must load or raise
     ``NeParseError``/``ValueError`` — never IndexError/struct.error."""
-    from rebrew.ne_loader import load_ne_binary
+    from rebrew.formats.ne_loader import load_ne_binary
 
     data = bytearray(blob)
     if len(data) < 0x40:
@@ -405,7 +405,7 @@ def test_parse_ne_tables_random_bytes_no_crash(blob: bytes, ne_off: int) -> None
 @given(st.binary(min_size=1, max_size=48))
 def test_ne_fixture_mutation_no_crash(noise: bytes) -> None:
     """Mutations of a well-formed synthetic NE must load or raise cleanly."""
-    from rebrew.binary_loader import load_binary
+    from rebrew.formats.binary_loader import load_binary
 
     base = bytearray(_build_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)]))
     for i, b in enumerate(noise):
@@ -443,8 +443,8 @@ def test_enumerate_ne_functions_invariants(body: bytes) -> None:
     segment yields a prolog candidate at nearly every offset), so this
     checks the output contract rather than just the absence of a crash.
     """
-    from rebrew.binary_model import BinaryInfo
-    from rebrew.ne_loader import NeSegment, enumerate_ne_functions
+    from rebrew.formats.binary_model import BinaryInfo
+    from rebrew.formats.ne_loader import NeSegment, enumerate_ne_functions
 
     segment = body + b"\x55\x8b\xec\xc3"  # ensure at least one real prolog+ret
     info = BinaryInfo(path=Path("fuzz.ne"), format="ne", _data=segment)
@@ -476,8 +476,8 @@ def test_enumerate_ne_functions_sweep_is_bounded(fill: bytes) -> None:
     so each candidate decodes the rest of the segment.  The decode budget
     caps that; without it a 64 KiB segment takes hours.
     """
-    from rebrew.binary_model import BinaryInfo
-    from rebrew.ne_loader import NeSegment, enumerate_ne_functions
+    from rebrew.formats.binary_model import BinaryInfo
+    from rebrew.formats.ne_loader import NeSegment, enumerate_ne_functions
 
     segment = fill * 4096
     info = BinaryInfo(path=Path("fuzz.ne"), format="ne", _data=segment)

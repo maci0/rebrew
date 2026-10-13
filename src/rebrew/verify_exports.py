@@ -17,7 +17,6 @@ from typing import Any
 
 import typer
 
-from rebrew.binary_loader import ExportParseError, parse_exports
 from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
@@ -27,6 +26,7 @@ from rebrew.cli import (
     require_config,
     untrusted_ident,
 )
+from rebrew.formats.binary_loader import ExportParseError, parse_exports
 
 #: Names printed per direction before the listing is cut; a fully renamed
 #: export table is thousands of lines, and the counts above already say how

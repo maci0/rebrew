@@ -120,7 +120,7 @@ def _publish_detection_tables(monkeypatch: pytest.MonkeyPatch, **fields: Any) ->
 #: process-wide registry for every test that runs after it.  The mutation
 #: weight memo is positional over ``ALL_MUTATIONS``, so it is cleared with it.
 _REGISTRY_SNAPSHOTS: tuple[tuple[str, str], ...] = (
-    ("rebrew.binary_loader", "_PLUGIN_LOADERS"),
+    ("rebrew.formats.binary_loader", "_PLUGIN_LOADERS"),
     ("rebrew.compiler.cache", "_CACHE_BACKENDS"),
     ("rebrew.decompiler", "_BACKEND_MAP"),
     ("rebrew.decompiler", "_AUTO_PROBE_BACKENDS"),
@@ -1166,7 +1166,7 @@ class TestRegistryOwnership:
     @pytest.mark.parametrize(
         ("module_name", "refresh_name", "table_name"),
         [
-            ("binary_loader", "refresh_loaders", "_PLUGIN_LOADERS"),
+            ("formats.binary_loader", "refresh_loaders", "_PLUGIN_LOADERS"),
             ("compiler.cache", "refresh_cache_backends", "_CACHE_BACKENDS"),
             ("decompiler", "refresh_backends", "_BACKEND_MAP"),
             ("discover", "refresh_discoverers", "_DISCOVERER_MAP"),
@@ -1201,7 +1201,7 @@ class TestRegistryOwnership:
     def test_optional_list_registry_skips_duplicate_names(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        from rebrew import binary_loader
+        from rebrew.formats import binary_loader
 
         _install_fake_module(
             monkeypatch, "duplicate_loaders", first=lambda *a: None, second=lambda *a: None
@@ -1520,7 +1520,7 @@ class TestMsvcVersionRegistry:
 
 class TestBinaryLoaderRegistry:
     def _patch(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.binary_model import BinaryInfo
+        from rebrew.formats.binary_model import BinaryInfo
 
         def _load(path: Path, fmt: str) -> BinaryInfo | None:
             if path.name == "junk.bin":
@@ -1536,7 +1536,7 @@ class TestBinaryLoaderRegistry:
     def test_plugin_loads_unparseable_binary(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
 
         self._patch(monkeypatch)
         monkeypatch.setattr(bl, "_PLUGIN_LOADERS", bl._discover_binary_loaders())
@@ -1546,7 +1546,7 @@ class TestBinaryLoaderRegistry:
         assert info.format == "plugin"
 
     def test_no_plugin_loader_still_raises(self, tmp_path: Path) -> None:
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
 
         junk = tmp_path / "junk.bin"
         junk.write_bytes(b"\x00" * 64)
@@ -1556,7 +1556,7 @@ class TestBinaryLoaderRegistry:
     def test_wrong_return_type_loader_skipped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
 
         _install_fake_module(
             monkeypatch, "loader_plugin_dict", load=lambda path, fmt: {"format": "plugin"}
@@ -1573,7 +1573,7 @@ class TestBinaryLoaderRegistry:
         assert "expected BinaryInfo | None" in caplog.text
 
     def test_non_callable_loader_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
 
         _install_fake_module(monkeypatch, "loader_plugin_bad", load="nope")
         monkeypatch.setattr(

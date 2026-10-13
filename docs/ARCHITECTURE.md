@@ -47,7 +47,7 @@ flowchart LR
     TOOLCHAIN --> COMPILE["compiler/compile.py<br/>compile_and_compare"]
     IMG --> COMPILE
 
-    BIN["target binary (PE/ELF)"] --> LOAD["binary_loader.py<br/>load_binary (LIEF)"]
+    BIN["target binary (PE/ELF)"] --> LOAD["formats/binary_loader.py<br/>load_binary (LIEF)"]
     MERGED --> COMPILE
     COMPILE --> CMP["CompareResult<br/>matched/status/delta"]
     LOAD --> CMP
@@ -59,7 +59,7 @@ flowchart LR
     CATALOG --> DB["coverage_db.py → db/coverage-&lt;target&gt;.toml"]
     DB --> DASH["dashboard.py<br/>read-only web UI"]
 
-    LOAD --> IMPORTS["import_table.py<br/>PE/ELF/NE import table + stubs"]
+    LOAD --> IMPORTS["formats/import_table.py<br/>PE/ELF/NE import table + stubs"]
     DIFF --> SOL["matcher/solutions.py<br/>target-scoped seeds + ga_runs.jsonl"]
 ```
 
@@ -83,9 +83,9 @@ flowchart LR
 | `rebrew/decompiler.py` | Pluggable decompiler backends for pseudo-C (`r2`/`rz` ghidra and dec, Ghidra via the ReVa MCP bridge, m2c for MIPS/PPC/ARM/SH), registered through the `rebrew.decompiler_backends` entry-point group. `fetch_decompilation` is the one entry point `rebrew skeleton --decomp` calls; `"auto"` picks the first backend that answers |
 | `rebrew/llm_seed.py` | Optional LLM-assisted GA seeding for `rebrew match run --seed-llm`: asks the `[llm]` endpoint for alternative C, keeps only tree-sitter-valid single-function snippets, injects them as extra seeds. Off by default; with no endpoint the flag warns and the GA runs unchanged |
 | `rebrew/compiler/compile.py` | Compile (docker image by default; host binary only for plugin toolchains without `image`) + compare → `CompareResult` |
-| `rebrew/binary_model.py` | `BinaryInfo` / `SectionInfo`: the format-agnostic parsed-binary types every loader fills in and every consumer reads. Owns the lazy `data` read and its size cap, so a format loader never imports the dispatcher that selects it |
-| `rebrew/binary_loader.py` | PE/ELF/Mach-O via LIEF, NE via `ne_loader.py`, MZ via its own header parser → `BinaryInfo` (sections, VAs, raw bytes) |
-| `rebrew/pe_image.py` | PE32 section/export/import walk and the MSVC LINK options read off those header fields. Shared by `gen-layout` and `link-sweep`; the command modules do not own the parser |
+| `rebrew/formats/binary_model.py` | `BinaryInfo` / `SectionInfo`: the format-agnostic parsed-binary types every loader fills in and every consumer reads. Owns the lazy `data` read and its size cap, so a format loader never imports the dispatcher that selects it |
+| `rebrew/formats/binary_loader.py` | PE/ELF/Mach-O via LIEF, NE via `formats/ne_loader.py`, MZ via its own header parser → `BinaryInfo` (sections, VAs, raw bytes) |
+| `rebrew/formats/pe_image.py` | PE32 section/export/import walk and the MSVC LINK options read off those header fields. Shared by `gen-layout` and `link-sweep`; the command modules do not own the parser |
 | `rebrew/pseudo_c.py` | Deterministic rewrite of decompiler pseudo-C into C89 tokens (`sanitize_tokens`). Shared by `rebrew source fix` and Kuna seeding |
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (`ALL_MUTATIONS`: the 128 tree-sitter mutations from `mutations/*.py` plus plugin entry points), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry and the coverage grid (`grid.py`) the `db/coverage-<target>.toml` document is rendered from |
@@ -120,8 +120,8 @@ flowchart LR
 | `rebrew/pdb_info.py` | PDB metadata extraction (S_COMPILE3 compiler version + flags) |
 | `rebrew/identify_library.py` | Library-function identification backends (CRT/ZLIB marking) |
 | `rebrew/dashboard.py` | Read-only web dashboard over the `db/coverage-<target>.toml` documents |
-| `rebrew/import_table.py` | Import-table parsing (PE IAT, ELF dynamic imports, 16-bit NE module references) and `jmp [iat]` stub detection; library layer shared by analysis passes |
-| `rebrew/imports.py` | `rebrew binary imports list` inspects `import_table.py` results; `rebrew binary imports mark` records LIBRARY annotations for import stubs |
+| `rebrew/formats/import_table.py` | Import-table parsing (PE IAT, ELF dynamic imports, 16-bit NE module references) and `jmp [iat]` stub detection; library layer shared by analysis passes |
+| `rebrew/imports.py` | `rebrew binary imports list` inspects `formats/import_table.py` results; `rebrew binary imports mark` records LIBRARY annotations for import stubs |
 | `rebrew/skills.py` | Agent-skill discovery CLI (`list`/`show` subcommands) |
 | `rebrew/agent-skills/` | Bundled `SKILL.md` workflows (init, intake, workflow, matching, data analysis, ghidra sync) |
 

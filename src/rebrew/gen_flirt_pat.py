@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING, Any
 
 import typer
 
-from rebrew.archives import parse_archive as parse_archive
 from rebrew.cli import console, error_exit, json_print
+from rebrew.formats.archives import parse_archive as parse_archive
 from rebrew.utils import atomic_write_text
 
 if TYPE_CHECKING:

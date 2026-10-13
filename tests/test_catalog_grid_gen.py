@@ -120,9 +120,9 @@ def _patch_binary(
         def _boom(*_a: object, **_k: object) -> object:
             raise OSError("bad binary")
 
-        monkeypatch.setattr("rebrew.binary_loader.load_binary", _boom)
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", _boom)
     else:
-        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda p: info)
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda p: info)
     monkeypatch.setattr(
         "rebrew.catalog.grid.load_ghidra_data_labels",
         lambda src: labels if labels is not None else {},
@@ -573,7 +573,7 @@ class TestSingleBinaryParse:
                 },
             )
 
-        monkeypatch.setattr("rebrew.binary_loader.load_binary", _counting_load)
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", _counting_load)
         monkeypatch.setattr("rebrew.catalog.grid.load_ghidra_data_labels", lambda src: {})
         monkeypatch.setattr("rebrew.catalog.grid.get_globals", lambda src, cfg=None: {})
         entries = [_ann(TEXT_VA, "fn_a", "EXACT", 0x20)]
@@ -584,7 +584,7 @@ class TestSingleBinaryParse:
     def test_missing_binary_never_parses(self, monkeypatch, tmp_path: Path) -> None:
         calls: dict[str, int] = {"n": 0}
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda p: calls.__setitem__("n", calls["n"] + 1),
         )
         monkeypatch.setattr("rebrew.catalog.grid.load_ghidra_data_labels", lambda src: {})

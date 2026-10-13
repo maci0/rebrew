@@ -5,9 +5,9 @@ from pathlib import Path
 import lief
 import pytest
 
-from rebrew.binary_loader import extract_bytes_at_va, load_binary
-from rebrew.binary_model import BinaryInfo
-from rebrew.relocations import relocation_spans
+from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
+from rebrew.formats.binary_model import BinaryInfo
+from rebrew.formats.relocations import relocation_spans
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "mini_pe.exe"
 
@@ -82,7 +82,7 @@ class TestRelocationSpans:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         info = _image(tmp_path, lief.PE.RelocationEntry.BASE_TYPES.HIGHLOW)
-        monkeypatch.setattr("rebrew.relocations._MAX_SPANS", 0)
+        monkeypatch.setattr("rebrew.formats.relocations._MAX_SPANS", 0)
         with pytest.raises(ValueError, match="limit exceeded"):
             relocation_spans(info)
 

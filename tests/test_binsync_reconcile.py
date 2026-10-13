@@ -246,7 +246,7 @@ class TestDurableEvidence:
         cfg = _project(tmp_path)
         source = cfg.reversed_dir / "foo.c"
         entry = Annotation(va=0x1000, module="SERVER", symbol="foo", filepath="foo.c", size=1)
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a: b"\xc3")
+        monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a: b"\xc3")
 
         def compare(*args: Any, **kwargs: Any) -> Any:
             assert bool(entry.comparison_inputs) == (change != "batch")

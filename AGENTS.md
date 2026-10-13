@@ -89,6 +89,7 @@ Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest confi
 src/rebrew/          # package; discover modules there; do not rely on an inline inventory
 ├── matcher/         # GA engine: src/rebrew/matcher/AGENTS.md
 ├── compiler/        # compile execution, toolchains, compile cache: src/rebrew/compiler/AGENTS.md
+├── formats/         # executable, object and archive parsers: src/rebrew/formats/AGENTS.md
 ├── catalog/         # function registry + coverage grid: src/rebrew/catalog/AGENTS.md
 ├── ghidra/          # BinSync-primary field sync + MCP structural ops: src/rebrew/ghidra/AGENTS.md
 ├── binsync/         # declib BinSync state I/O: src/rebrew/binsync/AGENTS.md

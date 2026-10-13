@@ -442,7 +442,7 @@ def _native_format_and_arch(bin_path: Path) -> tuple[str, str] | None:
     """``(format, arch)`` from the header when it is not the ``pe``/``x86_32``
     that ``rebrew init`` assumes, else None (also for an unknown format or
     machine, which keeps init's default)."""
-    from rebrew.binary_loader import detect_format_and_arch
+    from rebrew.formats.binary_loader import detect_format_and_arch
 
     try:
         fmt, arch = detect_format_and_arch(bin_path)
@@ -513,7 +513,7 @@ def _warn_explicit_toolchain(binary: Path, profile: str, notes: list[str]) -> No
     """
     import logging
 
-    from rebrew.binary_loader import is_mz, is_ne
+    from rebrew.formats.binary_loader import is_mz, is_ne
 
     log = logging.getLogger(__name__)
     try:
@@ -648,7 +648,7 @@ def main(
     # 16-bit DOS/NE targets must disassemble as x86-16 — init defaults every
     # profile to x86_32, which misdecodes segmented 16-bit code — and the
     # config must not claim PE for them.
-    from rebrew.binary_loader import is_mz, is_ne
+    from rebrew.formats.binary_loader import is_mz, is_ne
 
     if is_ne(bin_path):
         _set_target_arch(project, target_name, "x86_16", fmt="ne")

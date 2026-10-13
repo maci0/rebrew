@@ -919,7 +919,7 @@ _M2C_RUN_CMD = "from m2c.main import main; main()"
 
 #: m2c ``--target`` per rebrew arch.  m2c's PPC id is ``ppc-mwcc-c`` (no
 #: little-endian target name); disassembly itself follows the image via
-#: :func:`rebrew.binary_loader.capstone_config_for`.  MIPS big-endian is IDO
+#: :func:`rebrew.formats.binary_loader.capstone_config_for`.  MIPS big-endian is IDO
 #: by default (little-endian MIPS — PlayStation — is selected from the
 #: binary's own endianness in :func:`_m2c_target`).
 _M2C_TARGETS: dict[str, str] = {
@@ -973,7 +973,7 @@ def _render_m2c_asm(info: Any, va: int, raw: bytes) -> str | None:
     """Render a function's bytes as m2c's expected GNU-as text.
 
     Capstone disassembly (arch-aware via
-    ``rebrew.binary_loader.capstone_config_for``) is re-rendered with
+    ``rebrew.formats.binary_loader.capstone_config_for``) is re-rendered with
     symbolic labels: branch/jump/call targets inside the function become
     ``loc_<addr>`` labels, external call/tail targets become ``func_<addr>``
     symbols (m2c emits their prototypes under ``--globals=used``).  MIPS
@@ -982,7 +982,7 @@ def _render_m2c_asm(info: Any, va: int, raw: bytes) -> str | None:
     """
     import capstone
 
-    from rebrew.binary_loader import capstone_config_for
+    from rebrew.formats.binary_loader import capstone_config_for
 
     cs_arch, mode = capstone_config_for(info)
     md = capstone.Cs(cs_arch, mode)
@@ -1058,7 +1058,7 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
         return None
     if importlib.util.find_spec("m2c") is None:
         return None
-    from rebrew.binary_loader import (
+    from rebrew.formats.binary_loader import (
         extract_bytes_at_va,
         function_extent_from_disasm,
         load_binary,

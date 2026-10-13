@@ -55,7 +55,7 @@ class TestDecompDevReport:
         monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: None)
         # No data sections → data measures stay 0 without erroring.
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda _p: SimpleNamespace(sections={}),
         )
         return cfg
@@ -266,7 +266,7 @@ class TestDecompDevDataMeasure:
         monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: None)
         # report.py imports load_binary inside the function, so patch the source.
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda _p: SimpleNamespace(
                 sections={
                     ".data": SimpleNamespace(size=0x200, raw_size=0x100),

@@ -419,8 +419,8 @@ class TestIatRegionBuild:
 
         import lief
 
-        from rebrew.binary_loader import iat_slot_vas
         from rebrew.coff_reloc import build_iat_region
+        from rebrew.formats.binary_loader import iat_slot_vas
 
         binary = tmp_path / "imports.exe"
         binary.write_bytes(b"MZ")

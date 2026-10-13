@@ -102,7 +102,7 @@ class TestFindSimilar:
             lambda funcs, cfg, ghidra, bin_path: registry,
         )
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes",
+            "rebrew.formats.binary_loader.extract_raw_bytes",
             lambda binary, va, size: extract.get(va, b""),
         )
         cfg = type(

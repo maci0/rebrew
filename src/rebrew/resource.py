@@ -14,8 +14,8 @@ from typing import Any
 
 import typer
 
-from rebrew.binary_loader import load_binary
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, console, json_print
+from rebrew.formats.binary_loader import load_binary
 
 app = typer.Typer(
     help="Compare / extract PE resource (.rsrc) sections.",

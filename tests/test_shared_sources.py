@@ -446,7 +446,7 @@ class TestGANativeEndToEnd:
     def test_ga_finds_exact_match_with_mingw(self, tmp_path: Path) -> None:
         from bin_util import make_pe
 
-        from rebrew.binary_loader import extract_raw_bytes
+        from rebrew.formats.binary_loader import extract_raw_bytes
         from rebrew.match_ga import BinaryMatchingGA
 
         # mov eax,1; ret — the seed below compiles to exactly this.

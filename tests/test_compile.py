@@ -1437,8 +1437,8 @@ class TestLinkedShell:
         assert extract_linked_slice(dll, 0x1000, 99, 3) == b""
 
     def test_section_for_va(self) -> None:
-        from rebrew.binary_model import BinaryInfo, SectionInfo
         from rebrew.compiler.compile import _section_for_va
+        from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 
         info = BinaryInfo(
             path=Path("/nonexistent.dll"),

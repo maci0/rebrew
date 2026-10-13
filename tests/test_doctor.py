@@ -395,7 +395,7 @@ class TestExtraBranches:
         f.write_bytes(b"MZ")
         cfg = SimpleNamespace(target_binary=f, binary_format="pe")
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda p, fmt=None: SimpleNamespace(
                 image_base=0x400000, text_va=0x401000, sections={".text": 1, ".data": 1}
             ),
@@ -416,7 +416,7 @@ class TestExtraBranches:
         def boom(p, fmt=None):
             raise ValueError("bad format")
 
-        monkeypatch.setattr("rebrew.binary_loader.load_binary", boom)
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", boom)
         result = doctor.check_target_binary(cfg)
         assert result.status == doctor._FAIL
         assert "Failed to load" in result.message

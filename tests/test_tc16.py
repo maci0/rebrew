@@ -215,9 +215,9 @@ def test_mz_fixture_add_matches() -> None:
     fixture at its discovered VA (0x291) equals the tc16-compiled code."""
     from types import SimpleNamespace
 
-    from rebrew.binary_loader import extract_raw_bytes
     from rebrew.compiler.compile import compile_and_compare
     from rebrew.compiler.tc16 import compile_c
+    from rebrew.formats.binary_loader import extract_raw_bytes
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 
     fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
@@ -262,9 +262,9 @@ def test_mz_fixture_main_matches_with_reloc() -> None:
     call slot must be relocation-masked for the match (RELOC, 20/20)."""
     from types import SimpleNamespace
 
-    from rebrew.binary_loader import extract_raw_bytes
     from rebrew.compiler.compile import compile_and_compare
     from rebrew.compiler.tc16 import compile_c
+    from rebrew.formats.binary_loader import extract_raw_bytes
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 
     fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"

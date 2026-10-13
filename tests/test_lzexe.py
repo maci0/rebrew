@@ -1,4 +1,4 @@
-"""Tests for the LZEXE 0.90/0.91 unpacker (rebrew.lzexe).
+"""Tests for the LZEXE 0.90/0.91 unpacker (rebrew.formats.lzexe).
 
 The fixture ``tc16_hello_lzexe.exe`` is the real Turbo C++ 3.1 hello-world
 executable (``tc16_hello.exe``) packed with the original LZEXE 0.91 packer
@@ -16,7 +16,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.lzexe import (
+from rebrew.formats.lzexe import (
     LzexeResult,
     NotLzexeError,
     _decompress,
@@ -169,7 +169,7 @@ class TestReloc90:
     fixture — unit-test the table decode + truncation directly)."""
 
     def test_reloc90_decodes_groups(self) -> None:
-        from rebrew.lzexe import _reloc_table90
+        from rebrew.formats.lzexe import _reloc_table90
 
         # group 0: 2 offsets; groups 1-15: 0; group 16 (seg 0x10000): 0
         data = b"\x02\x00\x10\x00\x20\x00" + b"\x00\x00" * 15
@@ -178,7 +178,7 @@ class TestReloc90:
         assert end == 6 + 30
 
     def test_reloc90_truncated_raises(self) -> None:
-        from rebrew.lzexe import NotLzexeError, _reloc_table90
+        from rebrew.formats.lzexe import NotLzexeError, _reloc_table90
 
         # ends before the 0x10000 terminator group
         data = b"\x01\x00\x10\x00" + b"\x00\x00" * 3
@@ -186,7 +186,7 @@ class TestReloc90:
             _reloc_table90(data, 0)
 
     def test_reloc90_truncated_mid_group_raises(self) -> None:
-        from rebrew.lzexe import NotLzexeError, _reloc_table90
+        from rebrew.formats.lzexe import NotLzexeError, _reloc_table90
 
         # count promises offsets that run past the buffer
         data = b"\x05\x00\x10\x00"  # 5 offsets but only 1 present

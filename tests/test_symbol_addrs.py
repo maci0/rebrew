@@ -12,7 +12,7 @@ from bin_util import make_pe
 from typer.testing import CliRunner
 
 import rebrew.symbol_addrs as symbol_addrs
-from rebrew.pe_symbols import PeSymbol, PeSymbolTable
+from rebrew.formats.pe_symbols import PeSymbol, PeSymbolTable
 from rebrew.symbol_addrs import (
     SymbolRow,
     format_csv,

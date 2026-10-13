@@ -1311,7 +1311,9 @@ class TestFlagSweepMatchValidation:
 
         monkeypatch.setattr("rebrew.match_run.run_flag_sweep", _fake_sweep)
         monkeypatch.setattr("rebrew.compiler.compile.compile_and_compare", _fake_compare)
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 64)
+        monkeypatch.setattr(
+            "rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 64
+        )
         calls: list[str] = []
         monkeypatch.setattr(
             "rebrew.metadata.update_source_status", lambda *a, **k: calls.append("status")
@@ -1377,7 +1379,9 @@ class TestFlagSweepMatchValidation:
 
         monkeypatch.setattr("rebrew.match_run.run_flag_sweep", _fake_sweep)
         monkeypatch.setattr("rebrew.compiler.compile.compile_and_compare", _fake_compare)
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 64)
+        monkeypatch.setattr(
+            "rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 64
+        )
         calls: list[str] = []
         monkeypatch.setattr(
             "rebrew.metadata.update_source_status", lambda *a, **k: calls.append("status")

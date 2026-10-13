@@ -63,10 +63,10 @@ def _sweep_scoring_params(cfg: Any) -> tuple[int, int]:
     64-bit for x86_64, 32-bit otherwise.  The mode used to be hardcoded to
     32-bit for everything but x86_16, so an x86_64 sweep decoded REX-prefixed
     instructions as 32-bit and ranked flags differently from ``rebrew match run``.
-    ``capstone`` and ``rebrew.binary_loader`` import lazily: compiler.py loads
+    ``capstone`` and ``rebrew.formats.binary_loader`` import lazily: compiler.py loads
     early, and binary_loader must not be pulled in at import time.
     """
-    from rebrew.binary_loader import capstone_mode_for_arch
+    from rebrew.formats.binary_loader import capstone_mode_for_arch
 
     cs_mode = capstone_mode_for_arch(getattr(cfg, "arch", "") or "")
     pointer_size = getattr(cfg, "pointer_size", 4) or 4

@@ -148,7 +148,7 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
     units: list[dict[str, Any]] = []
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    from rebrew.binary_loader import extract_raw_bytes
+    from rebrew.formats.binary_loader import extract_raw_bytes
 
     for path, annos in iter_annotations(sources, target=marker, metadata_dir=cfg.metadata_dir):
         fns: list[tuple[str, int, bytes]] = []

@@ -255,7 +255,7 @@ def build_function_registry(
     other sweeps); skeleton generation would create bogus source files for
     them.
     """
-    from rebrew.binary_loader import iat_slot_vas
+    from rebrew.formats.binary_loader import iat_slot_vas
 
     registry: dict[int, RegistryEntry] = {}
     iat_vas = iat_slot_vas(bin_path) if bin_path else set()
@@ -316,7 +316,7 @@ def build_function_registry(
     # LIEF aborts the process with bad_alloc instead of returning None.
     if bin_path and Path(bin_path).is_file():
         try:
-            from rebrew.binary_loader import load_binary
+            from rebrew.formats.binary_loader import load_binary
 
             info = load_binary(bin_path)
             target_arch = info.arch or target_arch

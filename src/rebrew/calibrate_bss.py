@@ -31,7 +31,7 @@ from pathlib import Path
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, untrusted_ident
-from rebrew.pe_headers import find_section
+from rebrew.formats.pe_headers import find_section
 from rebrew.utils import (
     atomic_write_text,
     load_tomllib,

@@ -135,8 +135,8 @@ def _collect_strings(
 
 def _collect_imports(binary: Path) -> dict[str, Any]:
     """Import table + IAT stub summary (PE only; empty otherwise)."""
-    from rebrew.binary_loader import is_ne, load_binary
-    from rebrew.import_table import find_import_stubs, parse_imports
+    from rebrew.formats.binary_loader import is_ne, load_binary
+    from rebrew.formats.import_table import find_import_stubs, parse_imports
 
     # 16-bit NE: the loader parses the module reference + imported names
     # tables directly (Borland Delphi/Turbo Pascal Windows targets).  The
@@ -208,7 +208,7 @@ def _collect_far_calls(binary: Path) -> list[dict[str, Any]] | None:
     from collections import Counter
 
     from rebrew.analysis import extract_bytes, ne_code_segments, section_range
-    from rebrew.binary_loader import is_ne, load_binary
+    from rebrew.formats.binary_loader import is_ne, load_binary
 
     if not is_ne(binary):
         return None
@@ -368,8 +368,8 @@ def _collect_flirt(cfg: Any, info: Any) -> dict[str, Any] | None:
 
     import flirt
 
-    from rebrew.binary_loader import load_binary
     from rebrew.flirt import ARCH_FAMILIES, load_signatures_for, match_text
+    from rebrew.formats.binary_loader import load_binary
 
     try:
         info = load_binary(cfg.target_binary)
@@ -434,7 +434,7 @@ def _is_exec_section(sec: Any) -> bool:
 
 def _collect_vtordisp(info: Any) -> list[dict[str, Any]]:
     """vtordisp (MI thunk) detection in the code sections (reccmp-adapted)."""
-    from rebrew.binary_loader import va_to_file_offset
+    from rebrew.formats.binary_loader import va_to_file_offset
     from rebrew.vtordisp import find_vtordisps
 
     try:
@@ -462,8 +462,8 @@ def _collect_vtordisp(info: Any) -> list[dict[str, Any]]:
 
 def _collect_float_consts(info: Any) -> list[dict[str, Any]]:
     """Float constant pool referenced from code (reccmp-adapted)."""
-    from rebrew.binary_loader import va_to_file_offset
     from rebrew.float_const import find_float_consts
+    from rebrew.formats.binary_loader import va_to_file_offset
 
     code_regions: list[tuple[int, bytes]] = []
     const_regions: list[tuple[int, int]] = []
@@ -503,7 +503,7 @@ def build_dossier(
     documented null/empty value instead of raising.  This is the single
     testable entry point (mirrors ``collect_status``).
     """
-    from rebrew.binary_loader import load_binary
+    from rebrew.formats.binary_loader import load_binary
 
     info = load_binary(binary)
     # One full code-section disassembly feeds both the string census and the
@@ -774,9 +774,9 @@ def main(
     try:
         dossier = build_dossier(cfg, binary, min_len=min_len, top_n=top_strings)
         if function_va is not None:
-            from rebrew.binary_loader import load_binary
             from rebrew.cli import parse_va
             from rebrew.describe import build_dossier as build_function_dossier
+            from rebrew.formats.binary_loader import load_binary
 
             va = parse_va(function_va, json_mode=json_output)
             info = load_binary(binary)

@@ -1,4 +1,4 @@
-"""omf16.py — minimal 16-bit OMF parser (MSVC 1.52 dialect).
+"""formats/omf16.py — minimal 16-bit OMF parser (MSVC 1.52 dialect).
 
 MSVC 1.52 emits a 16-bit OMF dialect that objconv crashes on (buffer
 overflow) and LIEF cannot parse.  Empirically mapped (docs/OMF_NOTES.md):

@@ -191,7 +191,7 @@ def check_target_binary(cfg: ProjectConfig) -> CheckResult:
         )
 
     try:
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         info = load_binary(bin_path, fmt=cfg.binary_format)
         sections = len(info.sections)
@@ -1736,7 +1736,7 @@ def _library_site_counts(cfg: Any, info: Any) -> tuple[int, int] | None:
     the caller keeps the whole-image reading.  Raises
     :class:`LibIndexUnavailable` when an archive is present but unreadable.
     """
-    from rebrew.binary_loader import extract_raw_bytes
+    from rebrew.formats.binary_loader import extract_raw_bytes
     from rebrew.lib_match import PREFIX_BYTES, match_bytes, match_leading_body
 
     spans = _inventory_spans(cfg)

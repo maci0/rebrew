@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from rebrew.binary_model import BinaryInfo
     from rebrew.catalog.models import GhidraDataLabel
+    from rebrew.formats.binary_model import BinaryInfo
 
 from rebrew.annotation import Annotation
 from rebrew.catalog.loaders import load_ghidra_data_labels
@@ -269,7 +269,7 @@ def build_coverage_data(
     sections: dict[str, Any] = {}
     _bin_info: BinaryInfo | None = None
     if bin_path and bin_path.exists():
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         # Single lazy parse: sections, layout, and raw bytes all come from
         # one BinaryInfo.

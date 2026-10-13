@@ -128,7 +128,7 @@ def _library_key(name: str) -> str:
 
 def _cached_archives(cfg: ProjectConfig) -> dict[str, Path]:
     """Configured archives already on disk; never extract or pull during a scan."""
-    from rebrew.archives import stock_lib_cache
+    from rebrew.formats.archives import stock_lib_cache
 
     archives: dict[str, Path] = {}
     ambiguous: set[str] = set()
@@ -163,7 +163,7 @@ def _common_definitions(
     """Data definitions in the archive members this map demonstrably selected."""
     import lief
 
-    from rebrew.archives import parse_archive
+    from rebrew.formats.archives import parse_archive
 
     found: dict[str, list[str]] = {}
     for member, body in parse_archive(str(archive)):

@@ -189,7 +189,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
 def _build_import_map(bin_path: Path) -> dict[int, str]:
     """IAT slot VA -> import name, best-effort."""
     try:
-        from rebrew.import_table import parse_import_table
+        from rebrew.formats.import_table import parse_import_table
 
         return parse_import_table(bin_path)
     except Exception:  # recon aid, never block disasm
@@ -201,7 +201,7 @@ def _build_string_map(bin_path: Path) -> dict[int, str]:
     """String start VA -> decoded text, best-effort (ASCII and UTF-16)."""
     try:
         from rebrew.analysis import iter_strings
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         info = load_binary(bin_path)
         strings = iter_strings(info, min_len=4)
@@ -346,7 +346,7 @@ def detect_function_pattern(cfg: ProjectConfig, va: int) -> str | None:
     if getattr(cfg, "arch", "") != "x86_32" or not cfg.target_binary.exists():
         return None
     try:
-        from rebrew.binary_loader import extract_raw_bytes
+        from rebrew.formats.binary_loader import extract_raw_bytes
 
         raw = extract_raw_bytes(cfg.target_binary, va, 64)
         if not raw:
@@ -527,7 +527,7 @@ def disassembled_extent_window(cfg: ProjectConfig, va: int) -> tuple[list[Any], 
     try:
         import capstone
 
-        from rebrew.binary_loader import extract_raw_bytes, function_extent_from_disasm
+        from rebrew.formats.binary_loader import extract_raw_bytes, function_extent_from_disasm
 
         kind = None
         extent: int | None = None
@@ -691,7 +691,7 @@ def _hex_view(
     ne_seg_name = ""
     ne_segment_count = 0
     try:
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         info = load_binary(bin_path)
         if info.ne_header is not None:
@@ -711,7 +711,7 @@ def _hex_view(
     if resolve_strings:
         string_map = _build_string_map(bin_path)
 
-    from rebrew.binary_loader import extract_raw_bytes
+    from rebrew.formats.binary_loader import extract_raw_bytes
 
     data = extract_raw_bytes(cfg.target_binary, va_int, size)
     if not data:
@@ -753,7 +753,7 @@ def _hex_view(
     if pattern_hints and va_int > 12:
         try:
             from rebrew.analysis import section_range
-            from rebrew.binary_loader import load_binary
+            from rebrew.formats.binary_loader import load_binary
 
             rng = section_range(load_binary(bin_path), ".text")
             text_start = rng[0] if rng else 0
@@ -1010,7 +1010,7 @@ def build_cfg_payload(cfg: ProjectConfig, va_int: int, size: int = 0) -> dict[st
         FileNotFoundError: The target binary does not exist.
         ValueError: The target architecture is not x86.
     """
-    from rebrew.binary_loader import extract_raw_bytes
+    from rebrew.formats.binary_loader import extract_raw_bytes
 
     if not cfg.target_binary.exists():
         raise FileNotFoundError(f"Binary not found at {cfg.target_binary}")
@@ -1072,7 +1072,7 @@ def _cfg_extent(cfg: ProjectConfig, va_int: int) -> int | None:
     declared = _list_size_for(cfg, va_int)
     walked: int | None = None
     if cfg.target_binary.exists():
-        from rebrew.binary_loader import function_extent_from_disasm
+        from rebrew.formats.binary_loader import function_extent_from_disasm
 
         walked = function_extent_from_disasm(cfg.target_binary, va_int)
     if walked:
@@ -1366,8 +1366,8 @@ def generate_inline_c(
     # The comment follows the target arch: an ARM BL is not an x86 add.
     import capstone
 
-    from rebrew.binary_loader import capstone_config_for
-    from rebrew.binary_model import BinaryInfo
+    from rebrew.formats.binary_loader import capstone_config_for
+    from rebrew.formats.binary_model import BinaryInfo
 
     image = BinaryInfo(
         path=Path(getattr(cfg, "target_binary", "") or ""),
@@ -1571,7 +1571,7 @@ def batch_extract_nasm(
         stem = entry["filepath"].name
 
         try:
-            from rebrew.binary_loader import extract_raw_bytes
+            from rebrew.formats.binary_loader import extract_raw_bytes
 
             code = extract_raw_bytes(cfg.target_binary, va, size)
             if code is None:
@@ -1745,7 +1745,7 @@ def disassemble(
     stale_size = False
     declared_size = effective_size
     if va_int is not None and getattr(cfg, "arch", "") == "x86_32" and cfg.target_binary.exists():
-        from rebrew.binary_loader import function_extent_from_disasm
+        from rebrew.formats.binary_loader import function_extent_from_disasm
 
         walked = function_extent_from_disasm(cfg.target_binary, va_int, with_kind=True)
         if walked is not None:
@@ -1816,7 +1816,7 @@ def disassemble(
     elif va_str and effective_size:
         assert va_int is not None  # va_str is truthy above
         computed_va = va_int
-        from rebrew.binary_loader import extract_raw_bytes
+        from rebrew.formats.binary_loader import extract_raw_bytes
 
         code = extract_raw_bytes(cfg.target_binary, computed_va, effective_size)
         if code is None:

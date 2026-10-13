@@ -624,7 +624,7 @@ class TestCollectors:
         (tmp_path / "raw.dll").write_bytes(b"\x01" * 16)
         section = SimpleNamespace(va=0x1000, file_offset=0, size=16, raw_size=16)
         info = SimpleNamespace(sections={".text": section}, text_va=0x1000, text_raw_offset=0)
-        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda p: info)
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda p: info)
         cfg = _make_cfg(tmp_path, raw_link=tmp_path / "raw.dll")
         existing = {0x1000: {"symbol": "f", "status": "RELOC", "size": 16}}
         items = _collect_postlink_rewritten(cfg, existing, {})
@@ -640,7 +640,7 @@ class TestCollectors:
         build.mkdir()
         (build / "test.dll").write_bytes(b"\x90" * 16)
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda p: SimpleNamespace(sections={}, text_va=0, text_raw_offset=0),
         )
         cfg = _make_cfg(tmp_path, raw_link=None)
@@ -703,7 +703,7 @@ class TestCollectors:
             candidates.append(("_another", "another.obj"))
         monkeypatch.setattr("rebrew.lib_match.match_bytes", lambda index, data: candidates)
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes", lambda path, va, size: b"\x90" * size
+            "rebrew.formats.binary_loader.extract_raw_bytes", lambda path, va, size: b"\x90" * size
         )
         cfg = _make_cfg(tmp_path)
         items = _collect_new_functions(
@@ -1253,7 +1253,7 @@ class TestCollectNewFunctionsExtended:
         cfg = self._cfg_with_binary(tmp_path)
         # Fake BinaryInfo with no sections → extract_bytes_at_va returns None.
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda p: SN(sections={}, data=b"", image_base=0x1000, text_raw_offset=0),
         )
         ghidra_funcs = [FunctionEntry(va=0x1000, size=50, name="func_small")]
@@ -1276,7 +1276,7 @@ class TestCollectNewFunctionsExtended:
         cfg = self._cfg_with_binary(tmp_path)
         monkeypatch_tiny = pytest.MonkeyPatch()
         monkeypatch_tiny.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda p: SimpleNamespace(sections={}, data=b"", image_base=0x1000, text_raw_offset=0),
         )
         try:
@@ -2027,7 +2027,9 @@ class TestDataDrift:
         }
         cfg_blob = SimpleNamespace(sections=sections)
         monkey = pytest.MonkeyPatch()
-        monkey.setattr("rebrew.binary_loader.load_binary", lambda _p: cfg_blob, raising=True)
+        monkey.setattr(
+            "rebrew.formats.binary_loader.load_binary", lambda _p: cfg_blob, raising=True
+        )
         try:
             check = _zero_fill_tail_checker(cfg)
             # inside the raw region: verifiable, keep it
@@ -2050,7 +2052,7 @@ class TestDataDrift:
             raise OSError("no such file")
 
         monkey = pytest.MonkeyPatch()
-        monkey.setattr("rebrew.binary_loader.load_binary", boom, raising=True)
+        monkey.setattr("rebrew.formats.binary_loader.load_binary", boom, raising=True)
         try:
             check = _zero_fill_tail_checker(cfg)
             assert check({"section": ".data", "size": 4, "va": 0x10028000}) is False
@@ -2074,7 +2076,7 @@ class TestDataDrift:
             sections={".data": SimpleNamespace(va=0x10027000, size=0x174059C, raw_size=0xE000)}
         )
         monkey = pytest.MonkeyPatch()
-        monkey.setattr("rebrew.binary_loader.load_binary", lambda _p: blob, raising=True)
+        monkey.setattr("rebrew.formats.binary_loader.load_binary", lambda _p: blob, raising=True)
         try:
             items = _collect_start_data(cfg)
         finally:

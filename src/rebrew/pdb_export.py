@@ -12,7 +12,7 @@ disassembler pairs it with that exact build:
   a C scalar, a pointer to one, or an array of either becomes a CodeView type;
   structs, typedefs, and function pointers stay untyped;
 - **PE symbols** (``--pe-symbols``): the entry point, exports, IAT slots, and
-  the other names :mod:`rebrew.pe_symbols` reads from the data directories;
+  the other names :mod:`rebrew.formats.pe_symbols` reads from the data directories;
 - the target's own section headers, so tools map ``segment:offset`` back to
   addresses without the image.
 
@@ -56,7 +56,7 @@ import typer
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
 from rebrew.errors import RebrewError
-from rebrew.pe_symbols import KIND_FUNC, pe_symbols
+from rebrew.formats.pe_symbols import KIND_FUNC, pe_symbols
 from rebrew.symbol_addrs import SymbolRow, function_symbol_rows, merge_pe_symbols
 from rebrew.utils import untrusted_ident
 

@@ -175,7 +175,7 @@ def score_fn(
     (:func:`rebrew.compiler.overrides.resolve_compile_overrides`), so the sweep
     scores with the compiler ``rebrew test``/``verify`` use.
     """
-    from rebrew.binary_loader import extract_raw_bytes
+    from rebrew.formats.binary_loader import extract_raw_bytes
 
     target_bytes = extract_raw_bytes(cfg.target_binary, va, size)
     res = compile_and_compare(cfg, path, symbol, target_bytes, cflags, toolchain=toolchain)

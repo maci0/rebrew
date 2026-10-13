@@ -23,7 +23,6 @@ from typing import Any
 
 import typer
 
-from rebrew.binary_loader import extract_raw_bytes, load_binary
 from rebrew.cli import (
     TargetOption,
     console,
@@ -34,6 +33,7 @@ from rebrew.cli import (
     select_annotation,
 )
 from rebrew.compiler.compile import compile_to_obj
+from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
 from rebrew.utils import floor_pct
 
 _EPILOG = (

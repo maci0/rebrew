@@ -57,10 +57,10 @@ def _diagnose_one(
     batch mode records it per-function and keeps going.
     """
 
-    from rebrew.binary_loader import extract_raw_bytes
     from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_compare
     from rebrew.compiler.compile import compile_to_obj
     from rebrew.compiler.overrides import resolve_compile_overrides
+    from rebrew.formats.binary_loader import extract_raw_bytes
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 
     target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)

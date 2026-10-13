@@ -629,8 +629,8 @@ def overlay_state(
 
     applied_globals = 0
     if "global" in fields and globals_by_va:
-        from rebrew.binary_loader import extract_bytes_at_va, load_binary
         from rebrew.data_metadata import get_data_entry
+        from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 
         try:
             src_info = load_binary(cfg_src.target_binary)

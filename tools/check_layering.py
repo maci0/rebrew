@@ -22,7 +22,7 @@ import time: a command registers itself with the umbrella inside its
 ``src/rebrew/<package>/AGENTS.md`` states the externals that package may
 import, and that line is what keeps ``matcher/`` from becoming a peer of the
 CLI it drives.  Nothing read the line, so it drifted silently while the other
-two rules kept passing.  The list below is transcribed from those six files;
+two rules kept passing.  The list below is transcribed from those seven files;
 ``tests/test_check_layering.py`` fails when a name in the tool is no longer
 documented, so the two cannot diverge quietly.  Unlike the other rules this
 one reads *every* import, not just the module-scope ones: the catalog's
@@ -82,7 +82,6 @@ LEAF_MODULES = frozenset({"rebrew.utils"})
 PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
     "matcher": frozenset(
         {
-            "binary_loader",
             "coff_reloc",
             "compiler.cache",
             "compiler.compile",
@@ -93,23 +92,24 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "errors",
             "flag_data",
             "flags",
-            "omf16",
+            "formats.binary_loader",
+            "formats.omf16",
             "registry",
             "utils",
         }
     ),
     "compiler": frozenset(
         {
-            "binary_loader",
-            "binary_model",
             "coff_reloc",
             "config",
             "errors",
             "flag_data",
             "flags",
+            "formats.binary_loader",
+            "formats.binary_model",
+            "formats.ne_loader",
             "matcher.parsers",
             "metadata",
-            "ne_loader",
             "registry",
             "sources",
             "utils",
@@ -119,11 +119,11 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
     "catalog": frozenset(
         {
             "annotation",
-            "binary_loader",
-            "binary_model",
             "cli",
             "config",
             "data_metadata",
+            "formats.binary_loader",
+            "formats.binary_model",
             "function_providers",
             "metadata",
             "present",
@@ -137,7 +137,6 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
     "binsync": frozenset(
         {
             "annotation",
-            "binary_loader",
             "c_parser",
             "catalog",
             "cli",
@@ -145,6 +144,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "cross_import",
             "data_metadata",
             "data_scan",
+            "formats.binary_loader",
             "metadata",
             "naming",
             "rename_ops",
@@ -157,7 +157,6 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
     ),
     "ghidra": frozenset(
         {
-            "binary_loader",
             "binsync.export",
             "binsync.importer",
             "binsync.serial",
@@ -166,11 +165,13 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "cli",
             "config",
             "errors",
+            "formats.binary_loader",
             "sources",
             "status_style",
             "utils",
         }
     ),
+    "formats": frozenset({"errors", "registry", "utils"}),
     "workspace": frozenset({"errors"}),
 }
 

@@ -1,7 +1,7 @@
 """link-sweep — find which LINK options reproduce the reference PE header.
 
 Most PE header fields map 1:1 onto MSVC6 LINK options (``/BASE``, ``/ALIGN``,
-``/SUBSYSTEM``, ``/STACK``, ``/HEAP`` — see :func:`rebrew.pe_image.derive_link_options`).
+``/SUBSYSTEM``, ``/STACK``, ``/HEAP`` — see :func:`rebrew.formats.pe_image.derive_link_options`).
 For the residuals (e.g. FileAlignment, which VC6's ``/ALIGN`` does not raise
 from its 0x200 default to the original's 0x1000) it is not obvious which
 option, if any, reproduces them — or whether the field is linker-stamped and
@@ -40,8 +40,8 @@ import typer
 from rich.table import Table
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.pe_headers import pe_layout
-from rebrew.pe_image import derive_link_options, parse_pe
+from rebrew.formats.pe_headers import pe_layout
+from rebrew.formats.pe_image import derive_link_options, parse_pe
 from rebrew.utils import run_process_group, untrusted_ident
 
 _EPILOG = (

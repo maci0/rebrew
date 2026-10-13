@@ -993,7 +993,7 @@ def find_dispatch_tables(
         # 16-bit NE segments (e.g. the 1991 SkiFree) have no marker, so the
         # skip is applied only when the marker is actually present.
         if info is not None and info.format == "ne":
-            from rebrew.ne_loader import has_borland_marker
+            from rebrew.formats.ne_loader import has_borland_marker
 
             seg_index = int(sec_name[3:]) if sec_name.startswith("SEG") else 0
             if has_borland_marker(binary_data, sec_offset, seg_index):

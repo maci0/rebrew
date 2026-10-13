@@ -23,7 +23,6 @@ from typing import Any
 import capstone
 import typer
 
-from rebrew.binary_loader import capstone_mode_for_arch
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
@@ -33,6 +32,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.formats.binary_loader import capstone_mode_for_arch
 from rebrew.match_sweep import print_structural_similarity
 
 # ---------------------------------------------------------------------------

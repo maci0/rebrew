@@ -150,7 +150,7 @@ class TestGenerateDataJson:
                 ),
             },
         )
-        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda p: info)
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda p: info)
         monkeypatch.setattr("rebrew.catalog.grid.load_ghidra_data_labels", lambda src: {})
         monkeypatch.setattr("rebrew.catalog.grid.get_globals", lambda src, cfg=None: {})
         return bin_path
@@ -318,7 +318,7 @@ class TestGenerateDataJson:
                 ),
             },
         )
-        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda p: info)
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda p: info)
         monkeypatch.setattr("rebrew.catalog.grid.load_ghidra_data_labels", lambda src: {})
         monkeypatch.setattr("rebrew.catalog.grid.get_globals", lambda src, cfg=None: {})
         data = build_coverage_data(entries, funcs, text_size=0x3000, bin_path=bin_path)

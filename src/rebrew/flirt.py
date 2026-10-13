@@ -17,9 +17,9 @@ except ImportError:  # optional dependency
 
 import typer
 
-from rebrew.binary_loader import load_binary
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.config import REBREW_FLIRT_SIGS_DIR_ENV, ConfigError, env_dir_path
+from rebrew.formats.binary_loader import load_binary
 from rebrew.utils import SOURCE_CHECKOUT, atomic_write_bytes, read_json_text
 
 _MAX_FUNC_SCAN = 4096

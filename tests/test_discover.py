@@ -155,8 +155,8 @@ class TestDiscovererPlugins:
     def test_one_discovery_retains_its_provider_generation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.binary_loader as binary_loader
         import rebrew.discover as disc
+        import rebrew.formats.binary_loader as binary_loader
 
         def _first(binary: Path) -> list[tuple[int, int, str]]:
             disc._DISCOVERER_MAP = {
@@ -249,7 +249,7 @@ class TestDiscoverMZ:
     (rizin cannot analyze MZ) — the DOS-game discovery path."""
 
     def test_mz_detection(self) -> None:
-        from rebrew.binary_loader import is_mz
+        from rebrew.formats.binary_loader import is_mz
 
         fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
         assert fixture.exists()

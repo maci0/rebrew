@@ -45,7 +45,7 @@ first-class proof target, with PPC/ARM as the follow-on set.
 | Jump tables | `catalog/registry.py::is_jump_table` | done: arch-dispatched (`arch`/`endian` params); the `0x90/0xCC` prefix and `8BFF` hotpatch skip are x86-only |
 | Flags | `flag_data.py` | GCC family exists; no MIPS/PPC axes (`-mabi`, `-march`) |
 | Toolchain specs | `compiler/toolchain.py::ToolchainSpec` | `bits` field only; add `arch` for alignment/detection |
-| Import/PE lane | `round_trip`, `gen_layout`, `postlink`, `link_sweep`, `imports.py`, `pe_headers.py` | PE-specific: N/A for ELF targets (gate or ELF equivalents later) |
+| Import/PE lane | `round_trip`, `gen_layout`, `postlink`, `link_sweep`, `imports.py`, `formats/pe_headers.py` | PE-specific: N/A for ELF targets (gate or ELF equivalents later) |
 | Known arches | `doctor.py::_KNOWN_ARCHES` | done: all ten presets |
 
 ## Phase 0: Arch plumbing foundation
@@ -341,7 +341,7 @@ Grouped by the four seams that need work.  Ordered by dependency (1 → 4).
 | **Register masking** | `_mask_registers_x86_32` masks `ModR/M`. | Extend or generalize: MIPS/PPC/SH register fields are simpler. `near_diag`'s `RR` class should become ISA-aware. |
 | **Instruction-level diff** | `diff_functions` assumes 32→32 diff. | Works once capstone produces correct mnems; only the reloc/register heuristics are ISA-specific. |
 
-### 5.2 Binary Loader & Format Detection (`binary_loader.py`, `catalog/`, `analysis.py`)
+### 5.2 Binary Loader & Format Detection (`formats/binary_loader.py`, `catalog/`, `analysis.py`)
 
 | Gap | Current | Needed |
 |-----|---------|--------|
@@ -382,7 +382,7 @@ the existing docs listed in the tables that follow.
 
 | ADR | Decision (1 line) | Console implication |
 |-----|-------------------|---------------------|
-| **001** Native NE parsing | Non-LIEF formats via a **native loader** (`ne_loader.py`) + **synthetic flat VAs** `(segment<<16\|off)` so every downstream tool works without special-casing. | PS-EXE / N64 ROM / DOL / REL / `1ST_READ.BIN` follow the **same seam**: a dedicated loader module (`rebrew/psexe_loader.py`, `n64rom_loader.py`, `dol_loader.py`, …) that synthesizes `BinaryInfo`/`SectionInfo`. Do **not** bloat `binary_loader.py` with inline parsers: import like `ne_loader`. BE headers must not use LE unpacks (new failure mode vs LE-only NE). |
+| **001** Native NE parsing | Non-LIEF formats via a **native loader** (`formats/ne_loader.py`) + **synthetic flat VAs** `(segment<<16\|off)` so every downstream tool works without special-casing. | PS-EXE / N64 ROM / DOL / REL / `1ST_READ.BIN` follow the **same seam**: a dedicated loader module (`rebrew/psexe_loader.py`, `n64rom_loader.py`, `dol_loader.py`, …) that synthesizes `BinaryInfo`/`SectionInfo`. Do **not** bloat `formats/binary_loader.py` with inline parsers: import like `ne_loader`. BE headers must not use LE unpacks (new failure mode vs LE-only NE). |
 | **002** Borland vs MSVC enumeration | Enumeration must **probe conditionally** (marker vs markerless); forcing one convention corrupts the other. | MIPS / PPC / SH enumeration (overlays, RELs, delay slots) will have the same two-convention problem. E.g. `splat` overlays vs flat ROM; SH BE vs LE literal pools; DOL's 18 segments vs REL's custom reloc table. Build a `probe_is_code(info, offset, arch)` gate and test both fixtures (one BE ROM + one LE ELF) before claiming coverage. The forced-start trick for markerless segments (ADR-002) is the model for "entry VA lives outside the sweep" on Saturn. |
 | **003** Imports degrade to module list | Never fabricate per-API imports when the table is misplaced: **keep the module set, drop the detail**. | Disc-image extraction (ISO9660 → PS-EXE, GCM FST → DOL, GD-ROM → `1ST_READ.BIN`) must obey the same rule: when the FST/ISO directory is unreadable, report the container + module-level records (the disc is a `GCM` containing *a* DOL) and mark per-file VAs as missing; do not synthesize. The sanity gate `count ∈ 1..0x1000` has a console analogue: clamp overlay count / REL count / DOL segment count before synthesis. |
 | **004** Intake prunes only exact auto-stubs | Stale re-discovery is cleaned by **exact regex match** on `// STUB: … 0xVA`; edited files never touched; metadata for pruned VA deleted via `delete_metadata_entry`. | Overlays + RELs make this overlay-aware: a VA may exist in *one* overlay's `functions.txt` but not another's. Prune key becomes `(overlay, VA)`: do not delete a file that is still live in another overlay. Migration: `function_structure.json` → per-overlay `functions_{overlay}.txt` keeps the safety regex unchanged. |
@@ -424,7 +424,7 @@ Each phase is shippable independently and ordered by (decreasing payoff) / (incr
 - [x] **0.1 Arch preset registry** (`config.py` `ARCH_PRESETS`, ADR-001/ CONFIG.md pattern): add console arches as above, with correct `capstone_arch/mode`, `pointer_size=4`, `padding_bytes=[0x00]`, empty prefix. `capstone` 5.x already exposes `CS_ARCH_MIPS/PPC/SH/ARM`: no new dep. Keep unknown-arch warn+fallback (CONFIG.md invariant). *Landed: `mips32`, `mips64`, `ppc32`, `ppc64`, `sh2` are in `ARCH_PRESETS`.*
 - [ ] **0.2 ISA-dispatched reloc heuristics** (`matcher/scoring.py`, ADR-005 analogue): extract `_zero_reloc_fields_x86_32` → `_zero_reloc_fields(isa)` dispatch; add MIPS/PPC/SH stubs that at minimum zero `jal`/`bl`/`bsr` targets (prove with tiny obj fixtures). Improve over time: typed relocs already bypass this, so scope is "fallback only". *Still open: `_zero_reloc_fields` in `scoring.py` reads x86 opcodes and `X86_OP_MEM` directly.*
 - [ ] **0.3 Mutator tagging**: add `arch` tag, mark x86-only mutations, filter in GA when `cfg.arch` != x86.
-- [ ] **0.4 `format` registry + `supported_formats`** (`config.py:697`, `binary_loader.py`, ADR-001 `is_ne` pattern): expand `KNOWN_FORMATS` and `load_binary`'s `fmt` param to include `psexe/n64rom/dol/rel/xbe/prx/saturnbin`; add string `is_*` helpers alongside `is_ne`. **Do not** inline container parsers: each format gets a native loader module (`rebrew/psexe_loader.py`, `n64rom_loader.py`, `dol_loader.py`, `gdrom_loader.py`) that synthesizes `BinaryInfo`/`SectionInfo` with stable synthetic VAs (ADR-001), imported by `binary_loader.py` like `ne_loader` (ARCHITECTURE.md seam).
+- [ ] **0.4 `format` registry + `supported_formats`** (`config.py:697`, `formats/binary_loader.py`, ADR-001 `is_ne` pattern): expand `KNOWN_FORMATS` and `load_binary`'s `fmt` param to include `psexe/n64rom/dol/rel/xbe/prx/saturnbin`; add string `is_*` helpers alongside `is_ne`. **Do not** inline container parsers: each format gets a native loader module (`rebrew/psexe_loader.py`, `n64rom_loader.py`, `dol_loader.py`, `gdrom_loader.py`) that synthesizes `BinaryInfo`/`SectionInfo` with stable synthetic VAs (ADR-001), imported by `formats/binary_loader.py` like `ne_loader` (ARCHITECTURE.md seam).
 - [ ] **0.5 Toolchain spec stubs** (`rebrew/compiler/toolchain.py`, ADR-006): reserve `ToolchainSpec` entries + `<family>/<version>-<arch>/Dockerfile` placeholders in the recompile-toolchains checkout for `ido53/71`, `cw_gc`, `sh-elf-gcc`, `psyq` (proxy), `ee-gcc` so every later phase is "fill the Dockerfile + flag axes" rather than new runner glue. *Partly landed: `ido-5.3` and `ido-7.1` ship (ADR-017 names); `cw_gc`, `sh-elf-gcc`, `psyq`, `ee-gcc` do not exist yet.* The host-fallback clause this item assumed is **withdrawn**; [ADR-008](adr/008-docker-only-execution.md) makes execution docker-only, so a cross toolchain needs an image, not a PATH binary.
 - [ ] **0.6 Documentation + fixtures-per-format policy** (`docs/CONFIG.md`, `docs/TOOLCHAIN.md`, `AGENTS.md`, `docs/OMF_NOTES.md` template): update arch/profile tables; record the "one tiny hex fixture + one NOTES.md per container" rule (OMF_NOTES.md pattern, see §5.5.2) so reviewers expect `docs/{PSEXE,N64ROM,DOL,REL,GDROM}_NOTES.md` on promotion. Unit-test the registry + capstone mode construction (no binary fixture needed yet).
 
@@ -757,7 +757,7 @@ Ideas beyond "port the existing engine": native console strengths that would be 
 
 ## 11. Sources & Prior Art
 
-- **Rebrew own research**: `docs/TOOLCHAIN.md` (x86 profile caveat, NE loader pattern), `docs/OMF_NOTES.md` (binary container parser pattern to reuse for PSYOBJ/DOL/ROM), `docs/CODEGEN_PATTERNS.md` / `docs/GA_MUTATIONS.md` (what transfers), `src/rebrew/binary_loader.py` / `config.py` (seams to extend).
+- **Rebrew own research**: `docs/TOOLCHAIN.md` (x86 profile caveat, NE loader pattern), `docs/OMF_NOTES.md` (binary container parser pattern to reuse for PSYOBJ/DOL/ROM), `docs/CODEGEN_PATTERNS.md` / `docs/GA_MUTATIONS.md` (what transfers), `src/rebrew/formats/binary_loader.py` / `config.py` (seams to extend).
 - **Console tooling canon**: `splat`/`splat64` (N64 ROM → splat.yaml), `doldecomp`/`dtk` (GC DOL/REL), `ndstool`/`gdit` (disc images), `maspsx` (Psy-Q ASM proxy), `psxdecomp`, `ghidra-dreamcast-loader`, `ido-static-recomp` (Linux-native IDO), `KallistiOS` (Dreamcast GCC), `Jo Engine` (Saturn), LIEF (ELF/PE/COFF), Capstone (ISA).
 - **Compiler corpora**: `decomp.me` compiler repo (`platforms/win32`, `platforms/mwcc`, `platforms/ido`, `platforms/ps1`), `archaic-msvc` (MSVC model to mirror for SDK vendors), `OmniBlade/decomp.me` releases.
 - **Decomp communities**: SM64/OOT (N64), doldecomp Melee/SMS/WW (GC), PS1/PS2 matching discords, Dreamcast `dcdecomp`, Saturn `saturndecomp`; all converge on the same byte-match loop documented above.
@@ -874,7 +874,7 @@ GB-specific encodings (`LDH`, `STOP`) need a post-pass or RGBDS's own disasm.
 
 ¹ Verify SPC700 capstone availability at implementation; SPC700 disasm is <500 lines to vendor if absent.
 
-**NE analogy (ADR-001/002):** Every assembly loader is a *native loader* (like `ne_loader.py`): it parses the console header (iNES/SMC/GB/MD), derives PRG bank layout, and synthesizes `BinaryInfo` with stable synthetic VAs (`bank<<16|off` reuse of `segment<<16|off`; same invariant §5.5.3). Enumeration is a *conditional probe* (ADR-002): PRG bank vs CHR bank vs RAM mirror are the two conventions; `probe_is_code(info, bank)` gates the sweep.
+**NE analogy (ADR-001/002):** Every assembly loader is a *native loader* (like `formats/ne_loader.py`): it parses the console header (iNES/SMC/GB/MD), derives PRG bank layout, and synthesizes `BinaryInfo` with stable synthetic VAs (`bank<<16|off` reuse of `segment<<16|off`; same invariant §5.5.3). Enumeration is a *conditional probe* (ADR-002): PRG bank vs CHR bank vs RAM mirror are the two conventions; `probe_is_code(info, bank)` gates the sweep.
 
 ### A.6 Assembly-adapted `STATUS` + `BLOCKER` vocabulary
 

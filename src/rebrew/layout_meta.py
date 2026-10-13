@@ -75,7 +75,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from rebrew.pe_headers import pe_header, sections_at
+from rebrew.formats.pe_headers import pe_header, sections_at
 from rebrew.utils import atomic_write_text
 
 #: Cap on import name-table / descriptor slots read from one PE.  A missing

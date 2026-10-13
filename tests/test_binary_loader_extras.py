@@ -1,4 +1,4 @@
-"""Tests for binary_loader.py internals — PE/ELF loaders and size guard."""
+"""Tests for formats/binary_loader.py internals — PE/ELF loaders and size guard."""
 
 import enum
 from pathlib import Path
@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import lief
 import pytest
 
-import rebrew.binary_loader as bl
+import rebrew.formats.binary_loader as bl
 
 #: The bit ``_load_pe`` asks every section whether it carries.
 _PE_EXECUTE = lief.PE.Section.CHARACTERISTICS.MEM_EXECUTE
@@ -323,7 +323,7 @@ class TestElfWordSize:
 
 class TestBinaryInfoData:
     def test_oversized_file_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew import binary_model
+        from rebrew.formats import binary_model
 
         f = tmp_path / "big.bin"
         f.write_bytes(b"\x00" * 16)
@@ -351,12 +351,12 @@ class TestObjectArch:
         [("mini.obj", ("x86_32", "little")), ("thumb_arm.o", ("arm32", "little"))],
     )
     def test_elf_and_coff_objects(self, name: str, expected: tuple[str, str]) -> None:
-        from rebrew.binary_loader import object_arch
+        from rebrew.formats.binary_loader import object_arch
 
         assert object_arch((self.FIXTURES / name).read_bytes()) == expected
 
     def test_an_omf_or_junk_object_is_unknown(self) -> None:
-        from rebrew.binary_loader import object_arch
+        from rebrew.formats.binary_loader import object_arch
 
         assert object_arch((self.FIXTURES / "tg_watcom.o").read_bytes()) is None
         assert object_arch(b"\x7fELF" + b"\x00" * 8) is None

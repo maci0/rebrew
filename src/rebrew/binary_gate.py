@@ -78,7 +78,7 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
     ``error`` (None on success), which :func:`compare_snapshots` reports as
     drift so two unparseable binaries cannot pass the gate.
     """
-    from rebrew.binary_loader import load_binary
+    from rebrew.formats.binary_loader import load_binary
 
     empty: dict[str, Any] = {
         "sections": {},
@@ -108,8 +108,8 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
         else:
             rsrc = None
     try:
-        from rebrew.binary_loader import parse_exports
-        from rebrew.import_table import parse_imports
+        from rebrew.formats.binary_loader import parse_exports
+        from rebrew.formats.import_table import parse_imports
 
         exports = parse_exports(binary_path)
         imports = sorted(
@@ -183,14 +183,14 @@ def layout_fingerprint(binary_path: Path) -> str:
     import hashlib
 
     try:
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         info = load_binary(binary_path)
     except (OSError, ValueError):
         return ""
     h = hashlib.sha256()
     if info.format == "pe":
-        from rebrew.pe_headers import SECTION_ENTRY_SIZE, pe_layout
+        from rebrew.formats.pe_headers import SECTION_ENTRY_SIZE, pe_layout
 
         layout = pe_layout(info.data)
         if layout is None or len(layout.sections) != layout.number_of_sections:

@@ -23,7 +23,7 @@ What it delegates to (no second mechanism):
 - Symbols: :func:`rebrew.symbol_addrs.parse_symbol_addrs` reads every
   ``symbol_addrs_path`` file, including the rich ``// type:``/``// size:``
   trailing comments the ``rebrew export symbols`` writer emits.
-- Binary identity and layout: :func:`rebrew.binary_loader.load_binary`
+- Binary identity and layout: :func:`rebrew.formats.binary_loader.load_binary`
   supplies format, arch, and image base; the configured binary is copied by
   the same convention ``rebrew intake`` uses (``original/<target>``).
 - Function annotations: :func:`rebrew.skeleton.generate_skeleton` renders a
@@ -902,7 +902,7 @@ def build_plan(cfg_splat: SplatConfig, target: str | None = None) -> ImportPlan:
     Pure reads: the project config, the splat config, and its symbol files.
     Nothing is written, so the dry run and the tests share this path exactly.
     """
-    from rebrew.binary_loader import load_binary
+    from rebrew.formats.binary_loader import load_binary
 
     cfg = require_config(target=target)
     target_name = cfg.target_name
@@ -1010,7 +1010,7 @@ def _layout_sections(
     ``rebrew build layout`` writes, so ``rebrew data list`` and
     ``rebrew build calibrate-bss`` read it unchanged.
     """
-    from rebrew.pe_headers import pe_layout
+    from rebrew.formats.pe_headers import pe_layout
 
     sections: list[SectionMeta] = []
     notes: list[str] = []

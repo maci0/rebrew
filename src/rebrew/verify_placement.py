@@ -18,7 +18,6 @@ from typing import Any
 
 import typer
 
-from rebrew.binary_loader import load_binary
 from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
@@ -31,6 +30,7 @@ from rebrew.cli import (
     untrusted_ident,
 )
 from rebrew.data_layout import built_data_va
+from rebrew.formats.binary_loader import load_binary
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

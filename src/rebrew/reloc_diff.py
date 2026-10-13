@@ -30,8 +30,6 @@ from typing import Any
 import typer
 from rich.markup import escape
 
-from rebrew.binary_loader import extract_bytes_at_va, load_binary, section_dict
-from rebrew.binary_model import BinaryInfo
 from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
@@ -44,6 +42,8 @@ from rebrew.cli import (
     require_non_negative,
 )
 from rebrew.data_scan import classify_section
+from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary, section_dict
+from rebrew.formats.binary_model import BinaryInfo
 
 _DEFAULT_LIMIT = 50
 
@@ -116,7 +116,9 @@ def data_row_index(cfg: Any) -> NameIndex:
 
 def operand(info: BinaryInfo, site: int, kind: str) -> int | None:
     """The pointer a HIGHLOW/DIR64 site holds; None for other types or unread bytes."""
-    from rebrew.relocations import PE_RELOCATION_WIDTHS  # lazy: rebrew.relocations imports lief
+    from rebrew.formats.relocations import (
+        PE_RELOCATION_WIDTHS,  # lazy: rebrew.formats.relocations imports lief
+    )
 
     width = PE_RELOCATION_WIDTHS.get(kind)
     if width is None:
@@ -209,7 +211,9 @@ def _parse_range(text: str, *, json_mode: bool) -> tuple[int, int]:
 
 
 def _load_pe(path: Path, *, json_mode: bool) -> tuple[BinaryInfo, dict[int, str]]:
-    from rebrew.relocations import pe_relocation_sites  # lazy: rebrew.relocations imports lief
+    from rebrew.formats.relocations import (
+        pe_relocation_sites,  # lazy: rebrew.formats.relocations imports lief
+    )
 
     try:
         info = load_binary(path)

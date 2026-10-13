@@ -2353,12 +2353,12 @@ class TestW029RedundantCflags:
         (tmp_path / "target.dll").write_bytes(b"MZ")
         cfg.target_binary = tmp_path / "target.dll"
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        from rebrew.binary_model import SectionInfo
+        from rebrew.formats.binary_model import SectionInfo
 
         class _Info:
             sections = {".data": SectionInfo(".data", 0x2000, 0x100, 0, 0x100)}
 
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
 
         monkeypatch.setattr(bl, "load_binary", lambda path: _Info())
         result = CliRunner().invoke(app, ["--fix", str(f)])
@@ -2383,8 +2383,8 @@ class TestW029RedundantCflags:
         (tmp_path / "target.dll").write_bytes(b"MZ")
         cfg.target_binary = tmp_path / "target.dll"
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        import rebrew.binary_loader as bl
-        from rebrew.binary_model import SectionInfo
+        import rebrew.formats.binary_loader as bl
+        from rebrew.formats.binary_model import SectionInfo
 
         class _Info:
             sections = {".rdata": SectionInfo(".rdata", 0x2000, 0x100, 0, 0x100)}

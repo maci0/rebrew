@@ -33,9 +33,9 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from rebrew.binary_loader import load_binary
 from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.data_metadata import iter_data_symbols
+from rebrew.formats.binary_loader import load_binary
 from rebrew.sources import files_with_ext
 from rebrew.utils import atomic_write_text as atomic_write_text
 from rebrew.utils import (

@@ -1,4 +1,4 @@
-"""pe_symbols.py: name a PE's data directories as symbol records.
+"""formats/pe_symbols.py: name a PE's data directories as symbol records.
 
 A PE's loader metadata names addresses the disassembly alone cannot: the entry
 point, the export table, every import-address-table slot, delay-load slots, TLS
@@ -15,9 +15,9 @@ Two public entry points:
 
 Sources, in order of preference:
 
-- LIEF through :func:`rebrew.binary_loader.load_binary` for the structures it
+- LIEF through :func:`rebrew.formats.binary_loader.load_binary` for the structures it
   parses (entry point, exports, TLS callbacks, the load config).
-- :func:`rebrew.import_table.parse_imports` for the import table, which already
+- :func:`rebrew.formats.import_table.parse_imports` for the import table, which already
   covers PE, ELF and 16-bit NE and names ordinal-only slots.
 - The documented byte layout for three structures LIEF parses but does not
   enumerate.  The SafeSEH handler table and the ``/guard:cf`` target table are
@@ -48,10 +48,10 @@ from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-from rebrew.binary_loader import decode_binary_name, extract_bytes_at_va, load_binary
-from rebrew.binary_model import BinaryInfo
-from rebrew.import_table import parse_imports
-from rebrew.pe_headers import pe_layout
+from rebrew.formats.binary_loader import decode_binary_name, extract_bytes_at_va, load_binary
+from rebrew.formats.binary_model import BinaryInfo
+from rebrew.formats.import_table import parse_imports
+from rebrew.formats.pe_headers import pe_layout
 
 # ---------------------------------------------------------------------------
 # Named constants
@@ -208,7 +208,7 @@ def _inside(spans: list[tuple[int, int]], va: int) -> bool:
 class _Image:
     """A parsed PE's section spans and image base, for pointer resolution.
 
-    Wraps :func:`rebrew.pe_headers.pe_layout` so the RVA-vs-VA decision
+    Wraps :func:`rebrew.formats.pe_headers.pe_layout` so the RVA-vs-VA decision
     (:meth:`resolve`) and the byte reads share one section model.
     """
 

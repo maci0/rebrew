@@ -2,7 +2,7 @@
 
 Architecture notes:
 
-- Every helper takes a ``BinaryInfo`` (from ``rebrew.binary_model``) so the
+- Every helper takes a ``BinaryInfo`` (from ``rebrew.formats.binary_model``) so the
   caller controls when the binary is parsed — the "lazy LIEF" pattern.  Parse
   once, reuse across tools.
 - ``scan_references`` walks the code sections once with capstone and classifies
@@ -28,12 +28,12 @@ from typing import Any, Protocol
 
 import capstone
 
-from rebrew.binary_loader import (
+from rebrew.formats.binary_loader import (
     capstone_config_for,
     section_extent,
     va_to_file_offset,
 )
-from rebrew.binary_model import BinaryInfo
+from rebrew.formats.binary_model import BinaryInfo
 
 DEFAULT_CS_ARCH = "CS_ARCH_X86"
 DEFAULT_CS_MODE = "CS_MODE_32"
@@ -124,7 +124,7 @@ def capstone_for(info: BinaryInfo | None = None) -> Any:
 
     Defaults to x86-32.  A ``BinaryInfo`` selects the arch, the x86 bitness
     (NE/MZ → 16-bit), and the image endianness through
-    :func:`rebrew.binary_loader.capstone_config_for`.  Undecodable bytes are
+    :func:`rebrew.formats.binary_loader.capstone_config_for`.  Undecodable bytes are
     emitted as ``.byte`` pseudo instructions instead of terminating the
     linear scan — required for real binaries whose code contains embedded data.
 

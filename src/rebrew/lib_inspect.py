@@ -29,8 +29,8 @@ from typing import Any
 
 import typer
 
-from rebrew.archives import parse_archive, stock_lib_cache
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
+from rebrew.formats.archives import parse_archive, stock_lib_cache
 from rebrew.utils import container_runtime
 
 # IMAGE_FILE_HEADER is 20 bytes; a short import header starts with Sig1=0, Sig2=0xFFFF.

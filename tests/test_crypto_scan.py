@@ -12,7 +12,6 @@ import pytest
 from typer.testing import CliRunner
 
 import rebrew.main
-from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.crypto_scan import (
     _AES_INV_SBOX,
     _AES_SBOX,
@@ -24,6 +23,7 @@ from rebrew.crypto_scan import (
     crypto_scan,
     name_findings,
 )
+from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 
 FIXTURES = Path(__file__).parent / "fixtures"
 MINI_PE = FIXTURES / "mini_pe.exe"
@@ -241,8 +241,8 @@ class TestCryptoScan:
             },
             _data=blob,
         )
-        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda *a, **k: info)
-        monkeypatch.setattr("rebrew.import_table.parse_imports", lambda *a, **k: [])
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda *a, **k: info)
+        monkeypatch.setattr("rebrew.formats.import_table.parse_imports", lambda *a, **k: [])
         result = crypto_scan(path)
         assert result["count"] == 1
         finding = result["findings"][0]
@@ -266,9 +266,9 @@ class TestCryptoScan:
             },
             _data=blob,
         )
-        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda *a, **k: info)
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda *a, **k: info)
         monkeypatch.setattr(
-            "rebrew.import_table.parse_imports",
+            "rebrew.formats.import_table.parse_imports",
             lambda *a, **k: [{"name": "CryptGenRandom"}, {"name": "MD5_Init"}],
         )
         result = crypto_scan(path, ["md5_helper"])

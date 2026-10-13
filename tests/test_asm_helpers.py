@@ -354,7 +354,7 @@ class TestDetectFunctionPattern:
 
         (tmp_path / "x.exe").write_bytes(b"MZ")
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes",
+            "rebrew.formats.binary_loader.extract_raw_bytes",
             lambda p, va, n: bytes.fromhex("ff 25 c8 30 41 00"),
         )
         p = detect_function_pattern(self._cfg(tmp_path), 0x1000)
@@ -365,7 +365,7 @@ class TestDetectFunctionPattern:
 
         (tmp_path / "x.exe").write_bytes(b"MZ")
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes",
+            "rebrew.formats.binary_loader.extract_raw_bytes",
             lambda p, va, n: bytes.fromhex("b8 1e 3d 03 01 e8 ce 74 02 00"),
         )
         p = detect_function_pattern(self._cfg(tmp_path), 0x1000)
@@ -376,7 +376,7 @@ class TestDetectFunctionPattern:
 
         (tmp_path / "x.exe").write_bytes(b"MZ")
         code = bytes.fromhex("8b 44 24 10 50 8b 44 24 10 50 8b 44 24 10 50 ff 15 5c 12 00 01 c3")
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code)
+        monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda p, va, n: code)
         p = detect_function_pattern(self._cfg(tmp_path), 0x1000)
         assert p is not None and "forwarder" in p
 
@@ -385,7 +385,7 @@ class TestDetectFunctionPattern:
 
         (tmp_path / "x.exe").write_bytes(b"MZ")
         monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes",
+            "rebrew.formats.binary_loader.extract_raw_bytes",
             lambda p, va, n: bytes.fromhex("55 8b ec 83 ec 08 b8 01 00 00 00 c9 c3"),
         )
         assert detect_function_pattern(self._cfg(tmp_path), 0x1000) is None

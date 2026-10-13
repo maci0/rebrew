@@ -1851,9 +1851,9 @@ class TestCompareLogicHashMembership:
         source file in the package, so that is what is checked here.
         """
         import rebrew.annotation
-        import rebrew.binary_loader
         import rebrew.coff_reloc
         import rebrew.compiler.compile
+        import rebrew.formats.binary_loader
         import rebrew.matcher.parsers
         from rebrew.verify_hash import _compare_logic_hash, _package_source_fingerprint
 
@@ -1863,7 +1863,7 @@ class TestCompareLogicHashMembership:
             rebrew.compiler.compile._extract_and_compare.__code__.co_filename,
             rebrew.coff_reloc.smart_reloc_compare.__code__.co_filename,
             rebrew.matcher.parsers.parse_obj_symbol_and_relocs.__code__.co_filename,
-            rebrew.binary_loader.extract_raw_bytes.__code__.co_filename,
+            rebrew.formats.binary_loader.extract_raw_bytes.__code__.co_filename,
         }
         # Sanity: 5 distinct files (classify_compare_result and
         # _extract_and_compare both live in compiler/compile.py), all under src/.

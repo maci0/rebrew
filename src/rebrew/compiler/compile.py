@@ -65,8 +65,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Self, cast, get_args
 
-from rebrew.binary_loader import load_binary
-from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 
 #: ``toolchain.TOOLCHAINS`` is republished by ``refresh_toolchain_registry``
@@ -101,6 +99,8 @@ from rebrew.config import (
     validate_http_url,
 )
 from rebrew.errors import RebrewError
+from rebrew.formats.binary_loader import load_binary
+from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import canonical_status
 from rebrew.sources import contained_path, source_roots

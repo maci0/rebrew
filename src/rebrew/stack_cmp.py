@@ -19,7 +19,6 @@ from pathlib import Path
 
 import typer
 
-from rebrew.binary_loader import capstone_mode_for_arch
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
@@ -29,6 +28,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.formats.binary_loader import capstone_mode_for_arch
 from rebrew.stack_analysis import analyze_frame, compare_frames
 
 

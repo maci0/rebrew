@@ -3100,7 +3100,7 @@ Three output modes, one per run:
   no known symbol is named `fcn_<VA>`.
 
 `--pe-symbols` adds the symbols named from the target PE's data directories
-(`rebrew.pe_symbols`): `entrypoint`, exports, every IAT slot as
+(`rebrew.formats.pe_symbols`): `entrypoint`, exports, every IAT slot as
 `__imp_<dll>_<name>` (or `__imp_<dll>_ord<N>` for an ordinal-only import),
 delay-load slots as `__dimp_<dll>_<name>`, `tls_callback_<N>`, `safeseh_<N>`,
 `cfg_target_<N>`, and `security_cookie`.  The default output has none of them.

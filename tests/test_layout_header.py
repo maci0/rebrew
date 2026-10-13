@@ -74,8 +74,8 @@ class TestLayoutFirstCallers:
         """_detect_binary_layout answers from the package; LIEF never loads."""
         import sys
 
-        from rebrew import binary_loader
         from rebrew.config import _detect_binary_layout
+        from rebrew.formats import binary_loader
 
         binp = tmp_path / "program.exe"
         binp.write_bytes(b"MZ")
@@ -97,7 +97,7 @@ class TestLayoutFirstCallers:
     def test_text_size_uses_layout_without_lief(self, tmp_path: Path, monkeypatch) -> None:
         import sys
 
-        from rebrew import binary_loader
+        from rebrew.formats import binary_loader
         from rebrew.sections import get_text_section_size
 
         binp = tmp_path / "program.exe"

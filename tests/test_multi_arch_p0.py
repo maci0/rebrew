@@ -79,14 +79,14 @@ class TestArchDetection:
         """The checked-in mini PE detects as (pe, x86_32) via the public API."""
         from pathlib import Path as _Path
 
-        from rebrew.binary_loader import detect_format_and_arch
+        from rebrew.formats.binary_loader import detect_format_and_arch
 
         fmt, arch = detect_format_and_arch(_Path(__file__).parent / "fixtures" / "mini_pe.exe")
         assert fmt == "pe"
         assert arch == "x86_32"
 
     def test_detect_unknown_format_raises(self, tmp_path: Path) -> None:
-        from rebrew.binary_loader import detect_format_and_arch
+        from rebrew.formats.binary_loader import detect_format_and_arch
 
         blob = tmp_path / "x.bin"
         blob.write_bytes(b"\x00" * 64)
@@ -94,13 +94,13 @@ class TestArchDetection:
             detect_format_and_arch(blob)
 
     def test_detect_missing_file_raises(self, tmp_path: Path) -> None:
-        from rebrew.binary_loader import detect_format_and_arch
+        from rebrew.formats.binary_loader import detect_format_and_arch
 
         with pytest.raises(FileNotFoundError):
             detect_format_and_arch(tmp_path / "nope.exe")
 
     def test_load_binary_sets_arch(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
 
         bin_path = tmp_path / "x.elf"
         bin_path.write_bytes(b"\x7fELF")
@@ -122,7 +122,7 @@ class TestExtentWalker:
     def _extent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, arch: str, fmt: str, raw: bytes
     ) -> int:
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
 
         bin_path = tmp_path / "x.bin"
         bin_path.write_bytes(raw)
@@ -167,7 +167,7 @@ class TestExtentWalker:
     def test_ppc_capstone_decodes_blr_big_endian(self) -> None:
         import capstone
 
-        from rebrew.binary_loader import capstone_config_for
+        from rebrew.formats.binary_loader import capstone_config_for
 
         info = SimpleNamespace(arch="ppc32", endian="big", format="elf")
         cs_arch, mode = capstone_config_for(info)
@@ -177,7 +177,7 @@ class TestExtentWalker:
     def test_arm_big_endian_image_sets_the_bit(self) -> None:
         import capstone
 
-        from rebrew.binary_loader import capstone_config_for
+        from rebrew.formats.binary_loader import capstone_config_for
 
         info = SimpleNamespace(arch="arm32", endian="big", format="elf")
         _arch, mode = capstone_config_for(info)
@@ -213,7 +213,7 @@ class TestExtentWalker:
     def _extent_kind(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, arch: str, fmt: str, raw: bytes
     ) -> tuple[int, str]:
-        import rebrew.binary_loader as bl
+        import rebrew.formats.binary_loader as bl
 
         bin_path = tmp_path / "x.bin"
         bin_path.write_bytes(raw)

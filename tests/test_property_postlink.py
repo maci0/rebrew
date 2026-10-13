@@ -33,7 +33,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from test_postlink import make_full_pe
 
-from rebrew.binary_model import BinaryInfo, SectionInfo
+from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 from rebrew.layout_meta import LayoutMetadata, SectionMeta
 from rebrew.postlink import FIXER_ORDER as FIXER_NAMES
 

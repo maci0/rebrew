@@ -784,7 +784,7 @@ class TestDataCli:
 
         # data.py now derives sections from a single load_binary() parse.
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda p: SimpleNamespace(
                 image_base=0,
                 text_raw_offset=0,
@@ -840,7 +840,7 @@ class TestDataCli:
     def test_dispatch_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         (tmp_path / "fake.dll").write_bytes(b"\x00" * 16)
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda p: SimpleNamespace(data=b"\x00" * 16, sections={}),
         )
         monkeypatch.setattr("rebrew.data.find_dispatch_tables", lambda *a, **k: [])
@@ -862,7 +862,7 @@ class TestDataCli:
                 sections={".text": SimpleNamespace(va=0x1000, size=16, file_offset=0, raw_size=16)},
             )
 
-        monkeypatch.setattr("rebrew.binary_loader.load_binary", _fake_load)
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", _fake_load)
         monkeypatch.setattr("rebrew.data.find_dispatch_tables", lambda *a, **k: [])
         result = self._invoke(tmp_path, monkeypatch, ["dispatch", "--json"])
         assert result.exit_code == 0

@@ -202,7 +202,7 @@ plain Integer args too).  RTL functions use far `retf`/`retf N` (`ca`).
 
 Pascal probe `probe.dpr` compiled via `rebrew/delphi:1.0-win16`
 (`probe.EXE`, NE 6.01, 3 segments: 330B code + 1740B RTL + 168B data),
-disassembled with capstone (16-bit) through `rebrew.binary_loader`.
+disassembled with capstone (16-bit) through `rebrew.formats.binary_loader`.
 The five user functions were located by their `push bp; mov bp,sp`
 prologues without the RTL's `push ds`; `begin..end` references retain
 them (unreferenced functions are dead-stripped by the linker).

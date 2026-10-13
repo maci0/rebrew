@@ -1,6 +1,6 @@
 """imports.py — ``rebrew binary imports list``: list import-table symbols and mark import stubs.
 
-CLI layer over :mod:`rebrew.import_table`.  Together the import table and the
+CLI layer over :mod:`rebrew.formats.import_table`.  Together the import table and the
 ``jmp dword ptr [iat]`` stubs name the library functions a target binary
 imports — the first half of the "library identification" pass (the FLIRT half
 lives in :mod:`rebrew.flirt` and needs ``.sig`` files).
@@ -27,7 +27,7 @@ from rebrew.cli import (
     resolve_binary_arg,
 )
 from rebrew.config import module_marker
-from rebrew.import_table import find_import_stubs, parse_imports
+from rebrew.formats.import_table import find_import_stubs, parse_imports
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.utils import pe_name_token, read_source_text, untrusted_text
 

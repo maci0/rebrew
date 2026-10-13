@@ -94,7 +94,7 @@ version = { attr = "rebrew.__version__" }
 # future non-markdown reference file cannot silently drop out of the wheel.
 rebrew = ["agent-skills/**/*", "*.template", "PRINCIPLES.md", "**/py.typed", "py.typed"]
 
-# Contributor-only AGENTS.md under subpackages (matcher/, compiler/, catalog/, ghidra/,
+# Contributor-only AGENTS.md under subpackages (matcher/, compiler/, formats/, catalog/, ghidra/,
 # binsync/, workspace/) must not
 # ride into the wheel if include-package-data ever widens the sdist file set.
 [tool.setuptools.exclude-package-data]

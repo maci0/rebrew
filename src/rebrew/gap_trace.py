@@ -21,7 +21,6 @@ from typing import Any
 import typer
 
 from rebrew.analysis import Insn, iter_instructions
-from rebrew.binary_loader import decode_binary_name, load_binary
 from rebrew.cli import (
     TargetOption,
     console,
@@ -31,6 +30,7 @@ from rebrew.cli import (
     select_annotation,
 )
 from rebrew.compiler.compile import compile_to_obj
+from rebrew.formats.binary_loader import decode_binary_name, load_binary
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

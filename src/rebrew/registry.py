@@ -394,7 +394,6 @@ def refresh_all() -> dict[str, int]:
     refresh does not remount the umbrella app.
     """
     from rebrew import (
-        binary_loader,
         decompiler,
         discover,
         metadata,
@@ -402,6 +401,7 @@ def refresh_all() -> dict[str, int]:
     )
     from rebrew.compiler import cache as compile_cache
     from rebrew.compiler import toolchain
+    from rebrew.formats import binary_loader
     from rebrew.matcher import compiler, mutator
 
     with _REFRESH_ALL_LOCK:

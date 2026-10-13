@@ -36,7 +36,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.errors import RebrewError
-from rebrew.pe_headers import pe_layout
+from rebrew.formats.pe_headers import pe_layout
 from rebrew.utils import atomic_write_text, read_json_text, untrusted_ident
 
 #: Width of the function-name column in the residue table.
@@ -80,7 +80,7 @@ app = typer.Typer(
 def _sections(raw: bytes) -> dict[str, tuple[int, int, int, int]]:
     """name -> (va, vsize, raw_ptr, raw_size), extents clipped to *raw*.
 
-    Geometry comes from :func:`rebrew.pe_headers.pe_layout`, which bounds every
+    Geometry comes from :func:`rebrew.formats.pe_headers.pe_layout`, which bounds every
     read against the buffer; a section whose raw extent runs past the end of
     the image keeps the part that is present, so the caller's byte comparison
     stays in bounds.  A section with no bytes in the file (BSS) is dropped.
@@ -253,7 +253,7 @@ def main(
     if not built_path.is_file():
         error_exit(f"Built image not found: {built_path}", json_mode=json_output)
 
-    from rebrew.binary_loader import load_binary
+    from rebrew.formats.binary_loader import load_binary
     from rebrew.layout_meta import load_package
     from rebrew.postlink import (
         FIXER_ORDER,

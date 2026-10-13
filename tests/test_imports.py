@@ -12,7 +12,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from typer.testing import CliRunner
 
-from rebrew.import_table import find_import_stubs, parse_import_table, parse_imports
+from rebrew.formats.import_table import find_import_stubs, parse_import_table, parse_imports
 from rebrew.imports import imports_payload
 
 IMAGE_BASE = 0x400000
@@ -351,7 +351,7 @@ def _ne_with_modules(tmp_path: Path, modules: list[str]) -> Path:
 
 class TestNeImports:
     def test_module_level_imports(self, tmp_path: Path) -> None:
-        from rebrew.import_table import parse_imports
+        from rebrew.formats.import_table import parse_imports
 
         p = _ne_with_modules(tmp_path, ["KERNEL", "GDI", "USER"])
         recs = parse_imports(p)
@@ -362,7 +362,7 @@ class TestNeImports:
         assert all(r["name"] == "" for r in recs)
 
     def test_pe_imports_unchanged(self, tmp_path: Path) -> None:
-        from rebrew.import_table import parse_imports
+        from rebrew.formats.import_table import parse_imports
 
         pe_bytes, _, _ = _pe_with_stub(tmp_path)
         p = tmp_path / "game.exe"
@@ -594,7 +594,7 @@ class TestParseFailureIsNotMemoized:
     def test_failed_parse_is_retried_not_cached(self, tmp_path, monkeypatch, caplog) -> None:
         import logging
 
-        from rebrew import import_table
+        from rebrew.formats import import_table
 
         target = tmp_path / "app.exe"
         target.write_bytes(b"MZ" + b"\x00" * 64)
@@ -605,14 +605,14 @@ class TestParseFailureIsNotMemoized:
             calls["n"] += 1
 
         monkeypatch.setattr(import_table, "_parse_imports", _fail)
-        with caplog.at_level(logging.WARNING, logger="rebrew.import_table"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.formats.import_table"):
             assert import_table.parse_imports(target) == []
         assert calls["n"] == 1
         assert import_table.parse_imports(target) == []
         assert calls["n"] == 2, "a failed parse was memoized as an empty import table"
 
     def test_successful_parse_is_memoized(self, tmp_path, monkeypatch) -> None:
-        from rebrew import import_table
+        from rebrew.formats import import_table
 
         target = tmp_path / "app.exe"
         target.write_bytes(b"MZ" + b"\x00" * 64)

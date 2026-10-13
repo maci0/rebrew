@@ -635,9 +635,9 @@ class TestBinaryCallEdges:
     def test_ne_binary_edges(self, tmp_path) -> None:
         from test_ne_loader import _build_ne
 
-        from rebrew.binary_loader import load_binary
         from rebrew.depgraph import binary_call_edges
-        from rebrew.ne_loader import enumerate_ne_functions
+        from rebrew.formats.binary_loader import load_binary
+        from rebrew.formats.ne_loader import enumerate_ne_functions
 
         # Two functions: fn1 calls fn2 (near call), fn1 jumps to itself region.
         code = bytes.fromhex(
@@ -662,9 +662,9 @@ class TestBinaryCallEdges:
         sites to the right function (the bisect path)."""
         from test_ne_loader import _build_ne
 
-        from rebrew.binary_loader import load_binary
         from rebrew.depgraph import binary_call_edges
-        from rebrew.ne_loader import enumerate_ne_functions
+        from rebrew.formats.binary_loader import load_binary
+        from rebrew.formats.ne_loader import enumerate_ne_functions
 
         code = bytes.fromhex("55 8b ec e8 0a 00 5d c390 90 90 9055 8b ec 33 c0 5d c3")
         raw = _build_ne(segments=[(b"\x01\x00" + code, 0x01)])

@@ -1467,7 +1467,7 @@ class TestFixHeaders:
         original — the reasm differs only in the (now valid) checksum."""
         from bin_util import make_pe
 
-        from rebrew.pe_headers import _pe_checksum, read_pe_header_fields
+        from rebrew.formats.pe_headers import _pe_checksum, read_pe_header_fields
 
         binary = tmp_path / "golden.dll"
         original = make_pe(b"\x55\x8b\xec\xc3", text_va=0x1000, image_base=0x10000000)
@@ -1480,7 +1480,7 @@ class TestFixHeaders:
         assert orig_fields is not None and reasm_fields is not None
         # Every patchable field now matches the original (checksum is
         # recomputed, not copied — asserted separately below).
-        from rebrew.pe_headers import PATCHABLE
+        from rebrew.formats.pe_headers import PATCHABLE
 
         for label in PATCHABLE - {"checksum"}:
             assert reasm_fields[label] == orig_fields[label], label
@@ -1494,7 +1494,7 @@ class TestFixHeaders:
         from bin_util import make_pe
 
         from rebrew.config import LinkConfig
-        from rebrew.pe_headers import read_pe_header_fields
+        from rebrew.formats.pe_headers import read_pe_header_fields
 
         binary = tmp_path / "golden.dll"
         binary.write_bytes(make_pe(b"\x55\x8b\xec\xc3", text_va=0x1000, image_base=0x10000000))
@@ -1550,7 +1550,7 @@ class TestPeHeaderFieldWidths:
         linker_version_minor (+0x1B) or spill into SizeOfCode."""
         from bin_util import make_pe
 
-        from rebrew.pe_headers import patch_pe_headers, read_pe_header_fields
+        from rebrew.formats.pe_headers import patch_pe_headers, read_pe_header_fields
 
         original = make_pe(b"\x55\x8b\xec\xc3", text_va=0x1000, image_base=0x400000)
         orig_fields = read_pe_header_fields(original)
@@ -1568,7 +1568,7 @@ class TestPeHeaderFieldWidths:
         """A buffer ending one byte into the optional header must yield the
         readable prefix of fields rather than raise struct.error (the old
         code unpacked '<I' after bounds-checking only *size* bytes)."""
-        from rebrew.pe_headers import read_pe_header_fields
+        from rebrew.formats.pe_headers import read_pe_header_fields
 
         lfanew = 0x40
         data = bytearray(lfanew + 0x1B)  # exactly 1 byte past linker_major

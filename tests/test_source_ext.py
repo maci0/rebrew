@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 import pytest
 
-from rebrew.binary_loader import detect_source_language
 from rebrew.config import ProjectConfig
+from rebrew.formats.binary_loader import detect_source_language
 from rebrew.sources import (
     files_with_ext,
     iter_headers,
@@ -133,7 +133,7 @@ def test_detect_nonexistent_file() -> None:
 def _detect_with_mock(mock_binary: SimpleNamespace) -> tuple[str, str]:
     """Helper: run detect_source_language with a mocked binary and file existence."""
     with (
-        patch("rebrew.binary_loader.lief.parse", return_value=mock_binary),
+        patch("rebrew.formats.binary_loader.lief.parse", return_value=mock_binary),
         patch.object(Path, "exists", return_value=True),
     ):
         return detect_source_language(Path("/fake/test.bin"))

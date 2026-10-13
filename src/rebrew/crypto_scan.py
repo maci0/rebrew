@@ -342,8 +342,8 @@ def crypto_scan(
     if not path.exists():
         raise FileNotFoundError(f"Binary not found: {path}")
 
-    from rebrew.binary_loader import load_binary
-    from rebrew.import_table import parse_imports
+    from rebrew.formats.binary_loader import load_binary
+    from rebrew.formats.import_table import parse_imports
 
     try:
         info = load_binary(path)

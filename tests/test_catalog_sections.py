@@ -65,14 +65,14 @@ class TestHasBackJumps:
 class TestGetTextSectionSize:
     def test_returns_text_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda _p: SimpleNamespace(text_size=0x1234),
         )
         assert get_text_section_size(Path("/tmp/fake.dll")) == 0x1234
 
     def test_failure_returns_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "rebrew.binary_loader.load_binary",
+            "rebrew.formats.binary_loader.load_binary",
             lambda _p: (_ for _ in ()).throw(RuntimeError("bad")),
         )
         assert get_text_section_size(Path("/tmp/nope.dll")) == 0
@@ -219,7 +219,7 @@ class TestSectionsFromInfo:
 
     @staticmethod
     def _info(**sections: object) -> Any:
-        from rebrew.binary_model import BinaryInfo, SectionInfo
+        from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 
         info = BinaryInfo(path=Path("/fake/x.dll"), format="pe")
         for name, (va, size, raw, off) in sections.items():

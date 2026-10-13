@@ -265,7 +265,7 @@ class TestImportsFixer:
         mov-imm32 constant) must be left alone, not rewritten."""
         import dataclasses
 
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
         from rebrew.layout_meta import extract_layout
         from rebrew.postlink import _fix_imports
 
@@ -351,7 +351,7 @@ class TestDataFixer:
         fill with 0xCC, and zeroing it would corrupt a matching build.  That
         case is covered by test_preserves_reference_text_padding.
         """
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
         from rebrew.layout_meta import extract_layout
         from rebrew.postlink import _fix_data
 
@@ -396,7 +396,7 @@ class TestDataFixer:
         struct.pack_into("<I", raw, sec_reloc + 20, new_ptr)
         built = _write(tmp_path, "built.dll", bytes(raw))
 
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
 
         blob = bytearray(built.read_bytes())
         _fix_data(blob, meta, load_binary(built))
@@ -420,7 +420,7 @@ class TestDataFixer:
         raw[_HEADERS + old_raw : _HEADERS + old_raw] = b"\x90" * 0x100
         built = _write(tmp_path, "built.dll", bytes(raw))
 
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
         from rebrew.layout_meta import extract_layout
         from rebrew.postlink import _fix_data
 
@@ -433,7 +433,7 @@ class TestDataFixer:
         """A built link whose raw sections sit 0x200 later must not be trimmed:
         the trim point resolves from the built section's own file offset, never
         the reference's ``raw_ptr`` (which indexed the built buffer)."""
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
         from rebrew.layout_meta import extract_layout
         from rebrew.postlink import _fix_data
 
@@ -529,7 +529,7 @@ class TestPeMetadataFixer:
         import dataclasses
         import struct
 
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
         from rebrew.layout_meta import extract_layout
         from rebrew.postlink import _fix_pe_metadata
 
@@ -738,7 +738,7 @@ class TestExactLayout:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         import rebrew.postlink as pl
-        from rebrew.binary_loader import load_binary
+        from rebrew.formats.binary_loader import load_binary
         from rebrew.layout_meta import extract_layout
 
         reloc = struct.pack("<II", 0x1000, 8) + struct.pack("<HH", 0x123, 0x3000)
