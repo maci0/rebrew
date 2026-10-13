@@ -78,15 +78,40 @@ def _is_coroutine_callable(obj: Any) -> bool:
     return False
 
 
+def _callable_name(obj: Any) -> str:
+    """Return the name of *obj* or its underlying callable without disclosing bound repr."""
+    while isinstance(obj, partial):
+        obj = obj.func
+    name = getattr(obj, "__qualname__", None) or getattr(obj, "__name__", None)
+    if name:
+        return str(name)
+    target_type = type(obj)
+    type_name = getattr(target_type, "__qualname__", None) or getattr(target_type, "__name__", None)
+    return str(type_name) if type_name else "callable"
+
+
 def _check_sync_result(result: Any, target: Any, operation: str) -> None:
     """Ensure a synchronous lifecycle call did not return an awaitable or async generator."""
     if inspect.isawaitable(result) or inspect.isasyncgen(result):
         if inspect.iscoroutine(result):
             result.close()
+        name = _callable_name(target)
+        target_type = type(target).__name__
         raise ComponentError(
-            f"{operation} {target!r} returned an awaitable or async generator; "
+            f"{operation} '{name}' (type {target_type}) returned an awaitable or async generator; "
             "synchronous lifecycle requires synchronous completion"
         )
+
+
+def _invoke_sync(
+    action: Callable[..., object],
+    *args: Any,
+    operation: str,
+    target: Any = None,
+) -> None:
+    """Invoke a lifecycle action through an invocation boundary and verify its return value."""
+    result = action(*args)
+    _check_sync_result(result, action if target is None else target, operation)
 
 
 def _run_cleanup(disposers: Iterable[Disposer]) -> None:
@@ -94,8 +119,7 @@ def _run_cleanup(disposers: Iterable[Disposer]) -> None:
     errors: list[BaseException] = []
     for dispose in disposers:
         try:
-            result = dispose()
-            _check_sync_result(result, dispose, "cleanup disposer")
+            _invoke_sync(dispose, operation="cleanup disposer")
         except BaseException as exc:
             # Cancellation must not strand the rest of an inverse accumulator.
             errors.append(exc)
@@ -113,8 +137,7 @@ def _raise_errors(errors: list[BaseException]) -> None:
 def _rollback(dispose: Disposer, failure: BaseException) -> None:
     """Keep the original failure when rollback also raises."""
     try:
-        result = dispose()
-        _check_sync_result(result, dispose, "rollback disposer")
+        _invoke_sync(dispose, operation="rollback disposer")
     except BaseException as cleanup:
         raise BaseExceptionGroup(
             "component activation and rollback failed", [failure, cleanup]
@@ -173,8 +196,7 @@ class _Effect:
         if not self.armed:
             return
         self.armed = False
-        result = self.dispose()
-        _check_sync_result(result, self.dispose, "effect disposer")
+        _invoke_sync(self.dispose, operation="effect disposer")
 
 
 class Context:
@@ -357,8 +379,11 @@ class Context:
         if not callable(dispose):
             raise ComponentError(f"effect disposer must be callable, got {type(dispose).__name__}")
         if _is_coroutine_callable(dispose):
+            name = _callable_name(dispose)
+            target_type = type(dispose).__name__
             raise ComponentError(
-                f"effect disposer {dispose!r} must be synchronous; got coroutine function"
+                f"effect disposer '{name}' (type {target_type}) must be synchronous; "
+                "got coroutine function"
             )
         self._record(_Effect(dispose=dispose))
 
@@ -656,8 +681,11 @@ class CoeffectScope:
             if len(set(keys)) != len(keys):
                 raise ComponentError(f"component {field} contains duplicate service keys")
         if _is_coroutine_callable(getattr(component, "apply", None)):
+            name = _callable_name(component)
+            target_type = type(component).__name__
             raise ComponentError(
-                f"component {component!r} apply must be synchronous; got coroutine function"
+                f"component '{name}' (type {target_type}) apply must be synchronous; "
+                "got coroutine function"
             )
         entry = _Entry(
             component=component, needs=tuple(component.needs), provides=tuple(component.provides)
@@ -826,8 +854,12 @@ class CoeffectScope:
         owned = view._effects
         self._ctx._activating_needs.append(entry.needs)
         try:
-            outcome = entry.component.apply(view)
-            _check_sync_result(outcome, entry.component, "component apply")
+            _invoke_sync(
+                entry.component.apply,
+                view,
+                operation="component apply",
+                target=entry.component,
+            )
             if self._closed or self._ctx.disposed or view._retired:
                 view._unloading = True
                 _run_cleanup((lambda: self._revert(owned), view._finish, self._ctx._changed))

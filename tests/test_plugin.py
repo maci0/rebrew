@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any
 
 import pytest
@@ -1745,3 +1746,66 @@ class TestAsyncCallableRefusal:
         ctx.effect(sync_gen_function)
         ctx.dispose()
         assert order == ["iter", "gen"]
+
+    @pytest.fixture
+    def secret_sentinel(self) -> str:
+        return "SENTINEL_SECRET_TOKEN_VALUE_42"
+
+    def test_refusal_diagnostic_omits_bound_secret_at_registration(
+        self, secret_sentinel: str
+    ) -> None:
+        async def async_secret_disposer(_token: str) -> None:
+            pass
+
+        bound = partial(async_secret_disposer, secret_sentinel)
+        ctx = Context()
+        with pytest.raises(ComponentError) as exc_info:
+            ctx.effect(bound)
+
+        msg = str(exc_info.value)
+        assert "must be synchronous" in msg
+        assert "async_secret_disposer" in msg
+        assert "partial" in msg
+        assert secret_sentinel not in msg
+
+    def test_refusal_diagnostic_omits_bound_secret_at_runtime(self, secret_sentinel: str) -> None:
+        async def background_task(_token: str) -> None:
+            pass
+
+        def sync_returning_awaitable_with_secret(_token: str) -> Any:
+            return background_task(_token)
+
+        bound = partial(sync_returning_awaitable_with_secret, secret_sentinel)
+        ctx = Context()
+        ctx.effect(bound)
+        with pytest.raises(ComponentError) as exc_info:
+            ctx.dispose()
+
+        msg = str(exc_info.value)
+        assert "returned an awaitable or async generator" in msg
+        assert "sync_returning_awaitable_with_secret" in msg
+        assert "partial" in msg
+        assert secret_sentinel not in msg
+
+    def test_refusal_diagnostic_omits_component_repr_secrets(self, secret_sentinel: str) -> None:
+        class SecretComponent:
+            needs = ()
+            provides = ()
+
+            def __init__(self, token: str) -> None:
+                self.token = token
+
+            def __repr__(self) -> str:
+                return f"SecretComponent(token={self.token!r})"
+
+            async def apply(self, _ctx: Context) -> None:
+                pass
+
+        scope = CoeffectScope(Context())
+        with pytest.raises(ComponentError) as exc_info:
+            scope.add(SecretComponent(secret_sentinel))
+
+        msg = str(exc_info.value)
+        assert "must be synchronous" in msg
+        assert "SecretComponent" in msg
+        assert secret_sentinel not in msg
