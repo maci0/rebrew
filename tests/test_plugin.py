@@ -1809,3 +1809,28 @@ class TestAsyncCallableRefusal:
         assert "must be synchronous" in msg
         assert "SecretComponent" in msg
         assert secret_sentinel not in msg
+
+    def test_registration_avoids_descriptor_invocation_on_call(self) -> None:
+        invoked: list[str] = []
+
+        class TrackingDescriptor:
+            def __init__(self, fn: Any) -> None:
+                self.fn = fn
+
+            def __get__(self, _instance: Any, _owner: Any) -> Any:
+                invoked.append("descriptor_get")
+                return self.fn
+
+        class DescribedSyncCallable:
+            @staticmethod
+            def _clean() -> None:
+                pass
+
+            __call__ = TrackingDescriptor(_clean)
+
+        c = DescribedSyncCallable()
+        ctx = Context()
+        ctx.effect(c)
+        assert invoked == []
+        ctx.dispose()
+        assert invoked == ["descriptor_get"]

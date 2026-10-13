@@ -63,18 +63,12 @@ def _is_coroutine_callable(obj: Any) -> bool:
     if inspect.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj):
         return True
     if callable(obj) and not isinstance(obj, type):
-        try:
-            call_method = type(obj).__call__
-        except AttributeError:
-            call_method = None
-        if inspect.iscoroutinefunction(call_method) or inspect.isasyncgenfunction(call_method):
-            return True
-        try:
-            call_attr = obj.__call__
-        except AttributeError:
-            call_attr = None
-        if inspect.iscoroutinefunction(call_attr) or inspect.isasyncgenfunction(call_attr):
-            return True
+        for candidate in (
+            inspect.getattr_static(type(obj), "__call__", None),
+            inspect.getattr_static(obj, "__call__", None),
+        ):
+            if inspect.iscoroutinefunction(candidate) or inspect.isasyncgenfunction(candidate):
+                return True
     return False
 
 
