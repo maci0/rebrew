@@ -1,6 +1,13 @@
 ## [Unreleased]
 
+## [2.26.0] - 2026-10-13
+
 ### Changed
+- **Breaking:** `rebrew.compiler.compile.native_binary_id` (2.25.0:
+  `rebrew.compile.native_binary_id`) returns `str | None`. It returns `None`
+  instead of the digestless `native:<name>` when the compiler binary is
+  missing, unreadable, or its digest is malformed, so callers can tell a
+  missing identity from a hashed binary; that compile is not cached.
 - **Breaking:** the CLI composition layer moved into the `rebrew.app`
   package. Old → new import paths: `rebrew.main` → `rebrew.app.main`,
   `rebrew.builtins` → `rebrew.app.builtins`, `rebrew.plugin` →
