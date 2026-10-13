@@ -181,12 +181,12 @@ covers lifecycle, committed views, confinement, and failure behavior.
 | `ctx.resolve(key) -> Any` | Return a binding or raise `ComponentError`. An activation reads its committed dependency object through teardown; undeclared and expired reads fail. |
 | `ctx.has(key) -> bool` | Test presence. Undeclared or expired activation reads fail. Host presence is not a public activation-readiness predicate: bindings can remain readable during teardown. |
 | `ctx.unprovide(key) -> None` | Withdraw a binding owned here. A component view can withdraw only its own provision, retiring its whole registration. A host context likewise retires a component-owned provider. |
-| `ctx.effect(dispose: Callable[[], None]) -> None` | Record a cleanup callable. It does not call the function now, acquire a resource, or return a disposer. |
+| `ctx.effect(dispose: Callable[[], None]) -> None` | Record a synchronous cleanup callable. Passing a coroutine function or returning an awaitable/async generator raises `ComponentError`. It does not call the function now, acquire a resource, or return a disposer. |
 | `ctx.fork() -> Context` | Create an owned child with inherited lookup and notifications. Forking a disposed or unloading activation fails. |
 | `ctx.dispose() -> None` | End this context's lifetime and drain owned cleanup. On an activation view, retire that exact registration. |
 | `ctx.disposed -> bool` | Report the disposal flag. A host sets it before cleanup; an activation view sets it after cleanup. It does not establish that cleanup succeeded. |
 | `CoeffectScope(ctx)` | Attach a reactive scope and track its close on `ctx`. A disposed or unloading context rejects attachment. |
-| `scope.add(component) -> None` | Reserve declared provisions and register the component; activate when satisfied. Adding to a closed scope has no effect. |
+| `scope.add(component) -> None` | Reserve declared provisions and register the component; activate when satisfied. `component.apply` must be synchronous; async callables or awaitable returns raise `ComponentError`. Adding to a closed scope has no effect. |
 | `scope.remove(component) -> None` | Retire the first registration with that exact component object. An absent registration has no effect. |
 | `scope.unresolved() -> list[Component]` | Return registered components without active effects. Failed and retired registrations are absent. |
 | `scope.close() -> None` | Retire every registration and drain cleanup; idempotent. |
@@ -204,7 +204,7 @@ need only the runtime API above.
 | Export | Contract |
 |---|---|
 | `ComponentError` | A `RebrewError` and `RuntimeError` for declaration, access, ownership, and lifecycle violations. User inverses and `apply()` can also raise their own exceptions. |
-| `Disposer` | Alias for `Callable[[], None]`. Cleanup is synchronous; passing a coroutine does not schedule or await it. |
+| `Disposer` | Alias for `Callable[[], None]`. Cleanup is synchronous; passing a coroutine function or returning an awaitable/async generator raises `ComponentError`. |
 | `CLI_SERVICE`, `CONSOLE_SERVICE` | String keys `"cli"` and `"console"`, supplied by the CLI host. |
 | `CliComponent` | Adapter with required `name`, `module`, `help`, `panel`; optional `is_group=False`, `attr=""`, `origin="builtin"`, `needs=("cli", "console")`, `provides=()`. Keep the adapter's dependency declarations: its implementation resolves both services. An empty `attr` selects module form; a nonempty one selects an exported attribute. |
 | `Panel` | Help-panel names `PROJECT_SETUP`, `DEVELOPMENT`, `ANALYSIS`, `MATCHING`, `EXPORT_SYNC`, `PLUGINS`; `ALL` lists their display values. |
@@ -360,9 +360,14 @@ trusted code: context checks constrain the public API, rather than arbitrary
 imports, captured objects, or external mutations. Components still have to
 honor service types and ownership.
 
-The runtime is synchronous and runs on its host thread. Isolation realms,
-service interception, typed event dispatch, asynchronous fibers, YAML loaders,
-configuration reconciliation, and hot module replacement are outside its API.
+The runtime is synchronous and runs on its host thread. Synchronous lifecycle calls
+must run to completion without yielding coroutines or async generators: passing
+coroutine functions or returning awaitables/async generators raises `ComponentError`.
+Returning a native coroutine closes it safely to suppress unawaited-coroutine warnings.
+Registered cleanup attempts inverses best-effort, but cannot guarantee recovery of
+unregistered external resources or state modified before inverse registration.
+Isolation realms, service interception, typed event dispatch, asynchronous fibers,
+YAML loaders, configuration reconciliation, and hot module replacement are outside its API.
 The CLI composes at `rebrew.app.main` import and retains its context and scope in
 `_COMPOSED` for process lifetime. Incremental scope operations do not imply
 that the umbrella command surface supports hot reload.

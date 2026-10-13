@@ -39,6 +39,7 @@ built: a CLI process composes once and has no module to swap, and
 from __future__ import annotations
 
 import contextlib
+import inspect
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from functools import partial
@@ -55,12 +56,46 @@ from rebrew.registry import Registration, RegistryError, import_registration
 Disposer = Callable[[], None]
 
 
+def _is_coroutine_callable(obj: Any) -> bool:
+    """True if *obj* or its underlying target is an async coroutine or async generator."""
+    while isinstance(obj, partial):
+        obj = obj.func
+    if inspect.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj):
+        return True
+    if callable(obj) and not isinstance(obj, type):
+        try:
+            call_method = type(obj).__call__
+        except AttributeError:
+            call_method = None
+        if inspect.iscoroutinefunction(call_method) or inspect.isasyncgenfunction(call_method):
+            return True
+        try:
+            call_attr = obj.__call__
+        except AttributeError:
+            call_attr = None
+        if inspect.iscoroutinefunction(call_attr) or inspect.isasyncgenfunction(call_attr):
+            return True
+    return False
+
+
+def _check_sync_result(result: Any, target: Any, operation: str) -> None:
+    """Ensure a synchronous lifecycle call did not return an awaitable or async generator."""
+    if inspect.isawaitable(result) or inspect.isasyncgen(result):
+        if inspect.iscoroutine(result):
+            result.close()
+        raise ComponentError(
+            f"{operation} {target!r} returned an awaitable or async generator; "
+            "synchronous lifecycle requires synchronous completion"
+        )
+
+
 def _run_cleanup(disposers: Iterable[Disposer]) -> None:
     """Attempt every inverse, preserving failures after the remaining cleanup."""
     errors: list[BaseException] = []
     for dispose in disposers:
         try:
-            dispose()
+            result = dispose()
+            _check_sync_result(result, dispose, "cleanup disposer")
         except BaseException as exc:
             # Cancellation must not strand the rest of an inverse accumulator.
             errors.append(exc)
@@ -78,7 +113,8 @@ def _raise_errors(errors: list[BaseException]) -> None:
 def _rollback(dispose: Disposer, failure: BaseException) -> None:
     """Keep the original failure when rollback also raises."""
     try:
-        dispose()
+        result = dispose()
+        _check_sync_result(result, dispose, "rollback disposer")
     except BaseException as cleanup:
         raise BaseExceptionGroup(
             "component activation and rollback failed", [failure, cleanup]
@@ -137,7 +173,8 @@ class _Effect:
         if not self.armed:
             return
         self.armed = False
-        self.dispose()
+        result = self.dispose()
+        _check_sync_result(result, self.dispose, "effect disposer")
 
 
 class Context:
@@ -311,7 +348,18 @@ class Context:
     # -- effect half: the inverse accumulator --------------------------------
 
     def effect(self, dispose: Disposer) -> None:
-        """Record a disposer; it runs, in reverse order, at ``dispose()``."""
+        """Record a disposer; it runs, in reverse order, at ``dispose()``.
+
+        *dispose* must be a synchronous callable; native coroutine functions and
+        async generators are rejected at registration, and awaitables or async
+        generators returned at runtime raise :class:`ComponentError`.
+        """
+        if not callable(dispose):
+            raise ComponentError(f"effect disposer must be callable, got {type(dispose).__name__}")
+        if _is_coroutine_callable(dispose):
+            raise ComponentError(
+                f"effect disposer {dispose!r} must be synchronous; got coroutine function"
+            )
         self._record(_Effect(dispose=dispose))
 
     def _record(self, effect: _Effect) -> None:
@@ -593,7 +641,12 @@ class CoeffectScope:
         ctx._on_change.append(self._classify)
 
     def add(self, component: Component) -> None:
-        """Register *component*; it activates as soon as its needs are met."""
+        """Register *component*; it activates as soon as its needs are met.
+
+        *component.apply* must be synchronous; native coroutine functions and
+        async generators are rejected at registration, and awaitables or async
+        generators returned at runtime raise :class:`ComponentError`.
+        """
         if self._closed:
             return
         for field in ("needs", "provides"):
@@ -602,6 +655,10 @@ class CoeffectScope:
                 raise ComponentError(f"component {field} must be a tuple of nonempty service keys")
             if len(set(keys)) != len(keys):
                 raise ComponentError(f"component {field} contains duplicate service keys")
+        if _is_coroutine_callable(getattr(component, "apply", None)):
+            raise ComponentError(
+                f"component {component!r} apply must be synchronous; got coroutine function"
+            )
         entry = _Entry(
             component=component, needs=tuple(component.needs), provides=tuple(component.provides)
         )
@@ -769,7 +826,8 @@ class CoeffectScope:
         owned = view._effects
         self._ctx._activating_needs.append(entry.needs)
         try:
-            entry.component.apply(view)
+            outcome = entry.component.apply(view)
+            _check_sync_result(outcome, entry.component, "component apply")
             if self._closed or self._ctx.disposed or view._retired:
                 view._unloading = True
                 _run_cleanup((lambda: self._revert(owned), view._finish, self._ctx._changed))

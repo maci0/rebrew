@@ -1602,3 +1602,146 @@ class TestEntryPointComponents:
         components, warnings = plugin_mod.entry_point_components({"status"})
         assert components == []
         assert len(warnings) == 1 and "status" in warnings[0]
+
+
+class TestAsyncCallableRefusal:
+    def test_effect_rejects_native_coroutine_function_at_registration(self) -> None:
+        async def async_disposer() -> None:
+            pass
+
+        ctx = Context()
+        with pytest.raises(ComponentError, match="must be synchronous"):
+            ctx.effect(async_disposer)
+
+    def test_effect_rejects_callable_class_with_async_call_at_registration(self) -> None:
+        class AsyncDisposer:
+            async def __call__(self) -> None:
+                pass
+
+        ctx = Context()
+        with pytest.raises(ComponentError, match="must be synchronous"):
+            ctx.effect(AsyncDisposer())
+
+    def test_effect_rejects_partial_coroutine_function_at_registration(self) -> None:
+        from functools import partial
+
+        async def async_disposer(_x: int) -> None:
+            pass
+
+        ctx = Context()
+        with pytest.raises(ComponentError, match="must be synchronous"):
+            ctx.effect(partial(async_disposer, 42))
+
+    def test_effect_rejects_sync_callable_returning_awaitable_at_runtime(self) -> None:
+        async def background_work() -> None:
+            pass
+
+        def sync_returning_awaitable() -> Any:
+            return background_work()
+
+        ctx = Context()
+        ctx.effect(sync_returning_awaitable)
+        with pytest.raises(ComponentError, match="returned an awaitable or async generator"):
+            ctx.dispose()
+
+    def test_effect_rejects_sync_callable_returning_async_generator_at_runtime(self) -> None:
+        async def background_agen() -> Any:
+            yield 1
+
+        def sync_returning_agen() -> Any:
+            return background_agen()
+
+        ctx = Context()
+        ctx.effect(sync_returning_agen)
+        with pytest.raises(ComponentError, match="returned an awaitable or async generator"):
+            ctx.dispose()
+
+    def test_cleanup_preserves_subsequent_inverses_when_awaitable_refused(self) -> None:
+        async def background_work() -> None:
+            pass
+
+        cleaned: list[str] = []
+        ctx = Context()
+        ctx.effect(lambda: cleaned.append("first"))
+        ctx.effect(lambda: background_work())
+        ctx.effect(lambda: cleaned.append("third"))
+
+        with pytest.raises(ComponentError, match="returned an awaitable or async generator"):
+            ctx.dispose()
+
+        assert cleaned == ["third", "first"]
+
+    def test_cleanup_raises_exception_group_when_multiple_inverses_fail(self) -> None:
+        async def background_work() -> None:
+            pass
+
+        def boom() -> None:
+            raise RuntimeError("sync boom")
+
+        ctx = Context()
+        ctx.effect(boom)
+        ctx.effect(lambda: background_work())
+
+        with pytest.raises(BaseExceptionGroup) as exc_info:
+            ctx.dispose()
+
+        assert len(exc_info.value.exceptions) == 2
+        assert any(isinstance(e, RuntimeError) for e in exc_info.value.exceptions)
+        assert any(isinstance(e, ComponentError) for e in exc_info.value.exceptions)
+
+    def test_coeffect_scope_add_rejects_async_apply_at_registration(self) -> None:
+        class AsyncComponent:
+            needs = ()
+            provides = ()
+
+            async def apply(self, _ctx: Context) -> None:
+                pass
+
+        scope = CoeffectScope(Context())
+        with pytest.raises(ComponentError, match="must be synchronous"):
+            scope.add(AsyncComponent())
+
+    def test_coeffect_scope_activate_rejects_sync_apply_returning_awaitable(self) -> None:
+        async def background_work() -> None:
+            pass
+
+        rolled_back: list[str] = []
+
+        class SyncReturningAwaitableComponent:
+            needs = ()
+            provides = ("service",)
+
+            def apply(self, ctx: Context) -> Any:
+                ctx.provide("service", "val")
+                ctx.effect(lambda: rolled_back.append("effect"))
+                return background_work()
+
+        ctx = Context()
+        comp = SyncReturningAwaitableComponent()
+        scope = CoeffectScope(ctx)
+        with pytest.raises(ComponentError, match="returned an awaitable or async generator"):
+            scope.add(comp)
+        assert not ctx.has("service")
+        assert rolled_back == ["effect"]
+        assert scope.unresolved() == []
+
+    def test_synchronous_generator_and_iterator_disposers_remain_accepted(self) -> None:
+        order: list[str] = []
+
+        def sync_gen_disposer() -> Any:
+            order.append("gen")
+            return (x for x in [1, 2])
+
+        def sync_iter_disposer() -> Any:
+            order.append("iter")
+            return iter([1, 2, 3])
+
+        def sync_gen_function() -> Any:
+            yield "unused"
+
+        ctx = Context()
+        ctx.effect(sync_gen_disposer)
+        ctx.effect(sync_iter_disposer)
+        ctx.effect(sync_gen_function)
+        ctx.dispose()
+        assert order == ["iter", "gen"]
