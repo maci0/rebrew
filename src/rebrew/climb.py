@@ -294,6 +294,8 @@ def _compile_candidate(
     name_to_va: dict[str, int],
     section_va: int,
     toolchain: str | None,
+    *,
+    extra_include_dirs: list[str] | None = None,
 ) -> tuple[bytes, CompareResult, int] | None:
     """Compile *path* into ``(obj_bytes, comparison, object's real length)``.
 
@@ -309,6 +311,7 @@ def _compile_candidate(
         name_to_va=name_to_va,
         section_va=section_va,
         toolchain=toolchain,
+        extra_include_dirs=extra_include_dirs,
     )
     obj_bytes = result.obj_bytes
     if obj_bytes is None:
@@ -328,6 +331,8 @@ def _score(
     name_to_va: dict[str, int],
     section_va: int,
     toolchain: str | None,
+    *,
+    extra_include_dirs: list[str] | None = None,
 ) -> tuple[float, int]:
     """Matched-byte count and object length for *path*, or ``(-1.0, 0)``.
 
@@ -351,6 +356,7 @@ def _score(
         name_to_va=name_to_va,
         section_va=section_va,
         toolchain=toolchain,
+        extra_include_dirs=extra_include_dirs,
     )
     if candidate is None:
         return -1.0, 0
@@ -384,6 +390,8 @@ def _score_aligned(
     section_va: int,
     toolchain: str | None,
     target_texts: list[str],
+    *,
+    extra_include_dirs: list[str] | None = None,
 ) -> tuple[float, int]:
     """Aligned-pair score for *path*, or ``(-1.0, 0)``.
 
@@ -417,6 +425,7 @@ def _score_aligned(
         name_to_va=name_to_va,
         section_va=section_va,
         toolchain=toolchain,
+        extra_include_dirs=extra_include_dirs,
     )
     if candidate is None:
         return -1.0, 0
@@ -632,12 +641,15 @@ def main(
     else:
         scorer = _score
 
+    scorer = partial(scorer, extra_include_dirs=[str(path.resolve().parent)])
+
     # Every scored candidate is written out and compiled.  Under --dry-run
     # ("Preview changes without writing") that write goes to a scratch copy
     # beside the project's other scratch state, so a run killed mid-search
     # cannot leave a half-swept declaration in the real .c.  Toolchain and
     # cflags were already resolved from the real source dir above, which is
-    # what makes a scratch-dir compile score the same candidate.
+    # what keeps compiler overrides fixed. The original parent is also an
+    # include directory, so local and parent-relative headers remain reachable.
     if dry_run:
         dry_root = Path(cfg.root) / ".rebrew" / "climb"
         dry_root.mkdir(parents=True, exist_ok=True)
@@ -666,9 +678,13 @@ def main(
             return -1.0
         return matched
 
+    metric = "matched bytes" if objective == "positional" else "aligned score"
+
     def report(move: dict[str, int | float]) -> None:
         # stderr, so --json output on stdout stays parseable
-        console.print(f"  pass {move['pass']} statement {move['index']}: {move['after']:.0f} bytes")
+        console.print(
+            f"  pass {move['pass']} statement {move['index']}: {move['after']:.0f} {metric}"
+        )
 
     # Installed inside the try below. source_backup can fail before any
     # scoring write, and that failure must still reach the finally that
@@ -704,7 +720,7 @@ def main(
                     "baseline does not compile -- fix the function first", json_mode=json_output
                 )
             size_budget = abs(baseline_obj - len(target_bytes))
-            console.print(f"baseline {untrusted_ident(sym)}: {baseline:.0f} matched bytes")
+            console.print(f"baseline {untrusted_ident(sym)}: {baseline:.0f} {metric}")
             lines, best, moves = _climb(lines, chunks, score_fn, passes, sym, on_move=report)
             applied = best > baseline and not dry_run
             if not dry_run:
@@ -736,8 +752,9 @@ def main(
         "va": hex(va_int),
         "size": size_val,
         "statements": len(chunks),
-        "baseline_matched": baseline,
-        "best_matched": best,
+        "objective": objective,
+        f"baseline_{'matched' if objective == 'positional' else 'score'}": baseline,
+        f"best_{'matched' if objective == 'positional' else 'score'}": best,
         "applied": applied,
         "dry_run": dry_run,
         "moves": moves,
@@ -746,11 +763,13 @@ def main(
         json_print(payload)
         return
     console.print(
-        f"{untrusted_ident(sym)}: {baseline:.0f} -> [bold]{best:.0f}[/bold] matched bytes "
+        f"{untrusted_ident(sym)}: {baseline:.0f} -> [bold]{best:.0f}[/bold] {metric} "
         f"({len(moves)} move(s){', dry run' if dry_run else ''})"
     )
     for move in moves:
-        console.print(f"  pass {move['pass']} statement {move['index']}: {move['after']:.0f}")
+        console.print(
+            f"  pass {move['pass']} statement {move['index']}: {move['after']:.0f} {metric}"
+        )
 
 
 def main_entry() -> None:

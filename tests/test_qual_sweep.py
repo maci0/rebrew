@@ -214,3 +214,49 @@ class TestWinnerIsIndependentOfThreadOrder:
             )
 
         assert [p.read_text(encoding="utf-8") for p in backup_dir.glob("*.orig")] == [SOURCE]
+
+
+def test_candidates_preserve_original_header_directory(tmp_path, monkeypatch):
+    """The baseline and every parallel candidate see the source's headers."""
+    source_dir = tmp_path / "src" / "game"
+    source_dir.mkdir(parents=True)
+    source = source_dir / "demo.c"
+    original = '#include "local.h"\n#include "../shared.h"\n' + SOURCE
+    source.write_text(original)
+    (source_dir / "local.h").write_text("#define LOCAL 1\n")
+    (source_dir.parent / "shared.h").write_text("#define SHARED 2\n")
+    cfg = SimpleNamespace(root=tmp_path, target_binary="unused")
+    ann = SimpleNamespace(symbol="demo", size=12)
+    seen = []
+
+    def compare(_cfg, path, *args, **kwargs):
+        dirs = [Path(d) for d in kwargs.get("extra_include_dirs") or []]
+        assert source_dir in dirs
+        assert all(
+            any((d / header).is_file() for d in dirs) for header in ("local.h", "../shared.h")
+        )
+        seen.append(path)
+        return SimpleNamespace(obj_bytes=b"\x90" * 12, full_obj_size=12, match_percent=50.0)
+
+    monkeypatch.setattr(rebrew.qual_sweep, "require_config", lambda **kw: cfg)
+    monkeypatch.setattr(
+        rebrew.qual_sweep, "select_annotation", lambda *a, **kw: (source, ann, 0x1000)
+    )
+    monkeypatch.setattr(
+        rebrew.qual_sweep, "resolve_compile_overrides", lambda *a: ("msvc-6.0", "/O2")
+    )
+    monkeypatch.setattr(rebrew.qual_sweep, "compile_and_compare", compare)
+    monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a: b"\x90" * 12)
+    main(
+        source=str(source),
+        va=None,
+        symbol=None,
+        rounds=1,
+        jobs=2,
+        dry_run=False,
+        json_output=False,
+        target=None,
+    )
+    assert source in seen and any(path != source for path in seen)
+    assert all(not path.exists() for path in seen if path != source)
+    assert source.read_text() == original

@@ -1,6 +1,13 @@
 ## [Unreleased]
 
 ### Fixed
+- Statement-climb previews and qualifier sweeps retain the original source
+  directory when compiling staged candidates, including local and parent-relative
+  headers. `compile_and_compare` now forwards explicit `extra_include_dirs` to
+  the object compiler and its existing include-aware cache key.
+- Aligned statement-climb output labels its weighted instruction score as a
+  score. JSON records the objective and uses `baseline_score`/`best_score`
+  for aligned searches; positional searches keep the matched-byte fields.
 - The synchronous plugin lifecycle rejects native asynchronous callables at
   registration and awaitable or asynchronous-generator results at invocation.
   Cleanup continues to attempt remaining inverses and reports failed completion.

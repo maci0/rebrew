@@ -2340,3 +2340,27 @@ class TestSharedIncludeFlags:
         spec = SimpleNamespace(flags_style="msvc")
         flags = _effective_compile_flags(cfg, spec, "/Gd", tmp_path / "src")
         assert flags == ["/Gd"]
+
+
+def test_compare_forwards_staged_source_include_dirs(tmp_path, monkeypatch):
+    """Compare uses the same explicit include dirs as the object compiler."""
+    import rebrew.compiler.compile as compile_mod
+
+    includes = [str(tmp_path / "original")]
+    calls = []
+
+    def compile_obj(*args, **kwargs):
+        calls.append(kwargs.get("extra_include_dirs"))
+        return None, "expected compiler failure"
+
+    monkeypatch.setattr(compile_mod, "compile_to_obj", compile_obj)
+    result = compile_and_compare(
+        cast(ProjectConfig, SimpleNamespace()),
+        tmp_path / "copy.c",
+        "_demo",
+        b"target",
+        "/O2",
+        extra_include_dirs=includes,
+    )
+    assert result.status == "COMPILE_ERROR"
+    assert calls == [includes]

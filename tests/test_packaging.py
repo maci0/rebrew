@@ -1567,3 +1567,88 @@ class TestReleaseCheckAttestations:
         if release_check._uv_publish_help() is None:
             pytest.skip("uv is not on PATH")
         assert release_check._attestation_problems() == []
+
+
+class TestInstalledWheelAssetRuntime:
+    """Proves the built wheel provides working runtime behaviors for packaged assets.
+
+    Executes runtime behaviors against an unpacked wheel without relying on the
+    source checkout on sys.path or hardcoding internal module layouts.
+    """
+
+    def test_wheel_runtime_skill_and_scaffold_behavior(self, tmp_path: Path) -> None:
+        """The built wheel executes skills listing and resolves packaged scaffold assets."""
+        import json
+        import os
+        import subprocess
+        import zipfile
+
+        out = tmp_path / "dist"
+        out.mkdir()
+        env = os.environ.copy()
+        env.update(
+            {
+                "SOURCE_DATE_EPOCH": "0",
+                "TZ": "UTC",
+                "LC_ALL": "C",
+                "PYTHONHASHSEED": "0",
+            }
+        )
+        proc = subprocess.run(
+            ["uv", "build", "--wheel", "--out-dir", str(out)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+        )
+        assert proc.returncode == 0, proc.stderr or proc.stdout
+        wheel = next(out.glob("*.whl"))
+
+        site_dir = tmp_path / "wheel_site"
+        with zipfile.ZipFile(wheel) as zf:
+            zf.extractall(site_dir)  # noqa: S202
+
+        sub_env = os.environ.copy()
+        sub_env["PYTHONPATH"] = str(site_dir)
+
+        test_code = (
+            "import json, sys\n"
+            "from importlib.metadata import entry_points\n"
+            "from pathlib import Path\n"
+            "# 1. Resolve unified console script entry point dynamically\n"
+            "eps = [ep for ep in entry_points(group='console_scripts') if ep.name == 'rebrew']\n"
+            "assert len(eps) == 1, f'Expected 1 rebrew entry point, found {eps}'\n"
+            "cli_fn = eps[0].load()\n"
+            "# 2. Verify packaged assets exist inside the wheel distribution\n"
+            "import rebrew\n"
+            "pkg_dir = Path(rebrew.__file__).resolve().parent\n"
+            "assert (pkg_dir / 'AGENTS.md.template').is_file(), 'Missing AGENTS.md.template in wheel'\n"
+            "assert (pkg_dir / 'PRINCIPLES.md').is_file(), 'Missing PRINCIPLES.md in wheel'\n"
+            "assert (pkg_dir / 'agent-skills').is_dir(), 'Missing agent-skills in wheel'\n"
+            "# 3. Execute skills listing command through the entry point\n"
+            "sys.argv = ['rebrew', 'skills', 'list', '--json']\n"
+            "try:\n"
+            "    cli_fn()\n"
+            "except SystemExit as exc:\n"
+            "    assert exc.code in (0, None), f'CLI exited with {exc.code}'\n"
+        )
+        run_proc = subprocess.run(
+            [sys.executable, "-c", test_code],
+            cwd=str(tmp_path),
+            env=sub_env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert run_proc.returncode == 0, (
+            f"Wheel runtime probe failed:\n{run_proc.stderr}\n{run_proc.stdout}"
+        )
+        data = json.loads(run_proc.stdout)
+        skills = data.get("skills", [])
+        assert len(skills) >= 6, f"Expected >= 6 packaged skills, got {len(skills)}"
+        names = {s["name"] for s in skills}
+        assert "rebrew-workflow" in names
+        assert "rebrew-matching" in names

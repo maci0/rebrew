@@ -593,3 +593,57 @@ class TestRestoreOnSignal:
         assert isinstance(result.exception, RuntimeError), result.exception
         assert "sweep gave up" in str(result.exception)
         assert "could not restore" in result.output, result.output
+
+
+@pytest.mark.parametrize("objective", ["positional", "aligned"])
+def test_preview_preserves_original_header_directory(tmp_path, monkeypatch, objective):
+    """A staged preview must resolve local and parent includes as the real source does."""
+    from types import SimpleNamespace
+
+    from typer.testing import CliRunner
+
+    source_dir = tmp_path / "src" / "game"
+    source_dir.mkdir(parents=True)
+    (source_dir / "local.h").write_text("#define LOCAL 1\n")
+    (source_dir.parent / "shared.h").write_text("#define SHARED 2\n")
+    source = source_dir / "demo.c"
+    original = '#include "local.h"\n#include "../shared.h"\nint demo(int arg)\n{\n int a;\n a = arg;\n return a;\n}\n'
+    source.write_text(original)
+    cfg = SimpleNamespace(root=tmp_path, metadata_dir=tmp_path, target_binary="unused")
+    ann = SimpleNamespace(symbol="demo", size=4, va=0x1000, module="SERVER", cflags=None)
+    seen = []
+
+    def compare(_cfg, path, *args, **kwargs):
+        dirs = [Path(d) for d in kwargs.get("extra_include_dirs") or []]
+        assert source_dir in dirs
+        assert all(
+            any((d / header).is_file() for d in dirs) for header in ("local.h", "../shared.h")
+        )
+        assert path != source and source.read_text() == original
+        seen.append(path)
+        return SimpleNamespace(
+            obj_bytes=b"\x90" * 4, full_obj_size=4, matched=True, match_percent=100.0, match_count=4
+        )
+
+    monkeypatch.setattr(rebrew.climb, "require_config", lambda **kw: cfg)
+    monkeypatch.setattr(rebrew.climb, "target_marker", lambda c: "SERVER")
+    monkeypatch.setattr(rebrew.climb, "parse_c_file_multi", lambda *a, **kw: [ann])
+    monkeypatch.setattr(rebrew.climb, "extract_raw_bytes", lambda *a: b"\x90" * 4)
+    monkeypatch.setattr(rebrew.climb, "resolve_compile_overrides", lambda *a: ("msvc-6.0", "/O2"))
+    monkeypatch.setattr(rebrew.climb, "build_name_to_va", lambda c: {})
+    monkeypatch.setattr(rebrew.climb, "compile_and_compare", compare)
+    result = CliRunner().invoke(
+        rebrew.climb.app, ["--dry-run", "--objective", objective, "--json", str(source)]
+    )
+    assert result.exit_code == 0, result.output
+    import json
+
+    payload = json.loads(result.stdout)
+    assert payload["objective"] == objective
+    metric = "matched" if objective == "positional" else "score"
+    assert payload[f"baseline_{metric}"] == payload[f"best_{metric}"]
+    if objective == "aligned":
+        assert "baseline_matched" not in payload
+        assert "matched bytes" not in result.stderr
+    assert seen and all(not path.exists() for path in seen)
+    assert source.read_text() == original

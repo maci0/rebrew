@@ -894,3 +894,13 @@ server-asm,gold-asm,diff}.json and tests/test_cmake_flags.py target-defines case
 Pain: full relocation-masked matching leaves fread/fwrite wrappers ambiguous. A legacy TL header called 0x64ed28 fread; its native callee at0x64ed57 uniquely matches __fwrite_lk. Naming it correctly currently needs an ignored project experiment using archive/COFF APIs, following the same pattern as the earlier sprintf/swprintf proof.
 Proposal: extend library match with conservative candidate resolution from native relocation edges. Retain ambiguity for aliases, cycles, out-of-image targets, unresolved data or non-unique callees; return the evidence behind a unique name and keep origin separate from actual linked provider. No automatic store writes or archive edits.
 Evidence: guild-rebrew/.scratch/goal21/shared-vfs-freedirs/fwrite-wrapper-proof.json (47 bytes, three rejected shifted bindings, uniquely matched downstream body); fwrite-stock.json contains both original candidates. Public parse_archive, COFF relocation APIs and lib_match already provide the mechanics. Add synthetic wrapper/alias/cycle/unsupported-relocation regressions before implementation.
+
+## Staged matching candidates retain source-relative headers (2026-10-14)
+
+Resolved: climb preview at TL4033e0 failed to compile after character.c moved
+to its canonical unit because staging lost local ch_motion.h and parent-relative
+Units/d3 headers. Qualifier candidates used the same staging pattern. Both
+now pass the original parent through compile_and_compare extra_include_dirs,
+reusing the object compiler mounts and include-aware cache key. Evidence:
+guild-rebrew/.scratch/goal22/tooling/climb-{before,after}.json; four failing-before
+regressions cover both climb objectives, qualifier candidates and API forwarding.

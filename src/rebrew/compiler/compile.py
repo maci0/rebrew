@@ -2602,6 +2602,7 @@ def compile_and_compare(
     section_va: int | None = None,
     toolchain: str | None = None,
     context: CompileContext | None = None,
+    extra_include_dirs: list[str] | None = None,
     _precompiled_obj: str | None = None,
 ) -> CompareResult:
     """Compile source, extract COFF symbol, compare against target bytes with reloc masking.
@@ -2629,6 +2630,8 @@ def compile_and_compare(
             earned under.
         toolchain: Per-function toolchain override, passed through to
             :func:`compile_to_obj`.
+        extra_include_dirs: Original source directories for staged candidates,
+            passed through to :func:`compile_to_obj` and its cache key.
         _precompiled_obj: Path to an already-built ``.obj`` (verify's batch
             precompile hands one back here), skipping both the compile and the
             per-call workdir.  Ignored when the path is not an existing file.
@@ -2672,6 +2675,7 @@ def compile_and_compare(
                 use_cache=use_cache,
                 toolchain=toolchain,
                 context=context,
+                extra_include_dirs=extra_include_dirs,
                 backend_errors=backend_errors,
             )
         if obj_path is None:
