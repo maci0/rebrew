@@ -4717,7 +4717,7 @@ class TestOpenApiSpec:
         send the value nor recognise it as valid, and a client that does send
         it gets 200 while its own validator says the request was impossible.
         """
-        from rebrew.metadata import canonical_status
+        from rebrew.metadata.functions import canonical_status
 
         schema = _spec()["components"]["parameters"]["Status"]["schema"]
         branches = [ref["$ref"].rsplit("/", 1)[-1] for ref in schema["anyOf"]]

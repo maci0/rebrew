@@ -45,7 +45,7 @@ import typer
 from rebrew.c_parser import parse_c_source
 from rebrew.cli import TargetOption, console, json_print, require_config
 from rebrew.data_layout import data_raw_from_binary, layout_geometry
-from rebrew.data_metadata import data_rows_for_path, set_data_fields_batch
+from rebrew.metadata.data import data_rows_for_path, set_data_fields_batch
 from rebrew.sources import files_with_ext
 from rebrew.utils import (
     atomic_write_text,

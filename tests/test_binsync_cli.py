@@ -426,7 +426,7 @@ class TestGlobalPull:
         return state
 
     def test_rename_rewrites_source_and_link_symbol_once(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
 
         state = self._pushed(tmp_path, monkeypatch)
         other_before = get_data_entry(tmp_path, 0x403004, "A")

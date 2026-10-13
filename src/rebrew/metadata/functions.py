@@ -1,4 +1,4 @@
-"""metadata.py — Per-directory metadata store for rebrew.
+"""metadata/functions.py — Per-directory function metadata store (``rebrew-functions.toml``).
 
 Volatile annotation fields (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
 are stored in a single ``rebrew-functions.toml`` metadata file at the
@@ -26,7 +26,7 @@ file — the full key is unambiguous even if two targets happen to have a
 function at the same VA.  The format mirrors the ``// FUNCTION: SERVER
 0x01006364`` marker.
 
-Tools write :func:`rebrew.metadata_doc.qualified_key`'s zero-padded spelling.  Reads
+Tools write :func:`rebrew.metadata.document.qualified_key`'s zero-padded spelling.  Reads
 key on the parsed ``(module, va)``, so a file carrying another hex padding
 (``SERVER.0x1000`` beside ``SERVER.0x00001000``) resolves to one entry, and
 writes update the spelling the file already uses instead of appending a twin.
@@ -39,7 +39,7 @@ Owned fields per entry::
 
 The full canonical set is :data:`METADATA_FIELDS` (upper-case marker names).
 ``SECTION`` is intentionally *not* owned here — it lives in
-``rebrew-data.toml`` (see :mod:`rebrew.data_metadata`) for DATA/GLOBAL
+``rebrew-data.toml`` (see :mod:`rebrew.metadata.data`) for DATA/GLOBAL
 annotations.
 
 Identity is ``file`` plus ``marker_type`` on the ``MODULE.0xVA`` row.
@@ -87,7 +87,7 @@ Writes use ``tomlkit`` for round-trip-safe serialisation and
 Thread safety
 -------------
 Writes to the metadata file are serialised by
-:func:`rebrew.metadata_doc.metadata_write_lock` (a per-filename re-entrant
+:func:`rebrew.metadata.document.metadata_write_lock` (a per-filename re-entrant
 lock plus a ``flock`` sidecar,
 so a second *process* — ``rebrew verify --watch`` against ``rebrew test`` —
 waits too) because ``rebrew verify --jobs > 1`` and the GA batch promote
@@ -117,7 +117,7 @@ import tomlkit
 
 from rebrew.config import METADATA_FILENAME
 from rebrew.errors import RebrewError
-from rebrew.metadata_doc import (
+from rebrew.metadata.document import (
     MetadataDocCache,
     build_metadata_doc,
     build_metadata_key_index,
@@ -142,7 +142,7 @@ from rebrew.workspace.status import MATCHED_STATUSES as MATCHED_STATUSES
 from rebrew.workspace.status import STUB_PLACEHOLDER_STATUSES
 
 if TYPE_CHECKING:
-    from rebrew.annotation import Annotation
+    from rebrew.metadata.annotation import Annotation
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +171,7 @@ def clear_metadata_cache() -> None:
 # ---------------------------------------------------------------------------
 
 # Canonical TOML key order when writing an entry; unlisted fields follow, in
-# insertion order.  Mirrors ``data_metadata._CANONICAL_ORDER``.
+# insertion order.  Mirrors ``metadata.data._CANONICAL_ORDER``.
 _CANONICAL_ORDER = [
     "size",
     "cflags",
@@ -890,7 +890,7 @@ MARKER_IDENTITY_FIELDS: tuple[str, ...] = ("file", "symbol", "name", "marker_typ
 
 #: Every key a hand-written ``rebrew-functions.toml`` entry may carry, upper
 #: case.  The reader reports anything else as unread rather than dropping it
-#: (see :func:`rebrew.metadata_doc.parse_metadata_doc`): a typo'd ``CFLAGSS`` would
+#: (see :func:`rebrew.metadata.document.parse_metadata_doc`): a typo'd ``CFLAGSS`` would
 #: otherwise compile the function with flags nobody declared.
 _KNOWN_METADATA_FIELDS: frozenset[str] = METADATA_FIELDS | {
     f.upper() for f in MARKER_IDENTITY_FIELDS
@@ -1325,7 +1325,7 @@ _STATUS_ALIASES: dict[str, str] = {
 
 
 #: Canonical STATUS spelling: every persisted/compared status is upper-case.
-#: The validation layer (``metadata_model``) accepts any case via ``.upper()``,
+#: The validation layer (``metadata.model``) accepts any case via ``.upper()``,
 #: and hand-edited TOML or library-header KV lines may carry lower-case values;
 #: normalizing at every read/write keeps the exact-case consumers (dashboards,
 #: promotion policy) consistent instead of silently dropping such entries.
@@ -1616,7 +1616,7 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
 
     Shared by :func:`merge_into_annotation` (one annotation against a
     freshly loaded entry) and the parse paths in
-    :mod:`rebrew.annotation` (``_finalize_entries``,
+    :mod:`rebrew.metadata.annotation` (``_finalize_entries``,
     ``_annotations_from_metadata``, ``parse_library_header``), which load
     the metadata once per file and apply it per function instead of
     re-loading the TOML for every annotation — the per-function hot path.
@@ -1721,15 +1721,15 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
 # Typed facade
 # ---------------------------------------------------------------------------
 #
-# The typed entry layer is ``metadata_model.MetadataEntry`` (used by
-# annotation.py); it is the only entry model, so status checks go through it
+# The typed entry layer is ``metadata.model.MetadataEntry`` (used by
+# metadata/annotation.py); it is the only entry model, so status checks go through it
 # rather than through a second facade here.
 # ``KNOWN_STATUSES`` / ``MATCHED_STATUSES`` are owned by
 # :mod:`rebrew.workspace.status` (stdlib-light vocabulary).  Import the
 # vocabulary from there (or ``rebrew.workspace``); this module re-exports
-# them only so metadata *writers* that already import ``rebrew.metadata``
+# them only so metadata *writers* that already import ``rebrew.metadata.functions``
 # need not take a second import.  ``coerce_metadata_value`` below remains live:
-# metadata_model validates against KNOWN_STATUSES, and lint --fix coerces
+# metadata.model validates against KNOWN_STATUSES, and lint --fix coerces
 # values through coerce_metadata_value.
 
 #: Blocker prefix marking a function whose residual byte delta is
@@ -1766,7 +1766,7 @@ def coerce_metadata_value(key: str, value: Any) -> Any:
     """Coerce *value* to the canonical type for metadata field *key* (lower-case TOML key).
 
     Only fields with a single unambiguous type are coerced; everything else
-    passes through untouched.  String spellings follow ``metadata_model._coerce``:
+    passes through untouched.  String spellings follow ``metadata.model._coerce``:
     both decimal (``"42"``) and hex (``"0x2A"``) are accepted.
     """
     if key in ("size", "blocker_delta") and not (

@@ -33,14 +33,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rebrew.annotation import (
-    FUNC_NAME_HINT_RE,
-    FUNCTION_MARKERS,
-    NEW_FUNC_CAPTURE_RE,
-    NEW_KV_RE,
-    Annotation,
-    parse_c_file_multi,
-)
 from rebrew.c_rename import (
     ORDINARY_ROLES,
     ROLE_CODE,
@@ -64,6 +56,14 @@ from rebrew.c_rename import (
 from rebrew.config import ProjectConfig
 from rebrew.errors import RebrewError
 from rebrew.function_providers import bind_library_source
+from rebrew.metadata.annotation import (
+    FUNC_NAME_HINT_RE,
+    FUNCTION_MARKERS,
+    NEW_FUNC_CAPTURE_RE,
+    NEW_KV_RE,
+    Annotation,
+    parse_c_file_multi,
+)
 from rebrew.sources import iter_sources_and_headers
 from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
 
@@ -285,7 +285,7 @@ class _Project:
     """Every source and header of one rename, read and parsed at most once."""
 
     def __init__(self, cfg: ProjectConfig, first: Sequence[Path] = ()) -> None:
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         self.cfg = cfg
         library_sources: list[Path] = []
@@ -346,19 +346,19 @@ class _Project:
 
     def data_rows(self) -> dict[tuple[str, int], dict[str, Any]]:
         if self._data_rows is None:
-            from rebrew.data_metadata import load_data_metadata
+            from rebrew.metadata.data import load_data_metadata
 
             self._data_rows = load_data_metadata(self.metadata_dir)
         return self._data_rows
 
     def stored_file(self, path: Path) -> str:
-        from rebrew.metadata import identity_file
+        from rebrew.metadata.functions import identity_file
 
         return identity_file(path, self.metadata_dir)
 
     def path_for_stored(self, stored: str) -> Path | None:
         """The project path a row's ``file`` names, when it is one of ours."""
-        from rebrew.metadata import stored_file_matches
+        from rebrew.metadata.functions import stored_file_matches
 
         if not stored:
             return None
@@ -369,7 +369,7 @@ class _Project:
 
     def modules(self, path: Path) -> frozenset[str] | None:
         """Modules whose rows bind *path*; ``None`` for a header or a row-less file."""
-        from rebrew.metadata import stored_file_matches
+        from rebrew.metadata.functions import stored_file_matches
         from rebrew.utils import preset_module_key
 
         if path.suffix.lower() == _HEADER_SUFFIX:
@@ -386,7 +386,7 @@ class _Project:
 
 def _rename_annotations(cfg: ProjectConfig, path: Path) -> list[Annotation]:
     """Read every target's identities, including mixed migrated/inline files."""
-    from rebrew.metadata import load_metadata
+    from rebrew.metadata.functions import load_metadata
 
     metadata_dir = getattr(cfg, "metadata_dir", path.parent)
     parsed = parse_c_file_multi(path, metadata_dir=metadata_dir)
@@ -450,7 +450,7 @@ def _row_name_collisions(
     own image, so a row of another module with that name is not a duplicate.
     A shared source definition is caught by the source-level check instead.
     """
-    from rebrew.metadata import load_metadata
+    from rebrew.metadata.functions import load_metadata
 
     def counted(module: str) -> bool:
         return modules is None or module in modules
@@ -568,8 +568,8 @@ def plan_function_reference_binding(
     The explicit destination identity asserts that the placeholder's references
     mean this function. Its definition, identity and verification are unchanged.
     """
-    from rebrew.annotation import parse_library_header
-    from rebrew.metadata import get_entry
+    from rebrew.metadata.annotation import parse_library_header
+    from rebrew.metadata.functions import get_entry
 
     if selected.store != KIND_FUNCTION or not is_valid_new_name(old_name):
         raise ValueError("function reference binding requires an unbound C function name")
@@ -822,7 +822,7 @@ def _plan_symbol_rows(
     store: str,
 ) -> None:
     """Function and data rows bound to the renamed symbol, plus left-alone notes."""
-    from rebrew.metadata import load_metadata
+    from rebrew.metadata.functions import load_metadata
 
     old, new = plan.old_name, plan.new_name
     function_rows = load_metadata(project.metadata_dir, deepcopy=False)
@@ -920,7 +920,7 @@ def plan_header_row_rename(
     other C++ library rows store it. Returns None for a row whose file has no
     such marker.
     """
-    from rebrew.metadata import load_metadata
+    from rebrew.metadata.functions import load_metadata
 
     if not (is_valid_new_name(new_name) or is_decorated_symbol(new_name)):
         raise ValueError(f"target name {new_name!r} is neither a C identifier nor a symbol")
@@ -1056,7 +1056,7 @@ def _plan_file_move(
         )
     plan.move = (filepath, target)
     new_file = rel_display_path(target, getattr(cfg, "root", None) or metadata_dir)
-    from rebrew.metadata import load_metadata, stored_file_matches
+    from rebrew.metadata.functions import load_metadata, stored_file_matches
 
     function_rows = load_metadata(metadata_dir, deepcopy=False)
     by_key = {(r.store, r.module, r.va): r for r in plan.rows}
@@ -1163,7 +1163,7 @@ def plan_type_rename(
         if change is not None:
             plan.files.append(change)
 
-    from rebrew.metadata import load_metadata
+    from rebrew.metadata.functions import load_metadata
 
     for (module, va), row in sorted(project.data_rows().items()):
         type_text = str(row.get("type") or "")
@@ -1297,7 +1297,10 @@ def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
     :class:`RenameError`; the stores are written only after every source
     landed.
     """
-    from rebrew.source_provenance import SOURCE_PROVENANCE_FILENAME, rename_source_provenance
+    from rebrew.metadata.source_provenance import (
+        SOURCE_PROVENANCE_FILENAME,
+        rename_source_provenance,
+    )
 
     metadata_dir = getattr(cfg, "metadata_dir", None) or cfg.reversed_dir
     provenance_edits = {c.path: (c.old_text, c.new_text) for c in plan.files}
@@ -1368,13 +1371,13 @@ def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
         if r.store == "data"
     ]
     if function_rows:
-        from rebrew.metadata import record_migrated_markers
+        from rebrew.metadata.functions import record_migrated_markers
 
         record_migrated_markers(
             metadata_dir, function_rows, overwrite_name=True, updated_by="rename"
         )
     if data_rows:
-        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.metadata.data import set_data_fields_batch
 
         set_data_fields_batch(metadata_dir, data_rows)
     return len(written)

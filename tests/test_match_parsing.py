@@ -22,7 +22,7 @@ def _write_meta(tmp_path: Path, va: int, status: str, **fields: object) -> None:
     Inline ``// STATUS:``/``// BLOCKER:`` comments are migration debt, not
     read — the parser defaults to STUB without a metadata overlay.
     """
-    from rebrew.metadata import save_metadata
+    from rebrew.metadata.functions import save_metadata
 
     save_metadata(tmp_path, {("SERVER", va): {"status": status, **fields}})
 
@@ -102,7 +102,7 @@ class TestFindAllStubs:
         ``_foo``). ``_foo`` is the name that skips it. A cdecl ``bar``
         still skips ``_bar``.
         """
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata.functions import save_metadata
 
         bodies = (
             (0x10001000, "hook.c", "int __vectorcall hook(int a, int b, int c) { return 0; }\n"),

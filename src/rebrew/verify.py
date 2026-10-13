@@ -5,7 +5,7 @@ target binary.  Results are classified by :class:`~rebrew.compiler.compile.Compa
 (EXACT, RELOC, STUB, COMPILE_ERROR, …).
 
 After verification, STATUS is promoted/demoted in ``rebrew-functions.toml``
-via :func:`~rebrew.metadata.update_statuses_batch` unless ``--dry-run`` or
+via :func:`~rebrew.metadata.functions.update_statuses_batch` unless ``--dry-run`` or
 ``--no-promote`` is set; the ``.c`` files are **never modified**.  A
 PROVEN function gets the byte verdict like any other: PROVEN is not a
 byte match and is not protected from demotion.
@@ -39,7 +39,6 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.annotation import Annotation, min_valid_va_for
 from rebrew.catalog import (
     build_function_registry,
     cached_function_list,
@@ -66,8 +65,9 @@ from rebrew.compiler.overrides import resolve_compile_overrides_cached
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.linked_exact import linked_image_current
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
-from rebrew.metadata import should_promote_status
-from rebrew.metadata_doc import canonical_va_key
+from rebrew.metadata.annotation import Annotation, min_valid_va_for
+from rebrew.metadata.document import canonical_va_key
+from rebrew.metadata.functions import should_promote_status
 from rebrew.sources import contained_path, source_roots
 from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import (
@@ -171,7 +171,7 @@ def _entry_symbol(entry: Any) -> str:
     name = str(entry.name or "")
     proto = str(getattr(entry, "prototype", "") or "")
     if name and proto:
-        from rebrew.annotation import derive_c_symbol
+        from rebrew.metadata.annotation import derive_c_symbol
 
         derived = derive_c_symbol(name, proto)
         # ``derive_c_symbol`` adds one cdecl ``_``. That would turn a legacy
@@ -997,8 +997,8 @@ def main(
                     f"  [dim]Would prune[/dim] {orphans_pruned} orphaned metadata block(s)"
                 )
         elif orphans:
-            from rebrew.data_metadata import delete_data_entries_batch
-            from rebrew.metadata import delete_entries_batch
+            from rebrew.metadata.data import delete_data_entries_batch
+            from rebrew.metadata.functions import delete_entries_batch
 
             orphans_pruned = delete_entries_batch(
                 cfg.metadata_dir,
@@ -1095,7 +1095,7 @@ def main(
         if _dsec and not raw_link:
             data_report["section_copied_warning"] = _dsec
         if not dry_run:
-            from rebrew.data_metadata import (
+            from rebrew.metadata.data import (
                 load_data_metadata,
                 set_data_fields_batch,
             )
@@ -1912,7 +1912,7 @@ def _apply_size_fixes(cfg: Any, size_divergences: list[dict[str, Any]], dry_run:
     so a stale annotation size (a false SIZE_MISMATCH / truncated byte
     extraction) is replaced with the real one.
     """
-    from rebrew.metadata import set_fields_batch
+    from rebrew.metadata.functions import set_fields_batch
 
     updates: list[dict[str, Any]] = []
     for d in size_divergences:
@@ -2263,9 +2263,9 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     The parse runs outside the lock and the publish inside it, so two
     workers racing on the same key both parse but only one entry survives.
     """
-    from rebrew.annotation import library_annotations_from_metadata, parse_library_header
     from rebrew.function_providers import compiled_library_annotations
-    from rebrew.metadata import METADATA_FILENAME
+    from rebrew.metadata.annotation import library_annotations_from_metadata, parse_library_header
+    from rebrew.metadata.functions import METADATA_FILENAME
     from rebrew.sources import iter_library_headers
 
     marker = preset_module_key(module_marker(cfg))
@@ -2998,7 +2998,7 @@ def apply_status_updates(
         # Batch all STATUS writes into one TOML read-modify-write
         # (per-entry RMW was ~9s at 260 entries, minutes at
         # thousands).
-        from rebrew.metadata import update_statuses_batch
+        from rebrew.metadata.functions import update_statuses_batch
 
         update_statuses_batch(cfg.metadata_dir, updates)
     except OSError as exc:

@@ -422,7 +422,7 @@ class TestProveCLIStatusGuard:
         """A Z3 counterexample persists as a metadata NOTE for the reverser."""
         from types import SimpleNamespace
 
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
         from rebrew.prove import _record_prove_counterexample
 
         cfg = SimpleNamespace(metadata_dir=tmp_path)
@@ -438,7 +438,7 @@ class TestProveCLIStatusGuard:
         """Timeout/path-explosion messages carry no counterexample — no note."""
         from types import SimpleNamespace
 
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
         from rebrew.prove import _record_prove_counterexample
 
         cfg = SimpleNamespace(metadata_dir=tmp_path)
@@ -452,7 +452,7 @@ class TestProveCLIStatusGuard:
         """A reverser's own note is never overwritten by the prove note."""
         from types import SimpleNamespace
 
-        from rebrew.metadata import load_metadata, update_field
+        from rebrew.metadata.functions import load_metadata, update_field
         from rebrew.prove import _record_prove_counterexample
 
         update_field(tmp_path, 0x1000, "note", "mine: hand analysis", module="GAME")
@@ -469,7 +469,7 @@ class TestProveCLIStatusGuard:
         the write-side pin: record, then clear, leaves no note behind."""
         from types import SimpleNamespace
 
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
         from rebrew.prove import _clear_prove_counterexample, _record_prove_counterexample
 
         cfg = SimpleNamespace(metadata_dir=tmp_path)
@@ -489,7 +489,7 @@ class TestProveCLIStatusGuard:
         module wrote."""
         from types import SimpleNamespace
 
-        from rebrew.metadata import load_metadata, update_field
+        from rebrew.metadata.functions import load_metadata, update_field
         from rebrew.prove import _clear_prove_counterexample
 
         cfg = SimpleNamespace(metadata_dir=tmp_path)
@@ -794,8 +794,8 @@ class TestProveConstraintsMetadata:
     """Test that prove_constraints round-trips through metadata."""
 
     def test_merge_prove_constraints(self, tmp_path: Path) -> None:
-        from rebrew.annotation import Annotation
-        from rebrew.metadata import merge_into_annotation, update_field
+        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.functions import merge_into_annotation, update_field
 
         meta_dir = tmp_path
         # Write a prove_constraints dict to metadata
@@ -808,8 +808,8 @@ class TestProveConstraintsMetadata:
         assert ann.prove_constraints == {"arg0": {"type": "pointer", "struct_size": 24}}
 
     def test_merge_without_constraints_leaves_default(self, tmp_path: Path) -> None:
-        from rebrew.annotation import Annotation
-        from rebrew.metadata import _set_field, merge_into_annotation
+        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.functions import _set_field, merge_into_annotation
 
         meta_dir = tmp_path
         _set_field(meta_dir, 0x1000, "status", "NEAR_MATCHING", module="GAME")
@@ -1307,7 +1307,7 @@ class TestMaxDeltaFilter:
     """J4: prove --all --max-delta focuses on the closest near-misses."""
 
     def _anno(self, va: int, delta: int | None) -> Any:
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         return Annotation(
             va=va,
@@ -1649,7 +1649,7 @@ class TestPromoteAlreadyMatched:
         ann = SimpleNamespace(va=va, module="GAME")
         _promote_already_matched(cfg, ann, "EXACT")
 
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         assert load_metadata(tmp_path)[("GAME", va)]["status"] == "EXACT"
         entry = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"][f"0x{va:08x}"]
@@ -1681,7 +1681,7 @@ class TestPromoteAlreadyMatched:
 
         _promote_already_matched(cfg, SimpleNamespace(va=va, module="GAME"), "EXACT")
 
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         assert load_metadata(tmp_path)[("GAME", va)]["status"] == "SKIP"
         assert tomllib.loads(cache_path.read_text(encoding="utf-8")) == original

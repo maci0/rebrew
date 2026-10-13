@@ -367,7 +367,7 @@ class TestRebrewTestBatchJson:
         exit EXIT_MISMATCH on failures, EXIT_ERROR on compile errors."""
         import typer
 
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
 
@@ -405,7 +405,7 @@ class TestRebrewTestBatchJson:
     def test_compile_error_batch_raises_error_exit(self, monkeypatch: Any, tmp_path: Path) -> None:
         import typer
 
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
 
@@ -584,7 +584,7 @@ class TestRebrewTestBatchDir:
     def test_batch_dir_filters_reversed_dir_relative(
         self, monkeypatch: Any, tmp_path: Path, capsys: Any
     ) -> None:
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
         from rebrew.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
@@ -637,7 +637,7 @@ class TestRebrewTestBatchDir:
     ) -> None:
         """`Units` must not match the sibling `Units_extra` (a raw string
         prefix did)."""
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
         from rebrew.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
@@ -686,7 +686,7 @@ class TestRebrewTestBatchDir:
         self, monkeypatch: Any, tmp_path: Path, capsys: Any
     ) -> None:
         """A `..`-bearing root still matches after resolution."""
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
         from rebrew.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
@@ -886,9 +886,9 @@ class TestForceStatus:
     def _patch(
         self, monkeypatch: Any, tmp_path: Path, result_status: str, seed: str = "PROVEN"
     ) -> SimpleNamespace:
-        from rebrew.annotation import Annotation
         from rebrew.compiler.compile import CompareResult
-        from rebrew.metadata import update_source_status
+        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.functions import update_source_status
 
         cfg = SimpleNamespace(
             target_binary=tmp_path / "x.dll",
@@ -942,7 +942,7 @@ class TestForceStatus:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.test import app
 
         cfg = self._patch(monkeypatch, tmp_path, byte_status)
@@ -955,7 +955,7 @@ class TestForceStatus:
     def test_force_status_unparks_skip(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.test import app
 
         cfg = self._patch(monkeypatch, tmp_path, "STUB", seed="SKIP")
@@ -980,7 +980,7 @@ class TestForceStatus:
     def test_dry_run_previews_and_does_not_write(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.test import app
 
         cfg = self._patch(monkeypatch, tmp_path, "STUB")
@@ -1000,7 +1000,7 @@ class TestForceStatus:
         from pathlib import Path
 
         import rebrew.test as test_mod
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         cfg = SimpleNamespace(
             target_binary=tmp_path / "x.dll",
@@ -1138,7 +1138,7 @@ class TestSinglePathExitCodes:
         import typer
 
         import rebrew.test as testmod
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         cfg = SimpleNamespace(
             target_binary=tmp_path / "x.bin",
@@ -1239,7 +1239,7 @@ class TestRebrewTestBatchDirShared:
     def test_batch_dir_scopes_shared_tree(
         self, monkeypatch: Any, tmp_path: Path, capsys: Any
     ) -> None:
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
         from rebrew.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)

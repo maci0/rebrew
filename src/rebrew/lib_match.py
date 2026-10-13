@@ -740,7 +740,7 @@ def main(
         index.setdefault(sym, []).extend(entries)
 
     if va_int is not None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         module = module_marker(cfg)
         size = (get_entry(cfg.metadata_dir, va_int, module) or {}).get("size") or 0

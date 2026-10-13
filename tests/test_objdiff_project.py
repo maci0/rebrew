@@ -15,7 +15,7 @@ runner = CliRunner()
 
 
 def _fake_ann(va: int, size: int, name: str, symbol: str = "", marker: str = "FUNCTION") -> Any:
-    from rebrew.annotation import Annotation
+    from rebrew.metadata.annotation import Annotation
 
     return Annotation(
         va=va,

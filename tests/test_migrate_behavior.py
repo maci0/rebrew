@@ -10,8 +10,8 @@
 
 import threading
 
-from rebrew.annotation import parse_c_file_multi
-from rebrew.marker_migration import migrate_source_file
+from rebrew.metadata.annotation import parse_c_file_multi
+from rebrew.metadata.marker_migration import migrate_source_file
 
 
 class _Cfg:
@@ -65,7 +65,7 @@ class TestSynthesisConcurrency:
         """Synthesis under 8 threads: every file parses exactly once, correctly."""
         from thread_util import join_all
 
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata.functions import save_metadata
 
         src = tmp_path / "src"
         src.mkdir()
@@ -135,7 +135,7 @@ class TestMigrateMarkersCliEndToEnd:
         # The target's source is pure C; the other target's marker is untouched.
         assert "FUNCTION" not in (src / "a.c").read_text()
         assert "LIBRARY: OTHER" in (src / "b.c").read_text()
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         doc = load_metadata(tmp_path)
         assert ("SERVER", 0x1000) in doc
@@ -157,7 +157,7 @@ class TestFileAtomicMigration:
         assert row is not None and row["functions"] == 2
         assert "FUNCTION" not in (src / "a.c").read_text()
 
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         meta = load_metadata(tmp_path)
         assert meta[("S", 0x1000)]["size"] == 12
@@ -178,9 +178,9 @@ class TestFileAtomicMigration:
         assert (src / "b.c").read_text() == body
 
     def test_data_only_file_migrates(self, tmp_path) -> None:
-        from rebrew.data_metadata import load_data_metadata
         from rebrew.data_scan import scan_data_annotations, scan_globals
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.data import load_data_metadata
+        from rebrew.metadata.functions import load_metadata
 
         src = tmp_path / "src"
         src.mkdir()
@@ -223,8 +223,8 @@ class TestFileAtomicMigration:
         assert load_data_metadata(tmp_path) == before
 
     def test_mixed_function_and_data_marker_migrates(self, tmp_path) -> None:
-        from rebrew.data_metadata import load_data_metadata
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.data import load_data_metadata
+        from rebrew.metadata.functions import load_metadata
 
         src = tmp_path / "src"
         src.mkdir()
@@ -265,8 +265,8 @@ class TestFileAtomicMigration:
         assert by_type["GLOBAL"].name == "g"
 
     def test_other_target_data_marker_migrates_with_the_function(self, tmp_path) -> None:
-        from rebrew.data_metadata import load_data_metadata
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.data import load_data_metadata
+        from rebrew.metadata.functions import load_metadata
 
         src = tmp_path / "src"
         src.mkdir()
@@ -287,7 +287,7 @@ class TestFileAtomicMigration:
         assert data["file"] == "src/m.c"
 
     def test_other_target_data_only_file_is_out_of_scope(self, tmp_path) -> None:
-        from rebrew.data_metadata import load_data_metadata
+        from rebrew.metadata.data import load_data_metadata
 
         src = tmp_path / "src"
         src.mkdir()
@@ -299,7 +299,7 @@ class TestFileAtomicMigration:
         assert not (tmp_path / "rebrew-data.toml").exists()
 
     def test_migration_keeps_a_verified_status_and_a_stored_size(self, tmp_path) -> None:
-        from rebrew.data_metadata import get_data_entry, set_data_field
+        from rebrew.metadata.data import get_data_entry, set_data_field
 
         src = tmp_path / "src"
         src.mkdir()
@@ -322,7 +322,7 @@ class TestFileAtomicMigration:
 
     def test_marker_the_parser_misses_is_not_stripped(self, tmp_path) -> None:
         """A trailing marker matches the stripper but not the block parser."""
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         src = tmp_path / "src"
         src.mkdir()
@@ -338,8 +338,8 @@ class TestFileAtomicMigration:
 
     def test_data_marker_the_parser_misses_is_not_stripped(self, tmp_path) -> None:
         """A trailing data marker matches the stripper but not the block parser."""
-        from rebrew.data_metadata import load_data_metadata
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.data import load_data_metadata
+        from rebrew.metadata.functions import load_metadata
 
         src = tmp_path / "src"
         src.mkdir()
@@ -355,7 +355,7 @@ class TestFileAtomicMigration:
 class TestMarkerlessAndRerun:
     def test_markerless_project_survives_marker_purge(self, tmp_path) -> None:
         """A file whose only annotations live in TOML is left byte-identical."""
-        from rebrew.metadata import load_metadata, save_metadata
+        from rebrew.metadata.functions import load_metadata, save_metadata
 
         src = tmp_path / "src"
         src.mkdir()
@@ -382,7 +382,7 @@ class TestMarkerlessAndRerun:
 
     def test_second_migration_is_noop(self, tmp_path) -> None:
         """Re-running migration on its own output changes neither source nor TOML."""
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         src = tmp_path / "src"
         src.mkdir()

@@ -39,7 +39,7 @@ from rebrew.cli import (
     json_print,
 )
 from rebrew.config import load_config
-from rebrew.data_metadata import (
+from rebrew.metadata.data import (
     DATA_STATUS_DISPLACED,
     DATA_STATUS_DRIFT,
     DATA_STATUS_EXACT,
@@ -58,7 +58,7 @@ FUNCTION_DB_STATUSES: frozenset[str] = COVERAGE_DB_STATUSES
 
 #: Statuses allowed in ``globals.status``.  Empty string (no verdict yet)
 #: plus the data-metadata verdicts — derived from the same constants
-#: ``data_metadata`` / the grid emit so the two writers cannot drift from the
+#: ``metadata.data`` / the grid emit so the two writers cannot drift from the
 #: annotation vocabulary.
 GLOBAL_DB_STATUSES: frozenset[str] = frozenset(
     {

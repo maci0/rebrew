@@ -24,7 +24,7 @@ from rebrew.config import (
     arch_pointer_size,
     inventory_path_for,
 )
-from rebrew.data_metadata import module_visible_to_target
+from rebrew.metadata.data import module_visible_to_target
 from rebrew.utils import floor_pct, merged_span_bytes, read_source_text
 
 log = logging.getLogger(__name__)
@@ -99,7 +99,7 @@ def _data_meta(cfg: ProjectConfig | None, module: str, va: int) -> dict[str, Any
     """
     if cfg is None or not module:
         return {}
-    from rebrew.data_metadata import get_data_entry
+    from rebrew.metadata.data import get_data_entry
 
     try:
         return get_data_entry(cfg.metadata_dir, va, module=module)
@@ -334,7 +334,7 @@ def _bind_stored_data_rows(
     ``(name, 0)`` entry is adopted.  A header does not take a ``.c`` row,
     and it does not become the reference type.
     """
-    from rebrew.data_metadata import data_rows_for_path
+    from rebrew.metadata.data import data_rows_for_path
 
     try:
         rows = data_rows_for_path(cfg.metadata_dir, cfile)
@@ -814,8 +814,8 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     SIZE/SECTION/NOTE are overlaid from ``rebrew-data.toml`` metadata if present.
     Returns a list of dicts with: va, name, size, section, note, filepath.
     """
-    from rebrew.annotation import parse_c_file_multi
-    from rebrew.data_metadata import merge_into_data_annotation
+    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.data import merge_into_data_annotation
     from rebrew.sources import iter_sources_and_headers, target_marker
     from rebrew.utils import rel_display_path
 
@@ -863,7 +863,7 @@ def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int,
     A source with no name falls back to its path relative to *src_dir*, so
     every annotation is named even before the catalog fills the gaps.
     """
-    from rebrew.annotation import parse_c_file_multi
+    from rebrew.metadata.annotation import parse_c_file_multi
     from rebrew.sources import iter_sources, target_marker
     from rebrew.utils import rel_display_path
 

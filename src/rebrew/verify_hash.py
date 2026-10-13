@@ -490,7 +490,7 @@ def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     Marker symbols use the per-target ``// FUNCTION:`` name. The key is
     the C name, so ``__foo`` stays ``_foo`` and ``hook@@12`` is ``hook``.
     """
-    from rebrew.annotation import iter_annotations
+    from rebrew.metadata.annotation import iter_annotations
     from rebrew.rename_ops import c_name_from_symbol
     from rebrew.sources import iter_sources, target_marker
 

@@ -1,4 +1,4 @@
-"""test_data_metadata.py — Unit tests for rebrew.data_metadata.
+"""test_data_metadata.py — Unit tests for rebrew.metadata.data.
 
 Tests the per-directory rebrew-data.toml metadata for DATA/GLOBAL annotation metadata.
 """
@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rebrew.data_metadata import (
+from rebrew.metadata.data import (
     DATA_METADATA_FIELDS,
     DATA_METADATA_FILENAME,
     get_data_entry,
@@ -77,7 +77,7 @@ class TestLoadSaveDataMetadata:
 
 class TestGetDataEntry:
     def test_duplicate_identity_merges_before_section_filter(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import iter_data_symbols
+        from rebrew.metadata.data import iter_data_symbols
         from rebrew.utils import load_tomllib
 
         path = tmp_path / DATA_METADATA_FILENAME
@@ -93,7 +93,7 @@ class TestGetDataEntry:
         assert list(iter_data_symbols(raw, ".rdata")) == entries
 
     def test_raw_iteration_and_store_loading_share_unicode_identity(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import iter_data_symbols
+        from rebrew.metadata.data import iter_data_symbols
         from rebrew.utils import load_tomllib
 
         (tmp_path / DATA_METADATA_FILENAME).write_text(
@@ -200,7 +200,7 @@ class TestSetDataFieldsBatch:
     def test_duplicate_identity_write_leaves_store_untouched(
         self, tmp_path: Path, batch: bool
     ) -> None:
-        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.metadata.data import set_data_fields_batch
 
         path = tmp_path / DATA_METADATA_FILENAME
         path.write_text(
@@ -225,7 +225,7 @@ class TestSetDataFieldsBatch:
     def test_invalid_fields_leave_existing_store_untouched(
         self, tmp_path: Path, batch: bool, key: str, value: float | str
     ) -> None:
-        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.metadata.data import set_data_fields_batch
 
         set_data_field(tmp_path, 0x1000, "name", "g_a", "SERVER")
         path = tmp_path / DATA_METADATA_FILENAME
@@ -250,7 +250,7 @@ class TestSetDataFieldsBatch:
     def test_definition_edits_clear_verdict_but_notes_and_noops_keep_it(
         self, tmp_path: Path, key: str, value: int | str, batch: bool
     ) -> None:
-        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.metadata.data import set_data_fields_batch
 
         set_data_fields_batch(
             tmp_path,
@@ -280,7 +280,7 @@ class TestSetDataFieldsBatch:
         assert "status" not in get_data_entry(tmp_path, 0x1000, "SERVER")
 
     def test_batch_writes_many_entries_once(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.metadata.data import set_data_fields_batch
 
         n = set_data_fields_batch(
             tmp_path,
@@ -309,7 +309,7 @@ class TestSetDataFieldsBatch:
         }
 
     def test_batch_same_value_is_noop(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.metadata.data import set_data_fields_batch
 
         set_data_field(tmp_path, 0x1000, "size", 16, "SERVER")
         path = tmp_path / DATA_METADATA_FILENAME
@@ -324,7 +324,7 @@ class TestSetDataFieldsBatch:
         assert path.stat().st_mtime_ns == before_mtime
 
     def test_batch_rejects_unknown_provenance_tag(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.metadata.data import set_data_fields_batch
 
         with pytest.raises(ValueError, match="unknown provenance tag"):
             set_data_fields_batch(
@@ -355,7 +355,7 @@ class TestMergeIntoDataAnnotation:
         assert ann.note == "test"
 
     def test_merge_carries_the_provenance_pair(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.metadata.data import set_data_fields_batch
 
         set_data_fields_batch(
             tmp_path,
@@ -376,13 +376,13 @@ class TestMergeIntoDataAnnotation:
 
 class TestDataMetadataEdgeCases:
     def test_load_corrupt_toml(self, tmp_path: Path) -> None:
-        import rebrew.data_metadata as dm
+        import rebrew.metadata.data as dm
 
         (tmp_path / "rebrew-data.toml").write_text("{broken", encoding="utf-8")
         assert dm.load_data_metadata(tmp_path) == {}
 
     def test_load_skips_non_dict_values(self, tmp_path: Path) -> None:
-        import rebrew.data_metadata as dm
+        import rebrew.metadata.data as dm
 
         (tmp_path / "rebrew-data.toml").write_text(
             '"SERVER.0x10001000" = "scalar"\n["SERVER.0x10002000"]\nsize = 8\n',
@@ -395,7 +395,7 @@ class TestDataMetadataEdgeCases:
 
 class TestCorruptTomlRecovery:
     def test_set_data_field_recovers(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import DATA_METADATA_FILENAME, get_data_entry, set_data_field
+        from rebrew.metadata.data import DATA_METADATA_FILENAME, get_data_entry, set_data_field
 
         (tmp_path / DATA_METADATA_FILENAME).write_text("{broken", encoding="utf-8")
         set_data_field(tmp_path, 0x1000, "size", 16, "SERVER")
@@ -403,8 +403,8 @@ class TestCorruptTomlRecovery:
         assert entry.get("size") == 16
 
     def test_merge_into_data_annotation_no_crash(self, tmp_path: Path) -> None:
-        from rebrew.annotation import Annotation
-        from rebrew.data_metadata import DATA_METADATA_FILENAME, merge_into_data_annotation
+        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.data import DATA_METADATA_FILENAME, merge_into_data_annotation
 
         (tmp_path / DATA_METADATA_FILENAME).write_text("{broken", encoding="utf-8")
         ann = Annotation(va=0x1000, module="SERVER", name="g_x", marker_type="DATA")
@@ -418,12 +418,12 @@ class TestDataMetadataCache:
     def test_repeated_load_served_from_cache(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew import data_metadata as dm
+        from rebrew.metadata import data as dm
 
         dm._data_metadata_cache.clear()
         parse_calls: list[object] = []
         monkeypatch.setattr(
-            "rebrew.metadata_doc.parse_metadata_doc",
+            "rebrew.metadata.document.parse_metadata_doc",
             lambda doc, **kwargs: parse_calls.append(doc) or {},
         )
         f = tmp_path / "rebrew-data.toml"
@@ -443,11 +443,11 @@ class TestDataMetadataCache:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A removed rebrew-data.toml must not stay pinned in the process cache."""
-        from rebrew import data_metadata as dm
+        from rebrew.metadata import data as dm
 
         dm._data_metadata_cache.clear()
         monkeypatch.setattr(
-            "rebrew.metadata_doc.parse_metadata_doc",
+            "rebrew.metadata.document.parse_metadata_doc",
             lambda doc, **kwargs: {("SERVER", 0x1000): {"name": "g_x"}},
         )
         f = tmp_path / "rebrew-data.toml"
@@ -462,7 +462,7 @@ class TestMetadataFieldsAndScalarEntries:
     def test_type_is_a_known_field(self) -> None:
         """`type` is written by `data --set-type` and binsync import/overlay,
         and listed in _CANONICAL_ORDER; the field set must include it."""
-        from rebrew.data_metadata import DATA_METADATA_FIELDS
+        from rebrew.metadata.data import DATA_METADATA_FIELDS
 
         assert "TYPE" in DATA_METADATA_FIELDS
 
@@ -471,7 +471,7 @@ class TestMetadataFieldsAndScalarEntries:
         must produce a clear ValueError, not a TypeError from indexing it."""
         import pytest
 
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         (tmp_path / "rebrew-data.toml").write_text(
             '"SERVER.0x10001000" = "scalar"\n', encoding="utf-8"
@@ -491,7 +491,7 @@ class TestDataProvenance:
         assert entry["updated_at"]
 
     def test_batch_write_records_provenance(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.metadata.data import set_data_fields_batch
 
         set_data_fields_batch(
             tmp_path,
@@ -532,7 +532,7 @@ class TestRecordMigratedDataMarkers:
     """migrate-markers fills identity without clearing a stored data verdict."""
 
     def test_fills_a_missing_name_and_keeps_the_verdict(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import record_migrated_data_markers
+        from rebrew.metadata.data import record_migrated_data_markers
 
         set_data_field(tmp_path, 0x10025000, "size", 4, "S")
         set_data_field(tmp_path, 0x10025000, "status", "VERIFIED", "S", updated_by="verify")
@@ -564,7 +564,7 @@ class TestRecordMigratedDataMarkers:
         assert entry["updated_at"] == stamped["updated_at"]
 
     def test_rejects_a_function_marker_type(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import record_migrated_data_markers
+        from rebrew.metadata.data import record_migrated_data_markers
 
         with pytest.raises(ValueError, match="marker_type must be one of"):
             record_migrated_data_markers(
@@ -580,7 +580,7 @@ class TestRecordMigratedDataMarkers:
         assert not (tmp_path / "rebrew-data.toml").exists()
 
     def test_rejects_an_absolute_file(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import record_migrated_data_markers
+        from rebrew.metadata.data import record_migrated_data_markers
 
         with pytest.raises(ValueError, match="must be relative to the project"):
             record_migrated_data_markers(
@@ -596,7 +596,7 @@ class TestRecordMigratedDataMarkers:
         assert not (tmp_path / "rebrew-data.toml").exists()
 
     def test_rejects_status(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import record_migrated_data_markers
+        from rebrew.metadata.data import record_migrated_data_markers
 
         with pytest.raises(ValueError, match="data migration does not write STATUS"):
             record_migrated_data_markers(

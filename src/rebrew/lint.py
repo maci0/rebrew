@@ -29,18 +29,6 @@ import typer
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.annotation import (
-    ALL_KNOWN_KEYS,
-    DATA_MARKERS,
-    METADATA_KEYS,
-    MIN_VALID_VA,
-    NEW_FUNC_RE,
-    NEW_KV_RE,
-    VALID_MARKERS,
-    file_backed_by_metadata,
-    function_rows_for_file,
-    min_valid_va_for,
-)
 from rebrew.c_parser import (
     CALLING_CONVENTION,
     find_function_name_in_node,
@@ -63,7 +51,6 @@ from rebrew.config import (
     inventory_path_for,
     load_config,
 )
-from rebrew.data_metadata import load_data_metadata
 from rebrew.lint_cflags import (
     RedundantFunctionCflags,
     RedundantPreset,
@@ -72,14 +59,27 @@ from rebrew.lint_cflags import (
     drop_redundant_presets,
     inline_equals_store,
 )
-from rebrew.metadata import (
+from rebrew.metadata.annotation import (
+    ALL_KNOWN_KEYS,
+    DATA_MARKERS,
+    METADATA_KEYS,
+    MIN_VALID_VA,
+    NEW_FUNC_RE,
+    NEW_KV_RE,
+    VALID_MARKERS,
+    file_backed_by_metadata,
+    function_rows_for_file,
+    min_valid_va_for,
+)
+from rebrew.metadata.data import load_data_metadata
+from rebrew.metadata.functions import (
     MARKER_IDENTITY_FIELDS,
     METADATA_FIELDS,
     canonical_status,
     is_table_field,
     load_metadata,
 )
-from rebrew.source_provenance import (
+from rebrew.metadata.source_provenance import (
     SOURCE_PROVENANCE_FILENAME,
     function_definition_hashes,
     load_source_provenance,
@@ -262,7 +262,7 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
         # above): a bare function-name hint (``// Foo``), an explanation, or
         # a ``/* ... */`` block.  A comment is not code — keep the header
         # block open so a following ``// SIZE:``/``// CFLAGS:``/etc. still
-        # attaches to the marker block (mirrors annotation.py's name-hint
+        # attaches to the marker block (mirrors metadata/annotation.py's name-hint
         # handling; without this, the name line orphaned later KV keys and
         # W019/--fix could never see them).
 
@@ -851,25 +851,25 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     The gated writers reject these shapes, so a file that holds one was edited
     by hand (or written by an older tree): an unknown field, a STATUS outside
     the store's vocabulary, half a provenance pair, a provenance tag outside
-    :data:`rebrew.metadata.PROVENANCE_TAGS`, a top-level key that is neither the
+    :data:`rebrew.metadata.functions.PROVENANCE_TAGS`, a top-level key that is neither the
     format stamp nor a ``MODULE.0xVA`` entry, or a missing / foreign format
     stamp, or duplicate spellings of the same identity. A reader drops an
     unknown key silently and falls back to the
     default, so the symptom is a flag that "did not apply" with nothing to
     explain it.  Warn-only, reported per entry: the rest of the store loads.
     """
-    from rebrew.data_metadata import (
+    from rebrew.metadata.data import (
         DATA_METADATA_FIELDS,
         DATA_METADATA_FILENAME,
         validate_data_field,
     )
-    from rebrew.metadata import (
+    from rebrew.metadata.document import parse_metadata_key
+    from rebrew.metadata.functions import (
         FORMAT_KEY,
         FORMAT_VERSION,
         PROVENANCE_TAGS,
         validate_metadata_field,
     )
-    from rebrew.metadata_doc import parse_metadata_key
     from rebrew.utils import load_tomllib
     from rebrew.workspace.status import KNOWN_STATUSES
 
@@ -987,11 +987,11 @@ def _check_W034_identity_paths(cfg: ProjectConfig) -> list[LintResult]:
     match a global to the source that owns it, ``rename`` rewrites the path,
     and BinSync reads it.  An absolute path or a ``..`` segment names a file
     the metadata's author chose rather than one in this checkout.  Writers
-    refuse it (:func:`rebrew.metadata.validate_identity_file`); this reports
+    refuse it (:func:`rebrew.metadata.functions.validate_identity_file`); this reports
     rows that were written before the gate, or edited by hand, in either store.
     """
-    from rebrew.data_metadata import DATA_METADATA_FILENAME
-    from rebrew.metadata import validate_identity_file
+    from rebrew.metadata.data import DATA_METADATA_FILENAME
+    from rebrew.metadata.functions import validate_identity_file
     from rebrew.utils import load_tomllib
 
     results: list[LintResult] = []
@@ -1043,7 +1043,7 @@ def _check_W035_unknown_modules(cfg: ProjectConfig) -> list[LintResult]:
     a D3DX8 row is read while server.dll is the default, but only the TL client
     links d3dx8.lib, so that row is live, not stale.
     """
-    from rebrew.metadata import load_metadata
+    from rebrew.metadata.functions import load_metadata
 
     known = {preset_module_key(str(getattr(cfg, "marker", "") or ""))}
     known |= {preset_module_key(str(name)) for name in (getattr(cfg, "all_markers", None) or ())}
@@ -1190,7 +1190,7 @@ def _check_W037_data_definition(
     """
     from rebrew.c_parser import find_extern_variables, find_variable_roles
     from rebrew.data_layout import data_symbol_size
-    from rebrew.data_metadata import data_rows_for_path, module_visible_to_target
+    from rebrew.metadata.data import data_rows_for_path, module_visible_to_target
 
     try:
         rows = data_rows_for_path(cfg.metadata_dir, filepath)
@@ -1319,7 +1319,7 @@ def _check_W038_data_row_overlap(cfg: ProjectConfig) -> list[LintResult]:
     discount.  Rows touching end-to-start do not overlap.
     """
     from rebrew.data_layout import data_symbol_size
-    from rebrew.data_metadata import DATA_METADATA_FILENAME
+    from rebrew.metadata.data import DATA_METADATA_FILENAME
 
     arch = str(getattr(cfg, "arch", "") or "x86_32")
     by_module: dict[str, list[tuple[int, int, str]]] = {}
@@ -3089,16 +3089,16 @@ def main(
             "no config loaded, nothing migrated"
         )
     if fix and cfg:
-        from rebrew.annotation import remove_inline_annotation_key
         from rebrew.compiler.overrides import resolve_cflags
-        from rebrew.data_metadata import (
+        from rebrew.metadata.annotation import remove_inline_annotation_key
+        from rebrew.metadata.data import (
             DATA_METADATA_FIELDS,
             DATA_STATUSES,
             get_data_entry,
             set_data_field,
             set_data_fields_batch,
         )
-        from rebrew.metadata import (
+        from rebrew.metadata.functions import (
             coerce_metadata_value,
             get_entry,
             remove_fields_batch,

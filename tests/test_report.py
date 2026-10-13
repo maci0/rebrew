@@ -1161,7 +1161,7 @@ class TestDisplayName:
         and it turned ``__foo`` into ``foo``. A stored name wins. A missing
         symbol still uses the file stem.
         """
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
         from rebrew.report import _display_name
 
         src = Path("hook.c")

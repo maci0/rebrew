@@ -15,7 +15,6 @@ from typing import override
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog.loaders import load_function_structure
 from rebrew.compiler.compile import resolve_cl_command
 from rebrew.compiler.toolchain import TOOLCHAINS
@@ -26,8 +25,9 @@ from rebrew.config import (
     env_dir_path,
     load_config,
 )
-from rebrew.data_metadata import load_data_metadata
-from rebrew.metadata import load_metadata
+from rebrew.metadata.annotation import parse_c_file_multi
+from rebrew.metadata.data import load_data_metadata
+from rebrew.metadata.functions import load_metadata
 from rebrew.workspace.status import KNOWN_STATUSES
 
 

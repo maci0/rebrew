@@ -47,7 +47,6 @@ import typer
 
 from rebrew import theme
 from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
-from rebrew.annotation import Annotation, iter_annotations, min_valid_va_for, parse_library_header
 from rebrew.cli import (
     TargetOption,
     console,
@@ -59,6 +58,12 @@ from rebrew.config import ProjectConfig
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
 from rebrew.formats.binary_loader import load_binary
 from rebrew.formats.import_table import find_import_stubs, parse_imports
+from rebrew.metadata.annotation import (
+    Annotation,
+    iter_annotations,
+    min_valid_va_for,
+    parse_library_header,
+)
 from rebrew.sources import (
     iter_library_headers,
     iter_sources,
@@ -528,7 +533,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     (written by ``near-diag --fix-blocker`` / ``diff --fix-blocker``) comes
     from ``rebrew-functions.toml`` metadata.
     """
-    from rebrew.metadata import load_metadata
+    from rebrew.metadata.functions import load_metadata
 
     reversed_dir = getattr(cfg, "reversed_dir", None)
     if reversed_dir is None:

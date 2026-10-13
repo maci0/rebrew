@@ -64,8 +64,8 @@ def test_duplicate_tentative_definitions_are_owners(tmp_path: Path) -> None:
 def test_first_field_alias_does_not_reclassify_its_backing_definition(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    from rebrew.data_metadata import set_data_fields_batch
     from rebrew.data_ownership import resolve_backing_owners
+    from rebrew.metadata.data import set_data_fields_batch
 
     (tmp_path / "owner.c").write_text("// GLOBAL: SERVER 0x1000\nint storage[8];\n")
     (tmp_path / "field.h").write_text("// GLOBAL: SERVER 0x1000\nextern int first;\n")

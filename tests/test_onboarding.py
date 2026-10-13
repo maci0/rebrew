@@ -79,8 +79,8 @@ class TestOnboardingJourney:
         assert 0x00401018 in vas
 
         # Pure-C skeletons resolve their identities from the managed store.
-        from rebrew.annotation import parse_c_file_multi
         from rebrew.config import load_config
+        from rebrew.metadata.annotation import parse_c_file_multi
 
         cfg = load_config(tmp_path)
         skeletons = sorted((tmp_path / "src" / "mini_pe").glob("*.c"))

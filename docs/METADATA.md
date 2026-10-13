@@ -30,7 +30,7 @@ reviewing a changed definition/context. A type has no instance address and
 these records create no game progress or function/data verdict.
 
 `rebrew-source.toml` is managed by `rebrew source document-assembly` (API:
-`rebrew.source_provenance.document_assembly`) with the shared locked, atomic
+`rebrew.metadata.source_provenance.document_assembly`) with the shared locked, atomic
 0444 writer. Keep `rebrew-source.toml` in version control and ignore its
 `rebrew-source.toml.lock` coordination file, just like the function/data locks.
 It records reviewed original-assembly evidence for a definition
@@ -73,7 +73,7 @@ supplies its own tag.
   leaves the stored stamp alone, so an un-tagged programmatic write is never
   mistaken for a tool's work.
 - **The tag vocabulary is closed.**
-  `rebrew.metadata.PROVENANCE_TAGS` lists the nineteen writers (`binsync-import`,
+  `rebrew.metadata.functions.PROVENANCE_TAGS` lists the nineteen writers (`binsync-import`,
   `blocker`, `cross-import`, `data`, `diff`, `document-unmatched`, `fix-sizes`,
   `import-splat`, `inline-strings`, `intake`, `lint`, `match`, `near-diag`,
   `prove`, `rehome`, `rename`, `skeleton`, `test`, `verify`).  A tag outside it is a typo
@@ -81,7 +81,7 @@ supplies its own tag.
   rather than letting "who wrote this" be answerable only by grepping the
   writers.
 - **Each store carries a format stamp.**  The top-level `format`
-  (`rebrew.metadata.FORMAT_VERSION`, currently `1`) is added by the first write
+  (`rebrew.metadata.functions.FORMAT_VERSION`, currently `1`) is added by the first write
   to a file that has none and never rewritten, including when a file carries a
   foreign value: silently upgrading the stamp would hide the mismatch it exists
   to report.  Readers ignore it; W031 reports a missing or foreign one.
@@ -254,7 +254,7 @@ until that program changes with it.
    should be buildable from one command, never hand-edited.
 2. One parser per file format.  Shared parsers live in
    `catalog/loaders.py` (discovery inventory, rizin `afl`) and
-   `rebrew/metadata_doc.py` (`load_metadata_doc`, `parse_metadata_doc`,
+   `rebrew/metadata/document.py` (`load_metadata_doc`, `parse_metadata_doc`,
    `metadata_write_lock`): do not hand-roll a third copy.
 3. Writes to canonical stores go through the gated APIs:
    `update_source_status` / `update_statuses_batch` (STATUS),
@@ -265,8 +265,8 @@ until that program changes with it.
    (library overrides).  **Do not hand-edit `rebrew-functions.toml`,
    `rebrew-data.toml`, or `rebrew-libraries.toml`**: every write goes
    through `metadata_write_lock`, and the two function/data stores use
-   `atomic_write_locked` on top (see `rebrew/metadata.py`,
-   `rebrew/data_metadata.py`, `rebrew/library.py`).
+   `atomic_write_locked` on top (see `rebrew/metadata/functions.py`,
+   `rebrew/metadata/data.py`, `rebrew/library.py`).
    `rebrew-project.toml` is a store too: every writer (`lint --fix` dropping a
    `cflags_presets` key, a splat import patching `[targets.<name>].arch`, the
    intake arch rewrite, the doctor wibo fixup) takes

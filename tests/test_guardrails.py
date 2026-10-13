@@ -7,12 +7,12 @@ Covers: parser consolidation, CFLAGS validation, safe file write-back,
 import re
 from pathlib import Path
 
-from rebrew.annotation import (
+from rebrew.metadata.annotation import (
     make_func_entry,
     parse_c_file_multi,
     parse_source_metadata,
 )
-from rebrew.metadata import get_entry, update_source_status
+from rebrew.metadata.functions import get_entry, update_source_status
 from rebrew.naming import sanitize_name
 from rebrew.test import smart_reloc_compare
 
@@ -191,7 +191,7 @@ class TestSafeWriteBack:
     def test_blocker_removed(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "stub.c", STUB_HEADER)
         # Pre-populate metadata with BLOCKER
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
 
         update_field(tmp_path, 0x10008880, "blocker", "initial decompilation", module="SERVER")
         update_source_status(tmp_path, "RELOC", "SERVER", 0x10008880, clear_blockers=True)

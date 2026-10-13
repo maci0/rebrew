@@ -286,7 +286,7 @@ class TestRunDiff:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.diff import run_diff
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         meta_dir = tmp_path / "meta"
         meta_dir.mkdir()
@@ -312,7 +312,7 @@ class TestRunDiff:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.diff import run_diff
-        from rebrew.metadata import get_entry, update_field
+        from rebrew.metadata.functions import get_entry, update_field
 
         meta_dir = tmp_path / "meta"
         meta_dir.mkdir()
@@ -332,7 +332,7 @@ class TestRunDiff:
     ) -> None:
         """--fix-blocker --dry-run must preview without touching metadata."""
         from rebrew.diff import run_diff
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         meta_dir = tmp_path / "meta"
         meta_dir.mkdir()
@@ -570,7 +570,7 @@ class TestFixBlockerTargetsDiffedVa:
         """The diffed VA is authoritative: taking `annos[0].va` wrote the
         blocker onto the seed file's first function when a later VA was diffed."""
         from rebrew.diff import run_diff
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         meta_dir = tmp_path / "meta"
         meta_dir.mkdir()

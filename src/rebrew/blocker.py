@@ -1,7 +1,7 @@
 """blocker.py – Programmatic BLOCKER management for rebrew-functions.toml.
 
 Every BLOCKER/BLOCKER_DELTA write must go through the metadata store
-(``rebrew.metadata``) under ``metadata_write_lock`` + ``atomic_write_locked`` —
+(``rebrew.metadata.functions``) under ``metadata_write_lock`` + ``atomic_write_locked`` —
 never by hand-editing the TOML.  This CLI is that gate.
 
 Other writers exist: ``rebrew diff --fix-blocker``, ``rebrew diagnose near
@@ -26,9 +26,9 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import min_valid_va_for
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.config import module_marker
+from rebrew.metadata.annotation import min_valid_va_for
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -36,7 +36,7 @@ _EPILOG = (
     '  rebrew blocker set src/game/foo.c "SEH helper" · · Target by file\n\n'
     "  rebrew blocker clear src/game/foo.c · · · · · · · · Clear BLOCKER (+ delta)\n\n"
     "  rebrew blocker show 0x401000 --json · · · · · · · · Show BLOCKER metadata\n\n"
-    "[dim]Writes go through rebrew.metadata (locked + atomic). "
+    "[dim]Writes go through rebrew.metadata.functions (locked + atomic). "
     "Auto-classified blockers use `rebrew diff --fix-blocker` or "
     "`rebrew diagnose near --fix-blocker` instead.[/dim]"
 )
@@ -60,8 +60,8 @@ def resolve_function(
     VA selection in near_diag.main so multi-function files require
     disambiguation via --va instead of silently picking the first annotation.
     """
-    from rebrew.annotation import parse_c_file_multi
     from rebrew.cli import resolve_source_arg
+    from rebrew.metadata.annotation import parse_c_file_multi
     from rebrew.sources import target_marker
 
     va_from_flag = va_override is not None
@@ -177,7 +177,7 @@ def blocker_set(
             error_exit(
                 f"Invalid --delta value: {delta!r} (expected integer)", json_mode=json_output
             )
-        # metadata_model.MetadataEntry.problems() flags blocker_delta < 0 as
+        # metadata.model.MetadataEntry.problems() flags blocker_delta < 0 as
         # invalid; todo consumes it as a byte delta, so a negative value
         # would render as "−5B diff — try flag sweep".
         if delta_int < 0:
@@ -204,7 +204,7 @@ def blocker_set(
             )
         return
 
-    from rebrew.metadata import set_fields
+    from rebrew.metadata.functions import set_fields
 
     fields: dict[str, object] = {"blocker": blocker}
     if delta_int is not None:
@@ -253,7 +253,7 @@ def blocker_clear(
             console.print(f"[dim]Would clear BLOCKER for {module} 0x{va_int:08x}[/dim]")
         return
 
-    from rebrew.metadata import remove_field
+    from rebrew.metadata.functions import remove_field
 
     cleared_b = remove_field(cfg.metadata_dir, va_int, "blocker", module=module)
     cleared_d = remove_field(cfg.metadata_dir, va_int, "blocker_delta", module=module)
@@ -287,7 +287,7 @@ def blocker_show(
     cfg = require_config(target=target_name, json_mode=json_output)
     module, va_int = resolve_function(cfg, function, va, json_output)
 
-    from rebrew.metadata import get_entry
+    from rebrew.metadata.functions import get_entry
 
     entry = get_entry(cfg.metadata_dir, va_int, module)
     blocker_val = entry.get("blocker", "")

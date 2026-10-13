@@ -236,7 +236,7 @@ class TestBinsyncExportComments:
     def test_note_written_at_va_plus_one(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
 
         _make_project(
             tmp_path,
@@ -1021,7 +1021,7 @@ class TestDeclibParse:
     ) -> None:
         from declib.artifacts import Comment, Enum, Function, GlobalVariable, Struct, Typedef
 
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
 
         _make_project(
             tmp_path,
@@ -1062,7 +1062,7 @@ class TestDeclibParse:
     def test_locals_and_comments_round_trip(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import get_entry, update_field
+        from rebrew.metadata.functions import get_entry, update_field
 
         foo = "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 16\nint foo(void){return 1;}\n"
         proj_a = tmp_path / "a"

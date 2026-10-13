@@ -153,7 +153,7 @@ class TestGenerateInlineC:
         the linker spelling. A cdecl ``_foo`` is still ``foo``.
         """
         from rebrew.asm import _record_inline_c_identity
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         cfg = _cfg(tmp_path, compiler_profile="msvc")
         code = b"\xc3"
@@ -180,7 +180,7 @@ class TestGenerateInlineC:
         """The naked branch emits one byte per ``_emit``, and a file write
         records that count. The string itself has no SIZE line and no row."""
         from rebrew.asm import _record_inline_c_identity
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         cfg = _cfg(tmp_path, compiler_profile="msvc")
         code = bytes.fromhex("558bec83ec08b801000000c9c3")  # _CODE
@@ -246,7 +246,7 @@ class TestGenerateInlineC:
         assert "// SIZE:" not in text
         assert "_emit 0x55" in text
         assert "REBREW_ALLOW_NAKED" in text
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         # Both annotated functions become rows. Size is the extracted code,
         # symbol is the one parsed from the .c, name drops one leading _.
@@ -281,7 +281,7 @@ class TestGenerateInlineC:
             "// FUNCTION: SERVER 0x10002000\n// SIZE: 6\nint g(void) { return 0; }\n",
             encoding="utf-8",
         )
-        from rebrew.metadata import update_source_status
+        from rebrew.metadata.functions import update_source_status
 
         # STATUS lives in rebrew-functions.toml now: f.c is EXACT (skipped by
         # stubs_only), g.c stays STUB.
@@ -309,12 +309,12 @@ class TestParseAnnotations:
         assert results[0]["size"] == 10
 
     def test_metadata_dir_passthrough(self, tmp_path: Path) -> None:
-        from rebrew.metadata import update_source_status
+        from rebrew.metadata.functions import update_source_status
 
         src = tmp_path / "f.c"
         src.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
         update_source_status(tmp_path, "STUB", "SERVER", 0x1000)
-        update_field_guard = __import__("rebrew.metadata", fromlist=["update_field"])
+        update_field_guard = __import__("rebrew.metadata.functions", fromlist=["update_field"])
         update_field_guard.update_field(tmp_path, 0x1000, "size", 12, "SERVER")
         results = _parse_annotations(src, metadata_dir=tmp_path)
         assert len(results) == 1

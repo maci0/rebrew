@@ -593,7 +593,7 @@ class TestLoadCatalogs:
     def test_splice_and_catalog_share_key(self, tmp_path: Path) -> None:
         """`_collect_splice_set` and `_load_catalogs` must agree on the key:
         both resolve through `resolve_symbol` (symbol, then filename stem)."""
-        from rebrew.metadata import update_source_status
+        from rebrew.metadata.functions import update_source_status
         from rebrew.round_trip import _collect_splice_set, _load_catalogs
 
         cfg = SimpleNamespace(
@@ -645,7 +645,7 @@ class TestCollectSpliceSet:
         STATUS always lives in ``rebrew-functions.toml`` (never the .c file);
         SIZE/CFLAGS may live in either, mirroring production layouts.
         """
-        from rebrew.metadata import update_field, update_source_status
+        from rebrew.metadata.functions import update_field, update_source_status
 
         lines = [f"// FUNCTION: SERVER 0x{va:08x}", f"// SYMBOL: {symbol}"]
         if ann_cflags:
@@ -709,7 +709,7 @@ class TestCollectSpliceSet:
     ) -> None:
         """A TOOLCHAIN override must reach compile_to_obj (verify applies it;
         round-trip used to compile every function with the project default)."""
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
         from rebrew.round_trip import _collect_splice_set, _compile_and_extract
 
         cfg = self._cfg(tmp_path)
@@ -759,7 +759,7 @@ class TestCollectSpliceSet:
 
     def test_cflags_precedence(self, tmp_path: Path) -> None:
         """Metadata cflags > annotation cflags > project-default cflags."""
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
         from rebrew.round_trip import _collect_splice_set
 
         cfg = self._cfg(tmp_path)
@@ -817,7 +817,7 @@ class TestRoundTripGoldenPe:
             "// FUNCTION: SERVER 0x00401000\n// SYMBOL: _myfunc\nint myfunc(void) { return 0; }\n",
             encoding="utf-8",
         )
-        from rebrew.metadata import update_field, update_source_status
+        from rebrew.metadata.functions import update_field, update_source_status
 
         update_source_status(tmp_path, "EXACT", "SERVER", 0x401000)
         update_field(tmp_path, 0x401000, "size", 64, "SERVER")

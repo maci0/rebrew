@@ -595,7 +595,7 @@ class TestFixBlocker:
         )
         calls: list[object] = []
         monkeypatch.setattr(
-            "rebrew.metadata.update_field",
+            "rebrew.metadata.functions.update_field",
             lambda *a, **k: calls.append((a, k)),
         )
         # Mock the analysis pipeline so no compile is needed.
@@ -609,7 +609,7 @@ class TestFixBlocker:
             },
         )
         monkeypatch.setattr(
-            "rebrew.annotation.parse_c_file_multi",
+            "rebrew.metadata.annotation.parse_c_file_multi",
             lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr(
@@ -662,7 +662,7 @@ class TestAllBatch:
             "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
         )
         monkeypatch.setattr("rebrew.sources.iter_sources", lambda *a, **k: [tmp_path / "f.c"])
-        monkeypatch.setattr("rebrew.annotation.parse_c_file_multi", lambda *a, **k: annos)
+        monkeypatch.setattr("rebrew.metadata.annotation.parse_c_file_multi", lambda *a, **k: annos)
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.extract_raw_bytes",
             lambda *a, **k: b"\x55\x8b\xec\x5d\xc3",
@@ -685,7 +685,9 @@ class TestAllBatch:
             },
         )
         calls: list[object] = []
-        monkeypatch.setattr("rebrew.metadata.update_field", lambda *a, **k: calls.append((a, k)))
+        monkeypatch.setattr(
+            "rebrew.metadata.functions.update_field", lambda *a, **k: calls.append((a, k))
+        )
         result = CliRunner().invoke(app, args)
         return result, calls
 
@@ -865,7 +867,7 @@ class TestValidatedRelocMasking:
             encoding="utf-8",
         )
         monkeypatch.setattr(
-            "rebrew.annotation.parse_c_file_multi",
+            "rebrew.metadata.annotation.parse_c_file_multi",
             lambda *a, **k: [NS(va=0x1000, size=10, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr(
@@ -950,7 +952,9 @@ class TestFixBlockerDryRun:
             encoding="utf-8",
         )
         calls: list[object] = []
-        monkeypatch.setattr("rebrew.metadata.update_field", lambda *a, **k: calls.append(1))
+        monkeypatch.setattr(
+            "rebrew.metadata.functions.update_field", lambda *a, **k: calls.append(1)
+        )
         monkeypatch.setattr(
             "rebrew.near_diag.analyze",
             lambda *a, **k: {
@@ -961,7 +965,7 @@ class TestFixBlockerDryRun:
             },
         )
         monkeypatch.setattr(
-            "rebrew.annotation.parse_c_file_multi",
+            "rebrew.metadata.annotation.parse_c_file_multi",
             lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr(
@@ -1005,7 +1009,7 @@ class TestFixBlockerDryRun:
             "// FUNCTION: S 0x1000\n// SIZE: 8\nint f(void) { return 0; }\n",
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.metadata.update_field", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.metadata.functions.update_field", lambda *a, **k: None)
         monkeypatch.setattr(
             "rebrew.near_diag.analyze",
             lambda *a, **k: {
@@ -1016,7 +1020,7 @@ class TestFixBlockerDryRun:
             },
         )
         monkeypatch.setattr(
-            "rebrew.annotation.parse_c_file_multi",
+            "rebrew.metadata.annotation.parse_c_file_multi",
             lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr(
@@ -1064,7 +1068,9 @@ class TestFixBlockerDryRun:
             encoding="utf-8",
         )
         writes: list[tuple] = []
-        monkeypatch.setattr("rebrew.metadata.update_field", lambda *a, **k: writes.append(a))
+        monkeypatch.setattr(
+            "rebrew.metadata.functions.update_field", lambda *a, **k: writes.append(a)
+        )
         monkeypatch.setattr(
             "rebrew.near_diag.analyze",
             lambda *a, **k: {
@@ -1075,7 +1081,7 @@ class TestFixBlockerDryRun:
             },
         )
         monkeypatch.setattr(
-            "rebrew.annotation.parse_c_file_multi",
+            "rebrew.metadata.annotation.parse_c_file_multi",
             lambda *a, **k: [
                 SimpleNamespace(va=0x1000, size=8, symbol="_f", module="S", cflags="")
             ],
@@ -1129,7 +1135,7 @@ class TestFixBlockerStatus:
             encoding="utf-8",
         )
         monkeypatch.setattr(
-            "rebrew.annotation.parse_c_file_multi",
+            "rebrew.metadata.annotation.parse_c_file_multi",
             lambda *a, **k: [NS(va=0x1000, size=10, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr(
@@ -1188,9 +1194,11 @@ class TestFixBlockerPreservesGaCeiling:
             encoding="utf-8",
         )
         writes: list[object] = []
-        monkeypatch.setattr("rebrew.metadata.update_field", lambda *a, **k: writes.append(a))
         monkeypatch.setattr(
-            "rebrew.metadata.get_entry",
+            "rebrew.metadata.functions.update_field", lambda *a, **k: writes.append(a)
+        )
+        monkeypatch.setattr(
+            "rebrew.metadata.functions.get_entry",
             lambda *a, **k: {"blocker": "GA_CEILING: register-only byte delta (effective match)"},
         )
         monkeypatch.setattr(
@@ -1203,7 +1211,7 @@ class TestFixBlockerPreservesGaCeiling:
             },
         )
         monkeypatch.setattr(
-            "rebrew.annotation.parse_c_file_multi",
+            "rebrew.metadata.annotation.parse_c_file_multi",
             lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr(

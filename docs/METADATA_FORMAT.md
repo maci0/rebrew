@@ -10,8 +10,8 @@
 > headers see [ANNOTATIONS.md](ANNOTATIONS.md).
 > For the **full store map** (canonical vs derived vs cache, who owns which
 > fact, precedence, and why none of these TOMLs are hand-edited) see
-> [METADATA.md](METADATA.md); every write goes through `rebrew.metadata` /
-> `rebrew.data_metadata` (locked + atomic), or the CLI gates
+> [METADATA.md](METADATA.md); every write goes through `rebrew.metadata.functions` /
+> `rebrew.metadata.data` (locked + atomic), or the CLI gates
 > (`rebrew blocker`, `rebrew test`/`verify`/`prove`, `rebrew library`, `rebrew data list`).
 
 ## Layer 1: Legacy inline markers (in `.c` files)
@@ -105,7 +105,7 @@ blocker = "needs vtable"
 note = "register allocation differs in inner loop"
 ```
 
-**Managed exclusively** by `rebrew.metadata` (every write under
+**Managed exclusively** by `rebrew.metadata.functions` (every write under
 `metadata_write_lock` + `atomic_write_locked`; never hand-edited):
 
 | Function / CLI | Purpose |
@@ -117,12 +117,12 @@ note = "register allocation differs in inner loop"
 
 #### Owned fields
 
-`rebrew.metadata.METADATA_FIELDS` is the authoritative set; these are the
+`rebrew.metadata.functions.METADATA_FIELDS` is the authoritative set; these are the
 shapes that matter for a hand-written script or a review:
 
 | Field | Value | Written by |
 |---|---|---|
-| `STATUS` | one of the twelve `rebrew.metadata.KNOWN_STATUSES` values: the six ladder values below plus the six machine verdicts | the STATUS writers only, through the promotion gate |
+| `STATUS` | one of the twelve `rebrew.metadata.functions.KNOWN_STATUSES` values: the six ladder values below plus the six machine verdicts | the STATUS writers only, through the promotion gate |
 | `SIZE` | non-negative integer | annotation migration, `rebrew verify --fix-sizes`, `rebrew coverage catalog --fix-sizes`; an inline `// SIZE:` is migration debt, not a second contract |
 | `CFLAGS`, `TOOLCHAIN` | string | `rebrew cfg module set-cflags` / `set-compiler`, library-override resolution, lint `--fix`; an inline `// CFLAGS:` is migration debt |
 | `BLOCKER`, `BLOCKER_DELTA` | string / integer | `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, `rebrew source document-unmatched`; cleared on a byte match |
@@ -205,7 +205,7 @@ symbols share names or addresses. Each symbol is checked over its own extent;
 equal truncated buffers cannot earn `VERIFIED`. Other targets stay outside
 the report's denominator and write-back.
 
-Managed exclusively by `rebrew.data_metadata` (locked + atomic): via
+Managed exclusively by `rebrew.metadata.data` (locked + atomic): via
 `rebrew data list` (the bare command scans; `--annotate`, `--set-type`,
 `--set-section`, `--fix-bss`), `rebrew verify --data`, and `rebrew source rename`.
 `rebrew sync pull-data` does not touch it: that writes the derived
@@ -230,7 +230,7 @@ EXACT (0) → RELOC (1) → PROVEN / STUB / NEAR_MATCHING / SIZE_MISMATCH / SKIP
 
 `rebrew test`/`rebrew verify` also persist machine verdicts outside this
 lifecycle: `SIZE_MISMATCH`, `COMPILE_ERROR`, `EXTRACT_ERROR`, `MISSING_SIZE`,
-`MISSING_FILE`, `INVALID_VA` (see `rebrew.metadata.KNOWN_STATUSES`;
+`MISSING_FILE`, `INVALID_VA` (see `rebrew.metadata.functions.KNOWN_STATUSES`;
 `INTERNAL_ERROR` is deliberately never persisted).
 
 ### Promotion Gate

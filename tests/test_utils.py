@@ -1201,8 +1201,8 @@ class TestTomlWriteRecovery:
     def test_failed_recovery_does_not_overwrite_store(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, store: str, failure: str
     ) -> None:
-        from rebrew.data_metadata import set_data_field
-        from rebrew.metadata import update_field
+        from rebrew.metadata.data import set_data_field
+        from rebrew.metadata.functions import update_field
 
         path = tmp_path / f"rebrew-{store}.toml"
         original = b"{broken" if failure == "backup" else b'["SERVER.0x2000"]\nsize = 80\n'

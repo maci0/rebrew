@@ -29,10 +29,6 @@ if TYPE_CHECKING:
 
 import typer
 
-from rebrew.annotation import (
-    marker_for_module,
-    parse_c_file_multi,
-)
 from rebrew.catalog import load_function_structure
 from rebrew.cli import (
     EXIT_ERROR,
@@ -54,6 +50,10 @@ from rebrew.config import (
 from rebrew.decompiler import BACKEND_HELP_CHOICES, fetch_decompilation
 from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
 from rebrew.limits import NO_MAX_SIZE
+from rebrew.metadata.annotation import (
+    marker_for_module,
+    parse_c_file_multi,
+)
 from rebrew.naming import (
     load_existing_vas,
     make_filename,
@@ -1190,8 +1190,8 @@ def _write_skeleton_metadata(
     An existing row keeps its name unless *overwrite_name* (an explicit
     ``--name``), which otherwise would disagree with the rewritten symbol.
     """
-    from rebrew.annotation import derive_c_symbol, marker_for_module
-    from rebrew.metadata import get_entry, identity_file, record_function_identity
+    from rebrew.metadata.annotation import derive_c_symbol, marker_for_module
+    from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
 
     existing = get_entry(cfg.metadata_dir, va_int, module_val)
     name = sanitize_name(func_name)
@@ -1275,7 +1275,7 @@ def _run_append_mode(
     # A file that still has marker lines is read from those lines, so an
     # appended pure-C function is invisible until the file is migrated.
     # target_name=None records every marker, including another target's.
-    from rebrew.marker_migration import migrate_source_file
+    from rebrew.metadata.marker_migration import migrate_source_file
 
     migrated = migrate_source_file(cfg, append_path, None, dry_run=dry_run)
     if migrated and migrated.get("skipped") == "unrecorded-markers":

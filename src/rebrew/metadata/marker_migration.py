@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from rebrew.annotation import (
+from rebrew.metadata.annotation import (
     DATA_MARKERS,
     FUNC_NAME_HINT_RE,
     FUNCTION_MARKERS,
@@ -133,7 +133,7 @@ def _compiled_provider_file(cfg: Any, stored: str, marker: str) -> str:
     there is one existing source; preserve a missing explicit binding so verify
     still reports it instead of dropping its candidate.
     """
-    from rebrew.metadata import validate_identity_file
+    from rebrew.metadata.functions import validate_identity_file
 
     validate_identity_file(stored)
     metadata_dir = Path(cfg.metadata_dir).resolve()
@@ -165,9 +165,13 @@ def migrate_source_file(
     those are not marker lines, and returning here keeps the run a no-op
     instead of refusing them as unrecorded.
     """
-    from rebrew.annotation import parse_c_file_multi, parse_library_header
-    from rebrew.data_metadata import record_migrated_data_markers
-    from rebrew.metadata import apply_metadata_entry, load_metadata, record_migrated_markers
+    from rebrew.metadata.annotation import parse_c_file_multi, parse_library_header
+    from rebrew.metadata.data import record_migrated_data_markers
+    from rebrew.metadata.functions import (
+        apply_metadata_entry,
+        load_metadata,
+        record_migrated_markers,
+    )
 
     scoped = parse_c_file_multi(filepath, target_name=target_name, metadata_dir=cfg.metadata_dir)
     in_scope = any(
@@ -339,7 +343,7 @@ def _data_rows(
     data_names: dict[tuple[str, int], tuple[str, str]],
     file_rel: str,
 ) -> list[dict[str, Any]]:
-    """Rows for :func:`rebrew.data_metadata.record_migrated_data_markers`."""
+    """Rows for :func:`rebrew.metadata.data.record_migrated_data_markers`."""
     rows: list[dict[str, Any]] = []
     for ann in recorded_data:
         declared_name, declared_type = data_names.get((ann.module, ann.va), ("", ""))

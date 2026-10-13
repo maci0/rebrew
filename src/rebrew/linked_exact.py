@@ -164,7 +164,7 @@ def promote_linked_exact(
     from rebrew.compiler.compile import clears_blocker
     from rebrew.compiler.overrides import resolve_compile_overrides_cached
     from rebrew.formats.binary_loader import extract_raw_bytes
-    from rebrew.metadata import is_status_parked, update_statuses_batch
+    from rebrew.metadata.functions import is_status_parked, update_statuses_batch
     from rebrew.sources import contained_path, source_roots
     from rebrew.verify_hash import comparison_inputs
 

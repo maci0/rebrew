@@ -348,7 +348,7 @@ class TestSkeletonCliModes:
         assert "int other(void)" in text
         assert "func_a" in text
         assert "0x00001000" not in text
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         old = get_entry(cfg.metadata_dir, 0x2000, "SERVER")
         new = get_entry(cfg.metadata_dir, 0x1000, "SERVER")
@@ -425,7 +425,7 @@ class TestSkeletonCliModes:
         raw = target.read_bytes()
         assert b"\xe9" in raw
         assert b"\xc3\xa9" not in raw  # not rewritten as UTF-8
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         assert get_entry(cfg.metadata_dir, 0x2000, "SERVER")["name"] == "other"
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER")["marker_type"] == "FUNCTION"
@@ -492,7 +492,7 @@ class TestSkeletonCliModes:
         assert "hand_written" in text
         assert "func_a" in text
         _assert_pure_c(text)
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         # Migration recorded the hand-written name first. A later identity
         # write does not replace that name, fills the missing size, and

@@ -29,7 +29,7 @@ import tomlkit
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.metadata_doc import (
+from rebrew.metadata.document import (
     MetadataDocCache,
     build_metadata_doc,
     build_metadata_key_index,

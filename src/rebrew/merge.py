@@ -22,15 +22,6 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import (
-    DATA_MARKERS,
-    FUNCTION_MARKERS,
-    NEW_FUNC_CAPTURE_RE,
-    NEW_KV_RE,
-    block_markers,
-    parse_c_file_text,
-    split_annotation_sections,
-)
 from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.cli import (
     TargetOption,
@@ -41,8 +32,17 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
-from rebrew.data_metadata import load_data_metadata, record_migrated_data_markers
-from rebrew.metadata import (
+from rebrew.metadata.annotation import (
+    DATA_MARKERS,
+    FUNCTION_MARKERS,
+    NEW_FUNC_CAPTURE_RE,
+    NEW_KV_RE,
+    block_markers,
+    parse_c_file_text,
+    split_annotation_sections,
+)
+from rebrew.metadata.data import load_data_metadata, record_migrated_data_markers
+from rebrew.metadata.functions import (
     identity_file,
     load_metadata,
     record_migrated_markers,

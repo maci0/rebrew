@@ -22,7 +22,7 @@ import time: a command registers itself with the umbrella inside its
 ``src/rebrew/<package>/AGENTS.md`` states the externals that package may
 import, and that line is what keeps ``matcher/`` from becoming a peer of the
 CLI it drives.  Nothing read the line, so it drifted silently while the other
-two rules kept passing.  The list below is transcribed from those seven files;
+two rules kept passing.  The list below is transcribed from those eight files;
 ``tests/test_check_layering.py`` fails when a name in the tool is no longer
 documented, so the two cannot diverge quietly.  Unlike the other rules this
 one reads *every* import, not just the module-scope ones: the catalog's
@@ -109,7 +109,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "formats.binary_model",
             "formats.ne_loader",
             "matcher.parsers",
-            "metadata",
+            "metadata.functions",
             "registry",
             "sources",
             "utils",
@@ -118,14 +118,14 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
     ),
     "catalog": frozenset(
         {
-            "annotation",
             "cli",
             "config",
-            "data_metadata",
             "formats.binary_loader",
             "formats.binary_model",
             "function_providers",
-            "metadata",
+            "metadata.annotation",
+            "metadata.data",
+            "metadata.functions",
             "present",
             "sections",
             "sources",
@@ -136,16 +136,16 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
     ),
     "binsync": frozenset(
         {
-            "annotation",
             "c_parser",
             "catalog",
             "cli",
             "config",
             "cross_import",
-            "data_metadata",
             "data_scan",
             "formats.binary_loader",
-            "metadata",
+            "metadata.annotation",
+            "metadata.data",
+            "metadata.functions",
             "naming",
             "rename_ops",
             "sources",
@@ -172,6 +172,17 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
         }
     ),
     "formats": frozenset({"errors", "registry", "utils"}),
+    "metadata": frozenset(
+        {
+            "c_parser",
+            "compiler.toolchain",
+            "config",
+            "errors",
+            "registry",
+            "utils",
+            "workspace",
+        }
+    ),
     "workspace": frozenset({"errors"}),
 }
 

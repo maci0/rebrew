@@ -102,7 +102,7 @@ from rebrew.errors import RebrewError
 from rebrew.formats.binary_loader import load_binary
 from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-from rebrew.metadata import canonical_status
+from rebrew.metadata.functions import canonical_status
 from rebrew.sources import contained_path, source_roots
 from rebrew.utils import (
     container_runtime,

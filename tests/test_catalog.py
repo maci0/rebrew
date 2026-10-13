@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.annotation import Annotation
 from rebrew.catalog import (
     build_coverage_data,
     build_function_registry,
@@ -13,6 +12,7 @@ from rebrew.catalog import (
     scan_reversed_dir,
 )
 from rebrew.config import ProjectConfig
+from rebrew.metadata.annotation import Annotation
 
 # -------------------------------------------------------------------------
 # Helper factories

@@ -36,7 +36,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
 
 
 def _ann(va: int) -> object:
-    from rebrew.annotation import Annotation
+    from rebrew.metadata.annotation import Annotation
 
     return Annotation(
         va=va,

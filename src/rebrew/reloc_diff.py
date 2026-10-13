@@ -99,7 +99,7 @@ def link_map_index(text: str) -> NameIndex:
 
 def data_row_index(cfg: Any) -> NameIndex:
     """The active target's ``rebrew-data.toml`` rows that carry a name."""
-    from rebrew.data_metadata import load_data_metadata, module_visible_to_target
+    from rebrew.metadata.data import load_data_metadata, module_visible_to_target
 
     rows = [
         (va, int(fields.get("size") or 0), str(fields["name"]))

@@ -97,8 +97,8 @@ def _generate_bss_fix(
     between the two can never leave metadata claiming coverage the source
     does not declare.
     """
-    from rebrew.data_metadata import record_migrated_data_markers, set_data_fields_batch
-    from rebrew.metadata import identity_file
+    from rebrew.metadata.data import record_migrated_data_markers, set_data_fields_batch
+    from rebrew.metadata.functions import identity_file
 
     meta_dir = metadata_dir if metadata_dir is not None else src_dir
     out_file = src_dir / "bss_padding.c"
@@ -1010,7 +1010,7 @@ def move_data(
     target: str | None = TargetOption,
 ) -> None:
     """Re-address one data row, refusing an occupied target address."""
-    from rebrew.data_metadata import move_data_entry
+    from rebrew.metadata.data import move_data_entry
     from rebrew.sources import target_marker
 
     old = parse_va(old_va, json_mode=json_output)

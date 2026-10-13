@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.annotation import (
+from rebrew.metadata.annotation import (
     VALID_MARKERS,
     parse_c_file_multi,
     update_annotation_key,
 )
-from rebrew.metadata import METADATA_FIELDS
+from rebrew.metadata.functions import METADATA_FIELDS
 
 
 @pytest.fixture
@@ -94,7 +94,7 @@ def test_roundtrip_creates_missing_key(base_file: Path) -> None:
 def test_remove_metadata_key_roundtrip(base_file: Path) -> None:
     """update → remove of a metadata key must leave the .c file untouched and
     the parsed annotation back to its default."""
-    from rebrew.annotation import remove_annotation_key
+    from rebrew.metadata.annotation import remove_annotation_key
 
     original = base_file.read_text(encoding="utf-8")
 
@@ -112,7 +112,7 @@ def test_remove_metadata_key_roundtrip(base_file: Path) -> None:
 
 def test_remove_absent_metadata_key_returns_false(base_file: Path) -> None:
     """Removing a metadata field that was never written is a no-op (False)."""
-    from rebrew.annotation import remove_annotation_key
+    from rebrew.metadata.annotation import remove_annotation_key
 
     assert remove_annotation_key(base_file, 0x1000, "SIZE", metadata_dir=base_file.parent) is False
 
@@ -143,7 +143,7 @@ def test_update_equivalent_spelling_reports_no_change(base_file: Path) -> None:
 def test_inline_key_update_remove_roundtrip(base_file: Path) -> None:
     """Non-metadata keys round-trip through the .c file: update inserts a
     ``// KEY:`` line, remove strips it, the file is byte-identical after."""
-    from rebrew.annotation import remove_annotation_key
+    from rebrew.metadata.annotation import remove_annotation_key
 
     original = base_file.read_text(encoding="utf-8")
     key = "AUTHOR"  # not in METADATA_FIELDS → lives in the .c file
@@ -163,7 +163,7 @@ def test_inline_update_remove_symmetry_property(tmp_path: Path) -> None:
     from hypothesis import given, settings
     from hypothesis import strategies as st
 
-    from rebrew.annotation import remove_annotation_key, update_annotation_key
+    from rebrew.metadata.annotation import remove_annotation_key, update_annotation_key
 
     @given(
         st.text(
@@ -193,7 +193,7 @@ def test_inline_update_remove_symmetry_property(tmp_path: Path) -> None:
 def test_remove_inline_key_never_creates_metadata(base_file: Path) -> None:
     """remove_inline_annotation_key strips the inline line only — it must not
     create or write rebrew-functions.toml."""
-    from rebrew.annotation import remove_inline_annotation_key, update_annotation_key
+    from rebrew.metadata.annotation import remove_inline_annotation_key, update_annotation_key
 
     update_annotation_key(base_file, 0x1000, "AUTHOR", "x")
     assert "// AUTHOR: x" in base_file.read_text(encoding="utf-8")
@@ -212,7 +212,7 @@ def test_update_key_preserves_legacy_encoding(tmp_path: Path) -> None:
     edit of a legacy-encoded source.  SYMBOL is a file-only key, so the
     update exercises the read-modify-write path on the .c file itself.
     """
-    from rebrew.annotation import remove_inline_annotation_key
+    from rebrew.metadata.annotation import remove_inline_annotation_key
 
     f = tmp_path / "legacy.c"
     original = (
@@ -249,7 +249,7 @@ def test_block_comment_marker_parses(tmp_path: Path) -> None:
     """C89-strict 16-bit compilers (Turbo C 2.0) reject ``//`` comments, so
     their skeletons emit ``/* FUNCTION: ... */`` markers — the parser must
     treat them identically to the ``//`` form."""
-    from rebrew.annotation import parse_c_file_multi
+    from rebrew.metadata.annotation import parse_c_file_multi
 
     src = (
         "/* FUNCTION: MAIN 0x0000042e */\n"
@@ -311,7 +311,7 @@ def test_x86_16_va_floor(tmp_path: Path) -> None:
     check when the arch-aware floor is passed."""
     from types import SimpleNamespace
 
-    from rebrew.annotation import Annotation, min_valid_va_for
+    from rebrew.metadata.annotation import Annotation, min_valid_va_for
 
     cfg16 = SimpleNamespace(arch="x86_16")
     cfg32 = SimpleNamespace(arch="x86_32")

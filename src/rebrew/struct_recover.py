@@ -644,7 +644,7 @@ def _collect_functions(
     Raises ``ValueError`` for an unparseable VA or an empty selection; the
     CLI turns either into ``error_exit``.
     """
-    from rebrew.annotation import parse_c_file_multi
+    from rebrew.metadata.annotation import parse_c_file_multi
     from rebrew.sources import iter_sources, target_marker
 
     if functions:

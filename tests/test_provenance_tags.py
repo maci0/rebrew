@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.metadata import PROVENANCE_TAGS
+from rebrew.metadata.functions import PROVENANCE_TAGS
 
 _SRC = Path(__file__).resolve().parent.parent / "src" / "rebrew"
 
@@ -24,7 +24,7 @@ _SRC = Path(__file__).resolve().parent.parent / "src" / "rebrew"
 #: round-trip below.
 _LITERAL = re.compile(r"""["']?updated_by["']?[=:]\s*["']([a-z0-9-]+)["']""")
 
-#: ``metadata_model`` maps the store key to the attribute of the same name, so
+#: ``metadata.model`` maps the store key to the attribute of the same name, so
 #: the pair's key appears as its own value there.
 _NOT_A_TAG = frozenset({"updated_by"})
 
@@ -33,7 +33,7 @@ def _stamped_tags() -> set[str]:
     """Return every literal provenance tag the shipped writers emit."""
     found: set[str] = set()
     for path in sorted(_SRC.rglob("*.py")):
-        if path.name == "metadata.py":
+        if path.relative_to(_SRC).as_posix() == "metadata/functions.py":
             continue  # declares the vocabulary and names tags in error text
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
@@ -79,7 +79,7 @@ class TestProvenanceVocabulary:
 
 class TestBatchWriterStampsProvenance:
     def test_batch_write_records_the_pair(self, tmp_path: Path) -> None:
-        from rebrew.metadata import set_fields_batch
+        from rebrew.metadata.functions import set_fields_batch
 
         assert (
             set_fields_batch(
@@ -101,7 +101,7 @@ class TestBatchWriterStampsProvenance:
 
     def test_unknown_tag_is_rejected(self, tmp_path: Path) -> None:
         """The write fails loud rather than producing a W031 store."""
-        from rebrew.metadata import set_fields_batch
+        from rebrew.metadata.functions import set_fields_batch
 
         with pytest.raises(ValueError, match="unknown provenance tag"):
             set_fields_batch(
@@ -124,7 +124,7 @@ class TestFieldWriterProvenance:
     def test_unknown_tag_cannot_change_the_store(
         self, tmp_path: Path, writer: str, existing: bool
     ) -> None:
-        from rebrew.metadata import get_entry, set_fields, update_field
+        from rebrew.metadata.functions import get_entry, set_fields, update_field
 
         path = tmp_path / "rebrew-functions.toml"
         if existing:
@@ -145,7 +145,7 @@ class TestFieldWriterProvenance:
         assert get_entry(tmp_path, 0x24000, "APP").get("note") == ("keep" if existing else None)
 
     def test_unknown_stamp_keeps_the_open_entry_unchanged(self) -> None:
-        from rebrew.metadata import stamp_provenance
+        from rebrew.metadata.functions import stamp_provenance
 
         entry = {"note": "keep", "updated_by": "lint", "updated_at": "2026-01-01T00:00:00+00:00"}
         before = dict(entry)

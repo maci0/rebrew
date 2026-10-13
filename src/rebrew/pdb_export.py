@@ -366,8 +366,8 @@ def data_symbols(cfg: Any) -> list[DataSymbol]:
     fills a size or type the declaration lacks.  Layout spans are byte-range
     bookkeeping, not objects, and are left out, as are unnamed rows.
     """
-    from rebrew.data_metadata import load_data_metadata, module_visible_to_target
     from rebrew.data_scan import scan_globals
+    from rebrew.metadata.data import load_data_metadata, module_visible_to_target
 
     by_va: dict[int, DataSymbol] = {}
     scan = scan_globals(cfg.reversed_dir, cfg=cfg, record_roles=False)

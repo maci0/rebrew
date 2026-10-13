@@ -25,7 +25,6 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import iter_annotations
 from rebrew.catalog import cached_function_list
 from rebrew.cli import (
     TargetOption,
@@ -35,6 +34,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.intake import classify_all
+from rebrew.metadata.annotation import iter_annotations
 from rebrew.sources import (
     iter_sources,
     target_marker,
@@ -114,7 +114,7 @@ def main(
 
     if backfill_blockers:
         from rebrew.intake import blocker_reason
-        from rebrew.metadata import load_metadata, set_fields_batch
+        from rebrew.metadata.functions import load_metadata, set_fields_batch
         from rebrew.naming import load_data
 
         _ghidra, existing, _covered = load_data(cfg)

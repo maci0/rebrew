@@ -15,7 +15,7 @@ from typing import Any
 
 from rebrew.c_parser import CALLING_CONVENTION, is_pointer_to_array
 from rebrew.config import ProjectConfig, module_marker
-from rebrew.data_metadata import iter_data_symbols
+from rebrew.metadata.data import iter_data_symbols
 from rebrew.utils import (
     atomic_write_text,
     c_comment_safe,
@@ -100,10 +100,10 @@ def annotate_globals(
     """
     from types import SimpleNamespace
 
-    from rebrew.annotation import DATA_MARKERS, NEW_FUNC_CAPTURE_RE
-    from rebrew.data_metadata import record_migrated_data_markers
-    from rebrew.marker_migration import migrate_source_file
-    from rebrew.metadata import identity_file
+    from rebrew.metadata.annotation import DATA_MARKERS, NEW_FUNC_CAPTURE_RE
+    from rebrew.metadata.data import record_migrated_data_markers
+    from rebrew.metadata.functions import identity_file
+    from rebrew.metadata.marker_migration import migrate_source_file
     from rebrew.sources import iter_sources
     from rebrew.utils import rel_display_path
 
@@ -319,7 +319,7 @@ def _set_global_field(
     ``--type`` still reports ``0xVA=TYPE`` and ``--section`` reports
     ``0xVA=SECTION``; *allowed*, when given, rejects a value outside it.
     """
-    from rebrew.data_metadata import set_data_fields_batch
+    from rebrew.metadata.data import set_data_fields_batch
     from rebrew.sources import target_marker
 
     module = target_marker(cfg) or ""
@@ -362,8 +362,8 @@ def set_data_files(
     back out had no writer. The path must exist and is stored in the same
     identity form a merge writes.
     """
-    from rebrew.data_metadata import set_data_fields_batch
-    from rebrew.metadata import identity_file, validate_identity_file
+    from rebrew.metadata.data import set_data_fields_batch
+    from rebrew.metadata.functions import identity_file, validate_identity_file
     from rebrew.sources import target_marker
 
     module = target_marker(cfg) or ""
@@ -428,8 +428,8 @@ def mark_literal_rows(
     two different literal symbols, or a row whose storage kind is not
     replaceable, is returned under ``conflicts`` and left unchanged.
     """
-    from rebrew.data_metadata import load_data_metadata, set_data_fields_batch
     from rebrew.data_ownership import is_compiler_literal
+    from rebrew.metadata.data import load_data_metadata, set_data_fields_batch
     from rebrew.sources import target_marker
 
     module = target_marker(cfg) or ""
@@ -523,7 +523,7 @@ def set_data_marker_types(
 
     A row without one reads as ``DATA``; a row ``data set`` created has none.
     """
-    from rebrew.annotation import DATA_MARKERS
+    from rebrew.metadata.annotation import DATA_MARKERS
 
     return _set_global_field(
         cfg,
@@ -675,8 +675,8 @@ def gen_globals_header(
     Raises:
         FileExistsError: ``out_path`` exists with differing content and ``force`` is False.
     """
-    from rebrew.annotation import parse_c_file_multi
-    from rebrew.data_metadata import load_data_metadata
+    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.data import load_data_metadata
     from rebrew.sources import iter_sources
 
     marker = module_marker(cfg)

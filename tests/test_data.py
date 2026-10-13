@@ -486,7 +486,7 @@ class TestBssFix:
         assert "// NOTE:" not in content
 
         # Verify metadata was written to rebrew-data.toml metadata
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
 
         entry_1 = get_data_entry(tmp_path, 0x1010, "GAME")
         assert entry_1["size"] == 16
@@ -1044,7 +1044,7 @@ class TestBssFixDryRun:
         assert "// DATA:" not in text
         assert "char gap_00005000[256];" in text
         # Metadata lands in the metadata root with the gap's size and section.
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
 
         entry = get_data_entry(tmp_path, 0x5000, "SERVER")
         assert entry["size"] == 256

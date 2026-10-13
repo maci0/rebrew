@@ -64,7 +64,7 @@ def _make_c(
     blocker: str = "",
 ) -> Path:
     """Create a .c file with annotations in a (possibly nested) directory."""
-    from rebrew.metadata import load_metadata, save_metadata
+    from rebrew.metadata.functions import load_metadata, save_metadata
 
     filepath = directory / filename
     filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -265,7 +265,7 @@ class TestFindNearMissNested:
         )
         # Merge blocker_delta via the metadata writer (the file is
         # write-locked after _make_c's save).
-        from rebrew.metadata import load_metadata, save_metadata
+        from rebrew.metadata.functions import load_metadata, save_metadata
 
         meta_dir = tmp_path / "game"
         data = dict(load_metadata(meta_dir))

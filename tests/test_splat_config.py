@@ -562,8 +562,8 @@ class TestApply:
         assert 'source = "splat:win32_app.yaml"' in lay
         assert 'name = ".text"' in lay and "va = 4096" in lay
 
-        from rebrew.data_metadata import get_data_entry
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.data import get_data_entry
+        from rebrew.metadata.functions import get_entry
 
         functions = (project / "rebrew-functions.toml").read_text(encoding="utf-8")
         assert 'status = "STUB"' in functions

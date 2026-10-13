@@ -55,7 +55,7 @@ def defined_data_rows(cfg: Any, link_symbols: set[str]) -> list[DataRow]:
     ``link_symbol`` wins over ``_`` + ``name``. Layout spans and import slots
     are skipped: neither is a symbol the source can name.
     """
-    from rebrew.data_metadata import load_data_metadata, module_visible_to_target
+    from rebrew.metadata.data import load_data_metadata, module_visible_to_target
     from rebrew.utils import is_safe_c_ident
 
     rows: list[DataRow] = []
@@ -112,10 +112,10 @@ def missing_relocations(cfg: Any, source: Path, built: Path, link_map: Path) -> 
     symbol in *source*'s object. Fixups are compared by offset from each
     function's start, so a build whose layout drifted is compared correctly.
     """
-    from rebrew.annotation import parse_c_file_multi
     from rebrew.data_ownership import parse_link_map
     from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
     from rebrew.formats.relocations import relocation_spans
+    from rebrew.metadata.annotation import parse_c_file_multi
     from rebrew.rename_ops import c_name_from_symbol
     from rebrew.sources import target_marker
 

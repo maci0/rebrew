@@ -12,9 +12,9 @@ import pytest
 from cache_util import cache_text
 from typer.testing import CliRunner
 
-from rebrew.annotation import Annotation
 from rebrew.compiler.compile import CompareResult
 from rebrew.config import ProjectConfig
+from rebrew.metadata.annotation import Annotation
 from rebrew.verify import app
 from rebrew.verify_cache import (
     binary_id,
@@ -251,7 +251,7 @@ class TestResolvedOverridesMemo:
 
     def test_preset_refresh_is_seen(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A library file that only names a library is filled by the preset table."""
-        import rebrew.metadata as metadata_mod
+        import rebrew.metadata.functions as metadata_mod
         from rebrew.compiler.overrides import resolve_compile_overrides_cached
 
         cfg = _make_cfg(tmp_path)
@@ -1850,15 +1850,15 @@ class TestCompareLogicHashMembership:
         cache identity actually depends on is the stat fingerprint of every
         source file in the package, so that is what is checked here.
         """
-        import rebrew.annotation
         import rebrew.coff_reloc
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
         import rebrew.matcher.parsers
+        import rebrew.metadata.annotation
         from rebrew.verify_hash import _compare_logic_hash, _package_source_fingerprint
 
         names = {
-            rebrew.annotation._kv_to_annotation.__code__.co_filename,
+            rebrew.metadata.annotation._kv_to_annotation.__code__.co_filename,
             rebrew.compiler.compile.classify_compare_result.__code__.co_filename,
             rebrew.compiler.compile._extract_and_compare.__code__.co_filename,
             rebrew.coff_reloc.smart_reloc_compare.__code__.co_filename,

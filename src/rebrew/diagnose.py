@@ -27,7 +27,6 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
     TargetOption,
     console,
@@ -38,6 +37,7 @@ from rebrew.cli import (
     untrusted_ident,
 )
 from rebrew.config import ProjectConfig
+from rebrew.metadata.annotation import parse_c_file_multi
 from rebrew.sources import iter_sources
 
 app = typer.Typer(
@@ -63,7 +63,7 @@ def _warnings_for(steps: list[dict[str, Any]], effective_toolchain: str | None) 
     disagrees with the enclosing library's are each reported."""
     warnings: list[str] = []
     from rebrew.compiler.toolchain import TOOLCHAINS
-    from rebrew.metadata import all_library_presets
+    from rebrew.metadata.functions import all_library_presets
 
     func_step = next((s for s in steps if s["source"] == "function"), None)
     lib_step = next((s for s in steps if s["source"] == "library" and s.get("path")), None)

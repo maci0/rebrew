@@ -49,7 +49,7 @@ dependencies = [
     "numpy>=2.5.3,<3",  # byte/structural similarity scoring (matcher/scoring.py, core/matching.py, binary_similarity.py)
     "python-flirt>=0.10.0,<1",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
     "rich>=15.0.0,<16",  # console rendering (Console(stderr=True) convention) and typer's markup backend
-    "tomlkit>=0.15.1,<1",  # round-trip-preserving TOML writes (metadata.py, cfg.py, library.py)
+    "tomlkit>=0.15.1,<1",  # round-trip-preserving TOML writes (metadata/functions.py, cfg.py, library.py)
     "tree-sitter>=0.26.0,<1",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
     "tree-sitter-c>=0.24.2,<1",  # C grammar for tree-sitter
     "typer>=0.27.2,<1",  # CLI framework (every main_entry); floor tracks lock
@@ -94,7 +94,7 @@ version = { attr = "rebrew.__version__" }
 # future non-markdown reference file cannot silently drop out of the wheel.
 rebrew = ["agent-skills/**/*", "*.template", "PRINCIPLES.md", "**/py.typed", "py.typed"]
 
-# Contributor-only AGENTS.md under subpackages (matcher/, compiler/, formats/, catalog/, ghidra/,
+# Contributor-only AGENTS.md under subpackages (matcher/, compiler/, formats/, metadata/, catalog/, ghidra/,
 # binsync/, workspace/) must not
 # ride into the wheel if include-package-data ever widens the sdist file set.
 [tool.setuptools.exclude-package-data]

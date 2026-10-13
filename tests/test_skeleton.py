@@ -224,7 +224,7 @@ class TestGenerateSkeletonModules:
     def test_library_module_uses_library_marker(self, tmp_path: Path) -> None:
         """The C is marker-free. kind_module in library_modules records LIBRARY
         under the address module, which the CLI sets to cfg.marker."""
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.skeleton import _write_skeleton_metadata
 
         cfg = self._make_cfg()
@@ -253,7 +253,7 @@ class TestGenerateSkeletonModules:
         assert "SERVER.0x10001000" in store
 
     def test_non_library_module_uses_function_marker(self, tmp_path: Path) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.skeleton import _write_skeleton_metadata
 
         cfg = self._make_cfg()
@@ -274,7 +274,7 @@ class TestGenerateSkeletonModules:
 
     def test_annotation_block_library_module(self, tmp_path: Path) -> None:
         """An address module that is itself a library module records LIBRARY."""
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.skeleton import _write_skeleton_metadata
 
         cfg = self._make_cfg()
@@ -409,7 +409,7 @@ class TestGenerateAnnotationBlock:
     def test_library_module_marker(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.skeleton import _write_skeleton_metadata, generate_annotation_block
 
         cfg = SimpleNamespace(library_modules={"MSVCRT"}, marker="SERVER", metadata_dir=tmp_path)
@@ -477,7 +477,7 @@ class TestSkeletonListFallback:
         text = created[0].read_text(encoding="utf-8")
         _assert_pure_c(text)
         assert "fcn_10001000" in text
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         entry = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
         assert entry["marker_type"] == "FUNCTION"
@@ -537,7 +537,7 @@ class TestSkeletonMetadataSize:
         monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)
         result = CliRunner().invoke(sk.app, ["0x10001000"])
         assert result.exit_code == 0
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         entry = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
         assert entry.get("size") == 42  # from the function list, now verifiable
@@ -551,7 +551,7 @@ class TestSkeletonMetadataSize:
     def test_existing_size_not_overwritten(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import get_entry, update_field
+        from rebrew.metadata.functions import get_entry, update_field
         from rebrew.skeleton import _write_skeleton_metadata
 
         cfg = self._cfg(tmp_path)
@@ -567,7 +567,7 @@ class TestSkeletonMetadataSize:
 
     def test_existing_name_follows_the_new_symbol(self, tmp_path: Path) -> None:
         """An explicit --name rebinds the row: its name must follow the rewritten symbol."""
-        from rebrew.metadata import get_entry, record_function_identity
+        from rebrew.metadata.functions import get_entry, record_function_identity
         from rebrew.skeleton import _write_skeleton_metadata
 
         cfg = self._cfg(tmp_path)
@@ -695,7 +695,7 @@ class TestSkeletonDryRun:
         from typer.testing import CliRunner
 
         import rebrew.skeleton as sk
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.skeleton import make_filename
 
         cfg = self._cfg(tmp_path)

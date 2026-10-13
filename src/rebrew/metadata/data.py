@@ -1,9 +1,9 @@
-"""data_metadata.py — Per-directory metadata store for DATA/GLOBAL annotations.
+"""metadata/data.py — Per-directory metadata store for DATA/GLOBAL annotations.
 
 Volatile metadata for data annotations (NAME, SIZE, SECTION, NOTE) are stored in a
 single ``rebrew-data.toml`` metadata file at the ``metadata_dir`` root
 (``cfg.metadata_dir``).  This mirrors the pattern established by
-``metadata.py`` for function annotations.
+``metadata/functions.py`` for function annotations.
 
 Location
 --------
@@ -35,7 +35,7 @@ Key format
 Identical to ``rebrew-functions.toml``: ``"MODULE.0xVA"`` (qualified key).
 This makes the metadata unambiguous across multi-target projects.  Reads key
 on the parsed ``(module, va)``, so an entry spelled with different hex
-padding than :func:`rebrew.metadata_doc.qualified_key` produces is still found and
+padding than :func:`rebrew.metadata.document.qualified_key` produces is still found and
 updated in place, never shadowed by an appended twin.
 
 Owned fields per entry::
@@ -71,7 +71,17 @@ from typing import TYPE_CHECKING, Any
 
 import tomlkit
 
-from rebrew.metadata import (
+from rebrew.metadata.document import (
+    MetadataDocCache,
+    build_metadata_key_index,
+    load_metadata_doc,
+    metadata_write_lock,
+    parse_metadata_key,
+    pop_metadata_doc_cache,
+    qualified_key,
+    resolve_metadata_key,
+)
+from rebrew.metadata.functions import (
     METADATA_FIELD_TYPES,
     PROVENANCE_TAGS,
     as_metadata_int,
@@ -83,25 +93,15 @@ from rebrew.metadata import (
     validate_identity_file,
     validate_provenance_table,
 )
-from rebrew.metadata_doc import (
-    MetadataDocCache,
-    build_metadata_key_index,
-    load_metadata_doc,
-    metadata_write_lock,
-    parse_metadata_key,
-    pop_metadata_doc_cache,
-    qualified_key,
-    resolve_metadata_key,
-)
 from rebrew.utils import atomic_write_locked, load_toml_for_write
 
 if TYPE_CHECKING:
-    from rebrew.annotation import Annotation
+    from rebrew.metadata.annotation import Annotation
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# In-memory cache for load_data_metadata() — mirrors metadata.py's cache for
+# In-memory cache for load_data_metadata() — mirrors metadata/functions.py's cache for
 # rebrew-functions.toml.  Without it, batch paths that read data metadata per
 # file (lint) or per function (smart_reloc_compare's global-name resolution)
 # re-parse the TOML on every call.  Keyed by resolved Path; invalidated by
@@ -344,7 +344,7 @@ def validate_data_field(key: str, value: Any) -> Any:
     if key == "marker_type":
         # Lazy: annotation synthesizes data rows from this module, so a
         # module-level import here would cycle at import time.
-        from rebrew.annotation import DATA_MARKERS
+        from rebrew.metadata.annotation import DATA_MARKERS
 
         if value not in DATA_MARKERS:
             raise ValueError(
@@ -483,7 +483,7 @@ def load_data_metadata(directory: Path | str | Any) -> dict[tuple[str, int], dic
         return {}
 
     # Shared loader: tomllib reads (fast), mtime-keyed cache — same
-    # mechanism as rebrew-functions.toml (metadata.py).  deepcopy=False:
+    # mechanism as rebrew-functions.toml (metadata/functions.py).  deepcopy=False:
     # this function already returns a shallow copy of the outer map and
     # each entry, so a full deep clone of the cache is wasted work.
     cached = load_metadata_doc(
@@ -554,7 +554,7 @@ def set_data_field(
             write records ``updated_by`` plus a UTC ``updated_at``; callers
             that pass "" leave the row's existing stamp alone.
         now: Instant that ``updated_at`` records, for a run replaying its own
-            writes (see :func:`rebrew.metadata.stamp_provenance`).  Unset reads
+            writes (see :func:`rebrew.metadata.functions.stamp_provenance`).  Unset reads
             the wall clock.
 
     """
@@ -577,7 +577,7 @@ def set_data_fields_batch(
 ) -> int:
     """Set fields for many ``(module, va)`` entries in one TOML read-modify-write.
 
-    Sibling of :func:`rebrew.metadata.set_fields_batch` for the data store.
+    Sibling of :func:`rebrew.metadata.functions.set_fields_batch` for the data store.
     Each update is ``{"module", "va", "fields": {key: value, ...}}`` plus an
     optional ``"updated_by"`` provenance tag, which stamps the entry's
     ``updated_by`` / ``updated_at`` pair in the same write when the update
@@ -588,7 +588,7 @@ def set_data_fields_batch(
     unless the update includes a fresh verdict. Notes and no-ops preserve it.
 
     *now* fixes the instant every row the batch stamps records, so a replay
-    lands the same bytes (see :func:`rebrew.metadata.stamp_provenance`).
+    lands the same bytes (see :func:`rebrew.metadata.functions.stamp_provenance`).
 
     Raises :class:`ValueError` for an update missing ``module`` or ``va``, or
     naming a negative VA.  A malformed update used to be skipped, so the rest
@@ -672,7 +672,7 @@ def set_data_fields_batch(
 def delete_data_entries_batch(directory: Path | str | Any, targets: list[tuple[str, int]]) -> int:
     """Drop whole ``(module, va)`` entries from ``rebrew-data.toml`` in one rewrite.
 
-    Sibling of :func:`rebrew.metadata.delete_entries_batch` for the data
+    Sibling of :func:`rebrew.metadata.functions.delete_entries_batch` for the data
     store (orphan pruning: DATA/GLOBAL blocks whose VA has no source
     annotation).  Returns the number of entries removed.  Missing entries
     are no-ops.  Only touches the metadata file — never a source file.
@@ -730,7 +730,7 @@ def move_data_entry(
     moves it into the store first).  Returns the move as
     ``{module, from, to, name, status_was}``; *dry_run* checks without writing.
     """
-    from rebrew.annotation import block_markers
+    from rebrew.metadata.annotation import block_markers
 
     module = unicodedata.normalize("NFC", module)
     if not module:
@@ -904,7 +904,7 @@ def merge_into_data_annotation(ann: Annotation, directory: Path | str | Any) -> 
             # Leaving ann.size at 0 makes every later size comparison read the
             # extent as genuinely unknown, and the coverage grid renders a
             # zero-width cell for it.  Same guard as
-            # rebrew.metadata.apply_metadata_entry: name the entry and the value.
+            # rebrew.metadata.functions.apply_metadata_entry: name the entry and the value.
             logger.warning(
                 "rebrew-data.toml size for %s[0x%x] is not an integer (%r: %s); "
                 "leaving the annotation's own size",

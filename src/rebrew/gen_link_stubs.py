@@ -22,7 +22,7 @@ from pathlib import Path
 import typer
 
 from rebrew.cli import console, error_exit, json_print
-from rebrew.data_metadata import iter_data_symbols
+from rebrew.metadata.data import iter_data_symbols
 from rebrew.utils import atomic_write_text, is_safe_c_ident, load_tomllib, read_source_text
 
 _EPILOG = (

@@ -20,10 +20,10 @@ if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
 
 from rebrew.analysis import capstone_handle
-from rebrew.annotation import min_valid_va_for, parse_c_file_multi, parse_library_header
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 from rebrew.formats.binary_model import BinaryInfo
+from rebrew.metadata.annotation import min_valid_va_for, parse_c_file_multi, parse_library_header
 from rebrew.sources import (
     iter_library_headers,
     iter_sources,
@@ -424,7 +424,7 @@ def inside_annotated_vas(
     pseudo-functions; they are not functions, so neither progress nor
     pending work.  `rebrew status` and `rebrew todo` share this rule.
     """
-    from rebrew.annotation import span_contains_factory
+    from rebrew.metadata.annotation import span_contains_factory
 
     inside = span_contains_factory(
         [

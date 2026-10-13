@@ -37,7 +37,6 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.annotation import iter_annotations, resolve_symbol
 from rebrew.cli import (
     EXIT_MISMATCH,
     EXIT_OK,
@@ -58,7 +57,8 @@ from rebrew.config import ProjectConfig
 from rebrew.formats.binary_loader import load_binary, va_to_file_offset
 from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
-from rebrew.metadata import load_metadata
+from rebrew.metadata.annotation import iter_annotations, resolve_symbol
+from rebrew.metadata.functions import load_metadata
 from rebrew.sections import trim_trailing_padding
 from rebrew.sources import (
     iter_sources,
@@ -847,7 +847,7 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
       * Data names: the single ``rebrew-data.toml`` at ``cfg.metadata_dir``
         (filtered to the active target's marker) plus DATA/GLOBAL annotations.
     """
-    from rebrew.data_metadata import load_data_metadata
+    from rebrew.metadata.data import load_data_metadata
 
     marker = target_marker(cfg)  # honors cfg.marker overrides
     # An annotation's marker is compared in preset_module_key (NFC, then

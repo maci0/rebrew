@@ -12,8 +12,8 @@ from rebrew.binsync.importer import import_state
 from rebrew.binsync.serial import dump_artifact, load_artifact, new_struct, write_state_text
 from rebrew.binsync.state import load_sync_baseline, sync_baseline_path
 from rebrew.config import load_config
-from rebrew.data_metadata import get_data_entry, set_data_fields_batch
-from rebrew.metadata import get_entry, remove_field, update_field, update_source_status
+from rebrew.metadata.data import get_data_entry, set_data_fields_batch
+from rebrew.metadata.functions import get_entry, remove_field, update_field, update_source_status
 
 pytest.importorskip("declib")
 
@@ -239,8 +239,8 @@ class TestDurableEvidence:
     def test_verify_captures_inputs_before_compilation(
         self, tmp_path: Path, monkeypatch: Any, change: str
     ) -> None:
-        from rebrew.annotation import Annotation
         from rebrew.compiler.compile import CompareResult
+        from rebrew.metadata.annotation import Annotation
         from rebrew.verify import run_verification, verify_entry
 
         cfg = _project(tmp_path)

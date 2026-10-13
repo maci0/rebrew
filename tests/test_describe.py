@@ -400,8 +400,8 @@ class TestDecoratedLookupName:
         range label is the same C name.
         """
         import rebrew.describe as describe_mod
-        from rebrew.annotation import Annotation
         from rebrew.describe import _build_lookup
+        from rebrew.metadata.annotation import Annotation
 
         anns = [
             Annotation(va=0x1000, size=0x10, name="", symbol="hook@@12"),

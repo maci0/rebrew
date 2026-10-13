@@ -39,7 +39,6 @@ from typer._click.core import Parameter as TyperParameter
 from typer._click.exceptions import BadOptionUsage
 from typer.core import TyperGroup, TyperOption
 
-from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.config import (
     DEFAULT_LOG_LEVEL,
     ConfigError,
@@ -50,6 +49,7 @@ from rebrew.config import (
     load_config,
     parse_env_log_level,
 )
+from rebrew.metadata.annotation import Annotation, parse_c_file_multi
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import (
     console,
@@ -804,9 +804,9 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
 
     if va_int is not None:
         tm = target_marker(cfg)
-        from rebrew.annotation import Annotation
         from rebrew.function_providers import bind_library_source
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.functions import load_metadata
         from rebrew.utils import preset_module_key
 
         metadata_root = getattr(cfg, "metadata_dir", None)

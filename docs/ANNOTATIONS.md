@@ -97,7 +97,7 @@ when no store sits beside it. There is no walk-up inside the loader: callers mus
 pass the correct metadata root. Metadata is managed automatically by the CLI tools.
 
 > [!CAUTION]
-> **Never manually add volatile metadata keys (`STATUS`, `BLOCKER`, `NOTE`, `GHIDRA`, `SIZE`, `CFLAGS`, …) to a `.c` file**: they are not the contract (`_kv_to_annotation` hardcodes `STUB` for STATUS) and `lint --fix` / W019 migrates an equal copy into `rebrew-functions.toml`. Do not hand-edit that file: use the CLI / `rebrew.metadata` APIs.
+> **Never manually add volatile metadata keys (`STATUS`, `BLOCKER`, `NOTE`, `GHIDRA`, `SIZE`, `CFLAGS`, …) to a `.c` file**: they are not the contract (`_kv_to_annotation` hardcodes `STUB` for STATUS) and `lint --fix` / W019 migrates an equal copy into `rebrew-functions.toml`. Do not hand-edit that file: use the CLI / `rebrew.metadata.functions` APIs.
 
 ### Example
 
@@ -145,7 +145,7 @@ declares itself with a single comment line before any code:
 `// SUPPORT:` blesses the file against E001; the reason (what breaks without
 this file) is mandatory: a reason-less declaration errors the same way a
 missing marker does.  The blessing is lint-level only: the annotation parser
-(`annotation.py`, `VALID_MARKERS`) does not handle SUPPORT, so no `Annotation`
+(`metadata/annotation.py`, `VALID_MARKERS`) does not handle SUPPORT, so no `Annotation`
 is yielded for support files; they are invisible to verify/match/test.
 No annotation checks apply (there are no headers), but body rules still run:
 a support file with no code earns W003.  Prefer folding
@@ -177,7 +177,7 @@ support TU only when nothing in the reversed tree can carry it.
 > **Never manually edit `rebrew-functions.toml`.** This metadata file stores volatile metadata
 > (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA, etc.) and is managed exclusively by
 > Rebrew CLI tools (`rebrew blocker`, `rebrew test`, `rebrew match run`, `rebrew diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, `rebrew source document-unmatched`, `rebrew sync push`, etc.).
-> Every BLOCKER/BLOCKER_DELTA write must go through those CLIs (or the `rebrew.metadata` API).
+> Every BLOCKER/BLOCKER_DELTA write must go through those CLIs (or the `rebrew.metadata.functions` API).
 > Manual edits bypass the write-lock/atomicity and will be silently lost or may corrupt the file.
 
 > [!TIP]
@@ -217,7 +217,7 @@ the metadata `comments` store for the same address.
 | `SKIP` | User-parked ("don't touch"): neutral gate rank, status-equal with `STUB` (see `verify._STATUS_RANK`/`_STATUS_ORDER`) |
 
 Machine verdicts persisted outside the lifecycle (see
-`rebrew.metadata.KNOWN_STATUSES`): `SIZE_MISMATCH`, `COMPILE_ERROR`,
+`rebrew.metadata.functions.KNOWN_STATUSES`): `SIZE_MISMATCH`, `COMPILE_ERROR`,
 `EXTRACT_ERROR`, `MISSING_SIZE`, `MISSING_FILE`, `INVALID_VA`
 (`INTERNAL_ERROR` is never persisted). `LIBRARY` is a marker type, not a
 status.
@@ -501,7 +501,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W031 | Metadata store problem | A `rebrew-functions.toml` / `rebrew-data.toml` entry a reader will not honour: an unknown field, a STATUS outside the vocabulary, half an `updated_by`/`updated_at` pair, an unknown provenance tag, a stray top-level key, or a missing / foreign `format` stamp. Also reports malformed `rebrew-source.toml`, unknown target modules and evidence bound to a changed, missing or ambiguous definition; clear the record or review and record evidence again |
 | W032 | Coverage store hygiene | An artifact from a store rebrew no longer writes: `db/coverage.db` (SQLite), `db/data_<target>.json` (catalog grid), `db/*.csv`, or a `db/coverage-<target>.toml` the dashboards cannot serve: unreadable to the loader (foreign `version`, malformed TOML) or one whose `target` key disagrees with its filename, so that target answers with another's data. Re-run `rebrew coverage build` and delete the old artifacts |
 | W033 | Agent scaffold drift | `AGENTS.md`, `PRINCIPLES.md` or `.agents/skills/**` no longer matches the installed rebrew's packaged sources, so an agent follows workflow instructions for a version that is not running. Warn-only; fix with `rebrew init --refresh-agents` (it writes only differing files and prunes a skill the packaged tree no longer ships). `AGENTS.md`'s own comparison is profile-rendered: `rebrew init --refresh-agents --check` reports it in full |
-| W034 | `file` identity is not joinable | A stored `file` in `rebrew-functions.toml` is absolute or contains a `..` segment, so `verify`/`rename`/BinSync would join it to a path outside the checkout. Writers refuse it (`rebrew.metadata.validate_identity_file`); this reports rows written before the gate |
+| W034 | `file` identity is not joinable | A stored `file` in `rebrew-functions.toml` is absolute or contains a `..` segment, so `verify`/`rename`/BinSync would join it to a path outside the checkout. Writers refuse it (`rebrew.metadata.functions.validate_identity_file`); this reports rows written before the gate |
 | W035 | Module belongs to no target | A metadata row's `module` matches no project marker, target marker, or declared library module, so `status`, `todo` and the dashboards (all of which filter by module) cannot show it. Typical after a target rename left rows behind |
 | W036 | Stray metadata store | A `rebrew-data.toml` / `rebrew-functions.toml` outside the directories the readers use (`metadata_dir`, `reversed_dir`, `shared_dir`). The readers resolve a store by directory with no fallback, so a second copy is not a backup: pointed at its directory it answers with its own smaller entry set, and is invisible otherwise. Warn-only; delete the copy that no command is pointed at |
 

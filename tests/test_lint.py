@@ -645,7 +645,7 @@ class TestLintFileBranches:
     def test_w019_silent_for_metadata_backed_after_name_hint(self, tmp_path: Path) -> None:
         """SIZE after a name-hint line that metadata already owns stays silent."""
         from rebrew.lint import lint_file
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
 
         src = tmp_path / "src"
         src.mkdir()
@@ -668,8 +668,8 @@ class TestLintFileBranches:
 
     def test_preloaded_data_metadata_overlay(self, tmp_path: Path) -> None:
         """DATA markers pull size/section/note from rebrew-data.toml without W019."""
-        from rebrew.data_metadata import set_data_field
         from rebrew.lint import lint_file
+        from rebrew.metadata.data import set_data_field
 
         src = tmp_path / "src"
         src.mkdir()
@@ -838,7 +838,7 @@ class TestLintFix:
         from typer.testing import CliRunner
 
         from rebrew.lint import app
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         cfg = self._cfg(tmp_path)
         f = self._write_inline(tmp_path)
@@ -859,8 +859,8 @@ class TestLintFix:
         --fix must leave it inline instead of writing it into rebrew-data.toml."""
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
         from rebrew.lint import app
+        from rebrew.metadata.data import get_data_entry
 
         cfg = self._cfg(tmp_path)
         src = tmp_path / "src"
@@ -885,7 +885,7 @@ class TestLintFix:
         from typer.testing import CliRunner
 
         from rebrew.lint import app
-        from rebrew.metadata import update_source_status
+        from rebrew.metadata.functions import update_source_status
 
         cfg = self._cfg(tmp_path)
         f = self._write_inline(tmp_path)
@@ -908,7 +908,7 @@ class TestLintFix:
         from typer.testing import CliRunner
 
         from rebrew.lint import app
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         cfg = self._cfg(tmp_path)
         src = tmp_path / "src"
@@ -938,7 +938,7 @@ class TestLintFixConvergence:
         from typer.testing import CliRunner
 
         from rebrew.lint import app, lint_file
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         cfg = SimpleNamespace(
             root=tmp_path,
@@ -1007,7 +1007,7 @@ class TestW020AsmDump:
 
     def _pure_c(self, tmp_path: Path, blocker: str | None) -> LintResult:
         """A pure-C file: its blocker lives only in the function store."""
-        from rebrew.metadata import record_function_identity, set_fields
+        from rebrew.metadata.functions import record_function_identity, set_fields
 
         record_function_identity(
             tmp_path,
@@ -1034,7 +1034,11 @@ class TestW020AsmDump:
         assert any(c == "W020" for _, c, _ in result.warnings)
 
     def test_shared_file_uses_only_the_asm_functions_metadata(self, tmp_path: Path) -> None:
-        from rebrew.metadata import record_function_identity, set_fields, update_source_status
+        from rebrew.metadata.functions import (
+            record_function_identity,
+            set_fields,
+            update_source_status,
+        )
 
         for va, name in ((0x10008880, "documented"), (0x10008900, "pending")):
             record_function_identity(
@@ -1093,7 +1097,11 @@ class TestW020AsmDump:
         assert [line for line, code, _ in result.warnings if code == "W020"] == [3, 8]
 
     def test_store_blocker_and_status_do_not_leak_between_targets(self, tmp_path: Path) -> None:
-        from rebrew.metadata import record_function_identity, set_fields, update_source_status
+        from rebrew.metadata.functions import (
+            record_function_identity,
+            set_fields,
+            update_source_status,
+        )
 
         for module, va, status in (("SERVER", 0x10008880, "EXACT"), ("GOLDTL", 0x408880, "STUB")):
             record_function_identity(
@@ -1149,7 +1157,7 @@ class TestW020AsmDump:
         )
 
     def test_string_literals_do_not_break_function_ownership(self, tmp_path: Path) -> None:
-        from rebrew.metadata import record_function_identity, set_fields
+        from rebrew.metadata.functions import record_function_identity, set_fields
 
         record_function_identity(
             tmp_path,
@@ -2177,7 +2185,7 @@ class TestW029RedundantCflags:
         from typer.testing import CliRunner
 
         from rebrew.lint import app
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         src = tmp_path / "reversed"
         src.mkdir()
@@ -2203,7 +2211,7 @@ class TestW029RedundantCflags:
         from typer.testing import CliRunner
 
         from rebrew.lint import app
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         src = tmp_path / "reversed"
         src.mkdir()
@@ -2275,7 +2283,7 @@ class TestW029RedundantCflags:
         from typer.testing import CliRunner
 
         from rebrew.lint import app
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         src = tmp_path / "reversed"
         src.mkdir()
@@ -2298,7 +2306,7 @@ class TestW029RedundantCflags:
         from typer.testing import CliRunner
 
         from rebrew.lint import app
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         src = tmp_path / "reversed"
         src.mkdir()
@@ -2341,8 +2349,8 @@ class TestW029RedundantCflags:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
         from rebrew.lint import app
+        from rebrew.metadata.data import get_data_entry
 
         src = tmp_path / "reversed"
         src.mkdir()
@@ -2371,8 +2379,8 @@ class TestW029RedundantCflags:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
         from rebrew.lint import app
+        from rebrew.metadata.data import get_data_entry
 
         src = tmp_path / "reversed"
         src.mkdir()
@@ -2657,7 +2665,7 @@ class TestW019ProvenanceFields:
         assert "W010" not in codes
 
     def test_both_provenance_keys_are_metadata_keys(self) -> None:
-        from rebrew.annotation import METADATA_KEYS
+        from rebrew.metadata.annotation import METADATA_KEYS
 
         assert {"UPDATED_BY", "UPDATED_AT"} <= METADATA_KEYS
 

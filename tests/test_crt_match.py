@@ -643,7 +643,7 @@ class TestCrtMatchCli:
         from typer.testing import CliRunner
 
         from rebrew.crt_match import app
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -922,7 +922,7 @@ class TestFixSourceDryRun:
         result = CliRunner().invoke(cm.app, ["--all", "--fix-source", "--dry-run"])
         monkeypatch_patch.undo()
         assert "Would update SOURCE annotations: 1" in result.output
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         assert get_entry(cfg.metadata_dir, 0x1000, "MSVCRT") == {}  # nothing written
 
@@ -973,7 +973,7 @@ class TestSourceAutoWritable:
         from typer.testing import CliRunner
 
         from rebrew.crt_match import app
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)

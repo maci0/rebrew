@@ -17,12 +17,6 @@ from typing import TYPE_CHECKING, Any
 
 import typer
 
-from rebrew.annotation import (
-    Annotation,
-    min_valid_va_for,
-    parse_c_file_multi,
-    parse_source_metadata,
-)
 from rebrew.cli import EXIT_MISMATCH, error_exit, json_print, parse_va
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compiler.compile import resolve_compiler_env
@@ -38,6 +32,12 @@ from rebrew.matcher import (
     structural_similarity,
 )
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
+from rebrew.metadata.annotation import (
+    Annotation,
+    min_valid_va_for,
+    parse_c_file_multi,
+    parse_source_metadata,
+)
 from rebrew.sources import target_marker
 from rebrew.utils import fold_ident, read_compile_source
 

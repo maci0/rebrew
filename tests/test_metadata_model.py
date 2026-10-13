@@ -1,4 +1,4 @@
-"""Tests for the typed metadata facade (rebrew.metadata_model)."""
+"""Tests for the typed metadata facade (rebrew.metadata.model)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.metadata import METADATA_FIELDS
-from rebrew.metadata_model import FIELD_TO_ATTR, MetadataEntry, MetadataValidationError
+from rebrew.metadata.functions import METADATA_FIELDS
+from rebrew.metadata.model import FIELD_TO_ATTR, MetadataEntry, MetadataValidationError
 from rebrew.workspace.status import KNOWN_STATUSES
 
 
@@ -30,8 +30,8 @@ def _entry(tmp_path: Path) -> MetadataEntry:
 
 
 def test_load_corrupt_value_collects_problem(tmp_path: Path) -> None:
-    from rebrew.metadata import _set_field
-    from rebrew.metadata_model import MetadataEntry
+    from rebrew.metadata.functions import _set_field
+    from rebrew.metadata.model import MetadataEntry
 
     _set_field(tmp_path, 0x1000, "size", "abc", module="MAIN")
     _set_field(tmp_path, 0x1000, "note", "kept", module="MAIN")
@@ -46,7 +46,7 @@ def test_load_corrupt_value_collects_problem(tmp_path: Path) -> None:
 def test_problems_name_a_hand_edited_out_of_range_value(tmp_path: Path) -> None:
     """The typed writers reject these, so they can only arrive from a hand
     edit — which is exactly when `problems()` has to name them."""
-    from rebrew.metadata import metadata_path
+    from rebrew.metadata.functions import metadata_path
 
     metadata_path(tmp_path).write_text(
         '["MAIN.0x00001000"]\nstatus = "FINISHED"\nsize = -4\nblocker_delta = -1\n',
@@ -154,7 +154,7 @@ def test_apply_accepts_near_match_alias(tmp_path: Path) -> None:
 
 
 def test_problems_accept_near_match_alias(tmp_path: Path) -> None:
-    from rebrew.metadata import _set_field
+    from rebrew.metadata.functions import _set_field
 
     _set_field(tmp_path, 0x1000, "status", "NEAR_MATCH", module="MAIN")
     e = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
@@ -203,7 +203,7 @@ def test_apply_proven_preserves_blocker(tmp_path: Path) -> None:
 
 def test_apply_load_updated_by_roundtrip(tmp_path: Path) -> None:
     """updated_by/updated_at are typed fields, not opaque ``extra`` keys."""
-    from rebrew.metadata import update_source_status
+    from rebrew.metadata.functions import update_source_status
 
     update_source_status(tmp_path, "EXACT", "MAIN", 0x1000, updated_by="verify")
     loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
@@ -215,7 +215,7 @@ def test_apply_load_updated_by_roundtrip(tmp_path: Path) -> None:
 
 def test_load_globals_list_coerces_to_string(tmp_path: Path) -> None:
     """List-valued globals (store contract) normalize to a comma string."""
-    from rebrew.metadata import save_metadata
+    from rebrew.metadata.functions import save_metadata
 
     save_metadata(tmp_path, {("MAIN", 0x1000): {"globals": ["g_foo", "g_bar"]}})
     loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
@@ -272,7 +272,7 @@ def test_extra_fields_preserved(tmp_path: Path) -> None:
     e = _entry(tmp_path)
     e.apply(tmp_path, size=8)
     # A field unknown to the typed view survives load into .extra.
-    from rebrew.metadata import _set_field
+    from rebrew.metadata.functions import _set_field
 
     _set_field(tmp_path, 0x1000, "future_field", "x", module="MAIN")
     loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
@@ -333,7 +333,7 @@ def test_apply_load_roundtrip_property(data) -> None:
     """
     import tempfile
 
-    from rebrew.metadata_model import MetadataEntry
+    from rebrew.metadata.model import MetadataEntry
 
     fields = data.draw(_roundtrip_fields())
     with tempfile.TemporaryDirectory() as td:
@@ -351,7 +351,7 @@ def test_apply_load_status_roundtrip_property(status: str) -> None:
     """Every known STATUS survives the promotion-gate write and reloads."""
     import tempfile
 
-    from rebrew.metadata_model import MetadataEntry
+    from rebrew.metadata.model import MetadataEntry
 
     with tempfile.TemporaryDirectory() as td:
         MetadataEntry.load(Path(td), 0x1000, "MAIN").apply(Path(td), status=status)
@@ -370,8 +370,8 @@ class TestPersistedVerdictsAreKnownStatuses:
         """INVALID_VA is a real persisted verdict (VA below the arch-aware
         floor is an annotation problem, reported by verify_entry), so it must
         be part of the validated vocabulary."""
-        from rebrew.metadata import update_source_status
-        from rebrew.metadata_model import MetadataEntry
+        from rebrew.metadata.functions import update_source_status
+        from rebrew.metadata.model import MetadataEntry
 
         update_source_status(tmp_path, "INVALID_VA", "MAIN", 0x1000)
         loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
@@ -390,7 +390,7 @@ class TestCoercionRejectsWrongTypes:
         sibling metadata.update_field rejects bools)."""
         import pytest
 
-        from rebrew.metadata_model import MetadataValidationError, _coerce
+        from rebrew.metadata.model import MetadataValidationError, _coerce
 
         with pytest.raises(MetadataValidationError):
             _coerce("size", True)
@@ -399,7 +399,7 @@ class TestCoercionRejectsWrongTypes:
         """``size = 12.9`` must not truncate to 12."""
         import pytest
 
-        from rebrew.metadata_model import MetadataValidationError, _coerce
+        from rebrew.metadata.model import MetadataValidationError, _coerce
 
         with pytest.raises(MetadataValidationError):
             _coerce("size", 12.9)
@@ -410,7 +410,7 @@ class TestCoercionRejectsWrongTypes:
         """``±inf`` used to raise OverflowError past load's catch."""
         import pytest
 
-        from rebrew.metadata_model import MetadataValidationError, _coerce
+        from rebrew.metadata.model import MetadataValidationError, _coerce
 
         with pytest.raises(MetadataValidationError):
             _coerce("size", float("inf"))
@@ -418,19 +418,19 @@ class TestCoercionRejectsWrongTypes:
             _coerce("size", float("nan"))
 
     def test_integral_float_still_coerces(self) -> None:
-        from rebrew.metadata_model import _coerce
+        from rebrew.metadata.model import _coerce
 
         assert _coerce("size", 32.0) == 32
 
     def test_hex_string_still_coerces(self) -> None:
-        from rebrew.metadata_model import _coerce
+        from rebrew.metadata.model import _coerce
 
         assert _coerce("size", "0x20") == 32
 
     def test_non_string_status_is_a_load_problem(self, tmp_path: Path) -> None:
         """`status = 5` used to load uncoerced and then crash problems() on
         `.upper()`; it must surface as a load problem instead."""
-        from rebrew.metadata_model import MetadataEntry
+        from rebrew.metadata.model import MetadataEntry
 
         (tmp_path / "rebrew-functions.toml").write_text(
             '["SERVER.0x1000"]\nstatus = 5\n', encoding="utf-8"

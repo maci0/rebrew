@@ -199,8 +199,8 @@ def _write_blocker(
     ``obj_size`` (the pre-clipping object length) for the delta; it defaults to
     ``len(obj_bytes)`` for callers that never clipped.
     """
-    from rebrew.annotation import parse_c_file_multi
-    from rebrew.metadata import remove_field, update_field
+    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.functions import remove_field, update_field
 
     if obj_size is None:
         obj_size = len(obj_bytes)

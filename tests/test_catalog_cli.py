@@ -153,7 +153,7 @@ class TestCatalogCli:
         assert "modify rebrew-functions.toml" in r.stderr
         assert "modify rebrew-functions.toml" not in r.stdout
 
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         entry = load_metadata(cfg.metadata_dir).get(("T", 0x1000), {})
         assert entry.get("size") == 64

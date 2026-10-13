@@ -1041,7 +1041,7 @@ class TestInlineMetadataWarning:
 
     def test_metadata_backed_inline_not_counted(self, tmp_path: Path) -> None:
         """An inline key already owned by rebrew-functions.toml is not counted."""
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
 
         cfg = _make_cfg(tmp_path)
         src = tmp_path / "src"
@@ -1057,7 +1057,7 @@ class TestInlineMetadataWarning:
 
     def test_pending_cflags_before_marker_backed_not_counted(self, tmp_path: Path) -> None:
         """A // CFLAGS before the marker, backed by metadata, is not counted."""
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
 
         cfg = _make_cfg(tmp_path)
         src = tmp_path / "src"
@@ -1087,7 +1087,7 @@ class TestInlineMetadataWarning:
 
     def test_data_size_backed_not_counted(self, tmp_path: Path) -> None:
         """DATA blocks source size/section/note from rebrew-data.toml."""
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _make_cfg(tmp_path)
         src = tmp_path / "src"
@@ -1116,7 +1116,7 @@ class TestVerifyCacheHelpers:
     ) -> None:
         import os
 
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
         from rebrew.status import _load_verify_info
 
         self._write_cache(
@@ -1899,7 +1899,7 @@ class TestDataByteCoverage:
 
 class TestDataVerdicts:
     def test_counts_status_values(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.status import collect_status
 
         cfg = _make_cfg(tmp_path)
@@ -1930,7 +1930,7 @@ class TestDataVerdicts:
 
     def test_placement_verdicts_count_inside_their_byte_buckets(self, tmp_path: Path) -> None:
         """EXACT is a verified symbol at its reference VA; DISPLACED is drift the bytes cannot see."""
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.status import collect_status
 
         cfg = _make_cfg(tmp_path)
@@ -1943,7 +1943,7 @@ class TestDataVerdicts:
         assert data["total"] == 3
 
     def test_other_target_data_is_not_counted(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.status import collect_status
 
         cfg = _make_cfg(tmp_path, all_markers={"TEST", "GOLD"})
@@ -1959,7 +1959,7 @@ class TestDataVerdicts:
         assert report.data_unchecked == 0
 
     def test_postlink_copied_row_is_not_counted(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.status import collect_status
 
         cfg = _make_cfg(tmp_path)
@@ -2157,7 +2157,7 @@ class TestAccounting:
     def test_data_bytes_reconcile_with_conflicts_copied_ranges_and_bss(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _make_cfg(tmp_path)
         # The second VERIFIED row aliases the first; other verdicts overlap it.

@@ -68,8 +68,8 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
     """
     from rebrew.catalog import scan_reversed_dir
     from rebrew.catalog.loaders import load_function_structure
-    from rebrew.data_metadata import load_data_metadata
-    from rebrew.metadata import load_metadata
+    from rebrew.metadata.data import load_data_metadata
+    from rebrew.metadata.functions import load_metadata
     from rebrew.sources import target_marker
 
     live: set[tuple[str, int]] = set()
@@ -155,8 +155,8 @@ def orphan_dicts(
     none), so a caller can hold back earned statuses without re-reading the
     metadata itself.
     """
-    from rebrew.data_metadata import load_data_metadata
-    from rebrew.metadata import load_metadata
+    from rebrew.metadata.data import load_data_metadata
+    from rebrew.metadata.functions import load_metadata
 
     fn_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
     data_entries = load_data_metadata(cfg.metadata_dir)
@@ -228,8 +228,8 @@ def manage_orphans(
             "[bold]--include-matched[/bold])"
         )
 
-    from rebrew.data_metadata import delete_data_entries_batch
-    from rebrew.metadata import delete_entries_batch
+    from rebrew.metadata.data import delete_data_entries_batch
+    from rebrew.metadata.functions import delete_entries_batch
 
     pruned = delete_entries_batch(
         cfg.metadata_dir,
@@ -300,8 +300,8 @@ def drop(
     cfg = require_config(target=target, json_mode=json_output)
     module, va_int = resolve_function(cfg, function, va_override, json_output)
 
-    from rebrew.data_metadata import delete_data_entries_batch, get_data_entry
-    from rebrew.metadata import delete_entries_batch, get_entry
+    from rebrew.metadata.data import delete_data_entries_batch, get_data_entry
+    from rebrew.metadata.functions import delete_entries_batch, get_entry
 
     fn_hit = bool(get_entry(cfg.metadata_dir, va_int, module))
     data_hit = bool(get_data_entry(cfg.metadata_dir, va_int, module))

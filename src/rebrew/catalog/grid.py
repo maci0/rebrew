@@ -15,10 +15,10 @@ if TYPE_CHECKING:
     from rebrew.catalog.models import GhidraDataLabel
     from rebrew.formats.binary_model import BinaryInfo
 
-from rebrew.annotation import Annotation
 from rebrew.catalog.loaders import load_ghidra_data_labels
 from rebrew.catalog.registry import RegistryEntry, is_jump_table
-from rebrew.data_metadata import DATA_STATUS_UNCHECKED
+from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.data import DATA_STATUS_UNCHECKED
 from rebrew.sections import (
     get_globals,
     has_back_jumps,
@@ -291,7 +291,7 @@ def build_coverage_data(
     # every global in a .cpp or shared source vanishes from the coverage document.
     globals_dict = get_globals(src_dir, cfg) if src_dir else {}
     if metadata_dir is not None:
-        from rebrew.data_metadata import load_data_metadata, module_visible_to_target
+        from rebrew.metadata.data import load_data_metadata, module_visible_to_target
 
         try:
             data_entries = load_data_metadata(metadata_dir)

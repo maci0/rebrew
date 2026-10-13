@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from rebrew.metadata import (
+from rebrew.metadata.functions import (
     METADATA_FILENAME,
     clear_identity_fields,
     get_entry,

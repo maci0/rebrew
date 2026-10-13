@@ -220,10 +220,10 @@ def _dest_signatures(cfg: ProjectConfig) -> dict[int, dict[str, Any]]:
 
 
 def _dest_annotation(cfg: ProjectConfig, va: int, filepath: str) -> Any:
-    """The local :class:`~rebrew.annotation.Annotation` for *(va, filepath)*."""
+    """The local :class:`~rebrew.metadata.annotation.Annotation` for *(va, filepath)*."""
     if not filepath:
         return None
-    from rebrew.annotation import parse_c_file_multi
+    from rebrew.metadata.annotation import parse_c_file_multi
 
     source = contained_path(source_roots(cfg), filepath)
     if source is None:
@@ -268,7 +268,7 @@ def _apply_global_entry(
     source record carries them.  ``section`` uses the destination's own
     section name (the span the content was matched in).
     """
-    from rebrew.data_metadata import set_data_fields_batch
+    from rebrew.metadata.data import set_data_fields_batch
 
     fields: dict[str, Any] = {"name": bs_name, "section": section}
     if entry.get("type"):
@@ -332,7 +332,7 @@ def overlay_state(
     (documented ``--json`` keys plus a ``rows`` list for the non-JSON table).
     Writes happen only when *dry_run* is False.
     """
-    from rebrew.metadata import get_entry, update_field
+    from rebrew.metadata.functions import get_entry, update_field
 
     wanted_module = preset_module_key(module) if module else None
     module_selected = module_predicate(wanted_module)
@@ -629,8 +629,8 @@ def overlay_state(
 
     applied_globals = 0
     if "global" in fields and globals_by_va:
-        from rebrew.data_metadata import get_data_entry
         from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
+        from rebrew.metadata.data import get_data_entry
 
         try:
             src_info = load_binary(cfg_src.target_binary)

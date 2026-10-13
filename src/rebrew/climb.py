@@ -41,7 +41,6 @@ from typing import Any
 import typer
 
 from rebrew.analysis import Insn
-from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
     TargetOption,
     console,
@@ -57,6 +56,7 @@ from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
 from rebrew.config import ProjectConfig
 from rebrew.formats.binary_loader import extract_raw_bytes
+from rebrew.metadata.annotation import parse_c_file_multi
 from rebrew.sources import target_marker
 from rebrew.utils import (
     SOURCE_BACKUP_DIRNAME,

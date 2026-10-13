@@ -68,7 +68,7 @@ def test_verified_native_data_symbol_enters_marker_scoped_catalog(
     tmp_path: Path, provided_annotations: bool, native_symbol: str
 ) -> None:
     from rebrew.coff_reloc import build_symbol_resolver, smart_reloc_compare
-    from rebrew.data_metadata import set_data_fields_batch
+    from rebrew.metadata.data import set_data_fields_batch
 
     (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
     (tmp_path / "src").mkdir()
@@ -149,10 +149,10 @@ def test_function_catalog_scan_is_marker_scoped(
     """
     from types import SimpleNamespace
 
-    import rebrew.annotation as annotation_mod
     import rebrew.coff_reloc as cr
-    import rebrew.data_metadata as dm_mod
     import rebrew.data_scan as data_mod
+    import rebrew.metadata.annotation as annotation_mod
+    import rebrew.metadata.data as dm_mod
 
     src = tmp_path / "src"
     src.mkdir()

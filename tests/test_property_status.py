@@ -20,9 +20,9 @@ from __future__ import annotations
 from hypothesis import given
 from hypothesis import strategies as st
 
-from rebrew.annotation import Annotation
 from rebrew.catalog.grid import count_statuses
-from rebrew.metadata import (
+from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.functions import (
     canonical_status,
     is_status_parked,
     should_promote_status,
@@ -194,7 +194,7 @@ class TestVocabularyCoverage:
     """Every KNOWN_STATUS must be covered by the display + gate tables.
 
     The canonical vocabulary lives in rebrew.workspace.status (re-exported
-    by rebrew.metadata); the color tables (status_style.STATUS_COLORS for the
+    by rebrew.metadata.functions); the color tables (status_style.STATUS_COLORS for the
     terminal, status_style.STATUS_HEX for the report/dashboard/call-graph marks), the
     compare-gate ranks (verify._STATUS_RANK / _STATUS_ORDER), and the
     metadata re-export must not silently miss a status (uncolored output,
@@ -202,14 +202,14 @@ class TestVocabularyCoverage:
     """
 
     def test_colors_cover_known_statuses(self) -> None:
-        from rebrew.metadata import KNOWN_STATUSES
+        from rebrew.metadata.functions import KNOWN_STATUSES
         from rebrew.status_style import STATUS_COLORS
 
         missing = set(KNOWN_STATUSES) - set(STATUS_COLORS)
         assert not missing, f"statuses without display color: {missing}"
 
     def test_hex_marks_cover_known_statuses(self) -> None:
-        from rebrew.metadata import KNOWN_STATUSES
+        from rebrew.metadata.functions import KNOWN_STATUSES
         from rebrew.status_style import STATUS_HEX
 
         # report/dashboard render ``status-<STATUS>`` for whatever a row
@@ -218,7 +218,7 @@ class TestVocabularyCoverage:
         assert not missing, f"statuses without page mark: {missing}"
 
     def test_gate_ranks_cover_known_statuses(self) -> None:
-        from rebrew.metadata import KNOWN_STATUSES
+        from rebrew.metadata.functions import KNOWN_STATUSES
         from rebrew.verify import _STATUS_ORDER, _STATUS_RANK
 
         # INTERNAL_ERROR is deliberately absent from metadata (verify never
@@ -237,7 +237,7 @@ class TestVocabularyCoverage:
         assert "PROVEN" not in MATCHED_STATUSES
 
     def test_workspace_mirror_is_identical(self) -> None:
-        from rebrew import metadata as _metadata
+        from rebrew.metadata import functions as _metadata
         from rebrew.workspace import status as _workspace_status
 
         assert _workspace_status.MATCHED_STATUSES == _metadata.MATCHED_STATUSES
@@ -247,7 +247,7 @@ class TestVocabularyCoverage:
         from typing import get_args
 
         from rebrew.compiler.compile import CompareStatus
-        from rebrew.metadata import KNOWN_STATUSES
+        from rebrew.metadata.functions import KNOWN_STATUSES
 
         # CompareResult.status is persisted verbatim by test/verify, so the
         # Literal must be exactly the persisted vocabulary plus the one

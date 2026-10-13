@@ -42,7 +42,7 @@ it belongs to rather than starting a sixth.
 toolchain, a metadata field, or a rebrew-project layout belongs in the
 module that owns that concept (``toolchain``, ``metadata``, ``workspace``,
 ``config``), not here.  The metadata TOML key algebra, document parse/build
-and write lock moved out to :mod:`rebrew.metadata_doc`; the scratch-directory
+and write lock moved out to :mod:`rebrew.metadata.document`; the scratch-directory
 placement policy moved out to :mod:`rebrew.compiler.temp_dirs`; ``preset_module_key``
 stays here because it is identifier text normalization that outlives any one
 store.
@@ -816,7 +816,7 @@ def toml_safe(value: Any) -> Any:
     tomlkit>=0.15 emits some controls (e.g. ESC) as ``\\e``, which is
     not valid TOML and fails the next parse — a Ghidra comment or note
     carrying one would corrupt the whole metadata file, key or value.  This
-    runs on both: :func:`rebrew.metadata_doc.build_metadata_doc` sends every
+    runs on both: :func:`rebrew.metadata.document.build_metadata_doc` sends every
     qualified key through it too, because a target name carrying a control
     character writes a key no reader can parse back.  Tab/newline survive
     (valid TOML escapes); other C0/C1 controls are dropped.

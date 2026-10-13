@@ -9,7 +9,7 @@ Function identity (file, symbol, name, marker type, VA, module) lives in
 declaration's name, type, size, and section when the row lacks them) lives
 in ``rebrew-data.toml``.
 
-The reader side needs no flag: :func:`rebrew.annotation.parse_c_file_multi`
+The reader side needs no flag: :func:`rebrew.metadata.annotation.parse_c_file_multi`
 falls back to metadata-synthesized Annotations for any file that carries no
 inline markers, including data rows from ``rebrew-data.toml``.  A file that
 still has any inline marker is read from those markers.  Synthesized entries
@@ -35,8 +35,8 @@ from typing import Any
 
 import typer
 
-from rebrew import marker_migration
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+from rebrew.metadata import marker_migration
 from rebrew.utils import untrusted_ident
 
 app = typer.Typer(

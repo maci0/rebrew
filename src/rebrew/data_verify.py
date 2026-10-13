@@ -14,7 +14,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from rebrew.data_metadata import (
+from rebrew.metadata.data import (
     DATA_STATUS_DISPLACED,
     DATA_STATUS_EXACT,
     DATA_STATUS_VERIFIED,
@@ -64,7 +64,7 @@ def verify_data_bytes(
     ``displaced`` and ``unplaced`` count those outcomes.
     """
     from rebrew.data_layout import data_symbol_size
-    from rebrew.data_metadata import module_visible_to_target
+    from rebrew.metadata.data import module_visible_to_target
     from rebrew.utils import load_tomllib
 
     db = load_tomllib(metadata_path)
@@ -215,8 +215,8 @@ def section_symbol_bytes(
     UNCHECKED would erase that target's verdict.
     """
     from rebrew.data_layout import data_symbol_size
-    from rebrew.data_metadata import module_visible_to_target
     from rebrew.formats.binary_loader import load_binary
+    from rebrew.metadata.data import module_visible_to_target
     from rebrew.utils import load_tomllib
 
     db = load_tomllib(metadata_path)

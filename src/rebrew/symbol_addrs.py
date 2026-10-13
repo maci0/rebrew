@@ -49,7 +49,6 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import iter_annotations
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
@@ -59,6 +58,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.formats.pe_symbols import KIND_FUNC, PeSymbolTable, pe_symbols
+from rebrew.metadata.annotation import iter_annotations
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import atomic_write_text, parse_int_literal
 
@@ -210,7 +210,7 @@ def function_symbol_rows(cfg: Any) -> tuple[list[SymbolRow], int, int]:
     is the annotation's link symbol, else its C name; data annotations are
     not functions and are left out.
     """
-    from rebrew.annotation import min_valid_va_for
+    from rebrew.metadata.annotation import min_valid_va_for
 
     va_floor = min_valid_va_for(cfg)
     sources = list(iter_sources(cfg.reversed_dir, cfg))

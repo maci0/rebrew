@@ -282,7 +282,7 @@ def _plan_function(
     json_output: bool,
 ) -> tuple[RenamePlan, dict[str, Any]]:
     """Resolve the function identity, then plan its rename."""
-    from rebrew.metadata import get_entry
+    from rebrew.metadata.functions import get_entry
 
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
     identity = _parse_identity(target_ident)
@@ -412,7 +412,7 @@ def _plan_data(
     json_output: bool,
 ) -> tuple[RenamePlan, dict[str, Any]]:
     """Resolve the data identity (row or source global), then plan its rename."""
-    from rebrew.data_metadata import load_data_metadata
+    from rebrew.metadata.data import load_data_metadata
     from rebrew.utils import preset_module_key
 
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)

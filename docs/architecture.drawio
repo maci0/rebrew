@@ -154,13 +154,13 @@
         <mxCell id="src-box" value="Inputs" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f8fafc;strokeColor=#64748b;fontStyle=1;fontSize=12;fontColor=#334155;" vertex="1" parent="1">
           <mxGeometry x="40" y="64" width="300" height="420" as="geometry"/>
         </mxCell>
-        <mxCell id="cfile" value="&lt;b&gt;.c / .cpp sources&lt;/b&gt;&lt;br&gt;// FUNCTION: MOD 0xVA&lt;br&gt;file-only: MARKER, VA, MODULE, SYMBOL&lt;br&gt;annotation.py parse_c_file_multi" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="cfile" value="&lt;b&gt;.c / .cpp sources&lt;/b&gt;&lt;br&gt;// FUNCTION: MOD 0xVA&lt;br&gt;file-only: MARKER, VA, MODULE, SYMBOL&lt;br&gt;metadata/annotation.py parse_c_file_multi" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="100" width="260" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="toml" value="&lt;b&gt;rebrew-project.toml&lt;/b&gt;&lt;br&gt;targets, compiler profile, paths&lt;br&gt;config.py → ProjectConfig" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="206" width="260" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="meta" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;identity, fields, origins, verification&lt;br&gt;0444; locked atomic CLI/API writes&lt;br&gt;metadata.py + metadata_model.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="meta" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;identity, fields, origins, verification&lt;br&gt;0444; locked atomic CLI/API writes&lt;br&gt;metadata/functions.py + metadata/model.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="302" width="260" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="bin" value="&lt;b&gt;target binary&lt;/b&gt;&lt;br&gt;PE / ELF / Mach-O / NE&lt;br&gt;formats/binary_loader.py (LIEF) → bytes at VA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
@@ -742,7 +742,7 @@
           <mxGeometry x="470" y="356" width="370" height="80" as="geometry"/>
         </mxCell>
 
-        <mxCell id="fn" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;cfg.metadata_dir; shared across targets&lt;br&gt;key: MODULE.0xVA&lt;br&gt;0444; never hand-edit&lt;br&gt;&lt;br&gt;identity + mutable function fields&lt;br&gt;STATUS via gated comparison writers&lt;br&gt;origins: accepted external fields&lt;br&gt;verification: inputs + measurement time&lt;br&gt;updated_by/at: ordinary edit stamp&lt;br&gt;&lt;br&gt;metadata.py owns field/schema rules&lt;br&gt;See METADATA_FORMAT.md + METADATA.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="fn" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;cfg.metadata_dir; shared across targets&lt;br&gt;key: MODULE.0xVA&lt;br&gt;0444; never hand-edit&lt;br&gt;&lt;br&gt;identity + mutable function fields&lt;br&gt;STATUS via gated comparison writers&lt;br&gt;origins: accepted external fields&lt;br&gt;verification: inputs + measurement time&lt;br&gt;updated_by/at: ordinary edit stamp&lt;br&gt;&lt;br&gt;metadata/functions.py owns field/schema rules&lt;br&gt;See METADATA_FORMAT.md + METADATA.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="880" y="120" width="260" height="370" as="geometry"/>
         </mxCell>
         <mxCell id="dt" value="&lt;b&gt;rebrew-data.toml&lt;/b&gt;&lt;br&gt;same metadata_dir, no walk-up&lt;br&gt;key: MODULE.0xVA&lt;br&gt;0444; never hand-edit&lt;br&gt;&lt;br&gt;name · type · size · section · note&lt;br&gt;VERIFIED / DRIFT / UNCHECKED&lt;br&gt;origins + verification evidence&lt;br&gt;&lt;br&gt;Writers: data / verify / BinSync pull&lt;br&gt;complete known extent for verification&lt;br&gt;See METADATA_FORMAT.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">

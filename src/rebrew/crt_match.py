@@ -23,7 +23,6 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.annotation import Annotation, parse_c_file_multi, update_annotation_key
 from rebrew.cli import (
     TargetOption,
     console,
@@ -33,6 +32,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.metadata.annotation import Annotation, parse_c_file_multi, update_annotation_key
 from rebrew.naming import normalize_name
 from rebrew.sources import (
     iter_library_headers,
@@ -654,7 +654,7 @@ def main(
             # update_annotation_key falls back to filepath.parent and would
             # create a stray rebrew-functions.toml next to the library header.
             if dry_run:
-                from rebrew.metadata import get_entry
+                from rebrew.metadata.functions import get_entry
 
                 current = get_entry(cfg.metadata_dir, match.va, ann.module).get("source", "")
                 if current != source_ref(match.source):

@@ -837,7 +837,7 @@ def load_layout(
     dict[int, str], dict[int, str], dict[int, str], dict[int, tuple[str, str]], dict[int, int]
 ]:
     """Return ``(va_to_file, va_to_name, va_to_flags, va_to_flagsets, va_to_size)``."""
-    from rebrew.annotation import parse_c_file_multi
+    from rebrew.metadata.annotation import parse_c_file_multi
     from rebrew.sources import iter_sources, target_marker
     from rebrew.utils import rel_display_path
 
@@ -953,8 +953,8 @@ def _collect_hygiene(
         recs.extend(recommend_stale_markers(stale))
 
     with _lane("shared-twins"):
-        from rebrew.annotation import split_annotation_sections
         from rebrew.merge import block_metadata, normalize_body
+        from rebrew.metadata.annotation import split_annotation_sections
         from rebrew.sources import iter_sources
         from rebrew.utils import read_source_text
 
@@ -975,7 +975,7 @@ def _collect_hygiene(
         recs.extend(recommend_shared_twins(twins))
 
     with _lane("data-status"):
-        from rebrew.data_metadata import load_data_metadata, module_visible_to_target
+        from rebrew.metadata.data import load_data_metadata, module_visible_to_target
 
         data_entries = [
             (module, va, fields)

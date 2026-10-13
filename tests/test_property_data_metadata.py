@@ -1,6 +1,6 @@
 """Property-based fuzz tests for the ``rebrew-data.toml`` qualified-key parser.
 
-:func:`rebrew.data_metadata.iter_data_symbols` is the canonical reader for
+:func:`rebrew.metadata.data.iter_data_symbols` is the canonical reader for
 raw data-metadata documents.  Its input is a hand-edited file that also
 carries a third-party import path, so both the key text and the field
 values are untrusted.  The properties below pin the contract its callers
@@ -24,7 +24,7 @@ from typing import Any
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from rebrew.data_metadata import DATA_METADATA_FIELDS, iter_data_symbols
+from rebrew.metadata.data import DATA_METADATA_FIELDS, iter_data_symbols
 
 #: Characters ``int(s, 16)`` accepts beyond ASCII hex: an embedded
 #: underscore, padding whitespace, a sign, and any Unicode decimal digit.

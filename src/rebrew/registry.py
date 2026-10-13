@@ -393,16 +393,12 @@ def refresh_all() -> dict[str, int]:
     the process to rebuild the CLI after changing its plugins; registry
     refresh does not remount the umbrella app.
     """
-    from rebrew import (
-        decompiler,
-        discover,
-        metadata,
-        toolchain_detect,
-    )
+    from rebrew import decompiler, discover, toolchain_detect
     from rebrew.compiler import cache as compile_cache
     from rebrew.compiler import toolchain
     from rebrew.formats import binary_loader
     from rebrew.matcher import compiler, mutator
+    from rebrew.metadata import functions as metadata
 
     with _REFRESH_ALL_LOCK:
         counts: dict[str, int] = {}

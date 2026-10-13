@@ -10,7 +10,7 @@ import pytest
 
 from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.library import app
-from rebrew.metadata import (
+from rebrew.metadata.functions import (
     LIBRARY_METADATA_FILE,
     apply_library_presets,
     find_library_override,
@@ -33,7 +33,7 @@ class TestLibraryMetadata:
         assert parse_library_metadata(tmp_path / LIBRARY_METADATA_FILE) == {}
 
     def test_malformed_toml_raises(self, tmp_path: Path) -> None:
-        from rebrew.metadata import LibraryOverrideError
+        from rebrew.metadata.functions import LibraryOverrideError
 
         bad = tmp_path / LIBRARY_METADATA_FILE
         bad.write_text("toolchain = [unclosed\n", encoding="utf-8")
@@ -48,7 +48,7 @@ class TestLibraryMetadata:
         overrides, so every function below it silently compiled with the
         project default flags and the resulting SIZE_MISMATCH looked like a
         source regression."""
-        from rebrew.metadata import LibraryOverrideError
+        from rebrew.metadata.functions import LibraryOverrideError
 
         bad = tmp_path / LIBRARY_METADATA_FILE
         bad.write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
@@ -62,7 +62,7 @@ class TestLibraryMetadata:
 
     def test_non_string_field_raises(self, tmp_path: Path) -> None:
         """A table where a string belongs would be str()'d into the argv."""
-        from rebrew.metadata import LibraryOverrideError
+        from rebrew.metadata.functions import LibraryOverrideError
 
         bad = tmp_path / LIBRARY_METADATA_FILE
         bad.write_text('toolchain = { name = "msvc-6.0" }\n', encoding="utf-8")
@@ -76,7 +76,7 @@ class TestLibraryMetadata:
         (lib / LIBRARY_METADATA_FILE).write_text(
             'toolchain = "msvc-6.0"\ntoolchn = "msvc-6.0-sp6"\n', encoding="utf-8"
         )
-        with caplog.at_level("WARNING", logger="rebrew.metadata"):
+        with caplog.at_level("WARNING", logger="rebrew.metadata.functions"):
             ovr = find_library_override(fn, proj)
         assert ovr is not None and ovr.toolchain == "msvc-6.0"
         assert "unrecognized keys: ['toolchn']" in caplog.text
@@ -88,7 +88,7 @@ class TestLibraryMetadata:
         (lib / LIBRARY_METADATA_FILE).write_text(
             'toolchain = "msvc-6.0-sp99"\nlibrary = "msvcrt-sttaic"\n', encoding="utf-8"
         )
-        with caplog.at_level("WARNING", logger="rebrew.metadata"):
+        with caplog.at_level("WARNING", logger="rebrew.metadata.functions"):
             ovr = find_library_override(fn, proj)
         # Declared fields still apply: a warning is not a silent drop.
         assert ovr is not None and ovr.toolchain == "msvc-6.0-sp99"
@@ -103,7 +103,7 @@ class TestLibraryMetadata:
             'library = "msvcrt-static"\ntoolchain = "msvc-6.0"\ncflags = "/O2 /Gd"\n',
             encoding="utf-8",
         )
-        with caplog.at_level("WARNING", logger="rebrew.metadata"):
+        with caplog.at_level("WARNING", logger="rebrew.metadata.functions"):
             ovr = find_library_override(fn, proj)
         assert ovr is not None and ovr.presets == ("msvcrt-static",)
         assert "rebrew-libraries.toml" not in caplog.text
@@ -377,7 +377,7 @@ class TestLibraryCacheConcurrency:
         Caching ``None`` hid hand-created (or uncleared) ``rebrew-libraries.toml``
         for the process lifetime and served project defaults instead.
         """
-        from rebrew.metadata import (
+        from rebrew.metadata.functions import (
             LIBRARY_METADATA_FILE,
             clear_library_override_cache,
             find_library_override,
@@ -393,7 +393,7 @@ class TestLibraryCacheConcurrency:
 
     def test_nearer_library_file_created_later_wins(self, tmp_path: Path) -> None:
         """Nearest-wins must hold after an outer hit was already resolved."""
-        from rebrew.metadata import (
+        from rebrew.metadata.functions import (
             LIBRARY_METADATA_FILE,
             clear_library_override_cache,
             find_library_override,
@@ -417,7 +417,7 @@ class TestLibraryCacheConcurrency:
 
         from thread_util import join_all
 
-        from rebrew.metadata import (
+        from rebrew.metadata.functions import (
             LIBRARY_METADATA_FILE,
             clear_library_override_cache,
             find_library_override,
@@ -455,9 +455,12 @@ class TestLibraryFingerprintWalk:
     ) -> None:
         import os
 
-        import rebrew.metadata as metadata
+        import rebrew.metadata.functions as metadata
         from rebrew.compiler.overrides import resolve_compile_overrides_cached
-        from rebrew.metadata import clear_library_override_cache, library_override_fingerprint
+        from rebrew.metadata.functions import (
+            clear_library_override_cache,
+            library_override_fingerprint,
+        )
 
         proj, lib, fn = _tree(tmp_path)
         clear_library_override_cache()

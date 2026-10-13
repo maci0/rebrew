@@ -111,8 +111,8 @@ class TestVerifyDataBytes:
     def test_unresolved_extent_cannot_verify_a_matching_prefix(
         self, tmp_path: Path, type_str: str
     ) -> None:
-        from rebrew.data_metadata import set_data_fields_batch
         from rebrew.data_verify import verify_data_bytes
+        from rebrew.metadata.data import set_data_fields_batch
 
         meta = tmp_path / "rebrew-data.toml"
         set_data_fields_batch(
@@ -184,8 +184,8 @@ class TestVerifyDataBytes:
     def test_module_va_identity_survives_name_and_address_aliases(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.data_metadata import set_data_fields_batch
         from rebrew.data_verify import verify_data_bytes
+        from rebrew.metadata.data import set_data_fields_batch
 
         set_data_fields_batch(
             tmp_path,

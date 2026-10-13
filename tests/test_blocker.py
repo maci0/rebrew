@@ -28,7 +28,7 @@ def _mock_cfg(tmp_path: Path, monkeypatch) -> None:
 
 class TestBlockerSet:
     def test_set_by_file_writes_toml(self, tmp_path: Path, monkeypatch) -> None:
-        import rebrew.metadata as meta
+        import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
         src_dir = cfg.reversed_dir
@@ -43,7 +43,7 @@ class TestBlockerSet:
         assert entry.get("blocker") == "needs RE structs"
 
     def test_set_by_va(self, tmp_path: Path, monkeypatch) -> None:
-        import rebrew.metadata as meta
+        import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
         (cfg.reversed_dir).mkdir()
@@ -57,7 +57,7 @@ class TestBlockerSet:
         assert meta.get_entry(cfg.metadata_dir, 0x401000, "SERVER").get("blocker") == "SEH helper"
 
     def test_set_with_delta(self, tmp_path: Path, monkeypatch) -> None:
-        import rebrew.metadata as meta
+        import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
         (cfg.reversed_dir).mkdir()
@@ -72,7 +72,7 @@ class TestBlockerSet:
         assert entry.get("blocker_delta") == 16
 
     def test_set_hex_delta(self, tmp_path: Path, monkeypatch) -> None:
-        import rebrew.metadata as meta
+        import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
         (cfg.reversed_dir).mkdir()
@@ -86,7 +86,7 @@ class TestBlockerSet:
         assert meta.get_entry(cfg.metadata_dir, 0x401000, "SERVER").get("blocker_delta") == 16
 
     def test_set_dry_run_no_write(self, tmp_path: Path, monkeypatch) -> None:
-        import rebrew.metadata as meta
+        import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
         (cfg.reversed_dir).mkdir()
@@ -102,7 +102,7 @@ class TestBlockerSet:
 
 class TestBlockerClear:
     def test_clear(self, tmp_path: Path, monkeypatch) -> None:
-        import rebrew.metadata as meta
+        import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
         (cfg.reversed_dir).mkdir()
@@ -119,7 +119,7 @@ class TestBlockerClear:
         assert "blocker" not in entry and "blocker_delta" not in entry
 
     def test_clear_dry_run(self, tmp_path: Path, monkeypatch) -> None:
-        import rebrew.metadata as meta
+        import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
         (cfg.reversed_dir).mkdir()
@@ -179,7 +179,7 @@ class TestBlockerShowProvenance:
         from unittest.mock import patch
 
         from rebrew.blocker import app
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
 
         update_field(tmp_path, 0x1000, "blocker", "struct diff", "SERVER", updated_by="diff")
         cfg = SimpleNamespace(

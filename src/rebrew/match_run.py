@@ -20,7 +20,6 @@ if TYPE_CHECKING:
 import typer
 from rich.markup import escape
 
-from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import EXIT_MISMATCH, console, json_print
 from rebrew.compiler.compile import resolve_compiler_env
 from rebrew.config import ProjectConfig
@@ -49,7 +48,8 @@ from rebrew.match_sweep import (
 )
 from rebrew.matcher import GACheckpoint, SolutionEntry, iter_ga_runs, load_ga_runs
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
-from rebrew.metadata_doc import metadata_write_lock
+from rebrew.metadata.annotation import parse_c_file_multi
+from rebrew.metadata.document import metadata_write_lock
 from rebrew.utils import (
     atomic_write_text,
     filename_component,
@@ -480,7 +480,7 @@ def _run_one_stub_ga(
     entry carries (the default is the current UTC instant), so two replays of
     one seed flush an identical ``solutions.jsonl``.
     """
-    from rebrew.metadata import METADATA_FILENAME
+    from rebrew.metadata.functions import METADATA_FILENAME
 
     filepath = stub.filepath
     try:
@@ -870,7 +870,7 @@ def _maybe_document_ga_ceiling(
     """
     if not best_src:
         return None
-    from rebrew.metadata import GA_CEILING_PREFIX, get_entry, update_field
+    from rebrew.metadata.functions import GA_CEILING_PREFIX, get_entry, update_field
 
     meta_root = cfg.metadata_dir
     existing = (get_entry(meta_root, va_int, module) or {}).get("blocker")
@@ -1562,7 +1562,7 @@ def _run_batch_flag_sweep(
     identical ``solutions.jsonl``.
     """
     from rebrew.matcher import SolutionEntry, save_solutions
-    from rebrew.metadata import update_source_status
+    from rebrew.metadata.functions import update_source_status
     from rebrew.utils import rel_display_path
 
     reversed_dir = cfg.reversed_dir

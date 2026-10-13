@@ -1,6 +1,21 @@
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** source annotations and the metadata stores moved into the
+  `rebrew.metadata` package, which is now a package rather than a module.
+  Old → new import paths:
+  `rebrew.metadata` → `rebrew.metadata.functions`,
+  `rebrew.data_metadata` → `rebrew.metadata.data`,
+  `rebrew.metadata_doc` → `rebrew.metadata.document`,
+  `rebrew.metadata_model` → `rebrew.metadata.model`,
+  `rebrew.annotation` → `rebrew.metadata.annotation`,
+  `rebrew.marker_migration` → `rebrew.metadata.marker_migration`,
+  `rebrew.source_provenance` → `rebrew.metadata.source_provenance`.
+  `from rebrew.metadata import update_field` now fails; import it from
+  `rebrew.metadata.functions`. `ALL_KNOWN_KEYS` and `METADATA_KEYS` stay
+  importable from `rebrew.lint`, and `rebrew.migrate_markers.marker_migration`
+  is now `rebrew.metadata.marker_migration`. The TOML formats, locking and CLI
+  commands are unchanged.
 - **Breaking:** the executable, object and archive parsers moved into the
   `rebrew.formats` package, keeping their module names. Old → new import paths:
   `rebrew.binary_loader` → `rebrew.formats.binary_loader`,

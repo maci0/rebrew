@@ -9,7 +9,7 @@ from cache_util import cache_text as _cache_text
 import rebrew.verify as verify_mod
 import rebrew.verify_cache as verify_cache_mod
 import rebrew.verify_hash as verify_hash_mod
-from rebrew.annotation import Annotation
+from rebrew.metadata.annotation import Annotation
 
 
 def _ann(va: int, marker: str = "FUNCTION", filepath: str = "f.c", size: int = 64) -> Annotation:
@@ -834,7 +834,7 @@ def test_scope_entries_batch_file_filters_to_file(tmp_path: Path) -> None:
     """Single-file scope keeps only that file's annotations."""
     from types import SimpleNamespace
 
-    from rebrew.annotation import Annotation
+    from rebrew.metadata.annotation import Annotation
     from rebrew.verify import scope_entries
 
     rev = tmp_path / "src"
@@ -860,7 +860,7 @@ def test_scope_entries_batch_file_empty_errors(tmp_path: Path) -> None:
 
     import typer
 
-    from rebrew.annotation import Annotation
+    from rebrew.metadata.annotation import Annotation
     from rebrew.verify import scope_entries
 
     rev = tmp_path / "src"

@@ -11,13 +11,13 @@
 from pathlib import Path
 from typing import Any
 
-from rebrew.annotation import parse_c_file_multi, parse_c_file_text
-from rebrew.marker_migration import strip_marker_blocks
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
+from rebrew.metadata.annotation import parse_c_file_multi, parse_c_file_text
+from rebrew.metadata.marker_migration import strip_marker_blocks
 
 
 def _write_metadata(metadata_dir: Path, entries: dict[tuple[str, int], dict[str, Any]]) -> None:
-    from rebrew.metadata import save_metadata
+    from rebrew.metadata.functions import save_metadata
 
     metadata_dir.mkdir(parents=True, exist_ok=True)
     save_metadata(metadata_dir, entries)
@@ -156,7 +156,7 @@ class TestVtableStringMarkers:
         assert [a.marker_type for a in annos] == ["STRING"]
 
     def test_validation_accepts_new_markers(self, tmp_path: Path) -> None:
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         ann = Annotation(va=0x1000, marker_type="VTABLE")
         errors, _ = ann.validate()

@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from rebrew.link_order import _base_key, file_va, order_sources
-from rebrew.metadata import record_function_identity
+from rebrew.metadata.functions import record_function_identity
 
 
 def _write(path: Path, text: str) -> Path:

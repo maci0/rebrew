@@ -93,8 +93,8 @@ class TestSweepSelectAnnotation:
         still selects that function, and a cdecl ``_bar`` still selects
         ``bar``.
         """
-        from rebrew.annotation import Annotation
         from rebrew.match_sweep import select_annotation
+        from rebrew.metadata.annotation import Annotation
 
         annos = [
             Annotation(va=0x1000, name="other", symbol="_other"),
@@ -1094,7 +1094,7 @@ class TestUpdateStubToMatched:
         assert "return 2;" not in text
         # STATUS is metadata-owned — no inline STATUS line is written.
         assert "// STATUS" not in text
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         entry = get_entry(tmp_path, 0x10002000, module="SERVER")
         assert entry.get("status") == "RELOC"
@@ -1316,7 +1316,7 @@ class TestFlagSweepMatchValidation:
         )
         calls: list[str] = []
         monkeypatch.setattr(
-            "rebrew.metadata.update_source_status", lambda *a, **k: calls.append("status")
+            "rebrew.metadata.functions.update_source_status", lambda *a, **k: calls.append("status")
         )
         monkeypatch.setattr("rebrew.verify_cache.patch_verify_cache_entries", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.matcher.save_solutions", lambda *a, **k: None)
@@ -1384,7 +1384,7 @@ class TestFlagSweepMatchValidation:
         )
         calls: list[str] = []
         monkeypatch.setattr(
-            "rebrew.metadata.update_source_status", lambda *a, **k: calls.append("status")
+            "rebrew.metadata.functions.update_source_status", lambda *a, **k: calls.append("status")
         )
         monkeypatch.setattr("rebrew.verify_cache.patch_verify_cache_entries", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.matcher.save_solutions", lambda *a, **k: None)
@@ -1433,7 +1433,7 @@ class TestFlagSweepMatchValidation:
         )
         calls: list[str] = []
         monkeypatch.setattr(
-            "rebrew.metadata.update_source_status", lambda *a, **k: calls.append("status")
+            "rebrew.metadata.functions.update_source_status", lambda *a, **k: calls.append("status")
         )
         monkeypatch.setattr("rebrew.verify_cache.patch_verify_cache_entries", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.matcher.save_solutions", lambda *a, **k: None)
@@ -1459,7 +1459,7 @@ class TestFindSizeMismatch:
     --size-mismatch closes that gap (np-rebrew TOOLCHAIN_BUGS)."""
 
     def _write(self, tmp_path: Path, name: str, va: str, status: str) -> Path:
-        from rebrew.metadata import load_metadata, save_metadata
+        from rebrew.metadata.functions import load_metadata, save_metadata
 
         f = tmp_path / name
         f.write_text(
@@ -1794,7 +1794,7 @@ class TestGaCeiling:
     GA batch selectors while staying prove-eligible."""
 
     def _write_near(self, tmp_path: Path, name: str, va: str) -> Path:
-        from rebrew.metadata import load_metadata, save_metadata
+        from rebrew.metadata.functions import load_metadata, save_metadata
 
         f = tmp_path / name
         f.write_text(
@@ -1818,7 +1818,7 @@ class TestGaCeiling:
         )
 
     def _set_blocker(self, tmp_path: Path, va: int, text: str) -> None:
-        from rebrew.metadata import load_metadata, save_metadata
+        from rebrew.metadata.functions import load_metadata, save_metadata
 
         data = dict(load_metadata(tmp_path))
         data[("SERVER", va)] = {"blocker": text, "status": "NEAR_MATCHING", "size": 64}
@@ -1851,7 +1851,7 @@ class TestGaCeiling:
         """A register-only champion after GA exhaustion gets a GA_CEILING
         blocker written through the sanctioned metadata writer."""
         from rebrew.match_run import _maybe_document_ga_ceiling
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         ga = SimpleNamespace(cs_mode="CS_MODE_32")
         monkeypatch.setattr("rebrew.match_run._classify_ga_ceiling", lambda *a, **k: "register")
@@ -1876,7 +1876,7 @@ class TestGaCeiling:
         compiler's opcode choice — and the blocker points at the toolchain
         sweep, not just `prove`."""
         from rebrew.match_run import _maybe_document_ga_ceiling
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         ga = SimpleNamespace(cs_mode="CS_MODE_32")
         monkeypatch.setattr("rebrew.match_run._classify_ga_ceiling", lambda *a, **k: "encoding")
@@ -2193,7 +2193,7 @@ class TestBatchWriteLock:
 
     def test_match_routes_through_flock_lock(self) -> None:
         import rebrew.match_run as match_mod
-        import rebrew.metadata_doc as lock_mod
+        import rebrew.metadata.document as lock_mod
 
         assert match_mod.metadata_write_lock is lock_mod.metadata_write_lock
         assert not hasattr(match_mod, "_metadata_lock")
@@ -2222,7 +2222,7 @@ class TestBatchWriteLock:
         synchronize on the same published Lock (no separate get-then-set)."""
         import threading
 
-        import rebrew.metadata_doc as lock_mod
+        import rebrew.metadata.document as lock_mod
 
         name = "first-touch-probe.toml"
         lock_mod.METADATA_WRITE_LOCKS.pop(name, None)

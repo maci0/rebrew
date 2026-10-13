@@ -2,7 +2,7 @@
 
 Owns the canonical STATUS sets so :mod:`rebrew.workspace` stays free of the
 metadata writers.  Prefer importing from here (or :mod:`rebrew.workspace`);
-:mod:`rebrew.metadata` re-exports the same names only for callers that
+:mod:`rebrew.metadata.functions` re-exports the same names only for callers that
 already touch the metadata store.  Reportal's portal status set is a
 superset: it also carries ``MATCHED``, the aggregate display label, so
 portal statuses are not interchangeable with this tuple.

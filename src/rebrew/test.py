@@ -25,12 +25,6 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import (
-    Annotation,
-    min_valid_va_for,
-    parse_c_file_multi,
-    parse_source_metadata,
-)
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
@@ -65,7 +59,13 @@ from rebrew.compiler.context import CompileContext
 from rebrew.config import ProjectConfig
 from rebrew.formats.binary_loader import PADDING_BYTES, extract_raw_bytes
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-from rebrew.metadata import (
+from rebrew.metadata.annotation import (
+    Annotation,
+    min_valid_va_for,
+    parse_c_file_multi,
+    parse_source_metadata,
+)
+from rebrew.metadata.functions import (
     is_status_parked,
     set_fields_batch,
     should_promote_status,
@@ -1278,7 +1278,7 @@ def _run_test_impl(
             # to the file's own marker for the requested VA so the SIZE /
             # STATUS writes land under the real (module, VA) key instead of
             # raising on an empty module (or worse, writing an unreadable one).
-            from rebrew.annotation import module_for_va as _module_for_va
+            from rebrew.metadata.annotation import module_for_va as _module_for_va
 
             anno_module = _module_for_va(Path(source), va_int_for_promote)
         # Persist the resolved SIZE alongside STATUS so downstream tools

@@ -187,7 +187,7 @@ class TestClassifyAllIdempotent:
     def test_rerun_does_not_resurrect_a_matched_function_as_stub(self, tmp_path: Path) -> None:
         """A source deleted after it was matched must not come back on a re-run."""
         from rebrew.intake import classify_all
-        from rebrew.metadata import update_source_status
+        from rebrew.metadata.functions import update_source_status
 
         meta_base = tmp_path / "src"
         src_dir = meta_base / "SERVER"

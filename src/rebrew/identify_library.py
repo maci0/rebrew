@@ -379,8 +379,8 @@ def _prepare_library_header(cfg: Any, header: Path) -> bool:
     recorded. A new row on that file would be invisible, so the caller skips
     the module. A missing header is created with a non-marker banner.
     """
-    from rebrew.annotation import NEW_FUNC_RE
-    from rebrew.marker_migration import migrate_source_file
+    from rebrew.metadata.annotation import NEW_FUNC_RE
+    from rebrew.metadata.marker_migration import migrate_source_file
 
     if not header.is_file():
         header.parent.mkdir(parents=True, exist_ok=True)
@@ -401,7 +401,7 @@ def _prepare_library_header(cfg: Any, header: Path) -> bool:
 
 def _record_library_candidate(cfg: Any, header: Path, cand: LibCandidate, source: str) -> None:
     """Record one LIBRARY row. The header file is the row's ``file``."""
-    from rebrew.metadata import identity_file, record_function_identity
+    from rebrew.metadata.functions import identity_file, record_function_identity
 
     # The module and the name are raw target-binary text. pe_name_token drops
     # a newline so neither can break out of a later comment or a TOML string.

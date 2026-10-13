@@ -32,7 +32,6 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import derive_c_symbol, parse_c_file_multi
 from rebrew.catalog import (
     build_function_registry,
     cached_function_list,
@@ -48,6 +47,7 @@ from rebrew.coff_reloc import build_name_to_va
 from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
+from rebrew.metadata.annotation import derive_c_symbol, parse_c_file_multi
 from rebrew.sources import contained_path, iter_sources, source_roots, target_marker
 from rebrew.utils import preset_module_key
 
@@ -424,8 +424,8 @@ class _PartitionScorer:
 
     def _cluster_text(self, cluster: list[int]) -> str | None:
         """Merged TU text for *cluster*, or None when no source covers it."""
-        from rebrew.annotation import split_annotation_sections
         from rebrew.merge import block_metadata, merge_preambles
+        from rebrew.metadata.annotation import split_annotation_sections
         from rebrew.utils import read_compile_source
 
         preambles: list[str] = []
@@ -600,7 +600,7 @@ class _PartitionScorer:
 
 def _load_annotations(cfg: ProjectConfig) -> dict[int, Any]:
     """VA to annotation over every reversed source for the active target."""
-    from rebrew.annotation import iter_annotations
+    from rebrew.metadata.annotation import iter_annotations
 
     marker = target_marker(cfg)
     out: dict[int, Any] = {}

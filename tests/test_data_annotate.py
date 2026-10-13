@@ -175,7 +175,7 @@ def test_annotate_writes_and_skips_existing(tmp_path: Path) -> None:
     assert skipped == 0
     assert "// GLOBAL:" not in text
     assert text == "int g_a;\nint g_b;\n"
-    from rebrew.data_metadata import get_data_entry
+    from rebrew.metadata.data import get_data_entry
 
     migrated = get_data_entry(tmp_path, 0x10027000, "SERVER")
     assert migrated["name"] == "g_a"
@@ -205,7 +205,7 @@ def test_annotate_skips_block_comment_markers(tmp_path: Path) -> None:
     per_file, _ = annotate_globals(src, meta, "SERVER", dry_run=False)
     assert per_file == {}
     assert (src / "mod.c").read_text() == "int g_a;\n"
-    from rebrew.data_metadata import get_data_entry
+    from rebrew.metadata.data import get_data_entry
 
     entry = get_data_entry(tmp_path, 0x10027000, "SERVER")
     assert entry["name"] == "g_a"
@@ -277,7 +277,7 @@ def test_gen_header_skips_non_c_identifiers(tmp_path) -> None:
     from types import SimpleNamespace
 
     from rebrew.data_annotate import gen_globals_header
-    from rebrew.data_metadata import set_data_field
+    from rebrew.metadata.data import set_data_field
 
     src = tmp_path / "src" / "SERVER"
     src.mkdir(parents=True)
@@ -313,7 +313,7 @@ def test_gen_header_drops_type_that_ends_the_declaration(tmp_path) -> None:
     from types import SimpleNamespace
 
     from rebrew.data_annotate import gen_globals_header
-    from rebrew.data_metadata import set_data_field
+    from rebrew.metadata.data import set_data_field
 
     src = tmp_path / "src" / "SERVER"
     src.mkdir(parents=True)

@@ -34,8 +34,8 @@ from threading import Lock
 from typing import Any
 
 from rebrew.c_parser import CALLING_CONVENTION
-from rebrew.data_metadata import iter_data_symbols
 from rebrew.formats.binary_loader import load_binary
+from rebrew.metadata.data import iter_data_symbols
 from rebrew.sources import files_with_ext
 from rebrew.utils import atomic_write_text as atomic_write_text
 from rebrew.utils import (
@@ -1000,7 +1000,7 @@ def data_symbol_size(fields: dict[str, Any], *, arch: str = "x86_32") -> int:
         array_type_shape,
         is_pointer_to_array,
     )
-    from rebrew.metadata import as_metadata_int
+    from rebrew.metadata.functions import as_metadata_int
 
     try:
         size = as_metadata_int(fields.get("size", 0))

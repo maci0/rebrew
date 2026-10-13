@@ -158,8 +158,8 @@ class TestRenameFunctionEverywhere:
 
 class TestRenameTargetIsolation:
     def test_migrated_shared_identity_and_file_follow_the_rename(self, tmp_path: Path) -> None:
-        from rebrew.annotation import parse_c_file_multi
-        from rebrew.metadata import get_entry, save_metadata
+        from rebrew.metadata.annotation import parse_c_file_multi
+        from rebrew.metadata.functions import get_entry, save_metadata
 
         src = tmp_path / "src"
         src.mkdir()
@@ -207,7 +207,7 @@ class TestRenameTargetIsolation:
     def test_globals_follow_the_renamed_file(self, tmp_path: Path) -> None:
         import tomllib
 
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata.functions import save_metadata
 
         src = tmp_path / "src"
         src.mkdir()
@@ -317,7 +317,7 @@ class TestRenameTargetIsolation:
         Stripping one ``@N`` left ``hook@``, so the owner set was empty and
         the rename also rewrote the other target's cdecl ``hook``.
         """
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata.functions import save_metadata
 
         primary = _src(tmp_path, "hook.c", "void __vectorcall hook(int a) { return; }\n")
         other = _src(tmp_path, "other.c", "int hook(void) { return 2; }\n")
@@ -854,7 +854,7 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
         from rebrew.rename import main as _rename_main
 
         app = _typer.Typer()
@@ -873,7 +873,7 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
         from rebrew.rename import main as _rename_main
 
         app = _typer.Typer()
@@ -911,7 +911,7 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
         from rebrew.rename import main as _rename_main
 
         app = _typer.Typer()
@@ -930,7 +930,7 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
         from rebrew.rename import main as _rename_main
 
         app = _typer.Typer()
@@ -952,7 +952,7 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
         from rebrew.rename import main as _rename_main
 
         app = _typer.Typer()
@@ -979,7 +979,7 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
         from rebrew.rename import main as _rename_main
 
         app = _typer.Typer()
@@ -1011,7 +1011,7 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
         from rebrew.rename import main as _rename_main
 
         app = _typer.Typer()
@@ -1054,7 +1054,7 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
         from rebrew.rename import main as _rename_main
 
         app = _typer.Typer()
@@ -1085,7 +1085,7 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
         from rebrew.rename import main as _rename_main
 
         app = _typer.Typer()
@@ -1110,7 +1110,7 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
         from rebrew.rename import main as _rename_main
 
         app = _typer.Typer()
@@ -1164,7 +1164,7 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
         from rebrew.rename import main as _rename_main
 
         app = _typer.Typer()
@@ -1276,7 +1276,7 @@ class TestFunctionReferenceBinding:
 
         from typer.testing import CliRunner
 
-        from rebrew.metadata import record_function_identity
+        from rebrew.metadata.functions import record_function_identity
         from rebrew.rename import app
 
         source_dir = tmp_path / "src"
@@ -1369,7 +1369,7 @@ class TestFunctionReferenceBinding:
 
         from typer.testing import CliRunner
 
-        from rebrew.metadata import record_function_identity
+        from rebrew.metadata.functions import record_function_identity
         from rebrew.rename import app
 
         header = _src(tmp_path, "library_crt.h", header_text)
@@ -1411,7 +1411,7 @@ class TestFunctionReferenceBinding:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.metadata import record_function_identity
+        from rebrew.metadata.functions import record_function_identity
         from rebrew.rename import app
 
         if conflict != "missing-header":
@@ -1445,7 +1445,7 @@ class TestFunctionReferenceBinding:
     def _invoke(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> Any:
         from typer.testing import CliRunner
 
-        from rebrew.metadata import record_function_identity
+        from rebrew.metadata.functions import record_function_identity
         from rebrew.rename import app
 
         record_function_identity(
@@ -1552,7 +1552,7 @@ class TestFunctionReferenceBinding:
     def test_rejects_managed_library_identity(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import record_function_identity
+        from rebrew.metadata.functions import record_function_identity
 
         _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
         caller = _src(tmp_path, "caller.c", "int placeholder(void);\n")

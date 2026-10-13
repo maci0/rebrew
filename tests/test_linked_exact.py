@@ -19,7 +19,7 @@ from typer.testing import CliRunner
 
 from rebrew.compiler.compile import CompareResult, CompareStatus
 from rebrew.config import load_config
-from rebrew.metadata import get_entry
+from rebrew.metadata.functions import get_entry
 
 _VA = 0x401000
 # call rel32 (one relocation in the object) + ret
@@ -82,7 +82,7 @@ def _mock(monkeypatch: pytest.MonkeyPatch, *, placed: bool = True) -> None:
 
 
 def _verify(root: Path, *args: str) -> dict[str, Any]:
-    from rebrew.metadata import clear_metadata_cache
+    from rebrew.metadata.functions import clear_metadata_cache
     from rebrew.verify import app
 
     clear_metadata_cache()
@@ -99,7 +99,7 @@ def _row(report: dict[str, Any]) -> dict[str, Any]:
 
 
 def _stored(root: Path) -> dict[str, Any]:
-    from rebrew.metadata import clear_metadata_cache
+    from rebrew.metadata.functions import clear_metadata_cache
 
     clear_metadata_cache()
     return get_entry(root, _VA, "SERVER")
@@ -236,7 +236,7 @@ class TestStickiness:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.main import app
-        from rebrew.metadata import clear_metadata_cache
+        from rebrew.metadata.functions import clear_metadata_cache
 
         _project(tmp_path)
         _mock(monkeypatch)

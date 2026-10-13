@@ -16,17 +16,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from rebrew.annotation import (
+from rebrew.cli import console
+from rebrew.config import ProjectConfig
+from rebrew.limits import NO_DELTA
+from rebrew.metadata.annotation import (
     NEW_FUNC_RE,
     has_skip_annotation,
     min_valid_va_for,
     parse_c_file_multi,
     resolve_symbol,
 )
-from rebrew.cli import console
-from rebrew.config import ProjectConfig
-from rebrew.limits import NO_DELTA
-from rebrew.metadata import canonical_status, get_entry, update_source_status
+from rebrew.metadata.functions import canonical_status, get_entry, update_source_status
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, read_source_text
@@ -88,7 +88,7 @@ def _parse_annotations(
     be a hardcoded 10, so ``--min-size 5`` could never reach a genuine 5-9
     byte function.
     """
-    from rebrew.metadata import GA_CEILING_PREFIX
+    from rebrew.metadata.functions import GA_CEILING_PREFIX
 
     if ignored is None:
         ignored = set()
@@ -395,7 +395,7 @@ def update_cflags_annotation(
     Returns True if the metadata was updated, False if the marker could not
     be read or the CFLAGS were already current (a successful no-op).
     """
-    from rebrew.metadata import get_entry, update_field
+    from rebrew.metadata.functions import get_entry, update_field
 
     if module is None or va is None:
         try:

@@ -21,7 +21,6 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.grid import covered_bytes
 from rebrew.catalog.pipeline import build_catalog_data
 from rebrew.cli import (
@@ -35,6 +34,7 @@ from rebrew.cli import (
     run_standalone,
 )
 from rebrew.config import ProjectConfig
+from rebrew.metadata.annotation import Annotation, parse_c_file_multi
 from rebrew.utils import floor_pct, untrusted_ident
 
 log = logging.getLogger(__name__)
@@ -207,7 +207,7 @@ def run_catalog(
             )
 
     if fix_sizes:
-        from rebrew.annotation import update_size_annotation
+        from rebrew.metadata.annotation import update_size_annotation
         from rebrew.sources import iter_sources, target_marker
         from rebrew.utils import rel_display_path
 

@@ -691,7 +691,7 @@ class TestMultiUnchangedStatusCachePatch:
         import typer
 
         import rebrew.test as testmod
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(int a) { g = a; }\n")
         cfg = NS(
@@ -762,7 +762,7 @@ class TestRefusedPromotionSkipsCache:
         from types import SimpleNamespace as NS
 
         import rebrew.test as testmod
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(int a) { g = a; }\n")
         cfg = NS(
@@ -909,7 +909,7 @@ class TestMultiFixSize:
 
     @staticmethod
     def _ann(size: int = 9) -> Any:
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         return Annotation(
             marker_type="FUNCTION",
@@ -1267,7 +1267,7 @@ class TestMultiCachePatchDelta:
         from types import SimpleNamespace as NS
 
         import rebrew.test as testmod
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(int a) { g = a; }\n")
         cfg = NS(
@@ -1563,7 +1563,7 @@ class TestMultiBlockerSource:
         from types import SimpleNamespace as NS
 
         import rebrew.test as testmod
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         source = tmp_path / "nested" / "f.c"
         source.parent.mkdir()

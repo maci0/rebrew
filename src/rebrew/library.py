@@ -21,7 +21,8 @@ import tomlkit
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
-from rebrew.metadata import (
+from rebrew.metadata.document import metadata_write_lock
+from rebrew.metadata.functions import (
     LIBRARY_METADATA_FILE,
     all_library_presets,
     apply_library_presets,
@@ -29,7 +30,6 @@ from rebrew.metadata import (
     find_library_override,
     parse_library_metadata,
 )
-from rebrew.metadata_doc import metadata_write_lock
 from rebrew.utils import atomic_write_text, load_toml_for_write
 from rebrew.workspace.config import walk_up_to_root
 
@@ -62,9 +62,9 @@ def bind_source_cmd(
     target: str | None = TargetOption,
 ) -> None:
     """Bind an identified library function to a source file we compile ourselves."""
-    from rebrew.annotation import parse_library_header
     from rebrew.config import module_marker
-    from rebrew.metadata import get_entry, record_migrated_markers
+    from rebrew.metadata.annotation import parse_library_header
+    from rebrew.metadata.functions import get_entry, record_migrated_markers
     from rebrew.sources import iter_library_headers
     from rebrew.utils import preset_module_key
 

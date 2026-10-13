@@ -1,4 +1,4 @@
-"""annotation.py - Shared annotation parsing for rebrew.
+"""metadata/annotation.py - Shared annotation parsing for rebrew.
 
 Extracts the common annotation-parsing logic used across rebrew tools
 so that there is a single source of truth for the decomp annotation format.
@@ -126,7 +126,7 @@ OPTIONAL_KEYS = {
 # W019.  This is deliberately not the same set as metadata.METADATA_FIELDS, and
 # the two differ in both directions:
 #   ORIGIN    the legacy inline spelling; the TOML field is SOURCE
-#   SECTION   owned by data_metadata.py for DATA/GLOBAL, never written to
+#   SECTION   owned by metadata/data.py for DATA/GLOBAL, never written to
 #             rebrew-functions.toml, but an inline occurrence still warns
 #   UPDATED_BY, UPDATED_AT  written by the tools, never authored inline: an
 #             occurrence gets W019 (metadata-only) rather than W010 (unknown
@@ -436,7 +436,7 @@ def has_skip_annotation(
     if metadata_dir is None:
         return False
     try:
-        from rebrew.metadata import canonical_status, load_metadata
+        from rebrew.metadata.functions import canonical_status, load_metadata
 
         entries = load_metadata(metadata_dir, deepcopy=False)
         anns = annotations if annotations is not None else parse_c_file_multi(filepath)
@@ -848,7 +848,7 @@ def update_size_annotation(
             write is skipped.
 
     """
-    from rebrew.metadata import get_entry, update_field
+    from rebrew.metadata.functions import get_entry, update_field
 
     # Resolve VA if not provided — scan file for the first marker line
     va = target_va
@@ -1399,7 +1399,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
 
 
 #: Stored-metadata-path -> matching entries, keyed by the identity of the
-#: document :func:`rebrew.metadata.load_metadata` handed back.  A scan runs
+#: document :func:`rebrew.metadata.functions.load_metadata` handed back.  A scan runs
 #: one lookup per marker-less file; without the index each lookup walks the
 #: whole entry table.
 _METADATA_FILE_INDEX: dict[int, dict[str, list[tuple[str, int, dict[str, Any]]]]] = {}
@@ -1492,7 +1492,7 @@ def file_backed_by_metadata(
     rel = os.path.relpath(filepath, metadata_dir).replace(os.sep, "/")
     suffixes = set(_path_suffixes(rel))
     if function_entries is None:
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         function_entries = load_metadata(metadata_dir, deepcopy=False)
     index = _metadata_file_index(function_entries)
@@ -1509,7 +1509,7 @@ def file_backed_by_metadata(
     if any(candidate in index for candidate in suffixes):
         return True
     if data_entries is None:
-        from rebrew.data_metadata import data_rows_for_path
+        from rebrew.metadata.data import data_rows_for_path
 
         return bool(data_rows_for_path(metadata_dir, filepath))
     for entry in data_entries.values():
@@ -1553,7 +1553,7 @@ def _function_annotations_from_metadata(
     metadata_dir: Path,
 ) -> list[Annotation]:
     """Function rows from ``rebrew-functions.toml`` whose ``file`` matches."""
-    from rebrew.metadata import apply_metadata_entry, load_metadata
+    from rebrew.metadata.functions import apply_metadata_entry, load_metadata
 
     try:
         entries_by_key = load_metadata(metadata_dir, deepcopy=False)
@@ -1667,8 +1667,8 @@ def _data_annotations_from_metadata(
     The target filter matches function synthesis: another target's module
     is omitted when *target_name* is set.
     """
-    from rebrew.data_metadata import data_rows_for_path
-    from rebrew.metadata import as_metadata_int
+    from rebrew.metadata.data import data_rows_for_path
+    from rebrew.metadata.functions import as_metadata_int
 
     try:
         rows = data_rows_for_path(metadata_dir, filepath)
@@ -1874,7 +1874,7 @@ def _finalize_entries(
     for entry in filtered_entries:
         entry.filepath = rel
     if metadata_dir is not None:
-        from rebrew.metadata import apply_metadata_entry, load_metadata
+        from rebrew.metadata.functions import apply_metadata_entry, load_metadata
 
         # Load the metadata ONCE per file and apply per annotation; loading
         # it per function made the whole-tree parse hot path do 1000 TOML
@@ -2029,13 +2029,13 @@ def update_annotation_key(
     Returns True if any write was made, False otherwise.
 
     """
-    from rebrew.metadata import (
+    from rebrew.metadata.functions import (
         canonical_status,
         is_metadata_key,
         should_promote_status,
         update_source_status,
     )
-    from rebrew.metadata_model import FIELD_TO_ATTR, MetadataEntry
+    from rebrew.metadata.model import FIELD_TO_ATTR, MetadataEntry
 
     if is_metadata_key(key):
         module = module_for_va(filepath, va)
@@ -2190,7 +2190,7 @@ def library_annotations_from_metadata(metadata_dir: Path, base_dir: Path) -> lis
     A row whose header still exists is left to :func:`parse_library_header`,
     so a legacy marker file is not read twice.
     """
-    from rebrew.metadata import apply_metadata_entry, load_metadata
+    from rebrew.metadata.functions import apply_metadata_entry, load_metadata
 
     try:
         entries_by_key = load_metadata(metadata_dir, deepcopy=False)
@@ -2277,7 +2277,7 @@ def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> li
 
     results: list[Annotation] = []
 
-    from rebrew.metadata import canonical_status
+    from rebrew.metadata.functions import canonical_status
 
     i = 0
     while i < len(lines):
@@ -2353,7 +2353,7 @@ def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> li
         i += 1
 
     if metadata_dir is not None and results:
-        from rebrew.metadata import apply_metadata_entry, load_metadata
+        from rebrew.metadata.functions import apply_metadata_entry, load_metadata
 
         # Same one-load-per-file overlay as parse_c_file_multi / _finalize_entries.
         entries_by_key = load_metadata(metadata_dir, deepcopy=False)
@@ -2391,7 +2391,7 @@ def remove_annotation_key(
     Returns True if any change was made, False otherwise.
 
     """
-    from rebrew.metadata import is_metadata_key, remove_field
+    from rebrew.metadata.functions import is_metadata_key, remove_field
 
     if is_metadata_key(key):
         module = module_for_va(filepath, va)

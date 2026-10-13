@@ -211,7 +211,7 @@ class TestSkillFacts:
     """
 
     def test_workflow_lists_every_metadata_field(self) -> None:
-        from rebrew.metadata import METADATA_FIELDS
+        from rebrew.metadata.functions import METADATA_FIELDS
 
         text = (_SRC / "rebrew-workflow" / "SKILL.md").read_text(encoding="utf-8")
         missing = sorted(f for f in METADATA_FIELDS if f not in text)

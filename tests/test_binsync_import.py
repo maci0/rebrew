@@ -582,7 +582,7 @@ reversed_dir = "src/server"
         assert 'status = "STUB"' in meta
         assert "imported from BinSync" in meta
         # Every stub's fields land (written in one batch after the loop).
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         for va, size, name in ((0x10002000, 16, "_FromBinSync"), (0x10003000, 24, "_AlsoBinSync")):
             entry = get_entry(tmp_path / "src", va, "SERVER")
@@ -606,7 +606,7 @@ reversed_dir = "src/server"
         """
         import json as _json
 
-        from rebrew.metadata import get_entry, record_migrated_markers
+        from rebrew.metadata.functions import get_entry, record_migrated_markers
 
         _make_project(tmp_path, {})
         src = tmp_path / "src"
@@ -653,7 +653,7 @@ reversed_dir = "src/server"
 
 class TestGlobalTypeSizeImport:
     def test_type_and_size_applied(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
 
         _make_project(
             tmp_path,
@@ -773,7 +773,7 @@ class TestNoteImport:
         (state / "comments.toml").write_text(Comment.dumps_many([comment]), encoding="utf-8")
 
     def test_note_applied(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
         state = tmp_path / "state"
@@ -785,7 +785,7 @@ class TestNoteImport:
         assert get_entry(tmp_path, 0x1000, "SERVER").get("note") == "needs RE structs"
 
     def test_same_note_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
 
         _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
         update_field(tmp_path, 0x1000, "note", "needs RE structs", "SERVER")
@@ -965,7 +965,7 @@ class TestLocalsCommentsImport:
     ) -> None:
         from declib.artifacts import Comment, Function, StackVariable
 
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         _make_project(
             tmp_path,
@@ -999,7 +999,7 @@ class TestAnalysisMarkers:
     _SRC = "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n"
 
     def _project_with_size(self, tmp_path: Path) -> None:
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
 
         _make_project(tmp_path, {"foo.c": self._SRC})
         update_field(tmp_path, 0x1000, "size", 0x10, "SERVER")
@@ -1034,7 +1034,7 @@ class TestAnalysisMarkers:
     def test_comment_outside_function_is_metadata_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         self._project_with_size(tmp_path)
         state = self._state_with_comment(tmp_path, addr=0x2000, text="stray")

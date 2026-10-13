@@ -645,7 +645,7 @@ class TestSelectAnnotation:
     def test_managed_va_uses_the_active_target_and_its_compile_fields(
         self, tmp_path: Path, module: str, symbol: str, size: int
     ) -> None:
-        from rebrew.metadata import record_migrated_markers
+        from rebrew.metadata.functions import record_migrated_markers
 
         src = tmp_path / "pair.c"
         src.write_text(

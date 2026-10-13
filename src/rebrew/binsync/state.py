@@ -733,7 +733,7 @@ _WRAPPED_HYPHEN_RE = re.compile(r"(?<=\w)-\n[ \t]*")
 
 def normalize_sync_value(field: str, value: Any, *, kind: str = "function") -> Any:
     """Normalize native fields identically for baseline, push, pull and diff."""
-    from rebrew.metadata import as_metadata_int
+    from rebrew.metadata.functions import as_metadata_int
     from rebrew.utils import fold_ident
 
     if field == "name":
@@ -787,8 +787,8 @@ def local_sync_records(
 ) -> dict[str, dict[str, Any]]:
     """Project native field values from the same annotations all sync paths use."""
     from rebrew.config import module_marker
-    from rebrew.data_metadata import get_data_entry
-    from rebrew.metadata import SYNC_FIELD_RULES, get_entry
+    from rebrew.metadata.data import get_data_entry
+    from rebrew.metadata.functions import SYNC_FIELD_RULES, get_entry
 
     if entries is None:
         indexed, _ = index_local_and_catalog(cfg)
@@ -855,7 +855,7 @@ def remote_sync_records(
 ) -> dict[str, dict[str, Any]]:
     """Read native records under their local module identity; ignore private fields."""
     from rebrew.config import module_marker
-    from rebrew.metadata import SYNC_FIELD_RULES
+    from rebrew.metadata.functions import SYNC_FIELD_RULES
 
     if funcs is None or globals_ is None:
         funcs, globals_ = load_binsync_state(state_dir)
@@ -1101,7 +1101,7 @@ def sync_health(
     """
     import json
 
-    from rebrew.metadata import FORMAT_VERSION, SYNC_FIELD_RULES
+    from rebrew.metadata.functions import FORMAT_VERSION, SYNC_FIELD_RULES
 
     manifest = load_manifest(state_dir)
     binary = binary_identity(cfg)
@@ -1154,8 +1154,8 @@ def sync_health(
     }
     stale_verification: list[str] = []
     stale_origins: list[dict[str, str]] = []
-    from rebrew.data_metadata import data_definition_hash, get_data_entry
-    from rebrew.metadata import get_entry
+    from rebrew.metadata.data import data_definition_hash, get_data_entry
+    from rebrew.metadata.functions import get_entry
     from rebrew.sources import contained_path, source_roots
     from rebrew.verify_hash import compiler_config_hash, entry_fingerprint, source_hash
 
@@ -1276,7 +1276,7 @@ def prepare_sync_import(
     health = sync_health(cfg, state_dir, local, remote, peer=peer)
     if health["blocked"]:
         raise ValueError(f"sync refused: {', '.join(health['issues'])}")
-    from rebrew.metadata import SYNC_FIELD_RULES
+    from rebrew.metadata.functions import SYNC_FIELD_RULES
 
     baseline = load_sync_baseline(cfg, state_dir)
     prepared = (
@@ -1329,8 +1329,8 @@ def record_sync_origins(
     remote: dict[str, dict[str, Any]],
 ) -> None:
     """Stamp only externally changed fields that actually landed in canonical metadata."""
-    from rebrew.data_metadata import get_data_entry, set_data_fields_batch
-    from rebrew.metadata import get_entry, set_fields_batch
+    from rebrew.metadata.data import get_data_entry, set_data_fields_batch
+    from rebrew.metadata.functions import get_entry, set_fields_batch
 
     origin = sync_origin(state_dir)
     function_updates: list[dict[str, Any]] = []
@@ -1375,7 +1375,7 @@ def merge_sync_record(
     baseline: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """Push local changes while retaining incoming/conflicting native field values."""
-    from rebrew.metadata import SYNC_FIELD_RULES
+    from rebrew.metadata.functions import SYNC_FIELD_RULES
 
     kind = key.split(".", 1)[0]
     result = dict(local)

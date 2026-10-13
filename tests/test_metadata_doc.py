@@ -1,4 +1,4 @@
-"""Tests for rebrew.metadata_doc: qualified-key algebra, doc parse/build, write lock."""
+"""Tests for rebrew.metadata.document: qualified-key algebra, doc parse/build, write lock."""
 
 from pathlib import Path
 
@@ -7,17 +7,17 @@ import pytest
 
 class TestQualifiedKey:
     def test_with_module(self) -> None:
-        from rebrew.metadata_doc import qualified_key
+        from rebrew.metadata.document import qualified_key
 
         assert qualified_key("SERVER", 0x01006364) == "SERVER.0x01006364"
 
     def test_without_module(self) -> None:
-        from rebrew.metadata_doc import qualified_key
+        from rebrew.metadata.document import qualified_key
 
         assert qualified_key(None, 0x01006364) == "0x01006364"
 
     def test_nfd_module_normalized_to_nfc(self) -> None:
-        from rebrew.metadata_doc import qualified_key
+        from rebrew.metadata.document import qualified_key
 
         nfd = "MOD_\u0065\u0301"
         assert qualified_key(nfd, 0x1000) == "MOD_\u00e9.0x00001000"
@@ -29,18 +29,18 @@ class TestCanonicalVaKey:
     distinct instead of collapsing onto a neighbour."""
 
     def test_hex_spellings_collapse_onto_one_int(self) -> None:
-        from rebrew.metadata_doc import canonical_va_key
+        from rebrew.metadata.document import canonical_va_key
 
         assert canonical_va_key("0x1000") == canonical_va_key("0x00001000") == 0x1000
         assert canonical_va_key(" 0X1000 ") == 0x1000
 
     def test_int_passes_through(self) -> None:
-        from rebrew.metadata_doc import canonical_va_key
+        from rebrew.metadata.document import canonical_va_key
 
         assert canonical_va_key(0x1000) == 0x1000
 
     def test_non_va_values_stay_distinct(self) -> None:
-        from rebrew.metadata_doc import canonical_va_key
+        from rebrew.metadata.document import canonical_va_key
 
         assert canonical_va_key("0xZZZZ") == "0xZZZZ"
         assert canonical_va_key("Main") == "Main"
@@ -51,33 +51,33 @@ class TestCanonicalVaKey:
 class TestParseMetadataKey:
     @pytest.mark.parametrize("address", ["0x1_0", "0x١0", "0x10 ", "0x", "0x-4"])
     def test_non_ascii_or_padded_address_is_rejected(self, address: str) -> None:
-        from rebrew.metadata_doc import parse_metadata_key
+        from rebrew.metadata.document import parse_metadata_key
 
         assert parse_metadata_key(f"SERVER.{address}") is None
 
     def test_uppercase_prefix_and_dotted_module_use_the_same_identity(self) -> None:
-        from rebrew.metadata_doc import parse_metadata_key
+        from rebrew.metadata.document import parse_metadata_key
 
         assert parse_metadata_key("srv.0x10.0X00002400") == ("srv.0x10", 0x2400)
 
     def test_valid(self) -> None:
-        from rebrew.metadata_doc import parse_metadata_key
+        from rebrew.metadata.document import parse_metadata_key
 
         assert parse_metadata_key("SERVER.0x01006364") == ("SERVER", 16802660)
 
     def test_nfd_module_normalized_to_nfc(self) -> None:
-        from rebrew.metadata_doc import parse_metadata_key
+        from rebrew.metadata.document import parse_metadata_key
 
         nfd_key = "MOD_\u0065\u0301.0x00001000"
         assert parse_metadata_key(nfd_key) == ("MOD_\u00e9", 0x1000)
 
     def test_invalid_hex_returns_none(self) -> None:
-        from rebrew.metadata_doc import parse_metadata_key
+        from rebrew.metadata.document import parse_metadata_key
 
         assert parse_metadata_key("SERVER.0xZZZ") is None
 
     def test_no_module_dot_returns_none(self) -> None:
-        from rebrew.metadata_doc import parse_metadata_key
+        from rebrew.metadata.document import parse_metadata_key
 
         assert parse_metadata_key("not_a_key") is None
 
@@ -85,7 +85,7 @@ class TestParseMetadataKey:
 class TestResolveMetadataKey:
     @pytest.mark.parametrize("indexed", [False, True])
     def test_duplicate_identity_is_rejected(self, indexed: bool) -> None:
-        from rebrew.metadata_doc import build_metadata_key_index, resolve_metadata_key
+        from rebrew.metadata.document import build_metadata_key_index, resolve_metadata_key
 
         doc = {"SERVER.0x00001000": {"status": "VERIFIED"}, "SERVER.0X1000": {"status": "DRIFT"}}
         with pytest.raises(ValueError, match="duplicate metadata keys"):
@@ -96,24 +96,24 @@ class TestResolveMetadataKey:
         assert len(doc) == 2
 
     def test_absent_entry_returns_canonical(self) -> None:
-        from rebrew.metadata_doc import resolve_metadata_key
+        from rebrew.metadata.document import resolve_metadata_key
 
         assert resolve_metadata_key({}, "SERVER", 0x24000) == "SERVER.0x00024000"
 
     def test_canonical_key_preferred(self) -> None:
-        from rebrew.metadata_doc import resolve_metadata_key
+        from rebrew.metadata.document import resolve_metadata_key
 
         doc = {"SERVER.0x00024000": {"status": "UNCHECKED"}}
         assert resolve_metadata_key(doc, "SERVER", 0x24000) == "SERVER.0x00024000"
 
     def test_non_canonical_spelling_resolved(self) -> None:
-        from rebrew.metadata_doc import resolve_metadata_key
+        from rebrew.metadata.document import resolve_metadata_key
 
         doc = {"SERVER.0x24000": {"name": "g_iat_region"}}
         assert resolve_metadata_key(doc, "SERVER", 0x24000) == "SERVER.0x24000"
 
     def test_index_avoids_scan_for_absent_keys(self) -> None:
-        from rebrew.metadata_doc import build_metadata_key_index, resolve_metadata_key
+        from rebrew.metadata.document import build_metadata_key_index, resolve_metadata_key
 
         doc = {"SERVER.0x24000": {"name": "g_iat_region"}}
         index = build_metadata_key_index(doc)
@@ -122,13 +122,13 @@ class TestResolveMetadataKey:
         assert resolve_metadata_key(doc, "SERVER", 0x25000, index=index) == "SERVER.0x00025000"
 
     def test_other_module_ignored(self) -> None:
-        from rebrew.metadata_doc import resolve_metadata_key
+        from rebrew.metadata.document import resolve_metadata_key
 
         doc = {"OTHER.0x24000": {"name": "x"}}
         assert resolve_metadata_key(doc, "SERVER", 0x24000) == "SERVER.0x00024000"
 
     def test_unicode_nfc_nfd_module_resolved(self) -> None:
-        from rebrew.metadata_doc import build_metadata_key_index, resolve_metadata_key
+        from rebrew.metadata.document import build_metadata_key_index, resolve_metadata_key
 
         # Entry in doc uses NFC precomposed character (Ö)
         doc = {"M\u00d6DULE.0x24000": {"name": "g_iat_region"}}
@@ -146,7 +146,7 @@ class TestParseMetadataDocDuplicates:
         the fields must merge instead of the later table replacing the earlier."""
         import tomllib
 
-        from rebrew.metadata_doc import parse_metadata_doc
+        from rebrew.metadata.document import parse_metadata_doc
 
         text = (
             '["SERVER.0x24000"]\n'
@@ -156,7 +156,7 @@ class TestParseMetadataDocDuplicates:
             '["SERVER.0x00024000"]\n'
             'status = "UNCHECKED"\n'
         )
-        with caplog.at_level("WARNING", logger="rebrew.metadata_doc"):
+        with caplog.at_level("WARNING", logger="rebrew.metadata.document"):
             parsed = parse_metadata_doc(tomllib.loads(text))
 
         assert parsed[("SERVER", 0x24000)] == {
@@ -167,7 +167,7 @@ class TestParseMetadataDocDuplicates:
         assert "Duplicate metadata keys" in caplog.text
 
     def test_later_key_wins_contested_field(self) -> None:
-        from rebrew.metadata_doc import parse_metadata_doc
+        from rebrew.metadata.document import parse_metadata_doc
 
         parsed = parse_metadata_doc(
             {"SERVER.0x24000": {"size": 4}, "SERVER.0x00024000": {"size": 8}}
@@ -175,18 +175,18 @@ class TestParseMetadataDocDuplicates:
         assert parsed[("SERVER", 0x24000)]["size"] == 8
 
     def test_no_duplicates_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        from rebrew.metadata_doc import parse_metadata_doc
+        from rebrew.metadata.document import parse_metadata_doc
 
-        with caplog.at_level("WARNING", logger="rebrew.metadata_doc"):
+        with caplog.at_level("WARNING", logger="rebrew.metadata.document"):
             parse_metadata_doc({"SERVER.0x1000": {"status": "STUB"}})
 
         assert caplog.text == ""
 
     def test_unknown_key_warns_when_field_set_known(self, caplog: pytest.LogCaptureFixture) -> None:
         """A hand-edited CFLAGSS is dropped by every reader: say so."""
-        from rebrew.metadata_doc import parse_metadata_doc
+        from rebrew.metadata.document import parse_metadata_doc
 
-        with caplog.at_level("WARNING", logger="rebrew.metadata_doc"):
+        with caplog.at_level("WARNING", logger="rebrew.metadata.document"):
             parse_metadata_doc(
                 {"SERVER.0x1000": {"CFLAGSS": "/O2", "cflags": "/O1"}},
                 known_fields=frozenset({"STATUS", "CFLAGS"}),
@@ -198,9 +198,9 @@ class TestParseMetadataDocDuplicates:
         assert "rebrew-functions.toml" in caplog.text
 
     def test_known_keys_do_not_warn(self, caplog: pytest.LogCaptureFixture) -> None:
-        from rebrew.metadata_doc import parse_metadata_doc
+        from rebrew.metadata.document import parse_metadata_doc
 
-        with caplog.at_level("WARNING", logger="rebrew.metadata_doc"):
+        with caplog.at_level("WARNING", logger="rebrew.metadata.document"):
             parse_metadata_doc(
                 {"SERVER.0x1000": {"cflags": "/O2", "file": "a.c"}},
                 known_fields=frozenset({"STATUS", "CFLAGS", "FILE"}),
@@ -209,10 +209,10 @@ class TestParseMetadataDocDuplicates:
         assert caplog.text == ""
 
     def test_report_is_capped_per_file(self, caplog: pytest.LogCaptureFixture) -> None:
-        from rebrew.metadata_doc import parse_metadata_doc
+        from rebrew.metadata.document import parse_metadata_doc
 
         doc = {f"SERVER.0x{va:04x}": {"typo": 1} for va in range(10)}
-        with caplog.at_level("WARNING", logger="rebrew.metadata_doc"):
+        with caplog.at_level("WARNING", logger="rebrew.metadata.document"):
             parse_metadata_doc(doc, known_fields=frozenset({"STATUS"}), source="m.toml")
 
         assert "(+5 more entries)" in caplog.text
@@ -222,7 +222,7 @@ class TestMetadataWriteLock:
     def test_fresh_directory_does_not_crash(self, tmp_path: Path) -> None:
         """First-ever write into a nonexistent metadata root must not raise:
         the ``.lock`` sidecar open happens before any data-write mkdir."""
-        from rebrew.metadata_doc import metadata_write_lock
+        from rebrew.metadata.document import metadata_write_lock
 
         target = tmp_path / "brand" / "new" / "rebrew-functions.toml"
         with metadata_write_lock(target.parent, target.name):
@@ -237,7 +237,7 @@ class TestMetadataWriteLock:
 
         from thread_util import join_all
 
-        from rebrew.metadata_doc import metadata_write_lock, parse_metadata_doc
+        from rebrew.metadata.document import metadata_write_lock, parse_metadata_doc
         from rebrew.utils import atomic_write_text
 
         target = tmp_path / "rebrew-functions.toml"
@@ -271,7 +271,7 @@ class TestMetadataWriteLock:
         """
         import threading
 
-        from rebrew.metadata_doc import metadata_write_lock
+        from rebrew.metadata.document import metadata_write_lock
 
         done = threading.Event()
         result: list[str] = []
@@ -296,7 +296,7 @@ class TestMetadataWriteLock:
         interleave its read-modify-write on the second file."""
         fcntl = pytest.importorskip("fcntl")
 
-        from rebrew.metadata_doc import metadata_write_lock
+        from rebrew.metadata.document import metadata_write_lock
 
         dir_a, dir_b = tmp_path / "a", tmp_path / "b"
         with (

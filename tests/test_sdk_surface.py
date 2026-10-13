@@ -681,7 +681,7 @@ class TestDecompmeError:
 
 class TestMetadataConvenience:
     def test_metadata_accepts_str_and_config(self, tmp_path: Path) -> None:
-        from rebrew.metadata import (
+        from rebrew.metadata.functions import (
             get_entry,
             load_metadata,
             metadata_path,
@@ -712,7 +712,7 @@ class TestMetadataConvenience:
         assert get_entry(cfg, 0x1000, "SERVER")["note"] == "test note"
 
     def test_data_metadata_accepts_str_and_config(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import (
+        from rebrew.metadata.data import (
             get_data_entry,
             load_data_metadata,
             set_data_field,
@@ -1219,12 +1219,12 @@ class TestAllListsDeclareTheirModuleSurface:
         """A walk that stopped importing packages would gate almost nothing."""
         names = {module.__name__ for module in self._modules()}
         for expected in (
-            "rebrew.annotation",
+            "rebrew.metadata.annotation",
             "rebrew.cli",
             "rebrew.compiler.compile",
             "rebrew.config",
             "rebrew.errors",
-            "rebrew.metadata",
+            "rebrew.metadata.functions",
             "rebrew.compiler.toolchain",
         ):
             assert expected in names, f"{expected} is not covered by the __all__ gate"

@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from rebrew.config import module_marker
-from rebrew.metadata_doc import parse_metadata_key, qualified_key
+from rebrew.metadata.document import parse_metadata_key, qualified_key
 
 
 class TestModuleMarker:
@@ -58,13 +58,13 @@ class TestMarkerKeyRoundTrip:
         assert parse_metadata_key(qualified_key("", 0x1000)) is None
 
     def test_function_store_rejects_an_empty_module(self, tmp_path: object) -> None:
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
 
         with pytest.raises(ValueError, match="non-empty module"):
             update_field(tmp_path, 0x1000, "note", "x", module="")  # type: ignore[arg-type]
 
     def test_data_store_rejects_an_empty_module(self, tmp_path: object) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         with pytest.raises(ValueError, match="non-empty module"):
             set_data_field(tmp_path, 0x1000, "name", "g_x", module="")  # type: ignore[arg-type]

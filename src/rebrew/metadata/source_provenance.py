@@ -9,8 +9,8 @@ from typing import Any
 import tomlkit
 
 from rebrew.c_parser import find_function_name_in_node, mask_msvc_syntax, parse_c_source
-from rebrew.metadata import validate_identity_file
-from rebrew.metadata_doc import metadata_write_lock
+from rebrew.metadata.document import metadata_write_lock
+from rebrew.metadata.functions import validate_identity_file
 from rebrew.utils import (
     atomic_write_locked,
     load_toml_for_write_strict,

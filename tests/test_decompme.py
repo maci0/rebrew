@@ -48,7 +48,7 @@ class TestHttpProtocols:
 
 
 def _ann(va: int = 0x401000, size: int = 16, name: str = "func_a", symbol: str = "_func_a"):
-    from rebrew.annotation import Annotation
+    from rebrew.metadata.annotation import Annotation
 
     return Annotation(
         va=va,
@@ -680,7 +680,7 @@ class TestCli:
             lambda p, va, size: b"\x55\x8b\xec\x5d\xc3" * 3,
         )
         monkeypatch.setattr(
-            "rebrew.annotation.parse_c_file_multi",
+            "rebrew.metadata.annotation.parse_c_file_multi",
             lambda p, target_name=None, metadata_dir=None: [_ann()],
         )
         monkeypatch.setattr(
@@ -742,7 +742,7 @@ class TestCli:
         message tells the user to pass the flag)."""
         cfg, src = self._patch(tmp_path, monkeypatch)
         monkeypatch.setattr(
-            "rebrew.annotation.parse_c_file_multi",
+            "rebrew.metadata.annotation.parse_c_file_multi",
             lambda p, target_name=None, metadata_dir=None: [_ann(size=0)],
         )
         r = runner.invoke(decompme.app, ["--dry-run", "--size", "32", str(src)])

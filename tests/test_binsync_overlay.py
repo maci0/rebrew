@@ -222,7 +222,7 @@ class TestConflict:
         assert "LocalName" in dest.read_text(encoding="utf-8")
 
     def test_accept_local_keeps_and_records_provenance(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         dest, state = self._setup(tmp_path, monkeypatch)
         result = _invoke(tmp_path, state, "--accept-local", "--json")
@@ -350,7 +350,7 @@ class TestPrototypeAndNote:
         assert "int func_401040(int x)" in dest.read_text(encoding="utf-8")
 
     def test_note_applied(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         _make_project(tmp_path)
         _write_dest(tmp_path, local_name="func_401040")
@@ -464,7 +464,7 @@ class TestGlobalOverlay:
         return state
 
     def test_unique_global_maps_and_applies(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
 
         state = self._setup(tmp_path, monkeypatch)
         result = _invoke(tmp_path, state, "--fields", "global", "--json")
@@ -478,7 +478,7 @@ class TestGlobalOverlay:
         assert stored.get("size") == 16
 
     def test_duplicate_global_not_mapped(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
 
         state = self._setup(tmp_path, monkeypatch, duplicate=True)
         result = _invoke(tmp_path, state, "--fields", "global", "--json")
@@ -489,7 +489,7 @@ class TestGlobalOverlay:
 
     def test_globals_opt_in_only(self, tmp_path: Path, monkeypatch) -> None:
         """The default --fields set does not touch globals."""
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
 
         state = self._setup(tmp_path, monkeypatch)
         result = _invoke(tmp_path, state, "--json")
@@ -534,7 +534,7 @@ class TestLocalsCommentsOverlay:
     def test_locals_and_shifted_comments_transferred(self, tmp_path: Path, monkeypatch) -> None:
         from declib.artifacts import Comment, Function, StackVariable
 
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         _make_project(tmp_path)
         _write_dest(tmp_path, local_name="func_401040")
@@ -589,7 +589,7 @@ class TestMetadataFileContainment:
             monkeyed.append(path)
             return []
 
-        import rebrew.annotation as annotation_mod
+        import rebrew.metadata.annotation as annotation_mod
 
         original = annotation_mod.parse_c_file_multi
         annotation_mod.parse_c_file_multi = _record  # type: ignore[assignment]

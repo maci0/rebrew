@@ -6,7 +6,7 @@ import typer
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config, run_standalone
 from rebrew.config import module_marker
-from rebrew.source_provenance import document_assembly
+from rebrew.metadata.source_provenance import document_assembly
 from rebrew.utils import console, untrusted_ident
 
 app = typer.Typer(

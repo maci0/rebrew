@@ -25,8 +25,8 @@ and consume the documented result, rather than scraping Rich tables.
 
 Search public APIs before writing another parser or comparer. Reuse the binary
 loaders for reference bytes, `coff_reloc` for relocation application/comparison,
-`matcher.parsers` for object symbols/relocations, and the locked `metadata` /
-`data_metadata` writers for managed rows. Load configuration and source discovery
+`matcher.parsers` for object symbols/relocations, and the locked `metadata.functions` /
+`metadata.data` writers for managed rows. Load configuration and source discovery
 through Rebrew so the selected target, archive providers and compiler overrides
 remain consistent. Do not import another module's underscore-private helpers.
 

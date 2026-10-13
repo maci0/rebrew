@@ -16,7 +16,6 @@ from typing import Any
 
 from typer.testing import CliRunner
 
-from rebrew.annotation import Annotation
 from rebrew.merge_sweep import (
     _apply_merge,
     _apply_split,
@@ -28,6 +27,7 @@ from rebrew.merge_sweep import (
     app,
     search_partitions,
 )
+from rebrew.metadata.annotation import Annotation
 
 runner = CliRunner()
 

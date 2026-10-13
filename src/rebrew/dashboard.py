@@ -210,7 +210,6 @@ import zstandard
 from rich.markup import escape
 
 from rebrew import theme
-from rebrew.annotation import FUNCTION_MARKERS
 from rebrew.cli import RootOption, console, error_exit, json_print, require_root
 from rebrew.compression import precompress
 from rebrew.coverage_db import resolve_db_dir
@@ -221,7 +220,8 @@ from rebrew.coverage_toml import (
     Global,
     load_all_coverage_from,
 )
-from rebrew.metadata import canonical_status
+from rebrew.metadata.annotation import FUNCTION_MARKERS
+from rebrew.metadata.functions import canonical_status
 from rebrew.status_style import status_mark_groups
 from rebrew.utils import floor_pct, preset_module_key, strip_bidi_format
 from rebrew.workspace import VA_MAX

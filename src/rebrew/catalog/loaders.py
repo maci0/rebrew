@@ -10,14 +10,14 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from rebrew.annotation import (
+from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
+from rebrew.config import ProjectConfig, inventory_path_for, module_marker
+from rebrew.metadata.annotation import (
     Annotation,
     library_annotations_from_metadata,
     parse_c_file_multi,
     parse_library_header,
 )
-from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
-from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.sources import iter_library_headers, iter_sources, scan_files, target_marker
 from rebrew.utils import preset_module_key, read_json_text
 
@@ -384,7 +384,7 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     # this target's module (sources are scoped by parse_c_file_multi above).
     marker = preset_module_key(module_marker(cfg)) if cfg else ""
     from rebrew.function_providers import bind_library_source, compiled_library_annotations
-    from rebrew.metadata import load_metadata
+    from rebrew.metadata.functions import load_metadata
 
     metadata = load_metadata(cfg.metadata_dir, deepcopy=False) if cfg else {}
     for hfile in iter_library_headers(reversed_dir, cfg, scanned=tree):

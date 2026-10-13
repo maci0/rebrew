@@ -128,7 +128,7 @@ _REGISTRY_SNAPSHOTS: tuple[tuple[str, str], ...] = (
     ("rebrew.matcher.compiler", "_FLAGS_MAP"),
     ("rebrew.matcher.compiler", "_TIERS_MAP"),
     ("rebrew.matcher.mutator", "ALL_MUTATIONS"),
-    ("rebrew.metadata", "_LIBRARY_PRESETS_ALL"),
+    ("rebrew.metadata.functions", "_LIBRARY_PRESETS_ALL"),
     ("rebrew.registry", "_entry_points_snapshot"),
     ("rebrew.compiler.toolchain", "TOOLCHAINS"),
     ("rebrew.compiler.toolchain", "TOOLCHAIN_ORIGINS"),
@@ -1082,7 +1082,7 @@ class TestLibraryPresetRegistry:
         )
 
     def test_plugin_preset_applies(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.metadata as metadata
+        import rebrew.metadata.functions as metadata
 
         self._patch(monkeypatch)
         all_presets = metadata._merged_library_presets()
@@ -1100,7 +1100,7 @@ class TestLibraryPresetRegistry:
     def test_plugin_preset_recognized_by_library_cli(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.metadata as metadata
+        import rebrew.metadata.functions as metadata
 
         self._patch(monkeypatch)
         monkeypatch.setattr(metadata, "_LIBRARY_PRESETS_ALL", metadata._merged_library_presets())
@@ -1171,7 +1171,7 @@ class TestRegistryOwnership:
             ("decompiler", "refresh_backends", "_BACKEND_MAP"),
             ("discover", "refresh_discoverers", "_DISCOVERER_MAP"),
             ("matcher.mutator", "refresh_mutations", "ALL_MUTATIONS"),
-            ("metadata", "refresh_library_presets", "_LIBRARY_PRESETS_ALL"),
+            ("metadata.functions", "refresh_library_presets", "_LIBRARY_PRESETS_ALL"),
         ],
     )
     def test_refresh_results_do_not_alias_the_published_table(
@@ -1188,7 +1188,7 @@ class TestRegistryOwnership:
         assert getattr(module, table_name) == live
 
     def test_preset_snapshots_do_not_alias_nested_fields(self) -> None:
-        from rebrew import metadata
+        from rebrew.metadata import functions as metadata
 
         expected = metadata.all_library_presets()
         returned = metadata.refresh_library_presets()

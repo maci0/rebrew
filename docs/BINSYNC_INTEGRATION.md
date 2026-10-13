@@ -106,7 +106,7 @@ without the default Git steps of push/pull. All operations live under the
 
 ## Field ownership, reconciliation, and provenance
 
-`SYNC_FIELD_RULES` in `rebrew.metadata` is the shared field schema used by
+`SYNC_FIELD_RULES` in `rebrew.metadata.functions` is the shared field schema used by
 push, pull, and diff. Function size is push-only; global name/type/size and
 native function/type fields synchronize in both directions. STATUS, CFLAGS,
 toolchain choices, blockers, origins, and verification evidence stay local.

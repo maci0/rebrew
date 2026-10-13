@@ -93,7 +93,7 @@ class TestOrphansPrune:
     def test_prune_deletes_only_orphan(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
 
         _mock_cfg(tmp_path, monkeypatch)
@@ -107,7 +107,7 @@ class TestOrphansPrune:
     def test_prune_dry_run_writes_nothing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
 
         _mock_cfg(tmp_path, monkeypatch)
@@ -122,7 +122,7 @@ class TestOrphansPrune:
         and report pruned: 0 without deleting anything."""
         import json
 
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
 
         _mock_cfg(tmp_path, monkeypatch)
@@ -140,7 +140,7 @@ class TestOrphansPrune:
         """--prune --include-matched --json reports held_back 0 and prunes matched."""
         import json
 
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
 
         _mock_cfg(tmp_path, monkeypatch)
@@ -207,7 +207,7 @@ class TestKnownSourceWidening:
     def test_prune_keeps_ghidra_and_export_blocks(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
 
         self._project_with_extra_known(tmp_path, monkeypatch)
@@ -253,7 +253,7 @@ class TestDataOrphansNameExemption:
     def test_prune_deletes_named_stale_keeps_import_inventory(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
         from rebrew.orphans import app
 
         self._data_project(tmp_path, monkeypatch)
@@ -267,7 +267,7 @@ class TestDataOrphansNameExemption:
 
 class TestOrphansDrop:
     def test_drop_by_va(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
 
         _mock_cfg(tmp_path, monkeypatch)
@@ -289,7 +289,7 @@ class TestOrphansDrop:
     def test_drop_dry_run_keeps_block(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
 
         _mock_cfg(tmp_path, monkeypatch)
@@ -302,7 +302,7 @@ class TestOrphansDrop:
 
 class TestBatchDeletes:
     def test_delete_entries_batch(self, tmp_path: Path) -> None:
-        from rebrew.metadata import delete_entries_batch, get_entry, save_metadata
+        from rebrew.metadata.functions import delete_entries_batch, get_entry, save_metadata
 
         save_metadata(
             tmp_path,
@@ -316,7 +316,7 @@ class TestBatchDeletes:
         assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "STUB"
 
     def test_delete_data_entries_batch(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import delete_data_entries_batch, get_data_entry, set_data_field
+        from rebrew.metadata.data import delete_data_entries_batch, get_data_entry, set_data_field
 
         set_data_field(tmp_path, 0x1000, "section", ".data", module="SERVER")
         set_data_field(tmp_path, 0x2000, "section", ".rdata", module="SERVER")
@@ -328,7 +328,7 @@ class TestBatchDeletes:
     def test_earned_orphan_held_back(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, earned: str
     ) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
 
         _mock_cfg(tmp_path, monkeypatch)
@@ -353,7 +353,7 @@ class TestBatchDeletes:
     def test_include_matched_prunes_all(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
 
         _mock_cfg(tmp_path, monkeypatch)
@@ -406,7 +406,7 @@ class TestCorruptInventoryFailClosed:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.config import FUNCTION_STRUCTURE_JSON
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
 
         _mock_cfg(tmp_path, monkeypatch)

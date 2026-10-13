@@ -240,7 +240,7 @@ def rename_global(cfg: Any, module: str, va: int, old_name: str, new_name: str) 
     native ``link_symbol``) move together.  Returns ``None`` on success, else
     the reason the rename was refused; nothing is written then.
     """
-    from rebrew.data_metadata import get_data_entry
+    from rebrew.metadata.data import get_data_entry
     from rebrew.rename_ops import (
         KIND_DATA,
         RenameError,
@@ -277,7 +277,7 @@ def _apply_global_fields(
     origin: dict[str, str] | None = None,
 ) -> None:
     """Write accepted BinSync global *fields* (and their origins) into rebrew-data.toml."""
-    from rebrew.data_metadata import get_data_entry, set_data_fields_batch
+    from rebrew.metadata.data import get_data_entry, set_data_fields_batch
 
     entry = get_data_entry(metadata_dir, va, module)
     writes = {k: v for k, v in fields.items() if entry.get(k) != v}
@@ -506,8 +506,8 @@ def _queue_stub_identity(
     proto: str,
 ) -> None:
     """Queue the identity row for a stub file. STATUS is queued separately."""
-    from rebrew.annotation import derive_c_symbol
-    from rebrew.metadata import identity_file
+    from rebrew.metadata.annotation import derive_c_symbol
+    from rebrew.metadata.functions import identity_file
 
     rows.append(
         {
@@ -789,7 +789,7 @@ def import_state(
                 log.warning("Cannot read stub %s for VA 0x%x: %s", out_path, va, exc)
                 unfinished = False
             if unfinished:
-                from rebrew.metadata import get_entry
+                from rebrew.metadata.functions import get_entry
 
                 if not get_entry(cfg.metadata_dir, va, mod).get("status"):
                     size_hint = int(getattr(local, "size", 0) or 0)
@@ -908,7 +908,7 @@ def import_state(
         # Note import from [comments] (independent of name/prototype)
         bs_note = bs_entry.get("note", "")
         if bs_note or ("note" in bs_entry and (va, "note") in remote_changes):
-            from rebrew.metadata import get_entry
+            from rebrew.metadata.functions import get_entry
 
             local_mod = _entry_module(cfg, local)
             if not local_mod:
@@ -996,7 +996,7 @@ def import_state(
                     if local_filepath:
                         fp = Path(cfg.reversed_dir) / local_filepath
                         if _inside_project(fp, cfg) and fp.exists():
-                            from rebrew.metadata import get_entry, set_fields
+                            from rebrew.metadata.functions import get_entry, set_fields
 
                             origins = dict(
                                 get_entry(cfg.metadata_dir, va, _entry_module(cfg, local)).get(
@@ -1046,7 +1046,7 @@ def import_state(
             console.print(f"  CONFLICT 0x{va:08x}: local={local_name!r} vs binsync={bs_name!r}")
 
     if stub_identities or stub_statuses:
-        from rebrew.metadata import record_migrated_markers, update_statuses_batch
+        from rebrew.metadata.functions import record_migrated_markers, update_statuses_batch
 
         if stub_identities:
             record_migrated_markers(cfg.metadata_dir, stub_identities)
@@ -1059,7 +1059,7 @@ def import_state(
     # Compared against the same local projection the baseline uses, so a
     # global whose shared fields already agree is not rewritten (no new
     # stamps, no origins) and a repeated pull is a no-op.
-    from rebrew.data_metadata import get_data_entry
+    from rebrew.metadata.data import get_data_entry
 
     for va, bs_entry in sorted(globals_by_va.items()):
         bs_name = bs_entry.get("name", "")
@@ -1340,7 +1340,7 @@ def import_state(
                     log.warning("ANALYSIS marker write failed for %s", filepath, exc_info=True)
 
     if not dry_run:
-        from rebrew.metadata import set_fields_batch
+        from rebrew.metadata.functions import set_fields_batch
 
         set_fields_batch(
             cfg.metadata_dir,

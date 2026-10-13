@@ -1,10 +1,10 @@
-"""metadata_doc.py — qualified-key algebra and document access for the metadata TOMLs.
+"""metadata/document.py — qualified-key algebra and document access for the metadata TOMLs.
 
 ``rebrew-functions.toml`` and ``rebrew-data.toml`` are keyed by *qualified
 module+VA string* (``SERVER.0x01006364``).  The key spelling, the parse to
 ``{(module, va): fields}``, the stat-fingerprinted read cache and the
 write lock around a read-modify-write are one concern shared by
-:mod:`rebrew.metadata` (function store) and :mod:`rebrew.data_metadata` (data
+:mod:`rebrew.metadata.functions` (function store) and :mod:`rebrew.metadata.data` (data
 store); they live here so neither store hands-rolls a second copy.
 
 Leaf module: it imports :mod:`rebrew.utils` and nothing else from rebrew, so
@@ -46,8 +46,8 @@ _METADATA_WRITE_DEPTH = threading.local()
 def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
     """Thread + cross-process lock around a metadata read-modify-write.
 
-    Shared by ``metadata.py`` (``rebrew-functions.toml``) and
-    ``data_metadata.py`` (``rebrew-data.toml``).  The thread lock serializes
+    Shared by ``metadata/functions.py`` (``rebrew-functions.toml``) and
+    ``metadata/data.py`` (``rebrew-data.toml``).  The thread lock serializes
     in-process writers (``rebrew verify --jobs``, GA batch promotion); an
     advisory ``flock`` on a ``.lock`` sidecar serializes *concurrent
     processes* (e.g. ``rebrew verify --watch`` in one terminal while
@@ -210,7 +210,7 @@ def load_metadata_doc(
 def qualified_key(module: str | None, va: int) -> str:
     """Return the canonical TOML key for *(module, va)*.
 
-    Used by both ``metadata.py`` and ``data_metadata.py`` for consistent
+    Used by both ``metadata/functions.py`` and ``metadata/data.py`` for consistent
     key encoding in ``rebrew-functions.toml`` / ``rebrew-data.toml``.
 
     Examples::
@@ -293,7 +293,7 @@ def resolve_metadata_key(
 
     Uses whatever spelling the store already has, and returns the canonical
     key when the entry is absent so callers can create it. Duplicate identities
-    raise before any write. Shared by ``metadata.py`` and ``data_metadata.py``.
+    raise before any write. Shared by ``metadata/functions.py`` and ``metadata/data.py``.
 
     Pass *index* (from :func:`build_metadata_key_index`) on batch writers so
     each resolve stays O(1); without it, build the checked index once for this
@@ -327,7 +327,7 @@ def parse_metadata_doc(
     Accepts either a tomlkit ``TOMLDocument`` (writes) or a plain ``dict``
     from ``tomllib`` (fast reads).  Entries whose key is not a qualified
     ``MODULE.0xVA`` form, or whose value is not a table, are skipped.  Shared
-    by ``metadata.py`` and ``data_metadata.py``.
+    by ``metadata/functions.py`` and ``metadata/data.py``.
 
     Two keys that parse to the same ``(module, va)``, e.g. ``0x24000`` and
     ``0x00024000``, are merged field by field (the later key wins a contested

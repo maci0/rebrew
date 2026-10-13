@@ -165,7 +165,7 @@ def test_config_change_regenerates_library_order(tmp_path: Path) -> None:
 @pytest.mark.parametrize("metadata_in_src", [False, True])
 def test_migrated_library_sources_keep_target_scope(tmp_path: Path, metadata_in_src: bool) -> None:
     """Project-root bindings select their owners rather than the unannotated fallback."""
-    from rebrew.metadata import record_function_identity, save_metadata
+    from rebrew.metadata.functions import record_function_identity, save_metadata
 
     _project(
         tmp_path,

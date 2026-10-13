@@ -36,14 +36,14 @@ class TestMigrateMarkersEndToEnd:
         )
         # require_config is invoked through the CLI; bypass it by calling
         # the internal path directly with a stub cfg.
-        from rebrew.annotation import parse_c_file_multi
+        from rebrew.metadata.annotation import parse_c_file_multi
         from rebrew.sources import iter_sources
 
         annos = parse_c_file_multi(src / "func.c", metadata_dir=tmp_path)
         assert annos, "pre-migration: file must parse with inline markers"
 
         results = []
-        from rebrew.marker_migration import migrate_source_file
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         for s in iter_sources(src, cfg):
             row = migrate_source_file(cfg, s, "S", dry_run=False)
@@ -84,12 +84,12 @@ class TestMigrateMarkersEndToEnd:
         cfg = SimpleNamespace(
             root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
         )
-        from rebrew.marker_migration import migrate_source_file
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         row = migrate_source_file(cfg, src / "f.c", "S", dry_run=True)
         assert row is not None
         assert "FUNCTION:" in (src / "f.c").read_text(encoding="utf-8")
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         assert load_metadata(tmp_path) == {}
 
@@ -107,7 +107,7 @@ class TestMigrateMarkersEndToEnd:
         cfg = SimpleNamespace(
             root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
         )
-        from rebrew.marker_migration import migrate_source_file
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         row = migrate_source_file(cfg, src / "f.c", "S", dry_run=False)
         assert row is not None
@@ -133,7 +133,7 @@ class TestMigrateMarkersEndToEnd:
         cfg = SimpleNamespace(
             root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
         )
-        from rebrew.marker_migration import migrate_source_file
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         assert migrate_source_file(cfg, src / "f.c", "S", dry_run=False) is not None
         assert (src / "f.c").read_bytes() == body.encode("latin-1")
@@ -141,8 +141,8 @@ class TestMigrateMarkersEndToEnd:
     def test_concurrent_status_promotion_survives(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.metadata as md
-        from rebrew.marker_migration import migrate_source_file
+        import rebrew.metadata.functions as md
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -177,8 +177,8 @@ class TestMigrateMarkersEndToEnd:
     def test_failed_metadata_write_keeps_inline_markers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.metadata as md
-        from rebrew.marker_migration import migrate_source_file
+        import rebrew.metadata.functions as md
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -198,7 +198,7 @@ class TestMigrateMarkersEndToEnd:
         assert "// SIZE: 4" in (src / "f.c").read_text(encoding="utf-8")
 
     def test_corrupt_store_is_not_overwritten(self, tmp_path: Path) -> None:
-        from rebrew.marker_migration import migrate_source_file
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -218,8 +218,8 @@ class TestMigrateMarkersEndToEnd:
         assert "// SIZE: 4" in (src / "f.c").read_text(encoding="utf-8")
 
     def test_unrelated_store_content_survives(self, tmp_path: Path) -> None:
-        from rebrew.marker_migration import migrate_source_file
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -250,9 +250,9 @@ class TestMigrateMarkersEndToEnd:
 
     def test_inline_scalars_move_and_file_borne_comments_stay(self, tmp_path: Path) -> None:
         """A blocker on the marker block is metadata. The naked fence is not."""
-        from rebrew.annotation import parse_c_file_multi
-        from rebrew.marker_migration import migrate_source_file
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.annotation import parse_c_file_multi
+        from rebrew.metadata.functions import load_metadata
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -299,8 +299,8 @@ class TestMigrateMarkersEndToEnd:
         assert ann.blocker == entry["blocker"]
 
     def test_stored_blocker_wins_over_the_inline_copy(self, tmp_path: Path) -> None:
-        from rebrew.marker_migration import migrate_source_file
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -320,8 +320,8 @@ class TestMigrateMarkersEndToEnd:
         assert "inline reason" in Path(str(row["backup"])).read_text(encoding="utf-8")
 
     def test_data_note_is_filled_when_the_row_lacks_one(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import load_data_metadata
-        from rebrew.marker_migration import migrate_source_file
+        from rebrew.metadata.data import load_data_metadata
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -364,9 +364,9 @@ class TestLibraryInventoryMigration:
     def test_native_symbols_survive_marker_removal(
         self, tmp_path: Path, symbol: str, name: str
     ) -> None:
-        from rebrew.annotation import parse_library_header
-        from rebrew.marker_migration import migrate_source_file
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.annotation import parse_library_header
+        from rebrew.metadata.functions import get_entry
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -390,8 +390,8 @@ class TestLibraryInventoryMigration:
 
     def test_header_removal_preserves_bound_compiled_provider(self, tmp_path: Path) -> None:
         from rebrew.function_providers import compiled_library_annotations
-        from rebrew.marker_migration import migrate_source_file
-        from rebrew.metadata import get_entry, record_function_identity
+        from rebrew.metadata.functions import get_entry, record_function_identity
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -433,8 +433,8 @@ class TestOverlappingLibrarySourceMigration:
             compiled_library_annotations,
             resolve_library_providers,
         )
-        from rebrew.marker_migration import migrate_source_file
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
+        from rebrew.metadata.marker_migration import migrate_source_file
         from rebrew.verify import _library_header_rows
 
         src = tmp_path / "src"
@@ -489,8 +489,8 @@ class TestOverlappingLibrarySourceMigration:
 
     @pytest.mark.parametrize("dry_run", [True, False])
     def test_ambiguous_provider_keeps_header_and_store(self, tmp_path: Path, dry_run: bool) -> None:
-        from rebrew.marker_migration import migrate_source_file
-        from rebrew.metadata import METADATA_FILENAME, record_function_identity
+        from rebrew.metadata.functions import METADATA_FILENAME, record_function_identity
+        from rebrew.metadata.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()

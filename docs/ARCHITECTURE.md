@@ -35,8 +35,8 @@ flowchart LR
         META["rebrew-functions.toml<br/>STATUS/SIZE/CFLAGS/…"]
     end
 
-    C --> ANNOT["annotation.py<br/>parse_c_file_multi"]
-    META --> FACADE["metadata.py + metadata_model.py<br/>store, typed facade, merge_into_annotation"]
+    C --> ANNOT["metadata/annotation.py<br/>parse_c_file_multi"]
+    META --> FACADE["metadata/functions.py + metadata/model.py<br/>store, typed facade, merge_into_annotation"]
     TOML --> CFG["config.py<br/>ProjectConfig"]
 
     ANNOT --> MERGED["merged Annotation"]
@@ -78,8 +78,8 @@ flowchart LR
 | `rebrew/limits.py` | `NO_MAX_SIZE` / `NO_DELTA`, the "bound not measured" sentinels behind `--max-size` and `--max-delta`. A leaf so `match_run` can recognise an unset bound without importing the `skeleton` or `match_batch` command modules |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/workspace/` | Workspace-root discovery and the target list (`find_root`, `db_dir`, `default_target`, `config.py`'s resolved view, `status.py`, `va.py`). Stdlib-only leaf, so a tool needing just the project's directories and target names never pulls in LIEF, capstone, or tree-sitter. It resolves no coverage data: `db_dir` names the directory, `coverage_toml.py` reads it |
-| `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata), `iter_annotations` batch loader |
-| `rebrew/metadata.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELD_TYPES`, `METADATA_FIELDS`, `SYNC_FIELD_RULES`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata_model.py` (`MetadataEntry`) |
+| `rebrew/metadata/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata), `iter_annotations` batch loader |
+| `rebrew/metadata/functions.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELD_TYPES`, `METADATA_FIELDS`, `SYNC_FIELD_RULES`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata/model.py` (`MetadataEntry`) |
 | `rebrew/decompiler.py` | Pluggable decompiler backends for pseudo-C (`r2`/`rz` ghidra and dec, Ghidra via the ReVa MCP bridge, m2c for MIPS/PPC/ARM/SH), registered through the `rebrew.decompiler_backends` entry-point group. `fetch_decompilation` is the one entry point `rebrew skeleton --decomp` calls; `"auto"` picks the first backend that answers |
 | `rebrew/llm_seed.py` | Optional LLM-assisted GA seeding for `rebrew match run --seed-llm`: asks the `[llm]` endpoint for alternative C, keeps only tree-sitter-valid single-function snippets, injects them as extra seeds. Off by default; with no endpoint the flag warns and the GA runs unchanged |
 | `rebrew/compiler/compile.py` | Compile (docker image by default; host binary only for plugin toolchains without `image`) + compare → `CompareResult` |
@@ -177,7 +177,7 @@ would be a second answer to that question. See
 
 ## Metadata routing and provenance
 
-[`metadata.py`](../src/rebrew/metadata.py) owns `METADATA_FIELD_TYPES`,
+[`metadata/functions.py`](../src/rebrew/metadata/functions.py) owns `METADATA_FIELD_TYPES`,
 `METADATA_FIELDS`, and `SYNC_FIELD_RULES`. The typed facade, data-field schemas,
 linter, and integration projections reuse those definitions. Keep field shapes
 and native sync permissions there rather than copying catalogs into callers.

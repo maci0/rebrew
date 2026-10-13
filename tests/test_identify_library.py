@@ -19,7 +19,7 @@ from rebrew.identify_library import (
     write_candidates,
 )
 from rebrew.main import app
-from rebrew.metadata import get_entry
+from rebrew.metadata.functions import get_entry
 from rebrew.utils import library_header_name, pe_name_token
 
 _LIBRARY_BANNER = "/* Library function identities live in rebrew-functions.toml. */\n"
@@ -177,7 +177,7 @@ class TestWriteCandidates:
         (cfg.reversed_dir).mkdir()
         calls: list[object] = []
         monkeypatch.setattr(
-            "rebrew.annotation.update_annotation_key",
+            "rebrew.metadata.annotation.update_annotation_key",
             lambda *a, **k: calls.append((a, k)),
         )
         cands = [
@@ -216,7 +216,7 @@ class TestWriteCandidates:
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir).mkdir()
         monkeypatch.setattr(
-            "rebrew.annotation.update_annotation_key",
+            "rebrew.metadata.annotation.update_annotation_key",
             lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not write")),
         )
         cands = [
@@ -241,7 +241,7 @@ class TestWriteCandidates:
         (cfg.reversed_dir).mkdir()
         calls: list[object] = []
         monkeypatch.setattr(
-            "rebrew.annotation.update_annotation_key",
+            "rebrew.metadata.annotation.update_annotation_key",
             lambda *a, **k: calls.append((a, k)),
         )
         cands = [

@@ -23,7 +23,6 @@ from pathlib import Path
 
 import typer
 
-from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.cli import (
     TargetOption,
     console,
@@ -32,7 +31,8 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.function_providers import bind_library_source
-from rebrew.metadata import load_metadata
+from rebrew.metadata.annotation import Annotation, parse_c_file_multi
+from rebrew.metadata.functions import load_metadata
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import (
     atomic_write_text,

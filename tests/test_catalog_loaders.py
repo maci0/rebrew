@@ -234,7 +234,7 @@ class TestScanReversedDirLibraryHeaders:
         from types import SimpleNamespace
 
         from rebrew.catalog.loaders import scan_reversed_dir
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata.functions import save_metadata
 
         src = tmp_path / "src"
         src.mkdir()
@@ -263,7 +263,7 @@ class TestScanReversedDirLibraryHeaders:
         from types import SimpleNamespace
 
         from rebrew.catalog.loaders import scan_reversed_dir
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata.functions import save_metadata
 
         src = tmp_path / "src"
         src.mkdir()

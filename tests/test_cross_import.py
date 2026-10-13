@@ -286,7 +286,7 @@ class TestExtractSingleFunction:
         )
 
         from rebrew.compiler.compile import CompareResult
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         seen: dict[str, Any] = {}
 
@@ -528,7 +528,7 @@ class TestImportMechanics:
         assert res["filepath"] == "Units/vfs/f1.c"
         assert (cfg_dst.reversed_dir / "Units" / "vfs" / "f1.c").exists()
 
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         assert load_metadata(cfg_dst.metadata_dir)[("DST", B_F1)]["cflags"] == f"/O1 /Gd /I{sub}"
 
@@ -545,7 +545,7 @@ class TestImportMechanics:
         )
 
         from rebrew.compiler.compile import CompareResult
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         seen: dict[str, Any] = {}
 
@@ -732,7 +732,7 @@ class TestImportMechanics:
         assert text == "int f1(void){ return 1; }\n"
         assert "FUNCTION:" not in text
         assert "return 0" not in text
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         row = get_entry(tmp_path, B_F1, "DST")
         assert row["marker_type"] == "FUNCTION"
@@ -751,7 +751,7 @@ class TestImportMechanics:
             encoding="utf-8",
         )
         from rebrew.compiler.compile import CompareResult
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         applied: list[Any] = []
 
@@ -788,7 +788,7 @@ class TestImportMechanics:
         src_path = cfg_src.reversed_dir / "f1.c"
         src_path.write_text(body, encoding="utf-8")
         from rebrew.compiler.compile import CompareResult
-        from rebrew.metadata import get_entry, identity_file, record_function_identity
+        from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
 
         record_function_identity(
             tmp_path,
@@ -915,7 +915,7 @@ class TestSizelessMatching:
     def test_matched_donor_uses_managed_body_extent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
 
         pa = tmp_path / "a.exe"
         pa.write_bytes(_pe_a())
@@ -928,7 +928,7 @@ class TestSizelessMatching:
     def test_donor_extent_is_target_scoped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import update_field
+        from rebrew.metadata.functions import update_field
 
         pa = tmp_path / "a.exe"
         pa.write_bytes(_pe_a())
@@ -1186,7 +1186,7 @@ class TestMingwEndToEnd:
         cfg_dst = _cfg("DST", pb)
         # Source side: a matched function (metadata STATUS EXACT) with a
         # compilable source file.
-        from rebrew.metadata import update_source_status
+        from rebrew.metadata.functions import update_source_status
 
         update_source_status(cfg_src.metadata_dir, "EXACT", "SRC", A_F1)
         (cfg_src.reversed_dir / "f1.c").write_text(
@@ -1212,7 +1212,7 @@ class TestMingwEndToEnd:
         assert "FUNCTION:" not in text
         assert "SIZE:" not in text
         assert "int f1(void){ return 1; }" in text
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         row = get_entry(cfg_dst.metadata_dir, B_F1, "DST")
         assert row["marker_type"] == "FUNCTION"
@@ -1316,7 +1316,7 @@ class TestSharedImport:
         assert text == "int f1(void){ return 1; }\n"
         assert "FUNCTION:" not in text
         assert not (dst_rev / "f1.c").exists()  # no copy: one file serves both
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         row = get_entry(tmp_path, B_F1, "DST")
         assert row["marker_type"] == "FUNCTION"
@@ -1359,8 +1359,8 @@ class TestPromoteToShared:
         cfg.metadata_dir = tmp_path
         src = cfg.reversed_dir / "f1.c"
         src.write_text("int f1(void){ return 1; }\n", encoding="utf-8")
-        from rebrew.data_metadata import load_data_metadata, record_migrated_data_markers
-        from rebrew.metadata import get_entry, identity_file, record_function_identity
+        from rebrew.metadata.data import load_data_metadata, record_migrated_data_markers
+        from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
 
         record_function_identity(
             tmp_path,
@@ -1652,8 +1652,8 @@ class TestSharedSupersede:
     def test_shared_import_preserves_other_stub_owners(
         self, tmp_path: Path, monkeypatch, owner: str
     ) -> None:
-        from rebrew.data_metadata import load_data_metadata, record_migrated_data_markers
-        from rebrew.metadata import load_metadata, record_function_identity, update_field
+        from rebrew.metadata.data import load_data_metadata, record_migrated_data_markers
+        from rebrew.metadata.functions import load_metadata, record_function_identity, update_field
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
         (cfg_src.shared_dir / "f1.c").write_text(
@@ -1752,7 +1752,7 @@ class TestSharedSupersede:
     def test_shared_stub_is_retired_only_after_its_last_target_moves(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        from rebrew.metadata import get_entry, record_function_identity
+        from rebrew.metadata.functions import get_entry, record_function_identity
 
         src, dst = self._cfgs(tmp_path)
         (src.shared_dir / "f1.c").write_text(
@@ -1821,7 +1821,12 @@ class TestSharedSupersede:
         claim restores the destination's own cflags override and leaves the
         stub's earned STATUS untouched."""
         from rebrew.compiler.compile import CompareResult
-        from rebrew.metadata import get_entry, load_metadata, update_field, update_source_status
+        from rebrew.metadata.functions import (
+            get_entry,
+            load_metadata,
+            update_field,
+            update_source_status,
+        )
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
         (cfg_src.shared_dir / "f1.c").write_text(
@@ -1860,7 +1865,7 @@ class TestSharedSupersede:
     ) -> None:
         """A rejected claim writes no flags or empty metadata table."""
         from rebrew.compiler.compile import CompareResult
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
         (cfg_src.shared_dir / "f1.c").write_text(
@@ -1900,7 +1905,7 @@ class TestSharedSupersede:
         write back. The file text is not rewritten.
         """
         from rebrew.compiler.compile import CompareResult
-        from rebrew.metadata import get_entry, update_field
+        from rebrew.metadata.functions import get_entry, update_field
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
         original = (
@@ -1945,7 +1950,12 @@ class TestSharedSupersede:
         and does not roll cflags back.
         """
         from rebrew.compiler.compile import CompareResult
-        from rebrew.metadata import get_entry, identity_file, record_function_identity, update_field
+        from rebrew.metadata.functions import (
+            get_entry,
+            identity_file,
+            record_function_identity,
+            update_field,
+        )
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
         path = cfg_src.shared_dir / "f1.c"
@@ -2052,7 +2062,7 @@ class TestSharedCflagsPortable:
 
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "Units/vfs/f1.c", 11)
         assert res["action"] == "imported-shared"
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         cflags = load_metadata(cfg_dst.metadata_dir)[("DST", B_F1)]["cflags"]
         assert cflags == "/O1 /Gd"
@@ -2261,7 +2271,7 @@ class TestUnifiedTreeMarkerMove:
         assert "FUNCTION:" not in text
         assert "return 1" in text
         assert "return 0" in text  # the other body is not dropped
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         row = get_entry(tmp_path, 0x401040, "DST")
         assert row["marker_type"] == "FUNCTION"
@@ -2757,8 +2767,8 @@ class TestMergedInventoryEntry:
         return sizes
 
     def _dst_sizes(self, cfg_dst: SimpleNamespace, path: Path) -> tuple[int, Any]:
-        from rebrew.annotation import parse_c_file_multi
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.annotation import parse_c_file_multi
+        from rebrew.metadata.functions import get_entry
 
         text = path.read_text(encoding="utf-8")
         assert "FUNCTION:" not in text
@@ -2811,7 +2821,7 @@ class TestMergedInventoryEntry:
 
         import rebrew.verify as verify
         from rebrew.formats.binary_loader import extract_raw_bytes
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         src, dst = self._cfgs(tmp_path, _merged_pe())
         apply_updates = verify.apply_status_updates
@@ -2847,7 +2857,7 @@ class TestMergedInventoryEntry:
     def test_verified_import_replaces_wrong_identity_name(
         self, tmp_path: Path, monkeypatch, shared: bool
     ) -> None:
-        from rebrew.metadata import get_entry, record_function_identity
+        from rebrew.metadata.functions import get_entry, record_function_identity
 
         src, dst = self._cfgs(tmp_path, _merged_pe())
         identity_file = "src/f.c"
@@ -2878,7 +2888,7 @@ class TestMergedInventoryEntry:
 
     def test_shared_import_uses_selected_function_flags(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.verify as verify
-        from rebrew.metadata import record_function_identity
+        from rebrew.metadata.functions import record_function_identity
 
         src, dst = self._cfgs(tmp_path, _merged_pe())
         path = src.reversed_dir / "f.c"
@@ -2925,8 +2935,8 @@ class TestMergedInventoryEntry:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         import rebrew.verify as verify
-        from rebrew.annotation import Annotation
         from rebrew.compiler.compile import CompareResult
+        from rebrew.metadata.annotation import Annotation
 
         _src, dst = self._cfgs(tmp_path, _merged_pe())
         self._verify(monkeypatch)
@@ -2962,7 +2972,7 @@ class TestMergedInventoryEntry:
         assert entry.comparison_inputs == {"reference_size": str(_MERGED_ENTRY)}
 
     def test_failed_import_keeps_existing_identity_name(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.metadata import get_entry, record_function_identity
+        from rebrew.metadata.functions import get_entry, record_function_identity
 
         src, dst = self._cfgs(tmp_path, _merged_pe())
         record_function_identity(
@@ -2986,7 +2996,7 @@ class TestMergedInventoryEntry:
     def test_inherited_flags_remove_stale_destination_override(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        from rebrew.metadata import get_entry, record_function_identity
+        from rebrew.metadata.functions import get_entry, record_function_identity
 
         src, dst = self._cfgs(tmp_path, _merged_pe())
         dst.cflags = "/O2 /Gd"
@@ -3013,7 +3023,7 @@ class TestMergedInventoryEntry:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         import rebrew.verify as verify
-        from rebrew.metadata import (
+        from rebrew.metadata.functions import (
             get_entry,
             record_function_identity,
             update_field,

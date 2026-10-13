@@ -84,13 +84,13 @@ from typing import TYPE_CHECKING, Any
 import typer
 from rich.table import Table
 
-from rebrew.annotation import iter_annotations
 from rebrew.cli import (
     error_exit,
     json_print,
     require_config,
 )
 from rebrew.layout_meta import SectionMeta
+from rebrew.metadata.annotation import iter_annotations
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import atomic_write_text, library_header_name, parse_int_literal, untrusted_ident
 from rebrew.workspace.config import config_path
@@ -1079,13 +1079,13 @@ def _layout_sections(
 def _existing_annotations(cfg: Any) -> dict[int, tuple[str, str]]:
     """``va -> ("MARKER name", path)`` for every annotation already in the project.
 
-    Sources come through :func:`rebrew.annotation.iter_annotations` (the shared batch
+    Sources come through :func:`rebrew.metadata.annotation.iter_annotations` (the shared batch
     reader) and ``library_*.h`` headers through
-    :func:`rebrew.annotation.parse_library_header`, so the import sees every
+    :func:`rebrew.metadata.annotation.parse_library_header`, so the import sees every
     way an address can already be claimed.  Paths are relative to
     ``reversed_dir`` so they compare against a planned file directly.
     """
-    from rebrew.annotation import parse_library_header
+    from rebrew.metadata.annotation import parse_library_header
 
     existing: dict[int, tuple[str, str]] = {}
     sources = list(iter_sources(cfg.reversed_dir, cfg))
@@ -1274,7 +1274,7 @@ def _annotation_state(
 
 def _file_annotates(path: Path, va: int) -> bool:
     """True when *path* holds an annotation block for *va*."""
-    from rebrew.annotation import parse_c_file_multi
+    from rebrew.metadata.annotation import parse_c_file_multi
 
     try:
         return any(a.va == va for a in parse_c_file_multi(path))
@@ -1393,7 +1393,7 @@ def _marker_line(kind: str, module: str, va: int, declaration: str) -> str:
     gets a comment that is not the legacy marker grammar (no colon after
     the kind). Identity is recorded in the metadata stores.
     """
-    from rebrew.annotation import DATA_MARKERS
+    from rebrew.metadata.annotation import DATA_MARKERS
 
     if kind in DATA_MARKERS:
         text = declaration
@@ -1547,8 +1547,8 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> l
     The body comes from :func:`rebrew.skeleton.generate_skeleton`. Identity,
     ``SIZE``/``BLOCKER``, and ``STATUS`` go to ``rebrew-functions.toml``.
     """
-    from rebrew.annotation import derive_c_symbol
-    from rebrew.metadata import (
+    from rebrew.metadata.annotation import derive_c_symbol
+    from rebrew.metadata.functions import (
         identity_file,
         record_migrated_markers,
         set_fields_batch,
@@ -1606,8 +1606,8 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> l
 
 def _write_data(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[str]:
     """Write data declarations and their ``rebrew-data.toml`` identity."""
-    from rebrew.data_metadata import record_migrated_data_markers, set_data_fields_batch
-    from rebrew.metadata import identity_file
+    from rebrew.metadata.data import record_migrated_data_markers, set_data_fields_batch
+    from rebrew.metadata.functions import identity_file
 
     written: list[str] = []
     updates: list[dict[str, Any]] = []

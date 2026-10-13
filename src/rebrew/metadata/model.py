@@ -1,6 +1,6 @@
-"""metadata_model.py — typed facade over ``rebrew-functions.toml`` entries.
+"""metadata/model.py — typed facade over ``rebrew-functions.toml`` entries.
 
-The raw metadata layer (:mod:`rebrew.metadata`) stores entries as plain
+The raw metadata layer (:mod:`rebrew.metadata.functions`) stores entries as plain
 ``dict[str, Any]`` keyed by ``(module, va)``.  Field routing bugs live in the
 gaps: callers guessing whether a key belongs in metadata or the ``.c`` file,
 writing STATUS through the wrong writer, or storing the wrong value type.
@@ -9,13 +9,13 @@ This module provides a typed, validated view of one entry:
 
 * :class:`MetadataEntry.load` — read + coerce an entry into typed fields.
 * :meth:`MetadataEntry.apply` — validate every field, route STATUS through
-  the promotion gate (:func:`rebrew.metadata.update_statuses_batch`) and
+  the promotion gate (:func:`rebrew.metadata.functions.update_statuses_batch`) and
   write the rest in a single read-modify-write.
 * :meth:`MetadataEntry.remove` — typed removal with the STATUS guard.
 * :meth:`MetadataEntry.problems` — human-readable validation problems.
 
 Routing is enforced by construction: only keys in
-``rebrew.metadata.METADATA_FIELDS`` can be written (``file``/``legacy``/
+``rebrew.metadata.functions.METADATA_FIELDS`` can be written (``file``/``legacy``/
 ``unknown`` keys raise :class:`MetadataValidationError`), STATUS only via the
 promotion gate, and ``size``/``blocker_delta`` are coerced to ``int``.
 """
@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.errors import RebrewError
-from rebrew.metadata import (
+from rebrew.metadata.functions import (
     METADATA_FIELD_TYPES,
     METADATA_FIELDS,
     as_metadata_int,
@@ -171,7 +171,7 @@ class MetadataEntry:
         """Validate + write *fields* for this entry.
 
         * STATUS routes through the promotion gate
-          (:func:`rebrew.metadata.update_statuses_batch`) — *force* (default
+          (:func:`rebrew.metadata.functions.update_statuses_batch`) — *force* (default
           False) decides whether parked SKIP may be overwritten, exactly
           like the raw writer.  Pass ``force=True`` only for explicit
           user-intent writes.  Blockers are cleared only for byte-identical

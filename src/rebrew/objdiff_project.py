@@ -31,8 +31,8 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import iter_annotations
 from rebrew.cli import TargetOption, console, error_exit, require_config
+from rebrew.metadata.annotation import iter_annotations
 from rebrew.sources import (
     contained_path,
     iter_sources,
@@ -230,9 +230,9 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
     # per-function TOOLCHAIN/CFLAGS (and the per-module cflags preset), so
     # objdiff rebuilt the base object with different flags and showed a
     # mismatch for a function rebrew reports EXACT.
-    from rebrew.annotation import parse_c_file_multi
     from rebrew.compiler.compile import compile_to_obj
     from rebrew.compiler.overrides import resolve_compile_overrides
+    from rebrew.metadata.annotation import parse_c_file_multi
 
     annos = parse_c_file_multi(
         source, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir

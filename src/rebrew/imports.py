@@ -16,7 +16,6 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import NEW_FUNC_CAPTURE_RE, NEW_FUNC_RE
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
@@ -28,6 +27,7 @@ from rebrew.cli import (
 )
 from rebrew.config import module_marker
 from rebrew.formats.import_table import find_import_stubs, parse_imports
+from rebrew.metadata.annotation import NEW_FUNC_CAPTURE_RE, NEW_FUNC_RE
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.utils import pe_name_token, read_source_text, untrusted_text
 
@@ -82,8 +82,8 @@ def mark_import_stubs(
     rows. Import stubs detected in .text become LIBRARY functions that
     ``rebrew library crt-match`` can then attribute to CRT sources.
     """
-    from rebrew.marker_migration import migrate_source_file
-    from rebrew.metadata import identity_file, record_function_identity
+    from rebrew.metadata.functions import identity_file, record_function_identity
+    from rebrew.metadata.marker_migration import migrate_source_file
     from rebrew.naming import load_existing_vas
     from rebrew.utils import atomic_write_text
 

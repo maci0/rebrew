@@ -12,7 +12,7 @@ import pytest
 from typer.testing import CliRunner
 
 from rebrew.link_order import find_sources_block, normalize_listed, render_block
-from rebrew.metadata import record_function_identity
+from rebrew.metadata.functions import record_function_identity
 
 _TOML_CFG = """
 [project]

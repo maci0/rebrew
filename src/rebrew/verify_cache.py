@@ -34,8 +34,8 @@ from rebrew.workspace.status import MATCHED_STATUSES
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from rebrew.annotation import Annotation
     from rebrew.config import ProjectConfig
+    from rebrew.metadata.annotation import Annotation
 
 #: Current cache schema version (flat rows).  The container changed with the
 #: rest of the stores (JSON to TOML); the row schema did not, so the version
@@ -809,7 +809,7 @@ _VERIFY_CACHE_LOCK = threading.Lock()
 def _verify_cache_write_lock(cache_path: Path) -> Iterator[None]:
     """Thread + cross-process lock around a verify-cache read-modify-write.
 
-    Same discipline as ``rebrew.metadata_doc.metadata_write_lock``: the thread
+    Same discipline as ``rebrew.metadata.document.metadata_write_lock``: the thread
     lock serializes in-process writers; an advisory ``flock`` on a sidecar
     ``.lock`` file serializes concurrent processes (e.g. ``rebrew verify
     --watch`` saving while ``rebrew test`` patches a promotion — without

@@ -10,13 +10,13 @@ from typer.testing import CliRunner
 from rebrew.config import ProjectConfig
 from rebrew.lint import lint_file
 from rebrew.main import app
-from rebrew.rename_ops import RenamePlan
-from rebrew.source_provenance import (
+from rebrew.metadata.source_provenance import (
     SOURCE_PROVENANCE_FILENAME,
     document_assembly,
     function_definition_hashes,
     load_source_provenance,
 )
+from rebrew.rename_ops import RenamePlan
 
 SOURCE = (
     "/* ü: offsets must survive masking */\n"
@@ -316,7 +316,7 @@ class TestRenameProvenance:
     def test_failed_provenance_write_restores_the_source_and_move(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew import source_provenance
+        from rebrew.metadata import source_provenance
         from rebrew.rename_ops import RenameError, apply_rename_plan
 
         file = _source(tmp_path)

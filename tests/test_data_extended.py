@@ -354,7 +354,7 @@ class TestSetDataSize:
 
 class TestGenGlobalsHeader:
     def test_writes_header_from_annotations(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "globals.c").write_text(
@@ -373,7 +373,7 @@ class TestGenGlobalsHeader:
         assert "0x00001000" in text
 
     def test_dedup_by_va(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "a.c").write_text(
@@ -427,7 +427,7 @@ class TestGenGlobalsHeader:
         Regression: the metadata said float for double constants, and the
         header repeated the wrong spelling.
         """
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "consts.c").write_text(
@@ -452,7 +452,7 @@ class TestGenGlobalsHeader:
         declaration. The header kept the metadata type ``int``.
         ``int (*table[4])`` is four pointers.
         """
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "globals.c").write_text(
@@ -485,7 +485,7 @@ class TestGenGlobalsHeader:
 
     def test_metadata_type_used_without_source_decl(self, tmp_path: Path) -> None:
         """No VA-anchored decl: the metadata type still applies."""
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "globals.c").write_text(
@@ -631,7 +631,7 @@ class TestRenderers:
         text = out.read_text(encoding="utf-8")
         assert "// DATA:" not in text
         assert "char gap_00005004[16];" in text
-        from rebrew.data_metadata import get_data_entry, load_data_metadata
+        from rebrew.metadata.data import get_data_entry, load_data_metadata
 
         meta = load_data_metadata(tmp_path)
         assert any(m.get("size") == 16 and m.get("section") == ".bss" for m in meta.values())
@@ -1085,7 +1085,7 @@ class TestRenderDispatchAndBss:
 
 class TestGenGlobalsHeaderMetadata:
     def test_metadata_overlay_and_unknown_section(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "globals.c").write_text(
@@ -1113,7 +1113,7 @@ class TestGenGlobalsHeaderMetadata:
         bad = cfg.reversed_dir / "bad.c"
         bad.write_text("// DATA: SERVER 0x1000\nint x;\n", encoding="utf-8")
         real_parse = __import__(
-            "rebrew.annotation", fromlist=["parse_c_file_multi"]
+            "rebrew.metadata.annotation", fromlist=["parse_c_file_multi"]
         ).parse_c_file_multi
 
         def _flaky(src, **kw):
@@ -1121,7 +1121,7 @@ class TestGenGlobalsHeaderMetadata:
                 raise RuntimeError("boom")
             return real_parse(src, **kw)
 
-        monkeypatch.setattr("rebrew.annotation.parse_c_file_multi", _flaky)
+        monkeypatch.setattr("rebrew.metadata.annotation.parse_c_file_multi", _flaky)
         gen_globals_header(cfg, cfg.reversed_dir)
         out = cfg.reversed_dir / "rebrew_globals.h"
         assert out.exists()  # bad.c skipped, no crash
@@ -1151,7 +1151,7 @@ class TestDataMoreBranches:
 
     def test_gen_header_underscore_strip_and_unknown_section(self, tmp_path: Path) -> None:
         from rebrew.data_annotate import gen_globals_header
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "globals.c").write_text(
@@ -1195,7 +1195,7 @@ class TestDataMarkerScan:
         annotate a global defined in another TU.  The name and type live in
         rebrew-data.toml, so the entry must resolve from there instead of
         landing as "unknown"."""
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "a.c").write_text(
@@ -1212,7 +1212,7 @@ class TestDataMarkerScan:
 
     def test_markerless_row_uses_the_source_type(self, tmp_path: Path) -> None:
         """A pure-C file binds the data row, and a later header does not replace its type."""
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "a.c").write_text("extern unsigned char lut[256];\n", encoding="utf-8")
@@ -1228,7 +1228,7 @@ class TestDataMarkerScan:
         assert entry.conflict is False
 
     def test_inline_marker_does_not_also_bind_a_stored_row(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "a.c").write_text(
@@ -1243,7 +1243,7 @@ class TestDataMarkerScan:
         assert "g_other" not in scan.globals
 
     def test_header_does_not_adopt_a_source_row(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "lut.h").write_text("extern int lut[];\n", encoding="utf-8")
@@ -1257,7 +1257,7 @@ class TestDataMarkerScan:
         assert all(item.va != 0x10025000 for item in scan.globals.values())
 
     def test_other_target_row_is_not_bound(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "a.c").write_text("extern unsigned char lut[256];\n", encoding="utf-8")

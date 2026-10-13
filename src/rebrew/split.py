@@ -22,14 +22,6 @@ from typing import Any, TypedDict
 
 import typer
 
-from rebrew.annotation import (
-    FUNCTION_MARKERS,
-    NEW_FUNC_CAPTURE_RE,
-    NEW_KV_RE,
-    block_markers,
-    parse_c_file_multi,
-    split_annotation_sections,
-)
 from rebrew.c_parser import (
     extract_function_name_from_line,
     find_function_name_in_node,
@@ -45,7 +37,15 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.metadata import (
+from rebrew.metadata.annotation import (
+    FUNCTION_MARKERS,
+    NEW_FUNC_CAPTURE_RE,
+    NEW_KV_RE,
+    block_markers,
+    parse_c_file_multi,
+    split_annotation_sections,
+)
+from rebrew.metadata.functions import (
     identity_file,
     load_metadata,
     record_migrated_markers,
@@ -122,7 +122,7 @@ def _block_metadata(block: str) -> _BlockMeta | None:
             continue
         if stripped.startswith("//"):
             continue
-        # Try to extract function name from C definition (same regex as annotation.py).
+        # Try to extract function name from C definition (same regex as metadata/annotation.py).
         # Skip forward declarations (ending with ';').
         if not c_func_name and not stripped.rstrip().endswith(";"):
             func_result = extract_function_name_from_line(stripped)

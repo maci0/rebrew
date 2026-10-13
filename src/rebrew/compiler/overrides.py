@@ -69,7 +69,7 @@ def resolve_overrides_steps(
     cflags = (per_function_cflags or "").strip()
     steps.append({"source": "function", "toolchain": toolchain or "", "cflags": cflags})
     if toolchain is None or not cflags:
-        from rebrew.metadata import find_library_override
+        from rebrew.metadata.functions import find_library_override
 
         root = getattr(cfg, "root", None) if cfg is not None else None
         ovr = find_library_override(source_dir, root)
@@ -168,7 +168,7 @@ def _override_memo_key(
       declares only ``library = "..."``, and that write touches no file the
       file fingerprint can see.
     """
-    from rebrew.metadata import library_override_fingerprint, library_presets_generation
+    from rebrew.metadata.functions import library_override_fingerprint, library_presets_generation
 
     return (
         str(getattr(cfg, "root", "")),

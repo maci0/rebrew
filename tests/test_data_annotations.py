@@ -2,11 +2,6 @@
 
 import json
 
-from rebrew.annotation import (
-    VALID_MARKERS,
-    Annotation,
-    parse_new_format,
-)
 from rebrew.data_layout import estimate_type_size as _estimate_type_size
 from rebrew.data_scan import (
     BssEntry,
@@ -15,6 +10,11 @@ from rebrew.data_scan import (
     GlobalEntry,
     ScanResult,
     verify_bss_layout,
+)
+from rebrew.metadata.annotation import (
+    VALID_MARKERS,
+    Annotation,
+    parse_new_format,
 )
 
 # ---------------------------------------------------------------------------

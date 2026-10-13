@@ -47,7 +47,6 @@ import typer
 from rich.markup import escape
 
 from rebrew.analysis import direct_call_target, direct_jump_target
-from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog import load_function_structure
 from rebrew.cli import (
     EXIT_ERROR,
@@ -59,6 +58,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.metadata.annotation import parse_c_file_multi
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.sources import (
     iter_sources,
@@ -1435,7 +1435,7 @@ def _record_inline_c_identity(
     cfg: ProjectConfig, path: Path, va: int, code: bytes, symbol: str | None
 ) -> None:
     """Record the written naked skeleton. SOURCE naked stays in the file."""
-    from rebrew.metadata import identity_file, record_function_identity
+    from rebrew.metadata.functions import identity_file, record_function_identity
 
     sym = symbol or f"_func_{va:08x}"
     record_function_identity(

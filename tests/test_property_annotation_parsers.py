@@ -19,7 +19,7 @@ from pathlib import Path
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.annotation import (
+from rebrew.metadata.annotation import (
     VALID_MARKERS,
     block_markers,
     parse_new_format,

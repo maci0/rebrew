@@ -115,7 +115,7 @@ def test_pat_line_rejects_tampered_bytes(code: bytes, reloc_offsets: list[int]) 
 
 
 # ---------------------------------------------------------------------------
-# Annotation block parsing (rebrew.annotation)
+# Annotation block parsing (rebrew.metadata.annotation)
 # ---------------------------------------------------------------------------
 
 
@@ -275,7 +275,7 @@ def test_crc16_flirt_known_vectors() -> None:
 def test_annotation_block_roundtrip(
     data: tuple[list[str], int, str | None, int | None, str | None],
 ) -> None:
-    from rebrew.annotation import parse_new_format
+    from rebrew.metadata.annotation import parse_new_format
 
     lines, va, status, size, cflags = data
     ann = parse_new_format(lines)
@@ -294,7 +294,7 @@ def test_annotation_block_roundtrip(
 @given(st.integers(min_value=0, max_value=0xFFFFFFFF))
 def test_annotation_va_hex_roundtrip(va: int) -> None:
     """0x%08x formatting must round-trip through the marker regex."""
-    from rebrew.annotation import parse_new_format
+    from rebrew.metadata.annotation import parse_new_format
 
     ann = parse_new_format([f"// FUNCTION: SERVER 0x{va:08x}", "int fn(void) { return 0; }"])
     assert ann is not None
@@ -395,7 +395,7 @@ def test_annotation_parsers_robust_on_malformed_lines(lines: list[str]) -> None:
     """
     from collections import Counter
 
-    from rebrew.annotation import (
+    from rebrew.metadata.annotation import (
         NEW_FUNC_CAPTURE_RE,
         parse_new_format,
         parse_new_format_multi,
@@ -445,7 +445,7 @@ def test_annotation_marker_survives_garbage(data: tuple[list[str], int]) -> None
     Also guards against phantom annotations: every returned VA must come
     from an actual marker line in the input.
     """
-    from rebrew.annotation import NEW_FUNC_CAPTURE_RE, parse_new_format_multi
+    from rebrew.metadata.annotation import NEW_FUNC_CAPTURE_RE, parse_new_format_multi
 
     lines, va = data
     anns = parse_new_format_multi(lines)
@@ -908,9 +908,9 @@ def test_build_coverage_data_reorder_invariant(statuses: list[str]) -> None:
     """
     import random
 
-    from rebrew.annotation import Annotation
     from rebrew.catalog.grid import build_coverage_data
     from rebrew.formats.binary_loader import load_binary
+    from rebrew.metadata.annotation import Annotation
 
     fixtures = Path(__file__).parent / "fixtures"
     info = load_binary(fixtures / "mini_pe.exe")

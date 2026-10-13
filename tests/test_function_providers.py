@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.annotation import Annotation
 from rebrew.catalog.loaders import scan_reversed_dir
 from rebrew.config import ProjectConfig
 from rebrew.function_providers import bind_library_source, resolve_library_providers
-from rebrew.metadata import record_migrated_markers
+from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.functions import record_migrated_markers
 
 
 def _project(tmp_path: Path) -> ProjectConfig:
@@ -55,7 +55,7 @@ class TestCompiledSources:
         from typer.testing import CliRunner
 
         from rebrew.library import app
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         cfg = _project(tmp_path)
         source = tmp_path / "vendor.c"
@@ -111,8 +111,8 @@ class TestCompiledSources:
         assert entry.marker_type == "LIBRARY"
         assert entry.status == "STUB"  # identification is not source verification
 
-        from rebrew.annotation import parse_c_file_multi
         from rebrew.cli import resolve_source_arg
+        from rebrew.metadata.annotation import parse_c_file_multi
 
         assert resolve_source_arg(cfg, "0x10001000") == source
         source.write_text(

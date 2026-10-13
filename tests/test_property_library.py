@@ -20,7 +20,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.metadata import (
+from rebrew.metadata.functions import (
     LIBRARY_METADATA_FILE,
     apply_library_presets,
     find_library_override,

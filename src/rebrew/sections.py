@@ -138,7 +138,7 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
     for entry in entries:
         if not entry.annotated:
             continue
-        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata.data import get_data_entry
 
         meta = (
             get_data_entry(cfg.metadata_dir, entry.va, module=entry.module)

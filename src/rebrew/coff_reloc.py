@@ -270,7 +270,7 @@ def build_name_to_va(
         # scan_globals only reads the .c sources; the annotated globals in
         # rebrew-data.toml carry the authoritative name↔VA pairs.  Without
         # them, DIR32 absolute-address validation silently no-ops.
-        from rebrew.data_metadata import load_data_metadata
+        from rebrew.metadata.data import load_data_metadata
 
         meta = load_data_metadata(cfg.metadata_dir)
         for (_module, va), entry in meta.items():
@@ -309,7 +309,7 @@ def build_name_to_va(
                 if isinstance(ann_name, str) and ann_name and isinstance(ann_va, int) and ann_va:
                     name_to_va[ann_name] = ann_va
         else:
-            from rebrew.annotation import parse_c_file_multi
+            from rebrew.metadata.annotation import parse_c_file_multi
 
             for path in iter_sources(cfg.reversed_dir, cfg):
                 for ann in parse_c_file_multi(

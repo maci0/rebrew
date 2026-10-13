@@ -193,8 +193,8 @@ class TestRecoverageContract:
     def test_verify_results_carry_their_measurement_columns(self, tmp_path, monkeypatch) -> None:
         """The dashboard's verify rows come from .rebrew/verify_cache.toml."""
         import rebrew.verify_cache as vc
-        from rebrew.annotation import Annotation
         from rebrew.config import load_config
+        from rebrew.metadata.annotation import Annotation
 
         root = _build_fixture_project(tmp_path, monkeypatch)
         cache_path = root / ".rebrew" / "verify_cache.toml"

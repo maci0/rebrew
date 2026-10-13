@@ -40,7 +40,7 @@ from rebrew.cli import (
 )
 from rebrew.compiler.compile import NEAR_MATCH_THRESHOLD
 from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.metadata import GA_CEILING_PREFIX
+from rebrew.metadata.functions import GA_CEILING_PREFIX
 from rebrew.naming import (
     detect_unmatchable,
     estimate_difficulty,
@@ -289,7 +289,7 @@ def _collect_active_functions(
     # 1. Gather all unique VAs between metadata and verify cache
     metadata_vas = set(existing.keys())
     verify_vas = set()
-    from rebrew.metadata_doc import canonical_va_key
+    from rebrew.metadata.document import canonical_va_key
 
     for va_str in verify_entries:
         va = canonical_va_key(va_str)
@@ -707,7 +707,7 @@ def load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     # with `canonical_va_key`, and every consumer looks entries up with
     # `f"0x{va:08x}"` — an unnormalized key was seen by the coverage header but
     # missed by the category/delta selection and the prove queue).
-    from rebrew.metadata_doc import canonical_va_key
+    from rebrew.metadata.document import canonical_va_key
 
     normalized: dict[str, VerifyCacheEntry] = {}
     for key, entry in data.entries.items():
@@ -1019,7 +1019,7 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
     (.data/.rdata vs .text), so no dedup against function items is needed.
     """
     from rebrew.data_layout import data_symbol_size
-    from rebrew.data_metadata import load_data_metadata, module_visible_to_target
+    from rebrew.metadata.data import load_data_metadata, module_visible_to_target
     from rebrew.status import postlink_copied_ranges, span_is_copied
 
     items: list[TodoItem] = []
@@ -1128,7 +1128,7 @@ def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
     tail, 84 import slots, 7 without a size).
     """
     from rebrew.data_layout import data_symbol_size
-    from rebrew.data_metadata import load_data_metadata, module_visible_to_target
+    from rebrew.metadata.data import load_data_metadata, module_visible_to_target
 
     in_zero_fill_tail = _zero_fill_tail_checker(cfg)
     items: list[TodoItem] = []
@@ -1266,9 +1266,9 @@ def _collect_missing_bindings(
     cfg: ProjectConfig, existing: dict[int, dict[str, str]]
 ) -> list[TodoItem]:
     """Keep missing managed definitions visible without claiming source coverage."""
-    from rebrew.annotation import derive_c_symbol
     from rebrew.c_parser import function_signatures
-    from rebrew.metadata import load_metadata
+    from rebrew.metadata.annotation import derive_c_symbol
+    from rebrew.metadata.functions import load_metadata
     from rebrew.sources import target_marker
     from rebrew.utils import preset_module_key, read_source_text, rel_display_path
 

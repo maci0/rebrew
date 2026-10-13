@@ -1,11 +1,11 @@
-"""Tests for rebrew.annotation — Annotation dataclass and parsers."""
+"""Tests for rebrew.metadata.annotation — Annotation dataclass and parsers."""
 
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from rebrew.annotation import (
+from rebrew.metadata.annotation import (
     Annotation,
     make_func_entry,
     parse_c_file_multi,
@@ -392,7 +392,7 @@ class TestMultiFunctionParsing:
     """Verify parse_new_format_multi and parse_c_file_multi."""
 
     def test_parse_two_functions(self) -> None:
-        from rebrew.annotation import parse_new_format_multi
+        from rebrew.metadata.annotation import parse_new_format_multi
 
         lines = [
             "// FUNCTION: SERVER 0x10001000",
@@ -423,7 +423,7 @@ class TestMultiFunctionParsing:
         assert results[1].module == "SERVER"
 
     def test_parse_three_with_code_between(self) -> None:
-        from rebrew.annotation import parse_new_format_multi
+        from rebrew.metadata.annotation import parse_new_format_multi
 
         lines = [
             "// FUNCTION: SERVER 0x10001000",
@@ -457,7 +457,7 @@ class TestMultiFunctionParsing:
         # U+2028 is legal inside a C comment (text pasted from a web page
         # carries it) and str.splitlines breaks there, so the value is stored
         # as its first fragment and the tail reads as code.
-        from rebrew.annotation import parse_c_file_multi
+        from rebrew.metadata.annotation import parse_c_file_multi
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -471,7 +471,7 @@ class TestMultiFunctionParsing:
         assert annos[0].callers == "café \u2028note"
 
     def test_single_function_returns_one(self) -> None:
-        from rebrew.annotation import parse_new_format_multi
+        from rebrew.metadata.annotation import parse_new_format_multi
 
         lines = [
             "// FUNCTION: SERVER 0x10001000",
@@ -486,7 +486,7 @@ class TestMultiFunctionParsing:
         assert results[0].va == 0x10001000
 
     def test_parse_c_file_multi_returns_all(self, tmp_path: Path) -> None:
-        from rebrew.annotation import parse_c_file_multi
+        from rebrew.metadata.annotation import parse_c_file_multi
 
         content = """\
 // FUNCTION: SERVER 0x10001000
@@ -553,7 +553,7 @@ int func_b(void) { return 1; }
         Regression test for the loadsave.c bug where all FUNCTION blocks had
         ``// SYMBOL: _ReadVfsDataChecked`` but were actually different functions.
         """
-        from rebrew.annotation import parse_new_format_multi
+        from rebrew.metadata.annotation import parse_new_format_multi
 
         lines = [
             "// STATUS: NEAR_MATCHING",
@@ -634,7 +634,7 @@ int func_b(void) { return 1; }
 
     def test_skip_forward_declaration_multi(self) -> None:
         """Forward declarations should be skipped in parse_new_format_multi."""
-        from rebrew.annotation import parse_new_format_multi
+        from rebrew.metadata.annotation import parse_new_format_multi
 
         lines = [
             "// STATUS: NEAR_MATCHING",
@@ -836,7 +836,7 @@ int func_b(void) { return 1; }
         assert fast.symbol == "@keeps@4"
 
     def test_empty_file_returns_empty_list(self, tmp_path: Path) -> None:
-        from rebrew.annotation import parse_c_file_multi
+        from rebrew.metadata.annotation import parse_c_file_multi
 
         f = tmp_path / "empty.c"
         f.write_text("", encoding="utf-8")
@@ -851,7 +851,7 @@ int func_b(void) { return 1; }
         function definition, corrupting symbol→VA resolution and making
         REL32 validation fail (call DispatchLogOutput → NEAR_MATCHING instead
         of RELOC)."""
-        from rebrew.annotation import parse_c_file_multi
+        from rebrew.metadata.annotation import parse_c_file_multi
 
         f = tmp_path / "mixed.c"
         f.write_text(
@@ -885,7 +885,7 @@ int func_b(void) { return 1; }
         C-definition name extraction (regression: gate excluded STUB, so
         verify demoted implemented stubs to EXTRACT_ERROR because the
         undecorated symbol was never found in the .obj)."""
-        from rebrew.annotation import parse_c_file_multi
+        from rebrew.metadata.annotation import parse_c_file_multi
 
         f = tmp_path / "stub.c"
         f.write_text(
@@ -915,7 +915,7 @@ class TestHasSkipAnnotation:
     """Tests for has_skip_annotation()."""
 
     def test_skip_present_in_metadata(self, tmp_path: Path) -> None:
-        from rebrew.annotation import has_skip_annotation
+        from rebrew.metadata.annotation import has_skip_annotation
 
         f = tmp_path / "skipped.c"
         f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
@@ -924,7 +924,7 @@ class TestHasSkipAnnotation:
         assert has_skip_annotation(f, metadata_dir=tmp_path) is True
 
     def test_no_skip_in_metadata(self, tmp_path: Path) -> None:
-        from rebrew.annotation import has_skip_annotation
+        from rebrew.metadata.annotation import has_skip_annotation
 
         f = tmp_path / "normal.c"
         f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
@@ -933,7 +933,7 @@ class TestHasSkipAnnotation:
         assert has_skip_annotation(f, metadata_dir=tmp_path) is False
 
     def test_no_metadata_dir(self, tmp_path: Path) -> None:
-        from rebrew.annotation import has_skip_annotation
+        from rebrew.metadata.annotation import has_skip_annotation
 
         f = tmp_path / "skipped.c"
         f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
@@ -947,7 +947,8 @@ class TestHasSkipAnnotation:
         """
         import logging
 
-        from rebrew import annotation, metadata
+        from rebrew.metadata import annotation
+        from rebrew.metadata import functions as metadata
 
         f = tmp_path / "skipped.c"
         f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
@@ -956,12 +957,12 @@ class TestHasSkipAnnotation:
             raise OSError(5, "Input/output error")
 
         monkeypatch.setattr(metadata, "load_metadata", _boom)
-        with caplog.at_level(logging.WARNING, logger="rebrew.annotation"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.metadata.annotation"):
             assert annotation.has_skip_annotation(f, metadata_dir=tmp_path) is False
         assert any("read as unparked" in r.message for r in caplog.records)
 
     def test_skip_false_values(self, tmp_path: Path) -> None:
-        from rebrew.annotation import has_skip_annotation
+        from rebrew.metadata.annotation import has_skip_annotation
 
         f = tmp_path / "skipped.c"
         f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
@@ -972,7 +973,7 @@ class TestHasSkipAnnotation:
 
     def test_status_skip_without_skip_field(self, tmp_path: Path) -> None:
         """status=SKIP alone parks the file for match --all (same as skip=true)."""
-        from rebrew.annotation import has_skip_annotation
+        from rebrew.metadata.annotation import has_skip_annotation
 
         f = tmp_path / "parked.c"
         f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
@@ -985,19 +986,19 @@ class TestResolveSymbol:
     """Tests for resolve_symbol()."""
 
     def test_symbol_present(self, tmp_path: Path) -> None:
-        from rebrew.annotation import Annotation, resolve_symbol
+        from rebrew.metadata.annotation import Annotation, resolve_symbol
 
         ann = Annotation(symbol="_my_func")
         assert resolve_symbol(ann, tmp_path / "my_func.c") == "_my_func"
 
     def test_question_mark_fallback(self, tmp_path: Path) -> None:
-        from rebrew.annotation import Annotation, resolve_symbol
+        from rebrew.metadata.annotation import Annotation, resolve_symbol
 
         ann = Annotation(symbol="?")
         assert resolve_symbol(ann, tmp_path / "my_func.c") == "_my_func"
 
     def test_empty_symbol_fallback(self, tmp_path: Path) -> None:
-        from rebrew.annotation import Annotation, resolve_symbol
+        from rebrew.metadata.annotation import Annotation, resolve_symbol
 
         ann = Annotation(symbol="")
         assert resolve_symbol(ann, tmp_path / "game_pool_free.c") == "_game_pool_free"
@@ -1166,8 +1167,8 @@ class TestAuditAnnotation:
     # update_size_annotation: target_va parameter routes size to metadata, not .c file
     def test_update_size_annotation_target_va_match(self, tmp_path: Path) -> None:
         """When target_va is provided, size is written to metadata (not .c file)."""
-        from rebrew.annotation import update_size_annotation
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.annotation import update_size_annotation
+        from rebrew.metadata.functions import get_entry
 
         content = (
             "// FUNCTION: SERVER 0x10001000\n"
@@ -1197,8 +1198,8 @@ class TestAuditAnnotation:
 
     def test_update_size_annotation_target_va_no_match(self, tmp_path: Path) -> None:
         """update_size_annotation returns False when new_size <= existing metadata size."""
-        from rebrew.annotation import update_size_annotation
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata.annotation import update_size_annotation
+        from rebrew.metadata.functions import save_metadata
 
         f = tmp_path / "single.c"
         f.write_text(
@@ -1215,8 +1216,8 @@ class TestAuditAnnotation:
         The metadata must be pre-populated with the existing size; the .c file's
         // SIZE: annotation is no longer read by update_size_annotation.
         """
-        from rebrew.annotation import update_size_annotation
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata.annotation import update_size_annotation
+        from rebrew.metadata.functions import save_metadata
 
         f = tmp_path / "big.c"
         f.write_text(
@@ -1230,7 +1231,7 @@ class TestAuditAnnotation:
     # _calc_stdcall_param_size: template param regression
     def test_stdcall_template_param_counted_correctly(self) -> None:
         """std::pair<int,int> is ONE parameter — must not be double-counted."""
-        from rebrew.annotation import _calc_stdcall_param_size
+        from rebrew.metadata.annotation import _calc_stdcall_param_size
 
         # pair<int,int> stripped to "pair", one 4-byte slot
         size = _calc_stdcall_param_size("void __stdcall foo(std::pair<int,int> p)")
@@ -1238,7 +1239,7 @@ class TestAuditAnnotation:
 
     def test_stdcall_nested_template(self) -> None:
         """Nested templates should still count as single params each."""
-        from rebrew.annotation import _calc_stdcall_param_size
+        from rebrew.metadata.annotation import _calc_stdcall_param_size
 
         # Two params: pair<int,int> and int
         size = _calc_stdcall_param_size("void __stdcall bar(std::pair<int,int> a, int b)")
@@ -1256,7 +1257,7 @@ class TestAuditAnnotation:
     )
     def test_stdcall_pointer_and_name_params(self, proto: str, expected: int) -> None:
         """Pointers and function pointers push 4 bytes; type names match whole words."""
-        from rebrew.annotation import _calc_stdcall_param_size
+        from rebrew.metadata.annotation import _calc_stdcall_param_size
 
         assert _calc_stdcall_param_size(proto) == expected
 
@@ -1280,8 +1281,8 @@ class TestAuditAnnotation:
 
         The .c file must remain completely untouched. VA2 is never affected.
         """
-        from rebrew.annotation import update_annotation_key
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.annotation import update_annotation_key
+        from rebrew.metadata.functions import get_entry
 
         content = (
             "// FUNCTION: SERVER 0x10001000\n"
@@ -1317,8 +1318,8 @@ class TestAuditAnnotation:
 
         The .c file must remain untouched. VA2's metadata entry is not affected.
         """
-        from rebrew.annotation import remove_annotation_key
-        from rebrew.metadata import get_entry, save_metadata
+        from rebrew.metadata.annotation import remove_annotation_key
+        from rebrew.metadata.functions import get_entry, save_metadata
 
         content = (
             "// FUNCTION: SERVER 0x10001000\n"
@@ -1365,7 +1366,7 @@ class TestAuditAnnotation:
 
         Iterative stripping must handle arbitrary depth.
         """
-        from rebrew.annotation import _calc_stdcall_param_size
+        from rebrew.metadata.annotation import _calc_stdcall_param_size
 
         # std::map<int, std::pair<A,B>> is ONE parameter (a map).
         # Before fix: two-pass needed, single-pass left stray '>' giving TWO counted params.
@@ -1483,7 +1484,7 @@ class TestValidateEdgeBranches:
 
 class TestSplitAnnotationSectionsRescue:
     def test_orphaned_kv_rescued_from_preamble(self) -> None:
-        from rebrew.annotation import split_annotation_sections
+        from rebrew.metadata.annotation import split_annotation_sections
 
         text = (
             "#include <stdio.h>\n"
@@ -1498,7 +1499,7 @@ class TestSplitAnnotationSectionsRescue:
         assert "// STATUS: EXACT" in blocks[0]
 
     def test_no_rescue_when_no_orphans(self) -> None:
-        from rebrew.annotation import split_annotation_sections
+        from rebrew.metadata.annotation import split_annotation_sections
 
         text = "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n"
         preamble, blocks = split_annotation_sections(text)
@@ -1512,7 +1513,7 @@ class TestSplitAnnotationSectionsRescue:
         the head of a block, where the block's own scan read it as live and the
         block claimed a marker the source never declared.
         """
-        from rebrew.annotation import block_markers, split_annotation_sections
+        from rebrew.metadata.annotation import block_markers, split_annotation_sections
 
         text = "/*\n/* FUNCTION: SERVER 0x1000 */\n/* FUNCTION: SERVER 0x1000 */\n"
         preamble, blocks = split_annotation_sections(text)
@@ -1527,7 +1528,7 @@ class TestSplitAnnotationSectionsRescue:
         leading empty block is what keeps the earlier marker's key-value lines
         from becoming a block with no marker in it.
         """
-        from rebrew.annotation import block_markers, split_annotation_sections
+        from rebrew.metadata.annotation import block_markers, split_annotation_sections
 
         text = "// STATUS: EXACT\n/* FUNCTION: SERVER 0x1000 */\n/* FUNCTION: SERVER 0x1000 */\n"
         preamble, blocks = split_annotation_sections(text)
@@ -1540,7 +1541,7 @@ class TestSplitAnnotationSectionsRescue:
 
 class TestAnnotationValidateBranches:
     def test_library_without_source_warns(self) -> None:
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         ann = Annotation(
             va=0x1000, module="MSVCRT", name="f", marker_type="LIBRARY", status="EXACT"
@@ -1549,7 +1550,7 @@ class TestAnnotationValidateBranches:
         assert any("missing SOURCE" in w for w in warnings)
 
     def test_near_matching_stub_contradiction(self) -> None:
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         ann = Annotation(
             va=0x1000, module="GAME", name="f", marker_type="STUB", status="NEAR_MATCHING"
@@ -1560,7 +1561,7 @@ class TestAnnotationValidateBranches:
 
 class TestRemoveAnnotationKeyFile:
     def test_removes_non_metadata_key(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_annotation_key
+        from rebrew.metadata.annotation import remove_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -1571,7 +1572,7 @@ class TestRemoveAnnotationKeyFile:
         assert "// SYMBOL:" not in f.read_text(encoding="utf-8")
 
     def test_missing_key_noop(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_annotation_key
+        from rebrew.metadata.annotation import remove_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -1580,7 +1581,7 @@ class TestRemoveAnnotationKeyFile:
 
 class TestUpdateAnnotationKeyFile:
     def test_same_value_noop(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata.annotation import update_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -1595,8 +1596,8 @@ class TestUpdateAnnotationKeyFile:
         self, tmp_path: Path, held: str, after: str
     ) -> None:
         """SKIP stays parked; PROVEN is not protected."""
-        from rebrew.annotation import update_annotation_key
-        from rebrew.metadata import get_entry, update_source_status
+        from rebrew.metadata.annotation import update_annotation_key
+        from rebrew.metadata.functions import get_entry, update_source_status
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -1608,8 +1609,8 @@ class TestUpdateAnnotationKeyFile:
         """The return value must track what the writer stored: a refused
         promotion and a same-status write are both False, so a caller pairing
         this with another artifact knows it is not recorded."""
-        from rebrew.annotation import update_annotation_key
-        from rebrew.metadata import update_source_status
+        from rebrew.metadata.annotation import update_annotation_key
+        from rebrew.metadata.functions import update_source_status
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -1625,7 +1626,7 @@ class TestUpdateAnnotationKeyFile:
         )
 
     def test_unknown_key_inserted(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata.annotation import update_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -1636,7 +1637,7 @@ class TestUpdateAnnotationKeyFile:
 
     def test_unknown_key_inserted_keeps_crlf(self, tmp_path: Path) -> None:
         """An inserted annotation line carries the file's own terminator."""
-        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata.annotation import update_annotation_key
 
         f = tmp_path / "f.c"
         f.write_bytes(b"// FUNCTION: SERVER 0x1000\r\nint f(void) { return 0; }\r\n")
@@ -1646,7 +1647,7 @@ class TestUpdateAnnotationKeyFile:
         assert b"\n" not in written.replace(b"\r\n", b"")
 
     def test_va_not_in_file_noop(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata.annotation import update_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -1664,7 +1665,7 @@ class TestAnnotationKeyRoundTrips:
     """
 
     def test_file_key_update_remove_returns_to_original(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_annotation_key, update_annotation_key
+        from rebrew.metadata.annotation import remove_annotation_key, update_annotation_key
 
         f = tmp_path / "f.c"
         original = "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n"
@@ -1677,8 +1678,8 @@ class TestAnnotationKeyRoundTrips:
         assert remove_annotation_key(f, 0x1000, "TESTKEY") is False
 
     def test_metadata_key_round_trip_keeps_c_untouched(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_annotation_key, update_annotation_key
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.annotation import remove_annotation_key, update_annotation_key
+        from rebrew.metadata.functions import get_entry
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -1693,7 +1694,7 @@ class TestAnnotationKeyRoundTrips:
         assert "CFLAGS" not in f.read_text(encoding="utf-8")
 
     def test_update_same_value_is_noop(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata.annotation import update_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -1706,8 +1707,8 @@ class TestAnnotationKeyRoundTrips:
         assert update_annotation_key(f, 0x1000, "TESTKEY", "new") is False
 
     def test_remove_inline_never_touches_metadata(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_inline_annotation_key
-        from rebrew.metadata import get_entry, update_source_status
+        from rebrew.metadata.annotation import remove_inline_annotation_key
+        from rebrew.metadata.functions import get_entry, update_source_status
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -1741,7 +1742,7 @@ class TestMultiTargetSameVaRouting:
         return f
 
     def test_update_routes_to_own_module_block(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata.annotation import update_annotation_key
 
         f = self._two_target_file(tmp_path)
         assert update_annotation_key(f, 0x1000, "TESTKEY", "server-new") is True
@@ -1751,7 +1752,7 @@ class TestMultiTargetSameVaRouting:
         assert text.index("server-new") < text.index("CLIENT")
 
     def test_strip_routes_to_own_module_block(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_annotation_key
+        from rebrew.metadata.annotation import remove_annotation_key
 
         f = self._two_target_file(tmp_path)
         assert remove_annotation_key(f, 0x1000, "TESTKEY") is True
@@ -1762,15 +1763,15 @@ class TestMultiTargetSameVaRouting:
 
 class TestHexSizeParsing:
     def test_hex_size_spelling_parses(self) -> None:
-        from rebrew.annotation import parse_new_format
+        from rebrew.metadata.annotation import parse_new_format
 
         ann = parse_new_format(["// FUNCTION: SERVER 0x1000", "// SIZE: 0x2A"])
         assert ann is not None
         assert ann.size == 42
 
     def test_corrupt_size_in_metadata_treated_as_unknown(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_size_annotation
-        from rebrew.metadata import get_entry, save_metadata
+        from rebrew.metadata.annotation import update_size_annotation
+        from rebrew.metadata.functions import get_entry, save_metadata
 
         save_metadata(tmp_path, {("SERVER", 0x1000): {"size": "abc"}})
         f = tmp_path / "f.c"
@@ -1781,19 +1782,19 @@ class TestHexSizeParsing:
 
 class TestModuleForVa:
     def test_unreadable_returns_empty(self, tmp_path: Path) -> None:
-        from rebrew.annotation import module_for_va
+        from rebrew.metadata.annotation import module_for_va
 
         assert module_for_va(tmp_path / "nope.c", 0x1000) == ""
 
     def test_found_module(self, tmp_path: Path) -> None:
-        from rebrew.annotation import module_for_va
+        from rebrew.metadata.annotation import module_for_va
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
         assert module_for_va(f, 0x1000) == "SERVER"
 
     def test_matches_every_module_and_marker_the_parser_accepts(self, tmp_path: Path) -> None:
-        from rebrew.annotation import module_for_va
+        from rebrew.metadata.annotation import module_for_va
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: MY-DLL 0x1000\n// VTABLE: SERVER 0x2000\n", encoding="utf-8")
@@ -1803,8 +1804,8 @@ class TestModuleForVa:
 
 class TestUpdateSizeAnnotation:
     def test_infers_va_from_marker(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_size_annotation
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.annotation import update_size_annotation
+        from rebrew.metadata.functions import get_entry
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -1812,8 +1813,8 @@ class TestUpdateSizeAnnotation:
         assert get_entry(tmp_path, 0x1000, "SERVER").get("size") == 128
 
     def test_never_shrinks(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_size_annotation
-        from rebrew.metadata import get_entry, update_field
+        from rebrew.metadata.annotation import update_size_annotation
+        from rebrew.metadata.functions import get_entry, update_field
 
         update_field(tmp_path, 0x1000, "size", 200, "SERVER")
         f = tmp_path / "f.c"
@@ -1822,7 +1823,7 @@ class TestUpdateSizeAnnotation:
         assert get_entry(tmp_path, 0x1000, "SERVER").get("size") == 200
 
     def test_no_va_returns_false(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_size_annotation
+        from rebrew.metadata.annotation import update_size_annotation
 
         f = tmp_path / "f.c"
         f.write_text("int f(void) { return 0; }\n", encoding="utf-8")
@@ -1831,7 +1832,7 @@ class TestUpdateSizeAnnotation:
 
 class TestParseLibraryHeaderKv:
     def test_partial_header_keeps_managed_rows_and_canonical_identity(self, tmp_path: Path) -> None:
-        from rebrew.metadata import record_function_identity
+        from rebrew.metadata.functions import record_function_identity
 
         header = tmp_path / "library_crt.h"
         header.write_text(
@@ -1862,7 +1863,7 @@ class TestParseLibraryHeaderKv:
         assert by_identity[("SERVER", 0x10003000)].symbol == "_legacy"
 
     def test_kv_lines_collected(self, tmp_path: Path) -> None:
-        from rebrew.annotation import parse_library_header
+        from rebrew.metadata.annotation import parse_library_header
 
         h = tmp_path / "library_msvc.h"
         h.write_text(
@@ -1884,7 +1885,7 @@ class TestParseLibraryHeaderKv:
         assert ann.source == "deflate.c"
 
     def test_every_library_module_returned(self, tmp_path: Path) -> None:
-        from rebrew.annotation import parse_library_header
+        from rebrew.metadata.annotation import parse_library_header
 
         # LIBRARY module names are library identifiers, so no module is
         # filtered out regardless of which project marker is active.
@@ -1897,7 +1898,7 @@ class TestParseLibraryHeaderKv:
         assert [r.va for r in results] == [0x1000, 0x2000]
 
     def test_default_status_exact(self, tmp_path: Path) -> None:
-        from rebrew.annotation import parse_library_header
+        from rebrew.metadata.annotation import parse_library_header
 
         h = tmp_path / "library_msvc.h"
         h.write_text("// LIBRARY: SERVER 0x1000\n// _memcpy\n", encoding="utf-8")
@@ -1905,14 +1906,14 @@ class TestParseLibraryHeaderKv:
         assert results[0].status == "EXACT"
 
     def test_missing_file_empty(self, tmp_path: Path) -> None:
-        from rebrew.annotation import parse_library_header
+        from rebrew.metadata.annotation import parse_library_header
 
         assert parse_library_header(tmp_path / "nope.h") == []
 
 
 class TestParseNewFormatEdges:
     def test_global_after_function_not_overwritten(self) -> None:
-        from rebrew.annotation import parse_new_format_multi
+        from rebrew.metadata.annotation import parse_new_format_multi
 
         lines = [
             "// FUNCTION: GAME 0x1000",
@@ -1927,7 +1928,7 @@ class TestParseNewFormatEdges:
         assert ("GLOBAL", 0x2000) in types
 
     def test_inline_error_after_va_stashed(self) -> None:
-        from rebrew.annotation import parse_new_format_multi
+        from rebrew.metadata.annotation import parse_new_format_multi
 
         lines = ["// FUNCTION: SERVER 0x1000 // trailing junk", "int f(void) { return 0; }"]
         results = parse_new_format_multi(lines)
@@ -1935,7 +1936,7 @@ class TestParseNewFormatEdges:
         assert "trailing junk" in results[0].inline_error
 
     def test_blocker_delta_non_numeric_none(self) -> None:
-        from rebrew.annotation import parse_new_format_multi
+        from rebrew.metadata.annotation import parse_new_format_multi
 
         lines = [
             "// FUNCTION: SERVER 0x1000",
@@ -1946,7 +1947,7 @@ class TestParseNewFormatEdges:
         assert results[0].blocker_delta is None
 
     def test_function_block_reads_blocker_and_delta(self) -> None:
-        from rebrew.annotation import parse_new_format_multi
+        from rebrew.metadata.annotation import parse_new_format_multi
 
         lines = [
             "// FUNCTION: SERVER 0x1000",
@@ -1961,7 +1962,7 @@ class TestParseNewFormatEdges:
         assert results[0].note == "inner loop"
 
     def test_marker_less_file_reports_its_naked_fence(self, tmp_path: Path) -> None:
-        from rebrew.metadata import record_migrated_markers
+        from rebrew.metadata.functions import record_migrated_markers
 
         src = tmp_path / "src"
         src.mkdir()
@@ -1991,7 +1992,7 @@ class TestParseNewFormatEdges:
         assert ann.callers == "_send"
 
     def test_naked_fence_does_not_cover_a_second_function(self, tmp_path: Path) -> None:
-        from rebrew.metadata import record_migrated_markers
+        from rebrew.metadata.functions import record_migrated_markers
 
         src = tmp_path / "src"
         src.mkdir()
@@ -2021,7 +2022,7 @@ class TestParseNewFormatEdges:
 
 class TestUpdateAnnotationKeySameValue:
     def test_same_value_noop_file_key(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata.annotation import update_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -2031,7 +2032,7 @@ class TestUpdateAnnotationKeySameValue:
         assert update_annotation_key(f, 0x1000, "TESTKEY", "abc") is False
 
     def test_different_value_updates(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata.annotation import update_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -2042,7 +2043,7 @@ class TestUpdateAnnotationKeySameValue:
         assert "// TESTKEY: xyz" in f.read_text(encoding="utf-8")
 
     def test_end_of_file_insert(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata.annotation import update_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: SERVER 0x1000\n\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -2053,7 +2054,7 @@ class TestUpdateAnnotationKeySameValue:
     def test_line_separator_in_a_string_literal_survives_the_edit(self, tmp_path: Path) -> None:
         # U+2028 is legal inside a C string literal.  A splitlines-based line
         # list treats it as a line break and the write-back emits 0x0A there.
-        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata.annotation import update_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -2065,7 +2066,7 @@ class TestUpdateAnnotationKeySameValue:
         assert "a\nb" not in f.read_text(encoding="utf-8")
 
     def test_crlf_insert_uses_the_file_terminator(self, tmp_path: Path) -> None:
-        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata.annotation import update_annotation_key
 
         f = tmp_path / "f.c"
         f.write_bytes(b"// FUNCTION: SERVER 0x1000\r\n\r\nint f(void) { return 0; }\r\n")
@@ -2076,7 +2077,7 @@ class TestUpdateAnnotationKeySameValue:
 
 class TestRemoveAnnotationKeyEdges:
     def test_removes_middle_key(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_annotation_key
+        from rebrew.metadata.annotation import remove_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -2089,7 +2090,7 @@ class TestRemoveAnnotationKeyEdges:
         assert "// B: 2" in text  # sibling key preserved
 
     def test_does_not_cross_into_next_block(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_annotation_key
+        from rebrew.metadata.annotation import remove_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -2106,7 +2107,7 @@ class TestAnnotationKeyInvariants:
     """update ↔ remove symmetry for file and metadata keys."""
 
     def test_file_key_update_then_remove(self, tmp_path: Path) -> None:
-        from rebrew.annotation import (
+        from rebrew.metadata.annotation import (
             remove_inline_annotation_key,
             update_annotation_key,
         )
@@ -2121,8 +2122,8 @@ class TestAnnotationKeyInvariants:
         )
 
     def test_metadata_key_update_then_remove(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_annotation_key, update_annotation_key
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.annotation import remove_annotation_key, update_annotation_key
+        from rebrew.metadata.functions import get_entry
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -2132,7 +2133,7 @@ class TestAnnotationKeyInvariants:
         assert get_entry(tmp_path, 0x1000, "SERVER").get("note") is None
 
     def test_remove_then_remove_idempotent(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_inline_annotation_key
+        from rebrew.metadata.annotation import remove_inline_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -2146,19 +2147,19 @@ class TestStdcallParamSizeDeclspec:
     confused with the declspec group (np-rebrew TOOLCHAIN_BUGS naked gap)."""
 
     def test_naked_void_is_zero(self) -> None:
-        from rebrew.annotation import _calc_stdcall_param_size
+        from rebrew.metadata.annotation import _calc_stdcall_param_size
 
         assert _calc_stdcall_param_size("void __declspec(naked) __stdcall foo(void)") == 0
         assert _calc_stdcall_param_size("void __declspec(naked) __stdcall foo()") == 0
 
     def test_naked_with_params(self) -> None:
-        from rebrew.annotation import _calc_stdcall_param_size
+        from rebrew.metadata.annotation import _calc_stdcall_param_size
 
         assert _calc_stdcall_param_size("void __declspec(naked) __stdcall foo(int a)") == 4
         assert _calc_stdcall_param_size("int __declspec(naked) __stdcall foo(int a, int b)") == 8
 
     def test_plain_unchanged(self) -> None:
-        from rebrew.annotation import _calc_stdcall_param_size
+        from rebrew.metadata.annotation import _calc_stdcall_param_size
 
         assert _calc_stdcall_param_size("void __stdcall foo(void)") == 0
         assert _calc_stdcall_param_size("int __stdcall foo(int a, int b, int c)") == 12
@@ -2166,7 +2167,7 @@ class TestStdcallParamSizeDeclspec:
 
 class TestParseMemo:
     def test_parse_is_memoized_for_unchanged_file(self, tmp_path: Path) -> None:
-        from rebrew.annotation import _PARSE_MEMO, clear_parse_memo, parse_c_file_multi
+        from rebrew.metadata.annotation import _PARSE_MEMO, clear_parse_memo, parse_c_file_multi
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -2184,7 +2185,7 @@ class TestParseMemo:
         """verify -j N workers must not corrupt the shared parse memo."""
         import threading
 
-        from rebrew.annotation import _PARSE_MEMO, clear_parse_memo, parse_c_file_multi
+        from rebrew.metadata.annotation import _PARSE_MEMO, clear_parse_memo, parse_c_file_multi
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -2220,7 +2221,7 @@ class TestParseMemo:
         from concurrent.futures import ThreadPoolExecutor
         from threading import Event
 
-        import rebrew.annotation as annotation
+        import rebrew.metadata.annotation as annotation
         from rebrew.utils import atomic_write_text
 
         source = tmp_path / "f.c"
@@ -2254,7 +2255,7 @@ class TestParseMemo:
     def test_memo_invalidated_by_content_change(self, tmp_path: Path) -> None:
         import os
 
-        from rebrew.annotation import clear_parse_memo, parse_c_file_multi
+        from rebrew.metadata.annotation import clear_parse_memo, parse_c_file_multi
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -2270,8 +2271,8 @@ class TestParseMemo:
         assert a2[0].va == 0x1001  # re-parsed, not a stale memo hit
 
     def test_metadata_overlay_applied_per_call(self, tmp_path: Path) -> None:
-        from rebrew.annotation import _PARSE_MEMO, clear_parse_memo, parse_c_file_multi
-        from rebrew.metadata import clear_metadata_cache, save_metadata
+        from rebrew.metadata.annotation import _PARSE_MEMO, clear_parse_memo, parse_c_file_multi
+        from rebrew.metadata.functions import clear_metadata_cache, save_metadata
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
@@ -2294,7 +2295,7 @@ class TestParseMemo:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The bound is source bytes: a few large files must not all stay resident."""
-        import rebrew.annotation as annotation
+        import rebrew.metadata.annotation as annotation
 
         clear_parse_memo = annotation.clear_parse_memo
         parse_c_file_multi = annotation.parse_c_file_multi
@@ -2320,7 +2321,7 @@ class TestParseMemo:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Eviction never empties the memo: an oversized source is still cached."""
-        import rebrew.annotation as annotation
+        import rebrew.metadata.annotation as annotation
 
         monkeypatch.setattr(annotation, "_PARSE_MEMO_MAX_BYTES", 16)
         annotation.clear_parse_memo()
@@ -2337,7 +2338,7 @@ class TestMarkerConsistencyStub:
     """The Annotation-level marker check must allow FUNCTION+STUB (metadata holds status)."""
 
     def _anno(self, marker_type: str, status: str, module: str = "SERVER") -> Any:
-        from rebrew.annotation import Annotation
+        from rebrew.metadata.annotation import Annotation
 
         return Annotation(
             va=0x1000,
@@ -2379,7 +2380,7 @@ class TestMarkerConsistencyStub:
 
     def test_fastcall_decorated_symbol(self) -> None:
         """__fastcall functions get @name@N symbols (ecx/edx args counted)."""
-        from rebrew.annotation import parse_new_format
+        from rebrew.metadata.annotation import parse_new_format
 
         lines = [
             "// FUNCTION: SERVER 0x10009ff4",
@@ -2395,7 +2396,7 @@ class TestMarkerConsistencyStub:
         assert result.symbol == "@fcn_01009ff4@12"
 
     def test_fastcall_two_args_symbol(self) -> None:
-        from rebrew.annotation import parse_new_format
+        from rebrew.metadata.annotation import parse_new_format
 
         lines = [
             "// FUNCTION: SERVER 0x10030a82",
@@ -2413,7 +2414,7 @@ class TestStripPrecedingKeys:
     """_strip_key_lines covers attached keys on both sides of the marker."""
 
     def test_preceding_key_line_removed(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_inline_annotation_key
+        from rebrew.metadata.annotation import remove_inline_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -2426,7 +2427,7 @@ class TestStripPrecedingKeys:
         )
 
     def test_preceding_key_keeps_prose_and_code(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_inline_annotation_key
+        from rebrew.metadata.annotation import remove_inline_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -2443,7 +2444,7 @@ class TestStripPrecedingKeys:
         assert "int f(void)" in text
 
     def test_sibling_block_key_untouched(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_inline_annotation_key
+        from rebrew.metadata.annotation import remove_inline_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -2464,7 +2465,7 @@ class TestRemoveKeyDoesNotCrossBlocks:
         """A `// KEY:` above a marker belongs to the PREVIOUS block once that
         block's marker precedes it; removing it for the later VA silently
         dropped the earlier function's live annotation."""
-        from rebrew.annotation import remove_inline_annotation_key
+        from rebrew.metadata.annotation import remove_inline_annotation_key
 
         f = tmp_path / "f.c"
         f.write_text(
@@ -2499,12 +2500,12 @@ def test_data_markers_are_exempt_from_the_size_check() -> None:
 
 class TestIterAnnotations:
     def test_parse_error_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.annotation as annotation_mod
+        import rebrew.metadata.annotation as annotation_mod
 
         def boom(src, target_name=None, metadata_dir=None) -> object:
             raise ValueError("bad annotation")
 
-        monkeypatch.setattr("rebrew.annotation.parse_c_file_multi", boom)
+        monkeypatch.setattr("rebrew.metadata.annotation.parse_c_file_multi", boom)
         src = tmp_path / "a.c"
         src.write_text("x", encoding="utf-8")
         assert annotation_mod.iter_annotations([src], target="SERVER") == []
@@ -2512,12 +2513,12 @@ class TestIterAnnotations:
     def test_non_value_error_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A non-ValueError per-source failure (OSError, UnicodeDecodeError,
         …) must also skip the file, never abort the batch run."""
-        import rebrew.annotation as annotation_mod
+        import rebrew.metadata.annotation as annotation_mod
 
         def boom(src, target_name=None, metadata_dir=None) -> object:
             raise OSError("unreadable file")
 
-        monkeypatch.setattr("rebrew.annotation.parse_c_file_multi", boom)
+        monkeypatch.setattr("rebrew.metadata.annotation.parse_c_file_multi", boom)
         src = tmp_path / "a.c"
         src.write_text("x", encoding="utf-8")
         assert annotation_mod.iter_annotations([src], target="SERVER") == []
@@ -2529,7 +2530,7 @@ def test_update_annotation_key_rejects_multiline_value(tmp_path: Path) -> None:
     The value can arrive from a received BinSync state or a Ghidra sync, and
     the .c file is compiled and linked.
     """
-    from rebrew.annotation import update_annotation_key
+    from rebrew.metadata.annotation import update_annotation_key
 
     content = "// LIBRARY: SERVER\n// FUNCTION: 0x10001000\n// SIZE: 42\nint func_a(void) {}\n"
     f = tmp_path / "proto.c"

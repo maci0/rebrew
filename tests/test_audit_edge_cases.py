@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.annotation import __all__ as annotation_all
-from rebrew.annotation import parse_new_format_multi
 from rebrew.coff_reloc import smart_reloc_compare
+from rebrew.metadata.annotation import __all__ as annotation_all
+from rebrew.metadata.annotation import parse_new_format_multi
 
 # ---------------------------------------------------------------------------
 # smart_reloc_compare edge cases
@@ -346,8 +346,8 @@ class TestOrphanedKVWarning:
 
 class TestAnnotationAllExports:
     def test_all_exports_are_importable(self) -> None:
-        """Every name in __all__ must be importable from rebrew.annotation."""
-        import rebrew.annotation as mod
+        """Every name in __all__ must be importable from rebrew.metadata.annotation."""
+        import rebrew.metadata.annotation as mod
 
         for name in annotation_all:
             assert hasattr(mod, name), f"{name} is in __all__ but does not exist"

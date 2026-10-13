@@ -336,7 +336,7 @@ class TestNamedMode:
         assert a.read_text(encoding="utf-8") == a_text
 
     def test_data_row_marked_literal(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.data_metadata import load_data_metadata, set_data_fields_batch
+        from rebrew.metadata.data import load_data_metadata, set_data_fields_batch
 
         src = self._project(tmp_path, monkeypatch)
         (src / "a.c").write_text(

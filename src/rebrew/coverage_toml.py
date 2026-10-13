@@ -38,7 +38,6 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from rebrew.annotation import FUNCTION_MARKERS, VALID_MARKERS
 from rebrew.cli import console
 from rebrew.coverage_db import (
     DEFAULT_GRID_GEOMETRY,
@@ -57,7 +56,8 @@ from rebrew.coverage_db import (
     resolve_db_dir,
 )
 from rebrew.errors import RebrewError
-from rebrew.metadata import canonical_status
+from rebrew.metadata.annotation import FUNCTION_MARKERS, VALID_MARKERS
+from rebrew.metadata.functions import canonical_status
 from rebrew.utils import atomic_write_text, clip_span, file_lock, floor_pct, toml_safe
 from rebrew.workspace import WorkspaceConfigError, db_dir
 from rebrew.workspace.status import MATCHED_STATUSES
@@ -1391,7 +1391,7 @@ def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int], ...]:
     inside one mtime tick (a ``cp -p`` restore, a git checkout of a restored
     file, a coarse-timestamp filesystem), which mtime and size alone cannot
     see; this matches every other per-file memo in the tree
-    (``verify_hash._SOURCE_MEMO``, ``metadata_doc``, ``utils.read_source_text``).
+    (``verify_hash._SOURCE_MEMO``, ``metadata.document``, ``utils.read_source_text``).
     """
     entries: list[tuple[str, int, int, int]] = []
     for path in db_directory.glob(f"{_FILENAME_PREFIX}*{_FILENAME_SUFFIX}"):

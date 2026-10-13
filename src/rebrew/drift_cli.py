@@ -18,7 +18,6 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.annotation import parse_c_file_multi, parse_source_metadata
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
@@ -33,6 +32,7 @@ from rebrew.compiler.compile import compile_and_compare
 from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.drift import DerivedRegion, DriftWindow, derive_regions, drift_windows
 from rebrew.formats.binary_loader import extract_raw_bytes
+from rebrew.metadata.annotation import parse_c_file_multi, parse_source_metadata
 from rebrew.sources import target_marker
 
 # Module-form registration (empty ``attr`` in builtins.py) resolves BOTH a

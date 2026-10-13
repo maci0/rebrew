@@ -35,7 +35,6 @@ from pathlib import Path
 
 import typer
 
-from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
@@ -46,6 +45,7 @@ from rebrew.cli import (
 from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
 from rebrew.lint_cflags import codegen_cflags_key
+from rebrew.metadata.annotation import parse_c_file_multi
 from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, preset_module_key
 from rebrew.workspace.config import config_path

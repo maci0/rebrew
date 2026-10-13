@@ -300,7 +300,7 @@ def _collect_near_match(cfg: Any) -> list[dict[str, Any]] | None:
     metadata_dir = getattr(cfg, "metadata_dir", None)
     if metadata_dir is None:
         return None
-    from rebrew.metadata import canonical_status, load_metadata
+    from rebrew.metadata.functions import canonical_status, load_metadata
 
     items: list[dict[str, Any]] = []
     try:

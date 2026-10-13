@@ -45,7 +45,6 @@ import typer
 if TYPE_CHECKING:
     import angr  # # only for annotations; runtime import is lazy
 
-from rebrew.annotation import parse_c_file_multi, resolve_symbol
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
@@ -63,6 +62,7 @@ from rebrew.compiler.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.formats.binary_loader import extract_raw_bytes
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
+from rebrew.metadata.annotation import parse_c_file_multi, resolve_symbol
 from rebrew.prove_simprocs import get_win32_simprocs
 from rebrew.sources import (
     iter_sources,
@@ -1367,7 +1367,7 @@ def main(
     blocker = getattr(ann, "blocker", "") or ""
     blocker_delta = getattr(ann, "blocker_delta", 0) or 0
     if effective_status == "STUB" and not (blocker or blocker_delta):
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         stored = load_metadata(cfg.metadata_dir, deepcopy=False).get((ann.module, ann.va), {})
         blocker = stored.get("blocker", "") or ""
@@ -1496,7 +1496,7 @@ def main(
         result["slice"] = {"start": start_offset, "end": end_offset}
 
     if proven and not dry_run:
-        from rebrew.metadata import update_source_status
+        from rebrew.metadata.functions import update_source_status
 
         # Keep the blocker: PROVEN is not a byte match, and the next
         # verify/test replaces PROVEN with the byte verdict, which must
@@ -1631,7 +1631,7 @@ def _promote_already_matched(cfg: Any, ann: Any, new_status: str) -> None:
     pre-prove verdict until the next full verify.  A byte match needs no
     match_count/total, so the percent goes in directly.
     """
-    from rebrew.metadata import update_source_status
+    from rebrew.metadata.functions import update_source_status
     from rebrew.verify_cache import patch_verify_cache_entries
 
     if not update_source_status(
@@ -1866,7 +1866,7 @@ def _prove_single(
     )
 
     if proven and not dry_run:
-        from rebrew.metadata import update_source_status
+        from rebrew.metadata.functions import update_source_status
 
         if update_source_status(
             cfg.metadata_dir, "PROVEN", ann.module, ann.va, clear_blockers=False, updated_by="prove"
@@ -1894,7 +1894,7 @@ def _clear_prove_counterexample(cfg: Any, ann: Any) -> None:
     are removed — a reverser's own note is never touched.
     """
     try:
-        from rebrew.metadata import load_metadata, remove_field
+        from rebrew.metadata.functions import load_metadata, remove_field
 
         existing = load_metadata(cfg.metadata_dir, deepcopy=False).get((ann.module, ann.va), {})
         if str(existing.get("note", "")).startswith("prove: "):
@@ -1922,7 +1922,7 @@ def _record_prove_counterexample(cfg: Any, ann: Any, message: str) -> None:
     if not any(tok in message for tok in ("EAX", "EDX", "differs")):
         return  # timeout / path explosion / internal error — not a counterexample
     try:
-        from rebrew.metadata import load_metadata, update_field
+        from rebrew.metadata.functions import load_metadata, update_field
 
         existing = load_metadata(cfg.metadata_dir, deepcopy=False).get((ann.module, ann.va), {})
         if existing.get("note"):
@@ -1967,7 +1967,7 @@ def _run_all_batch(
     GA_CEILING-documented functions (the register- or encoding-only set
     ``rebrew match run`` marked as the prove lane).
     """
-    from rebrew.metadata import GA_CEILING_PREFIX
+    from rebrew.metadata.functions import GA_CEILING_PREFIX
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_marker(cfg)

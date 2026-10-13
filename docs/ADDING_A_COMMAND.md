@@ -24,7 +24,7 @@ Conventions (CLI review will flag drift):
   `require_non_negative(value, "--count", json_mode=json_output)`: a
   negative bound reaches the slice and returns a tail under exit 0, and 0
   stays legal because several commands spell it "no cap".
-- STATUS writes only through `rebrew.metadata` writers: never write
+- STATUS writes only through `rebrew.metadata.functions` writers: never write
   `STATUS` in `.c` files, never hand-edit TOML.
 
 ## 2. Registration

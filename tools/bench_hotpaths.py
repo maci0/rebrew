@@ -72,7 +72,7 @@ def _timeit(fn: Callable[[], Any], repeat: int = 5) -> float:
 
 def bench_annotation_parsing() -> dict[str, float]:
     """parse_c_file_multi over a synthetic 200-function .c."""
-    from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi
+    from rebrew.metadata.annotation import _PARSE_MEMO, parse_c_file_multi
 
     blocks = []
     for i in range(200):
@@ -97,7 +97,7 @@ def bench_annotation_parsing() -> dict[str, float]:
 
 def bench_metadata_load() -> dict[str, float]:
     """load_metadata over a generated 500-entry rebrew-functions.toml."""
-    from rebrew.metadata import clear_metadata_cache, load_metadata
+    from rebrew.metadata.functions import clear_metadata_cache, load_metadata
 
     lines: list[str] = []
     for i in range(500):
@@ -307,7 +307,7 @@ _REAL_BODY = bytes.fromhex(
 
 def bench_parse_tree() -> dict[str, float]:
     """parse_c_file_multi + metadata merge over a 1000-function tree."""
-    from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi
+    from rebrew.metadata.annotation import _PARSE_MEMO, parse_c_file_multi
 
     blocks = []
     for i in range(1000):

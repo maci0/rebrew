@@ -135,7 +135,7 @@ def _diagnose_one(
     )
     blocker_written = False
     if fix_blocker and not result["verdict"].startswith("MATCH"):
-        from rebrew.metadata import (
+        from rebrew.metadata.functions import (
             GA_CEILING_PREFIX,
             get_entry,
             update_field,
@@ -210,7 +210,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     status NEAR_MATCHING and a known size.  Per-function failures are recorded
     in the results list instead of aborting the batch.
     """
-    from rebrew.annotation import parse_c_file_multi
+    from rebrew.metadata.annotation import parse_c_file_multi
     from rebrew.sources import iter_sources, target_marker
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
@@ -381,7 +381,7 @@ def main(
             print(catalog_markdown(), end="")
         return
 
-    from rebrew.annotation import parse_c_file_multi
+    from rebrew.metadata.annotation import parse_c_file_multi
     from rebrew.sources import target_marker
 
     cfg = require_config(target=target, json_mode=json_output)

@@ -79,8 +79,8 @@ if TYPE_CHECKING:
     from rebrew.ghidra.client import McpError as McpError
     from rebrew.ghidra.client import McpErrorKind as McpErrorKind
     from rebrew.matcher.scoring import SimilarityUnavailable as SimilarityUnavailable
-    from rebrew.metadata import LibraryOverrideError as LibraryOverrideError
-    from rebrew.metadata_model import MetadataValidationError as MetadataValidationError
+    from rebrew.metadata.functions import LibraryOverrideError as LibraryOverrideError
+    from rebrew.metadata.model import MetadataValidationError as MetadataValidationError
     from rebrew.orphans import OrphanInventoryError as OrphanInventoryError
     from rebrew.pdb_export import PdbExportError as PdbExportError
     from rebrew.plugin import ComponentError as ComponentError
@@ -237,11 +237,11 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "DosboxError": ("rebrew.compiler.dosbox", "DosboxError"),
     "ExportParseError": ("rebrew.formats.binary_loader", "ExportParseError"),
     "FingerprintError": ("rebrew.fingerprints", "FingerprintError"),
-    "LibraryOverrideError": ("rebrew.metadata", "LibraryOverrideError"),
+    "LibraryOverrideError": ("rebrew.metadata.functions", "LibraryOverrideError"),
     "LibIndexUnavailable": ("rebrew.doctor", "LibIndexUnavailable"),
     "McpApplyAborted": ("rebrew.ghidra.client", "McpApplyAborted"),
     "McpError": ("rebrew.ghidra.client", "McpError"),
-    "MetadataValidationError": ("rebrew.metadata_model", "MetadataValidationError"),
+    "MetadataValidationError": ("rebrew.metadata.model", "MetadataValidationError"),
     "Msvc16Error": ("rebrew.compiler.msvc16", "Msvc16Error"),
     "NeParseError": ("rebrew.formats.ne_loader", "NeParseError"),
     "NoDecompilationError": ("rebrew.struct_recover", "NoDecompilationError"),

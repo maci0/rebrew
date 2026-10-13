@@ -12,8 +12,8 @@ import pytest
 import tomlkit
 from typer.testing import CliRunner
 
-from rebrew.annotation import Annotation
 from rebrew.cli import EXIT_MISMATCH
+from rebrew.metadata.annotation import Annotation
 
 
 def _ann(
@@ -607,8 +607,8 @@ class TestVerifyCli:
     ) -> None:
         from bin_util import append_pe_section, make_pe
 
-        from rebrew.data_metadata import set_data_fields_batch
         from rebrew.formats.binary_loader import load_binary
+        from rebrew.metadata.data import set_data_fields_batch
         from rebrew.verify import app
 
         cfg = _cfg(tmp_path)
@@ -655,8 +655,8 @@ class TestVerifyCli:
     ) -> None:
         from bin_util import append_pe_section, make_pe
 
-        from rebrew.data_metadata import get_data_entry, set_data_fields_batch
         from rebrew.formats.binary_loader import load_binary
+        from rebrew.metadata.data import get_data_entry, set_data_fields_batch
         from rebrew.verify import app
 
         cfg = _cfg(tmp_path, all_markers={"SERVER", "OTHER"})
@@ -1209,7 +1209,7 @@ class TestVerifyCli:
 
 class TestApplyStatusUpdates:
     def test_updates_metadata(self, tmp_path: Path) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.verify import apply_status_updates
 
         cfg = _cfg(tmp_path)
@@ -1225,7 +1225,7 @@ class TestApplyStatusUpdates:
         """A byte match clears the BLOCKER, except where the source still holds
         inline asm: there the blocker documents the asm, and lint W020 requires
         it on a matched function. Clearing it made every verify re-raise W020."""
-        from rebrew.metadata import get_entry, update_field
+        from rebrew.metadata.functions import get_entry, update_field
         from rebrew.verify import apply_status_updates
 
         cfg = _cfg(tmp_path)
@@ -1244,7 +1244,7 @@ class TestApplyStatusUpdates:
         assert not get_entry(cfg.metadata_dir, 0x2000, "SERVER").get("blocker")
 
     def test_proven_demoted_to_byte_result(self, tmp_path: Path) -> None:
-        from rebrew.metadata import get_entry, update_source_status
+        from rebrew.metadata.functions import get_entry, update_source_status
         from rebrew.verify import apply_status_updates
 
         cfg = _cfg(tmp_path)
@@ -1276,7 +1276,7 @@ class TestApplyStatusUpdates:
             attempted.append(updates)
             raise OSError("disk full")
 
-        monkeypatch.setattr("rebrew.metadata.update_statuses_batch", _boom)
+        monkeypatch.setattr("rebrew.metadata.functions.update_statuses_batch", _boom)
         with caplog.at_level(logging.WARNING):
             apply_status_updates([(_ann(0x1000), "EXACT", 0), (_ann(0x2000), "RELOC", 0)], cfg)
         # Both entries were collected into one batched write that failed; no
@@ -1289,7 +1289,7 @@ class TestApplyStatusUpdates:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         """A read error must not clear BLOCKER: the source may still hold asm."""
-        from rebrew.metadata import get_entry, update_field
+        from rebrew.metadata.functions import get_entry, update_field
         from rebrew.verify import apply_status_updates
 
         cfg = _cfg(tmp_path)
@@ -1601,7 +1601,7 @@ class TestProvenIsNotAPass:
         byte_status: str,
         flags: list[str],
     ) -> tuple[Any, SimpleNamespace]:
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata.functions import save_metadata
         from rebrew.verify import app
 
         cfg = _cfg(tmp_path)
@@ -1632,7 +1632,7 @@ class TestProvenIsNotAPass:
     def test_byte_verdict_reported_and_recorded(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, byte_status: str
     ) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.verify_cache import load_verify_cache
 
         result, cfg = self._run(tmp_path, monkeypatch, byte_status, ["--json"])
@@ -1657,7 +1657,7 @@ class TestProvenIsNotAPass:
     ) -> None:
         """A COMPILE_ERROR is a failing tool, not a byte verdict: verify
         still reports the failure, but the earned PROVEN survives it."""
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         result, _cfg = self._run(tmp_path, monkeypatch, "COMPILE_ERROR", ["--json"])
         assert result.exit_code == 1
@@ -1670,7 +1670,7 @@ class TestProvenIsNotAPass:
     def test_byte_match_replaces_proven(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         result, _cfg_ns = self._run(tmp_path, monkeypatch, "EXACT", ["--json"])
         assert result.exit_code == 0
@@ -1680,7 +1680,7 @@ class TestProvenIsNotAPass:
         assert "blocker" not in entry
 
     def test_dry_run_keeps_proven(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         self._run(tmp_path, monkeypatch, "NEAR_MATCHING", ["--json", "--dry-run"])
         assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "PROVEN"
@@ -1849,7 +1849,7 @@ class TestRunVerification:
         """A STUB's placeholder always size-mismatches; the user's STUB
         classification must survive a verify run (SIZE_MISMATCH would orphan
         its blocker and empty the stub work queue)."""
-        from rebrew.metadata import get_entry, update_source_status
+        from rebrew.metadata.functions import get_entry, update_source_status
         from rebrew.verify import apply_status_updates
 
         cfg = _cfg(tmp_path)
@@ -1864,7 +1864,7 @@ class TestRunVerification:
 
     def test_non_stub_promoted_to_size_mismatch(self, tmp_path: Path) -> None:
         """EXACT/NEAR_MATCHING regressing to SIZE_MISMATCH is real signal."""
-        from rebrew.metadata import get_entry, update_source_status
+        from rebrew.metadata.functions import get_entry, update_source_status
         from rebrew.verify import apply_status_updates
 
         cfg = _cfg(tmp_path)
@@ -2133,7 +2133,7 @@ class TestFixSizes:
     """--fix-sizes corrects stale annotation SIZE from the binary-derived size."""
 
     def test_applies_size_fix(self, tmp_path: Path) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.verify import _apply_size_fixes
 
         cfg = _cfg(tmp_path)
@@ -2150,7 +2150,7 @@ class TestFixSizes:
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("size") == 128
 
     def test_dry_run_writes_nothing(self, tmp_path: Path) -> None:
-        from rebrew.metadata import get_entry, update_field
+        from rebrew.metadata.functions import get_entry, update_field
         from rebrew.verify import _apply_size_fixes
 
         cfg = _cfg(tmp_path)
@@ -2168,7 +2168,7 @@ class TestFixSizes:
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("size") == 64
 
     def test_module_falls_back_to_marker(self, tmp_path: Path) -> None:
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
         from rebrew.verify import _apply_size_fixes
 
         cfg = _cfg(tmp_path)  # marker = "SERVER"
@@ -2183,7 +2183,7 @@ class TestFixSizes:
     ) -> None:
         """``--no-promote`` writes nothing to rebrew-functions.toml, SIZE included."""
         import rebrew.verify as verify_mod
-        from rebrew.metadata import get_entry, update_field
+        from rebrew.metadata.functions import get_entry, update_field
         from rebrew.verify import BatchResult, _save_report
 
         cfg = _cfg(tmp_path)

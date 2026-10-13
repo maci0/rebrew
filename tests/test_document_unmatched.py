@@ -86,7 +86,7 @@ class TestDocumentUnmatched:
         assert result.exit_code == 0, result.output
         stub = project / "src" / "SERVER" / "fcn_00401020.c"
         assert stub.exists(), "undocumented function must get a stub file"
-        from rebrew.annotation import parse_c_file_multi
+        from rebrew.metadata.annotation import parse_c_file_multi
 
         text = stub.read_text(encoding="utf-8")
         assert "// STUB:" not in text
@@ -145,7 +145,7 @@ class TestDocumentUnmatched:
         from typer.testing import CliRunner
 
         from rebrew.main import app
-        from rebrew.metadata import get_entry, update_field, update_source_status
+        from rebrew.metadata.functions import get_entry, update_field, update_source_status
 
         update_source_status(project / "src", "STUB", "SERVER", 0x401000)
         update_source_status(project / "src", "STUB", "SERVER", 0x401010)
@@ -170,7 +170,7 @@ class TestDocumentUnmatched:
         from typer.testing import CliRunner
 
         from rebrew.main import app
-        from rebrew.metadata import get_entry, update_field, update_source_status
+        from rebrew.metadata.functions import get_entry, update_field, update_source_status
 
         # A stub with an inline SIZE but no metadata size yet.
         (project / "src" / "SERVER" / "fcn_00401020.c").write_text(
@@ -199,7 +199,7 @@ class TestDocumentUnmatched:
         from typer.testing import CliRunner
 
         from rebrew.main import app
-        from rebrew.metadata import get_entry, update_source_status
+        from rebrew.metadata.functions import get_entry, update_source_status
 
         update_source_status(project / "src", "STUB", "SERVER", 0x401000)
         result = CliRunner().invoke(

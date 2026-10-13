@@ -41,7 +41,7 @@ from urllib.parse import urlparse
 
 from rebrew.compiler.toolchain_spec import FlagsStyle
 from rebrew.errors import RebrewError
-from rebrew.metadata_doc import metadata_write_lock
+from rebrew.metadata.document import metadata_write_lock
 from rebrew.utils import (
     BYTES_PER_MIB,
     console,
@@ -98,7 +98,7 @@ def _config_warn(msg: str) -> None:
 # Canonical project filenames and env-var names
 #
 # These live here because config is the layer every other module is allowed to
-# import.  Each constant is *used* by a higher layer (``rebrew.metadata``,
+# import.  Each constant is *used* by a higher layer (``rebrew.metadata.functions``,
 # ``rebrew.compiler.toolchain``, ``rebrew.skills``) but is part of the project layout
 # and environment this module describes, so a reader that needed it used to
 # import the higher module and closed an import cycle.
@@ -987,8 +987,8 @@ def module_marker(cfg: Any) -> str:
     derivation :func:`load_config` applies), else ``""``.
 
     Callers that write to the metadata store must reject an empty result:
-    :func:`rebrew.metadata_doc.qualified_key` renders a module-less entry as a bare
-    ``0xVA`` key, which :func:`rebrew.metadata_doc.parse_metadata_key` does not
+    :func:`rebrew.metadata.document.qualified_key` renders a module-less entry as a bare
+    ``0xVA`` key, which :func:`rebrew.metadata.document.parse_metadata_key` does not
     accept, so the write is silently unreadable.  Fabricating a placeholder
     module instead (``"SERVER"``, ``"GAME"``) is worse: it writes real data
     under another project's module name.

@@ -980,7 +980,7 @@ optional `--delta`; `clear` removes both fields; `show` prints the current
 values.  This is the ad-hoc counterpart to the auto-writers (`rebrew diff --fix-blocker`,
 `rebrew diagnose near --fix-blocker`, `rebrew source document-unmatched`) for blockers they
 cannot classify.  Every write goes
-through `rebrew.metadata` (locked + atomic): never hand-edit the toml.
+through `rebrew.metadata.functions` (locked + atomic): never hand-edit the toml.
 
 ### `rebrew orphans`
 
@@ -2150,7 +2150,7 @@ For confirmed vendored library functions, set that row's `marker_type` to
 `LIBRARY` (an unmigrated file may still say `// LIBRARY: SERVER 0x10003960`). Sourced
 library functions remain compilable; status and todo exclude them from the function
 denominators and include them in the separate `Library functions` count. For migrated
-sources, update the stored `marker_type` through `rebrew.metadata`, not by hand.
+sources, update the stored `marker_type` through `rebrew.metadata.functions`, not by hand.
 The terminal leads with the linked-file percentage, then the code account
 (`byte_coverage_pct` of virtual `.text`). Those are different measures, so the
 file line is labeled `Linked file` and the code line is labeled `Code account`.
@@ -3572,9 +3572,9 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 
 | Module | Purpose |
 |--------|---------|
-| `annotation.py` | Canonical annotation parser (`parse_c_file_multi`, `parse_c_file_text`) |
+| `metadata/annotation.py` | Canonical annotation parser (`parse_c_file_multi`, `parse_c_file_text`) |
 | `lint.py` | Source marker linter (10 E-codes, 28 W-codes); `--fix` migrates leftover inline metadata and drops W029-redundant cflags; W005 points to `rebrew blocker set` for STUB BLOCKERs |
-| `blocker.py` | Programmatic BLOCKER writer: `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata` (never hand-edit `rebrew-functions.toml`) |
+| `blocker.py` | Programmatic BLOCKER writer: `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata.functions` (never hand-edit `rebrew-functions.toml`) |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 
 ### Binary Analysis
@@ -3605,8 +3605,8 @@ that returns a `CompareResult` dataclass used by both `rebrew test` and
 | `CompareResult` | `compiler/compile.py` | Structured result for compile+compare operations (`matched`, `status`, `match_percent`, `delta`, `obj_bytes`, `message`, `error`) |
 | `classify_compare_result` | `compiler/compile.py` | Pure helper: classifies raw byte comparison into a `CompareResult` |
 | `compile_and_compare` | `compiler/compile.py` | High-level: compile → extract → compare → `CompareResult` |
-| `update_source_status` | `metadata.py` | Canonical STATUS writer: promotes STATUS in `rebrew-functions.toml`; never touches `.c` files |
-| `update_field` / `remove_field` | `metadata.py` | Canonical BLOCKER/CFLAGS/NOTE writers: `rebrew blocker set/clear` (BLOCKER), `rebrew diff --fix-blocker` / `rebrew diagnose near --fix-blocker` (auto BLOCKER): never hand-edit `rebrew-functions.toml` |
+| `update_source_status` | `metadata/functions.py` | Canonical STATUS writer: promotes STATUS in `rebrew-functions.toml`; never touches `.c` files |
+| `update_field` / `remove_field` | `metadata/functions.py` | Canonical BLOCKER/CFLAGS/NOTE writers: `rebrew blocker set/clear` (BLOCKER), `rebrew diff --fix-blocker` / `rebrew diagnose near --fix-blocker` (auto BLOCKER): never hand-edit `rebrew-functions.toml` |
 
 Both `rebrew test` (auto-promote after single test) and `rebrew verify`
 (always-on batch promotion) call `update_source_status`.  The `.c` file is **never modified**

@@ -6,9 +6,9 @@ from dataclasses import replace
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-from rebrew.annotation import Annotation
 from rebrew.config import ProjectConfig
-from rebrew.metadata import validate_identity_file
+from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.functions import validate_identity_file
 from rebrew.utils import rel_display_path
 
 
@@ -48,7 +48,7 @@ def compiled_library_annotations(
     The source can sit outside reversed_dir; missing sources remain candidates.
     """
     from rebrew.config import module_marker
-    from rebrew.metadata import apply_metadata_entry, load_metadata
+    from rebrew.metadata.functions import apply_metadata_entry, load_metadata
     from rebrew.utils import preset_module_key
 
     if metadata is None:

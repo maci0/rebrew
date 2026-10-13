@@ -277,7 +277,7 @@ class TestCollectors:
     ) -> None:
         """A GA-ceiling blocker without angr installed cannot route to the
         prover lane — classify as improve-match with a near-diag command."""
-        from rebrew.metadata import GA_CEILING_PREFIX
+        from rebrew.metadata.functions import GA_CEILING_PREFIX
 
         monkeypatch.setattr("rebrew.prove.angr_available", lambda: False)
         existing = {
@@ -294,7 +294,7 @@ class TestCollectors:
         assert "diagnose near" in items[0].command
 
     def test_ga_ceiling_with_angr_routes_to_prover(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.metadata import GA_CEILING_PREFIX
+        from rebrew.metadata.functions import GA_CEILING_PREFIX
 
         monkeypatch.setattr("rebrew.prove.angr_available", lambda: True)
         existing = {
@@ -581,7 +581,7 @@ class TestCollectors:
     ) -> None:
         """PROVEN bytes still differ: it stays actionable as improve-match with
         its blocker, never re-routed to `rebrew prove` or a flag sweep."""
-        from rebrew.metadata import GA_CEILING_PREFIX
+        from rebrew.metadata.functions import GA_CEILING_PREFIX
 
         monkeypatch.setattr("rebrew.prove.angr_available", lambda: has_angr)
         blocker = GA_CEILING_PREFIX + " register-only delta"
@@ -1896,7 +1896,7 @@ class TestDataDrift:
     def test_typed_copied_symbol_is_sized_and_excluded(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.metadata.data import set_data_fields_batch
         from rebrew.todo import _collect_data_drift
 
         cfg = _make_cfg(tmp_path)
@@ -1920,7 +1920,7 @@ class TestDataDrift:
         assert _collect_data_drift(cfg)[0].size == 4
 
     def test_drift_symbol_surfaces(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.todo import CAT_DATA_DRIFT, _collect_data_drift
 
         cfg = _make_cfg(tmp_path)
@@ -1935,7 +1935,7 @@ class TestDataDrift:
         assert items[0].va == 0x1000
 
     def test_displaced_symbol_surfaces(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.todo import _collect_data_drift
 
         cfg = _make_cfg(tmp_path)
@@ -1948,7 +1948,7 @@ class TestDataDrift:
         assert "away from its reference address" in items[0].description
 
     def test_other_target_drift_is_omitted(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.todo import _collect_data_drift
 
         cfg = _make_cfg(tmp_path, all_markers={"TEST", "GOLD"})
@@ -1967,7 +1967,7 @@ class TestDataDrift:
 
     def test_import_slots_are_not_start_data(self, tmp_path: Path) -> None:
         """A __imp__ slot is never undone work -- the linker supplies it."""
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.todo import _collect_start_data
 
         cfg = _make_cfg(tmp_path)
@@ -1985,7 +1985,7 @@ class TestDataDrift:
 
     def test_import_slot_skipped_by_section_alone(self, tmp_path: Path) -> None:
         """The section label alone is enough; the name may be a placeholder."""
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.todo import _collect_start_data
 
         cfg = _make_cfg(tmp_path)
@@ -1995,7 +1995,7 @@ class TestDataDrift:
 
     def test_verified_symbol_not_start_data(self, tmp_path: Path) -> None:
         """The lane is UNCHECKED-only; a VERIFIED global must not reappear."""
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.todo import _collect_start_data
 
         cfg = _make_cfg(tmp_path)
@@ -2006,7 +2006,7 @@ class TestDataDrift:
 
     def test_bss_label_skipped(self, tmp_path: Path) -> None:
         """A .bss symbol is not start-data work; the lane leaves it out."""
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.todo import _collect_start_data
 
         cfg = _make_cfg(tmp_path)
@@ -2061,7 +2061,7 @@ class TestDataDrift:
 
     def test_data_labelled_tail_symbol_is_filtered_end_to_end(self, tmp_path: Path) -> None:
         """The lane must drop a .data symbol that lives in the zero-fill tail."""
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.todo import _collect_start_data
 
         cfg = _make_cfg(tmp_path)
@@ -2190,7 +2190,7 @@ class TestLibraryAndCrossTargetScoping:
         assert 0x1A140 in [i.va for i in leaked]
 
     def test_start_data_scoped_to_the_active_module(self, tmp_path: Path) -> None:
-        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata.data import set_data_field
         from rebrew.todo import _collect_start_data
 
         cfg = _make_cfg(tmp_path)  # marker TEST
@@ -2210,7 +2210,7 @@ class TestMissingManagedBindings:
     def test_missing_binding_is_repair_not_new_work(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_present: bool, status: str
     ) -> None:
-        from rebrew.metadata import record_function_identity, update_statuses_batch
+        from rebrew.metadata.functions import record_function_identity, update_statuses_batch
         from rebrew.verify_cache import VerifyCacheEntry
 
         cfg = _make_cfg(tmp_path)
@@ -2267,7 +2267,7 @@ class TestMissingManagedBindings:
         assert (tmp_path / "rebrew-functions.toml").read_bytes() == store
 
     def test_target_library_skip_and_unbound_rows_are_ignored(self, tmp_path: Path) -> None:
-        from rebrew.metadata import (
+        from rebrew.metadata.functions import (
             record_function_identity,
             set_fields_batch,
             update_statuses_batch,
@@ -2300,7 +2300,7 @@ class TestMissingManagedBindings:
         assert _collect_missing_bindings(cfg, {}) == []
 
     def test_live_binding_and_definition_outside_tree_are_not_missing(self, tmp_path: Path) -> None:
-        from rebrew.metadata import record_function_identity
+        from rebrew.metadata.functions import record_function_identity
         from rebrew.todo import _collect_missing_bindings
 
         cfg = _make_cfg(tmp_path)

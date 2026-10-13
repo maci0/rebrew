@@ -476,7 +476,7 @@ def _load_verify_info(
     already-validated document when the caller has one, so a run that also
     needs the effective statuses reads the cache once.
     """
-    from rebrew.metadata import metadata_path
+    from rebrew.metadata.functions import metadata_path
     from rebrew.verify_cache import cache_path_for
 
     cache_path = cache_path_for(cfg)
@@ -567,7 +567,7 @@ def load_verify_details(
     proving even though bytes differ.  *raw* is the already-validated
     document when the caller has one.
     """
-    from rebrew.metadata_doc import canonical_va_key
+    from rebrew.metadata.document import canonical_va_key
 
     if raw is None:
         raw = _load_cache_raw(cfg)
@@ -885,7 +885,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # `verify --data`.  Named symbols only — unnamed inventory rows carry
     # no verdict.
     from rebrew.data_layout import data_symbol_size
-    from rebrew.data_metadata import load_data_metadata, module_visible_to_target
+    from rebrew.metadata.data import load_data_metadata, module_visible_to_target
 
     data_spans: dict[str, list[tuple[int, int]]] = {"verified": [], "drift": [], "unchecked": []}
     copied = postlink_copied_ranges(cfg)

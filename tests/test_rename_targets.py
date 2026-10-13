@@ -174,7 +174,7 @@ section = ".bss"
 
 
 def _project(tmp_path: Path) -> Path:
-    from rebrew.metadata import save_metadata
+    from rebrew.metadata.functions import save_metadata
 
     root = tmp_path / "proj"
     src = root / "src"
@@ -309,7 +309,7 @@ class TestLinkerReferences:
     def test_preserves_decoration_exports_and_unrelated_paths(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, native: str, new: str
     ) -> None:
-        from rebrew.metadata import record_function_identity
+        from rebrew.metadata.functions import record_function_identity
 
         root = _project(tmp_path)
         record_function_identity(
@@ -553,7 +553,7 @@ class TestFunctionIdentity:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A library row named only by its header marker gets the new symbol line and row."""
-        from rebrew.metadata import load_metadata, save_metadata
+        from rebrew.metadata.functions import load_metadata, save_metadata
 
         root = _project(tmp_path)
         (root / "src" / "library_crt.h").write_text(
@@ -578,7 +578,7 @@ class TestFunctionIdentity:
     def test_header_marker_rename_refuses_an_escaped_header(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import load_metadata, save_metadata
+        from rebrew.metadata.functions import load_metadata, save_metadata
 
         root = _project(tmp_path)
         outside = tmp_path / "external.h"
@@ -616,7 +616,7 @@ class TestFunctionIdentity:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, line: str, new: str, symbol: str
     ) -> None:
         """A prose or empty name line under a library marker becomes the new symbol."""
-        from rebrew.metadata import load_metadata, save_metadata
+        from rebrew.metadata.functions import load_metadata, save_metadata
 
         root = _project(tmp_path)
         (root / "src" / "library_crt.h").write_text(
@@ -644,7 +644,7 @@ class TestFunctionIdentity:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module: str, refused: bool
     ) -> None:
         """A library row of another image may carry the new name: that image links alone."""
-        from rebrew.metadata import load_metadata, save_metadata
+        from rebrew.metadata.functions import load_metadata, save_metadata
 
         root = _project(tmp_path)
         (root / "src" / "library_crt.h").write_text(
@@ -916,7 +916,7 @@ class TestStaticAndRollback:
             "static int helper(void) { return 2; }\nint b(void) { return helper(); }\n",
             encoding="utf-8",
         )
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata.functions import save_metadata
 
         save_metadata(
             root,

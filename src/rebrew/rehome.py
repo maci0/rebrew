@@ -52,8 +52,8 @@ def _rows_naming(
     metadata_dir: Any, rel: str
 ) -> tuple[list[tuple[str, int, dict[str, Any]]], list[tuple[str, int, dict[str, Any]]]]:
     """Function rows and data rows, across every module, whose ``file`` names *rel*."""
-    from rebrew.data_metadata import load_data_metadata
-    from rebrew.metadata import load_metadata, stored_file_matches
+    from rebrew.metadata.data import load_data_metadata
+    from rebrew.metadata.functions import load_metadata, stored_file_matches
 
     def naming(
         store: dict[tuple[str, int], dict[str, Any]],
@@ -88,7 +88,7 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
     its decoration around NAME. This is how a second module's row joins an
     existing shared definition.
     """
-    from rebrew.metadata import (
+    from rebrew.metadata.functions import (
         get_entry,
         identity_file,
         record_migrated_markers,
@@ -155,8 +155,12 @@ def retarget_file(
     need *new* to exist. *old* may already be gone. Each store takes one
     locked write, functions first. Returns the function rows and data rows.
     """
-    from rebrew.data_metadata import set_data_fields_batch
-    from rebrew.metadata import identity_file, record_migrated_markers, validate_identity_file
+    from rebrew.metadata.data import set_data_fields_batch
+    from rebrew.metadata.functions import (
+        identity_file,
+        record_migrated_markers,
+        validate_identity_file,
+    )
 
     old_path = Path(old) if Path(old).is_absolute() else cfg.root / old
     old_rel = validate_identity_file(identity_file(old_path, cfg.metadata_dir))

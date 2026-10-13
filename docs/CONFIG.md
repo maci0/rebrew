@@ -656,7 +656,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `skeleton.py` | `reversed_dir` |
 | `extract.py` | `reversed_dir`, `target_binary` |
 | `asm.py` | `target_binary`, `capstone_arch`, `capstone_mode` |
-| `annotation.py` | Canonical source marker parser: used by verify, extract, sync, match |
+| `metadata/annotation.py` | Canonical source marker parser: used by verify, extract, sync, match |
 | `formats/binary_loader.py` | LIEF-based binary loading: used by extract, flirt |
 | `matcher/scoring.py` | none directly: takes `cs_arch` / `cs_mode` ints from the caller (`match`/`diff` pass `cfg.capstone_arch` / `capstone_mode`) |
 | `matcher/compiler.py` | `compiler_profile` (drives flag axes) |

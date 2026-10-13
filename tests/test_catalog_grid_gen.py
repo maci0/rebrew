@@ -5,8 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from rebrew.annotation import Annotation
 from rebrew.catalog.grid import build_coverage_data
+from rebrew.metadata.annotation import Annotation
 from rebrew.utils import floor_pct
 
 TEXT_VA = 0x1000

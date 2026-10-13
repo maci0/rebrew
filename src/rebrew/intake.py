@@ -36,9 +36,9 @@ from typing import Any
 import typer
 from typer.testing import CliRunner
 
-from rebrew.annotation import derive_c_symbol, iter_annotations
 from rebrew.cli import EXIT_OK, console, error_exit, json_print
 from rebrew.config import ConfigError, validate_target_name
+from rebrew.metadata.annotation import derive_c_symbol, iter_annotations
 from rebrew.sources import iter_sources
 from rebrew.utils import (
     SOURCE_CHECKOUT,
@@ -190,7 +190,7 @@ def classify_all(
     honor a custom layout. Existing annotations for *marker* anywhere under
     *src_dir* prevent duplicate stubs after a source is renamed or moved.
     """
-    from rebrew.metadata import (
+    from rebrew.metadata.functions import (
         METADATA_FILENAME,
         identity_file,
         load_metadata,
@@ -349,7 +349,7 @@ def prune_stale_stubs(
     An :class:`_UnreadableInventory` there means the guard has no baseline to
     compare, and the prune is skipped for the same reason.
     """
-    from rebrew.metadata import delete_metadata_entry
+    from rebrew.metadata.functions import delete_metadata_entry
 
     previous = _read_prior_inventory(src_dir) if prior_inventory is None else prior_inventory
     if isinstance(previous, _UnreadableInventory):

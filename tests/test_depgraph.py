@@ -63,7 +63,7 @@ class TestBuildGraph:
 
     def _make_c_file(self, d, name, va, status, origin, externs=None) -> None:
         """Helper to create a minimal .c file with annotations."""
-        from rebrew.metadata import load_metadata, save_metadata
+        from rebrew.metadata.functions import load_metadata, save_metadata
 
         lines = [
             f"// FUNCTION: SERVER 0x{va:08x}",
@@ -135,7 +135,7 @@ class TestBuildGraph:
             ]
         )
         (tmp_path / "merged.c").write_text(merged, encoding="utf-8")
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata.functions import save_metadata
 
         save_metadata(
             tmp_path,
@@ -180,7 +180,7 @@ class TestBuildGraph:
             ]
         )
         (tmp_path / "multi.c").write_text(multi_content, encoding="utf-8")
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata.functions import save_metadata
 
         save_metadata(
             tmp_path,

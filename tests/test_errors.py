@@ -13,7 +13,7 @@ from rebrew.compiler.recompile_client import RecompileError
 from rebrew.compiler.toolchain import ToolchainError
 from rebrew.errors import RebrewError
 from rebrew.ghidra import McpApplyAborted, McpError
-from rebrew.metadata_model import MetadataValidationError
+from rebrew.metadata.model import MetadataValidationError
 from rebrew.registry import RegistryError
 from rebrew.workspace import WorkspaceNotFound
 

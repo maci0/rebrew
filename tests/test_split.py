@@ -790,7 +790,7 @@ def _meta_cfg(tmp_path: Path, marker: str = "SERVER") -> Any:
 
 
 def _seed(tmp_path: Path, rows: list[tuple[str, int, str]], file: str = "multi.c") -> None:
-    from rebrew.metadata import record_function_identity
+    from rebrew.metadata.functions import record_function_identity
 
     for module, va, symbol in rows:
         record_function_identity(
@@ -821,7 +821,7 @@ class TestMarkerlessSplit:
     def test_va_extracts_the_definition_and_retargets_siblings(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from rebrew.metadata import load_metadata, update_field, update_source_status
+        from rebrew.metadata.functions import load_metadata, update_field, update_source_status
 
         _write(
             tmp_path / "multi.c",
@@ -844,7 +844,7 @@ class TestMarkerlessSplit:
             verification={"status": "EXACT", "writer": "verify", "input_hash": "a" * 64},
         )
         update_field(tmp_path, 0x10001000, "note", "keep", "SERVER")
-        from rebrew.data_metadata import load_data_metadata, record_migrated_data_markers
+        from rebrew.metadata.data import load_data_metadata, record_migrated_data_markers
 
         record_migrated_data_markers(
             tmp_path,
@@ -948,7 +948,7 @@ class TestMarkerlessSplit:
     ) -> None:
         source = "int func_a(void) { return 0; }\n\nint func_b(void) { return 1; }\n"
         _write(tmp_path / "multi.c", source)
-        from rebrew.metadata import record_function_identity
+        from rebrew.metadata.functions import record_function_identity
 
         record_function_identity(
             tmp_path,
@@ -1035,7 +1035,7 @@ class TestMarkerlessSplit:
         assert src.read_text(encoding="utf-8") == source
 
     def test_full_split_keeps_the_storage_owner(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata.functions import load_metadata
 
         _write(
             tmp_path / "multi.c",
@@ -1078,7 +1078,7 @@ class TestMarkerlessSplit:
 
     def test_decorated_row_matches_the_c_definition(self, tmp_path: Path, monkeypatch: Any) -> None:
         """``hook@@12`` extracts ``hook``. ``__foo`` extracts ``_foo``, not ``foo``."""
-        from rebrew.metadata import record_function_identity
+        from rebrew.metadata.functions import record_function_identity
 
         _write(
             tmp_path / "multi.c",

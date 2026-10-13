@@ -21,7 +21,7 @@ def _isolate_metadata_cache() -> Iterator[None]:
     The resolved-path memo is keyed by that string. A later test in the same
     process would otherwise read the previous project.
     """
-    from rebrew.metadata import clear_metadata_cache
+    from rebrew.metadata.functions import clear_metadata_cache
 
     clear_metadata_cache()
     yield
@@ -33,7 +33,7 @@ def _run_main(tmp_path: Path, monkeypatch, *, argv: list[str]) -> str:
     from typer.testing import CliRunner
 
     import rebrew.main as main_mod
-    from rebrew.metadata import clear_metadata_cache
+    from rebrew.metadata.functions import clear_metadata_cache
 
     clear_metadata_cache()
     runner = CliRunner()
@@ -87,7 +87,7 @@ class TestIntake:
         assert "/* rebrew-stub GAME 00401000 */" in stub
         assert "pending per-function decompilation" in stub
         assert "// STUB:" not in stub
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         entry = get_entry(tmp_path / "src", 0x401000, "GAME")
         assert entry["marker_type"] == "STUB"
@@ -154,8 +154,8 @@ class TestIntake:
     def test_rediscovery_does_not_duplicate_renamed_functions(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
     ) -> None:
-        from rebrew.annotation import iter_annotations
-        from rebrew.metadata import (
+        from rebrew.metadata.annotation import iter_annotations
+        from rebrew.metadata.functions import (
             get_entry,
             record_migrated_markers,
             update_field,
@@ -373,7 +373,7 @@ class TestIntake:
 
         # User matches one function (RELOC) and hand-writes a BLOCKER on the
         # other — both must survive a re-run.
-        from rebrew.metadata import update_source_status
+        from rebrew.metadata.functions import update_source_status
 
         update_source_status(tmp_path / "src", "RELOC", "game", 0x401000)
         blocker = tmp_path / "src" / "game" / "fcn_00402000.c"
@@ -619,7 +619,7 @@ class TestPruneStaleStubs:
 
     def test_prunes_line_and_block_stubs(self, tmp_path: Path) -> None:
         from rebrew.intake import prune_stale_stubs
-        from rebrew.metadata import set_fields_batch
+        from rebrew.metadata.functions import set_fields_batch
 
         src_dir = tmp_path / "src" / "target"
         src_dir.mkdir(parents=True)
@@ -677,7 +677,7 @@ class TestPruneStaleStubs:
         stubs and their metadata entries.
         """
         from rebrew.intake import prune_stale_stubs
-        from rebrew.metadata import set_fields_batch
+        from rebrew.metadata.functions import set_fields_batch
 
         src_dir = tmp_path / "src" / "target"
         src_dir.mkdir(parents=True)
@@ -696,7 +696,7 @@ class TestPruneStaleStubs:
         funcs = [(0x401000, 32, "valid_fn")]
         assert prune_stale_stubs(tmp_path, src_dir, "TARGET", funcs, metadata_dir=meta_dir) == 0
         assert stub.exists()
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         assert get_entry(meta_dir, 0x401010, "TARGET").get("blocker") == "reason"
 

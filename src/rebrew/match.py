@@ -376,7 +376,7 @@ def execute_search(
     if mutation_focus:
         blocker_text = ""
         if mutation_focus == "auto":
-            from rebrew.metadata import load_metadata
+            from rebrew.metadata.functions import load_metadata
 
             # Metadata keys are qualified (module, va); VA-only lookup picks
             # the first hit and can weight mutations from a sibling target

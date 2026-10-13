@@ -392,7 +392,7 @@ class TestImportsMark:
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True)
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         added = mark_import_stubs(cfg, {0x401000: "MessageBoxA"}, dry_run=False)
         assert added == 1
@@ -415,7 +415,7 @@ class TestImportsMark:
         self, tmp_path: Path, encoding: str, comment: str
     ) -> None:
         from rebrew.imports import mark_import_stubs
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True)
@@ -463,7 +463,7 @@ class TestImportsMark:
     ) -> None:
         """A prose mention of a VA is not an annotation; the stub still gets marked."""
         from rebrew.imports import mark_import_stubs
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True)
@@ -489,7 +489,7 @@ class TestImportsMark:
         ``foo``. ``MessageBoxA`` is unchanged.
         """
         from rebrew.imports import mark_import_stubs
-        from rebrew.metadata import get_entry
+        from rebrew.metadata.functions import get_entry
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True)

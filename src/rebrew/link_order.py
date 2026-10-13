@@ -24,9 +24,9 @@ from pathlib import Path
 
 import typer
 
-from rebrew.annotation import FUNCTION_MARKERS, parse_c_file_multi
 from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import module_marker
+from rebrew.metadata.annotation import FUNCTION_MARKERS, parse_c_file_multi
 from rebrew.sources import iter_sources, source_exts
 from rebrew.utils import atomic_write_text, preset_module_key
 

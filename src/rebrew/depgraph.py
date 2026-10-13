@@ -22,7 +22,6 @@ from typing import Any, TypedDict
 
 import typer
 
-from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
@@ -33,6 +32,7 @@ from rebrew.cli import (
     require_non_negative,
 )
 from rebrew.config import ProjectConfig
+from rebrew.metadata.annotation import parse_c_file_multi
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.sources import (
     iter_sources,
@@ -151,7 +151,7 @@ def _func_label(entry: Any, fallback: str) -> str:
 
 def _block_va(block: str) -> int | None:
     """VA from the first marker line in *block*, or None."""
-    from rebrew.annotation import NEW_FUNC_CAPTURE_RE
+    from rebrew.metadata.annotation import NEW_FUNC_CAPTURE_RE
 
     for line in block.splitlines():
         m = NEW_FUNC_CAPTURE_RE.match(line.strip())
@@ -163,7 +163,7 @@ def _block_va(block: str) -> int | None:
 
 def _split_entry_blocks(text: str) -> list[str]:
     """Split *text* into per-annotation blocks at marker lines."""
-    from rebrew.annotation import NEW_FUNC_CAPTURE_RE
+    from rebrew.metadata.annotation import NEW_FUNC_CAPTURE_RE
 
     lines = text.splitlines(keepends=True)
     starts = [idx for idx, line in enumerate(lines) if NEW_FUNC_CAPTURE_RE.match(line.strip())]
@@ -357,7 +357,7 @@ def build_graph(
     # must show them too.  The minimal marker format needs parse_library_header
     # (parse_c_file_multi does not read it) and headers carry no bodies, so only
     # nodes are added.
-    from rebrew.annotation import (
+    from rebrew.metadata.annotation import (
         library_annotations_from_metadata,
         min_valid_va_for,
         parse_library_header,
