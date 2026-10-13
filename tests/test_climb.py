@@ -647,3 +647,87 @@ def test_preview_preserves_original_header_directory(tmp_path, monkeypatch, obje
         assert "matched bytes" not in result.stderr
     assert seen and all(not path.exists() for path in seen)
     assert source.read_text() == original
+
+
+@pytest.mark.parametrize("marker", ["SERVER", "GOLDTL"])
+def test_explicit_target_accepts_unregistered_source(tmp_path, monkeypatch, marker):
+    """Complete overrides measure pure scratch C under the selected target."""
+    import json
+    from types import SimpleNamespace
+
+    from typer.testing import CliRunner
+
+    import rebrew.climb as climb_mod
+
+    source = tmp_path / "probe.c"
+    original = "int probe(int arg)\n{\n int value;\n value = arg;\n return value;\n}\n"
+    source.write_text(original)
+    cfg = SimpleNamespace(
+        root=tmp_path, metadata_dir=tmp_path, target_binary="unused", marker=marker
+    )
+    calls = []
+
+    def resolve(*args):
+        assert args[-1] == marker
+        assert args[2] is None and args[3] == "/O2 /Gd"
+        return "msvc-6.0", args[3]
+
+    def score(_cfg, path, symbol, target_bytes, flags, names, va, toolchain, **kwargs):
+        assert symbol == "_probe" and va == 0x1234 and target_bytes == b"\x90" * 4
+        assert path != source and source.read_text() == original
+        calls.append(path)
+        return 4.0, 4
+
+    monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
+    monkeypatch.setattr(climb_mod, "target_marker", lambda c: marker)
+    monkeypatch.setattr(climb_mod, "parse_c_file_multi", lambda *a, **kw: [])
+    monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90" * 4)
+    monkeypatch.setattr(climb_mod, "resolve_compile_overrides", resolve)
+    monkeypatch.setattr(climb_mod, "build_name_to_va", lambda c: {})
+    monkeypatch.setattr(climb_mod, "_score", score)
+    result = CliRunner().invoke(
+        climb_mod.app,
+        [
+            "--va",
+            "0x1234",
+            "--symbol",
+            "_probe",
+            "--size",
+            "4",
+            "--cflags",
+            "/O2 /Gd",
+            "--dry-run",
+            "--json",
+            str(source),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["va"] == "0x1234"
+    assert calls and source.read_text() == original
+    assert all(not p.exists() for p in calls)
+
+
+@pytest.mark.parametrize("missing", ["--va", "--symbol", "--size"])
+def test_unregistered_source_requires_complete_overrides(tmp_path, monkeypatch, missing):
+    """An incomplete scratch target must never infer an unrelated identity."""
+    from types import SimpleNamespace
+
+    from typer.testing import CliRunner
+
+    import rebrew.climb as climb_mod
+
+    source = tmp_path / "probe.c"
+    source.write_text("int probe(void) { int value; value = 0; return value; }\n")
+    cfg = SimpleNamespace(metadata_dir=tmp_path, marker="SERVER")
+    monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
+    monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+    monkeypatch.setattr(climb_mod, "parse_c_file_multi", lambda *a, **kw: [])
+    options = {"--va": "0x1234", "--symbol": "_probe", "--size": "4"}
+    args = ["--json"]
+    for option, value in options.items():
+        if option != missing:
+            args.extend([option, value])
+    args.append(str(source))
+    result = CliRunner().invoke(climb_mod.app, args)
+    assert result.exit_code == 2
+    assert "annotation" in result.output

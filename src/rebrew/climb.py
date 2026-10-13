@@ -54,7 +54,7 @@ from rebrew.coff_reloc import build_name_to_va
 from rebrew.compiler.compile import CompareResult, compile_and_compare, matched_byte_count
 from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, module_marker
 from rebrew.formats.binary_loader import extract_raw_bytes
 from rebrew.metadata.annotation import parse_c_file_multi
 from rebrew.sources import target_marker
@@ -551,7 +551,9 @@ def _climb(
 
 @app.callback(invoke_without_command=True)
 def main(
-    source: str = typer.Argument(..., help="C source file containing the function"),
+    source: str = typer.Argument(
+        ..., help="C source; unregistered functions require --va, --symbol and --size"
+    ),
     va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from annotation)"),
     symbol: str | None = typer.Option(None, "--symbol", help="COFF symbol (e.g. _funcname)"),
     size: int | None = typer.Option(None, "--size", help="Size in bytes"),
@@ -581,10 +583,13 @@ def main(
     scorer: Callable[..., tuple[float, int]] = _score
 
     anns = parse_c_file_multi(path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir)
-    if not anns:
-        error_exit("No // FUNCTION annotation found in the source", json_mode=json_output)
-    selected = anns[0]
-    if va:
+    if not anns and not (va and symbol and size is not None):
+        error_exit(
+            "No function annotation found; provide --va, --symbol and --size for scratch C",
+            json_mode=json_output,
+        )
+    selected = anns[0] if anns else None
+    if va and anns:
         want = parse_va(va, json_mode=json_output)
         match = next((a for a in anns if a.va == want), None)
         if match is None and not symbol:
@@ -599,9 +604,9 @@ def main(
             )
         selected = match or selected
 
-    sym = symbol or selected.symbol
-    size_val = size or selected.size
-    va_int = parse_va(va, json_mode=json_output) if va else selected.va
+    sym = symbol or getattr(selected, "symbol", None)
+    size_val = size if size is not None else getattr(selected, "size", None)
+    va_int = parse_va(va, json_mode=json_output) if va else getattr(selected, "va", None)
     if not sym or va_int is None or not size_val:
         error_exit(
             "Need symbol, VA and SIZE (from the annotation or --symbol/--va/--size)",
@@ -614,7 +619,7 @@ def main(
         path.resolve().parent,
         getattr(selected, "toolchain", None),
         cflags or getattr(selected, "cflags", None),
-        selected.module,
+        selected.module if selected is not None else module_marker(cfg),
     )
     name_to_va = build_name_to_va(cfg)
 
