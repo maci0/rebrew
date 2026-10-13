@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** `compile.native_binary_id` returns `None` instead of empty identity
+  when the compiler binary is unreadable, missing, or malformed, so callers can
+  distinguish missing toolchains from unhashed binaries.
 - **Breaking:** `flirt.FLIRT_SIGS_REPO_URL` now points to the private
   `relumea/recondb` repository; callers cloning the signature corpus need access.
   `toolchain.TOOLCHAINS_REPO_URL` and `toolchain_paths.TOOLCHAINS_REPO_URL`
