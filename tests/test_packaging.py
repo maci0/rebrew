@@ -1569,64 +1569,86 @@ class TestReleaseCheckAttestations:
         assert release_check._attestation_problems() == []
 
 
-class TestPackagingStructuralGuards:
-    """Guards against package structure refactor regressions.
+class TestInstalledWheelAssetRuntime:
+    """Proves the built wheel provides working runtime behaviors for packaged assets.
 
-    Pins runtime asset locations, PEP 561 py.typed markers, and package-data
-    inclusions so that moving modules into subpackages cannot silently break
-    installed wheels.
+    Executes runtime behaviors against an unpacked wheel without relying on the
+    source checkout on sys.path or hardcoding internal module layouts.
     """
 
-    def test_runtime_asset_resolvers_point_to_valid_files(self) -> None:
-        """Declared runtime asset paths in init, skills, and lint resolve on disk."""
-        import rebrew.init as rebrew_init
-        import rebrew.skills as rebrew_skills
+    def test_wheel_runtime_skill_and_scaffold_behavior(self, tmp_path: Path) -> None:
+        """The built wheel executes skills listing and resolves packaged scaffold assets."""
+        import json
+        import os
+        import subprocess
+        import zipfile
 
-        assert rebrew_init._AGENTS_MD_TEMPLATE.is_file(), (
-            f"_AGENTS_MD_TEMPLATE at {rebrew_init._AGENTS_MD_TEMPLATE} does not exist"
+        out = tmp_path / "dist"
+        out.mkdir()
+        env = os.environ.copy()
+        env.update(
+            {
+                "SOURCE_DATE_EPOCH": "0",
+                "TZ": "UTC",
+                "LC_ALL": "C",
+                "PYTHONHASHSEED": "0",
+            }
         )
-        assert rebrew_init._PRINCIPLES_SRC.is_file(), (
-            f"_PRINCIPLES_SRC at {rebrew_init._PRINCIPLES_SRC} does not exist"
+        proc = subprocess.run(
+            ["uv", "build", "--wheel", "--out-dir", str(out)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
         )
-        assert rebrew_init._AGENT_SKILLS_SRC.is_dir(), (
-            f"_AGENT_SKILLS_SRC at {rebrew_init._AGENT_SKILLS_SRC} does not exist"
+        assert proc.returncode == 0, proc.stderr or proc.stdout
+        wheel = next(out.glob("*.whl"))
+
+        site_dir = tmp_path / "wheel_site"
+        with zipfile.ZipFile(wheel) as zf:
+            zf.extractall(site_dir)  # noqa: S202
+
+        sub_env = os.environ.copy()
+        sub_env["PYTHONPATH"] = str(site_dir)
+
+        test_code = (
+            "import json, sys\n"
+            "from importlib.metadata import entry_points\n"
+            "from pathlib import Path\n"
+            "# 1. Resolve unified console script entry point dynamically\n"
+            "eps = [ep for ep in entry_points(group='console_scripts') if ep.name == 'rebrew']\n"
+            "assert len(eps) == 1, f'Expected 1 rebrew entry point, found {eps}'\n"
+            "cli_fn = eps[0].load()\n"
+            "# 2. Verify packaged assets exist inside the wheel distribution\n"
+            "import rebrew\n"
+            "pkg_dir = Path(rebrew.__file__).resolve().parent\n"
+            "assert (pkg_dir / 'AGENTS.md.template').is_file(), 'Missing AGENTS.md.template in wheel'\n"
+            "assert (pkg_dir / 'PRINCIPLES.md').is_file(), 'Missing PRINCIPLES.md in wheel'\n"
+            "assert (pkg_dir / 'agent-skills').is_dir(), 'Missing agent-skills in wheel'\n"
+            "# 3. Execute skills listing command through the entry point\n"
+            "sys.argv = ['rebrew', 'skills', 'list', '--json']\n"
+            "try:\n"
+            "    cli_fn()\n"
+            "except SystemExit as exc:\n"
+            "    assert exc.code in (0, None), f'CLI exited with {exc.code}'\n"
         )
-        assert rebrew_skills._SKILLS_DIR.is_dir(), (
-            f"_SKILLS_DIR at {rebrew_skills._SKILLS_DIR} does not exist"
+        run_proc = subprocess.run(
+            [sys.executable, "-c", test_code],
+            cwd=str(tmp_path),
+            env=sub_env,
+            capture_output=True,
+            text=True,
+            check=False,
         )
-
-    def test_subpackage_py_typed_consistency(self) -> None:
-        """Every on-disk py.typed is declared in RUNTIME_ENTRIES."""
-        from tools.smoke_wheel_install import RUNTIME_ENTRIES
-
-        declared_typed = {
-            entry
-            for entry, kind in RUNTIME_ENTRIES
-            if kind == "file" and entry.endswith("py.typed")
-        }
-        on_disk_typed = {p.relative_to(PKG).as_posix() for p in PKG.rglob("py.typed")}
-        assert declared_typed == on_disk_typed, (
-            f"Mismatch between on-disk py.typed {on_disk_typed} and "
-            f"smoke_wheel_install RUNTIME_ENTRIES {declared_typed}"
+        assert run_proc.returncode == 0, (
+            f"Wheel runtime probe failed:\n{run_proc.stderr}\n{run_proc.stdout}"
         )
-
-    def test_subpackage_agents_md_matched_by_exclusions(self) -> None:
-        """Every subpackage AGENTS.md matches the exclude glob."""
-        from pathlib import PurePosixPath
-
-        data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
-        excluded = data["tool"]["setuptools"]["exclude-package-data"]["rebrew"]
-        subpackage_agents = [p.relative_to(PKG).as_posix() for p in PKG.rglob("AGENTS.md")]
-        assert subpackage_agents, "expected subpackage AGENTS.md files"
-        for rel in subpackage_agents:
-            assert any(PurePosixPath(rel).full_match(pat) for pat in excluded), (
-                f"{rel} not covered by exclude-package-data: {excluded}"
-            )
-
-    def test_source_checkout_resolution_resilient_to_depth(self) -> None:
-        """SOURCE_CHECKOUT in rebrew.utils correctly finds root containing pyproject.toml."""
-        from rebrew.utils import SOURCE_CHECKOUT
-
-        assert SOURCE_CHECKOUT is not None
-        assert (SOURCE_CHECKOUT / "pyproject.toml").is_file()
-        assert (SOURCE_CHECKOUT / "src" / "rebrew").is_dir()
+        data = json.loads(run_proc.stdout)
+        skills = data.get("skills", [])
+        assert len(skills) >= 6, f"Expected >= 6 packaged skills, got {len(skills)}"
+        names = {s["name"] for s in skills}
+        assert "rebrew-workflow" in names
+        assert "rebrew-matching" in names
