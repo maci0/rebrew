@@ -27,7 +27,7 @@ from rebrew.cmake_tc import (
     _to_w,
     generate_toolchain_file,
 )
-from rebrew.toolchain import TOOLCHAINS
+from rebrew.compiler.toolchain import TOOLCHAINS
 from rebrew.utils import file_lock
 from rebrew.workspace import walk_up_to_root
 
@@ -498,7 +498,7 @@ def test_resolve_spec_rejects_dosbox_image() -> None:
     import typer
 
     from rebrew.cmake_tc import _resolve_spec
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     with pytest.raises(typer.Exit):
         _resolve_spec("borland-3.1")

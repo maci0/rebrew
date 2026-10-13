@@ -15,7 +15,7 @@ declaration references another), so "cycle" failures cannot arise; what the
 paper's model calls a dependency conflict appears here as a declaration
 warning instead.
 
-This mirrors :func:`rebrew.compile_overrides.resolve_compile_overrides` step for step via
+This mirrors :func:`rebrew.compiler.overrides.resolve_compile_overrides` step for step via
 its ``resolve_overrides_steps`` core, so the trace can never drift from
 what verify/test/match/prove actually compile with.
 """
@@ -62,8 +62,8 @@ def _warnings_for(steps: list[dict[str, Any]], effective_toolchain: str | None) 
     by the resolved toolchain, and a per-function toolchain whose family
     disagrees with the enclosing library's are each reported."""
     warnings: list[str] = []
+    from rebrew.compiler.toolchain import TOOLCHAINS
     from rebrew.metadata import all_library_presets
-    from rebrew.toolchain import TOOLCHAINS
 
     func_step = next((s for s in steps if s["source"] == "function"), None)
     lib_step = next((s for s in steps if s["source"] == "library" and s.get("path")), None)
@@ -107,7 +107,7 @@ def diagnose_source(cfg: ProjectConfig, source: Path) -> dict[str, Any]:
     Walks every function annotation in *source* (metadata merged), resolves
     each through the shared fallback chain, and validates the declarations.
     A file with no annotations still reports the project-default chain."""
-    from rebrew.compile_overrides import resolve_overrides_steps
+    from rebrew.compiler.overrides import resolve_overrides_steps
 
     annos = parse_c_file_multi(source, metadata_dir=cfg.metadata_dir)
     functions: list[dict[str, Any]] = []

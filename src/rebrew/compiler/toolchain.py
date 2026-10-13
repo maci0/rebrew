@@ -1,4 +1,4 @@
-"""toolchain.py — standardized toolchain invocation (docker-only for Windows/DOS).
+"""compiler/toolchain.py — standardized toolchain invocation (docker-only for Windows/DOS).
 
 Modeled on Godbolt / Compiler Explorer's convention: **one container image
 per toolchain-version**, with the compiler behind a wrapper inside the image
@@ -41,16 +41,16 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
-from rebrew.config import TOOLCHAIN_OVERLAY_ENV, ConfigError, env_dir_path, source_date_epoch
-from rebrew.errors import RebrewError
-from rebrew.registry import RegistryError, merge_provider_dict
-from rebrew.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
-from rebrew.toolchain_paths import TOOLCHAINS_REPO_URL, toolchains_repo
-from rebrew.toolchain_spec import (
+from rebrew.compiler.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
+from rebrew.compiler.toolchain_paths import TOOLCHAINS_REPO_URL, toolchains_repo
+from rebrew.compiler.toolchain_spec import (
     ToolchainSpec,
     arg_style_from_str,
     flags_style_from_str,
 )
+from rebrew.config import TOOLCHAIN_OVERLAY_ENV, ConfigError, env_dir_path, source_date_epoch
+from rebrew.errors import RebrewError
+from rebrew.registry import RegistryError, merge_provider_dict
 from rebrew.utils import container_runtime, find_install_tool, run_process_group
 
 _RUN_TIMEOUT = 300
@@ -370,7 +370,7 @@ def refresh_toolchain_registry() -> Mapping[str, ToolchainSpec]:
     toolchains installed after startup without a restart.  Refreshes
     :data:`TOOLCHAIN_ORIGINS` alongside the registry (built in the same pass).
 
-    A reader that resolved ``rebrew.toolchain.TOOLCHAINS`` at call time sees
+    A reader that resolved ``rebrew.compiler.toolchain.TOOLCHAINS`` at call time sees
     the new registrations immediately.  Writers must not mutate the published
     map: concurrent workers read it unlocked and iterate it, and an in-place
     ``update()``/``del`` lets one read straddle two generations.

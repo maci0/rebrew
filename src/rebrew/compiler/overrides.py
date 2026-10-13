@@ -1,4 +1,4 @@
-"""compile_overrides.py — resolve effective toolchain + CFLAGS for a source.
+"""compiler/overrides.py — resolve effective toolchain + CFLAGS for a source.
 
 Domain resolution for the compiler/flags fallback chain (per-function
 metadata → nearest ``rebrew-libraries.toml`` → project defaults).  Lives

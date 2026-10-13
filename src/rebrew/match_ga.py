@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import capstone
 
-from rebrew.compile_cache import CacheBackend, source_digest
+from rebrew.compiler.cache import CacheBackend, source_digest
 from rebrew.config import ProjectConfig
 from rebrew.matcher import compiler as compile_seam
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, BuildResult, GACheckpoint
@@ -712,7 +712,7 @@ class BinaryMatchingGA:
             # execution is docker-only for every shipped profile, so this mode
             # is only available to a profile with no registry image.
             if self.profile:
-                from rebrew.toolchain import TOOLCHAINS
+                from rebrew.compiler.toolchain import TOOLCHAINS
 
                 _spec = TOOLCHAINS.get(self.profile)
                 if _spec is not None and _spec.image is not None:

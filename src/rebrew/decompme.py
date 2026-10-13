@@ -411,8 +411,8 @@ def upload_scratch(
     POST would orphan a public scratch.
 
     *sleep* is that backoff's only time source, the same seam
-    :func:`rebrew.recompile_client.compile_source` and
-    :func:`rebrew.headless._wait_for_socket` take: inject a stepper to replay
+    :func:`rebrew.compiler.recompile_client.compile_source` and
+    :func:`rebrew.compiler.headless._wait_for_socket` take: inject a stepper to replay
     a retry sequence from virtual time instead of waiting it out.  Left unset
     it reads :func:`time.sleep` per attempt, so a patched clock is honoured.
     """
@@ -498,7 +498,7 @@ def scratch_digest(payload: dict[str, Any], api: str) -> str:
     the identical request.
 
     ``surrogateescape`` on the text fields, as everywhere else a path or a
-    name off disk is hashed (``rebrew.compile_cache``,
+    name off disk is hashed (``rebrew.compiler.cache``,
     ``rebrew.verify_hash``): a field carrying a lone surrogate for a
     non-UTF-8 byte still gets a digest instead of raising out of the
     idempotency check.
@@ -795,7 +795,7 @@ def main(
         error_exit(str(exc), json_mode=json_output)
     size_val = size or ann_size
 
-    from rebrew.compile_overrides import resolve_compile_overrides
+    from rebrew.compiler.overrides import resolve_compile_overrides
 
     # Resolve the flags regardless of --compiler: --flags defaults to the
     # function's resolved cflags, and skipping the resolution when the user

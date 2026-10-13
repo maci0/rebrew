@@ -208,7 +208,7 @@ literals stops the gate instead of reading as a table with no routes.
 - **Bump the on-disk format version with the format.**  Changing the coverage
   document means bumping `_TOML_VERSION` in `coverage_toml.py` and documenting
   the change in `docs/COVERAGE_DOCUMENT.md`; changing what a compile result depends on
-  means bumping `CACHE_SCHEMA_VERSION` in `compile_cache.py`.  Both are how users
+  means bumping `CACHE_SCHEMA_VERSION` in `compiler/cache.py`.  Both are how users
   get a clear error (or a cold cache) instead of silently wrong results after an
   upgrade.
 - **Record user-visible change in `CHANGELOG.md`** under `## [Unreleased]`, in

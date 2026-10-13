@@ -43,7 +43,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.compile_overrides import resolve_compile_overrides
+from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
 from rebrew.lint_cflags import codegen_cflags_key
 from rebrew.sources import iter_sources

@@ -694,7 +694,7 @@ class VerifyCacheEntry:
     headers_fp: str = ""
     """Per-source header-dependency fingerprint (reached ``#include`` closure).
 
-    Computed via ``compile_cache.header_dependency_hash`` over the same
+    Computed via ``compiler.cache.header_dependency_hash`` over the same
     search dirs the compile uses, so editing a header re-verifies exactly the
     entries whose source reaches it.  This replaced the global
     ``headers_hash`` gate, which invalidated *every* entry on any header
@@ -912,7 +912,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
     ``delta`` keeps the cached one, and a missing ``match_percent`` keeps the
     cached percent rather than overwriting it with 0.  When ``match_percent`` is supplied it is stored as-is —
     recomputing ``match_count / total`` disagrees with
-    :func:`rebrew.compile.classify_compare_result` whenever lengths differ
+    :func:`rebrew.compiler.compile.classify_compare_result` whenever lengths differ
     (SIZE_MISMATCH / truncated compare), and status/todo would then rank ROI
     from a wrong percent until the next full verify.
     """

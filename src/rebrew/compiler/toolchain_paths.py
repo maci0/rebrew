@@ -1,4 +1,4 @@
-"""toolchain_paths.py — where the recompile-toolchains build source lives.
+"""compiler/toolchain_paths.py — where the recompile-toolchains build source lives.
 
 The Dockerfiles, wrapper scripts, and the shared base live in the sibling
 recompile-toolchains checkout, overridable with REBREW_TOOLCHAINS_DIR.
@@ -29,7 +29,7 @@ def toolchains_repo() -> Path:
     snapshot with no repo on disk) it returns a non-existent sentinel path.
     Callers that merely probe (``.exists()``, ``host_path``) degrade
     gracefully; commands that consume the build source go through
-    :func:`rebrew.toolchain.require_toolchains_repo`, which raises the
+    :func:`rebrew.compiler.toolchain.require_toolchains_repo`, which raises the
     actionable error.
     """
     env = os.environ.get(TOOLCHAINS_DIR_ENV, "").strip()

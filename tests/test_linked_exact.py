@@ -17,7 +17,7 @@ import pytest
 from bin_util import make_pe
 from typer.testing import CliRunner
 
-from rebrew.compile import CompareResult, CompareStatus
+from rebrew.compiler.compile import CompareResult, CompareStatus
 from rebrew.config import load_config
 from rebrew.metadata import get_entry
 
@@ -72,9 +72,9 @@ def _mock(monkeypatch: pytest.MonkeyPatch, *, placed: bool = True) -> None:
     from rebrew.verify_hash import expected_text_functions
 
     _VERDICT["status"] = "RELOC"
-    monkeypatch.setattr("rebrew.compile.compile_and_compare", _compare)
+    monkeypatch.setattr("rebrew.compiler.compile.compile_and_compare", _compare)
     monkeypatch.setattr("rebrew.test.compile_and_compare", _compare)
-    monkeypatch.setattr("rebrew.compile.precompile_batch", lambda *a, **k: {})
+    monkeypatch.setattr("rebrew.compiler.compile.precompile_batch", lambda *a, **k: {})
     monkeypatch.setattr(
         "rebrew.text_audit.collect_actual_vas",
         lambda root, built: expected_text_functions(load_config(root=root)) if placed else {},

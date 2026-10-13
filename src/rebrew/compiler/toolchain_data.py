@@ -1,4 +1,4 @@
-"""toolchain_data.py — the packaged toolchain registry and source pins.
+"""compiler/toolchain_data.py — the packaged toolchain registry and source pins.
 
 Profiles in config.py map to these by name; the runner builds the public
 TOOLCHAINS from BUILTIN_TOOLCHAINS plus entry-point providers and the
@@ -7,8 +7,8 @@ project overlay.
 
 from __future__ import annotations
 
-from rebrew.toolchain_paths import vendored_path
-from rebrew.toolchain_spec import ToolchainSource, ToolchainSpec
+from rebrew.compiler.toolchain_paths import vendored_path
+from rebrew.compiler.toolchain_spec import ToolchainSource, ToolchainSpec
 
 #: Pinned sources for assembling each toolchain (used by ``rebrew toolchain
 #: vendor`` and mirrored in the Dockerfiles).  Same sha256 as the images
@@ -669,7 +669,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_path=vendored_path("msvc/1.52-win16")
         if vendored_path("msvc/1.52-win16").exists()
         else None,
-        description="MSVC 1.52 (16-bit, Windows 3.x) — DOSBox via rebrew.msvc16",
+        description="MSVC 1.52 (16-bit, Windows 3.x) — DOSBox via rebrew.compiler.msvc16",
     ),
     "msvc-2.0": ToolchainSpec(
         name="msvc-2.0",
@@ -1042,7 +1042,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         if vendored_path("msvc/1.5-win16").exists()
         else None,
         host_bin="BIN",
-        description="MSVC 1.5 (16-bit, Windows 3.x) — DOSBox via rebrew.msvc16 (version=1.5-win16)",
+        description="MSVC 1.5 (16-bit, Windows 3.x) — DOSBox via rebrew.compiler.msvc16 (version=1.5-win16)",
     ),
     "msvc-1.0": ToolchainSpec(
         name="msvc-1.0",
@@ -1057,7 +1057,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         if vendored_path("msvc/1.0-win16").exists()
         else None,
         host_bin="BIN",
-        description="MSVC 1.0 (16-bit, Windows 3.x) — DOSBox via rebrew.msvc16 (version=1.0-win16)",
+        description="MSVC 1.0 (16-bit, Windows 3.x) — DOSBox via rebrew.compiler.msvc16 (version=1.0-win16)",
     ),
     "borland-2.0": ToolchainSpec(
         name="borland-2.0",
@@ -1072,7 +1072,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         if vendored_path("borland/2.0-win16").exists()
         else None,
         host_bin="BIN",
-        description="Turbo C 2.0 (16-bit DOS) — DOSBox via rebrew.tc16 (version=2.0)",
+        description="Turbo C 2.0 (16-bit DOS) — DOSBox via rebrew.compiler.tc16 (version=2.0)",
     ),
     "borland-3.1": ToolchainSpec(
         name="borland-3.1",
@@ -1087,7 +1087,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         if vendored_path("borland/3.1-win16").exists()
         else None,
         host_bin="BIN",
-        description="Turbo C++ 3.1 (16-bit DOS) — DOSBox via rebrew.tc16",
+        description="Turbo C++ 3.1 (16-bit DOS) — DOSBox via rebrew.compiler.tc16",
     ),
     "borland-5.5": ToolchainSpec(
         name="borland-5.5",

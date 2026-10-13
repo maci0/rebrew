@@ -42,7 +42,7 @@ from rebrew.init_profiles import (
 if TYPE_CHECKING:
     from rebrew.toolchain_detect import ToolchainInfo
 from rebrew.cli import console
-from rebrew.toolchain import toolchain_link_candidates
+from rebrew.compiler.toolchain import toolchain_link_candidates
 from rebrew.utils import ascii_slug, atomic_write_text, read_json_text
 
 logger = logging.getLogger(__name__)
@@ -783,7 +783,7 @@ def _toolchain_image_followup(compiler_profile: str) -> None:
     init).  Native PATH toolchains have no image, so nothing to build."""
     from rich.markup import escape
 
-    from rebrew.toolchain import TOOLCHAINS, ToolchainError, image_present
+    from rebrew.compiler.toolchain import TOOLCHAINS, ToolchainError, image_present
 
     spec = TOOLCHAINS.get(compiler_profile)
     if spec is None:
@@ -844,7 +844,7 @@ def _docker_only(profile: dict[str, Any], profile_name: str) -> dict[str, Any]:
     toolchain registered without an image keeps its command.  Returns the
     same object unchanged when there is nothing to normalize.
     """
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     spec = TOOLCHAINS.get(profile_name)
     if spec is not None and spec.image is not None:
@@ -1004,7 +1004,7 @@ def _compiler_command(profile_name: str, defaults: dict[str, Any]) -> str:
     command = str(defaults.get("command", "")).strip()
     if command:
         return command
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     spec = TOOLCHAINS.get(profile_name)
     if spec is not None and spec.image:
@@ -1194,7 +1194,7 @@ def main(
         # get a broken path — resolve the best layout actually present
         # (project tools/ first, then the rebrew install's own vendored
         # tree) and write those paths into the generated config.
-        from rebrew.toolchain import resolve_msvc_toolchain
+        from rebrew.compiler.toolchain import resolve_msvc_toolchain
 
         layout = resolve_msvc_toolchain(cwd, compiler_profile)
         if layout is not None:
@@ -1390,7 +1390,7 @@ def main(
         # The link may have just created a better layout than the pre-write
         # resolution saw (e.g. a master toolchain/msvc/6.0-win32) — re-resolve
         # and point the content being written at it.
-        from rebrew.toolchain import resolve_msvc_toolchain
+        from rebrew.compiler.toolchain import resolve_msvc_toolchain
 
         layout = resolve_msvc_toolchain(cwd, compiler_profile)
         if layout is not None:

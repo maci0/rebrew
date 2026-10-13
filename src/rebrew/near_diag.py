@@ -59,8 +59,8 @@ def _diagnose_one(
 
     from rebrew.binary_loader import extract_raw_bytes
     from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_compare
-    from rebrew.compile import compile_to_obj
-    from rebrew.compile_overrides import resolve_compile_overrides
+    from rebrew.compiler.compile import compile_to_obj
+    from rebrew.compiler.overrides import resolve_compile_overrides
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 
     target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)
@@ -74,7 +74,7 @@ def _diagnose_one(
         getattr(ann, "cflags", ""),
         getattr(ann, "module", ""),
     )
-    from rebrew.temp_dirs import writable_temp_dir
+    from rebrew.compiler.temp_dirs import writable_temp_dir
 
     workdir = writable_temp_dir("rebrew_near_diag_")
     try:
@@ -92,7 +92,7 @@ def _diagnose_one(
         if compiled_bytes is None:
             raise _DiagnoseError(f"Symbol '{symbol or '(none)'}' not found in compiled .obj")
     finally:
-        from rebrew.temp_dirs import remove_temp_dir
+        from rebrew.compiler.temp_dirs import remove_temp_dir
 
         with contextlib.suppress(OSError):
             remove_temp_dir(workdir)

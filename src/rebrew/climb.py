@@ -53,11 +53,11 @@ from rebrew.cli import (
     require_positive_size,
 )
 from rebrew.coff_reloc import build_name_to_va
-from rebrew.compile import CompareResult, compile_and_compare, matched_byte_count
-from rebrew.compile_overrides import resolve_compile_overrides
+from rebrew.compiler.compile import CompareResult, compile_and_compare, matched_byte_count
+from rebrew.compiler.overrides import resolve_compile_overrides
+from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
 from rebrew.config import ProjectConfig
 from rebrew.sources import target_marker
-from rebrew.temp_dirs import sweep_stale_temp_dirs
 from rebrew.utils import (
     SOURCE_BACKUP_DIRNAME,
     atomic_write_text,

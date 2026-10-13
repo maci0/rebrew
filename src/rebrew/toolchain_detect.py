@@ -1034,7 +1034,7 @@ def processor_pack_profiles() -> set[str]:
     variant is covered without a second list to keep in sync.
     """
     try:
-        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain import TOOLCHAINS
     except Exception as exc:  # pragma: no cover - registry always importable
         logger.warning(
             "toolchain registry unavailable (%s); pack profiles fall back to defaults", exc
@@ -1927,7 +1927,7 @@ def bitness16_profiles() -> tuple[str, ...]:
     declaring ``bits = 16`` (entry-point or ``REBREW_TOOLCHAIN_OVERLAY_DIR``
     TOML) is allowed on x86_16 targets instead of being flagged as a
     32/64-bit compiler."""
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     return tuple(sorted(n for n, s in TOOLCHAINS.items() if s.bits == 16))
 

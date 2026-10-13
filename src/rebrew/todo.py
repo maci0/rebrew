@@ -38,7 +38,7 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
-from rebrew.compile import NEAR_MATCH_THRESHOLD
+from rebrew.compiler.compile import NEAR_MATCH_THRESHOLD
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.metadata import GA_CEILING_PREFIX
 from rebrew.naming import (

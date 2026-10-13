@@ -379,7 +379,7 @@ def refresh_all() -> dict[str, int]:
     (``toolchains``, ``binary_detectors``, ...).  CLI command groups are not
     refreshed: the umbrella app mounts them once.  Each module also exposes a
     single-registry ``refresh_*`` (e.g.
-    :func:`rebrew.toolchain.refresh_toolchain_registry`).
+    :func:`rebrew.compiler.toolchain.refresh_toolchain_registry`).
 
     The refreshes run as one composition under a single lock, so two
     concurrent calls cannot interleave and leave a mixture of two composite
@@ -395,13 +395,13 @@ def refresh_all() -> dict[str, int]:
     """
     from rebrew import (
         binary_loader,
-        compile_cache,
         decompiler,
         discover,
         metadata,
-        toolchain,
         toolchain_detect,
     )
+    from rebrew.compiler import cache as compile_cache
+    from rebrew.compiler import toolchain
     from rebrew.matcher import compiler, mutator
 
     with _REFRESH_ALL_LOCK:

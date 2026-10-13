@@ -10,7 +10,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.compile_cache import (
+from rebrew.compiler.cache import (
     DEFAULT_CACHE_BACKEND,
     DEFAULT_CACHE_SIZE_LIMIT_MIB,
     get_compile_cache,

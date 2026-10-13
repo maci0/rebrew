@@ -471,7 +471,7 @@ def _imported_modules(pkg: Path) -> set[str]:
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 if node.module == "rebrew":
-                    # `from rebrew import compile` names rebrew.compile.
+                    # `from rebrew import compile` names rebrew.compiler.compile.
                     found.update(f"rebrew.{a.name}" for a in node.names)
                 elif node.module and node.module.startswith("rebrew."):
                     found.add(node.module)

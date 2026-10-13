@@ -103,7 +103,7 @@ def check_redundant_cflags(
     """
     if cfg is None:
         return [], []
-    from rebrew.compile_overrides import resolve_cflags
+    from rebrew.compiler.overrides import resolve_cflags
     from rebrew.metadata import load_metadata as _load_meta
 
     project_cflags = str(getattr(cfg, "cflags", "") or "")

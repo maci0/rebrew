@@ -7,10 +7,10 @@ loaded on first use, and a star-import binds them along with `__version__`:
 
 ```python
 from rebrew.config import load_config
-from rebrew.compile import compile_and_compare
+from rebrew.compiler.compile import compile_and_compare
 from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources
-from rebrew.toolchain import ToolchainError, get_toolchain
+from rebrew.compiler.toolchain import ToolchainError, get_toolchain
 
 cfg = load_config()  # walks up for rebrew-project.toml
 for path in iter_sources(cfg):  # a bare path works too: iter_sources("src/game")
@@ -25,7 +25,7 @@ except ToolchainError as exc:
 # The legal profile names are the registry, not a hardcoded list. TOOLCHAINS
 # maps name -> ToolchainSpec, so a consumer can enumerate and inspect them
 # with attributes rather than parsing `rebrew toolchain list` output:
-from rebrew.toolchain import TOOLCHAINS, get_toolchain
+from rebrew.compiler.toolchain import TOOLCHAINS, get_toolchain
 
 for name, spec in sorted(TOOLCHAINS.items()):
     print(name, spec.family, spec.bits, spec.obj_ext, spec.image)
@@ -38,7 +38,7 @@ for name, spec in sorted(TOOLCHAINS.items()):
 # `payload["toolchains"]` rather than parsing the table out of a list.
 
 # Byte-level matching uses the same entry as the CLI:
-#   from rebrew.compile import CompareResult, CompareStatus, compile_and_compare
+#   from rebrew.compiler.compile import CompareResult, CompareStatus, compile_and_compare
 #   result = compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)
 #   result.matched / result.status / result.match_percent / result.message
 #   `status` is a `CompareStatus` ("EXACT" / "RELOC" / "NEAR_MATCHING" /
@@ -46,7 +46,7 @@ for name, spec in sorted(TOOLCHAINS.items()):
 ```
 
 Remote compile transport, registry plugins, workspace helpers, and the GA
-matcher follow the same pattern (`rebrew.recompile_client`, `rebrew.registry`,
+matcher follow the same pattern (`rebrew.compiler.recompile_client`, `rebrew.registry`,
 `rebrew.plugin`, `rebrew.workspace`, `rebrew.matcher`). Component declarations,
 scoped contexts, and teardown are documented in the [Cordis guide](CORDIS.md);
 the [tutorial](CORDIS_TUTORIAL.md) exercises provider replacement with the public API.
@@ -89,11 +89,11 @@ RebrewError` can read them without `getattr`; a field the arriving error does
 not fill is `None`, and a serialized error leaves it out.
 
 The clients that talk to a service take the HTTP client as an argument, so
-your tests never need a live one. `HttpClient` (from `rebrew.recompile_client`
+your tests never need a live one. `HttpClient` (from `rebrew.compiler.recompile_client`
 or `rebrew.decompme`) is the two-method shape those clients call: `.post` and
 `.get`. A stand-in that takes `**kwargs` satisfies both, so one fake covers
 both of them. What it returns is a reply, and that is typed too: `HttpResponse`
-names the members each transport reads. `rebrew.recompile_client` needs
+names the members each transport reads. `rebrew.compiler.recompile_client` needs
 `status_code`, `text`, `json()` and `content` (the artifact bytes);
 `rebrew.decompme` needs the same minus `content` plus `close()`, because the
 module-level `httpx.post` / `httpx.get` reply owns a connection. An
@@ -101,11 +101,11 @@ module-level `httpx.post` / `httpx.get` reply owns a connection. An
 error rather than a wrong value at the far end:
 
 ```python
-from rebrew.recompile_client import compile_source
+from rebrew.compiler.recompile_client import compile_source
 
 
 class _Reply:
-    """Satisfies rebrew.recompile_client.HttpResponse."""
+    """Satisfies rebrew.compiler.recompile_client.HttpResponse."""
 
     def __init__(self, status_code, *, json_body=None, content=b"", text=""):
         self.status_code = status_code

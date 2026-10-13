@@ -1,4 +1,4 @@
-"""Tests for rebrew.toolchain — standardized toolchain invocation."""
+"""Tests for rebrew.compiler.toolchain — standardized toolchain invocation."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from rebrew.toolchain import (
+from rebrew.compiler.toolchain import (
     TOOLCHAINS,
     ToolchainError,
     ToolchainSpec,
@@ -52,9 +52,9 @@ def _monkey_docker(monkeypatch, *, available: bool = True, image: bool = True) -
         calls.append(cmd)
         return _FakeProc(0, "compiled ok", "")
 
-    monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: available)
-    monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: available and image)
-    monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+    monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: available)
+    monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: available and image)
+    monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
     return calls
 
 
@@ -74,7 +74,7 @@ class TestRegistry:
         deliberately disagrees with the ambient ``TOOLCHAIN_ORIGINS`` so a
         reader that goes back to the globals fails here.
         """
-        import rebrew.toolchain as tc
+        import rebrew.compiler.toolchain as tc
 
         spec = ToolchainSpec(name="probe-1.0", image="rebrew/probe:1.0")
         monkeypatch.setattr(
@@ -96,7 +96,7 @@ class TestRegistry:
 
     def test_toolchain_public_all(self) -> None:
         """Star-imports must not leak typing/stdlib names into consumer namespaces."""
-        import rebrew.toolchain as tc
+        import rebrew.compiler.toolchain as tc
 
         assert tc.__all__ == [
             "RunResult",
@@ -133,7 +133,7 @@ class TestRegistry:
         for name in tc.__all__:
             assert getattr(tc, name, None) is not None, name
         ns: dict[str, Any] = {}
-        exec("from rebrew.toolchain import *", ns)  # noqa: S102
+        exec("from rebrew.compiler.toolchain import *", ns)  # noqa: S102
         exported = {k for k in ns if not k.startswith("_")}
         assert exported == set(tc.__all__)
 
@@ -197,7 +197,7 @@ class TestRegistry:
     def test_image_backed_native_sources_pinned(self) -> None:
         """Each image-backed native profile has a pinned SOURCES entry (the
         image build source) — no unpinned host-tree dependency."""
-        from rebrew.toolchain_data import SOURCES
+        from rebrew.compiler.toolchain_data import SOURCES
 
         for name in (
             "gcc-14.2.0",
@@ -220,7 +220,7 @@ class TestRegistry:
         vendor <name>` must be able to reproduce that tree from the URL —
         requiring a media tarball nobody ships made vendor unusable for
         exactly these profiles."""
-        from rebrew.toolchain_data import SOURCES
+        from rebrew.compiler.toolchain_data import SOURCES
 
         for name in (
             "msvc-1.0",
@@ -465,7 +465,7 @@ class TestRunToolchain:
             seen["n"] += 1
             return False
 
-        monkeypatch.setattr("rebrew.toolchain.image_present", _present)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", _present)
         image_id = "sha256:" + "cd" * 32
         result = run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, image_id=image_id)
         assert result.ok
@@ -499,7 +499,7 @@ class TestRunToolchain:
             calls.append(cmd)
             return _FakeProc(0, "", "")
 
-        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
         with pytest.raises(ToolchainError, match="no docker image"):
             run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
         assert calls == [], "no subprocess may run for a wine spec without an image"
@@ -521,9 +521,9 @@ class TestRunToolchain:
                 raise sp.TimeoutExpired(cmd, 300)
             return _FakeProc(0, "", "")
 
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
-        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
 
         with pytest.raises(ToolchainError, match="docker invocation failed"):
             run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, timeout=1)
@@ -546,9 +546,9 @@ class TestRunToolchain:
                 raise KeyboardInterrupt
             return _FakeProc(0, "", "")
 
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
-        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
 
         with pytest.raises(KeyboardInterrupt):
             run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, timeout=1)
@@ -569,9 +569,9 @@ class TestRunToolchain:
             calls.append(list(cmd))
             raise OSError("docker not found")
 
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
-        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
 
         with pytest.raises(ToolchainError, match="docker invocation failed"):
             run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path)
@@ -601,7 +601,7 @@ class TestRunToolchain:
             calls.append(cmd)
             return _FakeProc(0, "", "")
 
-        monkeypatch.setattr("rebrew.toolchain.run_process_group", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
         r = run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
         assert r.backend == "native"
         assert calls[0] == [str(cl), "/c", "t.c"]
@@ -610,8 +610,8 @@ class TestRunToolchain:
         """A docker toolchain whose image is not built is a hard error that
         tells the user to build it — there is no host fallback anymore."""
         spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl")
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
         with pytest.raises(ToolchainError, match="not built") as ei:
             run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
         assert ei.value.kind == "missing"
@@ -621,7 +621,7 @@ class TestRunToolchain:
     def test_docker_unavailable_raises(self, tmp_path: Path, monkeypatch) -> None:
         """No docker daemon -> clear error before any invocation attempt."""
         spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl")
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: False)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: False)
         with pytest.raises(ToolchainError, match="docker is not available") as ei:
             run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
         assert ei.value.kind == "docker"
@@ -659,12 +659,12 @@ class TestCli:
     def test_pull_host_only_errors(self, monkeypatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew import toolchain as toolchain_mod
+        from rebrew.compiler import toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain_spec import ToolchainSpec
         from rebrew.main import app as umbrella
-        from rebrew.toolchain import TOOLCHAINS
-        from rebrew.toolchain_spec import ToolchainSpec
 
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: False)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: False)
         monkeypatch.setattr(
             toolchain_mod,
             "TOOLCHAINS",
@@ -760,10 +760,10 @@ class TestCli:
     def test_build_host_only_errors(self, monkeypatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew import toolchain as toolchain_mod
+        from rebrew.compiler import toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain_spec import ToolchainSpec
         from rebrew.main import app as umbrella
-        from rebrew.toolchain import TOOLCHAINS
-        from rebrew.toolchain_spec import ToolchainSpec
 
         monkeypatch.setattr(
             toolchain_mod,
@@ -781,7 +781,7 @@ class TestCli:
 
         # No checkout needed: point the build source at an empty dir so the
         # command reaches the Dockerfile check (a real checkout has the file).
-        monkeypatch.setattr("rebrew.toolchain.require_toolchains_repo", lambda: tmp_path)
+        monkeypatch.setattr("rebrew.compiler.toolchain.require_toolchains_repo", lambda: tmp_path)
         result = CliRunner().invoke(umbrella, ["toolchain", "build", "watcom-2.0-win32"])
         assert result.exit_code == 2
         assert "Dockerfile" in result.output
@@ -793,7 +793,7 @@ class TestCli:
 
         from rebrew.main import app as umbrella
 
-        monkeypatch.setattr("rebrew.toolchain.require_toolchains_repo", lambda: tmp_path)
+        monkeypatch.setattr("rebrew.compiler.toolchain.require_toolchains_repo", lambda: tmp_path)
         monkeypatch.setattr("rebrew.toolchain_cli.SOURCE_CHECKOUT", None)
 
         def _no_download(*_a: Any, **_k: Any) -> None:
@@ -810,13 +810,13 @@ class TestPullToolchain:
     (they are built via `toolchain build`, not pulled from a registry)."""
 
     def test_already_present_skips_docker_pull(self, monkeypatch) -> None:
-        from rebrew.toolchain import pull_toolchain
+        from rebrew.compiler.toolchain import pull_toolchain
 
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
         called: list[str] = []
         monkeypatch.setattr(
-            "rebrew.toolchain.subprocess.run",
+            "rebrew.compiler.toolchain.subprocess.run",
             lambda *a, **k: called.append(a) or type("R", (), {"returncode": 0})(),
         )
         tag, was_present = pull_toolchain("msvc-6.0")
@@ -825,10 +825,10 @@ class TestPullToolchain:
         assert not called  # no docker pull subprocess for a local image
 
     def test_absent_image_does_pull(self, monkeypatch) -> None:
-        from rebrew.toolchain import pull_toolchain
+        from rebrew.compiler.toolchain import pull_toolchain
 
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
         # Model the swap's inspect calls: backup inspect fails (absent),
         # then the pull succeeds and the verify inspect resolves a new id.
         calls = {"n": 0}
@@ -841,18 +841,18 @@ class TestPullToolchain:
                 return type("R", (), {"returncode": 0, "stdout": "sha256:NEW\n", "stderr": ""})()
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
-        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
         tag, was_present = pull_toolchain("msvc-6.0")
         assert tag == "rebrew/msvc:6.0-win32"
         assert was_present is False
 
     def test_pull_uses_configured_runtime(self, monkeypatch) -> None:
         """pull routes through container_runtime(), not a hardcoded docker."""
-        from rebrew.toolchain import pull_toolchain
+        from rebrew.compiler.toolchain import pull_toolchain
 
         monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "podman")
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
         seen: list[list[str]] = []
 
         def _run(cmd, **kwargs):
@@ -861,7 +861,7 @@ class TestPullToolchain:
                 return type("R", (), {"returncode": 0, "stdout": "sha256:NEW\n", "stderr": ""})()
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
-        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
         pull_toolchain("msvc-6.0")
         pulls = [c for c in seen if c[1] == "pull"]
         assert pulls and all(c[0] == "podman" for c in pulls)
@@ -872,7 +872,7 @@ class TestPullToolchain:
         image is wine-driven too but holds a single gcc, no CL/LINK/LIB
         tools, so it declares no tool_root — the bridge refuses it, see
         tests/test_cmake_tc.py.)"""
-        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain import TOOLCHAINS
 
         missing = [
             name
@@ -890,8 +890,8 @@ class TestPullToolchain:
 
         from rebrew.main import app as umbrella
 
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
         result = CliRunner().invoke(umbrella, ["toolchain", "pull", "msvc-6.0", "--json"])
         assert result.exit_code == 0
         assert '"already_present": true' in result.output
@@ -926,13 +926,13 @@ class TestSwapToolchainImage:
                 return SimpleNamespace(returncode=0, stdout="", stderr="")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
         return state, calls
 
     def test_failed_op_leaves_previous_image(self, monkeypatch) -> None:
         """A normal failure (docker keeps the old tag) needs no restore."""
-        from rebrew.toolchain import ToolchainError, swap_toolchain_image
+        from rebrew.compiler.toolchain import ToolchainError, swap_toolchain_image
 
         state, calls = self._fake_docker(monkeypatch, "sha256:OLD")
 
@@ -946,7 +946,7 @@ class TestSwapToolchainImage:
 
     def test_failed_op_rolls_back_dangling_tag(self, monkeypatch) -> None:
         """A failure that left the tag dangling restores the backup image."""
-        from rebrew.toolchain import ToolchainError, swap_toolchain_image
+        from rebrew.compiler.toolchain import ToolchainError, swap_toolchain_image
 
         state, calls = self._fake_docker(monkeypatch, "sha256:OLD")
 
@@ -960,7 +960,7 @@ class TestSwapToolchainImage:
         assert any(c[:2] == ["docker", "tag"] for c in calls)
 
     def test_success_returns_new_id(self, monkeypatch) -> None:
-        from rebrew.toolchain import swap_toolchain_image
+        from rebrew.compiler.toolchain import swap_toolchain_image
 
         state, calls = self._fake_docker(monkeypatch, "sha256:OLD")
 
@@ -972,7 +972,7 @@ class TestSwapToolchainImage:
         assert not any(c[:2] == ["docker", "tag"] for c in calls)
 
     def test_success_but_tag_unresolvable_raises_and_restores(self, monkeypatch) -> None:
-        from rebrew.toolchain import ToolchainError, swap_toolchain_image
+        from rebrew.compiler.toolchain import ToolchainError, swap_toolchain_image
 
         state, calls = self._fake_docker(monkeypatch, "sha256:OLD")
 
@@ -985,7 +985,7 @@ class TestSwapToolchainImage:
         assert any(c[:2] == ["docker", "tag"] for c in calls)
 
     def test_no_backup_failure_propagates_without_retag(self, monkeypatch) -> None:
-        from rebrew.toolchain import ToolchainError, swap_toolchain_image
+        from rebrew.compiler.toolchain import ToolchainError, swap_toolchain_image
 
         state, calls = self._fake_docker(monkeypatch, None)
 
@@ -999,8 +999,8 @@ class TestSwapToolchainImage:
 
     def test_unresolvable_tag_reports_a_failed_rollback(self, monkeypatch) -> None:
         """A rollback that could not land must not be reported as restored."""
-        from rebrew import toolchain as toolchain_mod
-        from rebrew.toolchain import ToolchainError, swap_toolchain_image
+        from rebrew.compiler import toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import ToolchainError, swap_toolchain_image
 
         state, _calls = self._fake_docker(monkeypatch, "sha256:OLD")
 
@@ -1018,7 +1018,7 @@ class TestSwapToolchainImage:
         assert "restored" not in str(excinfo.value).replace("NOT restored", "")
 
     def test_no_backup_success_returns_id(self, monkeypatch) -> None:
-        from rebrew.toolchain import swap_toolchain_image
+        from rebrew.compiler.toolchain import swap_toolchain_image
 
         state, _calls = self._fake_docker(monkeypatch, None)
 
@@ -1029,8 +1029,8 @@ class TestSwapToolchainImage:
 
     def test_clears_presence_and_digest_memos(self, monkeypatch) -> None:
         """A successful swap must not leave stale presence/digest memos."""
-        from rebrew import toolchain as toolchain_mod
-        from rebrew.toolchain import swap_toolchain_image
+        from rebrew.compiler import toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import swap_toolchain_image
 
         state, _calls = self._fake_docker(monkeypatch, "sha256:OLD")
         toolchain_mod._image_presence[self.TAG] = True
@@ -1049,7 +1049,7 @@ class TestResolveBinaryCaseInsensitive:
     must match host_bin case-insensitively (MSVC 1.52 regression)."""
 
     def test_uppercase_bin_resolves(self, tmp_path: Path) -> None:
-        from rebrew.toolchain import ToolchainSpec, _resolve_binary
+        from rebrew.compiler.toolchain import ToolchainSpec, _resolve_binary
 
         (tmp_path / "BIN").mkdir()
         (tmp_path / "BIN" / "CL.EXE").write_bytes(b"")
@@ -1064,7 +1064,7 @@ class TestResolveBinaryCaseInsensitive:
         assert resolved == str(tmp_path / "BIN" / "CL.EXE")
 
     def test_exact_case_still_works(self, tmp_path: Path) -> None:
-        from rebrew.toolchain import ToolchainSpec, _resolve_binary
+        from rebrew.compiler.toolchain import ToolchainSpec, _resolve_binary
 
         (tmp_path / "Bin").mkdir()
         (tmp_path / "Bin" / "cl").write_bytes(b"")
@@ -1080,7 +1080,7 @@ class TestResolveBinaryCaseInsensitive:
     def test_exe_suffix_tolerated_in_subdir(self, tmp_path: Path) -> None:
         """binary="cl" must resolve CL.EXE in the host_bin subdir (vendored
         Windows trees store the .exe; specs name the bare binary)."""
-        from rebrew.toolchain import ToolchainSpec, _resolve_binary
+        from rebrew.compiler.toolchain import ToolchainSpec, _resolve_binary
 
         (tmp_path / "Bin").mkdir()
         (tmp_path / "Bin" / "CL.EXE").write_bytes(b"")
@@ -1095,7 +1095,7 @@ class TestResolveBinaryCaseInsensitive:
 
     def test_exe_suffix_tolerated_at_root(self, tmp_path: Path) -> None:
         """binary="cl" must also resolve cl.exe directly in host_path."""
-        from rebrew.toolchain import ToolchainSpec, _resolve_binary
+        from rebrew.compiler.toolchain import ToolchainSpec, _resolve_binary
 
         (tmp_path / "cl.exe").write_bytes(b"")
         spec = ToolchainSpec(
@@ -1118,10 +1118,10 @@ class TestResolveBinaryCaseInsensitive:
         (tmp_path / "BIN").mkdir()
         (tmp_path / "BIN" / "CL.EXE").write_bytes(b"")
         monkeypatch.setattr(
-            "rebrew.toolchain.TOOLCHAINS",
+            "rebrew.compiler.toolchain.TOOLCHAINS",
             {
                 "msvc-1.52": __import__(
-                    "rebrew.toolchain", fromlist=["ToolchainSpec"]
+                    "rebrew.compiler.toolchain", fromlist=["ToolchainSpec"]
                 ).ToolchainSpec(
                     name="msvc-1.52",
                     image=None,
@@ -1145,18 +1145,18 @@ class TestDockerOnlyGuard:
     it is not a shipped profile."""
 
     def test_msvc152_image_missing_raises(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
+        from rebrew.compiler.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
         with pytest.raises(ToolchainError, match="not built"):
             run_toolchain(TOOLCHAINS["msvc-1.52"], ["t.c", "/O1"], workdir=tmp_path)
 
     def test_delphi_1_0_image_missing_raises(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
+        from rebrew.compiler.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
         with pytest.raises(ToolchainError, match="not built"):
             run_toolchain(TOOLCHAINS["delphi-1.0"], ["hello.dpr"], workdir=tmp_path)
 
@@ -1164,13 +1164,13 @@ class TestDockerOnlyGuard:
         """watcom-2.0-win16 runs through its own image (the 16-bit wcc) — a missing
         image is a hard error like every other image-backed profile, never a
         direct vendored-binary exec."""
-        from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
+        from rebrew.compiler.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 
         spec = TOOLCHAINS["watcom-2.0-win16"]
         assert spec.image == "rebrew/watcom:2.0-win16"
         assert spec.image_entrypoint == "/usr/local/bin/wcc"
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
         with pytest.raises(ToolchainError, match="not built"):
             run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
 
@@ -1182,14 +1182,14 @@ class TestVc98Wrap:
     archaic-msvc source (msvc600) already carries VC98/ at the top."""
 
     def test_msvc_6_0_source_needs_no_wrap(self) -> None:
-        from rebrew.toolchain_data import SOURCES
+        from rebrew.compiler.toolchain_data import SOURCES
 
         # archaic-msvc/msvc600 ships VC98/ at the top level already, so no
         # wrap step is needed (the old decomp.me tarball was flat).
         assert SOURCES["msvc-6.0"].vc98_wrap is False
 
     def test_other_sources_do_not_wrap(self) -> None:
-        from rebrew.toolchain_data import SOURCES
+        from rebrew.compiler.toolchain_data import SOURCES
 
         for name, src in SOURCES.items():
             if name != "msvc-6.0":
@@ -1200,7 +1200,7 @@ class TestVc98Wrap:
         their host trees are smoke-gated for byte-reproducibility, so a fresh
         clone must be able to reproduce them via `rebrew toolchain vendor`
         (they were vendored but unpinnable before)."""
-        from rebrew.toolchain_data import SOURCES
+        from rebrew.compiler.toolchain_data import SOURCES
 
         for name, expected_dir in (
             ("msvc-4.0", "msvc/4.0-win32"),
@@ -1254,20 +1254,20 @@ class TestToolchainsRepoResolver:
     sibling checkout by default, REBREW_TOOLCHAINS_DIR otherwise."""
 
     def test_default_is_sibling(self) -> None:
-        from rebrew.toolchain_paths import toolchains_repo
+        from rebrew.compiler.toolchain_paths import toolchains_repo
 
         repo = Path(__file__).resolve().parents[1]
         assert toolchains_repo() == repo.parent / "recompile-toolchains"
 
     def test_env_override(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.toolchain_paths import toolchains_repo
+        from rebrew.compiler.toolchain_paths import toolchains_repo
 
         override = tmp_path / "my-toolchains"
         monkeypatch.setenv("REBREW_TOOLCHAINS_DIR", str(override))
         assert toolchains_repo() == override
 
     def test_require_missing_raises_actionable(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.toolchain import ToolchainError, require_toolchains_repo
+        from rebrew.compiler.toolchain import ToolchainError, require_toolchains_repo
 
         monkeypatch.setenv("REBREW_TOOLCHAINS_DIR", str(tmp_path / "nope"))
         with pytest.raises(ToolchainError, match="recompile-toolchains"):
@@ -1294,7 +1294,7 @@ class TestDockerfileSanity:
     @classmethod
     def _repo(cls) -> Path:
         if cls._REPO is None:
-            from rebrew.toolchain_paths import toolchains_repo
+            from rebrew.compiler.toolchain_paths import toolchains_repo
 
             cls._REPO = toolchains_repo()
         return cls._REPO
@@ -1335,7 +1335,7 @@ class TestDockerfileSanity:
         recompile-toolchains checkout — a fresh clone must be able to rebuild
         the image (borland-3.1/borland-2.0 images were built from UNTRACKED Dockerfiles,
         silently unreproducible)."""
-        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain import TOOLCHAINS
 
         repo = self._repo()
         tracked = _git_tracked_files(repo)
@@ -1361,7 +1361,7 @@ class TestDockerfileSanity:
         image can never drift."""
         import re
 
-        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain import TOOLCHAINS
 
         repo = self._repo()
         for name, spec in TOOLCHAINS.items():
@@ -1408,7 +1408,7 @@ class TestProfileFamily:
     """Callers branch on the registry family, not on a profile-name match."""
 
     def test_registered_and_unknown(self) -> None:
-        from rebrew.toolchain import profile_family
+        from rebrew.compiler.toolchain import profile_family
 
         assert profile_family("gcc-14.2.0") == "gcc"
         assert profile_family("borland-3.1") == "borland"
@@ -1422,8 +1422,8 @@ class TestSmokeGoldenCoverage:
     golden would be silently ungated by `toolchain smoke`."""
 
     def test_covers_every_packaged_image_backed_toolchain(self) -> None:
+        from rebrew.compiler.toolchain_data import BUILTIN_TOOLCHAINS
         from rebrew.toolchain_cli import _SMOKE_GOLDEN
-        from rebrew.toolchain_data import BUILTIN_TOOLCHAINS
 
         packaged = {n for n, s in BUILTIN_TOOLCHAINS.items() if s.image is not None}
         assert set(_SMOKE_GOLDEN) == packaged, (
@@ -1457,15 +1457,15 @@ class TestSmokePrintGoldens:
 
         from typer.testing import CliRunner
 
+        from rebrew.compiler.toolchain import get_toolchain
         from rebrew.main import app as umbrella
-        from rebrew.toolchain import get_toolchain
         from rebrew.toolchain_cli import _SMOKE_GOLDEN
 
         name = "msvc-6.0-sp5-crt"
         spec = replace(
             get_toolchain("msvc-6.0-sp5"), name=name, image="rebrew/msvc:6.0-sp5-crt-win32"
         )
-        monkeypatch.setattr("rebrew.toolchain.get_toolchain", lambda tool: spec)
+        monkeypatch.setattr("rebrew.compiler.toolchain.get_toolchain", lambda tool: spec)
         calls = []
         obj = b"OBJ" + b"\x01\x02\x03\x04" + b"TAIL"
         before = dict(_SMOKE_GOLDEN)
@@ -1578,7 +1578,7 @@ class TestSmokePrintGoldens:
             raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
 
         monkeypatch.setattr(subprocess, "run", _fake_run)
-        monkeypatch.setattr("rebrew.toolchain.kill_container", killed.append)
+        monkeypatch.setattr("rebrew.compiler.toolchain.kill_container", killed.append)
         result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
         payload = json.loads(result.stdout)
         assert payload["results"] == {"msvc-6.0": "FAIL (docker run timed out after 300s)"}
@@ -1623,7 +1623,7 @@ class TestSmokePrintGoldens:
             raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
 
         monkeypatch.setattr(subprocess, "run", _fake_run)
-        monkeypatch.setattr("rebrew.toolchain.kill_container", lambda name: None)
+        monkeypatch.setattr("rebrew.compiler.toolchain.kill_container", lambda name: None)
         result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
         assert result.exit_code == 2, result.output
 
@@ -1636,14 +1636,14 @@ class TestPullToolchainHint:
     def test_pull_failure_suggests_build(self, monkeypatch) -> None:
         from types import SimpleNamespace
 
-        from rebrew.toolchain import ToolchainError, pull_toolchain
+        from rebrew.compiler.toolchain import ToolchainError, pull_toolchain
 
         def _fake_run(cmd, **kwargs):
             return SimpleNamespace(returncode=1, stdout=b"", stderr=b"pull access denied")
 
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
-        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _fake_run)
         with pytest.raises(ToolchainError, match="toolchain build msvc-4.2"):
             pull_toolchain("msvc-4.2")
 
@@ -1709,7 +1709,7 @@ class TestVendorFlatten:
         assert not (payload / "TC" / "BIN").exists()
 
     def test_refuses_symlink_members(self, tmp_path: Path) -> None:
-        from rebrew.toolchain import ToolchainError
+        from rebrew.compiler.toolchain import ToolchainError
         from rebrew.toolchain_cli import _flatten_wrapper_dir
 
         payload = tmp_path / "payload"
@@ -1730,7 +1730,7 @@ class TestSafeArchiveExtract:
         import io
         import tarfile
 
-        from rebrew.toolchain import ToolchainError
+        from rebrew.compiler.toolchain import ToolchainError
         from rebrew.toolchain_cli import _safe_extract_tar
 
         buf = io.BytesIO()
@@ -1750,7 +1750,7 @@ class TestSafeArchiveExtract:
     def test_zip_rejects_dotdot_member(self, tmp_path: Path) -> None:
         import zipfile
 
-        from rebrew.toolchain import ToolchainError
+        from rebrew.compiler.toolchain import ToolchainError
         from rebrew.toolchain_cli import _safe_extract_zip
 
         archive = tmp_path / "bad.zip"
@@ -1765,7 +1765,7 @@ class TestSafeArchiveExtract:
     def test_zip_rejects_symlink_member(self, tmp_path: Path) -> None:
         import zipfile
 
-        from rebrew.toolchain import ToolchainError
+        from rebrew.compiler.toolchain import ToolchainError
         from rebrew.toolchain_cli import _safe_extract_zip
 
         archive = tmp_path / "link.zip"
@@ -1803,7 +1803,7 @@ class TestTrustedToolchainDownload:
     """Pinned media downloads must not follow redirects off the allow-list."""
 
     def test_rejects_http_and_offlist_hosts(self) -> None:
-        from rebrew.toolchain import ToolchainError
+        from rebrew.compiler.toolchain import ToolchainError
         from rebrew.toolchain_cli import _trusted_toolchain_download_url
 
         with pytest.raises(ToolchainError, match="trusted https"):
@@ -1834,7 +1834,7 @@ class TestTrustedToolchainDownload:
     ) -> None:
         import httpx
 
-        from rebrew.toolchain import ToolchainError
+        from rebrew.compiler.toolchain import ToolchainError
         from rebrew.toolchain_cli import _download_pinned_url
 
         class _Resp:
@@ -1877,7 +1877,7 @@ class TestTrustedToolchainDownload:
         mismatch for a file that looks like a complete download."""
         import httpx
 
-        from rebrew.toolchain import ToolchainError
+        from rebrew.compiler.toolchain import ToolchainError
         from rebrew.toolchain_cli import _download_pinned_url
 
         class _Resp:
@@ -2132,9 +2132,9 @@ class TestVendorRetryAfterPartialFailure:
 
         from typer.testing import CliRunner
 
-        from rebrew.toolchain import get_toolchain
+        from rebrew.compiler.toolchain import get_toolchain
+        from rebrew.compiler.toolchain_spec import ToolchainSource
         from rebrew.toolchain_cli import app
-        from rebrew.toolchain_spec import ToolchainSource
 
         host = tmp_path / "fake" / "1.0-win32"
         (host / "source").mkdir(parents=True)
@@ -2159,10 +2159,10 @@ class TestVendorRetryAfterPartialFailure:
         fake_spec = dc_replace(base, name="fake-1.0")
         orig_gt = get_toolchain
 
-        monkeypatch.setattr("rebrew.toolchain.require_toolchains_repo", lambda: tmp_path)
-        monkeypatch.setattr("rebrew.toolchain_data.SOURCES", {"fake-1.0": src})
+        monkeypatch.setattr("rebrew.compiler.toolchain.require_toolchains_repo", lambda: tmp_path)
+        monkeypatch.setattr("rebrew.compiler.toolchain_data.SOURCES", {"fake-1.0": src})
         monkeypatch.setattr(
-            "rebrew.toolchain.get_toolchain",
+            "rebrew.compiler.toolchain.get_toolchain",
             lambda name: fake_spec if name == "fake-1.0" else orig_gt(name),
         )
 
@@ -2179,7 +2179,7 @@ class TestVendorRetryAfterPartialFailure:
 class TestDockerAvailableCache:
     def test_miss_is_not_frozen(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A transient docker-info failure must not pin unavailable forever."""
-        import rebrew.toolchain as tc
+        import rebrew.compiler.toolchain as tc
 
         monkeypatch.setattr(tc, "_docker_available_cache", None)
         calls = {"n": 0}
@@ -2203,7 +2203,7 @@ class TestKillContainerReporting:
     the timeout, so an unlogged orphan runs to completion unnoticed."""
 
     def test_daemon_failure_is_warned(self, monkeypatch: pytest.MonkeyPatch, caplog) -> None:
-        import rebrew.toolchain as tc
+        import rebrew.compiler.toolchain as tc
 
         monkeypatch.setattr(tc, "container_runtime", lambda: "docker")
         monkeypatch.setattr(
@@ -2211,13 +2211,13 @@ class TestKillContainerReporting:
             "run",
             lambda cmd, **kw: _FakeProc(1, "", "Cannot connect to the Docker daemon"),
         )
-        with caplog.at_level(logging.WARNING, logger="rebrew.toolchain"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.compiler.toolchain"):
             tc.kill_container("rebrew-msvc-run-1")
         assert "may still be running" in caplog.text
         assert "Cannot connect to the Docker daemon" in caplog.text
 
     def test_already_gone_is_not_warned(self, monkeypatch: pytest.MonkeyPatch, caplog) -> None:
-        import rebrew.toolchain as tc
+        import rebrew.compiler.toolchain as tc
 
         monkeypatch.setattr(tc, "container_runtime", lambda: "docker")
         monkeypatch.setattr(
@@ -2225,16 +2225,16 @@ class TestKillContainerReporting:
             "run",
             lambda cmd, **kw: _FakeProc(1, "", "Error: No such container: gone"),
         )
-        with caplog.at_level(logging.WARNING, logger="rebrew.toolchain"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.compiler.toolchain"):
             tc.kill_container("gone")
         assert caplog.text == ""
 
     def test_successful_kill_is_silent(self, monkeypatch: pytest.MonkeyPatch, caplog) -> None:
-        import rebrew.toolchain as tc
+        import rebrew.compiler.toolchain as tc
 
         monkeypatch.setattr(tc, "container_runtime", lambda: "docker")
         monkeypatch.setattr(tc.subprocess, "run", lambda cmd, **kw: _FakeProc(0, "gone", ""))
-        with caplog.at_level(logging.WARNING, logger="rebrew.toolchain"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.compiler.toolchain"):
             tc.kill_container("done")
         assert caplog.text == ""
 
@@ -2290,7 +2290,7 @@ class TestGeneratedBaseDependency:
     def test_arg_base_builds_matching_directory_first(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, base: str
     ) -> None:
-        import rebrew.toolchain as tc
+        import rebrew.compiler.toolchain as tc
         import rebrew.toolchain_cli as cli
 
         spec = ToolchainSpec(name="clock", image="rebrew/msvc:clock-win32")

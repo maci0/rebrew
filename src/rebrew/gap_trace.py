@@ -30,7 +30,7 @@ from rebrew.cli import (
     require_config,
     select_annotation,
 )
-from rebrew.compile import compile_to_obj
+from rebrew.compiler.compile import compile_to_obj
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -239,7 +239,7 @@ def main(
     ref_insns = iter_instructions(info, va_int, size)
     ref_seq = _seq(ref_insns, va_int, set())
 
-    from rebrew.compile_overrides import resolve_compile_overrides
+    from rebrew.compiler.overrides import resolve_compile_overrides
 
     # Same fallback chain as test/verify/near-diag so module presets and
     # library overrides cannot make gap-trace disagree with those tools.

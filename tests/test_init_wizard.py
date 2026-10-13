@@ -21,7 +21,7 @@ def _force_wizard(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def image_present(monkeypatch: pytest.MonkeyPatch, present: bool) -> None:
     """Keep the toolchain-image follow-up hermetic (no docker calls)."""
-    monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: present)
+    monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: present)
 
 
 def _fail_prompt(*args: Any, **kwargs: Any) -> Any:
@@ -292,7 +292,7 @@ class TestToolchainImageStep:
         assert "rebrew toolchain build msvc-6.0" in result.stderr
 
     def test_daemon_error_reports_cause(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.toolchain import ToolchainError
+        from rebrew.compiler.toolchain import ToolchainError
 
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
@@ -300,7 +300,7 @@ class TestToolchainImageStep:
         def _raise(tag: str) -> bool:
             raise ToolchainError("docker image inspect timed out [30s]")
 
-        monkeypatch.setattr("rebrew.toolchain.image_present", _raise)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", _raise)
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, _FLAGGED)
         assert result.exit_code == 0, result.output + result.stderr

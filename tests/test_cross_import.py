@@ -20,7 +20,7 @@ import pytest
 from bin_util import make_pe
 
 import rebrew.cross_import as ci
-from rebrew.toolchain import TOOLCHAINS, image_present
+from rebrew.compiler.toolchain import TOOLCHAINS, image_present
 
 # Hand-crafted 32-bit x86 blobs: shared prologue/epilogue, distinct bodies.
 F1 = bytes.fromhex("55 8b ec 8b 05 00 00 00 00 5d c3")  # mov eax, [x]
@@ -285,7 +285,7 @@ class TestExtractSingleFunction:
             "// FUNCTION: SERVER 0x401010\nint f2(void){ return 2; }\n"
         )
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata import get_entry
 
         seen: dict[str, Any] = {}
@@ -507,7 +507,7 @@ class TestImportMechanics:
             encoding="utf-8",
         )
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         monkeypatch.setattr(
             "rebrew.verify.verify_entry",
@@ -544,7 +544,7 @@ class TestImportMechanics:
             encoding="utf-8",
         )
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata import get_entry
 
         seen: dict[str, Any] = {}
@@ -596,7 +596,7 @@ class TestImportMechanics:
             "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n",
             encoding="utf-8",
         )
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         seen: dict[str, Any] = {}
 
@@ -627,7 +627,7 @@ class TestImportMechanics:
         body = b"// FUNCTION: SRC 0x401000\n// SIZE: 11\n// caf\xe9\nint f1(void){ return 1; }\n"
         (cfg_src.reversed_dir / "f1.c").write_bytes(body)
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         monkeypatch.setattr(
             "rebrew.verify.verify_entry",
@@ -710,7 +710,7 @@ class TestImportMechanics:
             "// FUNCTION: DST 0x401040\nint f1(void){ return 0; }\n", encoding="utf-8"
         )
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         monkeypatch.setattr(
             "rebrew.verify.verify_entry",
@@ -750,7 +750,7 @@ class TestImportMechanics:
             "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n",
             encoding="utf-8",
         )
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata import get_entry
 
         applied: list[Any] = []
@@ -787,7 +787,7 @@ class TestImportMechanics:
         body = "int f1(void){ return 1; }\n"
         src_path = cfg_src.reversed_dir / "f1.c"
         src_path.write_text(body, encoding="utf-8")
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata import get_entry, identity_file, record_function_identity
 
         record_function_identity(
@@ -1293,7 +1293,7 @@ class TestSharedImport:
         dst_rev.mkdir(parents=True)
         cfg_dst = _dst_cfg(tmp_path, dst_rev)
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         monkeypatch.setattr(
             "rebrew.verify.verify_entry",
@@ -1460,7 +1460,7 @@ class TestPromoteToShared:
         dst_rev = tmp_path / "src_DST"
         dst_rev.mkdir(parents=True)
         cfg_dst = _dst_cfg(tmp_path, dst_rev)
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         monkeypatch.setattr(
             "rebrew.verify.verify_entry",
@@ -1567,7 +1567,7 @@ class TestSharedSupersede:
         return cfg_src, cfg_dst
 
     def _ok_verify(self, monkeypatch) -> None:
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         monkeypatch.setattr(
             "rebrew.verify.verify_entry",
@@ -1599,7 +1599,7 @@ class TestSharedSupersede:
         assert not (cfg_dst.reversed_dir / "stub.c").exists()
 
     def test_unverified_shared_import_keeps_stub(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
         (cfg_src.shared_dir / "f1.c").write_text(
@@ -1820,7 +1820,7 @@ class TestSharedSupersede:
         """The rollback covers the pre-verify metadata writes: a withdrawn
         claim restores the destination's own cflags override and leaves the
         stub's earned STATUS untouched."""
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata import get_entry, load_metadata, update_field, update_source_status
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
@@ -1859,7 +1859,7 @@ class TestSharedSupersede:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         """A rejected claim writes no flags or empty metadata table."""
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata import get_entry
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
@@ -1899,7 +1899,7 @@ class TestSharedSupersede:
         A failed re-verify still applies STATUS and does not roll the cflags
         write back. The file text is not rewritten.
         """
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata import get_entry, update_field
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
@@ -1944,7 +1944,7 @@ class TestSharedSupersede:
         is already in the store, so a failed re-verify still applies STATUS
         and does not roll cflags back.
         """
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata import get_entry, identity_file, record_function_identity, update_field
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
@@ -2004,7 +2004,7 @@ class TestSharedCflagsPortable:
     """Shared imports record no absolute source-dir include.
 
     The copy path needs ``/I<abs parent>`` (destination tree lacks the
-    source headers); the shared file moves WITH its tree, and compile.py
+    source headers); the shared file moves WITH its tree, and compiler/compile.py
     already adds src_parent — so an absolute include only bakes one
     machine's checkout path into the metadata (guild-rebrew
     GOLDTL.0x004c75e0 carried ``/I/home/.../server.dll/...``).
@@ -2034,7 +2034,7 @@ class TestSharedCflagsPortable:
             posix_style=False,
         )
         cfg_dst = _dst_cfg(tmp_path, dst_rev)
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         monkeypatch.setattr(
             "rebrew.verify.verify_entry",
@@ -2230,7 +2230,7 @@ class TestUnifiedTreeMarkerMove:
         )
 
     def test_shared_import_records_retarget_on_same_file(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         src, dst = self._cfgs(tmp_path)
         path = src.reversed_dir / "f1.c"
@@ -2283,7 +2283,7 @@ class TestUnifiedTreeMarkerMove:
         assert not (tmp_path / "rebrew-functions.toml").exists()
 
     def test_failed_move_is_reverted(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         src, dst = self._cfgs(tmp_path)
         path = src.reversed_dir / "f1.c"
@@ -2475,7 +2475,7 @@ class TestVerifiedSymbolFollowsTheBlock:
         assert ci._symbol_for_va(text, "DST", 0x401040, "f") == ("second", "_second")
 
     def test_shared_import_verifies_the_blocks_symbol(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         rev = tmp_path / "src"
         rev.mkdir()
@@ -2619,7 +2619,7 @@ class TestVerifiedSymbolShapes:
         return cfg_src, cfg_dst
 
     def _capture_verify(self, monkeypatch) -> dict[str, Any]:
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         seen: dict[str, Any] = {}
 
@@ -2721,7 +2721,7 @@ class TestMergedInventoryEntry:
         self, monkeypatch, *, prefix_diffs: int = 0, obj_size: int = _MERGED_BODY
     ) -> list[int]:
         """Fake verify: SIZE_MISMATCH at the entry size, RELOC at the body size."""
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         sizes: list[int] = []
 
@@ -2900,7 +2900,7 @@ class TestMergedInventoryEntry:
                 cflags=flags,
             )
         # Keep the real flag resolver; only compilation is substituted.
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         observed = []
 
@@ -2926,7 +2926,7 @@ class TestMergedInventoryEntry:
     ) -> None:
         import rebrew.verify as verify
         from rebrew.annotation import Annotation
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         _src, dst = self._cfgs(tmp_path, _merged_pe())
         self._verify(monkeypatch)

@@ -1,4 +1,4 @@
-"""Tests for rebrew.delphi16 — Delphi 1.0 (16-bit NE) compilation support."""
+"""Tests for rebrew.compiler.delphi16 — Delphi 1.0 (16-bit NE) compilation support."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.delphi16 import Delphi16Error, compile_ne
-from rebrew.toolchain_paths import toolchains_repo
+from rebrew.compiler.delphi16 import Delphi16Error, compile_ne
+from rebrew.compiler.toolchain_paths import toolchains_repo
 
 # compile_ne requires BOTH the vendored Delphi 1.0 toolchain
 # (recompile-toolchains/delphi/1.0-win16) and a dosbox binary on PATH
@@ -32,7 +32,7 @@ def _fake_compile(monkeypatch, sandbox: Path) -> None:
         (sandbox / "HELLO.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
         return type("R", (), {"returncode": 0})()
 
-    monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
+    monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run)
 
 
 @pytest.mark.skipif(
@@ -77,12 +77,12 @@ class TestCompileNe:
         def _run_no_output(args, **kwargs):
             return type("R", (), {"returncode": 0})()
 
-        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run_no_output)
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run_no_output)
         with pytest.raises(Delphi16Error, match="no executable"):
             compile_ne(src, tmp_path / "sandbox", units_dir=tmp_path / "u")
 
     def test_missing_dosbox_raises(self, tmp_path: Path, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.delphi16.shutil.which", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.delphi16.shutil.which", lambda *a, **k: None)
         src = tmp_path / "hello.dpr"
         src.write_text("program Hello;\n", encoding="utf-8")
         with pytest.raises(Delphi16Error, match="dosbox"):
@@ -94,7 +94,7 @@ class TestCompileNe:
         def _run_timeout(args, **kwargs):
             raise subprocess.TimeoutExpired("dosbox", 5)
 
-        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run_timeout)
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run_timeout)
         src = tmp_path / "hello.dpr"
         src.write_text("program Hello;\n", encoding="utf-8")
         with pytest.raises(Delphi16Error, match="DOSBox"):
@@ -127,16 +127,16 @@ class TestLongSourceName:
             (workdir / "SRC.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
             return type("R", (), {"returncode": 0})()
 
-        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run)
 
         # spy on the autoexec line DCC receives: must be the short name
-        real_run_dosbox = __import__("rebrew.dosbox", fromlist=["run_dosbox"]).run_dosbox
+        real_run_dosbox = __import__("rebrew.compiler.dosbox", fromlist=["run_dosbox"]).run_dosbox
 
         def _spy_run_dosbox(sandbox, autoexec, **kwargs):
             calls.append(autoexec)
             return real_run_dosbox(sandbox, autoexec, **kwargs)
 
-        monkeypatch.setattr("rebrew.dosbox.run_dosbox", _spy_run_dosbox)
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_dosbox", _spy_run_dosbox)
 
         r = compile_ne(src, workdir, units_dir=tmp_path / "units")
         assert r.exe_path.name == "SRC.EXE"
@@ -152,14 +152,14 @@ class TestStaleOutputIsNotSuccess:
         """A reused caller-supplied workdir keeps the previous run's EXE, so a
         failed compile still found "output" and the stale NE was parsed as this
         run's result."""
-        from rebrew.delphi16 import Delphi16Error, compile_ne
+        from rebrew.compiler.delphi16 import Delphi16Error, compile_ne
 
         tree = tmp_path / "dcc"
         tree.mkdir()
         for fname in ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE"):
             (tree / fname).write_bytes(b"\x00")
-        monkeypatch.setattr("rebrew.delphi16.find_dcc", lambda: tree / "DCC.EXE")
-        monkeypatch.setattr("rebrew.dosbox.run_dosbox", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.delphi16.find_dcc", lambda: tree / "DCC.EXE")
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_dosbox", lambda *a, **k: None)
         workdir = tmp_path / "sandbox"
         workdir.mkdir()
         (workdir / "PROBE.EXE").write_bytes(b"stale")
@@ -177,7 +177,7 @@ class TestWholeProgramStaging:
         tree.mkdir()
         for fname in ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE"):
             (tree / fname).write_bytes(b"\x00")
-        monkeypatch.setattr("rebrew.delphi16.find_dcc", lambda: tree / "DCC.EXE")
+        monkeypatch.setattr("rebrew.compiler.delphi16.find_dcc", lambda: tree / "DCC.EXE")
         return tree
 
     def _no_op_dosbox(self, tmp_path: Path, monkeypatch) -> Path:
@@ -190,11 +190,11 @@ class TestWholeProgramStaging:
             (Path(sandbox) / "DCCOUT.TXT").write_text("HELLO.DPR(1)\n", encoding="utf-8")
             (Path(sandbox) / "HELLO.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
 
-        monkeypatch.setattr("rebrew.dosbox.run_dosbox", _run)
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_dosbox", _run)
         return workdir
 
     def test_stages_sibling_units(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.delphi16 import compile_ne
+        from rebrew.compiler.delphi16 import compile_ne
 
         self._stub_toolchain(tmp_path, monkeypatch)
         workdir = self._no_op_dosbox(tmp_path, monkeypatch)
@@ -211,7 +211,7 @@ class TestWholeProgramStaging:
         assert not (workdir / "notes.txt").exists()
 
     def test_refuses_a_non_83_sibling_unit(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.delphi16 import Delphi16Error, compile_ne
+        from rebrew.compiler.delphi16 import Delphi16Error, compile_ne
 
         self._stub_toolchain(tmp_path, monkeypatch)
         workdir = self._no_op_dosbox(tmp_path, monkeypatch)
@@ -223,7 +223,7 @@ class TestWholeProgramStaging:
             compile_ne(src, workdir)
 
     def test_ignores_sibling_programs(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.delphi16 import compile_ne
+        from rebrew.compiler.delphi16 import compile_ne
 
         self._stub_toolchain(tmp_path, monkeypatch)
         workdir = self._no_op_dosbox(tmp_path, monkeypatch)
@@ -239,26 +239,26 @@ class TestWholeProgramStaging:
         assert (workdir / "hello.dpr").exists()
 
     def test_extra_args_reach_the_command_line(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.delphi16 import compile_ne
+        from rebrew.compiler.delphi16 import compile_ne
 
         self._stub_toolchain(tmp_path, monkeypatch)
         workdir = self._no_op_dosbox(tmp_path, monkeypatch)
         src = tmp_path / "hello.dpr"
         src.write_text("program Hello;\nbegin end.\n", encoding="utf-8")
         seen: list[str] = []
-        real = __import__("rebrew.dosbox", fromlist=["run_dosbox"]).run_dosbox
+        real = __import__("rebrew.compiler.dosbox", fromlist=["run_dosbox"]).run_dosbox
 
         def _spy(sandbox, autoexec, **kwargs):
             seen.append(autoexec[0])
             return real(sandbox, autoexec, **kwargs)
 
-        monkeypatch.setattr("rebrew.dosbox.run_dosbox", _spy)
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_dosbox", _spy)
         compile_ne(src, workdir, extra_args=("-$R+", "-$Q+"))
 
         assert seen and "C:\\DCC.EXE -$R+ -$Q+ hello.dpr" in seen[0]
 
     def test_dcc_cfg_override_is_staged_verbatim(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.delphi16 import compile_ne
+        from rebrew.compiler.delphi16 import compile_ne
 
         self._stub_toolchain(tmp_path, monkeypatch)
         workdir = self._no_op_dosbox(tmp_path, monkeypatch)
@@ -281,7 +281,7 @@ class TestWinePrefixUnits:
         tree.mkdir()
         for fname in ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE"):
             (tree / fname).write_bytes(b"\x00")
-        monkeypatch.setattr("rebrew.delphi16.find_dcc", lambda: tree / "DCC.EXE")
+        monkeypatch.setattr("rebrew.compiler.delphi16.find_dcc", lambda: tree / "DCC.EXE")
 
     def _no_op_dosbox(self, tmp_path: Path, monkeypatch) -> Path:
         workdir = tmp_path / "sandbox"
@@ -293,7 +293,7 @@ class TestWinePrefixUnits:
             (Path(sandbox) / "DCCOUT.TXT").write_text("HELLO.DPR(1)\n", encoding="utf-8")
             (Path(sandbox) / "HELLO.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
 
-        monkeypatch.setattr("rebrew.dosbox.run_dosbox", _run)
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_dosbox", _run)
         return workdir
 
     def _prefix_with_units(self, tmp_path: Path, name: str, marker: str) -> Path:
@@ -304,7 +304,7 @@ class TestWinePrefixUnits:
         return prefix
 
     def _compile(self, tmp_path: Path, monkeypatch) -> Path:
-        from rebrew.delphi16 import compile_ne
+        from rebrew.compiler.delphi16 import compile_ne
 
         # The `~/.wine` fallback must be empty, or a developer's own Delphi
         # install would satisfy the lookup these tests are pinning.

@@ -42,9 +42,9 @@ flowchart LR
     ANNOT --> MERGED["merged Annotation"]
     FACADE --> MERGED
 
-    CFG --> TOOLCHAIN["toolchain.py<br/>spec registry + docker-only runner"]
+    CFG --> TOOLCHAIN["compiler/toolchain.py<br/>spec registry + docker-only runner"]
     RT["recompile-toolchains checkout<br/>Dockerfiles (REBREW_TOOLCHAINS_DIR)"] --> IMG[("docker images<br/>rebrew/msvc:6.0-win32 …")]
-    TOOLCHAIN --> COMPILE["compile.py<br/>compile_and_compare"]
+    TOOLCHAIN --> COMPILE["compiler/compile.py<br/>compile_and_compare"]
     IMG --> COMPILE
 
     BIN["target binary (PE/ELF)"] --> LOAD["binary_loader.py<br/>load_binary (LIEF)"]
@@ -82,7 +82,7 @@ flowchart LR
 | `rebrew/metadata.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELD_TYPES`, `METADATA_FIELDS`, `SYNC_FIELD_RULES`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata_model.py` (`MetadataEntry`) |
 | `rebrew/decompiler.py` | Pluggable decompiler backends for pseudo-C (`r2`/`rz` ghidra and dec, Ghidra via the ReVa MCP bridge, m2c for MIPS/PPC/ARM/SH), registered through the `rebrew.decompiler_backends` entry-point group. `fetch_decompilation` is the one entry point `rebrew skeleton --decomp` calls; `"auto"` picks the first backend that answers |
 | `rebrew/llm_seed.py` | Optional LLM-assisted GA seeding for `rebrew match run --seed-llm`: asks the `[llm]` endpoint for alternative C, keeps only tree-sitter-valid single-function snippets, injects them as extra seeds. Off by default; with no endpoint the flag warns and the GA runs unchanged |
-| `rebrew/compile.py` | Compile (docker image by default; host binary only for plugin toolchains without `image`) + compare → `CompareResult` |
+| `rebrew/compiler/compile.py` | Compile (docker image by default; host binary only for plugin toolchains without `image`) + compare → `CompareResult` |
 | `rebrew/binary_model.py` | `BinaryInfo` / `SectionInfo`: the format-agnostic parsed-binary types every loader fills in and every consumer reads. Owns the lazy `data` read and its size cap, so a format loader never imports the dispatcher that selects it |
 | `rebrew/binary_loader.py` | PE/ELF/Mach-O via LIEF, NE via `ne_loader.py`, MZ via its own header parser → `BinaryInfo` (sections, VAs, raw bytes) |
 | `rebrew/pe_image.py` | PE32 section/export/import walk and the MSVC LINK options read off those header fields. Shared by `gen-layout` and `link-sweep`; the command modules do not own the parser |
@@ -91,15 +91,15 @@ flowchart LR
 | `rebrew/catalog/` | Function registry and the coverage grid (`grid.py`) the `db/coverage-<target>.toml` document is rendered from |
 | `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function create/delete and similar) |
 | `rebrew/coff_reloc.py` | Relocation-aware byte comparison (COFF/ELF reloc masking) |
-| `rebrew/msvc_env.py` | MSVC include/lib env for host-side compile helpers |
+| `rebrew/compiler/msvc_env.py` | MSVC include/lib env for host-side compile helpers |
 | `rebrew/extract.py` | Batch extract/disassemble command (group: `list`/`show`/`batch`) |
 | `rebrew/crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew/flirt.py` | FLIRT signature scanning |
 | `rebrew/prove.py` | Symbolic equivalence prover via angr (optional dep) |
-| `rebrew/delphi16.py` | Delphi 1.0 (16-bit) compile support: headless DOSBox sandbox + NE parse (ADR-001 foundation) |
-| `rebrew/msvc16.py` | MSVC 1.0 / 1.5 / 1.52 (16-bit) compile support: DOSBox + 16-bit OMF objects |
-| `rebrew/dosbox.py` | Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads) |
-| `rebrew/toolchain.py` | Toolchain abstraction: spec registry + docker-only runner for every shipped profile (plugin toolchains without `image` may run as a host binary), plus the project-side MSVC layout table (`resolve_msvc_toolchain` / `toolchain_link_candidates`) init and config resolve against |
+| `rebrew/compiler/delphi16.py` | Delphi 1.0 (16-bit) compile support: headless DOSBox sandbox + NE parse (ADR-001 foundation) |
+| `rebrew/compiler/msvc16.py` | MSVC 1.0 / 1.5 / 1.52 (16-bit) compile support: DOSBox + 16-bit OMF objects |
+| `rebrew/compiler/dosbox.py` | Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads) |
+| `rebrew/compiler/toolchain.py` | Toolchain abstraction: spec registry + docker-only runner for every shipped profile (plugin toolchains without `image` may run as a host binary), plus the project-side MSVC layout table (`resolve_msvc_toolchain` / `toolchain_link_candidates`) init and config resolve against |
 | `rebrew/toolchain_cli.py` | `rebrew toolchain` CLI (`list`/`status`/`detect`/`pull`/`build`/`vendor`/`smoke`/`update`/`check-updates`) |
 | `rebrew/round_trip.py` | Splice matched functions back into the target PE, verify byte equality |
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
@@ -107,7 +107,7 @@ flowchart LR
 | `rebrew/near_diag.py` | The `rebrew diagnose near` CLI over `near_analysis.py`: argument parsing, Rich output, BLOCKER metadata writes, `--catalog` |
 | `rebrew/stack_analysis.py` | Stack-frame derivation and diff (frame size, ebp-vs-esp, `ret N` popping, `[ebp±N]` slots) from disassembly on both sides; the library half |
 | `rebrew/stack_cmp.py` | The `rebrew diagnose stack` CLI over `stack_analysis.py` |
-| `rebrew/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
+| `rebrew/compiler/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
 | `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → PE metadata (Rich header/linker version) → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check. Its four tables (profile compat, Rich-build and linker-era profiles, plugin detectors) are one generation: read them through `detection_tables()` |
 | `rebrew/wibo.py` | Locate + SHA256-verify the wibo runner (`toolchain install-wibo`); a legacy host-runner fallback for toolchains registered without an `image`, not a shipped compile path (ADR 008) |
 | `rebrew/binsync/` (`export.py` / `importer.py` / `diff.py` / `git.py` / `init.py` / `overlay.py`, plus `serial.py`, `cli.py`, `state.py`) | BinSync state export/import/diff/init/overlay, the `rebrew binsync` umbrella (git automation), and the shared state readers/reconciliation baseline and freshness projection; artifact TOML serialized with declib (the `binsync` extra) |
@@ -167,7 +167,7 @@ would be a second answer to that question. See
    wins for owned fields, including STATUS, TOOLCHAIN, BLOCKER, NOTE, GHIDRA,
    SIZE, and CFLAGS).
 3. `compile_and_compare()` compiles the source in the pinned toolchain
-   image (`toolchain.py`; docker-only for every shipped profile, including
+   image (`compiler/toolchain.py`; docker-only for every shipped profile, including
    gcc/clang/mingw; images built from the `recompile-toolchains` checkout) and
    byte-compares against the target bytes → `CompareResult`.
 4. `update_source_status()` writes STATUS to the metadata file only: the

@@ -121,7 +121,7 @@ def _publish_detection_tables(monkeypatch: pytest.MonkeyPatch, **fields: Any) ->
 #: weight memo is positional over ``ALL_MUTATIONS``, so it is cleared with it.
 _REGISTRY_SNAPSHOTS: tuple[tuple[str, str], ...] = (
     ("rebrew.binary_loader", "_PLUGIN_LOADERS"),
-    ("rebrew.compile_cache", "_CACHE_BACKENDS"),
+    ("rebrew.compiler.cache", "_CACHE_BACKENDS"),
     ("rebrew.decompiler", "_BACKEND_MAP"),
     ("rebrew.decompiler", "_AUTO_PROBE_BACKENDS"),
     ("rebrew.discover", "_DISCOVERER_MAP"),
@@ -130,8 +130,8 @@ _REGISTRY_SNAPSHOTS: tuple[tuple[str, str], ...] = (
     ("rebrew.matcher.mutator", "ALL_MUTATIONS"),
     ("rebrew.metadata", "_LIBRARY_PRESETS_ALL"),
     ("rebrew.registry", "_entry_points_snapshot"),
-    ("rebrew.toolchain", "TOOLCHAINS"),
-    ("rebrew.toolchain", "TOOLCHAIN_ORIGINS"),
+    ("rebrew.compiler.toolchain", "TOOLCHAINS"),
+    ("rebrew.compiler.toolchain", "TOOLCHAIN_ORIGINS"),
     ("rebrew.toolchain_detect", "LINKER_ERA_PROFILES_ALL"),
     ("rebrew.toolchain_detect", "_DETECTION_TABLES"),
     ("rebrew.toolchain_detect", "_PLUGIN_DETECTORS"),
@@ -350,7 +350,7 @@ class TestToolchainRegistry:
             'flags_style = "posix"\nobj_ext = ".o"\ndescription = "custom"\n',
             encoding="utf-8",
         )
-        from rebrew.toolchain import build_toolchain_registry
+        from rebrew.compiler.toolchain import build_toolchain_registry
 
         registry = build_toolchain_registry()
         assert "msvc-6.0" in registry  # built-ins intact
@@ -362,7 +362,7 @@ class TestToolchainRegistry:
     def test_overlay_conflict_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(tmp_path))
         (tmp_path / "dup.toml").write_text('["msvc-6.0"]\nbinary = "cl"\n', encoding="utf-8")
-        from rebrew.toolchain import build_toolchain_registry
+        from rebrew.compiler.toolchain import build_toolchain_registry
 
         with pytest.raises(RegistryError, match="duplicate.*msvc-6.0"):
             build_toolchain_registry()
@@ -372,7 +372,7 @@ class TestToolchainRegistry:
     ) -> None:
         monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(tmp_path))
         (tmp_path / "bad.toml").write_text('[mytc]\ncompiler = "cl"\n', encoding="utf-8")
-        from rebrew.toolchain import build_toolchain_registry
+        from rebrew.compiler.toolchain import build_toolchain_registry
 
         with pytest.raises(RegistryError, match="unknown field"):
             build_toolchain_registry()
@@ -384,7 +384,7 @@ class TestToolchainRegistry:
         (tmp_path / "bad.toml").write_text(
             '[mytc]\nbinary = "cl"\nflags_style = "gnu"\n', encoding="utf-8"
         )
-        from rebrew.toolchain import build_toolchain_registry
+        from rebrew.compiler.toolchain import build_toolchain_registry
 
         with pytest.raises(RegistryError, match="flags_style must be"):
             build_toolchain_registry()
@@ -396,7 +396,7 @@ class TestToolchainRegistry:
         (tmp_path / "bad.toml").write_text(
             '[mytc]\nbinary = "cl"\narg_style = "kandr"\n', encoding="utf-8"
         )
-        from rebrew.toolchain import build_toolchain_registry
+        from rebrew.compiler.toolchain import build_toolchain_registry
 
         with pytest.raises(RegistryError, match="arg_style must be"):
             build_toolchain_registry()
@@ -405,7 +405,7 @@ class TestToolchainRegistry:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(tmp_path / "nope"))
-        from rebrew.toolchain import ToolchainError, build_toolchain_registry
+        from rebrew.compiler.toolchain import ToolchainError, build_toolchain_registry
 
         with pytest.raises(ToolchainError, match="is not a directory") as ei:
             build_toolchain_registry()
@@ -414,7 +414,7 @@ class TestToolchainRegistry:
     def test_entry_point_provider_adds_toolchain(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.toolchain import ToolchainSpec, build_toolchain_registry
+        from rebrew.compiler.toolchain import ToolchainSpec, build_toolchain_registry
 
         monkeypatch.delenv("REBREW_TOOLCHAIN_OVERLAY_DIR", raising=False)
         _install_fake_module(
@@ -432,7 +432,7 @@ class TestToolchainRegistry:
     def test_entry_point_provider_conflict_raises(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.toolchain import ToolchainSpec, build_toolchain_registry
+        from rebrew.compiler.toolchain import ToolchainSpec, build_toolchain_registry
 
         monkeypatch.delenv("REBREW_TOOLCHAIN_OVERLAY_DIR", raising=False)
         _install_fake_module(
@@ -1167,7 +1167,7 @@ class TestRegistryOwnership:
         ("module_name", "refresh_name", "table_name"),
         [
             ("binary_loader", "refresh_loaders", "_PLUGIN_LOADERS"),
-            ("compile_cache", "refresh_cache_backends", "_CACHE_BACKENDS"),
+            ("compiler.cache", "refresh_cache_backends", "_CACHE_BACKENDS"),
             ("decompiler", "refresh_backends", "_BACKEND_MAP"),
             ("discover", "refresh_discoverers", "_DISCOVERER_MAP"),
             ("matcher.mutator", "refresh_mutations", "ALL_MUTATIONS"),
@@ -1338,7 +1338,7 @@ class TestPluginToolchainConfig:
         self._overlay(tmp_path, monkeypatch)
         # TOOLCHAINS is a module-level snapshot built at first import; rebuild
         # it with the overlay, as a process started with the env set would have.
-        import rebrew.toolchain as toolchain
+        import rebrew.compiler.toolchain as toolchain
 
         monkeypatch.setattr(toolchain, "TOOLCHAINS", toolchain.build_toolchain_registry())
         root = self._project(tmp_path, "mytc")
@@ -1415,7 +1415,7 @@ class TestSixteenBitAlignment:
     def test_bits16_plugin_allowed_on_x86_16(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.toolchain as toolchain
+        import rebrew.compiler.toolchain as toolchain
         import rebrew.toolchain_detect as td
 
         overlay = tmp_path / "overlay"
@@ -1440,7 +1440,7 @@ class TestSixteenBitAlignment:
     def test_bits16_plugin_rejected_on_32bit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.toolchain as toolchain
+        import rebrew.compiler.toolchain as toolchain
         import rebrew.toolchain_detect as td
 
         overlay = tmp_path / "overlay"
@@ -1648,7 +1648,7 @@ class TestCacheBackendRegistry:
         )
 
     def test_plugin_backend_discovered(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         self._patch(monkeypatch)
         backends = cc._discover_cache_backends()
@@ -1661,7 +1661,7 @@ class TestCacheBackendRegistry:
         assert cache.count == 1
 
     def test_plugin_conflict_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         _install_fake_module(monkeypatch, "cache_backend_dup", factory=lambda *a, **k: None)
         monkeypatch.setattr(
@@ -1674,13 +1674,13 @@ class TestCacheBackendRegistry:
         assert backends["diskcache"] is cc.CompileCache  # packaged backend survives
 
     def test_unknown_backend_errors(self, tmp_path: Path) -> None:
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         with pytest.raises(ValueError, match="unknown cache backend"):
             cc.get_compile_cache(tmp_path, "nope")
 
     def test_config_selects_backend(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
         from rebrew.config import load_config
 
         self._patch(monkeypatch)
@@ -1700,7 +1700,7 @@ class TestToolchainOrigin:
     """list_toolchains reports where each toolchain came from."""
 
     def test_origins_recorded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.toolchain as toolchain
+        import rebrew.compiler.toolchain as toolchain
 
         overlay = tmp_path / "overlay"
         overlay.mkdir()
@@ -1720,7 +1720,7 @@ class TestToolchainOrigin:
         against an unresponsive daemon re-probes every call; a per-row probe
         made the listing pay that timeout once per registered toolchain.
         """
-        import rebrew.toolchain as toolchain
+        import rebrew.compiler.toolchain as toolchain
 
         probes: list[int] = []
 
@@ -1746,7 +1746,7 @@ class TestToolchainRegistryConcurrency:
     """
 
     def test_refresh_does_not_mutate_a_published_registry(self) -> None:
-        import rebrew.toolchain as toolchain
+        import rebrew.compiler.toolchain as toolchain
 
         before = toolchain.TOOLCHAINS
         toolchain.refresh_toolchain_registry()
@@ -1755,7 +1755,7 @@ class TestToolchainRegistryConcurrency:
         assert set(after) == set(before)
 
     def test_snapshot_held_across_a_refresh_stays_complete_and_frozen(self) -> None:
-        import rebrew.toolchain as toolchain
+        import rebrew.compiler.toolchain as toolchain
 
         # Publish a generation carrying a name the next refresh retires.
         stale = next(iter(toolchain.TOOLCHAINS.values()))
@@ -1772,7 +1772,7 @@ class TestToolchainRegistryConcurrency:
             toolchain.refresh_toolchain_registry()
 
     def test_concurrent_readers_never_see_a_half_retired_registry(self) -> None:
-        import rebrew.toolchain as toolchain
+        import rebrew.compiler.toolchain as toolchain
 
         stale = next(iter(toolchain.TOOLCHAINS.values()))
         mixed: list[str] = []
@@ -1805,7 +1805,7 @@ class TestToolchainRegistryConcurrency:
         assert mixed == []
 
     def test_published_registry_is_frozen(self) -> None:
-        import rebrew.toolchain as toolchain
+        import rebrew.compiler.toolchain as toolchain
 
         with pytest.raises(TypeError):
             toolchain.TOOLCHAINS["injected"] = None  # type: ignore[index]
@@ -1813,7 +1813,7 @@ class TestToolchainRegistryConcurrency:
             del toolchain.TOOLCHAINS["msvc-6.0"]
 
     def test_snapshot_reads_both_maps_as_one_generation(self) -> None:
-        import rebrew.toolchain as toolchain
+        import rebrew.compiler.toolchain as toolchain
 
         registry, origins = toolchain.registry_snapshot()
         assert registry is toolchain.TOOLCHAINS
@@ -2011,8 +2011,8 @@ class TestEntryPointProvenance:
     def test_origin_names_provider_module(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.toolchain as toolchain
-        from rebrew.toolchain import ToolchainSpec
+        import rebrew.compiler.toolchain as toolchain
+        from rebrew.compiler.toolchain import ToolchainSpec
 
         monkeypatch.delenv("REBREW_TOOLCHAIN_OVERLAY_DIR", raising=False)
         _install_fake_module(
@@ -2046,7 +2046,7 @@ class TestNativeElfToolchains:
     runs natively inside the image) — an ELF profile must actually compile."""
 
     def test_gcc_clang_in_registry(self) -> None:
-        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain import TOOLCHAINS
 
         for name in ("gcc-14.2.0", "clang-18.1.8"):
             spec = TOOLCHAINS.get(name)
@@ -2063,9 +2063,9 @@ class TestNativeElfToolchains:
     def test_elf_profile_compiles(self, tmp_path: Path, profile: str) -> None:
         import warnings
 
-        from rebrew.compile import compile_to_obj
+        from rebrew.compiler.compile import compile_to_obj
+        from rebrew.compiler.toolchain import TOOLCHAINS, image_present
         from rebrew.config import load_config
-        from rebrew.toolchain import TOOLCHAINS, image_present
 
         image = TOOLCHAINS[profile].image
         assert image is not None
@@ -2130,7 +2130,11 @@ class TestRefreshAll:
         import threading
         import time
 
-        from rebrew.toolchain import TOOLCHAIN_ORIGINS, TOOLCHAINS, refresh_toolchain_registry
+        from rebrew.compiler.toolchain import (
+            TOOLCHAIN_ORIGINS,
+            TOOLCHAINS,
+            refresh_toolchain_registry,
+        )
 
         errors: list[BaseException] = []
         stop = threading.Event()
@@ -2165,7 +2169,7 @@ class TestRefreshAll:
         assert errors == []
 
     def test_refresh_picks_up_installed_plugin(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
         from rebrew.registry import refresh_all
 
         self._patch_plugin(monkeypatch)
@@ -2194,7 +2198,7 @@ class TestNativeCacheKey:
     def test_gcc_and_clang_get_distinct_ids(self, tmp_path: Path) -> None:
         import warnings
 
-        from rebrew.compile_cache import compile_cache_key
+        from rebrew.compiler.cache import compile_cache_key
         from rebrew.config import load_config
 
         def _id(profile: str) -> str:
@@ -2207,7 +2211,7 @@ class TestNativeCacheKey:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 cfg = load_config(root=tmp_path)
-            from rebrew.toolchain import TOOLCHAINS
+            from rebrew.compiler.toolchain import TOOLCHAINS
 
             spec = TOOLCHAINS[cfg.compiler_profile]
             return f"native:{spec.binary}"

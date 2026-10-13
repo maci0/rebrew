@@ -14,7 +14,7 @@ partition whose merged translation units compile to the most matched bytes:
 
 Both phases repeat to a fixpoint (cap: 3 passes, 2n compiler invocations).
 Scoring compiles each merged TU once via the :mod:`rebrew.merge` machinery
-plus :func:`rebrew.compile.compile_to_obj`, extracts every member function
+plus :func:`rebrew.compiler.compile.compile_to_obj`, extracts every member function
 from that single object, and compares the sum of matched bytes.  Traversal
 is VA-ordered, there is no RNG, and every accepted move is appended to a
 JSON audit log.
@@ -46,7 +46,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.coff_reloc import build_name_to_va
-from rebrew.compile_overrides import resolve_compile_overrides
+from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.sources import contained_path, iter_sources, source_roots, target_marker
 from rebrew.utils import preset_module_key
@@ -529,7 +529,7 @@ class _PartitionScorer:
     def _score_cluster(self, cluster: list[int], workdir: Path) -> tuple[int, int]:
         """Score one cluster as ``(matched_bytes, compiler_invocations)``."""
         from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
-        from rebrew.compile import compile_to_obj
+        from rebrew.compiler.compile import compile_to_obj
         from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
         from rebrew.utils import safe_shlex_split
 

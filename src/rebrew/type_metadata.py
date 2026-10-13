@@ -188,7 +188,7 @@ def _inputs(cfg: ProjectConfig, file: Path, symbol: str, cflags: str) -> dict[st
 
 def compile_type(cfg: ProjectConfig, record: dict[str, Any]) -> None:
     """Compile C89 sizeof/offsetof assertions with the target compiler; never link."""
-    from rebrew.compile import compile_to_obj, resolve_include_flags
+    from rebrew.compiler.compile import compile_to_obj, resolve_include_flags
     from rebrew.utils import safe_shlex_split
 
     file = (cfg.metadata_dir / record["file"]).resolve()

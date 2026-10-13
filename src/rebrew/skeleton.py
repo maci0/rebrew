@@ -318,7 +318,7 @@ def _convention_stub(
             n = _ret_arg_count(insns, word_size)
             args = ", ".join(f"int a{i}" for i in range(1, n + 1))
             profile = str(getattr(cfg, "compiler_profile", ""))
-            from rebrew.toolchain import profile_family
+            from rebrew.compiler.toolchain import profile_family
 
             keyword = "pascal" if profile_family(profile) == "borland" else "__stdcall"
             return (

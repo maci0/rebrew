@@ -17,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog.loaders import load_function_structure
-from rebrew.compile import resolve_cl_command
+from rebrew.compiler.compile import resolve_cl_command
+from rebrew.compiler.toolchain import TOOLCHAINS
 from rebrew.config import (
     FUNCTION_STRUCTURE_JSON,
     REBREW_PROJECTS_ROOT_ENV,
@@ -27,7 +28,6 @@ from rebrew.config import (
 )
 from rebrew.data_metadata import load_data_metadata
 from rebrew.metadata import load_metadata
-from rebrew.toolchain import TOOLCHAINS
 from rebrew.workspace.status import KNOWN_STATUSES
 
 

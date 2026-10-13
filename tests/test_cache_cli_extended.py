@@ -111,7 +111,7 @@ class TestCacheCli:
     def test_clear_force_json_deletes_entries(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.compile_cache import CompileCache
+        from rebrew.compiler.cache import CompileCache
 
         cfg = _cfg(tmp_path)
         cache_dir = tmp_path / ".rebrew" / "compile_cache"
@@ -141,7 +141,7 @@ class TestCacheCli:
     def test_clear_json_requires_force(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.compile_cache import CompileCache
+        from rebrew.compiler.cache import CompileCache
 
         cfg = _cfg(tmp_path)
         cache_dir = tmp_path / ".rebrew" / "compile_cache"

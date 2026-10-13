@@ -649,7 +649,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | Tool | Config Values Used |
 |------|--------------------|
 | `verify.py` | `target_binary`, `reversed_dir`, `root`, `marker`, `metadata_dir`, `default_jobs` (no longer writes reports into `db_dir`; `text_raw_offset` and `image_base` live on `binary_loader.BinaryInfo`, not the config) |
-| `test.py` | `target_binary`, `reversed_dir`, `metadata_dir`, `default_jobs` (compiler settings are resolved in `compile.py`) |
+| `test.py` | `target_binary`, `reversed_dir`, `metadata_dir`, `default_jobs` (compiler settings are resolved in `compiler/compile.py`) |
 | `match.py` | `root`, `metadata_dir` (the GA reads `reversed_dir` / `target_binary` / `compiler.*` via `matcher/`) |
 | `ghidra/cli.py` | `reversed_dir` |
 | `todo.py` | `reversed_dir`, `target_binary` |

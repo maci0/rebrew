@@ -1,4 +1,4 @@
-"""Tests for rebrew.tc16 — Turbo C++ 3.1 (16-bit DOS) compilation support."""
+"""Tests for rebrew.compiler.tc16 — Turbo C++ 3.1 (16-bit DOS) compilation support."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.dosbox import make_sandbox_dir
-from rebrew.tc16 import Tc16Error, compile_c
+from rebrew.compiler.dosbox import make_sandbox_dir
+from rebrew.compiler.tc16 import Tc16Error, compile_c
 
 # The compile_c path symlinks the read-only vendored toolchain into the DOSBox
 # sandbox; without the tree present (CI: trees are vendored into the
 # recompile-toolchains checkout, not committed) the class can only fail at
 # staging, so skip rather than red.
-from rebrew.toolchain_paths import toolchains_repo
+from rebrew.compiler.toolchain_paths import toolchains_repo
 
 _REPO_TC16 = toolchains_repo() / "borland" / "3.1-win16" / "source"
 
@@ -30,7 +30,7 @@ def _fake_tcc(monkeypatch, sandbox: Path) -> None:
         (sandbox / "SRC.OBJ").write_bytes(b"\x80\x08\x00fake")
         return type("R", (), {"returncode": 0})()
 
-    monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
+    monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run)
 
 
 @pytest.mark.skipif(
@@ -50,7 +50,7 @@ class TestTc16Compile:
         def _run(args, **kwargs):
             (tmp_path / "TCOUT.TXT").write_text("Error: cannot open", encoding="utf-8")
 
-        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run)
         src = tmp_path / "bad.c"
         src.write_text("int x;\n", encoding="utf-8")
         with pytest.raises(Tc16Error, match="produced no object"):
@@ -58,7 +58,7 @@ class TestTc16Compile:
 
     def test_compile_c_missing_toolchain_raises(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setattr(
-            "rebrew.tc16._find_tc16",
+            "rebrew.compiler.tc16._find_tc16",
             lambda version="3.1": (_ for _ in ()).throw(Tc16Error("not vendored")),
         )
         with pytest.raises(Tc16Error, match="not vendored"):
@@ -71,7 +71,7 @@ class TestHeadlessDosbox:
 
     def test_run_dosbox_env_is_headless(self, tmp_path: Path, monkeypatch) -> None:
 
-        from rebrew import dosbox as dosbox_mod
+        from rebrew.compiler import dosbox as dosbox_mod
 
         captured: dict = {}
 
@@ -98,7 +98,7 @@ class TestHeadlessDosbox:
 
 
 class TestDosboxDriverSync:
-    """The host DOSBox driver (rebrew.dosbox) and the toolchain-image
+    """The host DOSBox driver (rebrew.compiler.dosbox) and the toolchain-image
     driver (wrapper-common.sh's rebrew_dosbox_run) must generate identical
     DOSBox configs — they are the docker-less fallback and the
     containerized path for the same 16-bit compilers, so a headless/driver
@@ -109,7 +109,7 @@ class TestDosboxDriverSync:
         reason="recompile-toolchains checkout not present (base/wrapper-common.sh)",
     )
     def test_host_and_image_conf_templates_match(self) -> None:
-        from rebrew import dosbox as dosbox_mod
+        from rebrew.compiler import dosbox as dosbox_mod
 
         wtext = _WRAPPER_COMMON.read_text(encoding="utf-8")
         sandbox = "/tmp/sbx"
@@ -141,7 +141,7 @@ class TestDosboxDriverSync:
 
         assert host_conf == image_conf, (
             "host and image DOSBox confs drifted — update both "
-            "(src/rebrew/dosbox.py and recompile-toolchains/base/wrapper-common.sh)"
+            "(src/rebrew/compiler/dosbox.py and recompile-toolchains/base/wrapper-common.sh)"
         )
 
 
@@ -154,7 +154,7 @@ def test_tc16_compile_parse_match_roundtrip() -> None:
     the object's own bytes yields EXACT (the full matching loop)."""
     from types import SimpleNamespace
 
-    from rebrew.compile import compile_and_compare, compile_to_obj
+    from rebrew.compiler.compile import compile_and_compare, compile_to_obj
 
     work = make_sandbox_dir("tc16-match-")
     src_dir = work / "src"
@@ -194,8 +194,8 @@ def test_tc16_object_no_trailing_checksum_byte() -> None:
     sum ≡ 0 mod 256); the omf16 parser must drop it or the code slice
     carries a spurious trailing byte that breaks byte-matching."""
 
+    from rebrew.compiler.tc16 import compile_c
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-    from rebrew.tc16 import compile_c
 
     wd = make_sandbox_dir("tc16-chk-")
     src = wd / "add.c"
@@ -216,9 +216,9 @@ def test_mz_fixture_add_matches() -> None:
     from types import SimpleNamespace
 
     from rebrew.binary_loader import extract_raw_bytes
-    from rebrew.compile import compile_and_compare
+    from rebrew.compiler.compile import compile_and_compare
+    from rebrew.compiler.tc16 import compile_c
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-    from rebrew.tc16 import compile_c
 
     fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
     assert fixture.exists(), "tc16_hello.exe fixture missing"
@@ -263,9 +263,9 @@ def test_mz_fixture_main_matches_with_reloc() -> None:
     from types import SimpleNamespace
 
     from rebrew.binary_loader import extract_raw_bytes
-    from rebrew.compile import compile_and_compare
+    from rebrew.compiler.compile import compile_and_compare
+    from rebrew.compiler.tc16 import compile_c
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-    from rebrew.tc16 import compile_c
 
     fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
     target = extract_raw_bytes(fixture, 0x29E, 20)
@@ -351,13 +351,13 @@ class TestStaleOutputIsNotSuccess:
     def test_failed_compile_does_not_report_stale_obj(self, tmp_path: Path, monkeypatch) -> None:
         """A reused caller-supplied workdir keeps the previous run's SRC.OBJ, so
         a failed compile still found "output" and was reported as success."""
-        from rebrew.tc16 import Tc16Error, compile_c
+        from rebrew.compiler.tc16 import Tc16Error, compile_c
 
         tree = tmp_path / "borland-3.1"
         for sub in ("BIN", "INCLUDE", "LIB"):
             (tree / sub).mkdir(parents=True)
-        monkeypatch.setattr("rebrew.tc16._find_tc16", lambda version="3.1": tree)
-        monkeypatch.setattr("rebrew.tc16.run_dosbox", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.tc16._find_tc16", lambda version="3.1": tree)
+        monkeypatch.setattr("rebrew.compiler.tc16.run_dosbox", lambda *a, **k: None)
         src = tmp_path / "f.c"
         src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
         workdir = tmp_path / "sandbox"
@@ -368,19 +368,19 @@ class TestStaleOutputIsNotSuccess:
 
     def test_stages_legacy_bytes_verbatim(self, tmp_path: Path, monkeypatch) -> None:
         """CP1252 source bytes must reach SRC.C unchanged (no UTF-8 replace)."""
-        from rebrew.tc16 import compile_c
+        from rebrew.compiler.tc16 import compile_c
 
         tree = tmp_path / "borland-3.1"
         for sub in ("BIN", "INCLUDE", "LIB"):
             (tree / sub).mkdir(parents=True)
-        monkeypatch.setattr("rebrew.tc16._find_tc16", lambda version="3.1": tree)
+        monkeypatch.setattr("rebrew.compiler.tc16._find_tc16", lambda version="3.1": tree)
         staged: dict[str, bytes] = {}
 
         def _capture(sandbox: Path, *_a, **_k) -> None:
             staged["src"] = (sandbox / "SRC.C").read_bytes()
             (sandbox / "SRC.OBJ").write_bytes(b"\x80\x08")
 
-        monkeypatch.setattr("rebrew.tc16.run_dosbox", _capture)
+        monkeypatch.setattr("rebrew.compiler.tc16.run_dosbox", _capture)
         raw = b'char *s = "Caf\xe9";\nint f(void) { return 0; }\n'
         src = tmp_path / "cafe.c"
         src.write_bytes(raw)

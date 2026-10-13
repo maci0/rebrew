@@ -1,4 +1,4 @@
-"""compile_context: the declarations document a compile is pinned to.
+"""compiler/context.py: the declarations document a compile is pinned to.
 
 Model and loader for ``--context``: :class:`CompileContext` carries the text
 ``compile`` prepends to a unit and its digest, which ``test``/``verify``

@@ -162,8 +162,8 @@ def promote_linked_exact(
     block: counts plus the rows that were not promoted, with the reason.
     """
     from rebrew.binary_loader import extract_raw_bytes
-    from rebrew.compile import clears_blocker
-    from rebrew.compile_overrides import resolve_compile_overrides_cached
+    from rebrew.compiler.compile import clears_blocker
+    from rebrew.compiler.overrides import resolve_compile_overrides_cached
     from rebrew.metadata import is_status_parked, update_statuses_batch
     from rebrew.sources import contained_path, source_roots
     from rebrew.verify_hash import comparison_inputs

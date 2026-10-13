@@ -65,22 +65,33 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Self, cast, get_args
 
-#: ``toolchain.TOOLCHAINS`` is republished by ``refresh_toolchain_registry``
-#: and must be read through the module at call time; a module-level
-#: ``from rebrew.toolchain import TOOLCHAINS`` would pin one generation for
-#: the life of this module.  The local per-function override is named
-#: ``toolchain`` throughout, so the module is bound under a name that cannot
-#: be shadowed by it.
-from rebrew import toolchain as toolchain_registry
 from rebrew.binary_loader import load_binary
 from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
-from rebrew.compile_cache import (
+
+#: ``toolchain.TOOLCHAINS`` is republished by ``refresh_toolchain_registry``
+#: and must be read through the module at call time; a module-level
+#: ``from rebrew.compiler.toolchain import TOOLCHAINS`` would pin one generation for
+#: the life of this module.  The local per-function override is named
+#: ``toolchain`` throughout, so the module is bound under a name that cannot
+#: be shadowed by it.
+from rebrew.compiler import toolchain as toolchain_registry
+from rebrew.compiler.cache import (
     CacheBackend,
     compile_cache_key,
     get_project_cache,
 )
-from rebrew.compile_context import CONTEXT_UNIT_NAME, CompileContext
+from rebrew.compiler.context import CONTEXT_UNIT_NAME, CompileContext
+from rebrew.compiler.headless import XVFB_RUN_SERVER_ARGS, ensure_xvfb, xvfb_cookie_for
+from rebrew.compiler.msvc_env import msvc_env_from_config, resolve_runner_path
+from rebrew.compiler.toolchain import (
+    ToolchainError,
+    ToolchainSpec,
+    bind_mount,
+    cached_image_digest,
+    image_content_id,
+    run_toolchain,
+)
 from rebrew.config import (
     DEFAULT_COMPILE_TIMEOUT,
     DEFAULT_RECOMPILE_RETRIES,
@@ -90,19 +101,9 @@ from rebrew.config import (
     validate_http_url,
 )
 from rebrew.errors import RebrewError
-from rebrew.headless import XVFB_RUN_SERVER_ARGS, ensure_xvfb, xvfb_cookie_for
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import canonical_status
-from rebrew.msvc_env import msvc_env_from_config, resolve_runner_path
 from rebrew.sources import contained_path, source_roots
-from rebrew.toolchain import (
-    ToolchainError,
-    ToolchainSpec,
-    bind_mount,
-    cached_image_digest,
-    image_content_id,
-    run_toolchain,
-)
 from rebrew.utils import (
     container_runtime,
     interruptible_pool,
@@ -265,7 +266,7 @@ class CompareResult:
     #: The structured backend failure behind a ``COMPILE_ERROR`` /
     #: ``EXTRACT_ERROR`` verdict, or ``None`` when the compile ran and failed
     #: on the source itself.  Only the remote recompile backend produces one
-    #: today (a :class:`rebrew.recompile_client.RecompileError` carrying
+    #: today (a :class:`rebrew.compiler.recompile_client.RecompileError` carrying
     #: ``kind`` / ``status_code`` / ``retryable``); without this field a
     #: consumer could not tell "the compile service was unreachable" from
     #: "your C does not build" except by matching ``message`` substrings.
@@ -776,7 +777,7 @@ _STUB_TARGET_MIN_BYTES = 12
 
 # Wine prefixes configured with "Emulate a virtual desktop" (winecfg) pop a
 # window on every compiler invocation, and bare `wine` fails outright under
-# CI with no DISPLAY.  We point wine at a persistent Xvfb (headless.py) -
+# CI with no DISPLAY.  We point wine at a persistent Xvfb (compiler/headless.py) -
 # invisible AND cheap: xvfb-run's wrapper costs ~3 s per invocation, a
 # persistent server pays ~200 ms once and amortizes over a whole batch.
 
@@ -788,7 +789,7 @@ def maybe_headless_wine(
 
     When the first command token is ``wine`` (or a path to it), the
     ``DISPLAY`` env is pointed at a persistent ``Xvfb`` (see
-    ``rebrew.headless.ensure_xvfb``) so the compile runs on an invisible
+    ``rebrew.compiler.headless.ensure_xvfb``) so the compile runs on an invisible
     virtual display.  ``wibo`` is already headless and is left untouched.
     Set ``REBREW_WINE_HEADLESS=0`` (or ``false``/``no``/``off``) in the
     environment to force bare wine (e.g. when you genuinely want the window).
@@ -1090,7 +1091,7 @@ def _is_vendored_toolchain_tree(p: Path) -> bool:
     Those trees are baked into the docker images byte-identical, so the
     container needs no bind mount for them - CL/wcc resolve their own
     includes inside the image."""
-    from rebrew.toolchain_paths import toolchains_repo
+    from rebrew.compiler.toolchain_paths import toolchains_repo
 
     root = toolchains_repo()
     try:
@@ -1188,7 +1189,7 @@ def _native_toolchain_id(spec: "ToolchainSpec") -> str | None:
     # PATH.  Hashing only `shutil.which` misses a spec whose binary
     # resolves out of a vendored tree, so replacing that tree kept
     # serving objects built by the old compiler.
-    from rebrew.toolchain import vendored_binary
+    from rebrew.compiler.toolchain import vendored_binary
 
     resolved = vendored_binary(spec)
     if resolved is None:
@@ -1414,13 +1415,13 @@ def _compile_via_recompile(
     merged context+source compile unit, so the service compiles exactly what
     the local backend would.
 
-    A :class:`rebrew.recompile_client.RecompileError` is also appended to
+    A :class:`rebrew.compiler.recompile_client.RecompileError` is also appended to
     *backend_errors* when given, so a caller that returns the result to a
     library consumer (``compile_and_compare``) can attach the structured
     fields — ``kind``, ``status_code``, ``retryable`` — to the
     :class:`CompareResult` instead of leaving a message string behind.
     """
-    from rebrew.recompile_client import RecompileError, compile_source
+    from rebrew.compiler.recompile_client import RecompileError, compile_source
 
     url = recompile_url(cfg)
     assert url is not None, "recompile backend selected without a URL"
@@ -1649,7 +1650,7 @@ def compile_to_obj(
         cflags: Compiler flags (string or list, e.g. "/O2 /Gd" or ["/O2", "/Gd"]).
         workdir: Working directory for compilation (mounted at /work).
         cache: Explicit cache store to use, any
-            :class:`rebrew.compile_cache.CacheBackend` (the packaged
+            :class:`rebrew.compiler.cache.CacheBackend` (the packaged
             ``CompileCache`` or a plugin backend from the
             ``rebrew.cache_backends`` entry-point group).  When ``None``
             and *use_cache* is True, a shared instance is obtained
@@ -1664,13 +1665,13 @@ def compile_to_obj(
             diff source's parent, for relative #include resolution) -
             same-path mounted into the container like the other /I dirs.
         context: Project-supplied declarations to compile with the source
-            (:class:`rebrew.compile_context.CompileContext`).  Merged into the
+            (:class:`rebrew.compiler.context.CompileContext`).  Merged into the
             compile unit under ``#line`` directives, so the compiler reads the
             merged text (not the bare source) and the compile-cache key hashes
             that same text.  ``None`` compiles the source alone.
         backend_errors: Optional sink for structured backend failures.  The
             remote recompile backend appends its
-            :class:`rebrew.recompile_client.RecompileError` here, so a caller
+            :class:`rebrew.compiler.recompile_client.RecompileError` here, so a caller
             that returns a :class:`CompareResult` can hand the consumer the
             ``kind`` / ``status_code`` / ``retryable`` fields the error
             message string does not carry.
@@ -2006,7 +2007,7 @@ _BATCH_ATEXIT_REGISTERED = False
 _BATCH_OBJ_DIRS_LOCK = threading.Lock()
 #: Cap on :data:`_BATCH_OBJ_DIRS`.  Only ``verify`` drains it per pass, so a
 #: long ``rebrew match batch`` or GA run against a runtime that keeps a bind
-#: mount busy past :func:`~rebrew.temp_dirs.remove_temp_dir`'s retry window
+#: mount busy past :func:`~rebrew.compiler.temp_dirs.remove_temp_dir`'s retry window
 #: re-queued one dir per compile and never retried any of them before exit.
 #: Overflow drains the queue (see :func:`_discard_temp_dir`) and then drops
 #: the oldest entries, which the 24 h stale sweep still reclaims on disk.
@@ -2029,7 +2030,7 @@ def _discard_temp_dir(path: Path) -> None:
     still accumulating.  Whatever is still busy after that drain is dropped
     oldest-first rather than held for the rest of the process.
     """
-    from rebrew.temp_dirs import remove_temp_dir
+    from rebrew.compiler.temp_dirs import remove_temp_dir
 
     try:
         remove_temp_dir(path)
@@ -2061,7 +2062,7 @@ def cleanup_batch_obj_dirs() -> None:
     oldest are released to the stale sweep so a run that never drains cannot
     grow the list for its whole lifetime.
     """
-    from rebrew.temp_dirs import remove_temp_dir
+    from rebrew.compiler.temp_dirs import remove_temp_dir
 
     with _BATCH_OBJ_DIRS_LOCK:
         pending = list(_BATCH_OBJ_DIRS)
@@ -2115,7 +2116,7 @@ def precompile_batch(
     symbol bytes so the lasting dir does not accumulate across verify runs
     in a long-lived process; an atexit hook is the backstop.
     """
-    from rebrew.compile_overrides import resolve_compile_overrides
+    from rebrew.compiler.overrides import resolve_compile_overrides
 
     log = logging.getLogger(__name__)
     if len(entries) < 2 or recompile_url(cfg) is not None:
@@ -2131,7 +2132,7 @@ def precompile_batch(
     if base_spec is not None and base_spec.effective_arg_style not in ("posix", "msvc"):
         return {}
 
-    from rebrew.temp_dirs import writable_temp_dir
+    from rebrew.compiler.temp_dirs import writable_temp_dir
 
     out: dict[int, str] = {}
     lasting_root: Path | None = None
@@ -2623,7 +2624,7 @@ def compile_and_compare(
             (same catalog used by ``rebrew test``).
         section_va: Optional function start VA for precise REL32 validation.
         context: Project-supplied declarations to compile with the source
-            (:class:`rebrew.compile_context.CompileContext`); the resulting
+            (:class:`rebrew.compiler.context.CompileContext`); the resulting
             ``CompareResult.context_hash`` records the digest the verdict was
             earned under.
         toolchain: Per-function toolchain override, passed through to
@@ -2659,7 +2660,7 @@ def compile_and_compare(
             # docker runner mounts it at /work, so a system-temp sandbox
             # (tmpfs / docker-invisible under sandboxed environments) would
             # compile an empty dir.  Cleaned up in finally.
-            from rebrew.temp_dirs import writable_temp_dir
+            from rebrew.compiler.temp_dirs import writable_temp_dir
 
             workdir = writable_temp_dir("rebrew_cmp_")
             obj_path, err = compile_to_obj(
@@ -2945,7 +2946,7 @@ def _link_obj_docker(
     except subprocess.TimeoutExpired:
         container_name = _docker_run_name(cmd)
         if container_name is not None:
-            from rebrew.toolchain import kill_container
+            from rebrew.compiler.toolchain import kill_container
 
             # kill_container never raises: a failed kill is logged, so a
             # timeout is still reported as the timeout.
@@ -2957,7 +2958,7 @@ def _link_obj_docker(
         # Ctrl+C kills only the docker CLI; the container would keep running.
         container_name = _docker_run_name(cmd)
         if container_name is not None:
-            from rebrew.toolchain import kill_container
+            from rebrew.compiler.toolchain import kill_container
 
             kill_container(container_name)
         raise
@@ -3038,7 +3039,7 @@ def compile_and_compare_linked(
 
     workdir: Path | None = None
     try:
-        from rebrew.temp_dirs import writable_temp_dir
+        from rebrew.compiler.temp_dirs import writable_temp_dir
 
         workdir = writable_temp_dir("rebrew_linked_")
         shell_path = workdir / ("linked_" + Path(source_path).name)

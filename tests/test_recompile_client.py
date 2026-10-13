@@ -1,4 +1,4 @@
-"""Tests for rebrew.recompile_client and the recompile backend selection."""
+"""Tests for rebrew.compiler.recompile_client and the recompile backend selection."""
 
 from __future__ import annotations
 
@@ -10,15 +10,19 @@ from typing import Any
 import httpx
 import pytest
 
-import rebrew.compile as compile_mod
-from rebrew.compile import _compile_via_recompile, recompile_url
+import rebrew.compiler.compile as compile_mod
+from rebrew.compiler.compile import _compile_via_recompile, recompile_url
+from rebrew.compiler.recompile_client import (
+    RecompileError,
+    _same_origin_artifact_url,
+    compile_source,
+)
 from rebrew.config import DEFAULT_RECOMPILE_RETRIES
-from rebrew.recompile_client import RecompileError, _same_origin_artifact_url, compile_source
 
 
 def test_recompile_client_public_all() -> None:
     """Star-imports must not leak typing/stdlib names into consumer namespaces."""
-    import rebrew.recompile_client as rc
+    import rebrew.compiler.recompile_client as rc
 
     assert rc.__all__ == [
         "HttpClient",
@@ -31,7 +35,7 @@ def test_recompile_client_public_all() -> None:
     for name in rc.__all__:
         assert getattr(rc, name, None) is not None, name
     ns: dict[str, Any] = {}
-    exec("from rebrew.recompile_client import *", ns)  # noqa: S102
+    exec("from rebrew.compiler.recompile_client import *", ns)  # noqa: S102
     exported = {k for k in ns if not k.startswith("_")}
     assert exported == set(rc.__all__)
 
@@ -64,12 +68,12 @@ class TestHttpProtocols:
     """The reply contract a consumer's test double has to satisfy."""
 
     def test_httpx_response_satisfies_http_response(self) -> None:
-        from rebrew.recompile_client import HttpResponse
+        from rebrew.compiler.recompile_client import HttpResponse
 
         assert isinstance(httpx.Response(200, content=b"\x90"), HttpResponse)
 
     def test_existing_stand_in_satisfies_http_response(self) -> None:
-        from rebrew.recompile_client import HttpResponse
+        from rebrew.compiler.recompile_client import HttpResponse
 
         assert isinstance(_Resp(200, json_body={"status": "ok"}), HttpResponse)
 
@@ -80,7 +84,7 @@ class TestHttpProtocols:
         handing a consumer a ``RecompileResult.obj_bytes`` holding whatever
         stand-in attribute happened to share the name.
         """
-        from rebrew.recompile_client import HttpResponse
+        from rebrew.compiler.recompile_client import HttpResponse
 
         class _NoContent:
             status_code = 200
@@ -92,7 +96,7 @@ class TestHttpProtocols:
         assert not isinstance(_NoContent(), HttpResponse)
 
     def test_httpx_client_satisfies_http_client(self) -> None:
-        from rebrew.recompile_client import HttpClient
+        from rebrew.compiler.recompile_client import HttpClient
 
         assert isinstance(httpx.Client(), HttpClient)
 
@@ -217,7 +221,9 @@ class TestCompileSource:
         client = _SeqClient(None)
         monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
         sleeps: list[float] = []
-        monkeypatch.setattr("rebrew.recompile_client.time.sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(
+            "rebrew.compiler.recompile_client.time.sleep", lambda s: sleeps.append(s)
+        )
         res = compile_source("http://svc/", "msvc-6.0", "int f(void){}", ["/c"], retries=1)
         assert res.ok and res.obj_bytes == b"OBJ"
         assert len([c for c in client.calls if c[0] == "post"]) == 2
@@ -271,7 +277,7 @@ class TestCompileSource:
         client = _SeqClient(None)
         monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
         with (
-            caplog.at_level(logging.WARNING, logger="rebrew.recompile_client"),
+            caplog.at_level(logging.WARNING, logger="rebrew.compiler.recompile_client"),
             pytest.raises(RecompileError),
         ):
             compile_source(
@@ -308,7 +314,7 @@ class TestCompileSource:
         client = _FakeClient(_Resp(503, text="down"))
         monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
         with (
-            caplog.at_level(logging.WARNING, logger="rebrew.recompile_client"),
+            caplog.at_level(logging.WARNING, logger="rebrew.compiler.recompile_client"),
             pytest.raises(RecompileError),
         ):
             compile_source("http://svc/", "msvc-6.0", "int f(void){}", ["/c"])
@@ -346,7 +352,9 @@ class TestCompileSource:
         client = _SeqClient(None)
         monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
         sleeps: list[float] = []
-        monkeypatch.setattr("rebrew.recompile_client.time.sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(
+            "rebrew.compiler.recompile_client.time.sleep", lambda s: sleeps.append(s)
+        )
         res = compile_source(
             "http://svc/",
             "msvc-6.0",
@@ -379,7 +387,7 @@ class TestCompileSource:
 
         client = _SeqClient(None)
         monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
-        monkeypatch.setattr("rebrew.recompile_client.time.sleep", lambda s: None)
+        monkeypatch.setattr("rebrew.compiler.recompile_client.time.sleep", lambda s: None)
         with pytest.raises(RecompileError) as ei:
             compile_source("http://svc/", "msvc-6.0", "x", ["/c"], emit_assembly=True, retries=2)
         assert ei.value.retryable is False
@@ -410,7 +418,7 @@ class TestCompileSource:
 
         client = _SeqClient(None)
         monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
-        monkeypatch.setattr("rebrew.recompile_client.time.sleep", lambda s: None)
+        monkeypatch.setattr("rebrew.compiler.recompile_client.time.sleep", lambda s: None)
         res = compile_source("http://svc/", "msvc-6.0", "x", ["/c"], emit_assembly=True, retries=1)
         assert res.ok and res.obj_bytes == b"OBJ"
         assert [c[0] for c in client.calls] == ["post", "post", "get"]
@@ -558,7 +566,7 @@ class TestCompileViaRecompile:
     def test_writes_the_returned_artifact(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.recompile_client as rc
+        import rebrew.compiler.recompile_client as rc
 
         seen: dict[str, Any] = {}
 
@@ -586,7 +594,7 @@ class TestCompileViaRecompile:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``[compiler] recompile_retries`` is the retry count, 0 included."""
-        import rebrew.recompile_client as rc
+        import rebrew.compiler.recompile_client as rc
 
         seen: dict[str, Any] = {}
 
@@ -611,7 +619,7 @@ class TestCompileViaRecompile:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A config object predating the field keeps the documented default."""
-        import rebrew.recompile_client as rc
+        import rebrew.compiler.recompile_client as rc
 
         seen: dict[str, Any] = {}
 
@@ -788,7 +796,7 @@ class TestCompileViaRecompile:
     def test_service_failure_returns_the_log(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.recompile_client as rc
+        import rebrew.compiler.recompile_client as rc
 
         monkeypatch.setattr(
             rc, "compile_source", lambda *a, **k: rc.RecompileResult(ok=False, log="error C2065")
@@ -851,7 +859,7 @@ class TestCompileViaRecompile:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The structured error reaches the caller, not just the message."""
-        import rebrew.recompile_client as rc
+        import rebrew.compiler.recompile_client as rc
 
         def fake(*a: Any, **k: Any) -> Any:
             raise RecompileError("503 from svc", kind="http", status_code=503, retryable=True)
@@ -881,8 +889,8 @@ class TestCompileViaRecompile:
     ) -> None:
         """A consumer of compile_and_compare branches on result.error, not
         on message substrings."""
-        import rebrew.recompile_client as rc
-        from rebrew.compile import compile_and_compare
+        import rebrew.compiler.recompile_client as rc
+        from rebrew.compiler.compile import compile_and_compare
 
         def fake(*a: Any, **k: Any) -> Any:
             raise RecompileError("connection refused", kind="network", retryable=True)

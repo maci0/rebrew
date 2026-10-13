@@ -1,6 +1,6 @@
 """Property-based fuzzing for the recompile service protocol.
 
-``rebrew.recompile_client`` is the one module in rebrew that parses input it
+``rebrew.compiler.recompile_client`` is the one module in rebrew that parses input it
 does not control: a remote compile service's JSON reply and the
 ``artifact_url`` it hands back.  The service is a network peer, so every field
 in the body is forgeable, and a hostile or broken reply must never be able to
@@ -25,7 +25,7 @@ import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
-from rebrew.recompile_client import (
+from rebrew.compiler.recompile_client import (
     RecompileError,
     RecompileResult,
     _same_origin_artifact_url,
@@ -347,7 +347,7 @@ def test_retryable_pre_compile_status_is_re_posted(post_status: int) -> None:
     a fresh POST, exactly once the service recovers, and the backoff between
     attempts is the documented base delay."""
     slept: list[float] = []
-    with patch("rebrew.recompile_client.time.sleep", slept.append):
+    with patch("rebrew.compiler.recompile_client.time.sleep", slept.append):
         client = _Client(
             [
                 _Resp(post_status, text="busy"),

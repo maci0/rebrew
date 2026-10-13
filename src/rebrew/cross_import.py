@@ -56,8 +56,8 @@ from rebrew.workspace.status import MATCHED_STATUSES
 
 if TYPE_CHECKING:
     from rebrew.annotation import Annotation
-    from rebrew.compile import CompareResult
-    from rebrew.compile_cache import CacheBackend
+    from rebrew.compiler.cache import CacheBackend
+    from rebrew.compiler.compile import CompareResult
 
 
 from rebrew.cli import console
@@ -947,7 +947,7 @@ def import_shared_function(
     src_flags = _source_flags(cfg_src, target_path, src_va)
     # No source-dir /I here (unlike the copy path): the shared file moves
     # WITH its tree under src/shared, so relative #include chains resolve
-    # against its own directory already (compile.py always adds src_parent).
+    # against its own directory already (compiler/compile.py always adds src_parent).
     # Recording an absolute ``/I<parent>`` would bake one machine's checkout
     # path into the metadata and break the file on promote or clone —
     # exactly the guild-rebrew GOLDTL.0x004c75e0 case.
@@ -1350,7 +1350,7 @@ def _source_flags(cfg_src: ProjectConfig, src_path: Path, src_va: int) -> str:
     source built at ``/O1`` would not compare under the destination's ``/O2``.
     """
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.compile_overrides import resolve_cflags
+    from rebrew.compiler.overrides import resolve_cflags
 
     try:
         anns = parse_c_file_multi(
@@ -1490,7 +1490,7 @@ def main(
     statuses = annotations_by_va(cfg)
     entries = registry(cfg)
 
-    from rebrew.compile_cache import get_project_cache
+    from rebrew.compiler.cache import get_project_cache
 
     cache = None
     if not dry_run:

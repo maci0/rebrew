@@ -484,12 +484,12 @@ class TestPackagingMetadata:
         so 5 -> 6 in 2.7.0 shipped under ``Fixed`` unprefixed.  A bump retires
         every entry written under the old keys, so the notes have to say so.
         """
-        from rebrew.compile_cache import CACHE_SCHEMA_VERSION
+        from rebrew.compiler.cache import CACHE_SCHEMA_VERSION
 
         last_tag = _last_tag()
         tagged = re.search(
             r"^CACHE_SCHEMA_VERSION\s*=\s*(\d+)",
-            _at_ref(last_tag, "src/rebrew/compile_cache.py"),
+            _at_ref(last_tag, "src/rebrew/compiler/cache.py"),
             flags=re.M,
         )
         if tagged is None:

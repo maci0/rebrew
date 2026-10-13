@@ -24,7 +24,7 @@ CC = b"\xcc"
 def _image_built(profile: str) -> bool:
     """True when the profile's docker image is built locally (the tests below
     run real compiles through the image)."""
-    from rebrew.toolchain import TOOLCHAINS, image_present
+    from rebrew.compiler.toolchain import TOOLCHAINS, image_present
 
     spec = TOOLCHAINS.get(profile)
     return spec is not None and spec.image is not None and image_present(spec.image)
@@ -292,7 +292,7 @@ class TestDefinesCompile:
     def _run_compile(
         self, tmp_path: Path, monkeypatch, profile: str, defines: list[str]
     ) -> list[str]:
-        from rebrew.compile import compile_to_obj
+        from rebrew.compiler.compile import compile_to_obj
 
         captured: dict[str, list[str]] = {}
 
@@ -301,7 +301,7 @@ class TestDefinesCompile:
             (workdir / "f.obj").write_bytes(b"\x00OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
 
         cfg: Any = SimpleNamespace(
             compiler_includes=tmp_path,
@@ -374,12 +374,12 @@ class TestDefinesCompile:
 
     def test_empty_inc_dir_raw_path_compiles(self, tmp_path: Path, monkeypatch) -> None:
         """The raw subprocess path (an image-less plugin toolchain) must not
-        emit a bare -I when the include dir is empty — compile.py already
+        emit a bare -I when the include dir is empty — compiler/compile.py already
         guards this; the matcher path must too."""
+        import rebrew.compiler.toolchain as toolchain_mod
         import rebrew.matcher.compiler as compiler_mod
-        import rebrew.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain_spec import ToolchainSpec
         from rebrew.matcher.compiler import build_candidate_obj_only
-        from rebrew.toolchain_spec import ToolchainSpec
 
         # TOOLCHAINS is a mapping proxy, so the image-less profile is a new
         # registry. Drop the memo or the raw-subprocess path still sees the

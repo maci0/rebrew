@@ -355,7 +355,7 @@ class TestComputeFitness:
         old code always ran the disk BuildCache round-trip first and only then
         found the memo.  Prefill the memo for every member and make any
         compile call explode."""
-        from rebrew.compile_cache import source_digest
+        from rebrew.compiler.cache import source_digest
 
         ga = _make_ga(tmp_path, num_generations=1, pop_size=4)
         for src in ga.population:
@@ -403,7 +403,7 @@ class TestGAReplay:
     def test_completion_order_does_not_change_seeded_run(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.compile_cache import source_digest
+        from rebrew.compiler.cache import source_digest
         from rebrew.matcher import BuildResult
 
         snapshots = []
@@ -1297,7 +1297,7 @@ class TestFlagSweepMatchValidation:
             return 0.0, "/O1", [(0.0, "/O1")]  # reloc-masked exact
 
         def _fake_compare(cfg, source, symbol, target_bytes, cflags, **kw):
-            from rebrew.compile import CompareResult
+            from rebrew.compiler.compile import CompareResult
 
             return CompareResult(
                 matched=False,
@@ -1310,7 +1310,7 @@ class TestFlagSweepMatchValidation:
             )
 
         monkeypatch.setattr("rebrew.match_run.run_flag_sweep", _fake_sweep)
-        monkeypatch.setattr("rebrew.compile.compile_and_compare", _fake_compare)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_and_compare", _fake_compare)
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 64)
         calls: list[str] = []
         monkeypatch.setattr(
@@ -1363,7 +1363,7 @@ class TestFlagSweepMatchValidation:
             return 0.0, "/O1", [(0.0, "/O1")]
 
         def _fake_compare(cfg, source, symbol, target_bytes, cflags, **kw):
-            from rebrew.compile import CompareResult
+            from rebrew.compiler.compile import CompareResult
 
             return CompareResult(
                 matched=True,
@@ -1376,7 +1376,7 @@ class TestFlagSweepMatchValidation:
             )
 
         monkeypatch.setattr("rebrew.match_run.run_flag_sweep", _fake_sweep)
-        monkeypatch.setattr("rebrew.compile.compile_and_compare", _fake_compare)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_and_compare", _fake_compare)
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 64)
         calls: list[str] = []
         monkeypatch.setattr(

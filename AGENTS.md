@@ -19,7 +19,7 @@ Names are `"<image-family>-<version>"` (lowercase, version dots kept), e.g. `msv
 
 **Docker-only for every shipped toolchain** (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `ido-*`, `gcc-*`, `clang-*`, `mingw-*`): the image wraps wine / DOSBox / a native Linux compiler. No host wine/wibo/dosbox fallback. Missing image → hard error; run `rebrew toolchain build <name>` or `rebrew toolchain pull <name>`. Inventory and image tags: `rebrew toolchain list` (pins/smoke: `docs/TOOLCHAIN.md`).
 
-Docker build source lives in the sibling **recompile-toolchains** checkout (`REBREW_TOOLCHAINS_DIR` override). Resolve via `rebrew.toolchain_paths.toolchains_repo()`; commands that need it call `rebrew.toolchain.require_toolchains_repo()`.
+Docker build source lives in the sibling **recompile-toolchains** checkout (`REBREW_TOOLCHAINS_DIR` override). Resolve via `rebrew.compiler.toolchain_paths.toolchains_repo()`; commands that need it call `rebrew.compiler.toolchain.require_toolchains_repo()`.
 
 **CMake**: `rebrew build cmake-toolchain --toolchain msvc-6.0 --output cmake/` then `cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake`. Tools run as `rebrew build driver <cl|link|lib> -- <arguments>`; compiler flags follow `--` unchanged.
 
@@ -88,6 +88,7 @@ Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest confi
 ```
 src/rebrew/          # package; discover modules there; do not rely on an inline inventory
 ├── matcher/         # GA engine: src/rebrew/matcher/AGENTS.md
+├── compiler/        # compile execution, toolchains, compile cache: src/rebrew/compiler/AGENTS.md
 ├── catalog/         # function registry + coverage grid: src/rebrew/catalog/AGENTS.md
 ├── ghidra/          # BinSync-primary field sync + MCP structural ops: src/rebrew/ghidra/AGENTS.md
 ├── binsync/         # declib BinSync state I/O: src/rebrew/binsync/AGENTS.md
@@ -137,4 +138,4 @@ No `conftest.py`: use `tmp_path` + inline helpers. Group by class; helpers `_`-p
 - **Evidence and integrations**: `METADATA_FIELD_TYPES` owns function field shapes; data validation derives its shared shapes. `origins` records accepted external fields, `verification` records comparison inputs/time, and `updated_by` / `updated_at` describe ordinary edits. Keep those independent. BinSync push/pull/diff share `SYNC_FIELD_RULES` and a binary-scoped baseline; previews/failures never advance it. See [metadata ownership](docs/METADATA.md) and [BinSync reconciliation](docs/BINSYNC_INTEGRATION.md).
 - **Accounting**: status/todo share one frame. File agreement, accounted `.text`, and stored initialized-data verdict bytes have separate denominators; library/padding contributions are visible, data overlaps count once, and BSS is not file bytes. See [status accounting](docs/CLI.md#rebrew-status).
 - **Compile result**: `CompareResult`; use `.matched`, `.status`, `.delta`, `.match_percent`; never tuple-unpack
-- **Compile backends**: local docker image by default; `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` → `rebrew.recompile_client`. Cache id pins the backend. Only a plugin toolchain without `image` runs as a host binary. See ADR 015
+- **Compile backends**: local docker image by default; `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` → `rebrew.compiler.recompile_client`. Cache id pins the backend. Only a plugin toolchain without `image` runs as a host binary. See ADR 015

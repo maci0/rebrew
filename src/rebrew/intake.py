@@ -71,7 +71,7 @@ def _link_names_for(profile: str) -> tuple[str, str] | None:
     ``None`` for an image-less spec (a plugin toolchain — nothing to link)
     and unknown profiles.
     """
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     spec = TOOLCHAINS.get(profile)
     if spec is None or spec.image is None:
@@ -757,7 +757,7 @@ def main(
             # Docker-backed profiles run through their image — the vendored
             # tree symlink is a build-source nicety, not an execution
             # requirement.  Say so instead of "symlink tools/ yourself".
-            from rebrew.toolchain import TOOLCHAINS
+            from rebrew.compiler.toolchain import TOOLCHAINS
 
             spec = TOOLCHAINS.get(profile)
             if spec is not None and spec.image is not None:

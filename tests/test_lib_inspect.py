@@ -300,7 +300,7 @@ class TestStockExtraction:
         import subprocess
 
         import rebrew.lib_match as lm
-        from rebrew.toolchain import ToolchainError
+        from rebrew.compiler.toolchain import ToolchainError
 
         lib_dir = tmp_path / "image-lib"
         lib_dir.mkdir()

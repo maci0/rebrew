@@ -37,9 +37,9 @@ from pathlib import Path
 import typer
 
 from rebrew.cli import console, error_exit, json_print
+from rebrew.compiler.temp_dirs import xdg_cache_home
+from rebrew.compiler.toolchain import ToolchainSpec, bind_mount, kill_container
 from rebrew.config import ConfigError, check_env_wineprefix, source_date_epoch
-from rebrew.temp_dirs import xdg_cache_home
-from rebrew.toolchain import ToolchainSpec, bind_mount, kill_container
 from rebrew.utils import (
     atomic_write_text,
     container_runtime,
@@ -140,7 +140,7 @@ def _load_profile(root: Path) -> str:
 
 
 def _resolve_spec(name: str, *, json_mode: bool = False) -> ToolchainSpec:
-    from rebrew import toolchain
+    from rebrew.compiler import toolchain
 
     registry, _origins = toolchain.registry_snapshot()
     spec = registry.get(name)

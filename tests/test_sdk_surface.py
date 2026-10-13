@@ -16,7 +16,8 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 import rebrew
-from rebrew.compile import CompareResult, CompareStatus
+from rebrew.compiler.compile import CompareResult, CompareStatus
+from rebrew.compiler.recompile_client import compile_source
 from rebrew.config import (
     ConfigError,
     ProjectConfig,
@@ -28,7 +29,6 @@ from rebrew.config import (
 )
 from rebrew.decompme import DecompmeError
 from rebrew.errors import RebrewError
-from rebrew.recompile_client import compile_source
 from rebrew.sources import iter_library_headers, iter_sources
 from rebrew.workspace.config import find_root as workspace_find_root
 from rebrew.workspace.config import read_config as workspace_read_config
@@ -55,8 +55,8 @@ class TestTopLevelPackageExports:
         assert isinstance(rebrew.__version__, str)
 
     def test_top_level_lazy_attribute_access(self) -> None:
-        from rebrew.compile import compile_and_compare
-        from rebrew.toolchain import ToolchainError, get_toolchain
+        from rebrew.compiler.compile import compile_and_compare
+        from rebrew.compiler.toolchain import ToolchainError, get_toolchain
 
         assert rebrew.load_config is load_config
         assert rebrew.ConfigError is ConfigError
@@ -102,7 +102,7 @@ class TestTopLevelPackageExports:
 class TestErrorsLazyExports:
     def test_lazy_error_imports(self) -> None:
         import rebrew.errors as err_mod
-        from rebrew.toolchain import ToolchainError
+        from rebrew.compiler.toolchain import ToolchainError
 
         assert err_mod.ConfigError is ConfigError
         assert err_mod.ToolchainError is ToolchainError
@@ -224,8 +224,8 @@ class TestErrorsLazyExports:
         import importlib
 
         import rebrew.errors as err_mod
+        from rebrew.compiler.toolchain import ToolchainErrorKind
         from rebrew.ghidra.client import McpErrorKind
-        from rebrew.toolchain import ToolchainErrorKind
 
         assert err_mod.McpErrorKind is McpErrorKind
         assert err_mod.ToolchainErrorKind is ToolchainErrorKind
@@ -366,14 +366,14 @@ class TestCompareResultHelpers:
         assert res.match_percent == 80.0
 
     def test_compare_result_from_dict_missing_required_field_raises_rebrew_error(self) -> None:
-        from rebrew.compile import CompareResultError
+        from rebrew.compiler.compile import CompareResultError
 
         with pytest.raises(CompareResultError) as excinfo:
             CompareResult.from_dict({"matched": False, "status": "EXACT", "delta": 0})
         assert "from_dict" in str(excinfo.value)
 
     def test_compare_result_from_dict_unknown_status_raises_rebrew_error(self) -> None:
-        from rebrew.compile import CompareResultError
+        from rebrew.compiler.compile import CompareResultError
 
         with pytest.raises(CompareResultError) as excinfo:
             CompareResult.from_dict(
@@ -399,7 +399,7 @@ class TestErrorStructuredRoundTrip:
 
     @staticmethod
     def _failed_result() -> CompareResult:
-        from rebrew.recompile_client import RecompileError
+        from rebrew.compiler.recompile_client import RecompileError
 
         return CompareResult(
             matched=False,
@@ -425,7 +425,7 @@ class TestErrorStructuredRoundTrip:
         assert json.loads(json.dumps(self._failed_result().to_dict()))["error"]["kind"] == "network"
 
     def test_from_dict_restores_the_error_type_and_fields(self) -> None:
-        from rebrew.recompile_client import RecompileError
+        from rebrew.compiler.recompile_client import RecompileError
 
         restored = CompareResult.from_dict(json.loads(json.dumps(self._failed_result().to_dict())))
         assert isinstance(restored.error, RecompileError)
@@ -449,7 +449,7 @@ class TestErrorStructuredRoundTrip:
         assert restored.error.retryable is True
 
     def test_non_mapping_error_raises_a_rebrew_error(self) -> None:
-        from rebrew.compile import CompareResultError
+        from rebrew.compiler.compile import CompareResultError
 
         payload = self._failed_result().to_dict()
         payload["error"] = "connect error"
@@ -458,7 +458,7 @@ class TestErrorStructuredRoundTrip:
         assert "error" in str(excinfo.value)
 
     def test_error_to_dict_from_dict_round_trip_keeps_structured_fields(self) -> None:
-        from rebrew.recompile_client import RecompileError
+        from rebrew.compiler.recompile_client import RecompileError
 
         exc = RecompileError("503", kind="http", status_code=503, retryable=True)
         rebuilt = RebrewError.from_dict(exc.to_dict())
@@ -611,7 +611,7 @@ class TestRecompileResultSerialization:
     """The remote-compile verdict serializes like the local one does."""
 
     def test_round_trip_keeps_the_verdict_and_drops_the_bytes(self) -> None:
-        from rebrew.recompile_client import RecompileResult
+        from rebrew.compiler.recompile_client import RecompileResult
 
         res = RecompileResult(ok=True, obj_bytes=b"\x90\x90", log="ok", compiler_version="6.0")
         payload = res.to_dict()
@@ -628,13 +628,13 @@ class TestRecompileResultSerialization:
         assert restored.obj_bytes is None
 
     def test_failed_result_round_trips(self) -> None:
-        from rebrew.recompile_client import RecompileResult
+        from rebrew.compiler.recompile_client import RecompileResult
 
         res = RecompileResult(ok=False, log="C2065: syntax error")
         assert RecompileResult.from_dict(res.to_dict()) == res
 
     def test_missing_ok_raises_a_rebrew_error(self) -> None:
-        from rebrew.recompile_client import RecompileError, RecompileResult
+        from rebrew.compiler.recompile_client import RecompileError, RecompileResult
 
         with pytest.raises(RecompileError) as excinfo:
             RecompileResult.from_dict({"log": "ok"})
@@ -848,7 +848,7 @@ class TestDocumentedToolchainRegistryViews:
 
     def test_api_guide_names_the_two_views_and_the_json_envelope(self) -> None:
         readme = (ROOT / "docs" / "PYTHON_API.md").read_text(encoding="utf-8")
-        assert "from rebrew.toolchain import TOOLCHAINS, get_toolchain" in readme
+        assert "from rebrew.compiler.toolchain import TOOLCHAINS, get_toolchain" in readme
         assert "list_toolchains()" in readme
         assert '{"toolchains": list_toolchains(), "docker_available": <bool>}' in readme
 
@@ -856,7 +856,7 @@ class TestDocumentedToolchainRegistryViews:
         """`--json` is the envelope, not the bare row list the README used to claim."""
         from typer.testing import CliRunner
 
-        import rebrew.toolchain as toolchain_mod
+        import rebrew.compiler.toolchain as toolchain_mod
         import rebrew.toolchain_cli as cli_mod
 
         monkeypatch.setattr(toolchain_mod, "docker_available", lambda: False)
@@ -871,7 +871,7 @@ class TestDocumentedToolchainRegistryViews:
 
     def test_the_two_views_cover_the_same_profiles(self) -> None:
         """A profile is either reachable by name from TOOLCHAINS or in a row."""
-        from rebrew.toolchain import TOOLCHAINS, list_toolchains
+        from rebrew.compiler.toolchain import TOOLCHAINS, list_toolchains
 
         assert [row["name"] for row in list_toolchains()] == list(TOOLCHAINS)
 
@@ -886,7 +886,7 @@ class TestPublicFailuresAreRecoverable:
     """
 
     def test_contradictory_compare_result_raises_a_rebrew_error(self) -> None:
-        from rebrew.compile import CompareResultError
+        from rebrew.compiler.compile import CompareResultError
         from rebrew.errors import CompareResultError as ExportedError
 
         assert ExportedError is CompareResultError
@@ -1066,8 +1066,8 @@ class TestDocumentedTransportInjection:
     """
 
     def test_kwargs_fake_satisfies_both_client_protocols(self) -> None:
+        from rebrew.compiler.recompile_client import HttpClient
         from rebrew.decompme import HttpClient as DecompmeHttpClient
-        from rebrew.recompile_client import HttpClient
 
         class _Response:
             def __init__(self, status_code: int, payload: object) -> None:
@@ -1106,13 +1106,13 @@ class TestDocumentedTransportInjection:
     def test_one_reply_satisfies_both_response_protocols(self) -> None:
         """The same reply covers both HTTP transports, as the README says.
 
-        ``rebrew.recompile_client`` additionally reads ``content`` (the
+        ``rebrew.compiler.recompile_client`` additionally reads ``content`` (the
         artifact bytes); ``rebrew.decompme`` does not, but its module-level
         ``httpx`` calls hand back a reply that owns a connection, so it
         releases ``close()``.  A reply carrying all five members serves both.
         """
+        from rebrew.compiler.recompile_client import HttpResponse
         from rebrew.decompme import HttpResponse as DecompmeHttpResponse
-        from rebrew.recompile_client import HttpResponse
 
         class _Response:
             status_code = 200
@@ -1221,11 +1221,11 @@ class TestAllListsDeclareTheirModuleSurface:
         for expected in (
             "rebrew.annotation",
             "rebrew.cli",
-            "rebrew.compile",
+            "rebrew.compiler.compile",
             "rebrew.config",
             "rebrew.errors",
             "rebrew.metadata",
-            "rebrew.toolchain",
+            "rebrew.compiler.toolchain",
         ):
             assert expected in names, f"{expected} is not covered by the __all__ gate"
         assert len(names) >= 15, f"only {len(names)} modules declare __all__; the walk drifted"

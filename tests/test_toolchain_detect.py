@@ -830,7 +830,7 @@ def test_every_msvc6_image_in_the_binary_map_has_a_spec() -> None:
     docker by hand.  Its C2.DLL md5 (3c21de2c) matches none of the other
     eight, so the gap hid a genuinely different backend.
     """
-    from rebrew.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
+    from rebrew.compiler.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
 
     spec_images = {s.image for s in BUILTIN_TOOLCHAINS.values()}
     msvc6_images = {i for i in IMAGE_ENTRYPOINTS if i.startswith("rebrew/msvc:6.0")}

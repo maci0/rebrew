@@ -1,7 +1,7 @@
 """verify.py — Batch compile-and-compare for all reversed functions.
 
 Compiles every annotated ``.c`` file and compares object bytes against the
-target binary.  Results are classified by :class:`~rebrew.compile.CompareResult`
+target binary.  Results are classified by :class:`~rebrew.compiler.compile.CompareResult`
 (EXACT, RELOC, STUB, COMPILE_ERROR, …).
 
 After verification, STATUS is promoted/demoted in ``rebrew-functions.toml``
@@ -29,9 +29,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from rebrew.compile import CompareResult, CompareStatus
-    from rebrew.compile_cache import CacheBackend
-    from rebrew.compile_context import CompileContext
+    from rebrew.compiler.cache import CacheBackend
+    from rebrew.compiler.compile import CompareResult, CompareStatus
+    from rebrew.compiler.context import CompileContext
 
 import capstone
 import typer
@@ -59,10 +59,10 @@ from rebrew.cli import (
     option_default,
     require_config,
 )
-from rebrew.compile import (
+from rebrew.compiler.compile import (
     clears_blocker,
 )
-from rebrew.compile_overrides import resolve_compile_overrides_cached
+from rebrew.compiler.overrides import resolve_compile_overrides_cached
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.linked_exact import linked_image_current
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
@@ -97,7 +97,7 @@ log = logging.getLogger(__name__)
 
 def _failed_result(status: "CompareStatus", message: str = "") -> "CompareResult":
     """Create a failed CompareResult with default zero values."""
-    from rebrew.compile import CompareResult
+    from rebrew.compiler.compile import CompareResult
 
     return CompareResult(
         matched=False,
@@ -206,7 +206,7 @@ def verify_entry(
     compile context (``rebrew export context`` output), merged into the compile unit
     and recorded on the result as its digest.
     """
-    from rebrew.compile import compile_and_compare
+    from rebrew.compiler.compile import compile_and_compare
 
     batch_inputs = entry.comparison_inputs if _precompiled_obj is not None else None
     entry.comparison_inputs = None
@@ -249,7 +249,7 @@ def verify_entry(
     target_bytes = extract_raw_bytes(cfg.target_binary, entry.va, entry.size)
     if not target_bytes:
         # Extraction failure is a binary/tooling problem, not a source
-        # compile problem — EXTRACT_ERROR (same stage label compile.py uses
+        # compile problem — EXTRACT_ERROR (same stage label compiler/compile.py uses
         # for post-compile extraction failures), so the summary and CI gate
         # don't blame the .c file.  When the function list is available and
         # the annotation VA is not a function in it, the likeliest cause is a
@@ -871,7 +871,7 @@ def main(
     # compile input: merged into every compile unit and hashed into each
     # result; the cache identity records the digest, so a cached verdict is
     # only served to a run pinned to the same context.
-    from rebrew.compile_context import load_compile_context
+    from rebrew.compiler.context import load_compile_context
 
     try:
         compile_context = load_compile_context(context)
@@ -895,7 +895,7 @@ def main(
     from rebrew.binary_loader import is_ne
 
     if getattr(cfg, "target_binary", None) and is_ne(cfg.target_binary):
-        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain import TOOLCHAINS
         from rebrew.toolchain_detect import bitness16_profiles
 
         profile = getattr(cfg, "compiler_profile", "") or "msvc-6.0"
@@ -2657,7 +2657,7 @@ def run_verification(
     effective_jobs = max(1, min(jobs, fresh_count)) if fresh_count else 1
 
     try:
-        from rebrew.compile_cache import get_project_cache
+        from rebrew.compiler.cache import get_project_cache
 
         compile_cache = get_project_cache(cfg)
     except (ImportError, OSError):
@@ -2698,8 +2698,8 @@ def run_verification(
     # produced.
     _batch_objs: dict[int, str] = {}
     try:
-        from rebrew.compile import precompile_batch
-        from rebrew.compile_overrides import resolve_compile_overrides_cached
+        from rebrew.compiler.compile import precompile_batch
+        from rebrew.compiler.overrides import resolve_compile_overrides_cached
         from rebrew.verify_hash import comparison_inputs
 
         for entry in entries_to_verify:
@@ -2829,7 +2829,7 @@ def run_verification(
         # Batch-published .obj files are no longer needed — drop lasting temp
         # dirs so a long-lived process does not accumulate one per --full run.
         with contextlib.suppress(Exception):
-            from rebrew.compile import cleanup_batch_obj_dirs
+            from rebrew.compiler.compile import cleanup_batch_obj_dirs
 
             cleanup_batch_obj_dirs()
 

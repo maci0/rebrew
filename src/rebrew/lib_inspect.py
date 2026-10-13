@@ -193,8 +193,8 @@ def resolve_archive(library: str, target: str | None, *, json_mode: bool) -> Pat
     a directory is a project-relative path; a bare spec is the stock archive
     cached under ``.scratch/``, extracted from the toolchain image when absent.
     """
+    from rebrew.compiler.toolchain import ToolchainError
     from rebrew.lib_match import ensure_stock_lib
-    from rebrew.toolchain import ToolchainError
 
     given = Path(library)
     if given.is_file():

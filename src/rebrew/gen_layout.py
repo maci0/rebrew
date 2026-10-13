@@ -213,7 +213,7 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
     setups — the import libraries now live inside the toolchain image.  Grep
     the same ``__imp_`` thunk strings out of the image's ``Lib/<DLL>.LIB``.
     """
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     spec = TOOLCHAINS.get("msvc-6.0")
     if spec is None or spec.image is None or spec.tool_root is None:
@@ -255,7 +255,7 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
             timeout=60,
         )
     except subprocess.TimeoutExpired:
-        from rebrew.toolchain import kill_container
+        from rebrew.compiler.toolchain import kill_container
 
         kill_container(name)
         log.warning("container %s timed out listing symbols; library assumed empty", name)
@@ -267,7 +267,7 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
         return set()
     except BaseException:
         # Ctrl+C kills the docker CLI but leaves the container running.
-        from rebrew.toolchain import kill_container
+        from rebrew.compiler.toolchain import kill_container
 
         kill_container(name)
         raise

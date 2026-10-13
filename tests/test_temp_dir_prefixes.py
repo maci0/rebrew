@@ -13,13 +13,13 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.temp_dirs import _TEMP_DIR_PREFIXES
+from rebrew.compiler.temp_dirs import _TEMP_DIR_PREFIXES
 
 _SRC = Path(__file__).resolve().parent.parent / "src" / "rebrew"
 
 #: ``writable_temp_dir("x")`` and ``make_sandbox_dir("x")``: both the direct
 #: callers and the toolchain modules that hand a prefix to
-#: :func:`rebrew.dosbox.make_sandbox_dir`.
+#: :func:`rebrew.compiler.dosbox.make_sandbox_dir`.
 _SANDBOX_FACTORIES = frozenset({"writable_temp_dir", "make_sandbox_dir"})
 
 
@@ -66,7 +66,7 @@ class TestSandboxPrefixSweep:
 @pytest.mark.parametrize("prefix", sorted(_TEMP_DIR_PREFIXES))
 class TestSweepRemovesEachPrefix:
     def test_abandoned_sandbox_is_removed(self, tmp_path: Path, prefix: str) -> None:
-        from rebrew.temp_dirs import sweep_stale_temp_dirs
+        from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
 
         stale = tmp_path / f"{prefix}gone"
         stale.mkdir()
@@ -80,7 +80,7 @@ class TestSweepRemovesEachPrefix:
 
     def test_foreign_sibling_survives(self, tmp_path: Path, prefix: str) -> None:
         """The sweep stays off dirs it does not own, prefix or not."""
-        from rebrew.temp_dirs import sweep_stale_temp_dirs
+        from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
 
         foreign = tmp_path / "someone-elses-build"
         foreign.mkdir()
@@ -102,7 +102,7 @@ class TestCallerSuppliedPrefixes:
     """A per-run scratch root sweeps by the prefix its caller names."""
 
     def test_caller_prefix_selects_what_is_removed(self, tmp_path: Path) -> None:
-        from rebrew.temp_dirs import sweep_stale_temp_dirs
+        from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
 
         stale = tmp_path / "func_a-round1"
         stale.mkdir()

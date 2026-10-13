@@ -328,7 +328,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
     # docker image — the image IS the compiler.  Only a profile without a
     # registry spec (or an image-less plugin one) falls through to the
     # legacy executable check.
-    from rebrew.toolchain import TOOLCHAINS, image_present
+    from rebrew.compiler.toolchain import TOOLCHAINS, image_present
 
     _profile = str(getattr(cfg, "compiler_profile", ""))
     _spec = TOOLCHAINS.get(_profile) if _profile else None
@@ -462,7 +462,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             runner_token = exe_path if exe_path else ("wine" if exe == "wine" else exe)
             display_runner = "wibo" if is_wibo_runner else "Wine"
             try:
-                from rebrew.compile import maybe_headless_wine
+                from rebrew.compiler.compile import maybe_headless_wine
                 from rebrew.utils import run_process_group
 
                 smoke_cmd, smoke_env = maybe_headless_wine(
@@ -606,7 +606,7 @@ def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
     """For 16-bit NE targets, report the Delphi 1.0 compile-path readiness.
 
     The vendored DCC.EXE + RTM.EXE + dosbox can compile 16-bit NE
-    executables headless (``rebrew.delphi16.compile_ne``); Delphi's
+    executables headless (``rebrew.compiler.delphi16.compile_ne``); Delphi's
     Borland ABI has no matchable rebrew profile, so the toolchain is for
     research (compile + NE parse), and Delphi functions are documented as
     blockers.  Skipped for non-16-bit targets.  Warns (not fails) when the
@@ -616,7 +616,7 @@ def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
     if getattr(cfg, "arch", "") != "x86_16":
         return CheckResult(name="Delphi 1.0 toolchain", status=_SKIP, message="not a 16-bit target")
 
-    from rebrew.delphi16 import Delphi16Error, find_dcc
+    from rebrew.compiler.delphi16 import Delphi16Error, find_dcc
 
     needs_delphi = getattr(cfg, "compiler_profile", "") == "delphi-1.0"
     try:
@@ -661,7 +661,7 @@ def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
     source the image builds from).  An image-less profile skips (its binary
     is checked by the generic compiler check)."""
     profile = str(getattr(cfg, "compiler_profile", ""))
-    from rebrew.toolchain import ToolchainError, get_toolchain, image_present
+    from rebrew.compiler.toolchain import ToolchainError, get_toolchain, image_present
 
     try:
         spec = get_toolchain(profile)
@@ -690,7 +690,7 @@ def check_cache_backend(cfg: ProjectConfig) -> CheckResult:
     ``load_config`` already rejects an unknown ``[cache] backend``; this
     check still catches a programmatic ``ProjectConfig`` / doctor probe that
     bypassed the loader."""
-    from rebrew.compile_cache import DEFAULT_CACHE_BACKEND, available_cache_backends
+    from rebrew.compiler.cache import DEFAULT_CACHE_BACKEND, available_cache_backends
 
     backend = str(getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND))
 
@@ -717,12 +717,12 @@ def check_runner(cfg: ProjectConfig) -> CheckResult:
     """Check the execution runner.  Docker-backed profiles run through
     their docker image (wine/wibo config is obsolete for them); native-Linux
     profiles need no runner."""
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     _profile = str(getattr(cfg, "compiler_profile", ""))
     _spec = TOOLCHAINS.get(_profile) if _profile else None
     if _spec is not None and _spec.image is not None:
-        from rebrew.toolchain import image_present
+        from rebrew.compiler.toolchain import image_present
 
         if image_present(_spec.image):
             return CheckResult(
@@ -801,7 +801,7 @@ def _docker_toolchain_check(cfg: ProjectConfig, name: str, what: str) -> CheckRe
     profiles.  Returns a CheckResult, or None when the profile is not
     docker-backed (the caller proceeds with the host-path check).
     """
-    from rebrew.toolchain import TOOLCHAINS, image_present
+    from rebrew.compiler.toolchain import TOOLCHAINS, image_present
 
     profile = str(getattr(cfg, "compiler_profile", ""))
     spec = TOOLCHAINS.get(profile) if profile else None

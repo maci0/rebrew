@@ -69,8 +69,8 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
 ## Import patterns
 
 - Modules use **local imports inside functions** to break import cycles
-  (`from rebrew.compile import compile_and_compare` inside `verify_entry`).
-  Monkeypatch the **source module** (`rebrew.compile.compile_and_compare`),
+  (`from rebrew.compiler.compile import compile_and_compare` inside `verify_entry`).
+  Monkeypatch the **source module** (`rebrew.compiler.compile.compile_and_compare`),
   not the importer: `monkeypatch.setattr("rebrew.verify.compile_and_compare",
   ...)` fails because the attribute doesn't exist on `rebrew.verify`.
 - `tools/detect_cycles.py` enforces no module-level import cycles (pre-commit
@@ -98,11 +98,11 @@ binary loaders, cache backends, discoverers) is discovered at import and
 republished **as a whole** by its `refresh_*` function.  A reader that needs two
 tables from one refresh must take them from the same generation:
 
-- `rebrew.toolchain.registry_snapshot()`: the registry and its origins
+- `rebrew.compiler.toolchain.registry_snapshot()`: the registry and its origins
 - `rebrew.toolchain_detect.detection_tables()`: the four detection tables
 - `rebrew.decompiler.fetch_decompilation`: reads both under `_BACKEND_REFRESH_LOCK`
 
-`from rebrew.toolchain import TOOLCHAINS` at module level pins one generation
+`from rebrew.compiler.toolchain import TOOLCHAINS` at module level pins one generation
 for the life of the importer, and a function-local import pins it for the call.
 That is fine for a single-registry read and wrong when the result is paired with
 another table: `cmake-toolchain` used to read the linker-era and Rich-build

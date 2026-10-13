@@ -52,7 +52,7 @@ from rebrew.coff_reloc import (
     build_name_to_va,
     smart_reloc_compare,
 )
-from rebrew.compile import (
+from rebrew.compiler.compile import (
     UNCLASSIFIED_DIFF,
     CompareResult,
     classify_compare_result,
@@ -62,7 +62,7 @@ from rebrew.compile import (
     is_matched,
     matched_byte_count,
 )
-from rebrew.compile_context import CompileContext
+from rebrew.compiler.context import CompileContext
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import (
@@ -441,7 +441,7 @@ def main(
     # the source (typically `rebrew export context --output ctx.c`).  It is a compile
     # input (merged into the compile unit and hashed into the result), so a
     # missing file fails loud instead of silently compiling without it.
-    from rebrew.compile_context import load_compile_context
+    from rebrew.compiler.context import load_compile_context
 
     try:
         compile_context = load_compile_context(context)
@@ -1018,7 +1018,7 @@ def _run_test_impl(
         except ValueError:
             error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
 
-    from rebrew.compile_overrides import resolve_cflags, resolve_compile_overrides
+    from rebrew.compiler.overrides import resolve_cflags, resolve_compile_overrides
 
     _mod = (sel_ann or lint_annos[0]).module if lint_annos else ""
     # Shared fallback chain (per-function metadata → per-library
@@ -1115,7 +1115,7 @@ def _run_test_impl(
     # target base, compare linker-resolved bytes without reloc masking.
     if linked:
         assert section_va is not None  # --target-bin rejected above
-        from rebrew.compile import compile_and_compare_linked
+        from rebrew.compiler.compile import compile_and_compare_linked
 
         cmp = compile_and_compare_linked(
             cfg,
@@ -1530,7 +1530,7 @@ def _test_multi(
     # and the single-function path do; an explicit --toolchain / --cflags
     # wins over the annotation value.
     def _effective_overrides(ann: Annotation) -> tuple[str | None, str]:
-        from rebrew.compile_overrides import resolve_compile_overrides_cached
+        from rebrew.compiler.overrides import resolve_compile_overrides_cached
 
         return resolve_compile_overrides_cached(
             cfg,
@@ -1549,8 +1549,8 @@ def _test_multi(
     # a CI script must not read them as "fix your code" (exit 1).
     any_extract_error = False
 
-    from rebrew.temp_dirs import writable_temp_dir
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.temp_dirs import writable_temp_dir
+    from rebrew.compiler.toolchain import TOOLCHAINS
     from rebrew.utils import safe_shlex_split
 
     workdir = writable_temp_dir("test_multi_")
@@ -2005,7 +2005,7 @@ def _test_multi(
         if json_output:
             json_print({"source": source, "results": results_list})
     finally:
-        from rebrew.temp_dirs import remove_temp_dir
+        from rebrew.compiler.temp_dirs import remove_temp_dir
 
         with contextlib.suppress(OSError):
             remove_temp_dir(workdir)

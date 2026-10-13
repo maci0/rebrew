@@ -43,7 +43,7 @@ toolchain, a metadata field, or a rebrew-project layout belongs in the
 module that owns that concept (``toolchain``, ``metadata``, ``workspace``,
 ``config``), not here.  The metadata TOML key algebra, document parse/build
 and write lock moved out to :mod:`rebrew.metadata_doc`; the scratch-directory
-placement policy moved out to :mod:`rebrew.temp_dirs`; ``preset_module_key``
+placement policy moved out to :mod:`rebrew.compiler.temp_dirs`; ``preset_module_key``
 stays here because it is identifier text normalization that outlives any one
 store.
 """

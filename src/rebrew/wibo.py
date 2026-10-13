@@ -73,7 +73,7 @@ _NETWORK_TIMEOUT_S = 30  # Fail fast rather than hang indefinitely in CI/automat
 def _trusted_wibo_download_url(url: str) -> str:
     """Return *url* when it is an https GitHub release asset URL; else raise.
 
-    Matches the same-origin discipline used by :mod:`rebrew.recompile_client`:
+    Matches the same-origin discipline used by :mod:`rebrew.compiler.recompile_client`:
     release metadata can name any ``browser_download_url``, so the client must
     refuse off-GitHub hosts before fetching bytes (or following redirects).
     """

@@ -55,7 +55,7 @@ from rebrew.coff_reloc import (
     apply_coff_relocations,
     build_symbol_resolver,
 )
-from rebrew.compile import compile_to_obj
+from rebrew.compiler.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.metadata import load_metadata
@@ -185,7 +185,7 @@ def _collect_splice_set(
             # nearest rebrew-libraries.toml → module cflags preset → project
             # cflags → "/O2 /Gd" (the manual chain here skipped the preset and
             # the default, so round-trip compiled different bytes than verify).
-            from rebrew.compile_overrides import resolve_compile_overrides
+            from rebrew.compiler.overrides import resolve_compile_overrides
 
             toolchain, resolved_cflags = resolve_compile_overrides(
                 cfg,
@@ -544,7 +544,7 @@ def _run_round_trip(
     # .text-relative spans, for the byte-coverage union below.
     spliced_ranges: list[tuple[int, int]] = []
     extra_string_syms: dict[str, int] = {}
-    from rebrew.temp_dirs import remove_temp_dir, writable_temp_dir
+    from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir
 
     work_dir = writable_temp_dir("rebrew-rt-")
     try:

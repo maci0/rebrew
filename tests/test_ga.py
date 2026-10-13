@@ -2202,7 +2202,7 @@ class TestGABuildCacheKey:
         """``_run_inner`` passes the bare source digest to ``_compute_fitness``
         (for memoization); the scoring store must still land under the compile
         key so a later process hits it instead of recompiling every winner."""
-        from rebrew.compile_cache import source_digest
+        from rebrew.compiler.cache import source_digest
         from rebrew.match_ga import BinaryMatchingGA
         from rebrew.matcher.core import BuildResult
 
@@ -2460,9 +2460,9 @@ class TestRunOneStubGaPersistsFlags:
         import rebrew.coff_reloc as core
 
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
-        monkeypatch.setattr("rebrew.compile_overrides.resolve_cflags", lambda *a, **k: "/O2 /G3")
+        monkeypatch.setattr("rebrew.compiler.overrides.resolve_cflags", lambda *a, **k: "/O2 /G3")
         monkeypatch.setattr(
-            "rebrew.compile.compile_and_compare",
+            "rebrew.compiler.compile.compile_and_compare",
             lambda *a, **k: SimpleNamespace(matched=True, status="EXACT", message=""),
         )
         monkeypatch.setattr(M, "update_stub_to_matched", lambda *a, **k: True)
@@ -2502,8 +2502,8 @@ class TestRunOneStubGaPersistsFlags:
         monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
-        monkeypatch.setattr("rebrew.compile_overrides.resolve_cflags", lambda *a, **k: "/O2")
-        monkeypatch.setattr("rebrew.compile.compile_and_compare", _cmp)
+        monkeypatch.setattr("rebrew.compiler.overrides.resolve_cflags", lambda *a, **k: "/O2")
+        monkeypatch.setattr("rebrew.compiler.compile.compile_and_compare", _cmp)
         monkeypatch.setattr(M, "update_stub_to_matched", lambda *a, **k: True)
         monkeypatch.setattr(M, "_save_solution", lambda *a, **k: None)
         monkeypatch.setattr(M, "update_cflags_annotation", lambda *a, **k: None)
@@ -2559,9 +2559,9 @@ class TestRunOneStubGaPersistsFlags:
         import rebrew.coff_reloc as core
 
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
-        monkeypatch.setattr("rebrew.compile_overrides.resolve_cflags", lambda *a, **k: "/O2")
+        monkeypatch.setattr("rebrew.compiler.overrides.resolve_cflags", lambda *a, **k: "/O2")
         monkeypatch.setattr(
-            "rebrew.compile.compile_and_compare",
+            "rebrew.compiler.compile.compile_and_compare",
             lambda *a, **k: SimpleNamespace(matched=True, status="EXACT", message=""),
         )
         monkeypatch.setattr(M, "update_stub_to_matched", lambda *a, **k: False)
@@ -2588,9 +2588,9 @@ class TestRunOneStubGaPersistsFlags:
         monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
-        monkeypatch.setattr("rebrew.compile_overrides.resolve_cflags", lambda *a, **k: "/O2")
+        monkeypatch.setattr("rebrew.compiler.overrides.resolve_cflags", lambda *a, **k: "/O2")
         monkeypatch.setattr(
-            "rebrew.compile.compile_and_compare",
+            "rebrew.compiler.compile.compile_and_compare",
             lambda *a, **k: SimpleNamespace(
                 matched=False, status="NEAR_MATCHING", message="wrong callee"
             ),
@@ -2825,7 +2825,7 @@ class TestToolchainRoutedBuildCandidate:
             obj.write_bytes(b"\x80\x08\x00fake")
             return str(obj), ""
 
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile_to_obj)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_to_obj", _fake_compile_to_obj)
         # Deterministic parse result in every environment: routing is what this
         # test asserts — without the mock, a missing vendored objconv (CI)
         # raises FileNotFoundError instead of the graceful "not found" path.
@@ -2873,7 +2873,7 @@ class TestToolchainRoutedBuildCandidate:
             seen["src_bytes"] = Path(src_path).read_bytes()
             return None, "skip"
 
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile_to_obj)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_to_obj", _fake_compile_to_obj)
         res = build_candidate_obj_only(
             source,
             "cl",
@@ -2903,7 +2903,7 @@ class TestToolchainRoutedBuildCandidate:
             seen["profile"] = getattr(cfg, "compiler_profile", "")
             return None, "boom"
 
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile_to_obj)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_to_obj", _fake_compile_to_obj)
         res = build_candidate_obj_only(
             "int f(void){return 0;}",
             "wcc386",
@@ -2926,7 +2926,7 @@ class TestToolchainRoutedBuildCandidate:
             called.append("compile_to_obj")
             return None, ""
 
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile_to_obj)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_to_obj", _fake_compile_to_obj)
         res = build_candidate_obj_only(
             "int f(void){return 0;}",
             "cl.exe",

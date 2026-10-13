@@ -237,7 +237,7 @@ def set_cmd(
             f"(known: {sorted(all_library_presets())}); no toolchain or cflags will be filled in"
         )
     if toolchain is not None:
-        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain import TOOLCHAINS
 
         if toolchain not in TOOLCHAINS:
             msg = f"unknown toolchain {toolchain!r} (known: {sorted(TOOLCHAINS)})"

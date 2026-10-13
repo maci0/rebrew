@@ -1,11 +1,35 @@
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** compile execution and the compile cache moved into the
+  `rebrew.compiler` package. Old → new import paths:
+  `rebrew.compile` → `rebrew.compiler.compile`,
+  `rebrew.compile_cache` → `rebrew.compiler.cache`,
+  `rebrew.compile_context` → `rebrew.compiler.context`,
+  `rebrew.compile_overrides` → `rebrew.compiler.overrides`,
+  `rebrew.recompile_client` → `rebrew.compiler.recompile_client`,
+  `rebrew.toolchain` → `rebrew.compiler.toolchain`,
+  `rebrew.toolchain_spec` → `rebrew.compiler.toolchain_spec`,
+  `rebrew.toolchain_data` → `rebrew.compiler.toolchain_data`,
+  `rebrew.toolchain_paths` → `rebrew.compiler.toolchain_paths`,
+  `rebrew.msvc_env` → `rebrew.compiler.msvc_env`,
+  `rebrew.headless` → `rebrew.compiler.headless`,
+  `rebrew.temp_dirs` → `rebrew.compiler.temp_dirs`,
+  `rebrew.dosbox` → `rebrew.compiler.dosbox`,
+  `rebrew.msvc16` → `rebrew.compiler.msvc16`,
+  `rebrew.tc16` → `rebrew.compiler.tc16`,
+  `rebrew.delphi16` → `rebrew.compiler.delphi16`.
+  The old modules are gone, with no aliases. `FlagsStyle` (imported by
+  `rebrew.config` and `rebrew.matcher.compiler`) keeps those import paths;
+  `DELPHI16_CONSTRAINTS` in `rebrew.init_profiles` / `rebrew.init` now names
+  `rebrew.compiler.delphi16.compile_ne`. CLI commands, compile cache keys,
+  the full image digest pin and `--pull=never` are unchanged.
 - **Breaking:** `flirt.FLIRT_SIGS_REPO_URL` now points to the private
   `relumea/recondb` repository; callers cloning the signature corpus need access.
-  `toolchain.TOOLCHAINS_REPO_URL` and `toolchain_paths.TOOLCHAINS_REPO_URL`
-  now point to the public `maci0/recompile-toolchains` repository. The Python
-  import paths and existing local checkout aliases remain available. CLI
+  `compiler.toolchain.TOOLCHAINS_REPO_URL` and
+  `compiler.toolchain_paths.TOOLCHAINS_REPO_URL` now point to the public
+  `maci0/recompile-toolchains` repository. Existing local checkout aliases
+  remain available. CLI
   registration/help metadata in `builtins.DOMAIN_COMPONENTS` has changed, and
   `toolchain_cli.STATUS_STATIC_TARBALL` now names `recompile-toolchains` in its
   status text.

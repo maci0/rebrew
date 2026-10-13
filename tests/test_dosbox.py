@@ -1,4 +1,4 @@
-"""Tests for rebrew.dosbox — sandbox lifecycle guarantees.
+"""Tests for rebrew.compiler.dosbox — sandbox lifecycle guarantees.
 
 The auto-created DOSBox sandboxes (msvc16/borland-3.1/delphi-1.0 compile staging)
 each hold a compiler tree + staged source; they must be removed at process
@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from rebrew.dosbox import make_sandbox_dir
+from rebrew.compiler.dosbox import make_sandbox_dir
 
 _SRC = Path(__file__).resolve().parents[1] / "src"
 
@@ -21,11 +21,11 @@ _SRC = Path(__file__).resolve().parents[1] / "src"
 class TestSandboxLifecycle:
     def test_sandbox_registered_for_exit_removal(self, monkeypatch) -> None:
         """make_sandbox_dir tracks the dir and registers one atexit sweep."""
-        import rebrew.dosbox as dosbox
+        import rebrew.compiler.dosbox as dosbox
 
         registered: list[tuple] = []
         monkeypatch.setattr(
-            "rebrew.dosbox.atexit.register", lambda fn, *a: registered.append((fn, a))
+            "rebrew.compiler.dosbox.atexit.register", lambda fn, *a: registered.append((fn, a))
         )
         # Fresh process state for the once-guard (module may already be armed).
         monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", False)
@@ -45,7 +45,7 @@ class TestSandboxLifecycle:
 
     def test_same_prefix_reuses_sandbox(self, monkeypatch) -> None:
         """Repeated default compiles must not accumulate one dir per call."""
-        import rebrew.dosbox as dosbox
+        import rebrew.compiler.dosbox as dosbox
 
         monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", True)
         monkeypatch.setattr(dosbox, "_SANDBOXES", [])
@@ -54,7 +54,7 @@ class TestSandboxLifecycle:
         second = make_sandbox_dir("rebrew-test-reuse-")
         assert first == second
         assert [first] == dosbox._SANDBOXES
-        from rebrew.dosbox import release_sandbox
+        from rebrew.compiler.dosbox import release_sandbox
 
         release_sandbox(first)
         assert not first.exists()
@@ -63,8 +63,8 @@ class TestSandboxLifecycle:
 
     def test_busy_release_keeps_the_sandbox_tracked(self, monkeypatch, tmp_path: Path) -> None:
         """A failed delete must not forget the directory atexit still has to remove."""
-        import rebrew.dosbox as dosbox
-        from rebrew.dosbox import release_sandbox
+        import rebrew.compiler.dosbox as dosbox
+        from rebrew.compiler.dosbox import release_sandbox
 
         monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", True)
         sandbox = tmp_path / "busy"
@@ -88,7 +88,7 @@ class TestSandboxLifecycle:
         import threading
         import time
 
-        import rebrew.dosbox as dosbox
+        import rebrew.compiler.dosbox as dosbox
 
         monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", True)
         monkeypatch.setattr(dosbox, "_SANDBOXES", [])
@@ -126,7 +126,7 @@ class TestSandboxLifecycle:
         hold.set()
         for t in threads:
             t.join(timeout=60)
-        from rebrew.dosbox import release_sandbox
+        from rebrew.compiler.dosbox import release_sandbox
 
         for path in results:
             release_sandbox(path)
@@ -141,7 +141,7 @@ class TestSandboxLifecycle:
         """
         import threading
 
-        import rebrew.dosbox as dosbox
+        import rebrew.compiler.dosbox as dosbox
 
         monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", True)
         monkeypatch.setattr(dosbox, "_SANDBOXES", [])
@@ -160,7 +160,7 @@ class TestSandboxLifecycle:
         assert not orphan[0].exists()
         assert [mine] == dosbox._SANDBOXES
         assert mine.is_dir()
-        from rebrew.dosbox import release_sandbox
+        from rebrew.compiler.dosbox import release_sandbox
 
         release_sandbox(mine)
         assert dosbox._SANDBOXES == []
@@ -175,7 +175,7 @@ class TestSandboxLifecycle:
         """
         import threading
 
-        import rebrew.dosbox as dosbox
+        import rebrew.compiler.dosbox as dosbox
 
         monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", True)
         monkeypatch.setattr(dosbox, "_SANDBOXES", [])
@@ -195,7 +195,7 @@ class TestSandboxLifecycle:
 
         live = make_sandbox_dir("rebrew-test-token-sweep-")
         assert tokens[0] not in dosbox._SANDBOX_OWNER
-        from rebrew.dosbox import release_sandbox
+        from rebrew.compiler.dosbox import release_sandbox
 
         release_sandbox(live)
         assert dosbox._SANDBOXES == []
@@ -210,7 +210,7 @@ class TestSandboxLifecycle:
         """
         import threading
 
-        import rebrew.dosbox as dosbox
+        import rebrew.compiler.dosbox as dosbox
 
         monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", True)
         monkeypatch.setattr(dosbox, "_SANDBOXES", [])
@@ -226,7 +226,7 @@ class TestSandboxLifecycle:
             t.join(timeout=30)
         assert seen[0][0] != seen[1][0], "a token was reused across threads"
         assert seen[0][1] != seen[1][1], "a new thread reused a dead thread's sandbox"
-        from rebrew.dosbox import release_sandbox
+        from rebrew.compiler.dosbox import release_sandbox
 
         for _token, path in seen:
             release_sandbox(path)
@@ -236,7 +236,7 @@ class TestSandboxLifecycle:
         """End-to-end: a child process creating a default sandbox leaves no
         directory behind once it exits."""
         code = (
-            "from rebrew.dosbox import make_sandbox_dir\n"
+            "from rebrew.compiler.dosbox import make_sandbox_dir\n"
             "print(make_sandbox_dir('rebrew-test-exit-'))\n"
         )
         env = {**os.environ, "PYTHONPATH": str(_SRC)}

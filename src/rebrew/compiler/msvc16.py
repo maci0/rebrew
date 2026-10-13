@@ -1,4 +1,4 @@
-"""msvc16.py — 16-bit MSVC (1.0 / 1.5 / 1.52) compilation support.
+"""compiler/msvc16.py — 16-bit MSVC (1.0 / 1.5 / 1.52) compilation support.
 
 Wraps the vendored 16-bit Microsoft Visual C++ command-line compilers
 (``recompile-toolchains/msvc/1.0-win16``, ``recompile-toolchains/msvc/1.5-win16``,
@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from rebrew.dosbox import (
+from rebrew.compiler.dosbox import (
     STAGED_SOURCE_NAME,
     DosboxError,
     find_staged_object,
@@ -38,7 +38,7 @@ class Msvc16Result:
 
 
 def _find_vc152(version: str = "1.52-win16") -> Path:
-    from rebrew.toolchain_paths import toolchains_repo
+    from rebrew.compiler.toolchain_paths import toolchains_repo
 
     vc = toolchains_repo() / "msvc" / version / "source"
     if (vc / "BIN" / "CL.EXE").exists():
@@ -73,7 +73,7 @@ def compile_c(
     Args:
         c_source: Path to the C source (or source text).
         workdir: Sandbox dir (default: this thread's reused
-            :func:`rebrew.dosbox.make_sandbox_dir` dir on real disk, since DOSBox
+            :func:`rebrew.compiler.dosbox.make_sandbox_dir` dir on real disk, since DOSBox
             breaks on tmpfs mounts; removed at process exit).
         cflags: Extra CL flags (default ``["/c", "/nologo"]``).
         timeout: DOSBox subprocess timeout.

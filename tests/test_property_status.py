@@ -246,7 +246,7 @@ class TestVocabularyCoverage:
     def test_compare_status_literal_matches_vocabulary(self) -> None:
         from typing import get_args
 
-        from rebrew.compile import CompareStatus
+        from rebrew.compiler.compile import CompareStatus
         from rebrew.metadata import KNOWN_STATUSES
 
         # CompareResult.status is persisted verbatim by test/verify, so the

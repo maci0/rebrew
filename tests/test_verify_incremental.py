@@ -13,7 +13,7 @@ from cache_util import cache_text
 from typer.testing import CliRunner
 
 from rebrew.annotation import Annotation
-from rebrew.compile import CompareResult
+from rebrew.compiler.compile import CompareResult
 from rebrew.config import ProjectConfig
 from rebrew.verify import app
 from rebrew.verify_cache import (
@@ -205,7 +205,7 @@ class TestResolvedOverridesMemo:
     """The override-resolution memo must key every input the resolution reads."""
 
     def test_per_target_flags_do_not_leak_across_targets(self, tmp_path: Path) -> None:
-        from rebrew.compile_overrides import resolve_compile_overrides_cached
+        from rebrew.compiler.overrides import resolve_compile_overrides_cached
 
         source_dir = _make_cfg(tmp_path).reversed_dir
         cfg_a = _make_cfg(tmp_path)
@@ -219,7 +219,7 @@ class TestResolvedOverridesMemo:
         assert resolve_compile_overrides_cached(cfg_b, source_dir, "", "", "") == (None, "/O2")
 
     def test_library_override_write_is_seen(self, tmp_path: Path) -> None:
-        from rebrew.compile_overrides import resolve_compile_overrides_cached
+        from rebrew.compiler.overrides import resolve_compile_overrides_cached
 
         cfg = _make_cfg(tmp_path)
         library = tmp_path / "rebrew-libraries.toml"
@@ -236,7 +236,7 @@ class TestResolvedOverridesMemo:
         )
 
     def test_module_preset_is_part_of_the_key(self, tmp_path: Path) -> None:
-        from rebrew.compile_overrides import resolve_compile_overrides_cached
+        from rebrew.compiler.overrides import resolve_compile_overrides_cached
 
         cfg = _make_cfg(tmp_path)
         cfg.cflags_presets = {"GAME": "/DGAME"}
@@ -252,14 +252,14 @@ class TestResolvedOverridesMemo:
     def test_preset_refresh_is_seen(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A library file that only names a library is filled by the preset table."""
         import rebrew.metadata as metadata_mod
-        from rebrew.compile_overrides import resolve_compile_overrides_cached
+        from rebrew.compiler.overrides import resolve_compile_overrides_cached
 
         cfg = _make_cfg(tmp_path)
         (tmp_path / "rebrew-libraries.toml").write_text('library = "REB_TEST_LIB"\n', "utf-8")
         monkeypatch.setattr(metadata_mod, "_merged_library_presets", lambda: {})
         try:
             metadata_mod.refresh_library_presets()
-            from rebrew.compile_overrides import resolve_compile_overrides
+            from rebrew.compiler.overrides import resolve_compile_overrides
 
             baseline = resolve_compile_overrides(cfg, cfg.reversed_dir, "", "", "")
             assert resolve_compile_overrides_cached(cfg, cfg.reversed_dir, "", "", "") == baseline
@@ -783,7 +783,7 @@ class TestPatchVerifyCacheEntries:
 
     def test_patch_keeps_percent_below_near_threshold(self, tmp_path: Path) -> None:
         """A STUB at 59.96% must not be cached as 60.0 (the NEAR_MATCHING line)."""
-        from rebrew.compile import NEAR_MATCH_THRESHOLD
+        from rebrew.compiler.compile import NEAR_MATCH_THRESHOLD
         from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
@@ -1429,7 +1429,7 @@ class TestHeadersHash:
         hash — the verify cache covers external include dirs too.  The
         include fingerprint is memoized per process (compile-cache design);
         clearing the memo simulates the next CLI invocation."""
-        from rebrew.compile_cache import include_fingerprint
+        from rebrew.compiler.cache import include_fingerprint
 
         cfg = _make_cfg(tmp_path)
         # Point compiler_includes at a real directory with a header.
@@ -1796,7 +1796,7 @@ class TestEntryHeadersFp:
             seen["dirs"] = list(include_dirs)
             return "digest"
 
-        monkeypatch.setattr("rebrew.compile_cache.header_dependency_hash", capture)
+        monkeypatch.setattr("rebrew.compiler.cache.header_dependency_hash", capture)
 
         def refuse(self: Path, other: object, /, *args: object, **kwargs: object) -> bool:
             raise AssertionError("parents walk")
@@ -1833,7 +1833,7 @@ class TestEntryHeadersFp:
 
         raw = tomllib.loads(cache_path.read_text(encoding="utf-8"))
         saved = raw["entries"]["0x10001000"]["headers_fp"]
-        from rebrew.compile_overrides import resolve_compile_overrides
+        from rebrew.compiler.overrides import resolve_compile_overrides
 
         _tc, _cf = resolve_compile_overrides(cfg, cfg.reversed_dir, "", "", "")
         assert saved == entry_headers_fp(cfg, src, _cf)
@@ -1853,20 +1853,20 @@ class TestCompareLogicHashMembership:
         import rebrew.annotation
         import rebrew.binary_loader
         import rebrew.coff_reloc
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.matcher.parsers
         from rebrew.verify_hash import _compare_logic_hash, _package_source_fingerprint
 
         names = {
             rebrew.annotation._kv_to_annotation.__code__.co_filename,
-            rebrew.compile.classify_compare_result.__code__.co_filename,
-            rebrew.compile._extract_and_compare.__code__.co_filename,
+            rebrew.compiler.compile.classify_compare_result.__code__.co_filename,
+            rebrew.compiler.compile._extract_and_compare.__code__.co_filename,
             rebrew.coff_reloc.smart_reloc_compare.__code__.co_filename,
             rebrew.matcher.parsers.parse_obj_symbol_and_relocs.__code__.co_filename,
             rebrew.binary_loader.extract_raw_bytes.__code__.co_filename,
         }
         # Sanity: 5 distinct files (classify_compare_result and
-        # _extract_and_compare both live in compile.py), all under src/.
+        # _extract_and_compare both live in compiler/compile.py), all under src/.
         assert len(names) == 5
         assert all("rebrew" in n for n in names)
         covered = {path for path, _mtime, _size, _ino in _package_source_fingerprint()}
@@ -2191,7 +2191,7 @@ class TestCurrentWriterCacheIdentity:
         assert _prepare_cached(cfg) == (2, 0)
 
     def test_context_digest_change_misses(self, tmp_path: Path) -> None:
-        from rebrew.compile_context import CompileContext
+        from rebrew.compiler.context import CompileContext
 
         cfg, _shared, _other = _seed_current_cache(tmp_path)
         assert _prepare_cached(cfg) == (2, 2)

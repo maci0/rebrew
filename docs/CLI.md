@@ -3594,7 +3594,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 
 ### Unified Compilation
 
-All tools share a single compile path via `rebrew.compile`. The module provides
+All tools share a single compile path via `rebrew.compiler.compile`. The module provides
 `compile_to_obj` for single-file compilation, `resolve_compiler_env(cfg)` for
 consistent compiler + cache resolution, and the high-level `compile_and_compare`
 that returns a `CompareResult` dataclass used by both `rebrew test` and
@@ -3602,9 +3602,9 @@ that returns a `CompareResult` dataclass used by both `rebrew test` and
 
 | Symbol | Module | Purpose |
 |--------|--------|---------|
-| `CompareResult` | `compile.py` | Structured result for compile+compare operations (`matched`, `status`, `match_percent`, `delta`, `obj_bytes`, `message`, `error`) |
-| `classify_compare_result` | `compile.py` | Pure helper: classifies raw byte comparison into a `CompareResult` |
-| `compile_and_compare` | `compile.py` | High-level: compile → extract → compare → `CompareResult` |
+| `CompareResult` | `compiler/compile.py` | Structured result for compile+compare operations (`matched`, `status`, `match_percent`, `delta`, `obj_bytes`, `message`, `error`) |
+| `classify_compare_result` | `compiler/compile.py` | Pure helper: classifies raw byte comparison into a `CompareResult` |
+| `compile_and_compare` | `compiler/compile.py` | High-level: compile → extract → compare → `CompareResult` |
 | `update_source_status` | `metadata.py` | Canonical STATUS writer: promotes STATUS in `rebrew-functions.toml`; never touches `.c` files |
 | `update_field` / `remove_field` | `metadata.py` | Canonical BLOCKER/CFLAGS/NOTE writers: `rebrew blocker set/clear` (BLOCKER), `rebrew diff --fix-blocker` / `rebrew diagnose near --fix-blocker` (auto BLOCKER): never hand-edit `rebrew-functions.toml` |
 
@@ -3615,7 +3615,7 @@ by either tool's status logic.
 A compile that fails inside the remote recompile backend
 (`[compiler] recompile_url` / `REBREW_RECOMPILE_URL`) is reported as
 `status = "COMPILE_ERROR"` with the structured
-`rebrew.recompile_client.RecompileError` on `CompareResult.error`, so a
+`rebrew.compiler.recompile_client.RecompileError` on `CompareResult.error`, so a
 library consumer branches on `result.error.kind` / `result.error.retryable`
 instead of matching `result.message` substrings.
 

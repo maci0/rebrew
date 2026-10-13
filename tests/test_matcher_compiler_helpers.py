@@ -194,7 +194,7 @@ class TestDockerBackedProfiles:
         monkeypatch.setattr(compiler_mod, "_DOCKER_BACKED_PROFILES", None)
 
         with monkeypatch.context() as ctx:
-            import rebrew.toolchain as toolchain_mod
+            import rebrew.compiler.toolchain as toolchain_mod
 
             ctx.setattr(toolchain_mod, "TOOLCHAINS", {"msvc-6.0": SimpleNamespace(image="x:1")})
             assert "msvc-6.0" in compiler_mod.docker_backed_profiles()
@@ -208,7 +208,7 @@ class TestDockerBackedProfiles:
     def test_registry_refresh_rederives_after_a_plugin_registration(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.toolchain as toolchain_mod
+        import rebrew.compiler.toolchain as toolchain_mod
         from rebrew.matcher import compiler as compiler_mod
         from rebrew.registry import refresh_all
 

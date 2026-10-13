@@ -1,8 +1,8 @@
-"""Tests for compile.py classification — the central status decisions."""
+"""Tests for compiler/compile.py classification — the central status decisions."""
 
 import pytest
 
-from rebrew.compile import (
+from rebrew.compiler.compile import (
     NEAR_MATCH_THRESHOLD,
     UNCLASSIFIED_DIFF,
     CompareResult,

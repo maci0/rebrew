@@ -1477,8 +1477,8 @@ class TestRegistryDerivedProfiles:
     still gets family-alignment warnings."""
 
     def test_every_toolchain_has_defaults(self) -> None:
+        from rebrew.compiler.toolchain import TOOLCHAINS
         from rebrew.init_profiles import profile_defaults
-        from rebrew.toolchain import TOOLCHAINS
 
         defaults = profile_defaults()
         missing = [n for n in TOOLCHAINS if n not in defaults]
@@ -1488,8 +1488,8 @@ class TestRegistryDerivedProfiles:
                 assert key in data, f"{name} missing '{key}'"
 
     def test_every_toolchain_has_family(self) -> None:
+        from rebrew.compiler.toolchain import TOOLCHAINS
         from rebrew.init_profiles import profile_families
-        from rebrew.toolchain import TOOLCHAINS
 
         families = profile_families()
         missing = [n for n in TOOLCHAINS if n not in families]
@@ -1504,7 +1504,7 @@ class TestRegistryDerivedProfiles:
     ) -> None:
         """An overlay toolchain with no hand entry is accepted by init's
         lookup and flagged on family mismatch."""
-        import rebrew.toolchain as toolchain_mod
+        import rebrew.compiler.toolchain as toolchain_mod
         from rebrew.init_profiles import profile_defaults, profile_families
 
         overlay = tmp_path / "overlay"

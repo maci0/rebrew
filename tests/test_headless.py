@@ -1,4 +1,4 @@
-"""Tests for rebrew.headless — persistent Xvfb management for headless wine."""
+"""Tests for rebrew.compiler.headless — persistent Xvfb management for headless wine."""
 
 import logging
 import os
@@ -8,13 +8,13 @@ from typing import Any
 
 import pytest
 
-from rebrew.config import ConfigError
-from rebrew.headless import (
+from rebrew.compiler.headless import (
     _display_alive,
     _pick_free_display,
     _server_display,
     ensure_xvfb,
 )
+from rebrew.config import ConfigError
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +30,7 @@ def _isolate_owned_xvfb() -> Any:
     REBREW_XVFB_DISPLAY would make a later test's check_env_display read
     another test's display.
     """
-    from rebrew import headless
+    from rebrew.compiler import headless
 
     saved = headless._owned_xvfb
     saved_flag = headless._xvfb_atexit_registered
@@ -53,14 +53,14 @@ def _isolate_owned_xvfb() -> Any:
 
 class TestDisplayAlive:
     def test_socket_present(self, monkeypatch) -> None:
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", Path("/nonexistent"))
         assert not _display_alive(":99")
         assert not _display_alive("99")
 
     def test_display_without_colon(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         (tmp_path / "X77").touch()
         monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)
@@ -69,7 +69,7 @@ class TestDisplayAlive:
 
     def test_screen_suffix_probes_the_server_socket(self, tmp_path: Path, monkeypatch) -> None:
         """:99.0 names the :99 server, so the socket probe is X99, not X99.0."""
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         (tmp_path / "X99").touch()
         monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)
@@ -83,7 +83,7 @@ class TestServerDisplay:
 
     def test_env_display_with_screen_is_adopted(self, monkeypatch) -> None:
         """A :N.S pin names the same server the /proc scan keys as :N."""
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         adopted: list[str] = []
 
@@ -99,7 +99,7 @@ class TestServerDisplay:
 
 class TestProcDisplayParse:
     def test_display_is_the_first_argv_token(self) -> None:
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         m = headless._XVFB_PROC_RE.search("/usr/bin/Xvfb :99 -screen 0 1280x1024x24")
         assert m is not None
@@ -107,21 +107,21 @@ class TestProcDisplayParse:
 
     def test_later_colon_digits_do_not_win(self) -> None:
         """A trailing arg carrying :N must not re-key the display."""
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         m = headless._XVFB_PROC_RE.search("/usr/bin/Xvfb :99 -auth /tmp/cookie-42")
         assert m is not None
         assert m.group(1) == ":99"
 
     def test_no_display_argument(self) -> None:
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         assert headless._XVFB_PROC_RE.search("/usr/bin/Xvfb") is None
 
 
 class TestPickFreeDisplay:
     def test_lowest_free(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         (tmp_path / "X90").touch()
         (tmp_path / "X91").touch()
@@ -129,7 +129,7 @@ class TestPickFreeDisplay:
         assert _pick_free_display() == ":92"
 
     def test_ignores_existing_x0(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)
         assert _pick_free_display() == ":90"
@@ -137,7 +137,7 @@ class TestPickFreeDisplay:
 
 class TestEnsureXvfb:
     def test_reuses_env_display_when_alive(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         # A stale REBREW_XVFB_DISPLAY (socket present, no live Xvfb process)
         # must NOT be reused — only a process-backed display qualifies.
@@ -155,7 +155,7 @@ class TestEnsureXvfb:
         server another local user can read and inject into; rebrew starts
         its own cookie-authenticated one instead.
         """
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.setenv("DISPLAY", "")
@@ -192,7 +192,7 @@ class TestEnsureXvfb:
 
     def test_env_display_stale_process_ignored(self, monkeypatch) -> None:
         """Socket exists but no Xvfb process owns it → not reused."""
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.setattr(headless, "_display_alive", lambda d: True)
         monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
@@ -212,7 +212,7 @@ class TestEnsureXvfb:
         alone is not enough: dropping the ``_adopt`` call would hand every
         compile to a world-reachable server.
         """
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.setenv("REBREW_XVFB_DISPLAY", ":99")
         monkeypatch.setenv("DISPLAY", "")
@@ -226,7 +226,7 @@ class TestEnsureXvfb:
 
     def test_reuses_current_display_when_xvfb(self, tmp_path: Path, monkeypatch) -> None:
         """DISPLAY owned by an Xvfb (already headless) is reused as-is."""
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {":77": 1234})
@@ -236,7 +236,7 @@ class TestEnsureXvfb:
 
     def test_reuses_orphan_xvfb(self, tmp_path: Path, monkeypatch) -> None:
         """A live Xvfb left by a prior run is reused (lowest display)."""
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {":99": 1, ":77": 2})
@@ -247,7 +247,7 @@ class TestEnsureXvfb:
 
     def test_spawns_own_xvfb(self, monkeypatch) -> None:
         """No live Xvfb → spawn one on a free display and record it."""
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
@@ -289,7 +289,7 @@ class TestEnsureXvfb:
         assert os.environ.get("REBREW_XVFB_DISPLAY") == result
 
     def test_no_xvfb_binary_returns_none(self, monkeypatch) -> None:
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
@@ -299,7 +299,7 @@ class TestEnsureXvfb:
 
     def test_spawn_failure_returns_none(self, monkeypatch) -> None:
         """Xvfb binary present but Popen raises (e.g. EPERM) → None."""
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
@@ -318,7 +318,7 @@ class TestEnsureXvfb:
         self, monkeypatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         """The caller falls back to bare wine, so the loss is otherwise silent."""
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
@@ -339,7 +339,7 @@ class TestEnsureXvfb:
                 return 1
 
         monkeypatch.setattr(headless.subprocess, "Popen", lambda *a, **k: _DeadProc())
-        with caplog.at_level(logging.WARNING, logger="rebrew.headless"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.compiler.headless"):
             assert ensure_xvfb() is None
         warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert len(warnings) == 1
@@ -349,7 +349,7 @@ class TestEnsureXvfb:
     def test_socket_timeout_terminates_proc(self, monkeypatch) -> None:
         """Xvfb spawned but never comes up → terminated AND reaped (no
         zombie), returns None."""
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
@@ -382,7 +382,7 @@ class TestEnsureXvfb:
         lingering (holding its display socket / unreaped zombie)."""
         import subprocess as sp
 
-        from rebrew.headless import _shutdown_xvfb
+        from rebrew.compiler.headless import _shutdown_xvfb
 
         calls: list[str] = []
 
@@ -411,7 +411,7 @@ class TestEnsureXvfb:
         long-lived batch used to leave one unreaped child and one cookie
         file (the server's only credential) per death.
         """
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
@@ -454,7 +454,7 @@ class TestEnsureXvfb:
         ``atexit`` has no bound, so a per-spawn registration grew the exit
         list for as long as the process lived.
         """
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
@@ -498,7 +498,7 @@ class TestEnsureXvfb:
         """
         from thread_util import join_all
 
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
@@ -569,7 +569,7 @@ class TestWaitForSocket:
         """
         from types import SimpleNamespace
 
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         clock = {"t": 0.0}
         sleeps: list[float] = []
@@ -594,7 +594,7 @@ class TestWaitForSocket:
         """A server that exits during startup must fail fast (bad args burn
         the whole timeout otherwise — the screen-argv bug cost 3 s per
         compile before this check)."""
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)  # socket never appears
         clock, sleeps = self._clock(monkeypatch)
@@ -610,7 +610,7 @@ class TestWaitForSocket:
     def test_waits_full_timeout_when_proc_alive(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)
         clock, sleeps = self._clock(monkeypatch)
@@ -631,7 +631,7 @@ class TestWaitForSocket:
         A caller replaying a startup sequence passes both, so the wait costs
         no real time and lands on the same result on any host.
         """
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         clock = {"t": 0.0}
         sleeps: list[float] = []
@@ -662,7 +662,7 @@ class TestWaitForSocket:
     def test_injected_clock_sees_the_socket_appear(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         sock_dir = tmp_path
         monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", sock_dir)
@@ -679,7 +679,7 @@ class TestXvfbCookieFor:
     """The cookie/display pair is published under ``_XVFB_INIT_LOCK``."""
 
     def test_cookie_only_for_the_recorded_display(self, monkeypatch) -> None:
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.setenv(headless.XVFB_DISPLAY_ENV, ":99")
         monkeypatch.setenv("XAUTHORITY", "/run/cookie-99")
@@ -695,7 +695,7 @@ class TestXvfbCookieFor:
         it was just given.  The writer here parks in exactly that window; the
         reader must block until both stores are done.
         """
-        from rebrew import headless
+        from rebrew.compiler import headless
 
         monkeypatch.setenv(headless.XVFB_DISPLAY_ENV, ":77")
         monkeypatch.setenv("XAUTHORITY", "/run/cookie-77")

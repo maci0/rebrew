@@ -14,7 +14,7 @@ deterministic, one-variable-at-a-time sweep for when the GA stalls on an
 allocator wall.
 
 Generalized from guild-rebrew's ``scripts/qualsweep.py`` (MSVC6/x86-32
-campaign).  Scoring goes through ``rebrew.compile.compile_and_compare``
+campaign).  Scoring goes through ``rebrew.compiler.compile.compile_and_compare``
 so flags, toolchain, and reloc masking resolve per project.
 """
 
@@ -39,9 +39,9 @@ from rebrew.cli import (
     select_annotation,
 )
 from rebrew.climb import function_span as climb_function_span
-from rebrew.compile import compile_and_compare
-from rebrew.compile_overrides import resolve_compile_overrides
-from rebrew.temp_dirs import sweep_stale_temp_dirs
+from rebrew.compiler.compile import compile_and_compare
+from rebrew.compiler.overrides import resolve_compile_overrides
+from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
 from rebrew.utils import (
     SOURCE_BACKUP_DIRNAME,
     atomic_write_text,
@@ -172,7 +172,7 @@ def score_fn(
     """(match_percent, obj_len) via the project's compile-and-compare path.
 
     *toolchain*/*cflags* are the function's resolved overrides
-    (:func:`rebrew.compile_overrides.resolve_compile_overrides`), so the sweep
+    (:func:`rebrew.compiler.overrides.resolve_compile_overrides`), so the sweep
     scores with the compiler ``rebrew test``/``verify`` use.
     """
     from rebrew.binary_loader import extract_raw_bytes

@@ -1,4 +1,4 @@
-"""toolchain_spec.py — the value types for one toolchain.
+"""compiler/toolchain_spec.py — the value types for one toolchain.
 
 ToolchainSpec describes how to invoke a compiler version; ToolchainSource
 pins the assembly source for its host tree.
@@ -72,7 +72,7 @@ class ToolchainSpec:
     # (e.g. "/opt/msvc6.0/VC98/Bin"); the CMake toolchain wrapper
     # (rebrew build driver cl --/link/lib) calls the tools there directly via `wine`, and
     # both it and the compile runner derive the Include/Lib dirs from it
-    # (rebrew.toolchain.image_msvc_env)
+    # (rebrew.compiler.toolchain.image_msvc_env)
     bits: int | None = None  # target code model: 16 / 32 / 64; None = unknown
     # (assumed 32-bit by detection's arch-alignment check).  A toolchain
     # registered with bits=16 is allowed on x86_16 DOS/NE targets instead of

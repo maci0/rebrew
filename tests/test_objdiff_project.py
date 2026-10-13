@@ -208,9 +208,10 @@ class TestObjdiffProject:
             calls.append((source, cflags, workdir, kw.get("obj_name")))
             return str(workdir / (kw.get("obj_name") or "x.o")), ""
 
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_to_obj", _fake_compile)
         monkeypatch.setattr(
-            "rebrew.compile_overrides.resolve_compile_overrides", lambda cfg, d, a, b, c: (None, "")
+            "rebrew.compiler.overrides.resolve_compile_overrides",
+            lambda cfg, d, a, b, c: (None, ""),
         )
         from rebrew.main import app
 
@@ -238,7 +239,7 @@ class TestObjdiffProject:
         )
         calls: list[object] = []
         monkeypatch.setattr(
-            "rebrew.compile.compile_to_obj",
+            "rebrew.compiler.compile.compile_to_obj",
             lambda *a, **kw: calls.append(a) or ("x.o", ""),
         )
         from rebrew.main import app
@@ -262,7 +263,7 @@ class TestObjdiffProject:
         )
         calls: list[object] = []
         monkeypatch.setattr(
-            "rebrew.compile.compile_to_obj",
+            "rebrew.compiler.compile.compile_to_obj",
             lambda *a, **kw: calls.append(a) or ("x.o", ""),
         )
         from rebrew.main import app
@@ -311,14 +312,14 @@ class TestObjdiffProject:
         base.parent.mkdir(parents=True, exist_ok=True)
         seen: dict[str, str] = {}
         monkeypatch.setattr(
-            "rebrew.compile_overrides.resolve_compile_overrides",
+            "rebrew.compiler.overrides.resolve_compile_overrides",
             lambda cfg_, d, tool, cfl, mod: (
                 seen.update(tool=tool, cflags=cfl, module=mod),
                 ("msvc-5.0", "/O1"),
             )[1],
         )
         monkeypatch.setattr(
-            "rebrew.compile.compile_to_obj",
+            "rebrew.compiler.compile.compile_to_obj",
             lambda cfg_, source, cflags, workdir, **kw: (str(workdir / kw["obj_name"]), ""),
         )
         from rebrew.main import app

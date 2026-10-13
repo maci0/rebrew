@@ -151,7 +151,7 @@ class TestPrepareEntriesCache:
             # Mirror the new writer: the cache stores the RESOLVED effective
             # flags (config fallback chain applied), not the raw metadata
             # value — a hit requires the freshly-resolved value to match.
-            from rebrew.compile_overrides import resolve_cflags
+            from rebrew.compiler.overrides import resolve_cflags
 
             cflags = resolve_cflags(_cfg(root), None, "")
         if not source_hash:
@@ -165,7 +165,7 @@ class TestPrepareEntriesCache:
         # Mirror the new writer: the resolved toolchain override
         # (per-function → per-library → project default), so a TOOLCHAIN edit
         # invalidates the entry.
-        from rebrew.compile_overrides import resolve_compile_overrides
+        from rebrew.compiler.overrides import resolve_compile_overrides
 
         _tc, _cf2 = resolve_compile_overrides(_cfg(root), src_dir, "", "", "")
         toolchain = _tc or verify_hash_mod.DEFAULT_TOOLCHAIN
@@ -229,7 +229,7 @@ class TestPrepareEntriesCache:
         pinned to a different (or no) context must re-verify, and a bare
         run must not serve a context-earned row.
         """
-        from rebrew.compile_context import CompileContext
+        from rebrew.compiler.context import CompileContext
 
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
@@ -787,7 +787,7 @@ def test_verify_entry_survives_a_raising_logger(
     a tree with no source change.  Best-effort has to include its own
     diagnostics.
     """
-    from rebrew.compile import CompareResult
+    from rebrew.compiler.compile import CompareResult
 
     result = CompareResult(
         matched=False,
@@ -799,7 +799,7 @@ def test_verify_entry_survives_a_raising_logger(
     )
 
     import rebrew.binary_loader as bl_mod
-    import rebrew.compile as compile_mod
+    import rebrew.compiler.compile as compile_mod
 
     monkeypatch.setattr(compile_mod, "compile_and_compare", lambda *a, **k: result)
     monkeypatch.setattr(bl_mod, "extract_raw_bytes", lambda *a, **k: b"\x90\x90\x90\x91")

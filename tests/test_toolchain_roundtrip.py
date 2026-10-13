@@ -20,7 +20,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rebrew.compile import _extract_and_compare, compile_to_obj
+from rebrew.compiler.compile import _extract_and_compare, compile_to_obj
 
 _REPO = Path(__file__).resolve().parents[1]
 
@@ -64,7 +64,7 @@ def _cfg(root: Path, toolchain: str) -> SimpleNamespace:
 
 def _toolchain_available(toolchain: str) -> bool:
     """True when the toolchain's docker image is built locally."""
-    from rebrew.toolchain import TOOLCHAINS, image_present
+    from rebrew.compiler.toolchain import TOOLCHAINS, image_present
 
     profile = _TOOLCHAIN_PROFILES.get(toolchain, "msvc-6.0")
     spec = TOOLCHAINS[profile]

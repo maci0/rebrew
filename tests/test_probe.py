@@ -51,7 +51,7 @@ class TestProbeRelocationContext:
         catalog_error: bool = False,
     ) -> Result:
         import rebrew.coff_reloc as relocs
-        import rebrew.compile_overrides as overrides
+        import rebrew.compiler.overrides as overrides
         import rebrew.matcher.parsers as parsers
         import rebrew.probe as probe
 
@@ -134,7 +134,7 @@ class TestProbeAnnotationSelection:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew.coff_reloc as relocs
-        import rebrew.compile_overrides as overrides
+        import rebrew.compiler.overrides as overrides
         import rebrew.matcher.parsers as parsers
         import rebrew.probe as probe
 

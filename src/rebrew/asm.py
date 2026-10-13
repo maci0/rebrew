@@ -1356,7 +1356,7 @@ def generate_inline_c(
     # underscore still comes off (``_foo`` is ``foo``).
     func_name = c_name_from_symbol(sym)
 
-    from rebrew.toolchain import profile_family
+    from rebrew.compiler.toolchain import profile_family
 
     is_gcc = profile_family(cfg.compiler_profile) in _GCC_NAKED_FAMILIES
     naked_attr = "__attribute__((naked))" if is_gcc else "__declspec(naked)"

@@ -46,7 +46,7 @@ pypcode spec dir under `UV_TOOL_DIR` / `XDG_DATA_HOME` / `LOCALAPPDATA`) is the
 SLEIGH language definition the native `kuna` binary parses, `XDG_CACHE_HOME` is
 the sandbox base whose `rebrew`-prefixed directories older than a day are
 deleted by `sweep_stale_temp_dirs` on the next compile
-(`src/rebrew/temp_dirs.py`). That sweep is not confined to the cache base: it
+(`src/rebrew/compiler/temp_dirs.py`). That sweep is not confined to the cache base: it
 also deletes, by the same age rule, directories under the project at
 `.rebrew/climb` and `.rebrew/qualsweep`, where the prefix it matches is
 declared by the caller and derived from the function's symbol name
@@ -55,12 +55,12 @@ symbol name in shipped metadata decides what a later run may remove from
 those two rebrew-owned scratch directories, and nothing else. And
 `XAUTHORITY` names the X cookie file rebrew
 adopts for host-wine helpers and re-exports to wine children, accepted as any
-file the analyst can read (`_local_cookie` in `src/rebrew/headless.py`), so the
+file the analyst can read (`_local_cookie` in `src/rebrew/compiler/headless.py`), so the
 headless-display access decision is taken from the process environment. On a multi-user host the headless X display is a boundary, and on **both**
 of its paths the access control is not in force. The `Xvfb` rebrew starts is
 handed an `-auth` file whose contents are a bare hex token, not an xauth
 record (`address display protocol name data`), so no cookie can be read out
-of it (`_new_cookie` in `src/rebrew/headless.py`); the same applies to
+of it (`_new_cookie` in `src/rebrew/compiler/headless.py`); the same applies to
 adopting an Xvfb already on the box, where `_adopt` falls back to the
 operator's `XAUTHORITY` when the candidate server advertises no `-auth`
 cookie of its own. Nothing in the module opens an X connection to verify.
@@ -83,7 +83,7 @@ does upload a PEP 740 attestation beside the files, which names the publisher
 who uploaded them, not this repository; nothing in CI signs artifacts.
 
 The packaged compile-cache backends refuse pickle deserialize
-(`NoPickleDisk` in `src/rebrew/compile_cache.py`); that does not attest
+(`NoPickleDisk` in `src/rebrew/compiler/cache.py`); that does not attest
 plugin cache backends or remove the open upstream diskcache advisory.
 
 ## Claims this policy does **not** make
@@ -112,7 +112,7 @@ plugin cache backends or remove the open upstream diskcache advisory.
 - No claim that "docker-only" covers toolchains registered by an entry point
   or a `REBREW_TOOLCHAIN_OVERLAY_DIR` TOML file: a spec without `image` runs
   its `binary` on the host with the full process environment
-  (`run_toolchain` in `src/rebrew/toolchain.py`).
+  (`run_toolchain` in `src/rebrew/compiler/toolchain.py`).
 - No claim that optional wibo / toolchain-media downloads are attested beyond
   the in-code host allow-list and hash checks described in
   [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). Wibo asset bytes are
@@ -128,7 +128,7 @@ plugin cache backends or remove the open upstream diskcache advisory.
   open pickle advisory is mitigated for packaged backends by `NoPickleDisk`,
   not by claiming the upstream advisory is fixed.
 - No claim that library helpers which invoke host DOSBox
-  (`rebrew.msvc16` / `tc16` / `delphi16` via `rebrew.dosbox`) are covered by
+  (`rebrew.compiler.msvc16` / `tc16` / `delphi16` via `rebrew.compiler.dosbox`) are covered by
   the docker-only compile guarantee on the shipped CLI compile path.
   There is no `pdb_cvdump` module and no `REBREW_CVDUMP` setting. PDB reads
   on the shipped path run host `llvm-pdbutil`
@@ -167,7 +167,7 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `../`-prefixed relative to `reversed_dir`) and refuses an empty, absolute,
   or escaping value. `rebrew verify` (`verify.py` `verify_entry`, where a
   refused entry is recorded `MISSING_FILE`), that module's cache-validity
-  read and deferred STATUS pass, the batch compile (`compile.py`
+  read and deferred STATUS pass, the batch compile (`compiler/compile.py`
   `precompile_batch`), the blocker clear in `rebrew test`, the
   `rebrew build objdiff-driver` command (`objdiff_project.py`), `rebrew match partitions`,
   and every read and write in `rebrew source import-related` (`cross_import.py`
@@ -192,7 +192,7 @@ plugin cache backends or remove the open upstream diskcache advisory.
   project's `[compiler] recompile_url` applies unless `REBREW_RECOMPILE_URL`
   is set, and its `[llm] endpoint` overrides `REBREW_LLM_ENDPOINT`, so a
   cloned project chooses where the function **source** is sent
-  (`recompile_url` in `src/rebrew/compile.py`, `llm_config` in
+  (`recompile_url` in `src/rebrew/compiler/compile.py`, `llm_config` in
   `src/rebrew/llm_seed.py`). The one thing the project cannot take is the
   operator's **environment** key: `llm_config` refuses to send
   `REBREW_LLM_API_KEY` to a non-loopback `[llm].endpoint` unless
@@ -206,10 +206,10 @@ plugin cache backends or remove the open upstream diskcache advisory.
   COFF parser, or host `objconv` on an OMF profile). It is not published into
   the compile cache: the service response has no image id, so a later run
   compiles again instead of replaying those bytes (`_cache_key_for` in
-  `src/rebrew/compile.py`). The response body has no size cap. The compile
+  `src/rebrew/compiler/compile.py`). The response body has no size cap. The compile
   cache `size_limit` still bounds locally compiled objects only, and that
   limit is project-supplied: the 500 MiB default (`_DEFAULT_SIZE_LIMIT` in
-  `src/rebrew/compile_cache.py`) is replaced by `[cache] size_limit_mib` from
+  `src/rebrew/compiler/cache.py`) is replaced by `[cache] size_limit_mib` from
   `rebrew-project.toml` with no upper clamp (`cache_size_limit` in
   `src/rebrew/config.py`).
 - No claim that a decomp.me upload is revocable, or that it leaves the host

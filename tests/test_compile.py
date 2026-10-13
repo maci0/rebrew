@@ -1,4 +1,4 @@
-"""Tests for rebrew.compile — resolve_cl_command and compile_and_compare helpers."""
+"""Tests for rebrew.compiler.compile — resolve_cl_command and compile_and_compare helpers."""
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -6,15 +6,15 @@ from typing import Any, cast
 
 import pytest
 
-from rebrew.compile import (
+from rebrew.compiler.compile import (
     compile_and_compare,
     compile_to_obj,
     filter_wine_stderr,
     maybe_headless_wine,
     resolve_cl_command,
 )
+from rebrew.compiler.headless import XVFB_DISPLAY_ENV
 from rebrew.config import ConfigError, ProjectConfig
-from rebrew.headless import XVFB_DISPLAY_ENV
 
 # ---------------------------------------------------------------------------
 # resolve_cl_command
@@ -173,8 +173,8 @@ class TestCompileToObj:
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -217,11 +217,13 @@ class TestCompileToObj:
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         monkeypatch.setattr(
-            "rebrew.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+            "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
         )
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: _FakeCache())
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.get_project_cache", lambda *a, **k: _FakeCache()
+        )
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -257,7 +259,7 @@ class TestCompileToObj:
     def test_compiles_keyed_text_when_source_rewritten(self, tmp_path: Path, monkeypatch) -> None:
         """A source rewritten after the key is computed (GA splice, editor
         save) must not be compiled and stored under the pre-rewrite key."""
-        import rebrew.compile as C
+        import rebrew.compiler.compile as C
 
         old = "int f(void){return 1;}\n"
         compiled: list[str] = []
@@ -335,9 +337,9 @@ class TestCompileToObj:
             (workdir / "f.obj").write_bytes(b"\x00obj")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         monkeypatch.setattr(
-            "rebrew.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+            "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
         )
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -376,7 +378,7 @@ class TestCompileToObj:
         A local Docker inspect must not stand in for the remote runner, a
         stale local entry must not be served, and a second compile posts again.
         """
-        import rebrew.recompile_client as rc
+        import rebrew.compiler.recompile_client as rc
 
         posted: list[str] = []
         gets: list[str] = []
@@ -392,7 +394,7 @@ class TestCompileToObj:
             return "sha256:" + "ab" * 32
 
         monkeypatch.setattr(rc, "compile_source", _fake_compile_source)
-        monkeypatch.setattr("rebrew.compile.cached_image_digest", _digest)
+        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", _digest)
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
 
         class _FakeCache:
@@ -441,7 +443,7 @@ class TestCompileToObj:
     ) -> None:
         """A service error has no object; it must never become a cache entry
         that later serves as a durable compile failure."""
-        import rebrew.recompile_client as rc
+        import rebrew.compiler.recompile_client as rc
 
         stored: dict[str, bytes] = {}
 
@@ -500,8 +502,8 @@ class TestCompileToObjPosix:
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -547,8 +549,8 @@ class TestCompileToObjPosix:
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -606,7 +608,7 @@ class TestSourceInWorkdir:
             (workdir / "f.obj").write_bytes(b"object")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", fake_run)
         cfg: Any = SimpleNamespace(
             root=project,
             compiler_includes=includes,
@@ -679,8 +681,8 @@ class TestCompileErrorExcerpt:
             del spec, args, timeout, mounts, image_id
             return SimpleNamespace(returncode=1, stdout="", stderr=stderr)
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fail)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fail)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         source = src_dir / "f.c"
@@ -734,8 +736,8 @@ class TestCompileErrorExcerpt:
             del spec, args, timeout, mounts, image_id
             return SimpleNamespace(returncode=1, stdout="", stderr=stderr)
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fail)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fail)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         source = src_dir / "f.c"
@@ -796,8 +798,8 @@ class TestPosixDropsMsvcBaseCflags:
             (workdir / obj_name).write_bytes(b"not-coff")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _run)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _run)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         source = src_dir / "f.c"
@@ -851,8 +853,8 @@ class TestPosixDropsMsvcBaseCflags:
             (workdir / obj).write_bytes(b"not-coff")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _run)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _run)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         source = src_dir / "f.c"
@@ -885,7 +887,7 @@ class TestPosixDropsMsvcBaseCflags:
 
 
 class TestCompileToObjToolchainProfiles:
-    """watcom / msvc-1.52 profiles route through rebrew.toolchain's runner."""
+    """watcom / msvc-1.52 profiles route through rebrew.compiler.toolchain's runner."""
 
     def _cfg(self, tmp_path: Path, profile: str) -> SimpleNamespace:
         return SimpleNamespace(
@@ -899,8 +901,8 @@ class TestCompileToObjToolchainProfiles:
         )
 
     def test_watcom_uses_toolchain_runner(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
-        from rebrew.toolchain import RunResult
+        from rebrew.compiler.compile import compile_to_obj
+        from rebrew.compiler.toolchain import RunResult
 
         captured: dict = {}
 
@@ -910,9 +912,9 @@ class TestCompileToObjToolchainProfiles:
             obj.write_bytes(b"OMF")
             return RunResult(0, "", "", backend="docker")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.compile_cache_key", lambda **k: "k")
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_cache_key", lambda **k: "k")
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -927,11 +929,11 @@ class TestCompileToObjToolchainProfiles:
         assert "-zq" in captured["args"]
 
     def test_watcom_2_0_win16_uses_toolchain_runner(self, tmp_path: Path, monkeypatch) -> None:
-        """watcom-2.0-win16 (wcc 16-bit) routes through rebrew.toolchain's runner with
+        """watcom-2.0-win16 (wcc 16-bit) routes through rebrew.compiler.toolchain's runner with
         the same posix flag shape as wcc386 — but without -c (wcc16 rejects
         it: E1073)."""
-        from rebrew.compile import compile_to_obj
-        from rebrew.toolchain import RunResult
+        from rebrew.compiler.compile import compile_to_obj
+        from rebrew.compiler.toolchain import RunResult
 
         captured: dict = {}
 
@@ -941,9 +943,9 @@ class TestCompileToObjToolchainProfiles:
             obj.write_bytes(b"OMF")
             return RunResult(0, "", "", backend="host")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.compile_cache_key", lambda **k: "k")
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_cache_key", lambda **k: "k")
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -959,14 +961,14 @@ class TestCompileToObjToolchainProfiles:
         assert "-c" not in captured["args"]
 
     def test_watcom_runner_failure_surfaces(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
-        from rebrew.toolchain import RunResult
+        from rebrew.compiler.compile import compile_to_obj
+        from rebrew.compiler.toolchain import RunResult
 
         def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             return RunResult(1, "", "Error! E1139", backend="host")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -994,11 +996,11 @@ class TestCompileToObjMsvc152Image:
         )
 
     def test_image_preferred_when_pulled(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
-        from rebrew.toolchain import RunResult
+        from rebrew.compiler.compile import compile_to_obj
+        from rebrew.compiler.toolchain import RunResult
 
         captured: dict = {}
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
 
         def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             captured["args"] = args
@@ -1006,8 +1008,8 @@ class TestCompileToObjMsvc152Image:
             (workdir / "T.OBJ").write_bytes(b"OMF")
             return RunResult(0, "", "", backend="docker")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -1022,19 +1024,19 @@ class TestCompileToObjMsvc152Image:
     def test_image_path_forwards_cflags(self, tmp_path: Path, monkeypatch) -> None:
         """The GA flag sweep relies on per-function cflags reaching CL — the
         cl16 wrapper must receive them after the source."""
-        from rebrew.compile import compile_to_obj
-        from rebrew.toolchain import RunResult
+        from rebrew.compiler.compile import compile_to_obj
+        from rebrew.compiler.toolchain import RunResult
 
         captured: dict = {}
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
 
         def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             captured["args"] = args
             (workdir / "T.OBJ").write_bytes(b"OMF")
             return RunResult(0, "", "", backend="docker")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
@@ -1050,11 +1052,11 @@ class TestCompileToObjMsvc152Image:
     def test_no_image_raises_clear_error(self, tmp_path: Path, monkeypatch) -> None:
         """Docker-only: a missing image is a hard error — there is no host
         DOSBox fallback anymore."""
-        from rebrew.compile import compile_to_obj
+        from rebrew.compiler.compile import compile_to_obj
 
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -1070,14 +1072,14 @@ class TestMaybeHeadlessWine:
 
     def test_wine_gets_display_env(self, monkeypatch) -> None:
         """wine → command unchanged, env gains DISPLAY pointing at an Xvfb."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
         cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"WINEDEBUG": "-all"})
         assert cmd == ["wine", "/opt/CL.EXE"]
         assert env == {"WINEDEBUG": "-all", "DISPLAY": ":99"}
 
     def test_absolute_wine_path_gets_display(self, monkeypatch) -> None:
         """A path to wine (e.g. /usr/bin/wine) is matched by basename."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
         cmd, env = maybe_headless_wine(["/usr/bin/wine", "/opt/CL.EXE"], None)
         assert cmd == ["/usr/bin/wine", "/opt/CL.EXE"]
         assert env["DISPLAY"] == ":99"
@@ -1090,7 +1092,7 @@ class TestMaybeHeadlessWine:
         authenticates to *this* display — never an unrelated value already in
         the environment.
         """
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
         monkeypatch.setenv(XVFB_DISPLAY_ENV, ":99")
         monkeypatch.setenv("XAUTHORITY", "/run/user/1000/rebrew-xvfb-cookie")
         _, env = maybe_headless_wine(["wine", "CL.EXE"], {"WINEDEBUG": "-all"})
@@ -1104,23 +1106,23 @@ class TestMaybeHeadlessWine:
 
     def test_wibo_not_touched(self, monkeypatch) -> None:
         """wibo is already headless — left untouched."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
         cmd, env = maybe_headless_wine(["wibo", "/opt/CL.EXE"], None)
         assert cmd == ["wibo", "/opt/CL.EXE"]
         assert env is None
 
     def test_gcc_not_touched(self, monkeypatch) -> None:
         """Non-wine commands are never touched."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
         cmd, env = maybe_headless_wine(["gcc", "-c", "t.c"], None)
         assert cmd == ["gcc", "-c", "t.c"]
         assert env is None
 
     def test_no_xvfb_falls_back_to_xvfb_run(self, monkeypatch) -> None:
         """No Xvfb binary but xvfb-run present → slow wrapper fallback."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: None)
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: None)
         monkeypatch.setattr(
-            "rebrew.compile.shutil.which",
+            "rebrew.compiler.compile.shutil.which",
             lambda name: "/usr/bin/xvfb-run" if name == "xvfb-run" else None,
         )
         cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"WINEDEBUG": "-all"})
@@ -1130,21 +1132,21 @@ class TestMaybeHeadlessWine:
 
     def test_no_xvfb_no_wrapper_bare_wine(self, monkeypatch) -> None:
         """Neither Xvfb nor xvfb-run → bare wine as-is."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: None)
-        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: None)
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: None)
+        monkeypatch.setattr("rebrew.compiler.compile.shutil.which", lambda name: None)
         cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], None)
         assert cmd == ["wine", "/opt/CL.EXE"]
         assert env is None
 
     def test_headless_opt_out_env(self, monkeypatch) -> None:
         """REBREW_WINE_HEADLESS=0 forces bare wine even with Xvfb available."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
         cmd, _env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": "0"})
         assert cmd == ["wine", "/opt/CL.EXE"]
 
     def test_headless_opt_out_inherited_env(self, monkeypatch) -> None:
         """env=None inherits os.environ, so the opt-out is read from there."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
         monkeypatch.setenv("REBREW_WINE_HEADLESS", "0")
         cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], None)
         assert cmd == ["wine", "/opt/CL.EXE"]
@@ -1153,24 +1155,24 @@ class TestMaybeHeadlessWine:
     @pytest.mark.parametrize("value", ["false", " OFF ", "no"])
     def test_headless_opt_out_word_spellings(self, monkeypatch, value: str) -> None:
         """Common false spellings disable headless too, not only ``0``."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
         cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": value})
         assert cmd == ["wine", "/opt/CL.EXE"]
         assert env == {"REBREW_WINE_HEADLESS": value}
 
     def test_headless_explicit_on(self, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
         _cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": "1"})
         assert env is not None and env["DISPLAY"] == ":99"
 
     def test_headless_malformed_value_raises(self, monkeypatch) -> None:
         """A typo must not silently leave headless on."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
         with pytest.raises(ConfigError, match="REBREW_WINE_HEADLESS"):
             maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": "nope"})
 
     def test_empty_command_untouched(self, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
         cmd, env = maybe_headless_wine([], {"WINEDEBUG": "-all"})
         assert cmd == []
         assert env == {"WINEDEBUG": "-all"}
@@ -1209,7 +1211,7 @@ class TestRelativeRunnerResolution:
     def test_msvc_env_runner_resolved_and_winedebug(self, tmp_path: Path) -> None:
         """msvc_env_from_config resolves the relative runner for the GA path
         and sets WINEDEBUG by basename (tools/wibo is still wibo)."""
-        from rebrew.msvc_env import msvc_env_from_config
+        from rebrew.compiler.msvc_env import msvc_env_from_config
 
         cfg = ProjectConfig(
             root=tmp_path,
@@ -1230,7 +1232,7 @@ class TestRelativeRunnerResolution:
         different program than the project configures. The documented pin is
         `[compiler] runner`, so the ambient value is popped here.
         """
-        from rebrew.msvc_env import msvc_env_from_config
+        from rebrew.compiler.msvc_env import msvc_env_from_config
 
         monkeypatch.setenv("REBREW_COMPILER_RUNNER", "wibo")
         cfg = ProjectConfig(
@@ -1261,8 +1263,8 @@ class TestCompileToObjBorlandc55:
         )
 
     def test_borlandc55_uses_toolchain_runner(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
-        from rebrew.toolchain import RunResult
+        from rebrew.compiler.compile import compile_to_obj
+        from rebrew.compiler.toolchain import RunResult
 
         captured: dict = {}
 
@@ -1272,9 +1274,9 @@ class TestCompileToObjBorlandc55:
             obj.write_bytes(b"OMF")
             return RunResult(0, "", "", backend="host")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.compile_cache_key", lambda **k: "k")
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_cache_key", lambda **k: "k")
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -1292,8 +1294,8 @@ class TestPerFunctionOverrideArgShape:
         """A per-function TOOLCHAIN override to a 16-bit toolchain must use
         the 16-bit DOSBox wrapper arg shape (source first), not the config
         profile's 32-bit /Fo shape (spec.name drives the branch)."""
-        from rebrew.compile import compile_to_obj
-        from rebrew.toolchain import RunResult
+        from rebrew.compiler.compile import compile_to_obj
+        from rebrew.compiler.toolchain import RunResult
 
         captured: dict = {}
 
@@ -1302,8 +1304,8 @@ class TestPerFunctionOverrideArgShape:
             (workdir / "F.OBJ").write_bytes(b"OMF")
             return RunResult(0, "", "", backend="docker")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -1332,9 +1334,9 @@ class TestPerFunctionOverrideArgShape:
 
 class TestCompileEdgeCases:
     def test_obj_name_with_separator_rejected(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
+        from rebrew.compiler.compile import compile_to_obj
 
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
         cfg: Any = SimpleNamespace(
             root=tmp_path,
             compiler_profile="msvc-6.0",
@@ -1357,14 +1359,14 @@ class TestCompileEdgeCases:
         assert "plain filename" in err
 
     def test_success_without_object_reports_error(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
-        from rebrew.toolchain import RunResult
+        from rebrew.compiler.compile import compile_to_obj
+        from rebrew.compiler.toolchain import RunResult
 
         def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             return RunResult(0, "", "", backend="docker")  # no object written
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
         cfg: Any = SimpleNamespace(
             root=tmp_path,
             compiler_profile="msvc-6.0",
@@ -1398,7 +1400,7 @@ class TestLinkedShell:
     SRC = "int f(void){\n    return 1;\n}\n"
 
     def test_shell_source_with_pad(self) -> None:
-        from rebrew.compile import linked_shell_source
+        from rebrew.compiler.compile import linked_shell_source
 
         shell = linked_shell_source(self.SRC, 0x8320)
         assert '#pragma data_seg(".text$A")' in shell
@@ -1410,7 +1412,7 @@ class TestLinkedShell:
         assert shell.index(".text$A") < shell.index(".text$B")
 
     def test_shell_source_no_pad(self) -> None:
-        from rebrew.compile import linked_shell_source
+        from rebrew.compiler.compile import linked_shell_source
 
         shell = linked_shell_source(self.SRC, 0)
         assert "data_seg" not in shell  # MSVC rejects zero-length arrays
@@ -1418,14 +1420,14 @@ class TestLinkedShell:
         assert "int f(void)" in shell
 
     def test_linked_pad_size(self) -> None:
-        from rebrew.compile import linked_pad_size
+        from rebrew.compiler.compile import linked_pad_size
 
         assert linked_pad_size(0x9320, 0x1000) == 0x8320
         assert linked_pad_size(0x1000, 0x1000) == 0
         assert linked_pad_size(0x900, 0x1000) == -1  # function precedes section
 
     def test_extract_linked_slice(self) -> None:
-        from rebrew.compile import extract_linked_slice
+        from rebrew.compiler.compile import extract_linked_slice
 
         dll = b"\x00" * 0x1000 + b"ABCDEF"  # .text raw offset 0x1000
         assert extract_linked_slice(dll, 0x1000, 0, 3) == b"ABC"
@@ -1436,7 +1438,7 @@ class TestLinkedShell:
 
     def test_section_for_va(self) -> None:
         from rebrew.binary_model import BinaryInfo, SectionInfo
-        from rebrew.compile import _section_for_va
+        from rebrew.compiler.compile import _section_for_va
 
         info = BinaryInfo(
             path=Path("/nonexistent.dll"),
@@ -1464,7 +1466,7 @@ class TestLinkedLinkCmd:
     """build_linked_link_cmd docker argv construction (no docker required)."""
 
     def _spec(self) -> Any:
-        from rebrew.toolchain import ToolchainSpec
+        from rebrew.compiler.toolchain import ToolchainSpec
 
         return ToolchainSpec(
             name="msvc-6.0",
@@ -1478,7 +1480,7 @@ class TestLinkedLinkCmd:
         )
 
     def test_cmd_shape_and_flags(self) -> None:
-        from rebrew.compile import build_linked_link_cmd
+        from rebrew.compiler.compile import build_linked_link_cmd
 
         cmd, _script = build_linked_link_cmd(
             self._spec(), base=0x10000000, obj_name="f.obj", out_name="out.dll", workdir="/tmp/w"
@@ -1511,7 +1513,7 @@ class TestLinkedLinkCmd:
         assert args.index("/OUT:out.dll") < args.index("f.obj")
 
     def test_env_passed_as_docker_env_and_runs_link(self) -> None:
-        from rebrew.compile import build_linked_link_cmd
+        from rebrew.compiler.compile import build_linked_link_cmd
 
         cmd, script = build_linked_link_cmd(
             self._spec(), base=0x10000000, obj_name="f.obj", out_name="out.dll", workdir="/tmp/w"
@@ -1526,8 +1528,8 @@ class TestLinkedLinkCmd:
         assert "msvc6.0" not in script
 
     def test_no_image_raises(self) -> None:
-        from rebrew.compile import build_linked_link_cmd
-        from rebrew.toolchain import ToolchainError, ToolchainSpec
+        from rebrew.compiler.compile import build_linked_link_cmd
+        from rebrew.compiler.toolchain import ToolchainError, ToolchainSpec
 
         native = ToolchainSpec(name="mingw-16.2.0", image=None, binary="i686-w64-mingw32-gcc")
         try:
@@ -1542,7 +1544,7 @@ class TestLinkedLinkCmd:
 
 class TestLinkedSpec:
     def test_msvc_profile_resolves(self) -> None:
-        from rebrew.compile import _linked_spec
+        from rebrew.compiler.compile import _linked_spec
 
         cfg: Any = SimpleNamespace(compiler_profile="msvc-6.0")
         spec, err = _linked_spec(cfg, None)
@@ -1550,9 +1552,9 @@ class TestLinkedSpec:
         assert err == ""
 
     def test_native_profile_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew import compile as compile_mod
-        from rebrew.compile import _linked_spec
-        from rebrew.toolchain_spec import ToolchainSpec
+        from rebrew.compiler import compile as compile_mod
+        from rebrew.compiler.compile import _linked_spec
+        from rebrew.compiler.toolchain_spec import ToolchainSpec
 
         # An image-less plugin spec has no image to run LINK.EXE in.  The
         # registry is published as a read-only proxy and is republished whole
@@ -1575,14 +1577,14 @@ class TestLinkedSpec:
     def test_mingw_profile_rejected(self) -> None:
         """mingw-16.2.0 is image-backed but has no LINK.EXE — the linked compare
         drives MSVC's linkers only."""
-        from rebrew.compile import _linked_spec
+        from rebrew.compiler.compile import _linked_spec
 
         spec, err = _linked_spec(SimpleNamespace(compiler_profile="mingw-16.2.0"), None)
         assert spec is None
         assert "MSVC toolchains only" in err
 
     def test_non_msvc_image_rejected(self) -> None:
-        from rebrew.compile import _linked_spec
+        from rebrew.compiler.compile import _linked_spec
 
         cfg: Any = SimpleNamespace(compiler_profile="borland-5.5")
         spec, err = _linked_spec(cfg, None)
@@ -1606,7 +1608,7 @@ class TestCompileBatchObjs:
         """N sources → one run_toolchain call, N objects collected."""
         from types import SimpleNamespace
 
-        from rebrew.compile import compile_batch_objs
+        from rebrew.compiler.compile import compile_batch_objs
 
         calls: list[list[str]] = []
 
@@ -1616,7 +1618,7 @@ class TestCompileBatchObjs:
                 (workdir / f"f{i}.o").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         for i in (1, 2, 3):
             (tmp_path / f"f{i}.c").write_text("int f(void){return 1;}\n", encoding="utf-8")
         out, err = compile_batch_objs(
@@ -1633,12 +1635,12 @@ class TestCompileBatchObjs:
         """Nonzero exit → empty map + error (caller falls back per file)."""
         from types import SimpleNamespace
 
-        from rebrew.compile import compile_batch_objs
+        from rebrew.compiler.compile import compile_batch_objs
 
         def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
             return SimpleNamespace(returncode=1, stdout="", stderr="boom")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         out, err = compile_batch_objs(self._spec(), ["f1.c"], ["-O2"], tmp_path, [], 60)
         assert out == {}
         assert "boom" in err
@@ -1650,7 +1652,7 @@ class TestCompileBatchObjs:
         root, so neither joins the batch; the unique stem still does."""
         from types import SimpleNamespace
 
-        from rebrew.compile import compile_batch_objs
+        from rebrew.compiler.compile import compile_batch_objs
 
         calls: list[list[str]] = []
 
@@ -1660,7 +1662,7 @@ class TestCompileBatchObjs:
                 (workdir / name).write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         out, err = compile_batch_objs(
             self._spec(), ["a/foo.c", "b/FOO.c", "bar.c"], ["-O2"], tmp_path, [], 60
         )
@@ -1671,7 +1673,7 @@ class TestCompileBatchObjs:
     def test_exotic_style_refused(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.compile import compile_batch_objs
+        from rebrew.compiler.compile import compile_batch_objs
 
         spec = SimpleNamespace(name="x", image="img", effective_arg_style="dos")
         out, err = compile_batch_objs(spec, ["f.c"], [], tmp_path, [], 60)
@@ -1687,7 +1689,7 @@ class TestBatchCacheParity:
         same key regardless of which path wrote the entry."""
         from types import SimpleNamespace
 
-        from rebrew.compile import _cache_key_for
+        from rebrew.compiler.compile import _cache_key_for
 
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
         image_id = "sha256:" + "ab" * 32
@@ -1798,8 +1800,8 @@ class TestPinnedImageExecution:
                 stored[key] = data
 
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
-        monkeypatch.setattr("rebrew.compile.cached_image_digest", _digest)
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _run)
+        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", _digest)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _run)
         source = self._source(tmp_path)
         work = tmp_path / "w1"
         work.mkdir()
@@ -1818,7 +1820,7 @@ class TestPinnedImageExecution:
             (workdir / "f.obj").write_bytes(b"from-" + image_id.encode())
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _run_b)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _run_b)
         work2 = tmp_path / "w2"
         work2.mkdir()
         obj2, err = compile_to_obj(
@@ -1856,8 +1858,8 @@ class TestPinnedImageExecution:
                 puts.append(key)
 
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
-        monkeypatch.setattr("rebrew.compile.cached_image_digest", _digest)
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _run)
+        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", _digest)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _run)
         source = self._source(tmp_path)
         work = tmp_path / "w"
         work.mkdir()
@@ -1874,7 +1876,7 @@ class TestPinnedImageExecution:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Probe, container, and publish share the first admitted id."""
-        from rebrew.compile import _cache_key_for, precompile_batch
+        from rebrew.compiler.compile import _cache_key_for, precompile_batch
 
         rev = tmp_path / "reversed"
         rev.mkdir()
@@ -1910,12 +1912,12 @@ class TestPinnedImageExecution:
             def put(self, key: str, data: bytes) -> None:
                 stored[key] = data
 
-        monkeypatch.setattr("rebrew.compile.cached_image_digest", _digest)
-        monkeypatch.setattr("rebrew.compile._cache_key_for", _key)
-        monkeypatch.setattr("rebrew.compile.compile_batch_objs", _batch)
-        monkeypatch.setattr("rebrew.compile.recompile_url", lambda cfg: None)
+        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", _digest)
+        monkeypatch.setattr("rebrew.compiler.compile._cache_key_for", _key)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_batch_objs", _batch)
+        monkeypatch.setattr("rebrew.compiler.compile.recompile_url", lambda cfg: None)
         monkeypatch.setattr(
-            "rebrew.compile.toolchain_registry",
+            "rebrew.compiler.compile.toolchain_registry",
             SimpleNamespace(
                 TOOLCHAINS={
                     "mingw-16.2.0": SimpleNamespace(
@@ -1928,7 +1930,7 @@ class TestPinnedImageExecution:
             ),
         )
         monkeypatch.setattr(
-            "rebrew.compile_overrides.resolve_compile_overrides",
+            "rebrew.compiler.overrides.resolve_compile_overrides",
             lambda *a, **k: ("mingw-16.2.0", ""),
         )
         entries = [
@@ -1957,8 +1959,8 @@ class TestPinnedImageExecution:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A vanished admitted id fails once. No tag retry and no cache write."""
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import TOOLCHAINS
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import TOOLCHAINS
 
         calls: list[list[str]] = []
         puts: list[str] = []
@@ -1992,7 +1994,7 @@ class TestPinnedImageExecution:
                 puts.append(key)
 
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
-        monkeypatch.setattr("rebrew.compile.cached_image_digest", _digest)
+        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", _digest)
         monkeypatch.setattr(toolchain_mod, "docker_available", lambda: True)
         monkeypatch.setattr(toolchain_mod, "image_present", _present)
         monkeypatch.setattr(toolchain_mod.subprocess, "run", _run)
@@ -2017,14 +2019,14 @@ class TestPinnedImageExecution:
 
 class TestBatchGroupKey:
     def test_ignores_include_dirs_and_order(self) -> None:
-        from rebrew.compile import _batch_group_key
+        from rebrew.compiler.compile import _batch_group_key
 
         assert _batch_group_key("", "/O2 /Gd /Ifoo") == _batch_group_key("", "/Gd /O2 /Ibar")
         assert _batch_group_key("", "/O1 /Gd") != _batch_group_key("", "/O2 /Gd")
         assert _batch_group_key("a", "/O2") != _batch_group_key("b", "/O2")
 
     def test_posix_include_prefix_ignored(self) -> None:
-        from rebrew.compile import _batch_group_key
+        from rebrew.compiler.compile import _batch_group_key
 
         assert _batch_group_key("", "-O2 -Ifoo") == _batch_group_key("", "-O2 -Ibar")
 
@@ -2034,7 +2036,7 @@ class TestBatchGroupKey:
         Filtering the bare ``/I`` out on its own would keep the operand as a
         dangling group flag, shattering groups per include directory.
         """
-        from rebrew.compile import _batch_group_key
+        from rebrew.compiler.compile import _batch_group_key
 
         assert _batch_group_key("", "/O2 /I ../Units") == _batch_group_key("", "/O2 /I ../Other")
         assert _batch_group_key("", "/O2 /I ../Units") == _batch_group_key("", "/O2")
@@ -2048,8 +2050,8 @@ class TestPrecompileBatchCleanup:
         """Staged source trees must not accumulate across batch groups."""
         from types import SimpleNamespace
 
-        from rebrew.compile import cleanup_batch_obj_dirs, precompile_batch
-        from rebrew.temp_dirs import writable_temp_dir as _real_wtd
+        from rebrew.compiler.compile import cleanup_batch_obj_dirs, precompile_batch
+        from rebrew.compiler.temp_dirs import writable_temp_dir as _real_wtd
 
         rev = tmp_path / "reversed"
         rev.mkdir()
@@ -2070,7 +2072,7 @@ class TestPrecompileBatchCleanup:
                 workdirs.append(d)
             return d
 
-        monkeypatch.setattr("rebrew.temp_dirs.writable_temp_dir", _tracking_wtd)
+        monkeypatch.setattr("rebrew.compiler.temp_dirs.writable_temp_dir", _tracking_wtd)
 
         def _fake_batch(spec, src_names, flags, workdir, mounts, timeout, image_id=None):
             assert src_names == ["a.c", "b.c"]
@@ -2081,9 +2083,9 @@ class TestPrecompileBatchCleanup:
                 out[src] = str(obj)
             return out, ""
 
-        monkeypatch.setattr("rebrew.compile.compile_batch_objs", _fake_batch)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_batch_objs", _fake_batch)
         monkeypatch.setattr(
-            "rebrew.compile.toolchain_registry",
+            "rebrew.compiler.compile.toolchain_registry",
             SimpleNamespace(
                 TOOLCHAINS={
                     "mingw-16.2.0": SimpleNamespace(
@@ -2095,10 +2097,10 @@ class TestPrecompileBatchCleanup:
             ),
         )
         monkeypatch.setattr(
-            "rebrew.compile_overrides.resolve_compile_overrides",
+            "rebrew.compiler.overrides.resolve_compile_overrides",
             lambda *a, **k: ("mingw-16.2.0", ""),
         )
-        monkeypatch.setattr("rebrew.compile.recompile_url", lambda cfg: None)
+        monkeypatch.setattr("rebrew.compiler.compile.recompile_url", lambda cfg: None)
 
         entries = [
             SimpleNamespace(filepath="a.c", toolchain="", cflags="", module=""),
@@ -2130,7 +2132,7 @@ class TestPrecompileBatchCleanup:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A failed remove must leave the path tracked for the next cleanup."""
-        import rebrew.compile as compile_mod
+        import rebrew.compiler.compile as compile_mod
 
         busy = tmp_path / "busy_objs"
         busy.mkdir()
@@ -2143,7 +2145,7 @@ class TestPrecompileBatchCleanup:
                 raise OSError("Device or resource busy")
             path.rmdir()
 
-        monkeypatch.setattr("rebrew.temp_dirs.remove_temp_dir", _remove)
+        monkeypatch.setattr("rebrew.compiler.temp_dirs.remove_temp_dir", _remove)
         compile_mod.cleanup_batch_obj_dirs()
         assert [busy] == compile_mod._BATCH_OBJ_DIRS
         assert busy.is_dir()
@@ -2153,7 +2155,7 @@ class TestPrecompileBatchCleanup:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A per-compile sandbox whose removal keeps failing stays tracked."""
-        import rebrew.compile as compile_mod
+        import rebrew.compiler.compile as compile_mod
 
         busy = tmp_path / "rebrew_cmp_busy"
         busy.mkdir()
@@ -2167,7 +2169,7 @@ class TestPrecompileBatchCleanup:
         def _remove(path: Path, retries: int = 5, delay: float = 0.2) -> None:
             raise OSError("Device or resource busy")
 
-        monkeypatch.setattr("rebrew.temp_dirs.remove_temp_dir", _remove)
+        monkeypatch.setattr("rebrew.compiler.temp_dirs.remove_temp_dir", _remove)
         compile_mod._discard_temp_dir(busy)
         assert [busy] == compile_mod._BATCH_OBJ_DIRS
         assert registered and registered[0][0] is compile_mod.cleanup_batch_obj_dirs
@@ -2176,7 +2178,7 @@ class TestPrecompileBatchCleanup:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The common path removes the dir and tracks nothing."""
-        import rebrew.compile as compile_mod
+        import rebrew.compiler.compile as compile_mod
 
         sandbox = tmp_path / "rebrew_cmp_ok"
         sandbox.mkdir()
@@ -2190,7 +2192,7 @@ class TestPrecompileBatchCleanup:
     ) -> None:
         """Only ``verify`` drains the queue per pass, so a match/GA run that
         keeps hitting a busy mount must not hold one entry per compile."""
-        import rebrew.compile as compile_mod
+        import rebrew.compiler.compile as compile_mod
 
         dirs = []
         for i in range(compile_mod._BATCH_OBJ_DIRS_MAX + 5):
@@ -2199,7 +2201,7 @@ class TestPrecompileBatchCleanup:
             dirs.append(d)
         monkeypatch.setattr(compile_mod, "_BATCH_OBJ_DIRS", list(dirs))
         monkeypatch.setattr(
-            "rebrew.temp_dirs.remove_temp_dir",
+            "rebrew.compiler.temp_dirs.remove_temp_dir",
             lambda path, retries=5, delay=0.2: (_ for _ in ()).throw(
                 OSError("Device or resource busy")
             ),
@@ -2211,7 +2213,7 @@ class TestPrecompileBatchCleanup:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The overflow drain is the retry a never-drained run would not get."""
-        import rebrew.compile as compile_mod
+        import rebrew.compiler.compile as compile_mod
 
         stale = tmp_path / "stale_objs"
         stale.mkdir()
@@ -2233,7 +2235,7 @@ class TestPrecompileBatchCleanup:
                 return
             raise OSError("Device or resource busy")
 
-        monkeypatch.setattr("rebrew.temp_dirs.remove_temp_dir", _remove)
+        monkeypatch.setattr("rebrew.compiler.temp_dirs.remove_temp_dir", _remove)
         compile_mod._discard_temp_dir(fresh)
         assert stale in calls, "overflow must retry the older queued dirs"
         assert fresh in calls, "the new entry is retried by the drain too"
@@ -2246,7 +2248,7 @@ class TestPrecompileBatchCleanup:
         """The atexit backstop arms with the first batch run (not at import),
         at most once, and the hook's sweep removes the tracked dirs
         idempotently."""
-        import rebrew.compile as compile_mod
+        import rebrew.compiler.compile as compile_mod
 
         registered: list[tuple] = []
         monkeypatch.setattr(
@@ -2277,7 +2279,7 @@ class TestEffectiveCompileFlags:
         """Cache keys must see base_cflags + defines, not only per-function flags."""
         from types import SimpleNamespace
 
-        from rebrew.compile import _effective_compile_flags
+        from rebrew.compiler.compile import _effective_compile_flags
 
         cfg = SimpleNamespace(
             root=tmp_path,
@@ -2294,7 +2296,7 @@ class TestEffectiveCompileFlags:
     def test_posix_define_prefix(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.compile import _effective_compile_flags
+        from rebrew.compiler.compile import _effective_compile_flags
 
         cfg = SimpleNamespace(root=tmp_path, base_cflags="", defines=["DEBUG"])
         spec = SimpleNamespace(flags_style="posix")
@@ -2308,7 +2310,7 @@ class TestSharedIncludeFlags:
     def test_shared_source_gets_shared_root_include(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.compile import _effective_compile_flags
+        from rebrew.compiler.compile import _effective_compile_flags
 
         shared = tmp_path / "src" / "shared"
         (shared / "Units").mkdir(parents=True)
@@ -2320,7 +2322,7 @@ class TestSharedIncludeFlags:
     def test_per_target_source_gets_no_shared_include(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.compile import _effective_compile_flags
+        from rebrew.compiler.compile import _effective_compile_flags
 
         shared = tmp_path / "src" / "shared"
         shared.mkdir(parents=True)
@@ -2332,7 +2334,7 @@ class TestSharedIncludeFlags:
     def test_no_shared_dir_configured(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.compile import _effective_compile_flags
+        from rebrew.compiler.compile import _effective_compile_flags
 
         cfg = SimpleNamespace(root=tmp_path, base_cflags="", defines=[])
         spec = SimpleNamespace(flags_style="msvc")

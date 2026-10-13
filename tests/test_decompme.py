@@ -682,7 +682,7 @@ class TestCli:
             lambda p, target_name=None, metadata_dir=None: [_ann()],
         )
         monkeypatch.setattr(
-            "rebrew.compile_overrides.resolve_compile_overrides",
+            "rebrew.compiler.overrides.resolve_compile_overrides",
             lambda cfg, d, a, b, c: ("msvc-6.0", "/O1"),
         )
         monkeypatch.setattr(
@@ -726,7 +726,7 @@ class TestCli:
     ) -> None:
         cfg, src = self._patch(tmp_path, monkeypatch)
         monkeypatch.setattr(
-            "rebrew.compile_overrides.resolve_compile_overrides",
+            "rebrew.compiler.overrides.resolve_compile_overrides",
             lambda cfg, d, a, b, c: ("mingw-16.2.0", "-O2"),
         )
         r = runner.invoke(decompme.app, ["--dry-run", str(src)])
@@ -754,7 +754,7 @@ class TestCli:
         compiler; the project profile is the documented fallback."""
         cfg, src = self._patch(tmp_path, monkeypatch)
         monkeypatch.setattr(
-            "rebrew.compile_overrides.resolve_compile_overrides",
+            "rebrew.compiler.overrides.resolve_compile_overrides",
             lambda cfg, d, a, b, c: (None, "/O2 /Gd"),
         )
         r = runner.invoke(decompme.app, ["--dry-run", "--json", str(src)])

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from rebrew.compile_cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
+from rebrew.compiler.cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
 from rebrew.config import (
     ARCH_PRESETS,
     DEFAULT_LLM_MAX_REQUESTS,
@@ -1738,7 +1738,7 @@ command = ""
         real_import = __import__
 
         def _boom(name, *args, **kwargs):
-            if name == "rebrew.toolchain":
+            if name == "rebrew.compiler.toolchain":
                 raise RegistryError("duplicate toolchain registration 'msvc-6.0'")
             return real_import(name, *args, **kwargs)
 
@@ -2048,7 +2048,7 @@ command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
         libs: str | None,
         detected: bool,
     ) -> None:
-        from rebrew import toolchain as rebrew_toolchain
+        from rebrew.compiler import toolchain as rebrew_toolchain
 
         layout = ("compiler", "detected/include", "detected/lib") if detected else None
         monkeypatch.setattr(rebrew_toolchain, "resolve_msvc_toolchain", lambda *_: layout)
@@ -2642,7 +2642,7 @@ class TestEnvKnobValidators:
         still looked up literally.
         """
         from rebrew import flirt, skills
-        from rebrew.toolchain_paths import toolchains_repo
+        from rebrew.compiler.toolchain_paths import toolchains_repo
 
         home = tmp_path / "home"
         (home / "sigs").mkdir(parents=True)

@@ -341,7 +341,7 @@ class TestTypeCLI:
             assert kwargs["extra_include_dirs"] == [str(tmp_path)]
             return "checked.obj", ""
 
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", fake_compile)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_to_obj", fake_compile)
         compile_type(
             cfg,
             {

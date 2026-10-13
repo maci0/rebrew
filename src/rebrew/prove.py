@@ -60,7 +60,7 @@ from rebrew.cli import (
     require_source_arg,
 )
 from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_compare
-from rebrew.compile import compile_to_obj
+from rebrew.compiler.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.prove_simprocs import get_win32_simprocs
@@ -1702,7 +1702,7 @@ def _prepare_prove_inputs(
     if not target_bytes:
         raise _ProveError(f"Failed to extract target bytes at VA 0x{va:08x} (size {size})")
 
-    from rebrew.compile_overrides import resolve_compile_overrides
+    from rebrew.compiler.overrides import resolve_compile_overrides
 
     toolchain, cflags_str = resolve_compile_overrides(
         cfg,
@@ -1732,7 +1732,7 @@ def _prepare_prove_inputs(
                 )
             watched_vas.append(_va)
 
-    from rebrew.temp_dirs import writable_temp_dir
+    from rebrew.compiler.temp_dirs import writable_temp_dir
 
     # Build the name→VA map once per function, before either consumer needs it:
     # watched-VA resolution and the RELOC gate below both read it.
@@ -1756,7 +1756,7 @@ def _prepare_prove_inputs(
             raise _ProveError(f"Symbol '{symbol}' not found in compiled .obj")
         dir32_watched = _resolve_watched_dir32(obj_path, symbol, cfg, set(watched_vas), name_to_va)
     finally:
-        from rebrew.temp_dirs import remove_temp_dir
+        from rebrew.compiler.temp_dirs import remove_temp_dir
 
         with contextlib.suppress(OSError):
             remove_temp_dir(workdir)

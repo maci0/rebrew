@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 import typer
 
-from rebrew.compile import CompareResult
+from rebrew.compiler.compile import CompareResult
 from rebrew.test import (
     _expand_reloc_offsets,
     _marker_va_from_annotation,
@@ -228,7 +228,7 @@ class TestSizePersistence:
 
         from typer.testing import CliRunner
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.main import app as umbrella
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
@@ -272,7 +272,7 @@ class TestSizePersistence:
 
         from typer.testing import CliRunner
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.main import app as umbrella
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
@@ -320,7 +320,7 @@ class TestSizePersistence:
 
         from typer.testing import CliRunner
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.main import app as umbrella
 
         module = "CLIENT" if selector else "SERVER"
@@ -372,7 +372,7 @@ class TestSizePersistence:
 
         from typer.testing import CliRunner
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.main import app as umbrella
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
@@ -626,7 +626,7 @@ class TestUnchangedStatusCachePatch:
 
         from typer.testing import CliRunner
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.main import app as umbrella
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
@@ -812,7 +812,7 @@ class TestCflagsPersistence:
 
         from typer.testing import CliRunner
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.main import app as umbrella
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
@@ -866,7 +866,7 @@ class TestCliSizeLintSuppression:
 
         from typer.testing import CliRunner
 
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.main import app as umbrella
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
@@ -1349,7 +1349,7 @@ class TestRunTest:
         return tmp_path
 
     def _stub_compare(self, monkeypatch: Any) -> None:
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         monkeypatch.setattr(
             "rebrew.test.compile_and_compare",
@@ -1479,7 +1479,7 @@ class TestSizeMismatchMatchPercentNone:
     def test_size_mismatch_with_none_match_percent_does_not_crash(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.test import _print_compare_result
 
         cmp = CompareResult(
@@ -1500,7 +1500,7 @@ class TestSizeMismatchMatchPercentNone:
     def test_size_mismatch_with_approximate_100_percent_shows_hint(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.test import _print_compare_result
 
         cmp = CompareResult(

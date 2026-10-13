@@ -231,8 +231,8 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
     # objdiff rebuilt the base object with different flags and showed a
     # mismatch for a function rebrew reports EXACT.
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.compile import compile_to_obj
-    from rebrew.compile_overrides import resolve_compile_overrides
+    from rebrew.compiler.compile import compile_to_obj
+    from rebrew.compiler.overrides import resolve_compile_overrides
 
     annos = parse_c_file_multi(
         source, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir

@@ -635,7 +635,7 @@ def profile_defaults() -> dict[str, dict[str, str]]:
     The binary is detection-corrected at write time when it is in place, so
     the synthesized format/arch only matter for empty projects.
     """
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     merged = dict(COMPILER_DEFAULTS)
     for name, spec in TOOLCHAINS.items():
@@ -699,7 +699,7 @@ GCC_CONSTRAINTS = """- **C99/C11**: standard modern C
 
 DELPHI16_CONSTRAINTS = """- **Object Pascal**: Delphi 1.0 compiles Pascal, not C — there is no C source to write
 - **Matching not wired** (ADR-001): Delphi's Borland ABI has no byte-matching profile; document functions as blockers
-- **Research path**: `rebrew.delphi16.compile_ne` compiles NE executables headless (DCC.EXE inside the rebrew/delphi:1.0-win16 image / DOSBox)"""
+- **Research path**: `rebrew.compiler.delphi16.compile_ne` compiles NE executables headless (DCC.EXE inside the rebrew/delphi:1.0-win16 image / DOSBox)"""
 
 
 #: Compiler families each profile expects (for init's family-alignment
@@ -754,7 +754,7 @@ def profile_families() -> dict[str, frozenset[str]]:
     """
     # One reference per registry: `from ... import TOOLCHAINS` would pin a
     # generation and pair it with the compat table of another.
-    from rebrew.toolchain import registry_snapshot
+    from rebrew.compiler.toolchain import registry_snapshot
     from rebrew.toolchain_detect import detection_tables
 
     toolchains, _origins = registry_snapshot()

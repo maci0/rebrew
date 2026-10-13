@@ -46,7 +46,7 @@ def _setup(
             return None, compile_error
         return obj, None
 
-    monkeypatch.setattr("rebrew.compile.compile_to_obj", _compile)
+    monkeypatch.setattr("rebrew.compiler.compile.compile_to_obj", _compile)
 
     def _symbols(obj_path, symbol):
         if symbol_found:

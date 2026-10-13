@@ -1874,7 +1874,7 @@ _LIBRARY_PRESETS_LOCK = threading.Lock()
 
 #: Bumped on every :func:`refresh_library_presets` rebind.  Derived-state
 #: memos that read the preset table (the library-override memo in
-#: :mod:`rebrew.compile_overrides`) carry this in their key, so a refresh
+#: :mod:`rebrew.compiler.overrides`) carry this in their key, so a refresh
 #: cannot leave them serving the previous generation's toolchain/cflags.
 _LIBRARY_PRESETS_GENERATION = 0
 
@@ -1946,7 +1946,7 @@ def _validate_library_override(path: Path, raw: dict[str, Any]) -> None:
             )
     toolchain = str(raw.get("toolchain") or "").strip()
     if toolchain:
-        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain import TOOLCHAINS
 
         if toolchain not in TOOLCHAINS:
             problems.append(

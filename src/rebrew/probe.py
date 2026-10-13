@@ -33,7 +33,7 @@ from rebrew.cli import (
     require_positive_size,
     select_annotation,
 )
-from rebrew.compile import compile_to_obj
+from rebrew.compiler.compile import compile_to_obj
 from rebrew.utils import floor_pct
 
 _EPILOG = (
@@ -95,7 +95,7 @@ def main(
         build_name_to_va,
         smart_reloc_compare,
     )
-    from rebrew.compile_overrides import resolve_compile_overrides
+    from rebrew.compiler.overrides import resolve_compile_overrides
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
     from rebrew.near_analysis import align_and_classify
 

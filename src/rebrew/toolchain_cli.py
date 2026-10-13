@@ -2,7 +2,7 @@
 
 Standardized toolchain management: list the registry, check docker status,
 and pull toolchain images.  This is the host-side face of the
-docker-first toolchain abstraction (see rebrew.toolchain): every compiler
+docker-first toolchain abstraction (see rebrew.compiler.toolchain): every compiler
 profile resolves to a ToolchainSpec, and the CLI surfaces how each is
 invoked (docker image vs vendored path vs PATH binary).
 """
@@ -32,7 +32,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.toolchain import (
+from rebrew.compiler.toolchain import (
     ToolchainError,
     docker_available,
     list_toolchains,
@@ -166,7 +166,7 @@ def status_cmd(
     Execution is docker-only for every Windows/DOS toolchain, so the image
     state is the primary signal; the vendored tree is informational (it is
     the byte-identical source the image builds from)."""
-    from rebrew.toolchain import get_toolchain, vendored_binary
+    from rebrew.compiler.toolchain import get_toolchain, vendored_binary
 
     try:
         spec = get_toolchain(name)
@@ -492,7 +492,7 @@ def _download_pinned_url(
     still gets the full budget on the hop that actually transfers bytes.
 
     *sleep* is the retry backoff's only time source, the same seam
-    :func:`rebrew.recompile_client.compile_source` takes: inject a stepper to
+    :func:`rebrew.compiler.recompile_client.compile_source` takes: inject a stepper to
     replay a flaky-transfer sequence from virtual time.  Left unset it reads
     :func:`time.sleep` per attempt, so a patched clock is honoured.
     """
@@ -569,7 +569,7 @@ def _probe_vendored(spec: Any, host: Path) -> Path | None:
     Falls back to the pre-``source/`` flat layout, so a tree vendored before
     the canonical nesting still resolves.
     """
-    from rebrew.toolchain import vendored_binary
+    from rebrew.compiler.toolchain import vendored_binary
 
     probe = vendored_binary(replace(spec, host_path=host))
     if probe is None:
@@ -583,7 +583,7 @@ def _vendor_tree_complete(host: Path, name: str) -> bool:
     Used so a failed prior ``vendor`` (empty or partial ``source/``) can be
     retried instead of refusing to clobber forever.
     """
-    from rebrew.toolchain import get_toolchain
+    from rebrew.compiler.toolchain import get_toolchain
 
     return _probe_vendored(get_toolchain(name), host) is not None
 
@@ -616,8 +616,8 @@ def vendor_cmd(
     import hashlib
     import tempfile
 
-    from rebrew.toolchain import get_toolchain, require_toolchains_repo
-    from rebrew.toolchain_data import SOURCES
+    from rebrew.compiler.toolchain import get_toolchain, require_toolchains_repo
+    from rebrew.compiler.toolchain_data import SOURCES
 
     repo = require_toolchains_repo()
     src = SOURCES.get(name)
@@ -1185,7 +1185,7 @@ def smoke_cmd(
     """
     import os
 
-    from rebrew.toolchain import get_toolchain
+    from rebrew.compiler.toolchain import get_toolchain
 
     if fixture is not None and (not print_goldens or name is None):
         error_exit(
@@ -1201,7 +1201,7 @@ def smoke_cmd(
     reproducible = True
     # A real-disk, docker-visible workdir (the system temp dir may be
     # tmpfs or docker-invisible in sandboxed environments).
-    from rebrew.temp_dirs import remove_temp_dir, writable_temp_dir
+    from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir
 
     workdir = writable_temp_dir("rebrew_smoke_")
     try:
@@ -1249,7 +1249,7 @@ def smoke_cmd(
                 # the uniform host runner (resolves the vendored binary, sets
                 # the wine env).  The same fixed-workdir + fixed-mtime
                 # determinism contract applies.
-                from rebrew.toolchain import ToolchainError, run_toolchain
+                from rebrew.compiler.toolchain import ToolchainError, run_toolchain
 
                 try:
                     rr = run_toolchain(spec, flags, workdir=workdir, timeout=_SMOKE_TIMEOUT_S)
@@ -1309,7 +1309,7 @@ def build_cmd(
 ) -> None:
     """Build a toolchain's docker image from the recompile-toolchains checkout."""
 
-    from rebrew.toolchain import (
+    from rebrew.compiler.toolchain import (
         ToolchainError,
         get_toolchain,
         require_toolchains_repo,
@@ -1445,7 +1445,7 @@ def _run_smoke_container(
     """
     import uuid
 
-    from rebrew.toolchain import bind_mount, kill_container
+    from rebrew.compiler.toolchain import bind_mount, kill_container
 
     container = f"{name_prefix}-{uuid.uuid4().hex[:12]}"
     try:
@@ -1500,7 +1500,7 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
     compile produced no object."""
     import os
 
-    from rebrew.toolchain import get_toolchain
+    from rebrew.compiler.toolchain import get_toolchain
 
     spec = get_toolchain(tool)
     if spec.image is None:
@@ -1628,7 +1628,7 @@ def check_updates_cmd(
     import re
     import tempfile
 
-    from rebrew.toolchain_data import SOURCES
+    from rebrew.compiler.toolchain_data import SOURCES
 
     rows: dict[str, str] = {}
     drifted: list[str] = []
@@ -1702,14 +1702,14 @@ def _splice_block(path: Path, text: str, block: Match[str], body: str) -> None:
 
 
 def _rewrite_source_pin(name: str, sha256: str, commit: str) -> None:
-    """Rewrite the SOURCES entry for *name* in toolchain_data.py (sha256 + commit).
+    """Rewrite the SOURCES entry for *name* in compiler/toolchain_data.py (sha256 + commit).
 
     The entry block is located by the unique '"name": ToolchainSource('
     header; only the pinned sha256/commit lines inside it are touched, so a
     shared checksum across entries never mutates a neighbour."""
     import re
 
-    path = Path(__file__).resolve().parent / "toolchain_data.py"
+    path = Path(__file__).resolve().parent / "compiler" / "toolchain_data.py"
     text = path.read_text(encoding="utf-8")
     esc = re.escape(name)
     block = re.search('"' + esc + '": ToolchainSource\\((.*?)\\n\\s*\\),', text, re.S)
@@ -1758,8 +1758,8 @@ def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
     image rebuild fails."""
     import re
 
-    from rebrew.toolchain import get_toolchain
-    from rebrew.toolchain_paths import toolchains_repo
+    from rebrew.compiler.toolchain import get_toolchain
+    from rebrew.compiler.toolchain_paths import toolchains_repo
 
     spec = get_toolchain(name)
     if spec.image is None or ":" not in spec.image:
@@ -1801,8 +1801,8 @@ def update_cmd(
     import tempfile
     from dataclasses import replace
 
-    from rebrew.toolchain import get_toolchain, require_toolchains_repo
-    from rebrew.toolchain_data import SOURCES
+    from rebrew.compiler.toolchain import get_toolchain, require_toolchains_repo
+    from rebrew.compiler.toolchain_data import SOURCES
 
     repo = require_toolchains_repo()
     if apply and SOURCE_CHECKOUT is None:
@@ -1896,7 +1896,7 @@ def update_cmd(
                 _rewrite_dockerfile_sha(name, src.sha256)
             raise
         # 4. regenerate the smoke golden (stable across two compiles) + write it.
-        from rebrew.temp_dirs import remove_temp_dir, writable_temp_dir
+        from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir
 
         workdir = writable_temp_dir("rebrew_smoke_")
         try:
@@ -1966,7 +1966,7 @@ def install_wibo(
     # silently steer a docker-only project toward the less-compatible
     # runtime the user just reported failing.  Only legacy host-runner
     # profiles (native/wine/wibo without an image) get the rewrite.
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     profile = str(getattr(cfg, "compiler_profile", ""))
     spec = TOOLCHAINS.get(profile) if profile else None

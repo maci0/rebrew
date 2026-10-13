@@ -1,4 +1,4 @@
-"""temp_dirs.py — scratch directories that survive a hard-killed run.
+"""compiler/temp_dirs.py — scratch directories that survive a hard-killed run.
 
 Compile sandboxes cannot live in the system temp dir (often tmpfs, and
 invisible to docker in a sandboxed environment), so :func:`writable_temp_dir`
@@ -59,7 +59,7 @@ def xdg_cache_home() -> Path:
 #: tmpfs bind mount.
 _MOUNTINFO = Path("/proc/self/mountinfo")
 
-#: RAM-backed filesystems DOSBox 0.74-3 cannot drive (see :mod:`rebrew.dosbox`).
+#: RAM-backed filesystems DOSBox 0.74-3 cannot drive (see :mod:`rebrew.compiler.dosbox`).
 #: ``ramfs`` is tmpfs's non-size-limited twin and breaks it the same way.
 _RAM_FS_TYPES = frozenset({"tmpfs", "ramfs"})
 
@@ -265,7 +265,7 @@ def writable_temp_dir(prefix: str, *, require_real_disk: bool = False) -> Path:
 
     *require_real_disk* additionally rejects a candidate sitting on tmpfs or
     ramfs, for the callers that mount the dir into DOSBox (see
-    :mod:`rebrew.dosbox`) — preference order alone does not enforce it, since
+    :mod:`rebrew.compiler.dosbox`) — preference order alone does not enforce it, since
     ``XDG_CACHE_HOME`` and the system temp dir are both commonly tmpfs.  The
     error names the constraint instead of handing back a dir DOSBox cannot
     drive, which fails much later and much less legibly.
@@ -320,7 +320,7 @@ def remove_temp_dir(
     the dir is still busy after *retries*.
 
     *sleep* is the retry gap's only time source, the same seam
-    :func:`rebrew.recompile_client.compile_source` takes: inject a stepper to
+    :func:`rebrew.compiler.recompile_client.compile_source` takes: inject a stepper to
     replay the unmount race from virtual time.  Left unset it reads
     :func:`time.sleep` per attempt, so a patched clock is honoured.
     """

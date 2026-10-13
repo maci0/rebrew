@@ -1,4 +1,4 @@
-"""Tests for rebrew.msvc16 — MSVC 1.52 (16-bit) compilation support."""
+"""Tests for rebrew.compiler.msvc16 — MSVC 1.52 (16-bit) compilation support."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.msvc16 import Msvc16Error, compile_c
-from rebrew.toolchain_paths import toolchains_repo
+from rebrew.compiler.msvc16 import Msvc16Error, compile_c
+from rebrew.compiler.toolchain_paths import toolchains_repo
 
 # The compile_c path symlinks the read-only vendored toolchain into the DOSBox
 # sandbox; without recompile-toolchains/msvc/1.52-win16 vendored (CI: the tree is
@@ -24,7 +24,7 @@ def _fake_cl(monkeypatch, sandbox: Path) -> None:
         (sandbox / "SRC.OBJ").write_bytes(b"\x80\x08\x00fake")
         return type("R", (), {"returncode": 0})()
 
-    monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
+    monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run)
 
 
 @pytest.mark.skipif(
@@ -70,13 +70,13 @@ class TestCompileC:
         def _run_no_output(args, **kwargs):
             return type("R", (), {"returncode": 0})()
 
-        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run_no_output)
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run_no_output)
         with pytest.raises(Msvc16Error, match="no object"):
             compile_c(src, tmp_path / "sandbox")
 
     def test_missing_toolchain_raises(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setattr(
-            "rebrew.msvc16._find_vc152",
+            "rebrew.compiler.msvc16._find_vc152",
             lambda version: (_ for _ in ()).throw(Msvc16Error("not found")),
         )
         src = tmp_path / "test.c"
@@ -87,7 +87,7 @@ class TestCompileC:
 
 class TestDosboxRunner:
     def test_run_dosbox_writes_conf(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.dosbox import run_dosbox
+        from rebrew.compiler.dosbox import run_dosbox
 
         calls: list[list[str]] = []
 
@@ -95,8 +95,10 @@ class TestDosboxRunner:
             calls.append(cmd)
             return type("R", (), {"returncode": 0})()
 
-        monkeypatch.setattr("rebrew.dosbox.shutil.which", lambda *a, **k: "/usr/bin/dosbox")
-        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
+        monkeypatch.setattr(
+            "rebrew.compiler.dosbox.shutil.which", lambda *a, **k: "/usr/bin/dosbox"
+        )
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run)
         run_dosbox(tmp_path, ["C:\\DCC.EXE hello.dpr"])
         conf = (tmp_path / "run.conf").read_text(encoding="utf-8")
         assert f'mount c "{tmp_path}"' in conf
@@ -104,22 +106,24 @@ class TestDosboxRunner:
         assert calls[0][0] == "dosbox"
 
     def test_missing_dosbox_raises(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.dosbox import DosboxError, run_dosbox
+        from rebrew.compiler.dosbox import DosboxError, run_dosbox
 
-        monkeypatch.setattr("rebrew.dosbox.shutil.which", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.dosbox.shutil.which", lambda *a, **k: None)
         with pytest.raises(DosboxError, match="dosbox"):
             run_dosbox(tmp_path, [])
 
     def test_nonzero_exit_raises_with_output(self, tmp_path: Path, monkeypatch) -> None:
         """A dosbox crash (nonzero exit) must surface its output, not leave
         callers reporting an empty compile log."""
-        from rebrew.dosbox import DosboxError, run_dosbox
+        from rebrew.compiler.dosbox import DosboxError, run_dosbox
 
         def _run(cmd, **kwargs):
             return type("R", (), {"returncode": 1, "stdout": "", "stderr": "SDL init failed"})()
 
-        monkeypatch.setattr("rebrew.dosbox.shutil.which", lambda *a, **k: "/usr/bin/dosbox")
-        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
+        monkeypatch.setattr(
+            "rebrew.compiler.dosbox.shutil.which", lambda *a, **k: "/usr/bin/dosbox"
+        )
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run)
         with pytest.raises(DosboxError, match="SDL init failed"):
             run_dosbox(tmp_path, ["dir"])
 
@@ -131,8 +135,8 @@ class TestStaleOutputIsNotSuccess:
         tree = tmp_path / "vc152"
         for sub in ("BIN", "INCLUDE", "LIB"):
             (tree / sub).mkdir(parents=True)
-        monkeypatch.setattr("rebrew.msvc16._find_vc152", lambda version: tree)
-        monkeypatch.setattr("rebrew.msvc16.run_dosbox", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.msvc16._find_vc152", lambda version: tree)
+        monkeypatch.setattr("rebrew.compiler.msvc16.run_dosbox", lambda *a, **k: None)
         src = tmp_path / "f.c"
         src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
         workdir = tmp_path / "sandbox"
@@ -148,7 +152,7 @@ class TestStaleOutputIsNotSuccess:
         tree = tmp_path / "vc152"
         for sub in ("BIN", "INCLUDE", "LIB"):
             (tree / sub).mkdir(parents=True)
-        monkeypatch.setattr("rebrew.msvc16._find_vc152", lambda version: tree)
+        monkeypatch.setattr("rebrew.compiler.msvc16._find_vc152", lambda version: tree)
 
         staged: dict[str, bytes] = {}
 
@@ -156,7 +160,7 @@ class TestStaleOutputIsNotSuccess:
             staged["src"] = (sandbox / "SRC.C").read_bytes()
             (sandbox / "SRC.OBJ").write_bytes(b"\x80\x08")
 
-        monkeypatch.setattr("rebrew.msvc16.run_dosbox", _capture)
+        monkeypatch.setattr("rebrew.compiler.msvc16.run_dosbox", _capture)
         raw = b'char *s = "Caf\xe9";\nint f(void) { return 0; }\n'
         src = tmp_path / "cafe.c"
         src.write_bytes(raw)

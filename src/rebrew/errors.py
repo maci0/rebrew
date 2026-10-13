@@ -55,16 +55,22 @@ if TYPE_CHECKING:
     from rebrew.binary_loader import ExportParseError as ExportParseError
     from rebrew.coff_reloc import CatalogScanError as CatalogScanError
     from rebrew.coff_reloc import UnresolvedSymbolError as UnresolvedSymbolError
-    from rebrew.compile import CompareResultError as CompareResultError
+    from rebrew.compiler.compile import CompareResultError as CompareResultError
+    from rebrew.compiler.delphi16 import Delphi16Error as Delphi16Error
+    from rebrew.compiler.dosbox import DosboxError as DosboxError
+    from rebrew.compiler.msvc16 import Msvc16Error as Msvc16Error
+    from rebrew.compiler.recompile_client import RecompileError as RecompileError
+    from rebrew.compiler.recompile_client import RecompileErrorKind as RecompileErrorKind
+    from rebrew.compiler.tc16 import Tc16Error as Tc16Error
+    from rebrew.compiler.toolchain import ToolchainError as ToolchainError
+    from rebrew.compiler.toolchain import ToolchainErrorKind as ToolchainErrorKind
     from rebrew.config import ConfigError as ConfigError
     from rebrew.config import ConfigKeyError as ConfigKeyError
     from rebrew.config import ConfigNotFoundError as ConfigNotFoundError
     from rebrew.coverage_toml import CoverageTomlError as CoverageTomlError
     from rebrew.decompme import DecompmeError as DecompmeError
     from rebrew.decompme import DecompmeErrorKind as DecompmeErrorKind
-    from rebrew.delphi16 import Delphi16Error as Delphi16Error
     from rebrew.doctor import LibIndexUnavailable as LibIndexUnavailable
-    from rebrew.dosbox import DosboxError as DosboxError
     from rebrew.fingerprints import FingerprintError as FingerprintError
     from rebrew.ghidra.client import McpApplyAborted as McpApplyAborted
     from rebrew.ghidra.client import McpError as McpError
@@ -73,22 +79,16 @@ if TYPE_CHECKING:
     from rebrew.matcher.scoring import SimilarityUnavailable as SimilarityUnavailable
     from rebrew.metadata import LibraryOverrideError as LibraryOverrideError
     from rebrew.metadata_model import MetadataValidationError as MetadataValidationError
-    from rebrew.msvc16 import Msvc16Error as Msvc16Error
     from rebrew.ne_loader import NeParseError as NeParseError
     from rebrew.omf16 import Omf16Error as Omf16Error
     from rebrew.orphans import OrphanInventoryError as OrphanInventoryError
     from rebrew.pdb_export import PdbExportError as PdbExportError
     from rebrew.plugin import ComponentError as ComponentError
-    from rebrew.recompile_client import RecompileError as RecompileError
-    from rebrew.recompile_client import RecompileErrorKind as RecompileErrorKind
     from rebrew.registry import RegistryError as RegistryError
     from rebrew.rename_ops import RenameError as RenameError
     from rebrew.residue import ResidueError as ResidueError
     from rebrew.security_scan import SecurityScanUnavailable as SecurityScanUnavailable
     from rebrew.struct_recover import NoDecompilationError as NoDecompilationError
-    from rebrew.tc16 import Tc16Error as Tc16Error
-    from rebrew.toolchain import ToolchainError as ToolchainError
-    from rebrew.toolchain import ToolchainErrorKind as ToolchainErrorKind
     from rebrew.vendor import VendorError as VendorError
     from rebrew.workspace.config import WorkspaceConfigError as WorkspaceConfigError
     from rebrew.workspace.config import WorkspaceNotFound as WorkspaceNotFound
@@ -228,13 +228,13 @@ class RebrewError(Exception):
 _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "CatalogScanError": ("rebrew.coff_reloc", "CatalogScanError"),
     "ComponentError": ("rebrew.plugin", "ComponentError"),
-    "CompareResultError": ("rebrew.compile", "CompareResultError"),
+    "CompareResultError": ("rebrew.compiler.compile", "CompareResultError"),
     "ConfigError": ("rebrew.config", "ConfigError"),
     "ConfigKeyError": ("rebrew.config", "ConfigKeyError"),
     "ConfigNotFoundError": ("rebrew.config", "ConfigNotFoundError"),
     "DecompmeError": ("rebrew.decompme", "DecompmeError"),
-    "Delphi16Error": ("rebrew.delphi16", "Delphi16Error"),
-    "DosboxError": ("rebrew.dosbox", "DosboxError"),
+    "Delphi16Error": ("rebrew.compiler.delphi16", "Delphi16Error"),
+    "DosboxError": ("rebrew.compiler.dosbox", "DosboxError"),
     "ExportParseError": ("rebrew.binary_loader", "ExportParseError"),
     "FingerprintError": ("rebrew.fingerprints", "FingerprintError"),
     "LibraryOverrideError": ("rebrew.metadata", "LibraryOverrideError"),
@@ -242,21 +242,21 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "McpApplyAborted": ("rebrew.ghidra.client", "McpApplyAborted"),
     "McpError": ("rebrew.ghidra.client", "McpError"),
     "MetadataValidationError": ("rebrew.metadata_model", "MetadataValidationError"),
-    "Msvc16Error": ("rebrew.msvc16", "Msvc16Error"),
+    "Msvc16Error": ("rebrew.compiler.msvc16", "Msvc16Error"),
     "NeParseError": ("rebrew.ne_loader", "NeParseError"),
     "NoDecompilationError": ("rebrew.struct_recover", "NoDecompilationError"),
     "NotLzexeError": ("rebrew.lzexe", "NotLzexeError"),
     "Omf16Error": ("rebrew.omf16", "Omf16Error"),
     "OrphanInventoryError": ("rebrew.orphans", "OrphanInventoryError"),
     "PdbExportError": ("rebrew.pdb_export", "PdbExportError"),
-    "RecompileError": ("rebrew.recompile_client", "RecompileError"),
+    "RecompileError": ("rebrew.compiler.recompile_client", "RecompileError"),
     "RegistryError": ("rebrew.registry", "RegistryError"),
     "RenameError": ("rebrew.rename_ops", "RenameError"),
     "ResidueError": ("rebrew.residue", "ResidueError"),
     "SecurityScanUnavailable": ("rebrew.security_scan", "SecurityScanUnavailable"),
     "SimilarityUnavailable": ("rebrew.matcher.scoring", "SimilarityUnavailable"),
-    "Tc16Error": ("rebrew.tc16", "Tc16Error"),
-    "ToolchainError": ("rebrew.toolchain", "ToolchainError"),
+    "Tc16Error": ("rebrew.compiler.tc16", "Tc16Error"),
+    "ToolchainError": ("rebrew.compiler.toolchain", "ToolchainError"),
     "UnresolvedSymbolError": ("rebrew.coff_reloc", "UnresolvedSymbolError"),
     "CoverageTomlError": ("rebrew.coverage_toml", "CoverageTomlError"),
     "VendorError": ("rebrew.vendor", "VendorError"),
@@ -269,12 +269,12 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
 #: ``rebrew.errors``.  They sit beside the classes in :data:`_LAZY_ERRORS`
 #: because branching on ``exc.kind`` (the documented alternative to matching
 #: the message) needs the alias that types the field, and the consumer should
-#: not have to know that ``RecompileErrorKind`` lives in ``rebrew.recompile_client``.
+#: not have to know that ``RecompileErrorKind`` lives in ``rebrew.compiler.recompile_client``.
 _LAZY_ERROR_KINDS: dict[str, tuple[str, str]] = {
     "DecompmeErrorKind": ("rebrew.decompme", "DecompmeErrorKind"),
     "McpErrorKind": ("rebrew.ghidra.client", "McpErrorKind"),
-    "RecompileErrorKind": ("rebrew.recompile_client", "RecompileErrorKind"),
-    "ToolchainErrorKind": ("rebrew.toolchain", "ToolchainErrorKind"),
+    "RecompileErrorKind": ("rebrew.compiler.recompile_client", "RecompileErrorKind"),
+    "ToolchainErrorKind": ("rebrew.compiler.toolchain", "ToolchainErrorKind"),
 }
 
 

@@ -1051,7 +1051,7 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
         )
 
     if (leaf == "backend" and "cache" in parts) and parsed_value:
-        from rebrew.compile_cache import available_cache_backends
+        from rebrew.compiler.cache import available_cache_backends
 
         known_backends = available_cache_backends()
         if parsed_value not in known_backends:
@@ -1399,7 +1399,7 @@ def _set_compiler_locked(
     # command (the image IS the compiler) — blank command/runner like
     # init does for fresh projects, so set-compiler never writes a stale
     # "wine toolchain/..." line that doctor/verify might misread.
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     _spec = TOOLCHAINS.get(profile)
     if _spec is not None and _spec.image is not None:

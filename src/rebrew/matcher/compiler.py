@@ -25,7 +25,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from rebrew.compile_cache import CacheBackend, compile_cache_key
+from rebrew.compiler.cache import CacheBackend, compile_cache_key
+from rebrew.compiler.toolchain_spec import FlagsStyle
 from rebrew.config import profile_flags_style
 from rebrew.flag_data import (
     BORLAND_FLAGS,
@@ -41,7 +42,6 @@ from rebrew.flag_data import (
     WATCOM_SWEEP_TIERS,
 )
 from rebrew.flags import Checkbox, Flags, FlagSet
-from rebrew.toolchain_spec import FlagsStyle
 from rebrew.utils import (
     interruptible_pool,
     read_source_text,
@@ -74,12 +74,12 @@ def _sweep_scoring_params(cfg: Any) -> tuple[int, int]:
 
 
 def _filter_wine_stderr(text: str) -> str:
-    """Filter Wine noise from stderr text (lazy-imported from rebrew.compile).
+    """Filter Wine noise from stderr text (lazy-imported from rebrew.compiler.compile).
 
-    Imported lazily because rebrew.compile imports rebrew.coff_reloc, which imports
+    Imported lazily because rebrew.compiler.compile imports rebrew.coff_reloc, which imports
     rebrew.matcher — a module-level import here would be circular.
     """
-    from rebrew.compile import filter_wine_stderr
+    from rebrew.compiler.compile import filter_wine_stderr
 
     return filter_wine_stderr(text)
 
@@ -88,7 +88,7 @@ def _maybe_headless_wine(
     cmd: list[str], env: dict[str, str] | None
 ) -> tuple[list[str], dict[str, str] | None]:
     """Wrap a ``wine`` command under xvfb-run (lazy-imported, see above)."""
-    from rebrew.compile import maybe_headless_wine
+    from rebrew.compiler.compile import maybe_headless_wine
 
     return maybe_headless_wine(cmd, env)
 
@@ -346,7 +346,7 @@ def docker_backed_profiles() -> frozenset[str]:
     """The image-backed toolchain profiles, resolved from the registry.
 
     A failed probe is never cached: the initial resolution runs while
-    ``rebrew.toolchain`` may still be initializing, and pinning the empty set
+    ``rebrew.compiler.toolchain`` may still be initializing, and pinning the empty set
     from a transient failure would route every shipped ``msvc-*`` profile to a
     host ``cl.exe`` subprocess for the rest of the process.  Only a successful
     resolution is memoized, and :func:`refresh_docker_backed_profiles` drops
@@ -360,7 +360,7 @@ def docker_backed_profiles() -> frozenset[str]:
         cached = _DOCKER_BACKED_PROFILES
         if cached is not None:
             return cached
-        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain import TOOLCHAINS
 
         cached = frozenset(n for n, s in TOOLCHAINS.items() if s.image is not None)
         _DOCKER_BACKED_PROFILES = cached
@@ -370,7 +370,7 @@ def docker_backed_profiles() -> frozenset[str]:
 def refresh_docker_backed_profiles() -> frozenset[str]:
     """Re-derive the set after the toolchain registry is refreshed.
 
-    Paired with :func:`rebrew.toolchain.refresh_toolchain_registry` in
+    Paired with :func:`rebrew.compiler.toolchain.refresh_toolchain_registry` in
     :func:`rebrew.registry.refresh_all`, so a toolchain plugin installed into a
     long-lived process routes through its image instead of the host path.
     """
@@ -606,14 +606,14 @@ def build_candidate_obj_only(
                 reversed_dir=Path.cwd(),
                 metadata_dir=Path.cwd(),
             )
-        from rebrew.compile import compile_to_obj
+        from rebrew.compiler.compile import compile_to_obj
 
         # The docker workdir must live on a real, container-visible disk:
         # under sandboxed homes the system temp dir is invisible to docker
         # and the bind mount silently loses the source (the image wrapper
         # then reports "no readable source file").  writable_temp_dir
         # prefers the workspace .cache for exactly this reason.
-        from rebrew.temp_dirs import writable_temp_dir
+        from rebrew.compiler.temp_dirs import writable_temp_dir
 
         base = writable_temp_dir("matcher_")
         try:
@@ -650,7 +650,7 @@ def build_candidate_obj_only(
                 return BuildResult(ok=False, error_msg=f"Compile failed: {err}")
             return _obj_result(obj_file, symbol)
         finally:
-            from rebrew.temp_dirs import remove_temp_dir
+            from rebrew.compiler.temp_dirs import remove_temp_dir
 
             with contextlib.suppress(OSError):
                 remove_temp_dir(base)
@@ -680,7 +680,7 @@ def build_candidate_obj_only(
     # resolution compile_to_obj performs for toolchain-backed profiles.
     src_parent = Path(extra_inc[0]) if extra_inc else Path.cwd()
     if any(f.startswith(("/I", "-I")) for f in all_flags):
-        from rebrew.compile import resolve_include_flags
+        from rebrew.compiler.compile import resolve_include_flags
 
         # extra_inc carries the source's parent dir for relative #include resolution;
         # fall back to cwd when no extra inc dirs were supplied.
@@ -696,7 +696,7 @@ def build_candidate_obj_only(
     key_env = env
 
     def _host_toolchain_id() -> str | None:
-        from rebrew.compile import native_binary_id
+        from rebrew.compiler.compile import native_binary_id
 
         parts: list[str] = []
         for part in _compiler_cmd_parts(cl_cmd, key_env):
@@ -707,7 +707,7 @@ def build_candidate_obj_only(
         return " ".join(parts)
 
     if cache is not None:
-        from rebrew.compile import extract_include_dirs
+        from rebrew.compiler.compile import extract_include_dirs
 
         # Key each command part on its executable's content (as compile_to_obj
         # does for native specs): a compiler upgraded in place must never be
@@ -771,7 +771,7 @@ def build_candidate_obj_only(
             return BuildResult(ok=False, error_msg=detailed_err)
 
         if cache is not None and cache_key is not None:
-            from rebrew.compile import publish_obj_cache
+            from rebrew.compiler.compile import publish_obj_cache
 
             fresh_id = _host_toolchain_id()
             if fresh_id is not None:

@@ -9,12 +9,12 @@ from typing import Any
 
 import pytest
 
+from rebrew.compiler.recompile_client import RecompileError
+from rebrew.compiler.toolchain import ToolchainError
 from rebrew.errors import RebrewError
 from rebrew.ghidra import McpApplyAborted, McpError
 from rebrew.metadata_model import MetadataValidationError
-from rebrew.recompile_client import RecompileError
 from rebrew.registry import RegistryError
-from rebrew.toolchain import ToolchainError
 from rebrew.workspace import WorkspaceNotFound
 
 # Stdlib exception bases a rebrew error may carry besides RebrewError.  A class
@@ -251,7 +251,7 @@ class TestSerializationRoundTrip:
         assert (rebuilt.applied, rebuilt.errors) == (3, 1)
 
     def test_a_contradictory_result_keeps_both_offending_fields(self) -> None:
-        from rebrew.compile import CompareResultError
+        from rebrew.compiler.compile import CompareResultError
 
         original = CompareResultError("matched without a byte match", matched=True, status="EXACT")
         rebuilt = RebrewError.from_dict(original.to_dict())

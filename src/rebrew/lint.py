@@ -3090,7 +3090,7 @@ def main(
         )
     if fix and cfg:
         from rebrew.annotation import remove_inline_annotation_key
-        from rebrew.compile_overrides import resolve_cflags
+        from rebrew.compiler.overrides import resolve_cflags
         from rebrew.data_metadata import (
             DATA_METADATA_FIELDS,
             DATA_STATUSES,

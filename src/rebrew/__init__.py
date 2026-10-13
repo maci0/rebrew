@@ -7,11 +7,11 @@ reconstructing exact C source from compiled binaries.
 Library consumers typically import submodules directly, for example:
 
 * ``rebrew.errors`` — ``RebrewError``, the base of every error raised below
-* ``rebrew.compile`` — ``CompareResult``, ``CompareStatus``, ``compile_and_compare``
+* ``rebrew.compiler.compile`` — ``CompareResult``, ``CompareStatus``, ``compile_and_compare``
 * ``rebrew.config`` — ``ProjectConfig``, ``load_config``, ``ConfigError``
 * ``rebrew.sources`` — ``iter_sources``, ``iter_library_headers``
-* ``rebrew.toolchain`` — ``ToolchainError``, ``get_toolchain``, ``require_toolchains_repo``
-* ``rebrew.recompile_client`` — remote compile transport
+* ``rebrew.compiler.toolchain`` — ``ToolchainError``, ``get_toolchain``, ``require_toolchains_repo``
+* ``rebrew.compiler.recompile_client`` — remote compile transport
 * ``rebrew.decompme`` — decomp.me scratch upload, same injectable-client shape
 * ``rebrew.registry`` / ``rebrew.plugin`` — entry-point extension hooks
 * ``rebrew.workspace`` — stdlib-light project/root and coverage-directory helpers
@@ -29,17 +29,17 @@ from typing import TYPE_CHECKING
 # Names below are bound at type-check time only.  Runtime access stays in
 # ``__getattr__`` so importing the package does not load the compile stack.
 if TYPE_CHECKING:
-    from rebrew.compile import CompareResult as CompareResult
-    from rebrew.compile import CompareStatus as CompareStatus
-    from rebrew.compile import compile_and_compare as compile_and_compare
+    from rebrew.compiler.compile import CompareResult as CompareResult
+    from rebrew.compiler.compile import CompareStatus as CompareStatus
+    from rebrew.compiler.compile import compile_and_compare as compile_and_compare
+    from rebrew.compiler.toolchain import ToolchainError as ToolchainError
+    from rebrew.compiler.toolchain import get_toolchain as get_toolchain
     from rebrew.config import ConfigError as ConfigError
     from rebrew.config import ProjectConfig as ProjectConfig
     from rebrew.config import load_config as load_config
     from rebrew.errors import RebrewError as RebrewError
     from rebrew.sources import iter_library_headers as iter_library_headers
     from rebrew.sources import iter_sources as iter_sources
-    from rebrew.toolchain import ToolchainError as ToolchainError
-    from rebrew.toolchain import get_toolchain as get_toolchain
 
 # NumPy's bundled OpenBLAS starts a full-width thread pool at import and
 # busy-spins it while the rest of the interpreter loads.  Importing
@@ -54,14 +54,14 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 __version__ = "2.25.0"
 
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
-    "CompareResult": ("rebrew.compile", "CompareResult"),
-    "CompareStatus": ("rebrew.compile", "CompareStatus"),
+    "CompareResult": ("rebrew.compiler.compile", "CompareResult"),
+    "CompareStatus": ("rebrew.compiler.compile", "CompareStatus"),
     "ConfigError": ("rebrew.config", "ConfigError"),
     "ProjectConfig": ("rebrew.config", "ProjectConfig"),
     "RebrewError": ("rebrew.errors", "RebrewError"),
-    "ToolchainError": ("rebrew.toolchain", "ToolchainError"),
-    "compile_and_compare": ("rebrew.compile", "compile_and_compare"),
-    "get_toolchain": ("rebrew.toolchain", "get_toolchain"),
+    "ToolchainError": ("rebrew.compiler.toolchain", "ToolchainError"),
+    "compile_and_compare": ("rebrew.compiler.compile", "compile_and_compare"),
+    "get_toolchain": ("rebrew.compiler.toolchain", "get_toolchain"),
     "iter_library_headers": ("rebrew.sources", "iter_library_headers"),
     "iter_sources": ("rebrew.sources", "iter_sources"),
     "load_config": ("rebrew.config", "load_config"),

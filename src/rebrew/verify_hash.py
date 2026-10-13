@@ -67,8 +67,8 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
 
     Every step is already memoized at the granularity where its inputs can
     change (the source body on its stat identity, the resolved overrides in
-    ``compile_overrides``, the include closure on the reached headers' stats
-    in ``compile_cache``).  Memoizing the assembled fingerprint as well buys
+    ``compiler.overrides``, the include closure on the reached headers' stats
+    in ``compiler.cache``).  Memoizing the assembled fingerprint as well buys
     nothing and costs correctness: a per-file key that named the source and
     the config but not the headers would serve a stale ``headers_fp`` for
     the rest of the process, which is the one input a long ``verify`` run can
@@ -77,7 +77,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
     :func:`fresh_entry_fingerprint`, and only while a fresh source stat
     still matches.
     """
-    from rebrew.compile_overrides import resolve_compile_overrides_cached
+    from rebrew.compiler.overrides import resolve_compile_overrides_cached
 
     relative_path = getattr(entry, "filepath", "") or ""
     if not relative_path:
@@ -218,7 +218,7 @@ def cflags_equivalent(stored: str, current: str) -> bool:
         return False
     if stored == current:
         return True
-    from rebrew.compile_cache import canonicalize_cflags
+    from rebrew.compiler.cache import canonicalize_cflags
 
     try:
         stored_flags = shlex.split(stored)
@@ -247,7 +247,7 @@ def _package_source_fingerprint() -> tuple[tuple[str, int, int, int], ...]:
             # never contained it, so a verify result earned before it
             # existed is re-served as current.  An unreadable marker keeps
             # the key distinct (same rule as
-            # ``compile_cache.include_fingerprint``).
+            # ``compiler.cache.include_fingerprint``).
             entries.append((f"{path}\0unreadable", 0, 0, 0))
             continue
         entries.append((str(path), st.st_mtime_ns, st.st_size, st.st_ino))
@@ -281,7 +281,7 @@ def _compare_logic_hash() -> str:
     The hash covers the WHOLE ``rebrew`` package source rather than a
     hand-maintained module list: result-affecting code lives across
     ``coff_reloc`` (reloc validation), ``msvc_env`` (compiler env),
-    ``compile_overrides.resolve_cflags`` (flags), ``binary_loader`` (IAT masking) and
+    ``compiler.overrides.resolve_cflags`` (flags), ``binary_loader`` (IAT masking) and
     others, and a manual list inevitably drifts — a missed module then ships
     a fix without invalidating caches written by the pre-fix build.
     """
@@ -329,7 +329,7 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
     # binary identity is guarded separately via VerifyCache.binary_id and
     # cache_identity_matches; mixing it in would bust the cache on
     # every run that touches the binary even when nothing relevant changed.
-    from rebrew.compile import recompile_url as _recompile_url
+    from rebrew.compiler.compile import recompile_url as _recompile_url
 
     parts = [
         cfg.compiler_command,
@@ -381,7 +381,7 @@ def _external_includes_hash(cfg: ProjectConfig) -> str:
     """
     import shlex
 
-    from rebrew.compile_cache import include_fingerprint
+    from rebrew.compiler.cache import include_fingerprint
 
     inc_dirs: list[str] = []
     inc = compiler_dir(getattr(cfg, "compiler_includes", None))
@@ -404,7 +404,7 @@ def headers_hash(cfg: ProjectConfig) -> str:
     re-verified.  Returns a stable hash that captures the union of all .h files
     under cfg.reversed_dir plus the config-level ``-I`` include dirs (see
     :func:`_external_includes_hash`).  (The compile cache tracks headers
-    independently via ``compile_cache.include_fingerprint``; this hash guards
+    independently via ``compiler.cache.include_fingerprint``; this hash guards
     the verify cache, which also covers include dirs outside ``reversed_dir``.)
 
     Memoized behind a cheap stat fingerprint (path + mtime_ns + size): when no
@@ -456,7 +456,7 @@ def headers_hash(cfg: ProjectConfig) -> str:
             # Skipping an unreadable header makes this digest identical to a
             # tree that never contained it, so an edit behind the failed read
             # stays a cache hit.  An unreadable marker keeps the key distinct
-            # (same convention as compile_cache.include_fingerprint).
+            # (same convention as compiler.cache.include_fingerprint).
             log.warning("headers_hash: cannot read %s (%s); digesting it as unreadable", rel, exc)
             h.update(b"\x00unreadable\x00")
             h.update(b"\x01")
@@ -630,7 +630,7 @@ def entry_headers_fp(
     Resolves the source's ``#include`` closure against the same dirs the
     compile would search (``compiler_includes``, the source's own dir, and
     the ``/I`` dirs of the base + resolved per-function flags) and hashes the
-    reached headers via ``compile_cache.header_dependency_hash``.  Editing a
+    reached headers via ``compiler.cache.header_dependency_hash``.  Editing a
     header therefore re-verifies exactly the entries whose source reaches it
     — replacing the old global ``headers_hash`` gate that re-verified
     everything on any header change.  Returns ``""`` when the source cannot
@@ -639,12 +639,12 @@ def entry_headers_fp(
     Pass *source_bytes* when the caller already read the file (fingerprint
     path) so the second full-file read is skipped.
     """
-    from rebrew.compile import extract_include_dirs, resolve_include_flags
-    from rebrew.compile_cache import (
+    from rebrew.compiler.cache import (
         FORCE_INCLUDE_PREFIXES,
         dir_fingerprint_hash,
         header_dependency_hash,
     )
+    from rebrew.compiler.compile import extract_include_dirs, resolve_include_flags
 
     source_dir = filepath.parent
     inc_path = compiler_dir(getattr(cfg, "compiler_includes", None))

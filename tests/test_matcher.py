@@ -379,7 +379,7 @@ class TestDockerPathForwardsExtraIncludes:
             obj.write_bytes(_make_minimal_coff_obj("_f", b"\xc3"))
             return str(obj), ""
 
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", compile_candidate)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_to_obj", compile_candidate)
         result = build_candidate_obj_only(
             '#include "tracking.h"\nint f(void){return tracked();}\n',
             "cl.exe",
@@ -406,7 +406,7 @@ class TestDockerPathForwardsExtraIncludes:
             (workdir / "cand.obj").write_bytes(b"\x00" * 8)
             return str(workdir / "cand.obj"), ""
 
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile_to_obj)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_to_obj", _fake_compile_to_obj)
         monkeypatch.setattr(
             "rebrew.matcher.compiler.parse_obj_symbol_bytes",
             lambda obj, sym: (b"\x00" * 8, {}),

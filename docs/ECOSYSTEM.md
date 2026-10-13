@@ -56,7 +56,7 @@ flowchart TB
     RES -.->|"scoring core (similarity group)"| REPORTAL
     RB -.->|"operates on"| PRJ
     REAGENT -->|"direct rebrew.* imports"| RB
-    RC -->|"path dep: rebrew.toolchain catalog"| RB
+    RC -->|"path dep: rebrew.compiler.toolchain catalog"| RB
     RC -->|"docker run"| IMG
     REL -.->|"productizes the whole stack"| RB
     REPORTAL -.->|"self-hosted portal UX"| REL
@@ -173,13 +173,13 @@ FastAPI service wrapping the toolchain zoo as an HTTP API:
 `POST /api/v1/compile` accepts C source + a compiler id + flags, runs the
 compile in the matching pinned toolchain container, and returns the
 artifact. It path-depends on rebrew (the compiler catalog comes from
-`rebrew.toolchain`) and needs the recompile-toolchains images to execute
+`rebrew.compiler.toolchain`) and needs the recompile-toolchains images to execute
 compiles.
 
 It is also the dataset side of the ML vision: `emit_assembly: true` appends
 `(source, listing)` pairs to `train_data/train.jsonl`; the raw material
 for the snowball/LoRA fine-tuning pipeline (relumea below).  Collection is
-implemented (`rebrew.recompile_client`); the training pipeline itself is not.
+implemented (`rebrew.compiler.recompile_client`); the training pipeline itself is not.
 
 ### reagent: autonomous LLM RE agent
 

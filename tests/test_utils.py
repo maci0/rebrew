@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from rebrew import temp_dirs
+from rebrew.compiler import temp_dirs
 from rebrew.utils import (
     RETRY_LOG_MESSAGE_CHARS,
     atomic_write_bytes,
@@ -322,13 +322,13 @@ class TestAtomicWriteLocked:
 
 
 # ---------------------------------------------------------------------------
-# filter_wine_stderr (canonical implementation in rebrew.compile)
+# filter_wine_stderr (canonical implementation in rebrew.compiler.compile)
 # ---------------------------------------------------------------------------
 
 
 class TestFilterWineStderr:
     def test_strips_wine_noise(self) -> None:
-        from rebrew.compile import filter_wine_stderr
+        from rebrew.compiler.compile import filter_wine_stderr
 
         noisy = "0042:err:ntdll:something broken\nreal error: missing ;\n"
         result = filter_wine_stderr(noisy)
@@ -336,14 +336,14 @@ class TestFilterWineStderr:
         assert "real error: missing ;" in result
 
     def test_strips_fixme_winediag(self) -> None:
-        from rebrew.compile import filter_wine_stderr
+        from rebrew.compiler.compile import filter_wine_stderr
 
         result = filter_wine_stderr("0042:fixme:winediag:test\nactual output")
         assert "fixme" not in result
         assert "actual output" in result
 
     def test_empty_string(self) -> None:
-        from rebrew.compile import filter_wine_stderr
+        from rebrew.compiler.compile import filter_wine_stderr
 
         assert filter_wine_stderr("") == ""
 
@@ -351,7 +351,7 @@ class TestFilterWineStderr:
         """Headless Xvfb compiles emit libEGL/DRI3 display noise with no
         [hex]: prefix — it must be stripped so a real compile error is not
         drowned (seen on wine-runtime MSVC 4.0/5.0 under Xvfb)."""
-        from rebrew.compile import filter_wine_stderr
+        from rebrew.compiler.compile import filter_wine_stderr
 
         noisy = (
             "libEGL warning: DRI3 error: Could not get DRI3 device\n"
@@ -818,7 +818,7 @@ class TestWritableTempDir:
     out of ~)."""
 
     def test_creates_prefixed_dir(self) -> None:
-        from rebrew.temp_dirs import writable_temp_dir
+        from rebrew.compiler.temp_dirs import writable_temp_dir
 
         d = writable_temp_dir("rebrew_test_")
         try:
@@ -832,7 +832,7 @@ class TestWritableTempDir:
     def test_created_under_allowed_parents(self) -> None:
         import tempfile
 
-        from rebrew.temp_dirs import writable_temp_dir
+        from rebrew.compiler.temp_dirs import writable_temp_dir
 
         xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
         cache_root = Path(xdg) if xdg else Path.home() / ".cache"
@@ -850,7 +850,7 @@ class TestWritableTempDir:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_honors_xdg_cache_home(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.temp_dirs import writable_temp_dir
+        from rebrew.compiler.temp_dirs import writable_temp_dir
 
         xdg = tmp_path / "xdg-cache"
         monkeypatch.setenv("XDG_CACHE_HOME", str(xdg))
@@ -866,7 +866,7 @@ class TestWritableTempDir:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A relative XDG_CACHE_HOME is invalid per the XDG spec: use ~/.cache."""
-        from rebrew.temp_dirs import writable_temp_dir
+        from rebrew.compiler.temp_dirs import writable_temp_dir
 
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("XDG_CACHE_HOME", "rel-cache")
@@ -887,7 +887,7 @@ class TestWritableTempDir:
         failure, so an unconverted RuntimeError escapes its candidate loop and
         fails every compile with a traceback instead of the fix.
         """
-        from rebrew.temp_dirs import writable_temp_dir, xdg_cache_home
+        from rebrew.compiler.temp_dirs import writable_temp_dir, xdg_cache_home
 
         monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
         monkeypatch.delenv("HOME", raising=False)
@@ -898,7 +898,7 @@ class TestWritableTempDir:
             writable_temp_dir("rebrew_test_")
 
     def test_not_directly_in_home(self) -> None:
-        from rebrew.temp_dirs import writable_temp_dir
+        from rebrew.compiler.temp_dirs import writable_temp_dir
 
         d = writable_temp_dir("rebrew_test_")
         try:
@@ -1039,7 +1039,7 @@ class TestOnRamFilesystem:
 
 class TestRemoveTempDir:
     def test_removes_dir(self, tmp_path: Path) -> None:
-        from rebrew.temp_dirs import remove_temp_dir
+        from rebrew.compiler.temp_dirs import remove_temp_dir
 
         d = tmp_path / "sandbox"
         d.mkdir()
@@ -1048,7 +1048,7 @@ class TestRemoveTempDir:
         assert not d.exists()
 
     def test_repeated_cleanup(self, tmp_path: Path) -> None:
-        from rebrew.temp_dirs import remove_temp_dir
+        from rebrew.compiler.temp_dirs import remove_temp_dir
 
         d = tmp_path / "sandbox"
         d.mkdir()
@@ -1063,7 +1063,7 @@ class TestRemoveTempDir:
         import errno
         import shutil
 
-        from rebrew.temp_dirs import remove_temp_dir
+        from rebrew.compiler.temp_dirs import remove_temp_dir
 
         d = tmp_path / "sandbox"
         d.mkdir()
@@ -1087,7 +1087,7 @@ class TestRemoveTempDir:
     ) -> None:
         import shutil
 
-        from rebrew.temp_dirs import remove_temp_dir
+        from rebrew.compiler.temp_dirs import remove_temp_dir
 
         d = tmp_path / "sandbox"
         d.mkdir()
@@ -1106,7 +1106,7 @@ class TestRemoveTempDir:
         import errno
         import shutil
 
-        from rebrew.temp_dirs import remove_temp_dir
+        from rebrew.compiler.temp_dirs import remove_temp_dir
 
         d = tmp_path / "sandbox"
         d.mkdir()

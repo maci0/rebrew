@@ -26,7 +26,7 @@ from rebrew.annotation import (
 from rebrew.binary_loader import capstone_mode_for_arch, extract_raw_bytes
 from rebrew.cli import EXIT_MISMATCH, error_exit, json_print, parse_va
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
-from rebrew.compile import resolve_compiler_env
+from rebrew.compiler.compile import resolve_compiler_env
 from rebrew.config import ProjectConfig
 from rebrew.match_batch import (
     StubInfo,
@@ -42,7 +42,7 @@ from rebrew.sources import target_marker
 from rebrew.utils import fold_ident, read_compile_source
 
 if TYPE_CHECKING:
-    from rebrew.compile_cache import CacheBackend
+    from rebrew.compiler.cache import CacheBackend
 from rebrew.cli import console
 from rebrew.workspace.config import config_path
 
@@ -220,7 +220,7 @@ def resolve_build_params(
     # fields only, so on a multi-function file `--symbol foo` would otherwise
     # compile foo with the first block's flags.  Empty per-function fields
     # must fall through the library/project chain — not the sibling's values.
-    from rebrew.compile_overrides import resolve_compile_overrides
+    from rebrew.compiler.overrides import resolve_compile_overrides
 
     if anno is not None:
         toolchain_meta = anno.toolchain or None
@@ -236,7 +236,7 @@ def resolve_build_params(
         getattr(anno, "module", "") if anno else "",
     )
     if toolchain_name:
-        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain import TOOLCHAINS
 
         tc_spec = TOOLCHAINS.get(toolchain_name)
         if tc_spec is None or tc_spec.image is None:
@@ -500,7 +500,7 @@ def run_flag_sweep(
     # Same shared override chain as the GA path (docs/TOOLCHAIN.md): a
     # library's own TOOLCHAIN/CFLAGS must drive its sweep, not the project
     # default.
-    from rebrew.compile_overrides import resolve_compile_overrides
+    from rebrew.compiler.overrides import resolve_compile_overrides
 
     toolchain_name, cflags = resolve_compile_overrides(
         cfg,
@@ -603,7 +603,7 @@ def _vendored_msvc_toolchains(
     only_f = [f for f in (only or "").split(",") if f.strip()]
     excl_f = [f for f in (exclude or "").split(",") if f.strip()]
 
-    from rebrew import toolchain
+    from rebrew.compiler import toolchain
 
     registry, _origins = toolchain.registry_snapshot()
     out: list[tuple[str, str, str]] = []

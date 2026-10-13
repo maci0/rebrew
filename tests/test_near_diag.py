@@ -615,7 +615,9 @@ class TestFixBlocker:
         monkeypatch.setattr(
             "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"
         )
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), "")
+        )
         monkeypatch.setattr(
             "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x90" * 8, {}, []),
@@ -664,7 +666,7 @@ class TestAllBatch:
             "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"
         )
         monkeypatch.setattr(
-            "rebrew.compile.compile_to_obj",
+            "rebrew.compiler.compile.compile_to_obj",
             compile_fn or (lambda *a, **k: (Path("o.obj"), "")),
         )
         monkeypatch.setattr(
@@ -865,7 +867,9 @@ class TestValidatedRelocMasking:
             lambda *a, **k: [NS(va=0x1000, size=10, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: target)
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), "")
+        )
         monkeypatch.setattr(
             "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (compiled, {0: "_g", 5: "_h"}, []),
@@ -959,7 +963,9 @@ class TestFixBlockerDryRun:
         monkeypatch.setattr(
             "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"
         )
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), "")
+        )
         monkeypatch.setattr(
             "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x90" * 8, {}, []),
@@ -1011,7 +1017,9 @@ class TestFixBlockerDryRun:
         monkeypatch.setattr(
             "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"
         )
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), "")
+        )
         monkeypatch.setattr(
             "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x90" * 8, {}, []),
@@ -1069,7 +1077,9 @@ class TestFixBlockerDryRun:
         monkeypatch.setattr(
             "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"
         )
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), "")
+        )
         monkeypatch.setattr(
             "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x90" * 8, {}, []),
@@ -1116,7 +1126,9 @@ class TestFixBlockerStatus:
             lambda *a, **k: [NS(va=0x1000, size=10, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x01\x03")
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), "")
+        )
         monkeypatch.setattr(
             "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x01\x02", {}, []),
@@ -1188,7 +1200,9 @@ class TestFixBlockerPreservesGaCeiling:
         monkeypatch.setattr(
             "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"
         )
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), "")
+        )
         monkeypatch.setattr(
             "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x90" * 8, {}, []),

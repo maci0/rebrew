@@ -420,7 +420,7 @@ def bench_status_aggregation() -> dict[str, float]:
 
 def bench_compile_cache() -> dict[str, float]:
     """CompileCache put + get round-trip over 1000 entries."""
-    from rebrew.compile_cache import CompileCache
+    from rebrew.compiler.cache import CompileCache
 
     with tempfile.TemporaryDirectory() as d:
         cc = CompileCache(Path(d) / "cache")

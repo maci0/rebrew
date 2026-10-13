@@ -67,7 +67,7 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
 
 
 def _ok_result() -> object:
-    from rebrew.compile import CompareResult
+    from rebrew.compiler.compile import CompareResult
 
     return CompareResult(
         matched=True,
@@ -164,7 +164,7 @@ class TestVerifyEntryBranches:
         its #else fallback — the mismatch must name the fence instead of
         leaving a bare byte diff (the '18 at 0%' reccmp confusion)."""
         import rebrew.binary_loader
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path)
@@ -177,7 +177,7 @@ class TestVerifyEntryBranches:
             encoding="utf-8",
         )
         monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         def _unmatched(*a, **k):
             return CompareResult(
@@ -190,7 +190,7 @@ class TestVerifyEntryBranches:
                 message="NEAR_MATCHING: 50.0%",
             )
 
-        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert result.status == "NEAR_MATCHING"
         assert "fenced naked" in (result.message or "")
@@ -199,13 +199,13 @@ class TestVerifyEntryBranches:
     def test_no_fence_no_note(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A plain (unfenced) source gets no naked-fence note on mismatch."""
         import rebrew.binary_loader
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
         monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         def _unmatched(*a, **k):
             return CompareResult(
@@ -218,7 +218,7 @@ class TestVerifyEntryBranches:
                 message="NEAR_MATCHING: 50.0%",
             )
 
-        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert "fenced naked" not in (result.message or "")
 
@@ -227,14 +227,14 @@ class TestVerifyEntryBranches:
     ) -> None:
         """Path-only memo would keep the first probe forever; mtime+size must bust it."""
         import rebrew.binary_loader
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path)
         cfile = cfg.reversed_dir / "f.c"
         cfile.write_text("void my_func(void) {}\n", encoding="utf-8")
         monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         def _unmatched(*a, **k):
             return CompareResult(
@@ -247,7 +247,7 @@ class TestVerifyEntryBranches:
                 message="NEAR_MATCHING: 50.0%",
             )
 
-        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
         first = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert "fenced naked" not in (first.message or "")
 
@@ -267,14 +267,14 @@ class TestVerifyEntryBranches:
         reccmp-style effective match — the message must name it (not
         byte-identical, but the cause is register allocation)."""
         import rebrew.binary_loader
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.matcher
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
         monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         def _unmatched(*a, **k):
             return CompareResult(
@@ -287,7 +287,7 @@ class TestVerifyEntryBranches:
                 message="NEAR_MATCHING: 50.0%",
             )
 
-        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
         monkeypatch.setattr(
             rebrew.matcher,
             "diff_functions",
@@ -308,14 +308,14 @@ class TestVerifyEntryBranches:
     ) -> None:
         """Structural deltas must NOT get the effective-match note."""
         import rebrew.binary_loader
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.matcher
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
         monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         def _unmatched(*a, **k):
             return CompareResult(
@@ -328,7 +328,7 @@ class TestVerifyEntryBranches:
                 message="NEAR_MATCHING: 50.0%",
             )
 
-        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
         monkeypatch.setattr(
             rebrew.matcher,
             "diff_functions",
@@ -343,7 +343,7 @@ class TestVerifyEntryBranches:
 
     def test_success_delegates(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.binary_loader
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path)
@@ -355,7 +355,7 @@ class TestVerifyEntryBranches:
             seen.update(symbol=symbol, cflags=cflags, cache=kw.get("cache"))
             return _ok_result()
 
-        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _compare)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _compare)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert result.status == "EXACT"
         assert seen["symbol"] == "_my_func"
@@ -366,7 +366,7 @@ class TestVerifyEntryBranches:
         the recovery-consumed verify_results.diff_lines column carries real
         data (it was documented but never produced)."""
         import rebrew.binary_loader
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path)
@@ -374,7 +374,7 @@ class TestVerifyEntryBranches:
         monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
 
         def _unmatched(cfg, cfile, symbol, target_bytes, cflags, **kw):
-            from rebrew.compile import CompareResult
+            from rebrew.compiler.compile import CompareResult
 
             return CompareResult(
                 matched=False,
@@ -389,7 +389,7 @@ class TestVerifyEntryBranches:
         def _fake_diff(target, cand, relocs, as_dict=True, **kw):
             return {"summary": {"structural": 2, "reg": 0}}
 
-        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
         monkeypatch.setattr(rebrew.matcher, "diff_functions", _fake_diff)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert result.diff_lines == 2
@@ -399,7 +399,7 @@ class TestVerifyEntryBranches:
         """Matched functions must not pay for a disassembly diff — diff_lines
         stays None (0 diffs trivially)."""
         import rebrew.binary_loader
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path)
@@ -410,7 +410,7 @@ class TestVerifyEntryBranches:
         def _compare(cfg, cfile, symbol, target_bytes, cflags, **kw):
             return _ok_result()
 
-        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _compare)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _compare)
         monkeypatch.setattr(
             rebrew.matcher,
             "diff_functions",
@@ -430,7 +430,7 @@ class TestVerifyEntryBranches:
         if importlib.util.find_spec("resembl") is None:
             pytest.skip("optional `resembl` dependency not installed")
         import rebrew.binary_loader
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path)
@@ -440,7 +440,7 @@ class TestVerifyEntryBranches:
         def _compare(cfg, cfile, symbol, target_bytes, cflags, **kw):
             return _ok_result()  # matched EXACT, obj = 8 NOP bytes
 
-        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _compare)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _compare)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert result.similarity == 100.0  # target == obj == 8 NOPs
 
@@ -452,7 +452,7 @@ class TestVerifyEntryBranches:
         if importlib.util.find_spec("resembl") is None:
             pytest.skip("optional `resembl` dependency not installed")
         import rebrew.binary_loader
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path)
@@ -460,7 +460,7 @@ class TestVerifyEntryBranches:
         monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
 
         def _unmatched(cfg, cfile, symbol, target_bytes, cflags, **kw):
-            from rebrew.compile import CompareResult
+            from rebrew.compiler.compile import CompareResult
 
             return CompareResult(
                 matched=False,
@@ -472,7 +472,7 @@ class TestVerifyEntryBranches:
                 message="NEAR_MATCHING: 2 byte diffs",
             )
 
-        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         # target is all-NOPs; candidate is mostly-NOPs. They differ in bytes but
         # share identical structure in normalized assembly, so the score is high.
@@ -1668,7 +1668,7 @@ class TestProvenIsNotAPass:
 
 class TestRunVerification:
     def _patch(self, monkeypatch: pytest.MonkeyPatch, results: dict) -> None:
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         def _verify(e, cfg, cache=None, name_to_va=None, context=None, **kw):
             r = results.get(e.va, {})
@@ -1683,7 +1683,7 @@ class TestRunVerification:
             )
 
         monkeypatch.setattr("rebrew.verify.verify_entry", _verify)
-        monkeypatch.setattr("rebrew.compile_cache.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.cache.get_compile_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
 
     def test_all_passed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1810,7 +1810,7 @@ class TestRunVerification:
             raise RuntimeError("crash")
 
         monkeypatch.setattr("rebrew.verify.verify_entry", _boom)
-        monkeypatch.setattr("rebrew.compile_cache.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.cache.get_compile_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
         passed, failed, fail_details, results, deferred = run_verification(
             [_ann(0x1000)], _cfg(tmp_path), jobs=1, total=1, cached_count=0, json_output=True
@@ -2231,16 +2231,16 @@ class TestVerifyEntry16BitFloor:
         VA 0x42e is valid and must pass the floor check (the compile itself
         then runs, rather than being rejected as INVALID_VA)."""
         import rebrew.binary_loader
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path, arch="x86_16")
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
         monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 38)
         monkeypatch.setattr(
-            rebrew.compile,
+            rebrew.compiler.compile,
             "compile_and_compare",
-            lambda *a, **k: rebrew.compile.CompareResult(
+            lambda *a, **k: rebrew.compiler.compile.CompareResult(
                 matched=False,
                 status="SIZE_MISMATCH",
                 match_percent=0.0,
@@ -2273,7 +2273,7 @@ class TestVerifySymbolField:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew.verify as verify_mod
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         cfg = _cfg(tmp_path)
         entry = _ann(0x1000)
@@ -2298,7 +2298,7 @@ class TestVerifySymbolField:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew.verify as verify_mod
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
 
         cfg = _cfg(tmp_path)
         entry = _ann(0x1000)

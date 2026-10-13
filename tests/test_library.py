@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rebrew.compile_overrides import resolve_compile_overrides
+from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.library import app
 from rebrew.metadata import (
     LIBRARY_METADATA_FILE,
@@ -284,7 +284,7 @@ class TestLibraryCli:
 
     def test_known_toolchain_accepts_all_profiles(self, tmp_path: Path) -> None:
         """Every registry profile is settable (docker-backed and native)."""
-        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.compiler.toolchain import TOOLCHAINS
 
         for name in sorted(TOOLCHAINS):
             lib = tmp_path / name
@@ -456,7 +456,7 @@ class TestLibraryFingerprintWalk:
         import os
 
         import rebrew.metadata as metadata
-        from rebrew.compile_overrides import resolve_compile_overrides_cached
+        from rebrew.compiler.overrides import resolve_compile_overrides_cached
         from rebrew.metadata import clear_library_override_cache, library_override_fingerprint
 
         proj, lib, fn = _tree(tmp_path)

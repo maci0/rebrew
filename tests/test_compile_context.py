@@ -1,4 +1,4 @@
-"""Tests for context-pinned compilation (compile.py + context.py).
+"""Tests for context-pinned compilation (compiler/compile.py + context.py).
 
 Covers the merged compile unit (`#line` directives), the compile-cache
 behaviour under a changing context, and the context digest recorded on a
@@ -14,14 +14,14 @@ from typing import Any
 
 import pytest
 
-from rebrew.compile import (
+from rebrew.compiler.cache import CompileCache
+from rebrew.compiler.compile import (
     CompareResult,
     compile_to_obj,
     contextualized_source,
 )
-from rebrew.compile_cache import CompileCache
-from rebrew.compile_context import CompileContext, context_sha256, load_compile_context
-from rebrew.toolchain_spec import ToolchainSpec
+from rebrew.compiler.context import CompileContext, context_sha256, load_compile_context
+from rebrew.compiler.toolchain_spec import ToolchainSpec
 
 SOURCE = "int f(int a) { return a + 1; }\n"
 
@@ -126,15 +126,16 @@ class TestContextPinnedCompileCache:
 
         binary = tmp_path / "fake-cc"
         binary.write_bytes(b"fake compiler\n")
-        from rebrew.compile import _native_binary_cache
+        from rebrew.compiler.compile import _native_binary_cache
 
         _native_binary_cache.clear()
-        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(binary))
+        monkeypatch.setattr("rebrew.compiler.compile.shutil.which", lambda name: str(binary))
         fake = _FakeCompiler("f.obj")
         monkeypatch.setattr(
-            "rebrew.compile.toolchain_registry", SimpleNamespace(TOOLCHAINS={"fake-1.0": _spec()})
+            "rebrew.compiler.compile.toolchain_registry",
+            SimpleNamespace(TOOLCHAINS={"fake-1.0": _spec()}),
         )
-        monkeypatch.setattr("rebrew.compile.run_toolchain", fake)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", fake)
 
         def _compile(ctx: CompileContext | None, workdir_name: str) -> tuple[str | None, str]:
             workdir = tmp_path / workdir_name

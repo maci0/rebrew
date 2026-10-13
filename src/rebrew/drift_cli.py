@@ -30,8 +30,8 @@ from rebrew.cli import (
     require_config,
     require_positive_size,
 )
-from rebrew.compile import compile_and_compare
-from rebrew.compile_overrides import resolve_compile_overrides
+from rebrew.compiler.compile import compile_and_compare
+from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.drift import DerivedRegion, DriftWindow, derive_regions, drift_windows
 from rebrew.sources import target_marker
 

@@ -1,4 +1,4 @@
-"""Tests for compile.py pure helpers — CL command resolution and include flags."""
+"""Tests for compiler/compile.py pure helpers — CL command resolution and include flags."""
 
 import subprocess
 from pathlib import Path
@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rebrew.compile import resolve_cl_command, resolve_include_flags
+from rebrew.compiler.compile import resolve_cl_command, resolve_include_flags
 
 
 def _cfg(root: Path, **overrides: object) -> SimpleNamespace:
@@ -108,7 +108,7 @@ class TestResolveIncludeFlags:
 
 class TestResolveCompilerEnv:
     def test_resolves_paths(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import resolve_compiler_env
+        from rebrew.compiler.compile import resolve_compiler_env
 
         tools = tmp_path / "tools"
         tools.mkdir()
@@ -122,8 +122,8 @@ class TestResolveCompilerEnv:
             metadata_dir=tmp_path,
         )
         (tmp_path / "inc").mkdir()
-        monkeypatch.setattr("rebrew.compile.msvc_env_from_config", lambda cfg: {"X": "1"})
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.msvc_env_from_config", lambda cfg: {"X": "1"})
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
         cl_cmd, inc_dir, env, cc = resolve_compiler_env(cfg)
         assert str(cl) in cl_cmd  # existing relative path root-prefixed
         assert "wine" in cl_cmd
@@ -132,7 +132,7 @@ class TestResolveCompilerEnv:
         assert cc is None
 
     def test_missing_paths_fallback(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import resolve_compiler_env
+        from rebrew.compiler.compile import resolve_compiler_env
 
         cfg = SimpleNamespace(
             root=tmp_path,
@@ -141,9 +141,9 @@ class TestResolveCompilerEnv:
             compiler_includes="missing_inc",
             metadata_dir=tmp_path,
         )
-        monkeypatch.setattr("rebrew.compile.resolve_cl_command", lambda cfg: ["cl"])
-        monkeypatch.setattr("rebrew.compile.msvc_env_from_config", lambda cfg: {})
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.resolve_cl_command", lambda cfg: ["cl"])
+        monkeypatch.setattr("rebrew.compiler.compile.msvc_env_from_config", lambda cfg: {})
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
         cl_cmd, inc_dir, env, cc = resolve_compiler_env(cfg)
         assert cl_cmd == "cl"  # empty command falls back to resolve_cl_command
         assert inc_dir == "missing_inc"  # non-existent include stays as-is
@@ -169,7 +169,7 @@ class TestNativeToolchainId:
         so hashing only `shutil.which` left watcom-2.0-win16's `wcc` (not on PATH)
         with a digest-free id — replacing the vendored tree kept serving the
         old compiler's objects."""
-        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+        from rebrew.compiler.compile import _native_binary_cache, _native_toolchain_id
 
         vendored = tmp_path / "watcom-2.0-win32" / "source" / "binl"
         vendored.mkdir(parents=True)
@@ -177,7 +177,7 @@ class TestNativeToolchainId:
         wcc.write_bytes(b"vendored compiler")
         on_path = tmp_path / "wcc"
         on_path.write_bytes(b"different compiler on PATH")
-        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(on_path))
+        monkeypatch.setattr("rebrew.compiler.compile.shutil.which", lambda name: str(on_path))
         _native_binary_cache.clear()
         spec = SimpleNamespace(
             binary="wcc",
@@ -188,12 +188,12 @@ class TestNativeToolchainId:
         tid = _native_toolchain_id(spec)
         assert tid.startswith("native:wcc@")
         # Content digest of the VENDORED binary, not the PATH one.
-        from rebrew.compile import _native_binary_digest
+        from rebrew.compiler.compile import _native_binary_digest
 
         assert tid == f"native:wcc@{_native_binary_digest(wcc.resolve())}"
 
     def test_real_binary_gets_stat_suffix(self) -> None:
-        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+        from rebrew.compiler.compile import _native_binary_cache, _native_toolchain_id
 
         _native_binary_cache.clear()
         tid = _native_toolchain_id(self._spec("sh"))
@@ -201,20 +201,20 @@ class TestNativeToolchainId:
         assert len(tid.split("@", 1)[1]) == 64
 
     def test_missing_binary_has_no_identity(self, monkeypatch) -> None:
-        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+        from rebrew.compiler.compile import _native_binary_cache, _native_toolchain_id
 
         _native_binary_cache.clear()
-        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: None)
+        monkeypatch.setattr("rebrew.compiler.compile.shutil.which", lambda name: None)
         assert _native_toolchain_id(self._spec("no-such-compiler")) is None
         assert "no-such-compiler" not in _native_binary_cache
 
     def test_short_digest_is_not_an_identity(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+        from rebrew.compiler.compile import _native_binary_cache, _native_toolchain_id
 
         binary = tmp_path / "cc"
         binary.write_bytes(b"compiler")
-        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(binary))
-        monkeypatch.setattr("rebrew.compile._native_binary_digest", lambda path: "ab" * 8)
+        monkeypatch.setattr("rebrew.compiler.compile.shutil.which", lambda name: str(binary))
+        monkeypatch.setattr("rebrew.compiler.compile._native_binary_digest", lambda path: "ab" * 8)
         _native_binary_cache.clear()
         assert _native_toolchain_id(self._spec("cc")) is None
         assert "cc" not in _native_binary_cache
@@ -222,7 +222,7 @@ class TestNativeToolchainId:
     def test_digests_sharing_a_16_hex_prefix_do_not_collide(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+        from rebrew.compiler.compile import _native_binary_cache, _native_toolchain_id
 
         prefix = "ab" * 8
         bodies = {
@@ -236,12 +236,13 @@ class TestNativeToolchainId:
         def _digest(path: Path) -> str:
             return bodies[path.name]
 
-        monkeypatch.setattr("rebrew.compile._native_binary_digest", _digest)
+        monkeypatch.setattr("rebrew.compiler.compile._native_binary_digest", _digest)
         _native_binary_cache.clear()
         ids = []
         for name in ("one", "two"):
             monkeypatch.setattr(
-                "rebrew.compile.shutil.which", lambda _name, name=name: str(tmp_path / name)
+                "rebrew.compiler.compile.shutil.which",
+                lambda _name, name=name: str(tmp_path / name),
             )
             ids.append(_native_toolchain_id(self._spec(name)))
         assert ids[0] is not None and ids[1] is not None
@@ -250,7 +251,7 @@ class TestNativeToolchainId:
         assert len(ids[0].split("@", 1)[1]) == 64
 
     def test_match_binary_nfd_nfc(self, tmp_path: Path) -> None:
-        from rebrew.toolchain import _match_binary
+        from rebrew.compiler.toolchain import _match_binary
 
         # NFD on disk vs NFC searched
         nfd_name = "cl_\u0065\u0301.exe"
@@ -268,13 +269,13 @@ class TestNativeToolchainId:
         """
         import os
 
-        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+        from rebrew.compiler.compile import _native_binary_cache, _native_toolchain_id
 
         gcc = tmp_path / "gcc"
         gcc.write_bytes(b"#!/bin/sh\nexit 0\n")
         gcc.chmod(0o755)
         os.utime(gcc, (1767225600, 1767225600))  # fixed old mtime
-        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(gcc))
+        monkeypatch.setattr("rebrew.compiler.compile.shutil.which", lambda name: str(gcc))
         _native_binary_cache.clear()
         id_old = _native_toolchain_id(self._spec("mingw-16.2.0"))
         # "Upgrade": same path, new content + a later mtime — no clear.
@@ -289,14 +290,14 @@ class TestNativeToolchainId:
         the cache — the key hashes content, not stat."""
         import os
 
-        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+        from rebrew.compiler.compile import _native_binary_cache, _native_toolchain_id
 
         gcc = tmp_path / "gcc"
         gcc.write_bytes(b"AAAA")
         gcc.chmod(0o755)
         mtime = 1767225600
         os.utime(gcc, (mtime, mtime))
-        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(gcc))
+        monkeypatch.setattr("rebrew.compiler.compile.shutil.which", lambda name: str(gcc))
         _native_binary_cache.clear()
         id_old = _native_toolchain_id(self._spec("mingw-16.2.0"))
         # Same size, same mtime, different bytes.
@@ -316,14 +317,14 @@ class TestNativeToolchainId:
         """
         import os
 
-        from rebrew.compile import _native_toolchain_id
+        from rebrew.compiler.compile import _native_toolchain_id
 
         gcc = tmp_path / "gcc"
         gcc.write_bytes(b"AAAA")
         gcc.chmod(0o755)
         mtime = 1767225600
         os.utime(gcc, (mtime, mtime))
-        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(gcc))
+        monkeypatch.setattr("rebrew.compiler.compile.shutil.which", lambda name: str(gcc))
         id_old = _native_toolchain_id(self._spec("mingw-16.2.0"))
         swapped = tmp_path / "gcc.new"
         swapped.write_bytes(b"BBBB")
@@ -342,7 +343,7 @@ class TestNativeToolchainId:
 
         from thread_util import join_all
 
-        from rebrew.compile import (
+        from rebrew.compiler.compile import (
             _NATIVE_BINARY_CACHE_MAX,
             _native_binary_cache,
             _native_toolchain_id,
@@ -361,7 +362,7 @@ class TestNativeToolchainId:
             candidate = bins / name
             return str(candidate) if candidate.is_file() else None
 
-        monkeypatch.setattr("rebrew.compile.shutil.which", _which)
+        monkeypatch.setattr("rebrew.compiler.compile.shutil.which", _which)
         _native_binary_cache.clear()
         errors: list[BaseException] = []
 
@@ -382,7 +383,7 @@ class TestNativeToolchainId:
 
 class TestInvalidateToolchainDigest:
     def test_pops_one_or_clears_all(self) -> None:
-        from rebrew.toolchain import (
+        from rebrew.compiler.toolchain import (
             _toolchain_digest_cache,
             invalidate_toolchain_digest,
         )
@@ -398,8 +399,8 @@ class TestInvalidateToolchainDigest:
 
     def test_cached_image_digest_skips_empty_failures(self, monkeypatch) -> None:
         """A failed inspect must not be memoized as an identity."""
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import cached_image_digest
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import cached_image_digest
 
         toolchain_mod._toolchain_digest_cache.clear()
         calls = {"n": 0}
@@ -415,8 +416,8 @@ class TestInvalidateToolchainDigest:
         assert calls["n"] == 2  # retried — not memoized
 
     def test_cached_image_digest_stores_success(self, monkeypatch) -> None:
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import cached_image_digest
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import cached_image_digest
 
         toolchain_mod._toolchain_digest_cache.clear()
         calls = {"n": 0}
@@ -439,8 +440,8 @@ class TestInvalidateToolchainDigest:
         image, which is the stale-key case ``invalidate_toolchain_digest``
         exists to prevent.  The result is empty and nothing is cached.
         """
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import cached_image_digest, invalidate_toolchain_digest
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import cached_image_digest, invalidate_toolchain_digest
 
         toolchain_mod._toolchain_digest_cache.clear()
 
@@ -454,8 +455,8 @@ class TestInvalidateToolchainDigest:
 
     def test_invalidate_during_inspect_prefers_post_swap_refill(self, monkeypatch) -> None:
         """A worker that already re-inspected wins over returning empty."""
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import cached_image_digest, invalidate_toolchain_digest
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import cached_image_digest, invalidate_toolchain_digest
 
         toolchain_mod._toolchain_digest_cache.clear()
         refilled = "sha256:" + "cd" * 32
@@ -470,8 +471,8 @@ class TestInvalidateToolchainDigest:
         assert cached_image_digest("rebrew/msvc:6.0-win32") == refilled
 
     def test_short_refill_after_invalidate_is_rejected(self, monkeypatch) -> None:
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import cached_image_digest, invalidate_toolchain_digest
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import cached_image_digest, invalidate_toolchain_digest
 
         toolchain_mod._toolchain_digest_cache.clear()
 
@@ -497,8 +498,8 @@ class TestInvalidateToolchainDigest:
         ],
     )
     def test_malformed_inspect_is_not_an_identity(self, monkeypatch, stdout: str) -> None:
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import cached_image_digest
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import cached_image_digest
 
         toolchain_mod._toolchain_digest_cache.clear()
         calls = {"n": 0}
@@ -515,8 +516,8 @@ class TestInvalidateToolchainDigest:
         assert calls["n"] == 2
 
     def test_nonzero_inspect_and_timeout_are_not_memoized(self, monkeypatch) -> None:
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import cached_image_digest
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import cached_image_digest
 
         toolchain_mod._toolchain_digest_cache.clear()
         calls = {"n": 0}
@@ -537,8 +538,8 @@ class TestInvalidateToolchainDigest:
         assert tag not in toolchain_mod._toolchain_digest_cache
 
     def test_short_memo_is_dropped_and_reinspected(self, monkeypatch) -> None:
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import cached_image_digest
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import cached_image_digest
 
         tag = "rebrew/msvc:6.0-win32"
         image_id = "sha256:" + "ef" * 32
@@ -556,10 +557,10 @@ class TestInvalidateToolchainDigest:
         assert toolchain_mod._toolchain_digest_cache[tag] == image_id
 
     def test_full_ids_sharing_a_12_hex_prefix_do_not_collide(self, monkeypatch) -> None:
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.compile import _toolchain_cache_id
-        from rebrew.compile_cache import compile_cache_key
-        from rebrew.toolchain import cached_image_digest
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.cache import compile_cache_key
+        from rebrew.compiler.compile import _toolchain_cache_id
+        from rebrew.compiler.toolchain import cached_image_digest
 
         prefix = "abcdef012345"
         id_a = "sha256:" + prefix + "a" * 52
@@ -590,8 +591,8 @@ class TestInvalidateToolchainDigest:
 
     def test_image_present_does_not_cache_misses(self, monkeypatch) -> None:
         """A miss must re-inspect so an external pull is visible mid-process."""
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import image_present
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import image_present
 
         toolchain_mod._image_presence.clear()
         monkeypatch.setattr(toolchain_mod, "docker_available", lambda: True)
@@ -612,8 +613,8 @@ class TestInvalidateToolchainDigest:
 
     def test_image_present_inspect_timeout_is_retryable(self, monkeypatch) -> None:
         """A hung daemon is a retryable docker error, not a permanent invocation failure."""
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import ToolchainError, image_present
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import ToolchainError, image_present
 
         toolchain_mod._image_presence.clear()
         monkeypatch.setattr(toolchain_mod, "docker_available", lambda: True)
@@ -630,8 +631,8 @@ class TestInvalidateToolchainDigest:
 
     def test_retag_timeout_is_toolchain_error(self, monkeypatch) -> None:
         """Rollback suppresses ToolchainError; a raw timeout would hide the swap error."""
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import ToolchainError, _retag_image
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import ToolchainError, _retag_image
 
         def _timeout(*_a: object, **_k: object) -> object:
             raise subprocess.TimeoutExpired(cmd=["docker"], timeout=60)
@@ -652,8 +653,8 @@ class TestInvalidateToolchainDigest:
 
         from thread_util import join_all
 
-        import rebrew.toolchain as toolchain_mod
-        from rebrew.toolchain import cached_image_digest, image_present
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import cached_image_digest, image_present
 
         toolchain_mod._toolchain_digest_cache.clear()
         toolchain_mod._image_presence.clear()
@@ -693,7 +694,7 @@ class TestCompilerCmdRoundTrip:
         lost the quoting `resolve_cl_command` keeps, so a compiler path with a
         space became two argv elements and the compile failed with
         "Compiler not found"."""
-        from rebrew.compile import resolve_compiler_env
+        from rebrew.compiler.compile import resolve_compiler_env
         from rebrew.utils import safe_shlex_split
 
         cfg = SimpleNamespace(
@@ -705,10 +706,10 @@ class TestCompilerCmdRoundTrip:
         )
         (tmp_path / "inc").mkdir()
         monkeypatch.setattr(
-            "rebrew.compile.resolve_cl_command", lambda cfg: ["/opt/My Tools/gcc", "-c"]
+            "rebrew.compiler.compile.resolve_cl_command", lambda cfg: ["/opt/My Tools/gcc", "-c"]
         )
-        monkeypatch.setattr("rebrew.compile.msvc_env_from_config", lambda cfg: {})
-        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.compile.msvc_env_from_config", lambda cfg: {})
+        monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
         cl_cmd, _inc, _env, _cc = resolve_compiler_env(cfg)
         assert safe_shlex_split(cl_cmd) == ["/opt/My Tools/gcc", "-c"]
 
@@ -717,7 +718,7 @@ class TestDockerIncludeRewriteMounts:
     """Absolute /I outside the project must not become a docker bind mount."""
 
     def test_mounts_under_allowed_root(self, tmp_path: Path) -> None:
-        from rebrew.compile import _docker_include_rewrite
+        from rebrew.compiler.compile import _docker_include_rewrite
 
         work = tmp_path / "work"
         work.mkdir()
@@ -728,7 +729,7 @@ class TestDockerIncludeRewriteMounts:
         assert mounts == [(str(inc.resolve()), str(inc.resolve()))]
 
     def test_refuses_mount_outside_allowed_roots(self, tmp_path: Path) -> None:
-        from rebrew.compile import _docker_include_rewrite
+        from rebrew.compiler.compile import _docker_include_rewrite
 
         work = tmp_path / "work"
         work.mkdir()

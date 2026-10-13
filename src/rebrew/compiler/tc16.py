@@ -1,9 +1,9 @@
-"""tc16.py — Borland 16-bit DOS TCC compile support (Turbo C 2.0 / Turbo C++ 3.1).
+"""compiler/tc16.py — Borland 16-bit DOS TCC compile support (Turbo C 2.0 / Turbo C++ 3.1).
 
 The command-line compilers ``TCC.EXE`` (Turbo C 2.0, 1988) and ``TCC.EXE``
 (Turbo C++ 3.1, 1992) are 16-bit DOS programs — they run headless under
-DOSBox via the shared :mod:`rebrew.dosbox` runner, mirroring the MSVC 1.52
-path (:mod:`rebrew.msvc16`).  The vendored trees (``borland/2.0-win16``,
+DOSBox via the shared :mod:`rebrew.compiler.dosbox` runner, mirroring the MSVC 1.52
+path (:mod:`rebrew.compiler.msvc16`).  The vendored trees (``borland/2.0-win16``,
 ``borland/3.1-win16`` under the recompile-toolchains checkout) have
 BIN/INCLUDE/LIB at the top after the floppy/``TC/`` wrapper is stripped by
 ``rebrew toolchain vendor``.
@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from rebrew.dosbox import (
+from rebrew.compiler.dosbox import (
     STAGED_SOURCE_NAME,
     DosboxError,
     find_staged_object,
@@ -57,7 +57,7 @@ class Tc16Result:
 
 def _find_tc16(version: str = "3.1") -> Path:
     """Locate the vendored Borland 16-bit TCC tree (BIN/TCC.EXE present)."""
-    from rebrew.toolchain_paths import toolchains_repo
+    from rebrew.compiler.toolchain_paths import toolchains_repo
 
     tree = _TREES.get(version)
     if tree is None:
@@ -89,7 +89,7 @@ def compile_c(
     Args:
         c_source: Path to the C source (or source text).
         workdir: Sandbox dir (default: this thread's reused
-            :func:`rebrew.dosbox.make_sandbox_dir` dir on real disk, since DOSBox
+            :func:`rebrew.compiler.dosbox.make_sandbox_dir` dir on real disk, since DOSBox
             breaks on tmpfs mounts; removed at process exit).
         cflags: Extra TCC flags (default ``["-c"]``).
         timeout: DOSBox subprocess timeout.

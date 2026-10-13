@@ -39,9 +39,9 @@ from pathlib import Path
 from typing import Any, TypedDict, override
 from urllib.parse import urlparse
 
+from rebrew.compiler.toolchain_spec import FlagsStyle
 from rebrew.errors import RebrewError
 from rebrew.metadata_doc import metadata_write_lock
-from rebrew.toolchain_spec import FlagsStyle
 from rebrew.utils import (
     BYTES_PER_MIB,
     console,
@@ -99,7 +99,7 @@ def _config_warn(msg: str) -> None:
 #
 # These live here because config is the layer every other module is allowed to
 # import.  Each constant is *used* by a higher layer (``rebrew.metadata``,
-# ``rebrew.toolchain``, ``rebrew.skills``) but is part of the project layout
+# ``rebrew.compiler.toolchain``, ``rebrew.skills``) but is part of the project layout
 # and environment this module describes, so a reader that needed it used to
 # import the higher module and closed an import cycle.
 # ---------------------------------------------------------------------------
@@ -182,10 +182,10 @@ so it is checked like every other path knob.  Read by
 
 XVFB_DISPLAY_ENV = "REBREW_XVFB_DISPLAY"
 """Env var recording the display rebrew's Xvfb lives on.  Written by
-:mod:`rebrew.headless`; an operator may pin it, and only a local ``:N`` /
+:mod:`rebrew.compiler.headless`; an operator may pin it, and only a local ``:N`` /
 ``:N.S`` display can ever be adopted."""
 
-#: A local X display, the only form :mod:`rebrew.headless` can resolve: the
+#: A local X display, the only form :mod:`rebrew.compiler.headless` can resolve: the
 #: socket probe and the ``/proc`` scan both key on ``/tmp/.X11-unix/X<n>``.
 ENV_DISPLAY_RE = re.compile(r":\d+(?:\.\d+)?")
 
@@ -205,7 +205,7 @@ for naming.
 #: Seconds before a compile subprocess is killed.  The single source for
 #: ``ProjectConfig.compile_timeout``: its dataclass default, the
 #: ``[compiler] timeout`` fallback, and the ``getattr(cfg, ...)`` fallbacks in
-#: ``rebrew.compile`` all read this, so a mock-backed call cannot get a
+#: ``rebrew.compiler.compile`` all read this, so a mock-backed call cannot get a
 #: different budget than a configured one.
 DEFAULT_COMPILE_TIMEOUT = 60
 
@@ -217,7 +217,7 @@ DEFAULT_PROJECT_JOBS = 4
 
 #: Re-attempts of a retryable remote-compile failure, and the single source
 #: for ``ProjectConfig.recompile_retries``, its ``[compiler]`` fallback, and
-#: the ``getattr`` fallback in ``rebrew.compile``.
+#: the ``getattr`` fallback in ``rebrew.compiler.compile``.
 DEFAULT_RECOMPILE_RETRIES = 2
 #: Highest ``[compiler] recompile_retries`` honored before clamping, on the
 #: same terms as :data:`MAX_LLM_MAX_REQUESTS`.  Each re-attempt waits
@@ -478,7 +478,7 @@ def profile_flags_style(profile: str) -> FlagsStyle | None:
     """The registered toolchain spec's ``flags_style`` for *profile*.
 
     ``None`` when *profile* is not a registry toolchain."""
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     spec = TOOLCHAINS.get(profile)
     return getattr(spec, "flags_style", None)
@@ -626,7 +626,7 @@ class ProjectConfig:
         move turns a disk-space problem into a ``rebrew cache clear``.
         ``0`` means "unset", which resolves to the backend's own default.
         """
-        from rebrew.compile_cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
+        from rebrew.compiler.cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
 
         mib = (
             self.cache_size_limit_mib
@@ -642,7 +642,7 @@ class ProjectConfig:
         Read from the registry spec's ``flags_style``: gcc/clang/mingw/watcom
         take dash flags and ship their own headers, MSVC profiles use
         ``/I``/``/Fo``/``/c``.  Single source of truth for compile/flag routing
-        across compile.py, diff.py, match.py, and matcher/compiler.py.
+        across compiler/compile.py, diff.py, match.py, and matcher/compiler.py.
         """
         return profile_flags_style(self.compiler_profile) == "posix"
 
@@ -816,7 +816,7 @@ class ProjectConfig:
 
     def as_dict(self, redact_secrets: bool = True) -> dict[str, Any]:
         """Return configuration as a dictionary, optionally redacting sensitive keys."""
-        from rebrew.compile_cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
+        from rebrew.compiler.cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
 
         return {
             "root": str(self.root),
@@ -882,14 +882,14 @@ class ProjectConfig:
         if self.ghidra_backend and self.ghidra_backend not in ("reva", "cli"):
             raise ConfigError(f"unknown ghidra_backend {self.ghidra_backend!r} (known: reva, cli)")
         if self.compiler_profile:
-            from rebrew.toolchain import TOOLCHAINS
+            from rebrew.compiler.toolchain import TOOLCHAINS
 
             if self.compiler_profile not in TOOLCHAINS:
                 raise ConfigError(
                     f"unknown profile {self.compiler_profile!r} (known: {', '.join(sorted(TOOLCHAINS))})"
                 )
         if self.cache_backend:
-            from rebrew.compile_cache import available_cache_backends
+            from rebrew.compiler.cache import available_cache_backends
 
             known_backends = available_cache_backends()
             if self.cache_backend not in known_backends:
@@ -1241,7 +1241,7 @@ def _non_negative_int_bounded(value: Any, default: int, field_name: str, *, maxi
     """Parse a non-negative integer capped at *maximum*, warning when it clamps.
 
     The ceiling matters because the parsed value is a wall-clock budget, not a
-    threshold the consumer merely compares: ``rebrew.compile`` turns
+    threshold the consumer merely compares: ``rebrew.compiler.compile`` turns
     ``recompile_retries`` into ``retries + 1`` attempts that each wait
     ``retry_backoff_delay``, so the count multiplies directly into minutes a
     build spends retrying one transient error. Same clamp-with-a-warning
@@ -1697,7 +1697,7 @@ def check_env_toolchain_pin(raw: str) -> None:
     value = raw.strip()
     if not value:
         return
-    from rebrew.toolchain import registry_snapshot
+    from rebrew.compiler.toolchain import registry_snapshot
 
     registry, _origins = registry_snapshot()
     if value not in registry:
@@ -1718,7 +1718,7 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
     Imports are deferred: ``rebrew.utils`` imports this module, so a
     top-level import would be a cycle.
     """
-    from rebrew.toolchain_paths import TOOLCHAINS_DIR_ENV
+    from rebrew.compiler.toolchain_paths import TOOLCHAINS_DIR_ENV
     from rebrew.utils import container_runtime
 
     def _container_runtime(raw: str) -> None:
@@ -1956,7 +1956,7 @@ def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
         from rebrew.registry import RegistryError
 
         try:
-            from rebrew.toolchain import TOOLCHAINS
+            from rebrew.compiler.toolchain import TOOLCHAINS
 
             spec = TOOLCHAINS.get(profile)
         except RegistryError:  # a plugin registration conflict is reported at load
@@ -2424,7 +2424,7 @@ def load_config(
     # valid when it is a registered toolchain (plugins add toolchains via
     # rebrew.registry without editing config.py).  `rebrew cfg target set-compiler`
     # edits the TOML without loading it, so a bad profile stays repairable.
-    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     profile_val = compiler.get("profile", "msvc-6.0")
     if not isinstance(profile_val, str) or profile_val not in TOOLCHAINS:
@@ -2476,7 +2476,7 @@ def load_config(
             raise ConfigError(f"rebrew-project.toml compiler.{key} must be a path string")
         return raw is not None and not raw.strip()
 
-    from rebrew.toolchain import resolve_msvc_toolchain
+    from rebrew.compiler.toolchain import resolve_msvc_toolchain
 
     msvc_layout = resolve_msvc_toolchain(root, profile_val)
     if _explicit_empty("includes"):
@@ -2808,7 +2808,7 @@ def load_config(
     unknown_cache = set(cache_raw) - _KNOWN_CACHE_KEYS
     if unknown_cache:
         _config_warn(f"rebrew-project.toml [cache]: unrecognized keys: {sorted(unknown_cache)}")
-    from rebrew.compile_cache import DEFAULT_CACHE_BACKEND, available_cache_backends
+    from rebrew.compiler.cache import DEFAULT_CACHE_BACKEND, available_cache_backends
 
     if "backend" in cache_raw:
         backend = _as_str(cache_raw.get("backend"), "", "cache.backend").strip()

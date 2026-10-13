@@ -476,7 +476,7 @@ def _scorer_cfg(tmp_path: Path) -> SimpleNamespace:
 class TestPartitionScorer:
     def _patch_compile(self, monkeypatch: Any, calls: list[dict[str, Any]], size: int = 10) -> None:
         import rebrew.coff_reloc
-        import rebrew.compile
+        import rebrew.compiler.compile
         import rebrew.matcher.parsers
         import rebrew.merge_sweep as ms
 
@@ -488,7 +488,7 @@ class TestPartitionScorer:
             obj.write_bytes(b"OBJ")
             return str(obj), ""
 
-        monkeypatch.setattr(rebrew.compile, "compile_to_obj", fake_compile)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_to_obj", fake_compile)
         monkeypatch.setattr(
             rebrew.matcher.parsers,
             "parse_obj_symbol_and_relocs",

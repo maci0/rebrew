@@ -1,4 +1,4 @@
-"""Tests for compile.py _extract_and_compare — the post-compile compare stage.
+"""Tests for compiler/compile.py _extract_and_compare — the post-compile compare stage.
 
 _exctract_and_compare is the shared compile→extract→compare pipeline used by
 rebrew test / verify / diff.  These tests exercise the truncation,
@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from rebrew.compile import _extract_and_compare
+from rebrew.compiler.compile import _extract_and_compare
 from rebrew.matcher.parsers import CoffRelocRecord
 
 
@@ -34,7 +34,7 @@ def _stub_parser(
 class TestExtractAndCompare:
     def test_exact_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "rebrew.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x55\x8b\xec")
+            "rebrew.compiler.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x55\x8b\xec")
         )
         r = _extract_and_compare("/x.obj", "_f", b"\x55\x8b\xec")
         assert r.matched is True
@@ -48,14 +48,14 @@ class TestExtractAndCompare:
         obj = bytearray(b"\x55\x8b\xec\x90\x00\x00\x00\x00")
         tgt = bytearray(b"\x55\x8b\xec\x90\xaa\xbb\xcc\xdd")
         monkeypatch.setattr(
-            "rebrew.compile.parse_obj_symbol_and_relocs",
+            "rebrew.compiler.compile.parse_obj_symbol_and_relocs",
             _stub_parser(
                 bytes(obj),
                 typed=[CoffRelocRecord(offset=4, type=0x06, symbol="_other")],
             ),
         )
         monkeypatch.setattr(
-            "rebrew.compile.build_iat_region",
+            "rebrew.compiler.compile.build_iat_region",
             lambda cfg: set(),
         )
         import struct
@@ -84,7 +84,9 @@ class TestExtractAndCompare:
     def test_symbol_not_found_is_extract_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A missing symbol after a successful compile is EXTRACT_ERROR, not
         COMPILE_ERROR — the .obj built fine, the source is not to blame."""
-        monkeypatch.setattr("rebrew.compile.parse_obj_symbol_and_relocs", _stub_parser(None))
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.parse_obj_symbol_and_relocs", _stub_parser(None)
+        )
         r = _extract_and_compare("/x.obj", "_missing", b"\x55")
         assert r.status == "EXTRACT_ERROR"
         assert r.matched is False
@@ -94,7 +96,8 @@ class TestExtractAndCompare:
         """Over-long obj truncates to target length and reports SIZE_MISMATCH
         with a length-based delta."""
         monkeypatch.setattr(
-            "rebrew.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x55\x8b\xec\x90\x90")
+            "rebrew.compiler.compile.parse_obj_symbol_and_relocs",
+            _stub_parser(b"\x55\x8b\xec\x90\x90"),
         )
         r = _extract_and_compare("/x.obj", "_f", b"\x55\x8b\xec")
         assert r.status == "SIZE_MISMATCH"
@@ -105,7 +108,9 @@ class TestExtractAndCompare:
         assert r.full_obj_size == 5
 
     def test_target_longer_size_mismatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x55\x8b"))
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x55\x8b")
+        )
         r = _extract_and_compare("/x.obj", "_f", b"\x55\x8b\xec")
         assert r.status == "SIZE_MISMATCH"
         assert r.matched is False
@@ -119,7 +124,9 @@ class TestExtractAndCompare:
     def test_empty_common_prefix_preserves_size_delta(
         self, monkeypatch: pytest.MonkeyPatch, target_bytes: bytes, obj_bytes: bytes
     ) -> None:
-        monkeypatch.setattr("rebrew.compile.parse_obj_symbol_and_relocs", _stub_parser(obj_bytes))
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.parse_obj_symbol_and_relocs", _stub_parser(obj_bytes)
+        )
         result = _extract_and_compare("/x.obj", "_f", target_bytes)
         assert result.status == "SIZE_MISMATCH"
         assert result.matched is False
@@ -130,7 +137,8 @@ class TestExtractAndCompare:
     def test_near_matching_threshold(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Mostly-equal bytes above the NEAR_MATCH_THRESHOLD → NEAR_MATCHING."""
         monkeypatch.setattr(
-            "rebrew.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x55\x8b\xec\x90\x41")
+            "rebrew.compiler.compile.parse_obj_symbol_and_relocs",
+            _stub_parser(b"\x55\x8b\xec\x90\x41"),
         )
         r = _extract_and_compare("/x.obj", "_f", b"\x55\x8b\xec\x90\x90")
         assert r.matched is False
@@ -138,7 +146,9 @@ class TestExtractAndCompare:
         assert r.status == "NEAR_MATCHING"
 
     def test_stub_below_threshold(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x90" * 8))
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x90" * 8)
+        )
         r = _extract_and_compare("/x.obj", "_f", b"\x55" * 8)
         assert r.matched is False
         assert r.match_percent == 0.0
@@ -151,6 +161,6 @@ class TestExtractAndCompare:
         def _boom(_obj_path: Any, _symbol: str) -> Any:
             raise ValueError("LIEF parse failed")
 
-        monkeypatch.setattr("rebrew.compile.parse_obj_symbol_and_relocs", _boom)
+        monkeypatch.setattr("rebrew.compiler.compile.parse_obj_symbol_and_relocs", _boom)
         with pytest.raises(ValueError, match="LIEF parse failed"):
             _extract_and_compare("/x.obj", "_f", b"\x55")

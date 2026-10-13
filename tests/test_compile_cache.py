@@ -1,4 +1,4 @@
-"""Tests for rebrew.compile_cache — CompileCache, key builder, module-level registry."""
+"""Tests for rebrew.compiler.cache — CompileCache, key builder, module-level registry."""
 
 import os
 import sqlite3
@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import pytest
 
-from rebrew.compile_cache import (
+from rebrew.compiler.cache import (
     CACHE_SCHEMA_VERSION,
     DEFAULT_CACHE_BACKEND,
     CompileCache,
@@ -149,7 +149,7 @@ class TestCompileCacheKey:
         One entry pins a whole source body, so a full-tree run would keep
         every source it ever keyed resident.
         """
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         monkeypatch.setattr(cc, "_SOURCE_DIGEST_MAX_BYTES", 4096)
         cc.clear_source_digest_memo()
@@ -305,7 +305,7 @@ class TestCompileCacheKey:
         assert isinstance(k1, str)
         # Changing the schema version must produce a different cache key,
         # proving the version is incorporated into the hash.
-        import rebrew.compile_cache as cc_mod
+        import rebrew.compiler.cache as cc_mod
 
         monkeypatch.setattr(cc_mod, "CACHE_SCHEMA_VERSION", CACHE_SCHEMA_VERSION + 1)
         k2 = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
@@ -473,7 +473,7 @@ class TestIncludeFingerprint:
         Publishing it would pin a path list under mtimes that no longer
         describe it, and the next lookup would trust the stale list.
         """
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         inc = tmp_path / "inc"
         inc.mkdir()
@@ -573,7 +573,7 @@ class TestHeaderDependencyHash:
         Dropping it made the closure identical to one without that header, so
         the cached .obj was served against a different include set.
         """
-        from rebrew.compile_cache import _header_key_entries
+        from rebrew.compiler.cache import _header_key_entries
 
         inc = tmp_path / "inc"
         inc.mkdir()
@@ -613,7 +613,7 @@ class TestHeaderDependencyHash:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Two sources that reach one header build the digest once, until it changes."""
-        import rebrew.compile_cache as compile_cache
+        import rebrew.compiler.cache as compile_cache
 
         inc = tmp_path / "inc"
         inc.mkdir()
@@ -660,7 +660,7 @@ class TestHeaderDependencyHash:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The source directory is also an include dir. One stat fills both slots."""
-        from rebrew.compile_cache import _search_dir_mtimes
+        from rebrew.compiler.cache import _search_dir_mtimes
 
         directory = str(tmp_path)
         other = tmp_path / "inc"
@@ -800,7 +800,7 @@ class TestHeaderDependencyHash:
         read) stays stable when an included header changes, and the cache
         then serves an object compiled against the old text.
         """
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         inc = tmp_path / "inc"
         inc.mkdir()
@@ -954,7 +954,7 @@ class TestHeaderDependencyHash:
         Storing the post-edit stat next to the pre-edit closure makes the
         next lookup treat that closure as fresh.
         """
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         inc = tmp_path / "inc"
         inc.mkdir()
@@ -975,7 +975,7 @@ class TestHeaderDependencyHash:
 
     def test_publish_keeps_valid_peer_closure(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A slower scan must not replace a closure whose stats still match."""
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         inc = tmp_path / "inc"
         inc.mkdir()
@@ -1012,7 +1012,7 @@ class TestGetCompileCache:
     def test_factory_and_eviction_close_run_outside_pool_lock(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         def _factory(path: Path, cap: int) -> CompileCache:
             assert cc._caches_lock.acquire(blocking=False)
@@ -1043,7 +1043,7 @@ class TestGetCompileCache:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A close that fails during eviction stays reachable for shutdown."""
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         made: list[CompileCache] = []
 
@@ -1084,7 +1084,7 @@ class TestGetCompileCache:
         import threading
         from concurrent.futures import ThreadPoolExecutor
 
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         ready = threading.Barrier(2)
         candidates: list[CompileCache] = []
@@ -1114,7 +1114,7 @@ class TestGetCompileCache:
     def test_replaced_factory_gets_a_new_instance(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         monkeypatch.setattr(cc, "_CACHE_BACKENDS", dict(cc._CACHE_BACKENDS))
 
@@ -1147,7 +1147,7 @@ class TestGetCompileCache:
     def test_close_failure_does_not_strand_other_instances(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         close_all_caches()
         first = get_compile_cache(tmp_path / "first")
@@ -1221,7 +1221,7 @@ class TestGetCompileCache:
     def test_evicts_oldest_when_over_cap(self, tmp_path: Path, monkeypatch) -> None:
         """Touching many project roots must close the oldest backend, not retain
         every SQLite handle until process exit."""
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         close_all_caches()
         monkeypatch.setattr(cc, "_CACHES_MAX", 2)
@@ -1241,7 +1241,7 @@ class TestGetCompileCache:
 
 class TestCompileToObjCacheIntegration:
     def test_cache_hit_skips_subprocess(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
+        from rebrew.compiler.compile import compile_to_obj
 
         subprocess_called = {"count": 0}
 
@@ -1250,9 +1250,9 @@ class TestCompileToObjCacheIntegration:
             (workdir / "f.obj").write_bytes(b"\x00COFF_OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         monkeypatch.setattr(
-            "rebrew.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+            "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
         )
 
         cfg: Any = SimpleNamespace(
@@ -1309,7 +1309,7 @@ class TestCompileToObjCacheIntegration:
         cache.close()
 
     def test_use_cache_false_bypasses(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
+        from rebrew.compiler.compile import compile_to_obj
 
         call_count = {"n": 0}
 
@@ -1318,9 +1318,9 @@ class TestCompileToObjCacheIntegration:
             (workdir / "f.obj").write_bytes(b"\x00OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         monkeypatch.setattr(
-            "rebrew.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+            "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
         )
 
         cfg: Any = SimpleNamespace(
@@ -1353,7 +1353,7 @@ class TestCompileToObjCacheIntegration:
         assert call_count["n"] == 2
 
     def test_different_flags_cache_miss(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
+        from rebrew.compiler.compile import compile_to_obj
 
         call_count = {"n": 0}
 
@@ -1362,9 +1362,9 @@ class TestCompileToObjCacheIntegration:
             (workdir / "f.obj").write_bytes(b"\x00OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         monkeypatch.setattr(
-            "rebrew.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+            "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
         )
 
         cfg: Any = SimpleNamespace(
@@ -1407,7 +1407,7 @@ class TestCompileToObjCacheIntegration:
         failure, and every other failure on the path returns that tuple. The
         source read sat outside any try, so a missing or unreadable file
         raised OSError out of the ~14 direct callers instead."""
-        from rebrew.compile import compile_to_obj
+        from rebrew.compiler.compile import compile_to_obj
 
         cfg: Any = SimpleNamespace(
             compiler_includes=tmp_path,
@@ -1434,7 +1434,7 @@ class TestCompileToObjCacheIntegration:
         assert "Failed to read source" in err
 
     def test_failed_compile_not_cached(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
+        from rebrew.compiler.compile import compile_to_obj
 
         call_count = {"n": 0}
 
@@ -1442,9 +1442,9 @@ class TestCompileToObjCacheIntegration:
             call_count["n"] += 1
             return SimpleNamespace(returncode=1, stdout="error", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         monkeypatch.setattr(
-            "rebrew.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+            "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
         )
 
         cfg: Any = SimpleNamespace(
@@ -1589,7 +1589,7 @@ class TestCacheDegradation:
     @pytest.fixture(autouse=True)
     def _reset_degraded_flag(self, monkeypatch) -> None:
         """Each test sees its own warn-once budget (the flag is module-global)."""
-        import rebrew.compile_cache as cc_mod
+        import rebrew.compiler.cache as cc_mod
 
         monkeypatch.setattr(cc_mod, "_degraded_logged", set())
 
@@ -1642,7 +1642,7 @@ class TestCacheDegradation:
             raise OSError(28, "No space left on device")
 
         monkeypatch.setattr(cache._cache, "set", _full)
-        with caplog.at_level(logging.WARNING, logger="rebrew.compile_cache"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.compiler.cache"):
             cache.put("k", b"\x01")  # must not raise
         assert any("Compile cache store failed" in r.message for r in caplog.records)
         cache.close()
@@ -1657,7 +1657,7 @@ class TestCacheDegradation:
             raise sqlite3.DatabaseError("database disk image is malformed")
 
         monkeypatch.setattr(cache._cache, "get", _boom)
-        with caplog.at_level(logging.WARNING, logger="rebrew.compile_cache"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.compiler.cache"):
             cache.get("a")
             cache.get("b")
         assert sum("Compile cache lookup failed" in r.message for r in caplog.records) == 1
@@ -1679,7 +1679,7 @@ class TestCacheDegradation:
 
         monkeypatch.setattr(cache._cache, "get", _boom_get)
         monkeypatch.setattr(cache._cache, "set", _boom_set)
-        with caplog.at_level(logging.WARNING, logger="rebrew.compile_cache"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.compiler.cache"):
             cache.get("k")
             cache.put("k", b"\x01")
         assert any("Compile cache lookup failed" in r.message for r in caplog.records)
@@ -1726,7 +1726,7 @@ class TestAtexitClose:
     ) -> None:
         """The atexit close arms with the first opened cache (not at import),
         at most once, and disposing empties the registry idempotently."""
-        import rebrew.compile_cache as cc
+        import rebrew.compiler.cache as cc
 
         registered: list[tuple] = []
         monkeypatch.setattr(cc.atexit, "register", lambda fn, *a: registered.append((fn, a)))

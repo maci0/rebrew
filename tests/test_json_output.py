@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
-from rebrew.compile import CompareResult
+from rebrew.compiler.compile import CompareResult
 from rebrew.matcher.scoring import diff_functions
 from rebrew.test import build_result_dict_from_compare
 from rebrew.test import emit_test_batch as _run_all_batch
@@ -883,7 +883,7 @@ class TestForceStatus:
         self, monkeypatch: Any, tmp_path: Path, result_status: str, seed: str = "PROVEN"
     ) -> SimpleNamespace:
         from rebrew.annotation import Annotation
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata import update_source_status
 
         cfg = SimpleNamespace(
@@ -1076,7 +1076,7 @@ class TestSinglePathExitCodes:
         monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
         monkeypatch.setattr("rebrew.test.parse_source_metadata", lambda *a, **k: {})
         monkeypatch.setattr(
-            "rebrew.compile_overrides.resolve_compile_overrides", lambda *a, **k: (None, "/O2")
+            "rebrew.compiler.overrides.resolve_compile_overrides", lambda *a, **k: (None, "/O2")
         )
         monkeypatch.setattr("rebrew.test.compile_and_compare", lambda *a, **k: cmp)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)

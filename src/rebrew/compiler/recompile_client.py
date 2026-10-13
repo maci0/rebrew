@@ -1,11 +1,11 @@
-"""recompile_client.py — HTTP client for the recompile compile service.
+"""compiler/recompile_client.py — HTTP client for the recompile compile service.
 
 The recompile service (sibling ``recompile`` checkout) exposes the same
 pinned toolchain images rebrew compiles against locally
 (``POST /api/v1/compile`` + ``GET /api/v1/artifacts/{id}{ext}``).  This
 module is the thin transport: request building, artifact download, and
 error mapping.  Routing policy (when the remote backend is used) lives in
-:func:`rebrew.compile.compile_to_obj`; the service contract
+:func:`rebrew.compiler.compile.compile_to_obj`; the service contract
 (request/response field names) mirrors ``recompile/models.py``.
 
 Every compile sent with ``emit_assembly=True`` also appends a
@@ -278,7 +278,7 @@ def compile_source(
 
     *sleep* is that backoff's only time source, the same seam
     :func:`rebrew.decompme.upload_scratch` and
-    :func:`rebrew.headless._wait_for_socket` take: inject a stepper to replay
+    :func:`rebrew.compiler.headless._wait_for_socket` take: inject a stepper to replay
     a retry sequence from virtual time instead of waiting it out.  Left unset
     it reads :func:`time.sleep` per attempt, so a patched clock is honoured.
 

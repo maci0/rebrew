@@ -478,7 +478,7 @@ def stock_lib_dir(profile: str, name: str) -> tuple[str, str]:
     directory ignoring letter case (``_FIND_STOCK_LIB``), so *name* must be a
     plain file name.
     """
-    from rebrew.toolchain import ToolchainError, get_toolchain
+    from rebrew.compiler.toolchain import ToolchainError, get_toolchain
 
     if not name or _ARCHIVE_NAME_FORBIDDEN & set(name):
         raise ToolchainError(f"stock archive name {name!r} must be a plain file name")
@@ -500,7 +500,7 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
     that fails with the runtime present is an error rather than a skip: it
     means the image does not carry the archive where its spec says it does.
     """
-    from rebrew.toolchain import ToolchainError, bind_mount, runtime_on_path
+    from rebrew.compiler.toolchain import ToolchainError, bind_mount, runtime_on_path
 
     if dest.is_file():
         return True
@@ -509,7 +509,7 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
         return False
     image, lib_dir = stock_lib_dir(profile, name)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    from rebrew.toolchain import kill_container
+    from rebrew.compiler.toolchain import kill_container
 
     container = f"rebrew-libext-{uuid.uuid4().hex[:12]}"
     try:
@@ -566,13 +566,13 @@ def assert_library_is_stock(
     files is an error rather than a silent pass.  An unavailable runtime
     skips, matching ``ensure_stock_lib``.
     """
-    from rebrew.toolchain import bind_mount, runtime_on_path
+    from rebrew.compiler.toolchain import bind_mount, runtime_on_path
 
     runtime = container_runtime()
     if not runtime_on_path():
         return
     image, lib_dir = stock_lib_dir(profile, name)
-    from rebrew.toolchain import kill_container
+    from rebrew.compiler.toolchain import kill_container
 
     container = f"rebrew-libhash-{uuid.uuid4().hex[:12]}"
     try:
@@ -693,7 +693,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Flag reversed functions whose bytes come from a linked library."""
-    from rebrew.toolchain import ToolchainError
+    from rebrew.compiler.toolchain import ToolchainError
 
     cfg = require_config(target=target, json_mode=json_output)
     va_int = parse_va(va, json_mode=json_output) if va is not None else None

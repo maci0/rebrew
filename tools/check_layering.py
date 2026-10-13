@@ -22,7 +22,7 @@ import time: a command registers itself with the umbrella inside its
 ``src/rebrew/<package>/AGENTS.md`` states the externals that package may
 import, and that line is what keeps ``matcher/`` from becoming a peer of the
 CLI it drives.  Nothing read the line, so it drifted silently while the other
-two rules kept passing.  The list below is transcribed from those five files;
+two rules kept passing.  The list below is transcribed from those six files;
 ``tests/test_check_layering.py`` fails when a name in the tool is no longer
 documented, so the two cannot diverge quietly.  Unlike the other rules this
 one reads *every* import, not just the module-scope ones: the catalog's
@@ -84,18 +84,36 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
         {
             "binary_loader",
             "coff_reloc",
-            "compile",
-            "compile_cache",
+            "compiler.cache",
+            "compiler.compile",
+            "compiler.temp_dirs",
+            "compiler.toolchain",
+            "compiler.toolchain_spec",
             "config",
             "errors",
             "flag_data",
             "flags",
             "omf16",
             "registry",
-            "temp_dirs",
-            "toolchain",
-            "toolchain_spec",
             "utils",
+        }
+    ),
+    "compiler": frozenset(
+        {
+            "binary_loader",
+            "binary_model",
+            "coff_reloc",
+            "config",
+            "errors",
+            "flag_data",
+            "flags",
+            "matcher.parsers",
+            "metadata",
+            "ne_loader",
+            "registry",
+            "sources",
+            "utils",
+            "workspace",
         }
     ),
     "catalog": frozenset(

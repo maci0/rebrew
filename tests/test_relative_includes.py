@@ -11,8 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from rebrew.compile import compile_and_compare, compile_to_obj
-from rebrew.toolchain_paths import toolchains_repo
+from rebrew.compiler.compile import compile_and_compare, compile_to_obj
+from rebrew.compiler.toolchain_paths import toolchains_repo
 
 _REPO = Path(__file__).resolve().parents[1]
 
@@ -24,7 +24,7 @@ _INSTALL_INCLUDES = str(toolchains_repo() / "msvc" / "6.0-win32" / "VC98" / "Inc
 
 
 def _image_available(profile: str) -> bool:
-    from rebrew.toolchain import TOOLCHAINS, image_present
+    from rebrew.compiler.toolchain import TOOLCHAINS, image_present
 
     spec = TOOLCHAINS[profile]
     return spec.image is not None and image_present(spec.image)

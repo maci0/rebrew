@@ -200,7 +200,7 @@ class TestDockerIncludeLibs:
         )
 
     def test_docker_profile_with_image_passes(self, tmp_path: Path, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda img: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda img: True)
         inc = check_includes(self._cfg(tmp_path))
         assert inc.status == _OK
         assert "docker image" in inc.message
@@ -209,7 +209,7 @@ class TestDockerIncludeLibs:
         assert "docker image" in lib.message
 
     def test_docker_profile_without_image_warns_with_fix(self, tmp_path: Path, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda img: False)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda img: False)
         inc = check_includes(self._cfg(tmp_path))
         assert inc.status == _WARN
         assert "toolchain build" in inc.fix
@@ -221,7 +221,7 @@ class TestDockerIncludeLibs:
     ) -> None:
         """mingw-16.2.0 is image-backed: its headers come from the image, so a
         dangling host includes path is not a failure."""
-        monkeypatch.setattr("rebrew.toolchain.image_present", lambda img: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda img: True)
         cfg = _make_cfg(
             tmp_path,
             compiler_profile="mingw-16.2.0",

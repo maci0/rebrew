@@ -1,4 +1,4 @@
-"""delphi16.py — Delphi 1.0 (16-bit NE) compilation support.
+"""compiler/delphi16.py — Delphi 1.0 (16-bit NE) compilation support.
 
 Wraps the vendored 16-bit Borland Delphi 1.0 compiler (``DCC.EXE``, a DOS
 DPMI app, run headless under DOSBox per the proven recipe in the
@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from rebrew.dosbox import make_sandbox_dir
+from rebrew.compiler.dosbox import make_sandbox_dir
 from rebrew.errors import RebrewError
 
 if TYPE_CHECKING:
@@ -59,7 +59,7 @@ class Delphi16Result:
 
 def find_dcc() -> Path:
     """Locate the vendored DCC.EXE (recompile-toolchains/delphi/1.0-win16)."""
-    from rebrew.toolchain_paths import toolchains_repo
+    from rebrew.compiler.toolchain_paths import toolchains_repo
 
     dcc = toolchains_repo() / "delphi" / "1.0-win16" / "source" / "DCC.EXE"
     if dcc.exists():
@@ -97,7 +97,7 @@ def _is_83_safe(name: str) -> bool:
     before the first dot, <=3 after, no spaces or DOS-special chars).
 
     The COMMAND.COM metacharacters join the DOS-special set: the name reaches
-    an ``[autoexec]`` line (see :func:`rebrew.dosbox._build_dosbox_conf`), and
+    an ``[autoexec]`` line (see :func:`rebrew.compiler.dosbox._build_dosbox_conf`), and
     ``A&B.C`` would run a second DOS command beside the compile.
     """
     base, dot, ext = name.partition(".")
@@ -156,7 +156,7 @@ def compile_ne(
     Args:
         dpr_source: Path to the Pascal source (or the source text).
         workdir: Optional working directory (default: this thread's reused
-            :func:`rebrew.dosbox.make_sandbox_dir` dir, removed at process
+            :func:`rebrew.compiler.dosbox.make_sandbox_dir` dir, removed at process
             exit; pass an explicit directory to keep the sandbox for
             inspection).
         timeout: DOSBox subprocess timeout.
@@ -233,7 +233,7 @@ def compile_ne(
     elif lib_dir is not None and lib_dir.is_dir():
         (sandbox / "DCC.CFG").write_text(_DCC_CFG, encoding="utf-8")
 
-    from rebrew.dosbox import DosboxError, read_uppercase, run_dosbox
+    from rebrew.compiler.dosbox import DosboxError, read_uppercase, run_dosbox
 
     extra = " " + " ".join(extra_args) if extra_args else ""
     cmd = f"C:\\DCC.EXE{extra} {staged_name} > C:\\dccout.txt"

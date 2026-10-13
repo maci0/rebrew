@@ -48,7 +48,7 @@
         <mxCell id="arts" value="&lt;b&gt;Artifacts rebrew writes&lt;/b&gt;&lt;br&gt;db/coverage-&lt;target&gt;.toml&lt;br&gt;ga_runs.jsonl solutions log&lt;br&gt;matched .c + locked metadata TOML&lt;br&gt;verify_results (incl. similarity)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="880" y="304" width="340" height="124" as="geometry"/>
         </mxCell>
-        <mxCell id="spec" value="&lt;b&gt;toolchain.py&lt;/b&gt;&lt;br&gt;ToolchainSpec registry&lt;br&gt;entry points + TOML overlay&lt;br&gt;docker run &amp;lt;image&amp;gt; &amp;lt;cc&amp;gt; &amp;lt;args&amp;gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="spec" value="&lt;b&gt;compiler/toolchain.py&lt;/b&gt;&lt;br&gt;ToolchainSpec registry&lt;br&gt;entry points + TOML overlay&lt;br&gt;docker run &amp;lt;image&amp;gt; &amp;lt;cc&amp;gt; &amp;lt;args&amp;gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1300" y="304" width="300" height="124" as="geometry"/>
         </mxCell>
         <mxCell id="e-rb-prj" value="operates on" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#15803d;fontSize=10;endArrow=block;" edge="1" parent="1" source="rb" target="prj">
@@ -100,7 +100,7 @@
         <mxCell id="l3" value="L3  Services and product vision" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#9d174d;fontStyle=1;fontSize=13;" vertex="1" parent="1">
           <mxGeometry x="40" y="672" width="780" height="170" as="geometry"/>
         </mxCell>
-        <mxCell id="rc" value="&lt;b&gt;recompile&lt;/b&gt;&lt;br&gt;FastAPI compiler-as-a-service&lt;br&gt;path-dep: rebrew.toolchain catalog&lt;br&gt;POST /api/v1/compile → docker run&lt;br&gt;rebrew backend via recompile_url" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#db2777;fontColor=#9d174d;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="rc" value="&lt;b&gt;recompile&lt;/b&gt;&lt;br&gt;FastAPI compiler-as-a-service&lt;br&gt;path-dep: rebrew.compiler.toolchain catalog&lt;br&gt;POST /api/v1/compile → docker run&lt;br&gt;rebrew backend via recompile_url" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#db2777;fontColor=#9d174d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="64" y="712" width="350" height="108" as="geometry"/>
         </mxCell>
         <mxCell id="rel" value="&lt;b&gt;relumea&lt;/b&gt;&lt;br&gt;SaaS workbench vision&lt;br&gt;productizes the stack;&lt;br&gt;snowball datasets from matched pairs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#db2777;fontColor=#9d174d;align=center;fontSize=11;" vertex="1" parent="1">
@@ -176,13 +176,13 @@
         <mxCell id="diag" value="&lt;b&gt;diagnose.py&lt;/b&gt;&lt;br&gt;resolution: per-function TOOLCHAIN/CFLAGS&lt;br&gt;→ nearest rebrew-libraries.toml → project default" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#64748b;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="500" y="200" width="280" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="compile" value="&lt;b&gt;compile.py&lt;/b&gt;&lt;br&gt;compile_to_obj → compile_and_compare&lt;br&gt;docker image, or recompile service&lt;br&gt;extract symbol bytes + reloc slots&lt;br&gt;core.matching.smart_reloc_compare" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="compile" value="&lt;b&gt;compiler/compile.py&lt;/b&gt;&lt;br&gt;compile_to_obj → compile_and_compare&lt;br&gt;docker image, or recompile service&lt;br&gt;extract symbol bytes + reloc slots&lt;br&gt;core.matching.smart_reloc_compare" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="460" y="292" width="360" height="110" as="geometry"/>
         </mxCell>
-        <mxCell id="cache" value="compile_cache.py&lt;br&gt;SHA-256 keyed disk cache" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="cache" value="compiler/cache.py&lt;br&gt;SHA-256 keyed disk cache" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="400" y="420" width="200" height="48" as="geometry"/>
         </mxCell>
-        <mxCell id="tcmod" value="toolchain.py&lt;br&gt;ToolchainSpec + docker run" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="tcmod" value="compiler/toolchain.py&lt;br&gt;ToolchainSpec + docker run" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="620" y="420" width="200" height="48" as="geometry"/>
         </mxCell>
 
@@ -670,7 +670,7 @@
         <mxCell id="svc-lane" value="4. Services, agent, similarity, ML (what actually writes back vs what only consumes)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#9d174d;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="850" width="1680" height="280" as="geometry"/>
         </mxCell>
-        <mxCell id="sv1" value="&lt;b&gt;recompile&lt;/b&gt;&lt;br&gt;POST /api/v1/compile&lt;br&gt;path-dep: rebrew.toolchain catalog&lt;br&gt;docker run same images&lt;br&gt;artifacts/{id} + ledger.json&lt;br&gt;emit_assembly → train_data/train.jsonl&lt;br&gt;&lt;br&gt;Does not read a project.&lt;br&gt;Does not write STATUS." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#db2777;fontColor=#9d174d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="sv1" value="&lt;b&gt;recompile&lt;/b&gt;&lt;br&gt;POST /api/v1/compile&lt;br&gt;path-dep: rebrew.compiler.toolchain catalog&lt;br&gt;docker run same images&lt;br&gt;artifacts/{id} + ledger.json&lt;br&gt;emit_assembly → train_data/train.jsonl&lt;br&gt;&lt;br&gt;Does not read a project.&lt;br&gt;Does not write STATUS." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#db2777;fontColor=#9d174d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="890" width="300" height="210" as="geometry"/>
         </mxCell>
         <mxCell id="sv2" value="&lt;b&gt;reagent&lt;/b&gt;&lt;br&gt;in-process rebrew.* imports&lt;br&gt;skip / ga_only / llm_then_ga /&lt;br&gt;flag_sweep_first / llm_only&lt;br&gt;own SQLite run log&lt;br&gt;&lt;br&gt;Writes STATUS/CFLAGS through&lt;br&gt;the same metadata writers.&lt;br&gt;This is the live reverse path&lt;br&gt;for the LLM loop.&lt;br&gt;(sibling listed; not in this workspace checkout)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">

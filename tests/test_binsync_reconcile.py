@@ -240,7 +240,7 @@ class TestDurableEvidence:
         self, tmp_path: Path, monkeypatch: Any, change: str
     ) -> None:
         from rebrew.annotation import Annotation
-        from rebrew.compile import CompareResult
+        from rebrew.compiler.compile import CompareResult
         from rebrew.verify import run_verification, verify_entry
 
         cfg = _project(tmp_path)
@@ -261,15 +261,15 @@ class TestDurableEvidence:
                 reloc_offsets=[],
             )
 
-        monkeypatch.setattr("rebrew.compile.compile_and_compare", compare)
+        monkeypatch.setattr("rebrew.compiler.compile.compile_and_compare", compare)
         if change == "batch":
 
             def precompile(*args: Any, **kwargs: Any) -> Any:
                 source.write_text(source.read_text().replace("return 1", "return 2"))
                 return {id(entry): "precompiled.obj"}
 
-            monkeypatch.setattr("rebrew.compile.precompile_batch", precompile)
-            monkeypatch.setattr("rebrew.compile_cache.get_project_cache", lambda *a: None)
+            monkeypatch.setattr("rebrew.compiler.compile.precompile_batch", precompile)
+            monkeypatch.setattr("rebrew.compiler.cache.get_project_cache", lambda *a: None)
             passed, failed, *_ = run_verification([entry], cfg, 1, 1, 0, True, name_to_va={})
             assert (passed, failed) == (1, 0)
         else:

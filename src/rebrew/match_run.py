@@ -23,7 +23,7 @@ from rich.markup import escape
 from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import capstone_mode_for_arch, extract_raw_bytes
 from rebrew.cli import EXIT_MISMATCH, console, json_print
-from rebrew.compile import resolve_compiler_env
+from rebrew.compiler.compile import resolve_compiler_env
 from rebrew.config import ProjectConfig
 from rebrew.limits import NO_DELTA, NO_MAX_SIZE
 from rebrew.match_batch import (
@@ -502,7 +502,7 @@ def _run_one_stub_ga(
     # metadata TOOLCHAIN/CFLAGS → nearest rebrew-libraries.toml → project).
     # Without this a library built with another compiler was recompiled with
     # the project default and could never match (docs/TOOLCHAIN.md).
-    from rebrew.compile_overrides import resolve_compile_overrides
+    from rebrew.compiler.overrides import resolve_compile_overrides
 
     toolchain_name, resolved_cflags = resolve_compile_overrides(
         cfg,
@@ -592,7 +592,7 @@ def _run_one_stub_ga(
             confirmed = False
             try:
                 from rebrew.coff_reloc import build_name_to_va
-                from rebrew.compile import compile_and_compare
+                from rebrew.compiler.compile import compile_and_compare
 
                 # A batch hands in the catalog it already built; a single-stub
                 # call builds it here.
@@ -1644,8 +1644,8 @@ def _run_batch_flag_sweep(
             # predicate before touching STATUS.
             try:
                 from rebrew.binary_loader import extract_raw_bytes
-                from rebrew.compile import compile_and_compare
-                from rebrew.compile_overrides import resolve_compile_overrides
+                from rebrew.compiler.compile import compile_and_compare
+                from rebrew.compiler.overrides import resolve_compile_overrides
 
                 target_bytes = extract_raw_bytes(cfg.target_binary, int(stub.va, 16), stub.size)
                 if target_bytes:
