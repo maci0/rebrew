@@ -321,7 +321,13 @@ def _plan_function(
         except (ValueError, OSError, TypeError):
             error_exit(f"function file escapes reversed_dir: {rel!r}", json_mode=json_output)
         selected = Selection(KIND_FUNCTION, module, va)
-    _check_scan_collision(entries, match, new_name, json_output)
+    # A library header alias can share the compiled definition's native identity.
+    others = [
+        entry
+        for entry in entries
+        if (getattr(entry, "module", ""), getattr(entry, "va", 0)) != (selected.module, selected.va)
+    ]
+    _check_scan_collision(others, match, new_name, json_output)
     actual_old = rename_source_name(old_name, old_sym)
     plan = plan_symbol_rename(
         cfg,

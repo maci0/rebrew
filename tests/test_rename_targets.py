@@ -953,3 +953,51 @@ class TestStaticAndRollback:
         assert result.exit_code != 0
         assert "restored" in result.output
         assert _snapshot(root) == before
+
+
+class TestSelectedFunctionAliases:
+    @pytest.mark.parametrize("selector", ["SERVER.0x10002000", "lb_SendLobbyConfig"])
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_library_alias_of_selected_definition_is_not_a_collision(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, selector: str, dry_run: bool
+    ) -> None:
+        """A header identification and compiled body describe one native function."""
+        from rebrew.metadata.functions import load_metadata, save_metadata
+
+        root = _project(tmp_path)
+        (root / "src" / "library_crt.h").write_text(
+            "// LIBRARY: SERVER 0x10002000\n// _lb_Ready\n// SIZE: 45\n",
+            encoding="utf-8",
+        )
+        rows = load_metadata(root)
+        rows[("SERVER", 0x10002000)]["marker_type"] = "LIBRARY"
+        save_metadata(root, rows)
+        before = _snapshot(root)
+        args = [selector, "lb_Ready", "--json"]
+        if dry_run:
+            args.append("--dry-run")
+        result = _run(root, monkeypatch, *args)
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert any(r["new"].get("name") == "lb_Ready" for r in payload["rows"])
+        if dry_run:
+            assert _snapshot(root) == before
+        else:
+            assert "void lb_Ready(int player)" in _text(root, "command/lobby.c")
+            assert "lb_Ready(1);" in _text(root, "server.c")
+            row = _row(_functions(root), "SERVER", 0x10002000)
+            assert (row["name"], row["symbol"], row["marker_type"]) == (
+                "lb_Ready",
+                "_lb_Ready",
+                "LIBRARY",
+            )
+
+    def test_explicit_identity_still_rejects_another_definition(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _project(tmp_path)
+        before = _snapshot(root)
+        result = _run(root, monkeypatch, "SERVER.0x10002000", "gm_InitEntitySlots", "--json")
+        assert result.exit_code == 2, result.output
+        assert "duplicate symbol" in result.output
+        assert _snapshot(root) == before
