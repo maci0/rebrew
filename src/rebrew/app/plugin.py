@@ -619,6 +619,10 @@ class _ComponentContext(Context):
     @override
     def dispose(self) -> None:
         if not self.disposed and not self._retired and not self._unloading:
+            if self._scope._cleanup_failure is not None:
+                raise ComponentError(
+                    f"scope cleanup failed; cannot dispose component: {self._scope._cleanup_failure}"
+                )
             self._scope._remove_entry(self._entry)
 
     @override
@@ -662,6 +666,7 @@ class CoeffectScope:
         self._settling = False
         self._bulk = False
         self._closed = False
+        self._cleanup_failure: BaseException | None = None
         # Disposing the context closes every registration owned by this scope.
         ctx.effect(self.close)
         self._lifetime_effect = ctx._effects[-1]
@@ -674,6 +679,10 @@ class CoeffectScope:
         async generators are rejected at registration, and awaitables or async
         generators returned at runtime raise :class:`ComponentError`.
         """
+        if self._cleanup_failure is not None:
+            raise ComponentError(
+                f"scope cleanup failed; cannot add component: {self._cleanup_failure}"
+            )
         if self._closed:
             return
         for field in ("needs", "provides"):
@@ -710,19 +719,34 @@ class CoeffectScope:
 
     def remove(self, component: Component) -> None:
         """Retire one registration by identity and revert its activation."""
+        if self._cleanup_failure is not None:
+            raise ComponentError(
+                f"scope cleanup failed; cannot remove component: {self._cleanup_failure}"
+            )
         for entry in self._entries:
             if entry.component is component:
                 self._remove_entry(entry)
                 return
 
     def _remove_entry(self, entry: _Entry) -> None:
+        if self._cleanup_failure is not None:
+            raise ComponentError(
+                f"scope cleanup failed; cannot remove component: {self._cleanup_failure}"
+            )
         self._guard_teardown((entry,))
         if entry.view is not None:
             entry.view._retired = True
         _remove_identity(self._entries, entry)
         try:
             self._deactivate(entry)
-        finally:
+        except BaseException as exc:
+            if self._cleanup_failure is None:
+                self._cleanup_failure = exc
+            # Cleanup failed: retain registration and provision reservations for diagnostics.
+            if not any(saved is entry for saved in self._entries):
+                self._entries.append(entry)
+            raise
+        else:
             self._release(entry)
 
     def unresolved(self) -> list[Component]:
@@ -732,25 +756,57 @@ class CoeffectScope:
     def close(self) -> None:
         """Deactivate every entry, newest first."""
         if self._closed:
+            if self._cleanup_failure is not None:
+                raise ComponentError(
+                    f"scope cleanup failed: {self._cleanup_failure}"
+                ) from self._cleanup_failure
             return
+        if self._cleanup_failure is not None:
+            self._closed = True
+            with contextlib.suppress(ValueError):
+                self._ctx._on_change.remove(self._classify)
+            self._ctx._forget(self._lifetime_effect)
+            self._lifetime_effect.armed = False
+            raise ComponentError(
+                f"scope cleanup failed: {self._cleanup_failure}"
+            ) from self._cleanup_failure
         self._guard_teardown(self._entries)
         self._closed = True
         self._settling = True
+        errors: list[BaseException] = []
         try:
-            # An inverse may retire independent siblings; keep the traversal
-            # stable so their removal cannot skip another live registration.
-            _run_cleanup(
-                partial(self._deactivate, entry) for entry in reversed(self._entries.copy())
-            )
+            for entry in reversed(self._entries.copy()):
+                if self._cleanup_failure is not None:
+                    break
+                try:
+                    self._deactivate(entry)
+                    _remove_identity(self._entries, entry)
+                    self._release(entry)
+                except BaseException as exc:
+                    if self._cleanup_failure is None:
+                        self._cleanup_failure = exc
+                    errors.append(exc)
+                    break
+        except BaseException as exc:
+            if self._cleanup_failure is None:
+                self._cleanup_failure = exc
+            errors.append(exc)
         finally:
             with contextlib.suppress(ValueError):
                 self._ctx._on_change.remove(self._classify)
-            for entry in self._entries:
-                self._release(entry)
-            self._entries.clear()
+            if self._cleanup_failure is None:
+                for entry in self._entries:
+                    self._release(entry)
+                self._entries.clear()
             self._settling = False
             self._ctx._forget(self._lifetime_effect)
             self._lifetime_effect.armed = False
+        if errors:
+            _raise_errors(errors)
+        elif self._cleanup_failure is not None:
+            raise ComponentError(
+                f"scope cleanup failed: {self._cleanup_failure}"
+            ) from self._cleanup_failure
 
     def _guard_teardown(self, entries: Iterable[_Entry]) -> None:
         """Reject synchronous retirement that would interrupt a running inverse."""
@@ -785,16 +841,35 @@ class CoeffectScope:
         Called by ``unprovide`` before the binding is withdrawn, so each
         dependent reverts while the service is still resolvable.
         """
+        entries_to_withdraw = [
+            entry
+            for entry in reversed(self._entries.copy())
+            if entry.effects is not None and key in entry.needs
+        ]
+        if not entries_to_withdraw:
+            return
+        if self._cleanup_failure is not None:
+            raise ComponentError(
+                f"scope cleanup failed; cannot withdraw service {key!r}: {self._cleanup_failure}"
+            )
         settling = self._settling
         self._settling = True
+        errors: list[BaseException] = []
         try:
-            _run_cleanup(
-                partial(self._deactivate, entry)
-                for entry in reversed(self._entries.copy())
-                if entry.effects is not None and key in entry.needs
-            )
+            for entry in entries_to_withdraw:
+                if self._cleanup_failure is not None:
+                    break
+                try:
+                    self._deactivate(entry)
+                except BaseException as exc:
+                    if self._cleanup_failure is None:
+                        self._cleanup_failure = exc
+                    errors.append(exc)
+                    break
         finally:
             self._settling = settling
+        if errors:
+            _raise_errors(errors)
 
     def _classify(self) -> None:
         """Drive activation and deactivation from the current satisfaction.
@@ -806,7 +881,7 @@ class CoeffectScope:
         of its bindings across scopes. That dependency order is independent
         of registration order (Theorem 70).
         """
-        if self._closed or self._settling:
+        if self._closed or self._settling or self._cleanup_failure is not None:
             return
         # Table changes made by an inverse settle after that teardown finishes.
         # Reentering another scope now could unload its provider underneath the
@@ -820,32 +895,42 @@ class CoeffectScope:
         errors: list[BaseException] = []
         try:
             changed = True
-            while changed and not self._closed:
+            while changed and not self._closed and self._cleanup_failure is None:
                 changed = False
                 for entry in self._entries:
-                    if self._closed:
+                    if self._closed or self._cleanup_failure is not None:
                         break
                     satisfied = self._satisfied(entry.needs)
                     if satisfied and entry.effects is None:
                         try:
                             entry.effects = self._activate(entry)
                         except BaseException as exc:
-                            _remove_identity(self._entries, entry)
-                            self._release(entry)
                             errors.append(exc)
-                            changed = True
+                            if self._cleanup_failure is None:
+                                _remove_identity(self._entries, entry)
+                                self._release(entry)
+                                changed = True
+                            else:
+                                break
+                            break
+                        if self._cleanup_failure is not None:
                             break
                         try:
                             self._ctx._changed()
                         except BaseException as exc:
                             errors.append(exc)
                         changed = True
+                if self._cleanup_failure is not None:
+                    break
                 for entry in reversed(self._entries):
+                    if self._closed or self._cleanup_failure is not None:
+                        break
                     if entry.effects is not None and not self._satisfied(entry.needs):
                         try:
                             self._deactivate(entry)
                         except BaseException as exc:
                             errors.append(exc)
+                            break
                         changed = True
         finally:
             self._settling = False
@@ -856,17 +941,31 @@ class CoeffectScope:
         entry.view = view
         owned = view._effects
         self._ctx._activating_needs.append(entry.needs)
+
+        def finish() -> None:
+            try:
+                view._finish()
+            except BaseException as exc:
+                if self._cleanup_failure is None:
+                    self._cleanup_failure = exc
+                raise
+
+        def cleanup() -> None:
+            try:
+                _run_cleanup((lambda: self._revert(owned), finish, self._ctx._changed))
+            except BaseException as exc:
+                if self._cleanup_failure is None:
+                    self._cleanup_failure = exc
+                raise
+
         try:
-            _invoke_sync(
-                entry.component.apply,
-                view,
-                operation="component apply",
-                target=entry.component,
-            )
-            if self._closed or self._ctx.disposed or view._retired:
-                view._unloading = True
-                _run_cleanup((lambda: self._revert(owned), view._finish, self._ctx._changed))
-            else:
+            try:
+                _invoke_sync(
+                    entry.component.apply,
+                    view,
+                    operation="component apply",
+                    target=entry.component,
+                )
                 missing = set(entry.provides) - {
                     effect.key for effect in owned if effect.armed and effect.key is not None
                 }
@@ -874,26 +973,23 @@ class CoeffectScope:
                     raise ComponentError(
                         f"component did not provide declared services: {sorted(missing)}"
                     )
+            except BaseException as exc:
+                # A mid-apply failure must not leave orphaned residue: effects
+                # already installed belong to no live entry (entry.effects stays
+                # None), so no later deactivation would revert them. Revert here.
+                view._unloading = True
+                _rollback(cleanup, exc)
+                raise
+
+            if self._closed or self._ctx.disposed or view._retired:
+                view._unloading = True
+                cleanup()
+            else:
                 view._host._pending.difference_update(entry.provides)
-        except BaseException as exc:
-            # A mid-apply failure must not leave orphaned residue: effects
-            # already installed belong to no live entry (entry.effects stays
-            # None), so no later deactivation would revert them. Revert here.
-            view._unloading = True
-            try:
-                _rollback(
-                    lambda: _run_cleanup(
-                        (lambda: self._revert(owned), view._finish, self._ctx._changed)
-                    ),
-                    exc,
-                )
-            finally:
-                view._finish()
-            raise
         finally:
             self._ctx._activating_needs.pop()
             view._installing = False
-            if view._retired:
+            if view._retired and self._cleanup_failure is None:
                 self._release(entry)
         return owned
 
@@ -905,18 +1001,34 @@ class CoeffectScope:
         entry.effects = None
         if entry.view is not None:
             entry.view._unloading = True
-        _run_cleanup(
-            [lambda: self._revert(effects)]
-            + ([entry.view._finish] if entry.view is not None else [])
-            + [self._ctx._changed]
-        )
+
+        def finish() -> None:
+            if entry.view is not None:
+                try:
+                    entry.view._finish()
+                except BaseException as exc:
+                    if self._cleanup_failure is None:
+                        self._cleanup_failure = exc
+                    raise
+
+        try:
+            _run_cleanup([lambda: self._revert(effects)] + [finish] + [self._ctx._changed])
+        except BaseException as exc:
+            if self._cleanup_failure is None:
+                self._cleanup_failure = exc
+            raise
 
     def _revert(self, effects: list[_Effect]) -> None:
         """Drain dependents before any of their provider's inverses run."""
 
         def revert(effect: _Effect) -> None:
             self._ctx._storage()._forget(effect)
-            effect.revert()
+            try:
+                effect.revert()
+            except BaseException as exc:
+                if self._cleanup_failure is None:
+                    self._cleanup_failure = exc
+                raise
 
         _run_cleanup(
             [
@@ -944,6 +1056,13 @@ def activate(components: Iterable[Component], ctx: Context) -> CoeffectScope:
         scope._bulk = False
         scope._classify()
     except BaseException as exc:
+        if scope._cleanup_failure is not None:
+            scope._closed = True
+            with contextlib.suppress(ValueError):
+                ctx._on_change.remove(scope._classify)
+            ctx._forget(scope._lifetime_effect)
+            scope._lifetime_effect.armed = False
+            raise
         _rollback(scope.close, exc)
         raise
     finally:

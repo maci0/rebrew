@@ -745,18 +745,31 @@ class TestCompositionLifecycle:
             if fail_cleanup:
                 with pytest.raises(ValueError, match="cleanup failed"):
                     retire()
+                expected = ["remover", "a", "b"]
+                if operation == "withdraw":
+                    expected.append("provider")
+                assert events == expected
+                assert not views[2].disposed
+                assert host.has("c")
+                with pytest.raises(ComponentError, match="scope cleanup failed"):
+                    scope.close()
+                assert events == expected
             else:
                 retire()
-            expected = ["remover", "a", "b", "c"]
-            if operation == "withdraw":
-                expected.append("provider")
-            assert events == expected
-            assert all(view.disposed for view in views)
-            assert all(not host.has(key) for key in ("a", "b", "c"))
-            scope.close()
-            assert events == expected
+                expected = ["remover", "a", "b", "c"]
+                if operation == "withdraw":
+                    expected.append("provider")
+                assert events == expected
+                assert all(view.disposed for view in views)
+                assert all(not host.has(key) for key in ("a", "b", "c"))
+                scope.close()
+                assert events == expected
         finally:
-            host.dispose()
+            if fail_cleanup:
+                with pytest.raises((ComponentError, BaseExceptionGroup)):
+                    host.dispose()
+            else:
+                host.dispose()
 
     @pytest.mark.parametrize("operation", ["remove", "close", "withdraw", "dispose"])
     def test_provider_retirement_cannot_interrupt_consumer_activation(self, operation: str) -> None:
@@ -808,8 +821,9 @@ class TestCompositionLifecycle:
             host.unprovide("base")
         assert seen == [1] and views[0].disposed
         assert not host.has("base")
-        scope.close()
-        assert scope.unresolved() == []
+        with pytest.raises(ComponentError, match="scope cleanup failed"):
+            scope.close()
+        assert len(scope._entries) == 1
         host.dispose()
 
     @pytest.mark.parametrize("fail_cleanup", [False, True])
@@ -854,12 +868,17 @@ class TestCompositionLifecycle:
         if fail_cleanup:
             with pytest.raises(ValueError, match="cleanup failed"):
                 host.unprovide("base")
+            assert seen[0] == "consumer"
+            assert sorted(seen[1:]) == ["late", "provider"]
+            assert not host.has("resource")
+            with pytest.raises(ComponentError, match="scope cleanup failed"):
+                host.dispose()
         else:
             host.unprovide("base")
-        assert seen[0] == "consumer"
-        assert sorted(seen[1:]) == ["late", "provider"]
-        assert not host.has("resource")
-        host.dispose()
+            assert seen[0] == "consumer"
+            assert sorted(seen[1:]) == ["late", "provider"]
+            assert not host.has("resource")
+            host.dispose()
 
     @pytest.mark.parametrize("separate_scopes", [False, True])
     @pytest.mark.parametrize(
@@ -1969,3 +1988,597 @@ class TestAsyncCallableRefusal:
         comp.apply = lambda ctx: None  # type: ignore[method-assign]
         scope.add(comp)
         assert scope.unresolved() == [comp]
+
+
+class TestCleanupFailureContainment:
+    def test_same_scope_remove_cleanup_failure_latches_scope_and_refuses_replacement(
+        self,
+    ) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        cleanup_calls: list[str] = []
+
+        class FailingProvider:
+            needs = ()
+            provides = ("worker",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("worker", "v1")
+
+                def bad_disposer() -> None:
+                    cleanup_calls.append("bad_disposer")
+                    raise RuntimeError("external release failed")
+
+                c.effect(bad_disposer)
+
+        comp = FailingProvider()
+        scope.add(comp)
+        assert ctx.resolve("worker") == "v1"
+
+        with pytest.raises(RuntimeError, match="external release failed"):
+            scope.remove(comp)
+
+        assert cleanup_calls == ["bad_disposer"]
+
+        # Scope must be latched and refuse subsequent replacement registration on the same scope
+        replacement_started = False
+
+        class ReplacementProvider:
+            needs = ()
+            provides = ("worker",)
+
+            def apply(self, c: Any) -> None:
+                nonlocal replacement_started
+                replacement_started = True
+                c.provide("worker", "v2")
+
+        with pytest.raises(ComponentError, match="cleanup failed"):
+            scope.add(ReplacementProvider())
+
+        assert not replacement_started
+
+        # Repeated close must report failure without rerunning already-consumed inverses
+        with pytest.raises(ComponentError, match="cleanup failed"):
+            scope.close()
+
+        assert cleanup_calls == ["bad_disposer"]
+
+    def test_dependency_flap_cleanup_failure_refuses_reactivation_of_failed_component(
+        self,
+    ) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        ctx.provide("dep", "v1")
+
+        activations: list[int] = []
+        cleanup_calls: list[str] = []
+
+        class FlappingConsumer:
+            needs = ("dep",)
+            provides = ()
+
+            def apply(self, c: Any) -> None:
+                activations.append(len(activations) + 1)
+
+                def bad_deactivate() -> None:
+                    cleanup_calls.append("bad_deactivate")
+                    raise RuntimeError("deactivation cleanup failed")
+
+                c.effect(bad_deactivate)
+
+        comp = FlappingConsumer()
+        scope.add(comp)
+        assert activations == [1]
+
+        with pytest.raises(RuntimeError, match="deactivation cleanup failed"):
+            ctx.unprovide("dep")
+
+        assert cleanup_calls == ["bad_deactivate"]
+
+        # Re-providing dependency must not reactivate the failed component
+        ctx.provide("dep", "v2")
+        assert activations == [1]
+
+    def test_failed_start_rollback_failure_halts_classify_and_prevents_sibling_start(
+        self,
+    ) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+
+        sibling_started = False
+
+        class FailingStartComp:
+            needs = ()
+            provides = ("service_a",)
+
+            def apply(self, c: Any) -> None:
+                def bad_rollback() -> None:
+                    raise RuntimeError("rollback cleanup failed")
+
+                c.effect(bad_rollback)
+                raise ValueError("start failed mid-way")
+
+        class SiblingComp:
+            needs = ()
+            provides = ("service_b",)
+
+            def apply(self, c: Any) -> None:
+                nonlocal sibling_started
+                sibling_started = True
+
+        scope._bulk = True
+        scope.add(FailingStartComp())
+        scope.add(SiblingComp())
+        scope._bulk = False
+
+        with pytest.raises(ExceptionGroup) as exc_info:
+            scope._classify()
+
+        # The sibling must NOT have been started after rollback cleanup failed
+        assert not sibling_started
+        exceptions = exc_info.value.exceptions
+        assert any(isinstance(e, ValueError) and "start failed" in str(e) for e in exceptions)
+        assert any(isinstance(e, RuntimeError) and "rollback cleanup" in str(e) for e in exceptions)
+
+    def test_renamed_same_scope_replacement_refusal(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+
+        class CompA:
+            needs = ()
+            provides = ("service_a",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("service_a", "val_a")
+
+                def bad_disposer() -> None:
+                    raise RuntimeError("release failed")
+
+                c.effect(bad_disposer)
+
+        comp_a = CompA()
+        scope.add(comp_a)
+        assert ctx.resolve("service_a") == "val_a"
+
+        with pytest.raises(RuntimeError, match="release failed"):
+            scope.remove(comp_a)
+
+        # Reservations and entries must be retained for diagnostics
+        assert "service_a" in ctx._storage()._reservations
+        assert any(entry.component is comp_a for entry in scope._entries)
+
+        # Renamed replacement component providing a completely different service must be refused
+        class CompB:
+            needs = ()
+            provides = ("service_b",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("service_b", "val_b")
+
+        with pytest.raises(ComponentError, match="cleanup failed"):
+            scope.add(CompB())
+
+        assert not ctx.has("service_b")
+
+    def test_nested_remove_failing_during_attempted_cleanup(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+
+        class CompA:
+            needs = ()
+            provides = ("service_a",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("service_a", "val_a")
+
+                def undo_a() -> None:
+                    scope.remove(comp_b)
+
+                c.effect(undo_a)
+
+        class CompB:
+            needs = ()
+            provides = ("service_b",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("service_b", "val_b")
+
+                def undo_b() -> None:
+                    raise RuntimeError("nested disposer failed")
+
+                c.effect(undo_b)
+
+        comp_a = CompA()
+        comp_b = CompB()
+        scope.add(comp_a)
+        scope.add(comp_b)
+
+        with pytest.raises(RuntimeError, match="nested disposer failed"):
+            scope.remove(comp_a)
+
+        # Both components must be retained for diagnostics after failure
+        assert "service_b" in ctx._storage()._reservations
+        assert scope._cleanup_failure is not None
+
+        # Subsequent remove call is refused by latch
+        with pytest.raises(ComponentError, match="cleanup failed"):
+            scope.remove(comp_b)
+
+    def test_repeated_close_counters_preserves_consumed_inverses(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        counters = {"comp_a": 0, "comp_b": 0, "comp_c": 0}
+
+        class CompA:
+            needs = ()
+            provides = ("service_a",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("service_a", 1)
+
+                def undo() -> None:
+                    counters["comp_a"] += 1
+
+                c.effect(undo)
+
+        class CompB:
+            needs = ()
+            provides = ("service_b",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("service_b", 2)
+
+                def undo() -> None:
+                    counters["comp_b"] += 1
+                    raise RuntimeError("comp_b cleanup failed")
+
+                c.effect(undo)
+
+        class CompC:
+            needs = ()
+            provides = ("service_c",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("service_c", 3)
+
+                def undo() -> None:
+                    counters["comp_c"] += 1
+
+                c.effect(undo)
+
+        # Registration order: CompA, CompB, CompC
+        # Reversed close order: CompC, CompB, CompA
+        scope.add(CompA())
+        scope.add(CompB())
+        scope.add(CompC())
+
+        # First close: CompC runs, CompB fails, CompA does not run
+        with pytest.raises(RuntimeError, match="comp_b cleanup failed"):
+            scope.close()
+
+        assert counters == {"comp_a": 0, "comp_b": 1, "comp_c": 1}
+
+        # Repeated close calls must report failure without rerunning consumed inverses
+        for _ in range(3):
+            with pytest.raises(ComponentError, match="cleanup failed"):
+                scope.close()
+
+        assert counters == {"comp_a": 0, "comp_b": 1, "comp_c": 1}
+
+    def test_pure_apply_failure_with_successful_rollback_remains_usable(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        rollback_called = False
+
+        class FailingApplyComp:
+            needs = ()
+            provides = ("temp_service",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("temp_service", "temp")
+
+                def undo() -> None:
+                    nonlocal rollback_called
+                    rollback_called = True
+
+                c.effect(undo)
+                raise ValueError("mid-apply validation error")
+
+        # Adding failing component raises apply error during classification
+        with pytest.raises(ValueError, match="mid-apply validation error"):
+            scope.add(FailingApplyComp())
+
+        assert rollback_called
+        assert scope._cleanup_failure is None
+        assert "temp_service" not in ctx._storage()._reservations
+        assert not ctx.has("temp_service")
+
+        # Scope remains fully usable for subsequent components
+        class HealthyComp:
+            needs = ()
+            provides = ("healthy_service",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("healthy_service", "healthy_value")
+
+        healthy = HealthyComp()
+        scope.add(healthy)
+        assert ctx.resolve("healthy_service") == "healthy_value"
+        assert scope.unresolved() == []
+
+        scope.close()
+        assert not ctx.has("healthy_service")
+
+    def test_a3_awaitable_disposer_failure_latches_scope(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+
+        async def coroutine_target() -> None:
+            pass
+
+        class AsyncDisposerComp:
+            needs = ()
+            provides = ("service",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("service", "v")
+
+                def sync_disposer_returning_awaitable() -> Any:
+                    return coroutine_target()
+
+                c.effect(sync_disposer_returning_awaitable)
+
+        comp = AsyncDisposerComp()
+        scope.add(comp)
+        assert ctx.resolve("service") == "v"
+
+        # A3 rejects awaitable returned by synchronous disposer with ComponentError
+        with pytest.raises(ComponentError, match="returned an awaitable"):
+            scope.remove(comp)
+
+        assert scope._cleanup_failure is not None
+
+        # Scope latched: subsequent add and close refuse
+        class AnotherComp:
+            needs = ()
+            provides = ("other",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("other", 1)
+
+        with pytest.raises(ComponentError, match="cleanup failed"):
+            scope.add(AnotherComp())
+
+        with pytest.raises(ComponentError, match="cleanup failed"):
+            scope.close()
+
+    def test_keyboard_interrupt_cleanup_behavior(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+
+        class InterruptComp:
+            needs = ()
+            provides = ("worker",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("worker", "active")
+
+                def interrupt_disposer() -> None:
+                    raise KeyboardInterrupt
+
+                c.effect(interrupt_disposer)
+
+        comp = InterruptComp()
+        scope.add(comp)
+
+        # KeyboardInterrupt must NOT be swallowed or transformed into ComponentError
+        with pytest.raises(KeyboardInterrupt):
+            scope.remove(comp)
+
+        assert scope._cleanup_failure is not None
+        assert isinstance(scope._cleanup_failure, KeyboardInterrupt)
+
+        # Scope is latched and refuses subsequent registration
+        with pytest.raises(ComponentError, match="cleanup failed"):
+            scope.add(comp)
+
+        # Repeated close reports ComponentError chaining the KeyboardInterrupt
+        with pytest.raises(ComponentError, match="cleanup failed"):
+            scope.close()
+
+    def test_inverse_raising_component_error_during_teardown_latches_and_fences_scope(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+
+        class CompA:
+            needs = ()
+            provides = ("service_a",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("service_a", "val_a")
+
+                def failing_inverse() -> None:
+                    raise ComponentError("arbitrary failure during component teardown")
+
+                c.effect(failing_inverse)
+
+        comp_a = CompA()
+        scope.add(comp_a)
+        assert ctx.resolve("service_a") == "val_a"
+
+        # Inverse raises ComponentError with 'during component teardown' text
+        with pytest.raises(ComponentError, match="arbitrary failure during component teardown"):
+            scope.remove(comp_a)
+
+        # Must latch unconditionally without message-based exemption
+        assert scope._cleanup_failure is not None
+        assert "during component teardown" in str(scope._cleanup_failure)
+
+        # Subsequent replacement / add is fenced
+        class CompB:
+            needs = ()
+            provides = ("service_b",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("service_b", "val_b")
+
+        with pytest.raises(ComponentError, match="scope cleanup failed"):
+            scope.add(CompB())
+
+        # Classification / resolve is fenced and reservations are retained
+        assert not ctx.has("service_b")
+        assert "service_a" in ctx._storage()._reservations
+
+    def test_guard_refusal_caught_by_callback_does_not_latch_scope(self) -> None:
+        host = Context()
+        host.provide("base", 1)
+        scope = CoeffectScope(host)
+        close_refused = False
+
+        class Consumer:
+            needs = ("base",)
+            provides = ()
+
+            def apply(self, c: Any) -> None:
+                def teardown_callback() -> None:
+                    nonlocal close_refused
+                    try:
+                        # Attempt circular close during teardown
+                        scope.close()
+                    except ComponentError as err:
+                        if "during component teardown" in str(err) or "teardown" in str(err):
+                            close_refused = True
+                        else:
+                            raise
+
+                c.effect(teardown_callback)
+
+        consumer = Consumer()
+        scope.add(consumer)
+        assert scope.unresolved() == []
+
+        # Withdrawing base causes Consumer to deactivate.
+        # Its inverse tries to close the scope, which is rejected by guard.
+        # But because the inverse catches the refusal, nothing escapes effect.revert.
+        host.unprovide("base")
+        assert close_refused
+
+        # Scope was NOT latched
+        assert scope._cleanup_failure is None
+
+        # Scope can close cleanly later
+        scope.close()
+        host.dispose()
+
+    def test_retained_healthy_sibling_view_dispose_after_latch_raises_component_error(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        sibling_view: Any = None
+
+        class CompSibling:
+            needs = ()
+            provides = ("sibling",)
+
+            def apply(self, c: Any) -> None:
+                nonlocal sibling_view
+                sibling_view = c
+                c.provide("sibling", "sib_val")
+
+        class CompFailing:
+            needs = ()
+            provides = ("failing",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("failing", "fail_val")
+
+                def bad_inverse() -> None:
+                    raise RuntimeError("failing cleanup")
+
+                c.effect(bad_inverse)
+
+        comp_sib = CompSibling()
+        comp_fail = CompFailing()
+        scope.add(comp_sib)
+        scope.add(comp_fail)
+
+        assert sibling_view is not None
+        assert not sibling_view.disposed
+
+        # Trigger cleanup failure on comp_fail
+        with pytest.raises(RuntimeError, match="failing cleanup"):
+            scope.remove(comp_fail)
+
+        assert scope._cleanup_failure is not None
+        # comp_sib is a healthy retained sibling
+        assert not sibling_view.disposed
+
+        # Calling dispose on the retained sibling view must raise ComponentError
+        with pytest.raises(ComponentError, match="scope cleanup failed; cannot dispose component"):
+            sibling_view.dispose()
+
+        # It must still be undisposed and no inverse rerun
+        assert not sibling_view.disposed
+
+    def test_activate_finish_failure_latches_without_duplicating_cleanup_group(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+
+        class FailingFinishComp:
+            needs = ()
+            provides = ("service",)
+
+            def apply(self, c: Any) -> None:
+                c.provide("service", 1)
+                original_finish = c._finish
+
+                def failing_finish() -> None:
+                    original_finish()
+                    raise RuntimeError("unexpected local finish failure")
+
+                c._finish = failing_finish  # type: ignore[method-assign]
+                raise ValueError("apply error")
+
+        with pytest.raises(BaseExceptionGroup) as exc_info:
+            scope.add(FailingFinishComp())
+
+        assert scope._cleanup_failure is not None
+        assert isinstance(scope._cleanup_failure, RuntimeError)
+        # Check that errors are [apply_error, cleanup_error] without duplicating cleanup
+        exceptions = exc_info.value.exceptions
+        assert len(exceptions) == 2
+        assert isinstance(exceptions[0], ValueError)
+        assert isinstance(exceptions[1], RuntimeError)
+
+    def test_remove_cleanup_failure_retains_entry_without_component_equality(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+
+        class EqualityGuardedComp:
+            needs: tuple[str, ...] = ()
+            provides: tuple[str, ...] = ("service_eq",)
+
+            def __hash__(self) -> int:
+                return id(self)
+
+            def __eq__(self, other: object) -> bool:
+                raise AssertionError("__eq__ must not be invoked during cleanup error handling")
+
+            def apply(self, c: Any) -> None:
+                c.provide("service_eq", "val")
+
+                def bad_disposer() -> None:
+                    raise RuntimeError("disposer failed")
+
+                c.effect(bad_disposer)
+
+        comp = EqualityGuardedComp()
+        scope.add(comp)
+        assert ctx.resolve("service_eq") == "val"
+
+        # Removal triggers cleanup failure; entry retention must use identity without invoking __eq__
+        with pytest.raises(RuntimeError, match="disposer failed"):
+            scope.remove(comp)
+
+        assert scope._cleanup_failure is not None
+        # Entry retained by identity
+        assert any(entry.component is comp for entry in scope._entries)
