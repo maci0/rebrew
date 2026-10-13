@@ -1567,3 +1567,66 @@ class TestReleaseCheckAttestations:
         if release_check._uv_publish_help() is None:
             pytest.skip("uv is not on PATH")
         assert release_check._attestation_problems() == []
+
+
+class TestPackagingStructuralGuards:
+    """Guards against package structure refactor regressions.
+
+    Pins runtime asset locations, PEP 561 py.typed markers, and package-data
+    inclusions so that moving modules into subpackages cannot silently break
+    installed wheels.
+    """
+
+    def test_runtime_asset_resolvers_point_to_valid_files(self) -> None:
+        """Declared runtime asset paths in init, skills, and lint resolve on disk."""
+        import rebrew.init as rebrew_init
+        import rebrew.skills as rebrew_skills
+
+        assert rebrew_init._AGENTS_MD_TEMPLATE.is_file(), (
+            f"_AGENTS_MD_TEMPLATE at {rebrew_init._AGENTS_MD_TEMPLATE} does not exist"
+        )
+        assert rebrew_init._PRINCIPLES_SRC.is_file(), (
+            f"_PRINCIPLES_SRC at {rebrew_init._PRINCIPLES_SRC} does not exist"
+        )
+        assert rebrew_init._AGENT_SKILLS_SRC.is_dir(), (
+            f"_AGENT_SKILLS_SRC at {rebrew_init._AGENT_SKILLS_SRC} does not exist"
+        )
+        assert rebrew_skills._SKILLS_DIR.is_dir(), (
+            f"_SKILLS_DIR at {rebrew_skills._SKILLS_DIR} does not exist"
+        )
+
+    def test_subpackage_py_typed_consistency(self) -> None:
+        """Every on-disk py.typed is declared in RUNTIME_ENTRIES."""
+        from tools.smoke_wheel_install import RUNTIME_ENTRIES
+
+        declared_typed = {
+            entry
+            for entry, kind in RUNTIME_ENTRIES
+            if kind == "file" and entry.endswith("py.typed")
+        }
+        on_disk_typed = {p.relative_to(PKG).as_posix() for p in PKG.rglob("py.typed")}
+        assert declared_typed == on_disk_typed, (
+            f"Mismatch between on-disk py.typed {on_disk_typed} and "
+            f"smoke_wheel_install RUNTIME_ENTRIES {declared_typed}"
+        )
+
+    def test_subpackage_agents_md_matched_by_exclusions(self) -> None:
+        """Every subpackage AGENTS.md matches the exclude glob."""
+        from pathlib import PurePosixPath
+
+        data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+        excluded = data["tool"]["setuptools"]["exclude-package-data"]["rebrew"]
+        subpackage_agents = [p.relative_to(PKG).as_posix() for p in PKG.rglob("AGENTS.md")]
+        assert subpackage_agents, "expected subpackage AGENTS.md files"
+        for rel in subpackage_agents:
+            assert any(PurePosixPath(rel).full_match(pat) for pat in excluded), (
+                f"{rel} not covered by exclude-package-data: {excluded}"
+            )
+
+    def test_source_checkout_resolution_resilient_to_depth(self) -> None:
+        """SOURCE_CHECKOUT in rebrew.utils correctly finds root containing pyproject.toml."""
+        from rebrew.utils import SOURCE_CHECKOUT
+
+        assert SOURCE_CHECKOUT is not None
+        assert (SOURCE_CHECKOUT / "pyproject.toml").is_file()
+        assert (SOURCE_CHECKOUT / "src" / "rebrew").is_dir()
