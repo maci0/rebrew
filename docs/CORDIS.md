@@ -366,6 +366,7 @@ coroutine functions or returning awaitables/async generators raises `ComponentEr
 Returning a native coroutine closes it safely to suppress unawaited-coroutine warnings.
 Registered cleanup attempts inverses best-effort, but cannot guarantee recovery of
 unregistered external resources or state modified before inverse registration.
+Refusing a foreign awaitable does not establish that work it already started has stopped.
 Isolation realms, service interception, typed event dispatch, asynchronous fibers,
 YAML loaders, configuration reconciliation, and hot module replacement are outside its API.
 The CLI composes at `rebrew.app.main` import and retains its context and scope in

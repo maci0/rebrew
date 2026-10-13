@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Fixed
+- The synchronous plugin lifecycle rejects native asynchronous callables at
+  registration and awaitable or asynchronous-generator results at invocation.
+  Cleanup continues to attempt remaining inverses and reports failed completion.
+  Registration inspection preserves instance overrides without invoking custom
+  descriptors; diagnostics omit bound arguments and callable representations.
+
 ## [2.26.0] - 2026-10-13
 
 ### Changed
