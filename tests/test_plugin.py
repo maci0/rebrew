@@ -2582,3 +2582,73 @@ class TestCleanupFailureContainment:
         assert scope._cleanup_failure is not None
         # Entry retained by identity
         assert any(entry.component is comp for entry in scope._entries)
+
+    def test_mid_activation_diversion_close_before_output_is_clean(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+
+        class CloseDivertedComp:
+            needs: tuple[str, ...] = ()
+            provides: tuple[str, ...] = ("never-installed",)
+
+            def apply(self, c: Any) -> None:
+                scope.close()
+
+        scope.add(CloseDivertedComp())
+        assert scope._closed
+        assert scope._cleanup_failure is None
+        assert "never-installed" not in ctx._storage()._reservations
+
+    def test_mid_activation_diversion_view_or_context_dispose_is_clean(self) -> None:
+        # View self-disposal before providing declared service
+        ctx1 = Context()
+        scope1 = CoeffectScope(ctx1)
+
+        class ViewDisposeComp:
+            needs: tuple[str, ...] = ()
+            provides: tuple[str, ...] = ("never-installed-view",)
+
+            def apply(self, c: Any) -> None:
+                c.dispose()
+
+        scope1.add(ViewDisposeComp())
+        assert scope1._cleanup_failure is None
+        assert "never-installed-view" not in ctx1._storage()._reservations
+
+        # Root context disposal before providing declared service
+        ctx2 = Context()
+        scope2 = CoeffectScope(ctx2)
+
+        class CtxDisposeComp:
+            needs: tuple[str, ...] = ()
+            provides: tuple[str, ...] = ("never-installed-ctx",)
+
+            def apply(self, c: Any) -> None:
+                ctx2.dispose()
+
+        scope2.add(CtxDisposeComp())
+        assert scope2._cleanup_failure is None
+        assert "never-installed-ctx" not in ctx2._storage()._reservations
+
+    def test_mid_activation_diversion_cleanup_failure_latches_scope(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+
+        class FailingDiversionComp:
+            needs: tuple[str, ...] = ()
+            provides: tuple[str, ...] = ("never-installed-fail",)
+
+            def apply(self, c: Any) -> None:
+                def failing_disposer() -> None:
+                    raise RuntimeError("diversion cleanup failed")
+
+                c.effect(failing_disposer)
+                scope.close()
+
+        with pytest.raises(RuntimeError, match="diversion cleanup failed"):
+            scope.add(FailingDiversionComp())
+
+        assert scope._cleanup_failure is not None
+        assert isinstance(scope._cleanup_failure, RuntimeError)
+        # Reservation retained for diagnostics
+        assert "never-installed-fail" in ctx._storage()._reservations

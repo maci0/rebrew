@@ -966,13 +966,14 @@ class CoeffectScope:
                     operation="component apply",
                     target=entry.component,
                 )
-                missing = set(entry.provides) - {
-                    effect.key for effect in owned if effect.armed and effect.key is not None
-                }
-                if missing:
-                    raise ComponentError(
-                        f"component did not provide declared services: {sorted(missing)}"
-                    )
+                if not (self._closed or self._ctx.disposed or view._retired):
+                    missing = set(entry.provides) - {
+                        effect.key for effect in owned if effect.armed and effect.key is not None
+                    }
+                    if missing:
+                        raise ComponentError(
+                            f"component did not provide declared services: {sorted(missing)}"
+                        )
             except BaseException as exc:
                 # A mid-apply failure must not leave orphaned residue: effects
                 # already installed belong to no live entry (entry.effects stays
@@ -989,7 +990,9 @@ class CoeffectScope:
         finally:
             self._ctx._activating_needs.pop()
             view._installing = False
-            if view._retired and self._cleanup_failure is None:
+            if (
+                view._retired or self._closed or self._ctx.disposed
+            ) and self._cleanup_failure is None:
                 self._release(entry)
         return owned
 
