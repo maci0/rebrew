@@ -1265,6 +1265,13 @@ class TestDataMarkerScan:
         set_data_field(cfg.metadata_dir, 0x3000, "name", "lut", "GOLD")
         set_data_field(cfg.metadata_dir, 0x3000, "marker_type", "DATA", "GOLD")
         scan = scan_globals(cfg.reversed_dir, cfg)
+        assert "lut" not in scan.globals
+        # A genuinely shared file still contributes the declaration, without
+        # binding the foreign target's VA to it.
+        (cfg.reversed_dir / "a.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nextern unsigned char lut[256];\n", encoding="utf-8"
+        )
+        scan = scan_globals(cfg.reversed_dir, cfg)
         entry = scan.globals["lut"]
         assert entry.annotated is False
         assert entry.va == 0

@@ -278,17 +278,21 @@ def classify_section(va: int, sections: dict[str, dict[str, Any]]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _source_visible_to_target(lines: list[str], cfg: ProjectConfig | None) -> bool:
+def _source_visible_to_target(
+    lines: list[str], cfg: ProjectConfig | None, stored_modules: tuple[str, ...] = ()
+) -> bool:
     """Whether *lines* may contribute unannotated externs to the active target.
 
-    No marker means a shared file. A marker for this target, or for a
+    No inline or stored identity means a shared file. An identity for this target, or for a
     library module, means the file is in scope. A file whose markers are
     all another target's is that binary's source (guild-rebrew
     ``GOLD.fcn_*.c`` externs were listed on the server).
     """
     if cfg is None:
         return True
-    saw_marker = False
+    saw_marker = bool(stored_modules)
+    if any(module_visible_to_target(module, cfg) for module in stored_modules):
+        return True
     for line in lines:
         match = _ANY_MARKER_RE.search(line)
         if match is None:
@@ -421,6 +425,9 @@ def scan_globals(
     name map only reads names and VAs, so it passes False and skips that walk.
     """
     from rebrew.c_parser import array_type_shape, find_extern_variables, find_variable_roles
+    from rebrew.metadata.annotation import function_rows_for_file
+    from rebrew.metadata.data import data_rows_for_path
+    from rebrew.metadata.functions import load_metadata
     from rebrew.sources import iter_sources_and_headers
     from rebrew.utils import rel_display_path
 
@@ -460,6 +467,8 @@ def scan_globals(
 
     header_files: set[str] = set()
     file_roles: dict[str, tuple[set[str], set[str], set[str]]] = {}
+    metadata_dir = getattr(cfg, "metadata_dir", None)
+    function_entries = load_metadata(metadata_dir, deepcopy=False) if metadata_dir else {}
     for cfile in iter_sources_and_headers(src_dir, cfg):
         is_header = cfile.suffix.lower() == ".h"
         try:
@@ -478,7 +487,18 @@ def scan_globals(
         fname = rel_display_path(cfile, src_dir)
         if is_header:
             header_files.add(fname)
-        if not _source_visible_to_target(lines, cfg):
+        stored_modules = (
+            tuple(
+                module
+                for module, _, _ in (
+                    function_rows_for_file(cfile, metadata_dir, function_entries)
+                    + data_rows_for_path(metadata_dir, cfile)
+                )
+            )
+            if metadata_dir
+            else ()
+        )
+        if not _source_visible_to_target(lines, cfg, stored_modules):
             continue
 
         # A shared file annotates one global per target, each marker followed

@@ -393,6 +393,41 @@ def test_function_pointer_declaration_not_treated_as_function() -> None:
     assert [v.name for v in find_extern_variables(line)] == ["g_callback"]
 
 
+@pytest.mark.parametrize("store", ["rebrew-functions.toml", "rebrew-data.toml"])
+def test_migrated_file_retains_target_scope(tmp_path: Path, store: str) -> None:
+    """Removing inline identity must not introduce foreign declarations or owners."""
+    _write_c(tmp_path, "server.c", "extern int g_value;\n")
+    _write_c(tmp_path, "client.c", "char *g_value;\nextern int g_client;\n")
+    _write_c(tmp_path, "shared.c", "extern int g_shared;\n")
+    _write_c(tmp_path, "runtime.c", "extern int g_runtime;\n")
+    (tmp_path / store).write_text(
+        'format = 1\n["SERVER.0x1000"]\nfile = "server.c"\nname = "g_value"\n'
+        '["GOLD.0x2000"]\nfile = "client.c"\nname = "g_value"\n'
+        '["MSVCRT.0x3000"]\nfile = "runtime.c"\nname = "g_runtime"\n',
+        encoding="utf-8",
+    )
+    cfg = SimpleNamespace(
+        marker="SERVER",
+        all_markers={"SERVER", "GOLD"},
+        source_ext=".c",
+        metadata_dir=tmp_path,
+    )
+    result = scan_globals(tmp_path, cfg)
+    assert set(result.globals) == {"g_value", "g_shared", "g_runtime"}
+    assert result.globals["g_value"].defined_in == []
+    assert result.type_conflicts == []
+    cfg = SimpleNamespace(
+        marker="GOLD",
+        all_markers={"SERVER", "GOLD"},
+        source_ext=".c",
+        metadata_dir=tmp_path,
+    )
+    result = scan_globals(tmp_path, cfg)
+    assert set(result.globals) == {"g_value", "g_client", "g_shared", "g_runtime"}
+    assert result.globals["g_value"].defined_in == ["client.c"]
+    assert result.type_conflicts == []
+
+
 # ---------------------------------------------------------------------------
 # classify_section
 # ---------------------------------------------------------------------------
