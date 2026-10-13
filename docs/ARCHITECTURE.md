@@ -87,6 +87,10 @@ flowchart LR
 | `rebrew/formats/binary_loader.py` | PE/ELF/Mach-O via LIEF, NE via `formats/ne_loader.py`, MZ via its own header parser → `BinaryInfo` (sections, VAs, raw bytes) |
 | `rebrew/formats/pe_image.py` | PE32 section/export/import walk and the MSVC LINK options read off those header fields. Shared by `gen-layout` and `link-sweep`; the command modules do not own the parser |
 | `rebrew/pseudo_c.py` | Deterministic rewrite of decompiler pseudo-C into C89 tokens (`sanitize_tokens`). Shared by `rebrew source fix` and Kuna seeding |
+| `rebrew/app/` | CLI composition layer: `main.py` (console script), `builtins.py` (`CliComponent` rows), `plugin.py` (component runtime). Nothing outside it imports it at module scope |
+| `rebrew/compiler/` | Compile execution and the compile cache: `compile.py`, `cache.py`, `toolchain.py` + spec/data/paths, `overrides.py`, `context.py`, `recompile_client.py`, the 16-bit DOSBox drivers |
+| `rebrew/formats/` | Executable, object and archive parsers (`binary_loader.py`, `binary_model.py`, PE/NE/OMF/LZEXE, `import_table.py`, `relocations.py`, `archives.py`); imports only `errors`, `registry`, `utils` |
+| `rebrew/metadata/` | Source annotations and the locked stores: `functions.py` (`rebrew-functions.toml`), `data.py` (`rebrew-data.toml`), `document.py`, `model.py`, `annotation.py` |
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (`ALL_MUTATIONS`: the 128 tree-sitter mutations from `mutations/*.py` plus plugin entry points), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry and the coverage grid (`grid.py`) the `db/coverage-<target>.toml` document is rendered from |
 | `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function create/delete and similar) |
