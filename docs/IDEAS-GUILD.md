@@ -1265,3 +1265,35 @@ Replay: source symbolize src/GOLDTL.fcn_40ec60.c --target Europa1400Gold.exe
 --dry-run --json returns no raw_link. The manual canonical VECTOR3/net-header
 repairs validate all eight Gold data operands; receipts are guild
 .scratch/goal28/symbolize-*-preview.json and *-gold-test.json.
+
+## Expose per-library comparison outcomes in batch JSON
+
+Pain: Guild's all-target batch reports fourteen of fifteen compiled Gold library
+functions passing, but its `libraries` entries contain provider/file/symbol facts
+without comparison status, byte delta, bindings or error details. Library results
+are correctly separated from game progress, but finding the failed comparison
+requires another managed-store query. The current failure is Gold5e3a71,
+SIZE_MISMATCH; it is not a game compile error.
+
+Proposed capability: separate address-keyed library comparison rows with the same
+measurement diagnostics as game rows, retaining the distinction between origin,
+compiled provider and raw-link provider evidence. Preserve summary reconciliation
+and avoid treating unresolved archive providers as tested or passed.
+Replay: `rebrew test --all --all-targets --jobs 4 --json` in guild-rebrew;
+receipt `.scratch/goal29/corpus-current.json`, Gold's `summary`/`libraries` fields.
+
+## Preview atomic multi-field declaration-view edits from the CLI
+
+Pain: reconciling seven Guild lighting declaration views needs kind, section,
+access size, alias role and evidence notes together. `data set` correctly rejects
+multiple setter kinds in one call, so the CLI cannot preview that atomic change.
+The public `metadata.data.set_data_fields_batch` already performs the validated,
+locked composition; Guild uses it instead of a separate metadata writer.
+
+Proposed capability: a bounded batch input for non-verdict data fields, with
+dry-run and atomic validation of the entire patch. Keep status/verification
+exclusive to the verifier; never infer allocation ownership from declarations.
+Replay: `data set --storage-kind 0x6b86d4=alias --size 0x6b86d4=4 --dry-run --json`
+rejects multiple setters. Guild receipts:
+`.scratch/goal31/lighting-data-tl-views-preview.json` and
+`lighting-data-view-updates.json`.
