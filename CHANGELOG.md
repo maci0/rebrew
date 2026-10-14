@@ -115,6 +115,9 @@
   `load_metadata` and `stored_file_matches` from `rebrew.metadata.functions`.
 
 ### Fixed
+- Preserve byte-verified data rows during default orphan pruning, including
+  `verify --prune-orphans` and cleanup recommendations. Removing `VERIFIED`
+  data requires the same explicit `--include-matched` choice as other earned results.
 - Reject malformed remote compile artifact URLs as non-retryable protocol errors
   before fetching. Malformed base URLs raise validation errors before requests,
   including invalid bracketed hosts and Unicode netloc characters.

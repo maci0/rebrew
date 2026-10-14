@@ -19,11 +19,12 @@ import typer
 from rebrew.cli import SOURCE_HELP, TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import inventory_path_for
 from rebrew.errors import RebrewError
+from rebrew.metadata.data import DATA_STATUS_VERIFIED
 from rebrew.utils import preset_module_key
 from rebrew.workspace.status import EARNED_STATUSES
 
 #: ``--prune`` holds back :data:`EARNED_STATUSES` blocks (a byte match or a
-#: PROVEN result) unless ``--include-matched``.
+#: PROVEN result), including VERIFIED data, unless ``--include-matched``.
 
 
 class OrphanInventoryError(RebrewError, RuntimeError):
@@ -39,7 +40,7 @@ app = typer.Typer(
         "  rebrew orphans prune --dry-run\n\n"
         "  rebrew orphans prune\n\n"
         "  rebrew orphans drop 0x10009310 --dry-run\n\n"
-        "[dim]Orphans are metadata rows without a live source binding. Function addresses still in the target inventory are protected. prune also preserves EXACT, RELOC, and PROVEN results unless --include-matched is supplied. drop explicitly removes one selected row; inspect and preview it first.[/dim]\n\n"
+        "[dim]Orphans are metadata rows without a live source binding. Function addresses still in the target inventory are protected. prune also preserves EXACT, RELOC, and PROVEN results and VERIFIED data unless --include-matched is supplied. drop explicitly removes one selected row; inspect and preview it first.[/dim]\n\n"
     ),
 )
 
@@ -132,12 +133,18 @@ def split_prunable(
     """Split orphans into the prunable subset (held-back matched excluded).
 
     Shared by the ``orphans prune`` path and ``verify --prune-orphans`` so
-    both hold back :data:`EARNED_STATUSES` blocks unless *include_matched*.
+    both hold back earned function results and byte-verified data unless
+    *include_matched*.
     """
     orphans = orphan_dicts(cfg, fn_orphans, data_orphans)
     if include_matched:
         return orphans
-    return [o for o in orphans if o["status"] not in EARNED_STATUSES]
+    return [
+        o
+        for o in orphans
+        if o["status"] not in EARNED_STATUSES
+        and not (o["store"] == "rebrew-data.toml" and o["status"] == DATA_STATUS_VERIFIED)
+    ]
 
 
 def orphan_dicts(
@@ -270,7 +277,7 @@ def prune(
     include_matched: bool = typer.Option(
         False,
         "--include-matched",
-        help="Also prune orphans whose block claims EXACT/RELOC/PROVEN",
+        help="Also prune orphans claiming EXACT/RELOC/PROVEN or VERIFIED data",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

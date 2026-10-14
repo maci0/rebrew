@@ -274,6 +274,47 @@ class TestDataOrphansNameExemption:
         assert get_data_entry(tmp_path, 0x1000, "SERVER").get("name") == "g_live"
         assert get_data_entry(tmp_path, 0x4000, "SERVER").get("name") == "import_slot"
 
+    @pytest.mark.parametrize("include_matched", [False, True])
+    @pytest.mark.parametrize("operation", ["prune", "shared_guard"])
+    def test_verified_data_requires_explicit_matched_pruning(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        include_matched: bool,
+        operation: str,
+    ) -> None:
+        from rebrew.metadata.data import get_data_entry
+        from rebrew.orphans import app, split_prunable
+
+        self._data_project(tmp_path, monkeypatch)
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x2000"]\nname = "g_verified"\nsize = 4\n'
+            'status = "VERIFIED"\n["SERVER.0x2000".verification]\n'
+            'status = "VERIFIED"\nmeasured_at = "2026-10-15T00:00:00Z"\n'
+            '["SERVER.0x3000"]\nname = "g_unchecked"\nsize = 4\nstatus = "UNCHECKED"\n',
+            encoding="utf-8",
+        )
+        before = get_data_entry(tmp_path, 0x2000, "SERVER")
+        if operation == "prune":
+            args = ["prune"] + (["--include-matched"] if include_matched else [])
+            res = CliRunner().invoke(app, args)
+            assert res.exit_code == 0, res.output
+            assert get_data_entry(tmp_path, 0x3000, "SERVER") == {}
+            assert get_data_entry(tmp_path, 0x2000, "SERVER") == ({} if include_matched else before)
+        else:
+            cfg = SimpleNamespace(metadata_dir=tmp_path)
+            doomed = split_prunable(
+                cfg,
+                [],
+                [("SERVER", 0x2000, "rebrew-data.toml"), ("SERVER", 0x3000, "rebrew-data.toml")],
+                include_matched=include_matched,
+            )
+            assert {row["va"] for row in doomed} == (
+                {"0x2000", "0x3000"} if include_matched else {"0x3000"}
+            )
+            assert get_data_entry(tmp_path, 0x2000, "SERVER") == before
+
 
 class TestOrphansDrop:
     def test_drop_by_va(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

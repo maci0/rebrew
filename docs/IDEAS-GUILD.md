@@ -1187,6 +1187,21 @@ finds conflicting target orders in command.c, alchemistry_logic.c,
 friedhof_logic.c, spiel.c and loadsave.c. Those cycles need reviewed source
 organization rather than an automatic one-target sort.
 
+Follow-up: monotonic definition order also misses an isolated first definition
+far outside its inferred native unit. In guild-rebrew, ahm_ResetEntityState
+is first in alchemistry_logic.c at TL0x47ddf0 / Gold0x47e930, while the other
+client alchemy functions form a much later run. W030 alone cannot identify
+this kind of binding or placement uncertainty. Source ownership remains
+unproven; a prefix and a sorted file are insufficient evidence.
+
+Reuse the existing `cu_map` / `recommend` cluster evidence in an optional
+all-target lint audit, showing target-specific outliers and the evidence behind
+them. Respect COMDAT, explicit order policies and genuine cross-target unit
+differences; do not automatically split a source or treat every gap as an error.
+Replay `rebrew recommend --target Europa1400Gold_TL.exe --json` alongside
+`rebrew lint --all-targets --json`; compare native source-unit evidence and the
+single shared chain dispatcher at SERVER0x1000ca00 / TL0x4c4d30 / Gold0x4c43c0.
+
 ## Resolve blocker commands through managed names and symbols
 
 Pain: `blocker set cm_ExecCommand ... --target Europa1400Gold_TL.exe` cannot
