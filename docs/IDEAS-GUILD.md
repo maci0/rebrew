@@ -1297,3 +1297,24 @@ Replay: `data set --storage-kind 0x6b86d4=alias --size 0x6b86d4=4 --dry-run --js
 rejects multiple setters. Guild receipts:
 `.scratch/goal31/lighting-data-tl-views-preview.json` and
 `lighting-data-view-updates.json`.
+
+## Compare modeled call inputs in semantic checks
+
+Pain: Guild TL 0x00412d30 returns a simple success value but builds two 88-byte
+object-animation records and passes twelve bytes of options by value. A proof
+that stubs the callee and compares only EAX plus watched globals can miss wrong
+position inputs. The documented current prover scope does not compare call
+arguments or the pointed-to records, so it cannot validate this reconstruction.
+
+Proposed capability: optional, explicit call contracts that compare call count,
+order, typed scalar/by-value arguments and bounded pointed-to memory snapshots.
+Keep unknown callees and unspecified effects explicit. Compare shared symbolic
+inputs where possible; concrete fixtures remain bounded evidence and must not
+earn exhaustive or byte-match claims. Include wrong-argument rejecting controls.
+
+Evidence: Guild `.scratch/goal32/compare-transition-traces.py` uses the existing
+COFF/relocation APIs and angr for this one native function. Its 96 concrete
+cases compare complete call inputs, records, returns and three globals; a wrong
+position control rejects. Replay with the Guild pinned environment:
+`uv run --frozen python .scratch/goal32/compare-transition-traces.py`.
+Receipt: `.scratch/goal32/transition-trace-proof.json`.
