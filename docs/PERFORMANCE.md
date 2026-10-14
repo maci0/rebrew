@@ -3,12 +3,77 @@
 Measured facts about where rebrew's hot paths spend time, and what was done
 (and deliberately *not* done) about it.
 
-Every figure below carries the workload it was taken on, and the sections that
-have a committed gate name it. The host and the commit are not recorded, so
-re-measure rather than trust a number. The pure-Python rows are reproducible
-from `tools/bench_hotpaths.py` (fixed seeds, `score_candidate` among them):
+## Metadata scan measurements (2026-10-14)
 
-    uv run --frozen python tools/bench_hotpaths.py --bench ga_scoring --compare
+The runner now reports warmed **process CPU time**, wall time, all samples,
+Python/platform information, and source revision/diff fingerprints. Fixture
+creation, imports, and warmup stay outside the timed calls. Native library
+thread pools are fixed to one. Historical wall-time constants are removed;
+comparisons consume a saved report from the same benchmark harness instead.
+`--json` emits one JSON document without a preceding terminal table.
+
+```sh
+uv run --frozen python tools/bench_hotpaths.py --output before.json
+# Change the implementation, keeping benchmark workloads unchanged.
+uv run --frozen python tools/bench_hotpaths.py --compare before.json --output after.json
+```
+
+Eighteen workloads cover metadata loading, address binding, source-purpose
+reads, source-tree scans, catalog/status aggregation, verify and compile-cache
+hits, registry construction, binary similarity, structural diffing, GA scoring,
+and mutation application. The [recorded reports](benchmarks/2026-10-14/manifest.json)
+identify the three baseline metadata modules from v3.0.0 and their optimized
+replacements. Other source files were held fixed. The paired measurements below
+interleave baseline/optimized/optimized/baseline processes on CPU 0; medians
+combine both runs' samples. Full-suite reports retain every workload, including
+unchanged controls, without attributing their timing variation to these changes.
+
+| Workload | Before CPU / batch | After CPU / batch | Speedup |
+|---|---:|---:|---:|
+| `source_purposes` | 497.427 ms | 0.979 ms | 507.92× |
+| `bindings_small` | 22.743 ms | 15.501 ms | 1.47× |
+| `bindings_large` | 49.220 ms | 16.423 ms | 3.00× |
+| `bindings_metadata_only` | 40.654 ms | 8.801 ms | 4.62× |
+| `parse_tree` | 37.199 ms | 32.972 ms | 1.13× |
+
+Binding batches scan 100 files with 200 or 2,000 data rows; metadata-only
+uses the large inventory without address comments. The parse-tree batch binds
+1,000 functions in one file. Source-purpose batches perform 100 reads of a
+200-definition, 20-purpose document.
+
+A read-only scan of Guild's 100 largest C files (1,611,774 bytes)
+measured 0.788 → 0.311 CPU seconds
+(2.53×), with identical serialized binding hashes.
+[Profiled work counts](benchmarks/2026-10-14/work-counts.json) dropped from
+1,777,712 to 889,812 function calls. Source reads fell from 190 to 100,
+whole-data-map loads from 100 to zero, and signature inventories from 213 to 113.
+These work counts remain comparable under scheduler load.
+
+Three changes account for the targeted reductions:
+
+- Bindings reuse the source text already read and extract prototypes once;
+  unmatched function anchors share one function lookup map.
+- Data anchors use indexed single-entry lookups instead of copying every
+  unrelated data row for every source file.
+- Source-purpose and assembly views share an immutable, bounded cache keyed by
+  resolved path, modification nanoseconds, size and inode. Comment validation
+  prunes function bodies whose comments it already ignores.
+
+CPU time excludes descheduling and blocked I/O, **not** CPU-frequency changes,
+shared-cache pressure, memory bandwidth or thermal effects. In a controlled
+same-CPU competitor experiment, wall time changed by
+125.8% while CPU time changed by
+14.1%. Unchanged controls still vary, so timing ratios are
+informational rather than machine-independent CI thresholds. The load-independent
+regression gates are operation budgets in `tests/test_metadata_hotpaths.py`:
+one source read, no full data-map copy, one shared function map, no traversal
+into ignored function bodies, and one document parse across unchanged source
+metadata views. Tests also check atomic-edit invalidation, deletion, malformed
+replacement rejection, and unchanged preview prototypes.
+
+The following historical measurements predate the current CPU-time runner;
+re-measure them on the current workload rather than comparing their absolute
+wall times across machines.
 
 ## GA scoring hot loop (`score_candidate`)
 

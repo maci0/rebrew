@@ -125,6 +125,8 @@ def add_address_anchor(source: str, module: str, va: int, name: str) -> str:
 
 def metadata_comments(source: str) -> list[tuple[int, str]]:
     """Find forbidden metadata tags in actual comments, without reading values."""
+    if ":" not in source:
+        return []
     reserved = {
         "ORIGIN",
         "NAME",
@@ -174,17 +176,10 @@ def metadata_comments(source: str) -> list[tuple[int, str]]:
     stack = [tree.root_node]
     while stack:
         node = stack.pop()
+        if node.type in {"function_definition", "compound_statement"}:
+            continue
         if node.type != "comment":
             stack.extend(reversed(node.named_children))
-            continue
-        parent = node.parent
-        inside_function = False
-        while parent is not None:
-            if parent.type in {"function_definition", "compound_statement"}:
-                inside_function = True
-                break
-            parent = parent.parent
-        if inside_function:
             continue
         text = src[node.start_byte : node.end_byte].decode("utf-8")
         body = text[2:-2].strip() if text.startswith("/*") else text[2:].strip()

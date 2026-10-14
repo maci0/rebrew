@@ -1,4 +1,4 @@
-"""bench_hotpaths.py — repeatable benchmark of rebrew's pure-Python hot paths.
+"""bench_hotpaths.py — CPU-time microbenchmarks of Rebrew hot paths.
 
 Measures the Python-bound workloads that dominate real usage (and the test
 suite's pure-Python tail), so optimizations are driven by numbers instead of
@@ -18,15 +18,22 @@ Run twice (before/after an optimization) and compare rows:
     uv run --frozen python tools/bench_hotpaths.py --json     # machine-readable
 
 The script is deterministic (fixed seeds, synthetic-but-realistic inputs) so
-row-to-row deltas reflect code changes, not input noise.
+input selection is repeatable. CPU time excludes descheduling; wall samples
+remain visible. Cache states are described by each workload.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import os
+import platform
 import random
+import statistics
+import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -36,41 +43,27 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIXTURE = _REPO_ROOT / "tests" / "fixtures" / "mini_pe.exe"
 
-#: Pre-optimization baselines (recorded 2026-08-21, before the profiled
-#: optimizations: capstone handle caching, toml reads, _zero_reloc_fields
-#: size prefilter, per-call import hoisting).  `--compare` prints the delta
-#: against these so an optimization's claim is reproducible.
-BASELINES: dict[str, float] = {
-    "annotation_parsing": 0.004,
-    "metadata_load": 0.005,
-    "catalog_grid": 0.024,
-    "verify_cache": 0.002,
-    "near_diag": 0.010,
-    "binary_similarity": 0.015,
-    "ga_scoring": 0.046,
-    # Follow-on pass baselines (re-recorded 2026-09-15 after the disasm_lite
-    # GA fast path, the metadata-once merge, and the diff summary_only path).
-    "parse_tree": 0.020,
-    "diff_structural": 0.244,
-    "registry_build": 0.002,
-    "status_aggregation": 0.045,
-    "compile_cache": 0.003,
-    "verify_cached": 0.005,
-    "mutation_apply": 0.014,
-}
 
-
-def _timeit(fn: Callable[[], Any], repeat: int = 5) -> float:
-    """Best-of-*repeat* wall time for *fn* (seconds)."""
-    best = float("inf")
+def measure(fn: Callable[[], Any], repeat: int = 7) -> dict[str, Any]:
+    """Warm once and retain CPU/wall samples; descheduling is excluded from CPU time."""
+    fn()
+    cpu: list[float] = []
+    wall: list[float] = []
     for _ in range(repeat):
-        t0 = time.perf_counter()
+        w0 = time.perf_counter_ns()
+        c0 = time.process_time_ns()
         fn()
-        best = min(best, time.perf_counter() - t0)
-    return best
+        cpu.append((time.process_time_ns() - c0) / 1e9)
+        wall.append((time.perf_counter_ns() - w0) / 1e9)
+    return {
+        "cpu_seconds": statistics.median(cpu),
+        "wall_seconds": statistics.median(wall),
+        "cpu_samples": cpu,
+        "wall_samples": wall,
+    }
 
 
-def bench_annotation_parsing() -> dict[str, float]:
+def bench_annotation_parsing() -> dict[str, Any]:
     """read_source_bindings over a synthetic 200-function .c."""
     from rebrew.metadata.bindings import read_source_bindings
 
@@ -90,34 +83,30 @@ def bench_annotation_parsing() -> dict[str, float]:
             annos = read_source_bindings(src, metadata_dir=None)
             assert len(annos) == 200
 
-        return {"ops": 200, "seconds": _timeit(run, repeat=10)}
+        return {"ops": 200, **measure(run, repeat=10)}
 
 
-def bench_metadata_load() -> dict[str, float]:
+def bench_metadata_load() -> dict[str, Any]:
     """load_metadata over a generated 500-entry rebrew-functions.toml."""
-    from rebrew.metadata.functions import clear_metadata_cache, load_metadata
+    from rebrew.metadata.functions import clear_metadata_cache, load_metadata, save_metadata
 
-    lines: list[str] = ["format = 2"]
-    for i in range(500):
-        va = 0x10001000 + i * 0x100
-        lines.append(f'["SERVER.0x{va:x}"]')
-        lines.append('status = "EXACT"')
-        lines.append(f"size = {64 + i % 8}")
-        lines.append('cflags = "/O2"')
+    rows = {
+        ("SERVER", 0x10001000 + i * 0x100): {"status": "STUB", "size": 64 + i % 8, "cflags": "/O2"}
+        for i in range(500)
+    }
     with tempfile.TemporaryDirectory() as d:
-        toml = Path(d) / "rebrew-functions.toml"
-        toml.write_text("\n".join(lines), encoding="utf-8")
         meta_dir = Path(d)
+        save_metadata(meta_dir, rows)
 
         def run() -> None:
             clear_metadata_cache()
             entries = load_metadata(meta_dir)
             assert len(entries) == 500
 
-        return {"ops": 500, "seconds": _timeit(run, repeat=10)}
+        return {"ops": 500, **measure(run, repeat=10)}
 
 
-def bench_catalog_grid() -> dict[str, float]:
+def bench_catalog_grid() -> dict[str, Any]:
     """The real catalog --data-json pipeline on the fixture binary (once)."""
     from typer.testing import CliRunner
 
@@ -164,21 +153,26 @@ def bench_catalog_grid() -> dict[str, float]:
 
         os.chdir(root)
         try:
-            # Warm once (writes db/data_*.json); measure a second invocation.
-            assert runner.invoke(app, ["catalog", "--json"], catch_exceptions=False).exit_code == 0
+            # Import and configure the CLI before measuring repeated catalog reads.
+            assert (
+                runner.invoke(
+                    app, ["coverage", "catalog", "--json"], catch_exceptions=False
+                ).exit_code
+                == 0
+            )
 
             def run() -> None:
-                r = runner.invoke(app, ["catalog", "--json"], catch_exceptions=False)
+                r = runner.invoke(app, ["coverage", "catalog", "--json"], catch_exceptions=False)
                 assert r.exit_code == 0
 
-            return {"ops": 1, "seconds": _timeit(run, repeat=5)}
+            return {"ops": 1, **measure(run, repeat=5)}
         finally:
             # Restore on every path: a failed assert would leave the process
             # standing in a directory the enclosing TemporaryDirectory removes.
             os.chdir(_REPO_ROOT)
 
 
-def bench_verify_cache() -> dict[str, float]:
+def bench_verify_cache() -> dict[str, Any]:
     """VerifyCache save + load round-trip with 500 entries."""
     from rebrew.verify_cache import VerifyCache, VerifyCacheEntry
 
@@ -202,14 +196,13 @@ def bench_verify_cache() -> dict[str, float]:
         data = cache.to_dict()
         assert VerifyCache.from_dict(data).entries is not None
 
-    return {"ops": 500, "seconds": _timeit(run, repeat=10)}
+    return {"ops": 500, **measure(run, repeat=10)}
 
 
-def bench_near_diag() -> dict[str, float]:
+def bench_near_diag() -> dict[str, Any]:
     """near_analysis.analyze() over 200 synthetic byte pairs.
 
-    The ``BASELINES`` key stays ``near_diag`` so recorded budgets keep matching
-    across the move of the analysis out of the command.
+    Fixed byte pairs exercise the register-mismatch classifier.
     """
     from rebrew.near_analysis import analyze
 
@@ -221,10 +214,10 @@ def bench_near_diag() -> dict[str, float]:
         for t, c in pairs:
             analyze(t, c, None, 0x1000)
 
-    return {"ops": len(pairs), "seconds": _timeit(run, repeat=5)}
+    return {"ops": len(pairs), **measure(run, repeat=5)}
 
 
-def bench_binary_similarity() -> dict[str, float]:
+def bench_binary_similarity() -> dict[str, Any]:
     """score_matrix over a 600x600 synthetic signature set."""
     import numpy as np
 
@@ -249,10 +242,10 @@ def bench_binary_similarity() -> dict[str, float]:
         m = score_matrix(sigs_a, sigs_b)
         assert m.shape == (600, 600)
 
-    return {"ops": 600 * 600, "seconds": _timeit(run, repeat=5)}
+    return {"ops": 600 * 600, **measure(run, repeat=5)}
 
 
-def bench_ga_scoring() -> dict[str, float]:
+def bench_ga_scoring() -> dict[str, Any]:
     """score_candidate on a realistic ~100-byte function vs 400 mutated candidates.
 
     The candidate bytes are single-byte-flipped copies of the target so the
@@ -286,7 +279,7 @@ def bench_ga_scoring() -> dict[str, float]:
         for c in candidates:
             score_candidate(target, c)
 
-    return {"ops": len(candidates), "seconds": _timeit(run, repeat=5)}
+    return {"ops": len(candidates), **measure(run, repeat=5)}
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +296,7 @@ _REAL_BODY = bytes.fromhex(
 )
 
 
-def bench_parse_tree() -> dict[str, float]:
+def bench_parse_tree() -> dict[str, Any]:
     """read_source_bindings + metadata merge over a 1000-function tree."""
     from rebrew.metadata.bindings import read_source_bindings
 
@@ -315,21 +308,25 @@ def bench_parse_tree() -> dict[str, float]:
         meta_dir = Path(d)
         src = meta_dir / "tree.c"
         src.write_text("".join(blocks), encoding="utf-8")
-        meta_lines: list[str] = ["format = 2"]
-        for i in range(1000):
-            va = 0x10001000 + i * 0x100
-            meta_lines += [f'["SERVER.0x{va:x}"]', 'status = "STUB"', "size = 64"]
-        (meta_dir / "rebrew-functions.toml").write_text("\n".join(meta_lines), encoding="utf-8")
+        from rebrew.metadata.functions import save_metadata
+
+        save_metadata(
+            meta_dir,
+            {
+                ("SERVER", 0x10001000 + i * 0x100): {"status": "STUB", "size": 64}
+                for i in range(1000)
+            },
+        )
 
         def run() -> None:
             # C syntax caches are shared by normal scans.
             anns = read_source_bindings(src, metadata_dir=meta_dir)
             assert len(anns) == 1000
 
-        return {"ops": 1000, "seconds": _timeit(run, repeat=5)}
+        return {"ops": 1000, **measure(run, repeat=5)}
 
 
-def bench_diff_structural() -> dict[str, float]:
+def bench_diff_structural() -> dict[str, Any]:
     """diff_functions + structural_similarity over 200 realistic pairs."""
     from rebrew.matcher.scoring import diff_functions, structural_similarity
 
@@ -347,10 +344,10 @@ def bench_diff_structural() -> dict[str, float]:
             diff_functions(target, c, None, as_dict=True)
             structural_similarity(target, c)
 
-    return {"ops": len(candidates), "seconds": _timeit(run, repeat=5)}
+    return {"ops": len(candidates), **measure(run, repeat=5)}
 
 
-def bench_registry_build() -> dict[str, float]:
+def bench_registry_build() -> dict[str, Any]:
     """load_function_structure + build_function_registry over 2000 entries."""
     import json as _json
 
@@ -369,10 +366,10 @@ def bench_registry_build() -> dict[str, float]:
             reg = build_function_registry(funcs, None)
             assert len(reg) >= 2000
 
-        return {"ops": 2000, "seconds": _timeit(run, repeat=5)}
+        return {"ops": 2000, **measure(run, repeat=5)}
 
 
-def bench_status_aggregation() -> dict[str, float]:
+def bench_status_aggregation() -> dict[str, Any]:
     """collect_status over a synthetic 500-function project (no verify cache)."""
     from rebrew.config import ProjectConfig
     from rebrew.status import collect_status
@@ -386,16 +383,20 @@ def bench_status_aggregation() -> dict[str, float]:
             va = 0x10001000 + i * 0x100
             rows.append({"va": va, "size": 64, "name": f"f_{i}"})
             (src_dir / f"f_{i}.c").write_text(
-                f"// STUB: SERVER 0x{va:x}\nvoid f_{i}(void) {{}}\n", encoding="utf-8"
+                f"/* ADDRESS: SERVER 0x{va:x} */\nvoid f_{i}(void) {{}}\n", encoding="utf-8"
             )
         import json as _json2
 
         (src_dir / "function_structure.json").write_text(_json2.dumps(rows), encoding="utf-8")
-        meta_lines: list[str] = ["format = 2"]
-        for i in range(500):
-            va = 0x10001000 + i * 0x100
-            meta_lines += [f'["SERVER.0x{va:x}"]', 'status = "STUB"', "size = 64"]
-        (root / "rebrew-functions.toml").write_text("\n".join(meta_lines), encoding="utf-8")
+        from rebrew.metadata.functions import save_metadata
+
+        save_metadata(
+            root,
+            {
+                ("SERVER", 0x10001000 + i * 0x100): {"status": "STUB", "size": 64}
+                for i in range(500)
+            },
+        )
         cfg = ProjectConfig(
             target_name="SERVER",
             target_binary=root / "nope.exe",
@@ -411,10 +412,10 @@ def bench_status_aggregation() -> dict[str, float]:
             report = collect_status(cfg)
             assert report.total_functions >= 500
 
-        return {"ops": 500, "seconds": _timeit(run, repeat=5)}
+        return {"ops": 500, **measure(run, repeat=5)}
 
 
-def bench_compile_cache() -> dict[str, float]:
+def bench_compile_cache() -> dict[str, Any]:
     """CompileCache put + get round-trip over 1000 entries."""
     from rebrew.compiler.cache import CompileCache
 
@@ -430,12 +431,12 @@ def bench_compile_cache() -> dict[str, float]:
                 for k in keys:
                     assert cc.get(k) is not None
 
-            return {"ops": len(keys), "seconds": _timeit(run, repeat=5)}
+            return {"ops": len(keys), **measure(run, repeat=5)}
         finally:
             cc.close()
 
 
-def bench_verify_cached() -> dict[str, float]:
+def bench_verify_cached() -> dict[str, Any]:
     """The incremental verify cache-hit check over 500 sources (source hash +
     header fingerprint — the per-entry cost of an incremental `rebrew verify`)."""
     from rebrew.config import ProjectConfig
@@ -448,7 +449,7 @@ def bench_verify_cached() -> dict[str, float]:
         for i in range(500):
             p = src_dir / f"f_{i}.c"
             p.write_text(
-                f"// STUB: SERVER 0x{0x10001000 + i * 0x100:x}\nint f_{i}(void) {{ return 0; }}\n",
+                f"/* ADDRESS: SERVER 0x{0x10001000 + i * 0x100:x} */\nint f_{i}(void) {{ return 0; }}\n",
                 encoding="utf-8",
             )
             paths.append(p)
@@ -459,10 +460,10 @@ def bench_verify_cached() -> dict[str, float]:
                 source_hash(p)
                 entry_headers_fp(cfg, p, "/O2")
 
-        return {"ops": len(paths), "seconds": _timeit(run, repeat=5)}
+        return {"ops": len(paths), **measure(run, repeat=5)}
 
 
-def bench_mutation_apply() -> dict[str, float]:
+def bench_mutation_apply() -> dict[str, Any]:
     """mutate_code over a realistic function (the GA's per-candidate cost)."""
     import random
 
@@ -483,10 +484,107 @@ def bench_mutation_apply() -> dict[str, float]:
         for _ in range(200):
             mutate_code(src, rng)
 
-    return {"ops": 200, "seconds": _timeit(run, repeat=5)}
+    return {"ops": 200, **measure(run, repeat=5)}
 
 
-_BENCHES: dict[str, Callable[[], dict[str, float]]] = {
+def _binding_tree(data_count: int, anchors: bool) -> dict[str, Any]:
+    """Scan 100 sources against small or large unrelated metadata inventories."""
+    from rebrew.metadata.bindings import read_source_bindings
+    from rebrew.metadata.data import save_data_metadata
+    from rebrew.metadata.functions import save_metadata
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        paths = []
+        functions = {}
+        data = {}
+        for i in range(100):
+            path = root / f"f{i}.c"
+            prefix = f"/* ADDRESS: SERVER 0x{0x10001000 + i * 64:x} */\n" if anchors else ""
+            global_prefix = f"/* ADDRESS: SERVER 0x{0x10080000 + i * 4:x} */\n" if anchors else ""
+            path.write_text(
+                prefix
+                + f"int f{i}(int x) {{ return x + {i}; }}\n"
+                + global_prefix
+                + f"int g{i} = {i};\n"
+            )
+            paths.append(path)
+            functions["SERVER", 0x10001000 + i * 64] = {
+                "file": path.name,
+                "name": f"f{i}",
+                "symbol": f"_f{i}",
+                "kind": "FUNCTION",
+                "size": 16,
+                "status": "STUB",
+            }
+        for i in range(data_count):
+            data["SERVER", 0x10080000 + i * 4] = {
+                "file": f"f{i}.c" if i < 100 else "pool.c",
+                "name": f"g{i}",
+                "kind": "DATA",
+                "size": 4,
+                "type": "int",
+                "section": ".data",
+            }
+        save_metadata(root, functions)
+        save_data_metadata(root, data, expected_hash=None)
+
+        def scan() -> None:
+            for path in paths:
+                bindings = read_source_bindings(path, metadata_dir=root)
+                assert len(bindings) == 2
+                assert bindings[0].name == path.stem
+                assert {b.kind for b in bindings} == {"FUNCTION", "DATA"}
+
+        return {"ops": len(paths), **measure(scan)}
+
+
+def bench_bindings_small() -> dict[str, Any]:
+    """Warm source scan with anchors, 100 functions and 200 data rows."""
+    return _binding_tree(200, True)
+
+
+def bench_bindings_large() -> dict[str, Any]:
+    """Warm source scan with anchors, 100 functions and 2000 data rows."""
+    return _binding_tree(2000, True)
+
+
+def bench_bindings_metadata_only() -> dict[str, Any]:
+    """Warm source scan without anchors, 100 functions and 2000 data rows."""
+    return _binding_tree(2000, False)
+
+
+def bench_source_purposes() -> dict[str, Any]:
+    """Repeated immutable source-purpose reads from a 200-definition document."""
+    from rebrew.metadata.source_provenance import (
+        AssemblyProvenance,
+        SourceFilePurpose,
+        load_source_files,
+        replace_source_metadata,
+    )
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        definitions = [
+            AssemblyProvenance(f"f{i}.c", f"f{i}", "SERVER", "a" * 64, "Reviewed original assembly")
+            for i in range(200)
+        ]
+        purposes = [SourceFilePurpose(f"support{i}.c", "SERVER", "link support") for i in range(20)]
+        replace_source_metadata(root, definitions, purposes, expected_hash=None)
+
+        def read() -> None:
+            for _ in range(100):
+                records = load_source_files(root)
+                assert len(records) == 20
+
+        return {"ops": 100, **measure(read)}
+
+
+_BENCHES: dict[str, Callable[[], dict[str, Any]]] = {
+    "source_purposes": bench_source_purposes,
+    "bindings_small": bench_bindings_small,
+    "bindings_large": bench_bindings_large,
+    "bindings_metadata_only": bench_bindings_metadata_only,
     "annotation_parsing": bench_annotation_parsing,
     "metadata_load": bench_metadata_load,
     "catalog_grid": bench_catalog_grid,
@@ -508,45 +606,64 @@ _BENCHES: dict[str, Callable[[], dict[str, float]]] = {
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="Machine-readable output")
-    parser.add_argument(
-        "--compare",
-        action="store_true",
-        help="Print speedup vs the recorded BASELINES (reproducible proof)",
-    )
-    parser.add_argument(
-        "--bench",
-        action="append",
-        help="Only run these benches (repeatable); default: all",
-    )
+    parser.add_argument("--output", type=Path, help="Save the complete measurement report")
+    parser.add_argument("--compare", type=Path, help="Compare CPU medians with a saved report")
+    parser.add_argument("--bench", action="append", choices=sorted(_BENCHES))
     args = parser.parse_args()
-
-    names = args.bench or list(_BENCHES)
-    results: dict[str, dict[str, Any]] = {}
-    for name in names:
-        fn = _BENCHES[name]
-        row = fn()
-        rate = row["ops"] / row["seconds"] if row["seconds"] else float("inf")
-        # JSON has no Infinity: json.dumps writes the bare token and json.loads
-        # rejects it, so an unmeasured bench reports null rather than poisoning
-        # the machine-readable output.
-        results[name] = {**row, "ops_per_sec": round(rate, 1) if math.isfinite(rate) else None}
-        if args.compare:
-            base = BASELINES.get(name)
-            if base and base > 0 and row["seconds"] > 0:
-                speedup = base / row["seconds"]
-                marker = "OK " if speedup >= 1.3 else "   "
-                print(
-                    f"{name:20} {row['seconds']:.3f}s  ({rate:,.0f} ops/s)  "
-                    f"{marker}{speedup:.2f}x vs baseline"
-                )
-            else:
-                note = "(no baseline)" if row["seconds"] > 0 else "(unmeasured)"
-                print(f"{name:20} {row['seconds']:.3f}s  ({rate:,.0f} ops/s)  {note}")
-        else:
-            print(f"{name:20} {row['seconds']:.3f}s  ({rate:,.0f} ops/s)")
-
+    for variable in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ[variable] = "1"
+    fingerprint = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    before = None
+    if args.compare:
+        before = json.loads(args.compare.read_text())
+        if (
+            before.get("schema") != 1
+            or before.get("clock") != "process_time_ns"
+            or before.get("benchmark_sha256") != fingerprint
+        ):
+            parser.error("comparison requires the same benchmark workloads and measurement schema")
+    revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=_REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    diff = subprocess.run(
+        ["git", "diff", "HEAD", "--", "src", "tools"],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout
+    results: dict[str, Any] = {}
+    for name in args.bench or list(_BENCHES):
+        row = _BENCHES[name]()
+        cpu = row["cpu_seconds"]
+        rate = row["ops"] / cpu if cpu else float("inf")
+        row["ops_per_cpu_second"] = round(rate, 1) if math.isfinite(rate) else None
+        if before is not None:
+            old = before["benchmarks"][name]
+            if old["ops"] != row["ops"]:
+                parser.error(f"{name}: workload operation count changed")
+            row["speedup"] = old["cpu_seconds"] / cpu if cpu else None
+        results[name] = row
+        if not args.json:
+            suffix = f"  {row['speedup']:.2f}x" if row.get("speedup") else ""
+            print(f"{name:24} CPU {cpu:.6f}s  wall {row['wall_seconds']:.6f}s{suffix}")
+    report = {
+        "schema": 1,
+        "clock": "process_time_ns",
+        "benchmark_sha256": fingerprint,
+        "environment": {
+            "python": sys.version,
+            "platform": platform.platform(),
+            "revision": revision,
+            "diff_sha256": hashlib.sha256(diff).hexdigest(),
+            "native_threads": 1,
+        },
+        "benchmarks": results,
+    }
+    rendered = json.dumps(report, indent=2, allow_nan=False) + "\n"
+    if args.output:
+        args.output.write_text(rendered)
     if args.json:
-        print(json.dumps(results, indent=2))
+        print(rendered, end="")
     return 0
 
 

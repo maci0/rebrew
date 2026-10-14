@@ -103,8 +103,12 @@ def _validate(document: Any) -> tuple[AssemblyProvenance, ...]:
 
 
 @lru_cache(maxsize=16)
-def _read(path: Path, fingerprint: tuple[int, int, int]) -> tuple[AssemblyProvenance, ...]:
-    return _validate(load_tomllib(path))
+def _read(
+    path: Path, fingerprint: tuple[int, int, int]
+) -> tuple[tuple[AssemblyProvenance, ...], tuple["SourceFilePurpose", ...]]:
+    document = load_tomllib(path)
+    definitions = _validate(document)
+    return definitions, _validate_files(document["files"])
 
 
 def load_source_provenance(directory: Path) -> tuple[AssemblyProvenance, ...]:
@@ -114,7 +118,7 @@ def load_source_provenance(directory: Path) -> tuple[AssemblyProvenance, ...]:
         stat = path.stat()
     except FileNotFoundError:
         return ()
-    return _read(path, (stat.st_mtime_ns, stat.st_size, stat.st_ino))
+    return _read(path, (stat.st_mtime_ns, stat.st_size, stat.st_ino))[0]
 
 
 def document_assembly(
@@ -283,12 +287,12 @@ def _validate_files(files: Any) -> tuple[SourceFilePurpose, ...]:
 
 def load_source_files(directory: Path) -> tuple[SourceFilePurpose, ...]:
     """Read validated file metadata; source comments never supply file purpose."""
-    path = directory / SOURCE_PROVENANCE_FILENAME
-    if not path.exists():
+    path = (directory / SOURCE_PROVENANCE_FILENAME).resolve()
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
         return ()
-    document = load_tomllib(path)
-    _validate(document)
-    return _validate_files(document["files"])
+    return _read(path, (stat.st_mtime_ns, stat.st_size, stat.st_ino))[1]
 
 
 def set_source_file(directory: Path, file: str, module: str, purpose: str) -> None:

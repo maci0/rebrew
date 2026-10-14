@@ -1,0 +1,16 @@
+{
+  "clock": "process_time_ns",
+  "baseline_metadata_revision": "v3.0.0",
+  "method": "baseline module overlay; identical benchmark harness; native library threads fixed to one; paired runs pinned to CPU 0 in A/B/B/A order",
+  "baseline_modules": {
+    "metadata/anchors.py": "2ef495949ecb85bcb55e7c68420b215ab5abc88ee76c1e5f4797067ff72bec18",
+    "metadata/bindings.py": "da228a4cd735f1fabc5fcf96fb6b5991a30c841738920c30e6af03094c320fd9",
+    "metadata/source_provenance.py": "7a3cc619e2ec2a2a22932279b2edec791893c22f3bffdc8fc129047130b07202"
+  },
+  "optimized_modules": {
+    "metadata/anchors.py": "0db9adcb23f7dbd3dd8cb6f42bbe8df39e86792ba75a4cde7ee2592bd75addba",
+    "metadata/bindings.py": "958de601d29e1f365f59bf395dfebd3013bca54889e11d44a84e20bb075f0576",
+    "metadata/source_provenance.py": "519d93ad05874a143b97169d66e715263e8d4db83393226ba53e22d673b1d437"
+  },
+  "benchmark_sha256": "bd65d59a007ab86bb16de20a1bd8d2addb656f02a052d74ddb4ea66019447bdd"
+}

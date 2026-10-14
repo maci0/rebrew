@@ -1,6 +1,15 @@
 ## [Unreleased]
 
+### Performance
+- Reuse pre-read source/prototypes and indexed data lookups during binding scans;
+  cache immutable source-purpose records with file-identity invalidation and prune
+  ignored function bodies from metadata-comment validation.
+- Replace hardware-specific wall-time benchmark constants with repeated CPU/wall
+  samples, saved-report comparisons, eighteen workloads and deterministic work budgets.
+
 ### Changed
+- **Breaking:** `tools/bench_hotpaths.py --compare` now requires a saved JSON
+  report instead of using historical machine-specific wall-time constants.
 - **Breaking:** The incidental `verify.identity_file`, `verify.load_metadata`
   and `verify.stored_file_matches` imports are removed. Import `identity_file`,
   `load_metadata` and `stored_file_matches` from `rebrew.metadata.functions`.
