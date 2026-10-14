@@ -42,7 +42,9 @@ image places at its VA with identical bytes becomes linked EXACT, and
 `text.linked.kept_reloc` names the rest with a reason. Without the raw-link
 acknowledgement it counts them and writes nothing. A rebuilt image with
 different bytes returns them to RELOC on the next verify; re-run the promotion.
-`rebrew lint` exit 1 on errors. Link-only files use `// SUPPORT: <MODULE> <reason>`.
+`rebrew lint` exits 1 on errors. Record link-only file purposes with
+`rebrew source register <file> --support "<reason>"`; the purpose lives in
+`rebrew-source.toml`.
 
 `verify --data` reports comparisons but suppresses all stored data verdict and
 evidence writes unless `--raw-link` acknowledges the built image, or configured

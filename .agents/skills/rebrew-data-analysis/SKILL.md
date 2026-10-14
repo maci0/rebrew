@@ -145,17 +145,18 @@ an unknown-sized symbol cannot earn `VERIFIED`.
 > `rebrew data fix-bss`, and `rebrew sync pull --state-dir <dir>`. Entries are keyed `"MODULE.0xVA"`
 > (qualified, same scheme as `rebrew-functions.toml`).
 
-## GLOBAL Annotations
+## Global identities
 
 When a function references a global address from disassembly:
 
 1. Reuse its canonical game/subsystem or CRT header; add an extern there if missing.
-2. Put the declaration in the owning `.c` or header. `rebrew data annotate` records `file` and `kind` for a declaration that has no row. Do not add a new `// GLOBAL:` line.
+2. Put the declaration in the owning `.c` or header. `rebrew data annotate` records `file` and `kind` for a declaration that has no row. An optional `ADDRESS` anchor binds the next declaration; identity and state stay in metadata.
 3. Metadata (name, size, section, note) goes in `rebrew-data.toml`, same format as DATA.
 
-`data header` picks up inline `// GLOBAL:` and `// DATA:` markers and `rebrew-data.toml` rows on sources with no data-marker line, merging in `name`/`type`/`size`/
-`section`/`note` from `rebrew-data.toml` (a source declaration's type wins over metadata `type`).
-`rebrew lint` flags `DATA`/`GLOBAL` rows missing `SECTION` metadata (W016), inline volatile keys, and the `rebrew-data.toml` shapes the writers reject (W031: an unknown field, a STATUS outside `VERIFIED`/`DRIFT`/`UNCHECKED`, half an `updated_by`/`updated_at` pair). W037 reports a row whose `size` or `type` extent disagrees with the definition of its `name` in its owning `file` (or, for a `span` row, the extern view there), with the `rebrew data set --size`/`--type` fix; a tiled allocation (short leading definition plus interior names and pads defined in the same file, each an `alias` row with `backing` = the allocation) counts as the contiguous run of those definitions, and a hole in it is named; W038 reports two named rows of one module whose extents overlap (an `alias` with a `backing` is exempt). Run it after recording a row and after any hand-check of the store. `W032` covers the coverage documents themselves (a `db/coverage-bench.toml` the dashboards cannot serve, or a leftover `coverage.db` / grid JSON / CSV from the replaced stores).
+`data header` combines canonical `rebrew-data.toml` rows with parsed C declarations
+and optional address anchors. It uses stored `name`/`type`/`size`/`section`/`note`;
+a source declaration's type wins over metadata `type`.
+`rebrew lint` flags `DATA`/`GLOBAL` rows missing `SECTION` metadata (W016), forbidden inline metadata (E024), and the `rebrew-data.toml` shapes the writers reject (W031: an unknown field, a STATUS outside `VERIFIED`/`DRIFT`/`UNCHECKED`, half an `updated_by`/`updated_at` pair). W037 reports a row whose `size` or `type` extent disagrees with the definition of its `name` in its owning `file` (or, for a `span` row, the extern view there), with the `rebrew data set --size`/`--type` fix; a tiled allocation (short leading definition plus interior names and pads defined in the same file, each an `alias` row with `backing` = the allocation) counts as the contiguous run of those definitions, and a hole in it is named; W038 reports two named rows of one module whose extents overlap (an `alias` with a `backing` is exempt). Run it after recording a row and after any hand-check of the store. `W032` covers the coverage documents themselves (a `db/coverage-bench.toml` the dashboards cannot serve, or a leftover `coverage.db` / grid JSON / CSV from the replaced stores).
 Set a missing section with `rebrew data set --section 0xVA=.bss` (`.data`, `.rdata`, or `.bss`). Do not hand-edit the TOML.
 
 ## Debugging Relocation Mismatches
