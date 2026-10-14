@@ -1043,3 +1043,26 @@ full-corpus-final.json in goal22/spiel-unification (TL4737c0/Gold476c60), and
 upstream stale-row rename regression tests. Managed ResetDisplayCounters and
 CountDisplayCounters pointed at C still defining their old fcn names; separate
 Gold bodies masked the unexercised shared implementation.
+
+## Ranked unassigned .text ranges with status reconciliation
+
+The TL status report leaves 97,581 bytes in `no function`, but no CLI reports
+the corresponding ranked ranges. `binary extract list` lists known functions
+without source; `binary functions` reruns discovery and does not reconcile its
+candidates against the status gap complement. The coverage grid also absorbs
+heuristic tails/tables, so its cells are not an exact substitute for status spans.
+
+Expose a read-only JSON gap report using the same span selection, clipping and
+edge-fill rules as status. Return start/end, measured byte count, neighboring
+identities and classification evidence; make counts reconcile with padding and
+`no function`. Keep inferred function/table/thunk classifications explicit and
+require reviewed evidence before inventory or extent changes.
+
+Evidence: guild-rebrew TL contains 420 nonempty unassigned ranges totaling
+97,581 bytes. The largest starts at 0x00571870 (3,815 bytes), with a 0x724-byte
+stack allocation and ordinary direct calls; 0x00660ace starts a mixed range
+with three six-byte indirect jump stubs. Replay `rebrew status --target
+Europa1400Gold_TL.exe --json` and `rebrew binary asm show 0x571870 --size 96
+--target Europa1400Gold_TL.exe --json`. Project-only composition and exact
+reconciliation receipt: `.scratch/goal23/pool-unification/inspect-text-gaps.py`
+and `text-gaps.json`; no new project inventory/parser or status edits.
