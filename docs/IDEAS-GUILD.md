@@ -93,6 +93,15 @@ workflow failures without an additional authority or storage system.
 
 ## Data round support
 
+- [ ] **All-target data inventory and conflict reports.**
+  `data list` accepts only one `--target`, so checking shared-source data
+  conflicts across three targets requires three separate invocations. Add
+  `data list --all-targets --json` with target-keyed inventories, conflict and
+  multiple-definition summaries, and failure isolation. Replay in guild-rebrew:
+  `uv run --frozen rebrew data list --all-targets --json` currently rejects the
+  option; `.scratch/goal38/data-{server,tl,gold}-final.json` holds the individual
+  reports. This is a batch capability gap; per-target inventories work.
+
 - [ ] **`rebrew data list` composition awareness.**
   Pain: data edits move `.text` cost unpredictably (AcceptConnections:
   local 0 diffs, gate `.text` +180 via COMDAT literal emission). Feature:
