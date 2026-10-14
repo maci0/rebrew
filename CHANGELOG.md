@@ -1,6 +1,8 @@
 ## [Unreleased]
 
 ### Fixed
+- Rizin decompilation saves and reopens a project database file rather than a
+  directory, and rejects database-load diagnostics even when Rizin exits zero.
 - Function discovery records recovered starts after intervening alignment fill,
   preserving existing starts and excluding the fill from predecessor extents.
 

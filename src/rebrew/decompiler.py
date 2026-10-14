@@ -164,6 +164,13 @@ def _re_flush_unremoved() -> None:
         _re_remove_project_dir(proj_dir)
 
 
+def _re_project_path(proj_dir: str, tool: str) -> str:
+    """Rizin stores one database file; radare2 stores a project directory."""
+    if Path(tool).name in ("rz", "rizin"):
+        return str(Path(proj_dir, "analysis.rzdb"))
+    return proj_dir
+
+
 def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
     """Run full ``aaa`` analysis once and persist the project; return its dir."""
     digest = _re_analysis_key(tool)
@@ -188,7 +195,7 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
                 tool,
                 "-q",
                 "-c",
-                f"aaa; Ps {proj_dir}; q",
+                f"aaa; Ps {_re_project_path(proj_dir, tool)}; q",
                 str(binary),
             ],
             capture_output=True,
@@ -466,7 +473,15 @@ def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
         return None
     try:
         result = run_process_group(
-            [tool, "-q", "-p", proj_dir, "-c", f"s 0x{va:08x}; af; {cmd}", str(binary)],
+            [
+                tool,
+                "-q",
+                "-p",
+                _re_project_path(proj_dir, tool),
+                "-c",
+                f"s 0x{va:08x}; af; {cmd}",
+                str(binary),
+            ],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -475,7 +490,14 @@ def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
             timeout=120,
         )
         if result.returncode == 0 and result.stdout:
-            return _clean_output(result.stdout)
+            output = _clean_output(result.stdout)
+            if output is not None and output.strip() == "failed to read database file":
+                warnings.warn(
+                    f"{tool} failed to read database file decompiling 0x{va:08x}", stacklevel=2
+                )
+                _re_drop_project(binary, tool, proj_dir)
+                return None
+            return output
     except subprocess.TimeoutExpired:
         warnings.warn(f"{tool} timed out decompiling 0x{va:08x}", stacklevel=2)
     except (OSError, subprocess.SubprocessError) as e:

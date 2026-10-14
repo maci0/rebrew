@@ -690,8 +690,8 @@ class TestRunRe:
                 cmd = a[0]
                 assert isinstance(cmd, list)
                 proj = cmd[3].split("Ps ", 1)[1].split(";", 1)[0].strip()
-                Path(proj).mkdir(exist_ok=True)
-                Path(proj, "rebrew_tool.sha256").write_text("rz\n", encoding="utf-8")
+                Path(proj).write_bytes(b"database")
+                Path(Path(proj).parent, "rebrew_tool.sha256").write_text("rz\n", encoding="utf-8")
                 return SimpleNamespace(returncode=0, stdout="")
             raise OSError("rz missing")
 
@@ -1409,13 +1409,14 @@ class TestReSessionReuse:
         def fake_run(cmd: list[str], **kwargs: object) -> object:
             calls.append(cmd)
             if "Ps" in cmd[3]:
-                (Path(cmd[3].split("Ps ", 1)[1].split(";", 1)[0].strip())).mkdir(exist_ok=True)
+                (Path(cmd[3].split("Ps ", 1)[1].split(";", 1)[0].strip())).write_bytes(b"database")
                 # The marker is `tool\ndigest\n`; the digest is empty here
                 # because `shutil.which` is stubbed to a bare name (the real
                 # `_re_analysis_key` cannot hash it), and `_re_cached_digest_ok`
                 # compares it before reusing the project.
                 Path(
-                    cmd[3].split("Ps ", 1)[1].split(";", 1)[0].strip(), "rebrew_tool.sha256"
+                    Path(cmd[3].split("Ps ", 1)[1].split(";", 1)[0].strip()).parent,
+                    "rebrew_tool.sha256",
                 ).write_text("rz\n\n", encoding="utf-8")
             return SimpleNamespace(returncode=0, stdout="int f(void) {}\n")
 
@@ -1674,8 +1675,8 @@ class TestReToolDigestInvalidation:
             calls.append(cmd)
             if "Ps" in cmd[3]:
                 proj = cmd[3].split("Ps ", 1)[1].split(";", 1)[0].strip()
-                Path(proj).mkdir(exist_ok=True)
-                Path(proj, "rebrew_tool.sha256").write_text("rz\n\n", encoding="utf-8")
+                Path(proj).write_bytes(b"database")
+                Path(Path(proj).parent, "rebrew_tool.sha256").write_text("rz\n\n", encoding="utf-8")
             return SimpleNamespace(returncode=0, stdout="int f(void) {}\n")
 
         monkeypatch.setattr("rebrew.decompiler.run_process_group", fake_run)
@@ -1704,7 +1705,7 @@ class TestReToolDigestInvalidation:
             calls.append(cmd)
             if "Ps" in cmd[3]:
                 proj = cmd[3].split("Ps ", 1)[1].split(";", 1)[0].strip()
-                Path(proj).mkdir(exist_ok=True)
+                Path(proj).write_bytes(b"database")
             return SimpleNamespace(returncode=0, stdout="int f(void) {}\n")
 
         monkeypatch.setattr("rebrew.decompiler.run_process_group", fake_run)
@@ -1842,3 +1843,62 @@ class TestSingleflightClaimOwnership:
             )
         finally:
             dc._clear_re_projects()
+
+
+class TestReProjectDatabasePath:
+    @pytest.mark.parametrize("tool", ["rz", "rizin", "r2"])
+    def test_save_and_load_use_the_tool_project_format(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool: str
+    ) -> None:
+        import rebrew.decompiler as dc
+
+        dc._clear_re_projects()
+        binary = tmp_path / "target.bin"
+        binary.write_bytes(b"MZ")
+        monkeypatch.setattr(dc.shutil, "which", lambda name: tool if name == tool else None)
+        saved: list[Path] = []
+
+        def run(cmd, **kwargs):
+            if "-p" not in cmd:
+                project = Path(cmd[3].split("Ps ", 1)[1].split(";", 1)[0])
+                if tool == "r2":
+                    assert project.is_dir()
+                else:
+                    assert project.suffix == ".rzdb"
+                    assert not project.is_dir()
+                    project.write_bytes(b"saved database")
+                saved.append(project)
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            project = Path(cmd[cmd.index("-p") + 1])
+            assert project == saved[0]
+            assert project.is_dir() if tool == "r2" else project.is_file()
+            return SimpleNamespace(returncode=0, stdout="void callback(void) {}", stderr="")
+
+        monkeypatch.setattr(dc, "run_process_group", run)
+        try:
+            assert dc._run_re(binary, 0x1000, "pdg", tmp_path) == "void callback(void) {}"
+        finally:
+            dc._clear_re_projects()
+        assert not saved[0].exists(), "project artifacts leaked after cache retirement"
+
+    def test_zero_exit_database_failure_is_not_c(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.decompiler as dc
+
+        project = tmp_path / "project"
+        project.mkdir()
+        dropped = []
+        monkeypatch.setattr(dc, "_find_re_tool", lambda: "rizin")
+        monkeypatch.setattr(dc, "_re_cached_project", lambda *a: str(project))
+        monkeypatch.setattr(dc, "_re_drop_project", lambda *a: dropped.append(a))
+        monkeypatch.setattr(
+            dc,
+            "run_process_group",
+            lambda *a, **k: SimpleNamespace(
+                returncode=0, stdout="  failed to read database file\n", stderr=""
+            ),
+        )
+        with pytest.warns(UserWarning, match="failed to read database file"):
+            assert dc._run_re(tmp_path / "target", 0x1000, "pdg", tmp_path) is None
+        assert dropped == [(tmp_path / "target", "rizin", str(project))]
