@@ -147,7 +147,8 @@ def _render_annotation_block(
             # decompilation is still on the page, just not compiled.
             warnings.warn(
                 f"decompiled body for {func_name} failed the C gate "
-                "(not a single function definition with the expected name, or it "
+                "(exceeds the seed size budget, is not a single function definition "
+                "with the expected name, or it "
                 "carries a preprocessor directive, pragma, or inline asm); "
                 "embedded it as a comment instead of as code",
                 stacklevel=2,

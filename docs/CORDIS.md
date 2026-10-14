@@ -367,6 +367,14 @@ Returning a native coroutine closes it safely to suppress unawaited-coroutine wa
 Registered cleanup attempts inverses best-effort, but cannot guarantee recovery of
 unregistered external resources or state modified before inverse registration.
 Refusing a foreign awaitable does not establish that work it already started has stopped.
+When a process-local cleanup failure occurs within a `CoeffectScope`, that scope latches
+into a failed state. Subsequent managed activations, replacements, or withdrawals on the same
+scope are refused with `ComponentError`, traversal halts before subsequent registrations, and
+unconfirmed component entries and provision reservations are retained for diagnostics. Repeated
+`close()` calls on the failed scope report the failure via `ComponentError` without rerunning
+consumed inverses. This boundary acts strictly as a process-local scope fence: it does not claim
+or prove that external background tasks or unmanaged resources have physically stopped. Raw contexts,
+new scopes, and out-of-band handles remain trusted orchestration boundaries.
 Isolation realms, service interception, typed event dispatch, asynchronous fibers,
 YAML loaders, configuration reconciliation, and hot module replacement are outside its API.
 The CLI composes at `rebrew.app.main` import and retains its context and scope in

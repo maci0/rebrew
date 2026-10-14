@@ -813,6 +813,20 @@ class TestDecompBody:
         )
         assert "* /" in content  # the breakout is defused, not deleted
 
+    def test_oversize_decomp_reports_seed_budget(self, tmp_path: Path) -> None:
+        """A full Kuna body can parse correctly while exceeding the GA budget."""
+        code = "int orig(void) { int n = 0;" + "n += 1;" * 1500 + "return n; }"
+        with pytest.warns(UserWarning, match="seed size budget"):
+            content = generate_skeleton(
+                self._cfg(tmp_path),
+                0x1000,
+                "my_func",
+                decomp_code=code,
+                decomp_backend="kuna",
+                decomp_body=True,
+            )
+        assert "=== Decompilation (kuna) ===" in content
+
     def test_decomp_body_rejects_unvalidated_code(self, tmp_path: Path) -> None:
         """A body carrying a preprocessor directive is not written as code:
         the seed C gate refuses it and it lands in the comment block instead."""

@@ -1,10 +1,20 @@
 ## [Unreleased]
 
 ### Fixed
+- Decompiler-body rejection diagnostics identify the seed size budget as a
+  possible cause rather than implying valid large Kuna output is malformed.
 - Rizin decompilation saves and reopens a project database file rather than a
   directory, and rejects database-load diagnostics even when Rizin exits zero.
 - Function discovery records recovered starts after intervening alignment fill,
   preserving existing starts and excluding the fill from predecessor extents.
+
+## [2.27.1] - 2026-10-14
+
+### Fixed
+- `CoeffectScope` fences process-local cleanup failures: after an inverse or rollback failure,
+  the affected scope refuses subsequent managed activations, replacements, or withdrawals,
+  retains unconfirmed entries and provision reservations for diagnostics, and reports failures
+  on repeated `close()` without rerunning consumed inverses.
 
 ## [2.27.0] - 2026-10-14
 

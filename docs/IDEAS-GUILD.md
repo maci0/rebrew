@@ -1087,3 +1087,24 @@ Project receipts: `.scratch/goal23/production-callback/rizin-live-project.json`,
 `rizin-variables.json`, `rizin-decomp-without-var1.log` and the complete native
 callback/switch-table inspection. Both blind variable-removal probes failed;
 no game source, accepted types or inventory was changed by them.
+
+## Separate full decompiler bodies from the GA seed character budget
+
+Kuna 1.160 successfully decompiles TL he_RunProduktion at0x00571870 in
+default, reliable and aggressive modes (21,684/21,685/22,166 characters).
+Each output parses without recovery as one C function. Nevertheless,
+`skeleton --decomp --decomp-body --decompiler kuna --dry-run` rejects it
+because `valid_c_source` shares the 8,000-character GA seed budget; its
+warning instead mentions function identity, directives or assembly.
+
+Give complete decompiler skeleton bodies a separately defined size policy
+and report the actual rejection reason. Keep the GA population budget and
+structural C gate, identity checks, directive/assembly rejection and ordinary
+compile/byte verification intact. This does not make pseudo-types or inferred
+float/pointer casts trustworthy: source still needs native review and C89
+reconstruction. User requested Kuna alongside other available backends.
+
+Replay `rebrew skeleton 0x571870 --target Europa1400Gold_TL.exe --name
+he_RunProduktion --decomp --decomp-body --decompiler kuna --dry-run --json`.
+Receipts: guild-rebrew `.scratch/goal23/production-callback/kuna-review.json`,
+`kuna-{reliable,aggressive}-seed.c` and `kuna-skeleton-preview.json`.
