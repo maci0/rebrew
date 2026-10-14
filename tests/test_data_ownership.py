@@ -27,6 +27,16 @@ def test_function_pointer_type_keeps_calling_convention_in_inventory(tmp_path: P
     assert entry.type_str in buf.getvalue()
 
 
+def test_filtered_definition_does_not_contribute_initializer_uses() -> None:
+    source = "extern int server; extern int client;\nint *foreign = &server, *local = &client;\n"
+    definitions, declarations, uses = find_variable_roles(
+        source, variable_filter=lambda name, _definition: name != "foreign"
+    )
+    assert definitions == {"local"}
+    assert declarations == {"server", "client"}
+    assert uses == {"client"}
+
+
 def test_owner_and_users_are_independent_of_markers(tmp_path: Path) -> None:
     write_source(
         tmp_path / "owner.c",

@@ -1514,6 +1514,7 @@ class ExternVar:
     declaration: str = field(default="", compare=False)
     line: int = field(default=0, compare=False)
     end_line: int = field(default=0, compare=False)
+    is_definition: bool = field(default=False, compare=False)
 
 
 def _variable_name(node: Any, source: bytes) -> str | None:
@@ -1823,6 +1824,9 @@ def find_extern_variables(
 
             first_result = len(results)
             for child in node.children_by_field_name("declarator"):
+                is_definition = at_file_scope and (
+                    not has_extern or child.child_by_field_name("value") is not None
+                )
                 if declares_function(child):
                     continue
                 if _has_function_declarator(child):
@@ -1870,6 +1874,7 @@ def find_extern_variables(
                             name=name,
                             type_str=type_str + " " + compact,
                             array_suffix="",
+                            is_definition=is_definition,
                         )
                     )
                     continue
@@ -1909,6 +1914,7 @@ def find_extern_variables(
                                     f"{_extract_array_suffix(decl, src_bytes)}"
                                 ),
                                 array_suffix="",
+                                is_definition=is_definition,
                             )
                         )
                         continue
@@ -1931,6 +1937,7 @@ def find_extern_variables(
                                     f"{pointee_suffix}"
                                 ),
                                 array_suffix=object_suffix,
+                                is_definition=is_definition,
                             )
                         )
                         continue
@@ -1953,7 +1960,12 @@ def find_extern_variables(
                         if array_suffix:
                             full_type += array_suffix
                         results.append(
-                            ExternVar(name=name, type_str=full_type, array_suffix=array_suffix)
+                            ExternVar(
+                                name=name,
+                                type_str=full_type,
+                                array_suffix=array_suffix,
+                                is_definition=is_definition,
+                            )
                         )
             for variable in results[first_result:]:
                 variable.line = node.start_point[0] + 1
@@ -1986,13 +1998,17 @@ def find_extern_variables(
 
 
 def find_variable_roles(
-    source: str, *, function_filter: Callable[[int], bool] | None = None
+    source: str,
+    *,
+    function_filter: Callable[[int], bool] | None = None,
+    variable_filter: Callable[[str, bool], bool] | None = None,
 ) -> tuple[set[str], set[str], set[str]]:
     """Return file definitions, extern declarations, and syntactic variable uses.
 
     This is a source inventory, not a preprocessor or linker verdict. Declaration
     names, member names, strings, and locally shadowed names are not uses. A
     tentative file-scope definition owns storage; an initialized extern does too.
+    A variable filter scopes individual file declarations and their initializer uses.
     """
     tree, src = _variable_tree(source)
     definitions: set[str] = set()
@@ -2052,7 +2068,10 @@ def find_variable_roles(
                     continue
                 value = declarator.child_by_field_name("value")
                 if file_scope:
-                    if not imported and (not has_extern or value is not None):
+                    is_definition = not imported and (not has_extern or value is not None)
+                    if variable_filter is not None and not variable_filter(name, is_definition):
+                        continue
+                    if is_definition:
                         definitions.add(name)
                     else:
                         declarations.add(name)

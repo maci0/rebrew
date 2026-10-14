@@ -115,6 +115,8 @@
   `load_metadata` and `stored_file_matches` from `rebrew.metadata.functions`.
 
 ### Fixed
+- Preserve target scope for metadata-only data definitions in mixed-target source
+  files, while retaining shared extern declarations without foreign address bindings.
 - Recon dossiers exclude internal jumps from callees while retaining recursive
   calls and external tail jumps.
 - Recon dossiers use known inventory extents when source size is missing,

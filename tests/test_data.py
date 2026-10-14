@@ -362,6 +362,63 @@ class TestScanGlobals:
         assert names == {"g_server"}
 
 
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "int g_server_only = 3, g_duplicate;",
+        "extern int g_server_only = 3; int g_duplicate;",
+        "int (*g_server_only)(int) = 0; int g_duplicate;",
+    ],
+)
+def test_migrated_foreign_data_in_shared_source_stays_scoped(
+    tmp_path: Path, declaration: str
+) -> None:
+    from rebrew.metadata.data import set_data_fields_batch
+    from rebrew.metadata.functions import record_function_identity
+
+    _write_c(
+        tmp_path,
+        "shared.c",
+        declaration + "\nextern int g_shared;\nint common(void) { return g_shared; }\n",
+    )
+    _write_c(tmp_path, "other.c", "int g_duplicate;\n")
+    for module, va in [("SERVER", 0x10001000), ("GOLDTL", 0x401000)]:
+        record_function_identity(
+            tmp_path,
+            module=module,
+            va=va,
+            file="shared.c",
+            kind="FUNCTION",
+            name="common",
+            symbol="_common",
+        )
+    set_data_fields_batch(
+        tmp_path,
+        [
+            {
+                "module": "SERVER",
+                "va": 0x10027078,
+                "fields": {"file": "shared.c", "name": "g_server_only", "kind": "DATA"},
+            }
+        ],
+    )
+    cfg = SimpleNamespace(
+        marker="GOLDTL",
+        all_markers={"SERVER", "GOLDTL"},
+        source_ext=".c",
+        metadata_dir=tmp_path,
+    )
+    client = scan_globals(tmp_path, cfg)
+    assert "g_server_only" not in client.globals
+    assert set(client.globals["g_duplicate"].defined_in) == {"shared.c", "other.c"}
+    assert client.to_dict()["summary"]["multiple_definitions"] == 1
+    assert "g_shared" in client.globals
+
+    server = scan_globals(tmp_path, SimpleNamespace(**{**vars(cfg), "marker": "SERVER"}))
+    assert server.globals["g_server_only"].va == 0x10027078
+    assert server.globals["g_server_only"].defined_in == ["shared.c"]
+
+
 def test_function_pointer_declaration_not_treated_as_function() -> None:
     from rebrew.c_parser import find_extern_variables
 

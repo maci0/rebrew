@@ -433,10 +433,13 @@ def scan_globals(
         bindings = source_bindings(text, cfile, None, None, metadata_dir)
         function_modules: dict[str, set[str]] = defaultdict(set)
         data_modules: dict[str, set[str]] = defaultdict(set)
+        anchored_data_names: set[str] = set()
         for binding in bindings:
             if binding.is_data:
+                # Migrated data identities have no source line, but still scope declarations.
+                data_modules[binding.name].add(binding.module)
                 if binding.line:
-                    data_modules[binding.name].add(binding.module)
+                    anchored_data_names.add(binding.name)
             else:
                 function_modules[binding.name].add(binding.module)
         by_line = {line: name for name, line in find_c_function_definitions(text)}
@@ -455,33 +458,33 @@ def scan_globals(
         parsed_vars = find_extern_variables(
             text, include_definitions=True, function_filter=function_visible
         )
-        foreign_decl_lines: set[int] = set()
-        if cfg is not None:
-            for variable in parsed_vars:
-                modules = data_modules.get(variable.name, set())
-                if modules and not any(module_visible_to_target(m, cfg) for m in modules):
-                    foreign_decl_lines.update(range(variable.line - 1, variable.end_line))
-        extern_text = text
-        if foreign_decl_lines:
-            extern_text = "\n".join(
-                "" if i in foreign_decl_lines else line for i, line in enumerate(lines)
+
+        def variable_visible(
+            name: str,
+            is_definition: bool,
+            *,
+            modules_by_name: dict[str, set[str]] = data_modules,
+            anchored_names: set[str] = anchored_data_names,
+        ) -> bool:
+            modules = modules_by_name.get(name, set())
+            return (
+                cfg is None
+                or not modules
+                or not (is_definition or name in anchored_names)
+                or any(module_visible_to_target(m, cfg) for m in modules)
             )
 
         if record_roles:
-            file_roles[fname] = find_variable_roles(extern_text, function_filter=function_visible)
+            file_roles[fname] = find_variable_roles(
+                text, function_filter=function_visible, variable_filter=variable_visible
+            )
 
         # Pre-compute extern variables from tree-sitter (used for unannotated
         # scan).  Definitions are included: a global's real type lives on its
         # definition, and conflict detection that only sees `extern` lines
         # cannot report the mismatch that matters most -- `int g[4] = {...}`
         # in one file against `extern short g;` in another.
-        visible_vars = (
-            find_extern_variables(
-                extern_text, include_definitions=True, function_filter=function_visible
-            )
-            if foreign_decl_lines
-            else parsed_vars
-        )
+        visible_vars = [v for v in parsed_vars if variable_visible(v.name, v.is_definition)]
         extern_vars = {v.name: v for v in visible_vars}
 
         # Track which names are already handled via GLOBAL annotation
