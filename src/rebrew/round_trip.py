@@ -77,8 +77,9 @@ from rebrew.workspace.status import MATCHED_STATUSES
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build round-trip · · · · · · · · Splice matches back, verify byte equality\n\n"
-    "  rebrew build round-trip --output build/roundtrip.exe --json · Report the result\n"
+    "  rebrew build round-trip  # Splice matches back, verify byte equality\n\n"
+    "  # Report the result\n"
+    "  rebrew build round-trip --output build/roundtrip.exe --json\n"
 )
 
 

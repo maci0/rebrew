@@ -784,8 +784,7 @@ Two consequences:
 
 - **A missing `INCLUDE`/`LIB` export made five of the seven builds
   uncompilable.**  Only the base and SP6 wrappers set them; every SP1/SP2/SP3/
-  SP5 compile died with `C1083`, which `rebrew match run
-  --flag-sweep-toolchains` reported as a compile failure (`score: Infinity`,
+  SP5 compile died with `C1083`, which `rebrew match toolchains SOURCE` reported as a compile failure (`score: Infinity`,
   `0/0`) rather than a toolchain result.  Each of those specs now declares its
   container `tool_root`, and `run_toolchain` exports `INCLUDE`/`LIB` from it
   (`rebrew.compiler.toolchain.image_msvc_env`), the derivation the CMake bridge already

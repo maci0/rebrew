@@ -147,15 +147,46 @@ incorrect. Entries that now have explicit operations are expanded below.
 
 ## Options and generated artifacts
 
+The current option names below are breaking changes; no aliases are retained.
+
+| Previous spelling | Current spelling |
+| --- | --- |
+| `init --install-completions` | `init --write-completions` |
+| `test --origin MODULE` | `test --module MODULE` |
+| `verify --origin MODULE` | `verify --module MODULE` |
+| `verify --nolib` | `verify --skip-libraries` |
+| `build order-sources --marker MODULE` | `build order-sources --module MODULE` |
+| `source import-splat CONFIG --write` | `source import-splat CONFIG --apply` |
+| `library vendor MANIFEST --sync` | `library vendor MANIFEST --apply` |
+| `types recover --apply FILE` | `types recover --output FILE` |
+| `export decompme SOURCE --flags FLAGS` | `export decompme SOURCE --cflags FLAGS` |
+
+
+- Preview-default source imports and vendor regeneration now use `--apply`:
+  `source import-splat CONFIG --apply` and `library vendor MANIFEST --apply`.
+  `types recover --output FILE` names the generated header; `--dry-run` previews it.
+  Removed flags have no aliases.
+- `export decompme --cflags` selects compiler flags; explicit `--api` overrides
+  the environment. `prove --watch-va` always parses hex, with an optional `0x` prefix.
+- `sync watch` is terminal-only and has no `--json` option. Cache stats/clear
+  and source findings use project `--root`, without a target selector.
+- `coverage serve --print-url` reports the selected URL without serving;
+  combine it with `--json` for structured output. JSON alone is not a serving mode.
+- Removed options that never affected execution are errors. Data layout audit
+  is read-only; `fill --bss-only` selects BSS padding. Layout own no longer accepts
+  that flag, and fix-ownership/converge do not accept a stub-file override.
+  `data fix-bss` has no force flag. Match profile/flag sweeps expose only inputs
+  they use; single-function GA does not accept batch resume/seeding options.
 - `skeleton --decomp-backend` becomes `--decompiler`; provider defaults remain unchanged.
-- Match/split/ASM output directories use `--output/-o`; data header output is a file.
+- Match run/split/ASM output directories use `--output/-o`; data header output is a file.
 - Match profile sweeps use `--toolchains` and `--exclude-toolchains`.
   `match flags` and `match toolchains` compile and have no `--dry-run` option.
   `match batch --dry-run` previews selection; `match run --seed-llm --dry-run`
   previews the LLM request.
-- Todo and both similarity operations use `--limit`. Zero displays no rows;
-  `source import-related --limit 0` means unlimited imports, and
-  `match batch --max-stubs 0` means unlimited selected functions.
+- Zero `--limit` displays no rows for todo, both similarity operations, relocation
+  reports, type recovery, and related-source imports. Omitting the type-recovery
+  limit means unlimited functions. `match batch --max-stubs 0` retains its
+  separate meaning of unlimited selected functions.
 - `dev refactor --repository PATH` scans Python without requiring project config.
 - Run `rebrew init --refresh-agents`, then `rebrew init --check` in each workspace.
   Canonical guidance comes from packaged skills and templates; preserve locally

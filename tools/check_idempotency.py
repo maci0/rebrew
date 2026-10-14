@@ -368,7 +368,7 @@ WRITE_COMMANDS = [
     # pinned by tests/test_verify_incremental.py
     # ::TestIncrementalVerify::test_cache_hit_reports_the_same_row_bytes_as_a_fresh_run.
     #
-    # Strips inline markers into rebrew-functions.toml (ADR 023).
+    # Validates address anchors against dedicated function metadata (ADR 030).
     "source register",
     # Writes a STUB .c + BLOCKER + STATUS for every undocumented function.
     "source document-unmatched",
@@ -391,10 +391,10 @@ WRITE_COMMANDS = [
     # `rebrew coverage catalog` left this list when it stopped writing: it reports the
     # catalog and nothing else, so it is a read-only command now.
     "coverage build",
-    # Rewrites the splat-style symbol_addrs file from the annotations.
+    # Rewrites the splat-style symbol_addrs file from source bindings.
     "export symbols",
-    # Renders the CMake toolchain file driving the docker bridge scripts.
-    "build cmake-toolchain",
+    # The CL/LINK/LIB bridge needs MSVC; this fixture defaults to MinGW.
+    "build cmake-toolchain --toolchain msvc-6.0",
     # Sanitizes raw decompiler output into <file>.fixed.c beside the source.
     "source fix src/SERVER/fcn.c",
     # Emits the universal decompilation context file into the source tree.
@@ -415,7 +415,7 @@ WRITE_COMMANDS = [
     # generation stamp, a page count) would rewrite the whole site and show up
     # as a changed tree.
     "coverage report",
-    # Renders rebrew_globals.h from the GLOBAL:/DATA: annotations.  The header
+    # Renders rebrew_globals.h from dedicated data metadata. The header
     # carries a "Generated:" line, so a re-run that rewrote it unconditionally
     # would churn every file it produces without changing a declaration.
     "data header",

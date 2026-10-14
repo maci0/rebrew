@@ -1114,6 +1114,23 @@ class TestResolveDottedKey:
 
 
 class TestCLIDump:
+    @pytest.mark.parametrize(
+        "args", [["--format", "toml", "--json"], ["--json", "--format", "TOML"]]
+    )
+    def test_conflicting_formats_are_rejected_before_loading(
+        self, monkeypatch: pytest.MonkeyPatch, args: list[str]
+    ) -> None:
+        def refuse(**kwargs: object) -> None:
+            raise AssertionError("Conflicting formats must be rejected before config loading")
+
+        monkeypatch.setattr("rebrew.cfg.load_toml", refuse)
+        result = runner.invoke(cfg_app, ["raw", *args])
+        assert result.exit_code == 2, result.output
+        assert json.loads(result.stdout) == {
+            "error": "--format toml and --json select different output formats; pass one.",
+            "code": 2,
+        }
+
     def test_dump_json(self, tmp_path: Path, monkeypatch) -> None:
         import json
 
@@ -1137,7 +1154,7 @@ class TestCLIDump:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["raw", "--format", "yaml"])
         assert result.exit_code != 0
-        assert "Unknown format" in result.output
+        assert "Invalid value" in result.output
 
 
 class TestCLIPath:

@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from typer.models import TyperPath
 
 from rebrew.catalog import (
     build_function_registry,
@@ -52,9 +53,11 @@ from rebrew.sources import contained_path, iter_sources, source_roots, target_ma
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew match partitions · · · · · · · · · Search the deterministic TU partitions\n\n"
-    "  rebrew match partitions --passes 3 --max-compiles 200 · Cap the search budget\n\n"
-    "  rebrew match partitions --dry-run --json · · Plan the passes, compile nothing\n"
+    "  rebrew match partitions  # Search the deterministic TU partitions\n\n"
+    "  # Cap the search budget\n"
+    "  rebrew match partitions --passes 3 --max-compiles 200\n\n"
+    "  # Plan the passes, compile nothing\n"
+    "  rebrew match partitions --dry-run --json\n"
 )
 
 
@@ -671,8 +674,15 @@ def main(
     passes: int = typer.Option(
         DEFAULT_MAX_PASSES, "--passes", help="Search passes over the partition"
     ),
-    max_compiles: int | None = typer.Option(None, "--max-compiles", help="Cap on TU compilations"),
-    audit: str | None = typer.Option(None, "--audit", help="Write the JSON audit log to FILE"),
+    max_compiles: int | None = typer.Option(
+        None, "--max-compiles", min=1, help="Cap on TU compilations (at least 1)"
+    ),
+    audit: str | None = typer.Option(
+        None,
+        "--audit",
+        help="Write the JSON audit log to FILE",
+        click_type=TyperPath(path_type=str),
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -683,8 +693,6 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
     if passes < 1:
         error_exit("--passes must be at least 1", json_mode=json_output)
-    if max_compiles is not None and max_compiles < 1:
-        error_exit("--max-compiles must be at least 1", json_mode=json_output)
 
     if not cfg.target_binary.exists():
         error_exit(f"Target binary not found: {cfg.target_binary}", json_mode=json_output)

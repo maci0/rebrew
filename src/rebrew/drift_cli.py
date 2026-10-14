@@ -20,6 +20,7 @@ from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,
+    SOURCE_HELP,
     TargetOption,
     console,
     error_exit,
@@ -27,6 +28,8 @@ from rebrew.cli import (
     parse_va,
     require_config,
     require_positive_size,
+    require_source_arg,
+    select_annotation,
 )
 from rebrew.compiler.compile import compile_and_compare
 from rebrew.compiler.overrides import resolve_compile_overrides
@@ -41,13 +44,14 @@ from rebrew.sources import target_marker
 # command whose ``--help`` lists no options at all -- an easy failure to
 # misread as a stale install rather than a missing declaration.
 app = typer.Typer(
-    help="Localise where compiled bytes drift from the reference, from branch targets.",
+    help="Localize where compiled bytes drift from the reference, from branch targets.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew diagnose drift src/f.c · · · · · · VA and size from the annotation header\n\n"
-        "  rebrew diagnose drift --va 0x401000 --size 512 src/f.c · Explicit geometry\n\n"
-        "  rebrew diagnose drift --json src/f.c · · · Machine-readable windows\n"
+        "  rebrew diagnose drift src/f.c  # VA and size from metadata\n\n"
+        "  # Explicit geometry\n"
+        "  rebrew diagnose drift --va 0x401000 --size 512 src/f.c\n\n"
+        "  rebrew diagnose drift --json src/f.c  # Machine-readable windows\n"
     ),
 )
 
@@ -99,25 +103,21 @@ def _emit_text(windows: list[DriftWindow], derived: list[DerivedRegion]) -> None
 
 @app.callback(invoke_without_command=True)
 def main(
-    source: str = typer.Argument(..., help="C source file containing the function."),
-    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from annotation)"),
-    size: int | None = typer.Option(None, "--size", help="Function size (default: from metadata)."),
-    cflags: str | None = typer.Option(None, "--cflags", help="Override compiler flags."),
-    toolchain: str | None = typer.Option(None, "--toolchain", help="Override toolchain profile."),
+    source: str = typer.Argument(..., help=SOURCE_HELP),
+    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
+    size: int | None = typer.Option(None, "--size", help="Function size (default: from metadata)"),
+    cflags: str | None = typer.Option(None, "--cflags", help="Override compiler flags"),
+    toolchain: str | None = typer.Option(None, "--toolchain", help="Override toolchain profile"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Localise where a function's bytes drift from the reference, using branch targets.
+    """Localize where a function's bytes drift from the reference, using branch targets.
 
-    A jump whose encoding matches the reference but whose target differs measures
-    the drift accumulated between it and its target.  Nested windows subtract, so
-    regions with no branch pair of their own can still be bounded.
+    A jump whose encoding matches the reference but whose target differs measures the drift accumulated between it and its target.  Nested windows subtract, so regions with no branch pair of their own can still be bounded.
     """
     cfg = require_config(target=target, json_mode=json_output)
 
-    src_path = Path(source)
-    if not src_path.exists():
-        error_exit(f"source not found: {source}", json_mode=json_output)
+    src_path = require_source_arg(cfg, source, json_mode=json_output)
 
     # Resolve va/size/symbol from the file's annotations, the same source
     # `rebrew test` uses.  The symbol in particular must come from here rather
@@ -136,6 +136,8 @@ def main(
             error_exit(f"no annotation for 0x{want:08x} in {src_path.name}", json_mode=json_output)
     elif annos:
         selected = annos[0]
+        if not Path(source).is_file():
+            _, selected, _ = select_annotation(cfg, source, None, json_mode=json_output)
 
     va_int = selected.va if selected else (parse_va(va, json_mode=json_output) if va else None)
     if va_int is None:

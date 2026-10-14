@@ -46,7 +46,7 @@ Usage::
 
     rebrew types recover --all                      # every annotated function
     rebrew types recover --functions 0x401000,0x401100 --decompiler kuna
-    rebrew types recover --all --apply src/common.h  # append new typedefs
+    rebrew types recover --all --output src/common.h  # append new typedefs
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
-from rebrew.decompiler import BACKEND_HELP_CHOICES
+from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends
 from rebrew.errors import RebrewError
 from rebrew.utils import atomic_write_text, fold_ident, parse_int_literal, read_source_text
 
@@ -621,9 +621,10 @@ def recover_structs(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew types recover --dry-run · · · · · Show the recovered typedefs, write nothing\n\n"
-    "  rebrew types recover --functions 0x10009310 0x10009400 · Only these functions\n\n"
-    "  rebrew types recover --apply --json · · · · · Write the headers, machine-readable"
+    "  rebrew types recover --functions 0x10009310\n\n"
+    "  rebrew types recover --functions 0x10009310,0x10009400\n\n"
+    "  rebrew types recover --all --output src/recovered_types.h --json\n\n"
+    "[dim]Preview recovered typedefs by default. --output appends new definitions to a header; --dry-run previews that write.[/dim]"
 )
 
 app = typer.Typer(
@@ -690,8 +691,8 @@ def recover_project_structs(
     functions: str | None = None,
     all_funcs: bool = False,
     filter_substr: str | None = None,
-    limit: int = 0,
-    apply: Path | None = None,
+    limit: int | None = None,
+    output: Path | None = None,
     dry_run: bool = False,
     json_output: bool = False,
 ) -> dict[str, Any]:
@@ -700,7 +701,7 @@ def recover_project_structs(
     The same pipeline the ``rebrew types recover`` callback runs: resolve
     the function set (*functions* / *all_funcs* / *filter_substr*, capped by
     *limit*), decompile each via *decompiler*, aggregate the member-offset
-    evidence against the project's existing structs, and — with *apply* and
+    evidence against the project's existing structs, and — with *output* and
     without *dry_run* — append the new definitions to that file.  Returns the
     object the CLI prints under ``--json`` (``decompiled`` / ``skipped`` /
     ``structs`` / ``applied``), or ``{"functions": 0, "structs": []}`` when
@@ -714,7 +715,9 @@ def recover_project_structs(
             function (the CLI exits ``EXIT_ERROR`` with the same message).
     """
     funcs = _collect_functions(cfg, functions, all_funcs, filter_substr)
-    if limit and limit > 0:
+    if limit is not None:
+        if limit < 0:
+            raise ValueError("limit must be non-negative")
         funcs = funcs[:limit]
     if not funcs:
         if not json_output:
@@ -748,36 +751,36 @@ def recover_project_structs(
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     sources += list(iter_library_headers(cfg.reversed_dir, cfg))
-    # ``--apply`` may point outside the source tree; without scanning it,
+    # ``--output`` may point outside the source tree; without scanning it,
     # a second run would re-append the same typedefs (duplicate definitions).
-    if apply is not None and apply.exists():
-        apply_key = apply.resolve()
+    if output is not None and output.exists():
+        apply_key = output.resolve()
         if apply_key not in {p.resolve() for p in sources}:
-            sources.append(apply)
+            sources.append(output)
     existing = existing_structs(sources)
     # Offsets ≥ the image base are absolute addresses (Kuna folds
     # global_base + index into ``var + 0xADDR``) — never member offsets.
     results = recover_structs(decompilations, existing=existing, max_offset=_member_offset_cap(cfg))
 
-    # Anonymous candidates need a user-chosen name first — never auto-apply.
+    # Anonymous candidates need a user-chosen name first — never auto-output.
     new_structs = [r for r in results if r["new"] and not r["anonymous"]]
-    applied = str(apply) if apply and new_structs and not dry_run else None
-    if apply and new_structs and not dry_run:
-        # Belt: skip names already present in the apply target (partial writes).
-        already = existing_structs([apply]) if apply.exists() else {}
+    applied = str(output) if output and new_structs and not dry_run else None
+    if output and new_structs and not dry_run:
+        # Belt: skip names already present in the output target (partial writes).
+        already = existing_structs([output]) if output.exists() else {}
         to_write = [r for r in new_structs if r["name"] not in already]
         if to_write:
             block = "\n\n".join(r["definition"] for r in to_write)
             # Rewrite atomically: a crash or a full disk mid-append would leave
             # a half-written typedef, and the dedup belt above would then skip
             # that name forever because it already registers as present.
-            # Detected encoding, not utf-8: the apply target is a source file
+            # Detected encoding, not utf-8: the output target is a source file
             # that may be Shift-JIS or CP1252, and a legacy byte in a comment
             # would raise UnicodeDecodeError instead of appending one typedef.
-            previous, encoding = read_source_text(apply) if apply.is_file() else ("", "utf-8")
-            atomic_write_text(apply, previous + "\n" + block, encoding=encoding)
-            console.print(f"[green]Appended {len(to_write)} struct(s) to {apply}[/green]")
-            applied = str(apply)
+            previous, encoding = read_source_text(output) if output.is_file() else ("", "utf-8")
+            atomic_write_text(output, previous + "\n" + block, encoding=encoding)
+            console.print(f"[green]Appended {len(to_write)} struct(s) to {output}[/green]")
+            applied = str(output)
         else:
             applied = None
 
@@ -794,7 +797,9 @@ def main(
     functions: str | None = typer.Option(
         None, "--functions", help="Comma-separated VAs to decompile"
     ),
-    all_funcs: bool = typer.Option(False, "--all", help="Decompile every annotated function"),
+    all_funcs: bool = typer.Option(
+        False, "--all", help="Decompile every function bound in metadata"
+    ),
     filter_substr: str | None = typer.Option(
         None, "--filter", help="Only functions whose name contains SUBSTR"
     ),
@@ -802,20 +807,27 @@ def main(
         "kuna",
         "--decompiler",
         help=f"Decompiler backend: {BACKEND_HELP_CHOICES}",
+        autocompletion=complete_backends,
     ),
-    limit: int = typer.Option(
-        0, "--limit", help="Cap the number of functions decompiled (0 = unlimited)"
+    limit: int | None = typer.Option(
+        None, "--limit", help="Cap functions decompiled (default: unlimited; 0 = none)"
     ),
-    apply: Path | None = typer.Option(
-        None, "--apply", help="Append new struct definitions to this file"
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Append recovered definitions to this header; required with --dry-run",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Recover struct definitions by decompiling functions and aggregating
-    their member-access offsets per named pointer type."""
-    limit = require_non_negative(option_default(limit, 0), "--limit", json_mode=json_output)
+    """Recover struct definitions by decompiling functions and aggregating their member-access offsets per named pointer type."""
+    if option_default(dry_run, False) and option_default(output, None) is None:
+        error_exit("--dry-run requires --output", json_mode=option_default(json_output, False))
+    limit = option_default(limit, None)
+    if limit is not None:
+        limit = require_non_negative(limit, "--limit", json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
 
     try:
@@ -826,7 +838,7 @@ def main(
             all_funcs=all_funcs,
             filter_substr=filter_substr,
             limit=limit,
-            apply=apply,
+            output=output,
             dry_run=dry_run,
             json_output=json_output,
         )
@@ -876,7 +888,7 @@ def main(
         console.print(r["definition"])
     if dry_run and new_structs:
         console.print(
-            f"[dim]--dry-run: {len(new_structs)} new struct(s) would be appended to {apply}[/dim]"
+            f"[dim]--dry-run: {len(new_structs)} new struct(s) would be appended to {output}[/dim]"
         )
     if not new_structs and results and not any(r["anonymous"] for r in results):
         console.print("[dim]No NEW structs — the recovered layouts are already declared.[/dim]")

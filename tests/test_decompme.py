@@ -106,9 +106,10 @@ class TestResolveApi:
     read as unset instead of breaking every upload.
     """
 
-    def test_env_wins_over_the_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_explicit_flag_wins_over_the_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_DECOMPME_API", "https://dmp.example.test")
-        assert decompme.resolve_api("https://decomp.me") == "https://dmp.example.test"
+        assert decompme.resolve_api("https://decomp.me") == "https://decomp.me"
+        assert decompme.resolve_api(None) == "https://dmp.example.test"
 
     def test_flag_applies_when_the_env_is_unset_or_empty(
         self, monkeypatch: pytest.MonkeyPatch
@@ -117,11 +118,12 @@ class TestResolveApi:
         assert decompme.resolve_api("https://flag.example.test") == "https://flag.example.test"
         monkeypatch.setenv("REBREW_DECOMPME_API", "  ")
         assert decompme.resolve_api("https://flag.example.test") == "https://flag.example.test"
+        assert decompme.resolve_api(None) == "https://decomp.me"
 
     def test_a_malformed_value_names_its_source(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_DECOMPME_API", "decomp,me")
         with pytest.raises(ValueError, match="REBREW_DECOMPME_API must be an http"):
-            decompme.resolve_api("https://decomp.me")
+            decompme.resolve_api(None)
         monkeypatch.delenv("REBREW_DECOMPME_API")
         with pytest.raises(ValueError, match="--api must be an http"):
             decompme.resolve_api("decomp,me")

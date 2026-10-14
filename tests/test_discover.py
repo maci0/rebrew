@@ -704,3 +704,98 @@ class TestRecoveredBoundaryPadding:
         from rebrew.discover import _function_start
 
         assert _function_start(_mk_info(raw), 0) is None
+
+
+class TestDiscoveryCliInputs:
+    def test_explicit_binary_runs_without_a_project(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew import discover
+
+        monkeypatch.chdir(tmp_path)
+        binary = tmp_path / "standalone.bin"
+        binary.write_bytes(b"binary")
+        output = tmp_path / "functions.json"
+        seen: list[Path] = []
+
+        def _discover(path: Path, *, min_size: int) -> discover.Discovery:
+            seen.append(path)
+            return discover.Discovery([(0x1000, 12, "func")], {"test": 1})
+
+        def _unexpected(**kwargs: object) -> None:
+            pytest.fail("an explicit standalone binary tried to load project configuration")
+
+        monkeypatch.setattr("rebrew.cli.require_config", _unexpected)
+        monkeypatch.setattr(discover, "discover_functions", _discover)
+        from rebrew.app.main import app
+
+        result = CliRunner().invoke(
+            app, ["binary", "functions", str(binary), "--output", str(output), "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        assert seen == [binary]
+        assert json.loads(result.stdout)["binary"] == str(binary)
+        assert json.loads(output.read_text()) == [{"va": 0x1000, "size": 12, "name": "func"}]
+
+    @pytest.mark.parametrize("target, expected", [(None, "server"), ("client", "client")])
+    def test_project_target_is_resolved_before_discovery(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str | None, expected: str
+    ) -> None:
+        import json
+
+        from bin_util import make_pe
+        from typer.testing import CliRunner
+
+        from rebrew import discover
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "server"\n'
+            '[targets.server]\nbinary = "server.bin"\n'
+            '[targets.client]\nbinary = "client.bin"\n'
+        )
+        for name in ("server", "client"):
+            (tmp_path / f"{name}.bin").write_bytes(make_pe(b"\xc3"))
+        seen: list[Path] = []
+
+        def _discover(path: Path, *, min_size: int) -> discover.Discovery:
+            seen.append(path)
+            return discover.Discovery([(0x1000, 12, "func")], {"test": 1})
+
+        monkeypatch.setattr(discover, "discover_functions", _discover)
+        args = ["--json"]
+        if target is not None:
+            args.extend(["--target", target])
+        result = CliRunner().invoke(discover.app, args)
+        assert result.exit_code == 0, result.output
+        binary = tmp_path / f"{expected}.bin"
+        assert seen == [binary]
+        assert json.loads(result.stdout)["binary"] == str(binary)
+
+    def test_missing_project_binary_fails_before_discovery_or_output(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew import discover
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "server"\n[targets.server]\nbinary = "missing.bin"\n'
+        )
+        output = tmp_path / "functions.json"
+
+        def _unexpected(*args: object, **kwargs: object) -> None:
+            pytest.fail("a missing project binary reached discovery")
+
+        monkeypatch.setattr(discover, "discover_functions", _unexpected)
+        result = CliRunner().invoke(discover.app, ["--output", str(output), "--json"])
+        assert result.exit_code == 2, result.output
+        assert "target binary missing" in json.loads(result.stdout)["error"]
+        assert not output.exists()

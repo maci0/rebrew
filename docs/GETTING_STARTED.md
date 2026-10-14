@@ -24,8 +24,7 @@ Three ideas carry the whole tool:
 2. **The compiler is the ground truth.** You are not writing "equivalent" C.
    You are writing the C that makes *that specific compiler version, with
    those specific flags,* emit *those exact bytes*. This is why rebrew runs
-   20+ compiler versions in docker images, and why `rebrew match run
-   --flag-sweep` exists: half of matching is finding the flags.
+   20+ compiler versions in docker images, and why `rebrew match flags` exists: half of matching is finding the flags.
 3. **Work smallest-first.** `rebrew todo` ranks functions by return on
    investment: tiny leaf functions first. A 20-byte function you match in
    ten minutes teaches you the compiler's habits; those habits compound

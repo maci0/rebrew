@@ -55,7 +55,9 @@ TARGETLESS_EXEMPT: set[tuple[str, str]] = {
     ("library", "list"),
     ("library", "set"),
     ("library", "remove"),
-    ("cache", "main"),
+    # Compile-cache inventory and clearing operate across targets at a project root.
+    ("cache", "stats"),
+    ("cache", "clear"),
     ("coverage", "serve"),
     ("build", "check"),
     ("cfg", "target list"),
@@ -112,7 +114,8 @@ def _command_functions() -> list[tuple[str, str, Any]]:
             app = getattr(module, "app", None)
             for sub in getattr(app, "registered_commands", []) or []:
                 if sub.callback is not None:
-                    out.append((comp.name, sub.name or "?", sub.callback))
+                    name = sub.name or sub.callback.__name__.replace("_", "-")
+                    out.append((comp.name, name, sub.callback))
         else:
             fn = getattr(module, comp.attr or "main", None)
             if fn is not None:
@@ -268,7 +271,7 @@ class TestVerifyPlacementDefaults:
         from rebrew.verify_placement import app as vp_app
 
         root = _project(tmp_path)
-        write_store_fixture(root / "src" / "rebrew-data.toml", "", encoding="utf-8")
+        write_store_fixture(root / "rebrew-data.toml", "", encoding="utf-8")
         monkeypatch.chdir(root)
         result = CliRunner().invoke(vp_app, [])
         # Missing binary error must name the DEFAULT target's build path.

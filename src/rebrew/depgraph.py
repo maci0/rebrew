@@ -18,9 +18,10 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 import typer
+from typer.models import TyperPath
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -735,26 +736,24 @@ def render_summary(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew source graph · · · · · · · · · · · · · · Mermaid diagram of all functions\n\n"
-    "  rebrew source graph --format dot · · · · · · · · Graphviz DOT format\n\n"
-    "  rebrew source graph --format summary · · · · · · Text summary only\n\n"
-    "  rebrew source graph --focus _my_func --depth 2 · · Neighbourhood around one function\n\n"
-    "  rebrew source graph --output graph.md · · · · · · · · · Write output to file\n\n"
-    "  rebrew source graph --cu-map · · · · · · · · · · Compilation unit boundary map\n\n"
-    "  rebrew source graph --include-dispatch · · · · · Fold dispatch-table edges into the graph\n\n"
-    "  rebrew source graph --include-dispatch --min-table-len 5 · Require ≥5 entries per table\n\n"
+    "  rebrew source graph  # Mermaid diagram of all functions\n\n"
+    "  rebrew source graph --format dot  # Graphviz DOT format\n\n"
+    "  rebrew source graph --format summary  # Text summary only\n\n"
+    "  # Neighborhood around one function\n"
+    "  rebrew source graph --focus _my_func --depth 2\n\n"
+    "  rebrew source graph --output graph.md  # Write output to file\n\n"
+    "  rebrew source graph --cu-map  # Compilation unit boundary map\n\n"
+    "  # Fold dispatch-table edges into the graph\n"
+    "  rebrew source graph --include-dispatch\n\n"
+    "  # Require ≥5 entries per table\n"
+    "  rebrew source graph --include-dispatch --min-table-len 5\n\n"
     "[bold]Output formats:[/bold]\n\n"
-    "  mermaid · · Mermaid flowchart (default; paste into docs)\n\n"
-    "  dot · · · · Graphviz DOT (pipe to 'dot -Tpng')\n\n"
-    "  summary · · Text breakdown by component\n\n"
+    "  mermaid · ·  Mermaid flowchart (default; paste into docs)\n\n"
+    "  dot · · · ·  Graphviz DOT (pipe to 'dot -Tpng')\n\n"
+    "  summary · ·  Text breakdown by component\n\n"
     "[bold]Dispatch edges:[/bold]\n\n"
-    "  --include-dispatch adds a virtual dispatch_0x<VA> node per detected dispatch\n"
-    "  table and connects it to every function-pointer target. Edges are rendered as\n"
-    "  dashed lines (Mermaid: '..>', DOT: style=dashed) to distinguish indirect calls.\n"
-    "  --min-table-len and --max-pointer-stride mirror the matching options in\n"
-    "  'rebrew data dispatch' and control which tables are included.\n\n"
-    "[dim]Scans reversed .c files for call targets to build the dependency graph. "
-    "Uses annotations to determine function origins and status.[/dim]"
+    "  --include-dispatch adds a virtual dispatch_0x<VA> node per detected dispatch table and connects it to every function-pointer target. Edges are rendered as dashed lines (Mermaid: '..>', DOT: style=dashed) to distinguish indirect calls. --min-table-len and --max-pointer-stride mirror the matching options in 'rebrew data dispatch' and control which tables are included.\n\n"
+    "[dim]Scans reversed .c files for call targets to build the dependency graph. Uses metadata to determine function origins and status.[/dim]"
 )
 
 app = typer.Typer(
@@ -766,21 +765,21 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    fmt: str = typer.Option(
-        "mermaid", "--format", "-f", help="Output format: mermaid, dot, summary"
+    fmt: Literal["mermaid", "dot", "summary"] = typer.Option(
+        "mermaid", "--format", "-f", help="Output format: mermaid, dot, summary", metavar="FORMAT"
     ),
     focus: str | None = typer.Option(
-        None, "--focus", help="Focus on a specific function and its neighbours"
+        None, "--focus", help="Focus on a specific function and its neighbors"
     ),
-    depth: int = typer.Option(1, "--depth", help="Neighbourhood depth for --focus"),
-    cu_map: bool = typer.Option(False, "--cu-map", help="Show compilation unit boundary map"),
+    depth: int = typer.Option(1, "--depth", help="Neighborhood depth for --focus"),
+    cu_map: bool = typer.Option(
+        False, "--cu-map", help="Show compilation unit boundary map; excludes --output"
+    ),
     include_dispatch: bool = typer.Option(
         False,
         "--include-dispatch",
         help=(
-            "Augment the call graph with dispatch-table edges detected in the binary. "
-            "Adds a virtual dispatch_0x<VA> node per table connected to all its "
-            "function-pointer targets. Edges appear as dashed lines in mermaid/dot."
+            "Augment the call graph with dispatch-table edges detected in the binary. Adds a virtual dispatch_0x<VA> node per table connected to all its function-pointer targets. Edges appear as dashed lines in mermaid/dot"
         ),
     ),
     min_table_len: int = typer.Option(
@@ -796,11 +795,15 @@ def main(
     from_binary: bool = typer.Option(
         False,
         "--from-binary",
-        help="Build call edges from the target binary's xrefs instead of the "
-        "reversed C sources (16-bit NE support included — the source graph is "
-        "empty for stub-only projects).",
+        help="Build call edges from the target binary's xrefs instead of the reversed C sources (16-bit NE support included — the source graph is empty for stub-only projects)",
     ),
-    output: str | None = typer.Option(None, "--output", "-o", help="Output file (default: stdout)"),
+    output: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output file (default: stdout); excludes --cu-map",
+        click_type=TyperPath(path_type=str),
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -923,6 +926,21 @@ def main(
         if not nodes:
             error_exit(f"No function matching '{focus}' found.", json_mode=json_output)
 
+    result = ""
+    if output or not json_output:
+        if fmt == "mermaid":
+            result = render_mermaid(nodes, edges, dispatch_edges)
+        elif fmt == "dot":
+            result = render_dot(nodes, edges, dispatch_edges)
+        else:
+            result = render_summary(nodes, edges, dispatch_edges)
+
+    if output:
+        try:
+            atomic_write_text(Path(output), result + "\n", encoding="utf-8")
+        except OSError as exc:
+            error_exit(f"Cannot write graph to {output}: {exc}", json_mode=json_output)
+
     if json_output:
         by_status: dict[str, int] = {}
         for node in nodes.values():
@@ -945,19 +963,12 @@ def main(
                 },
                 "edges": [{"caller": a, "callee": b} for a, b in edges],
                 "dispatch_edges": [{"dispatch": a, "target": b} for a, b in dispatch_edges],
+                "output": output,
             }
         )
         return
 
-    if fmt == "mermaid":
-        result = render_mermaid(nodes, edges, dispatch_edges)
-    elif fmt == "dot":
-        result = render_dot(nodes, edges, dispatch_edges)
-    else:
-        result = render_summary(nodes, edges, dispatch_edges)
-
     if output:
-        atomic_write_text(Path(output), result + "\n", encoding="utf-8")
         console.print(f"Written to {output}")
     else:
         print(result)

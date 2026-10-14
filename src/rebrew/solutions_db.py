@@ -21,9 +21,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew match solutions · · · · · · · · · · · · · · List winning solutions\n\n"
-        "  rebrew match solutions --symbol malloc · · · · · · Filter by symbol\n\n"
-        "  rebrew match solutions --best --json · · · · · · · Best GA score per function\n\n"
+        "  rebrew match solutions  # List winning solutions\n\n"
+        "  rebrew match solutions --symbol malloc  # Filter by symbol\n\n"
+        "  rebrew match solutions --best --json  # Best GA score per function\n\n"
         "[dim]Reads .rebrew/ga_runs.jsonl (wins + run history).[/dim]"
     ),
 )

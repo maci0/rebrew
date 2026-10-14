@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -344,6 +345,18 @@ def _patch_cli(monkeypatch: Any, cfg: Any) -> None:
 
 
 class TestDryRunCli:
+    @pytest.mark.parametrize("limit", ["-1", "0"])
+    def test_invalid_compile_cap_fails_before_project_load(
+        self, monkeypatch: pytest.MonkeyPatch, limit: str
+    ) -> None:
+        def _unexpected(**kwargs: object) -> None:
+            pytest.fail("an invalid compile cap reached the project loader")
+
+        monkeypatch.setattr("rebrew.merge_sweep.require_config", _unexpected)
+        result = runner.invoke(app, ["--max-compiles", limit])
+        assert result.exit_code == 2, result.output
+        assert "--max-compiles" in result.output
+
     def test_dry_run_shows_partition_and_candidates(self, tmp_path: Path, monkeypatch: Any) -> None:
         cfg = _make_cfg(tmp_path)
         cfg.target_binary.write_bytes(b"x")

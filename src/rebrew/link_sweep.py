@@ -34,6 +34,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from string import Formatter
 from typing import Any
 
 import typer
@@ -46,9 +47,11 @@ from rebrew.utils import run_process_group, untrusted_ident
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build sweep-link-flags · · · · · · · · · Sweep LINK options against the reference\n\n"
-    '  rebrew build sweep-link-flags --link-cmd "link build\\out.exe *.obj" · · Use a custom link line\n\n'
-    "  rebrew build sweep-link-flags --keep --json · · · · Keep the candidate binaries for inspection\n"
+    "  rebrew build sweep-link-flags  # Sweep LINK options against the reference\n\n"
+    "  # Use a custom link line\n"
+    '  rebrew build sweep-link-flags --link-cmd "link /out:{out} {options}"\n\n'
+    "  # Keep the candidate binaries for inspection\n"
+    "  rebrew build sweep-link-flags --keep --json\n"
 )
 
 
@@ -164,6 +167,13 @@ def _candidates(pe: dict[str, Any]) -> list[_Candidate]:
     ]
 
 
+def _validate_link_template(template: str) -> None:
+    fields = {name for _, name, _, _ in Formatter().parse(template) if name is not None}
+    if fields != {"options", "out"}:
+        raise ValueError("--link-cmd must contain {options} and {out}, with no other placeholders")
+    template.format(options="", out="output.dll")
+
+
 @app.callback(invoke_without_command=True)
 def main(
     link_cmd: str | None = typer.Option(
@@ -180,6 +190,11 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Link the project's objects with candidate option sets and diff headers."""
+    if link_cmd:
+        try:
+            _validate_link_template(link_cmd)
+        except ValueError as exc:
+            error_exit(str(exc), json_mode=json_output)
     cfg = require_config(target, json_mode=json_output)
     if not cfg.target_binary.exists():
         error_exit(f"binary not found: {cfg.target_binary}", json_mode=json_output)
@@ -277,7 +292,7 @@ def main(
                 continue
             linked_any = True
             stamp_only &= set(r["diffs"])
-        table = Table(title="link-sweep — header fields differing from the reference")
+        table = Table(title="build sweep-link-flags — header fields differing from the reference")
         table.add_column("candidate")
         table.add_column("diffs", justify="right")
         table.add_column("fields")

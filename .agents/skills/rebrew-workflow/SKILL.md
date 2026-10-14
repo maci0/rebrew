@@ -2,7 +2,7 @@
 name: rebrew-workflow
 description: >-
   Reverse functions on an onboarded Rebrew target: select work with todo, generate skeletons,
-  edit/test/diff C, verify progress, manage annotations, and reorganize sources. Covers
+  edit/test/diff C, verify progress, manage metadata, and reorganize sources. Covers
   status accounting, coverage documents, and local recon. Use rebrew-matching for
   stalled byte matches, rebrew-data-analysis for globals, and rebrew-ghidra-sync for
   integration sync.
@@ -20,7 +20,7 @@ graph TD
     Test -->|NEAR_MATCHING| Diff[Investigate diffs<br/>rebrew diff]
     Diff -->|edit fixes it| Write
     Diff -->|still stuck| Matching[Hand off to<br/>rebrew-matching]
-    Verify --> Lint[Lint annotations<br/>rebrew lint]
+    Verify --> Lint[Lint bindings and metadata<br/>rebrew lint]
     Lint --> RoundTrip[Round-trip validation<br/>rebrew build round-trip --json]
 ```
 
@@ -36,7 +36,7 @@ Project workflow commands find `rebrew-project.toml` by walking up from the
 working directory. Binary inspection subcommands can also accept a
 binary path. Use `--json` for structured output. In a multi-target project pass `--target NAME`; the default target is used
 otherwise, and the batch commands (`test` / `verify` / `lint` / `status` / `todo`)
-take `--all-targets` instead. For annotation syntax details, see
+take `--all-targets` instead. For address-anchor and metadata details, see
 `references/annotation-format.md`.
 
 ## Before Writing a Helper
@@ -138,7 +138,7 @@ rebrew binary asm show 0x<VA> --size 128 --json # structured JSON output
 ```
 
 ### Multiple Target Synchronization
-Rebrew filters annotations by the active `--target`. Several targets may share one `.c` body: each `MODULE.0xVA` row names that file. See `references/annotation-format.md`.
+Rebrew filters source bindings by the active `--target`. Several targets may share one `.c` body: each `MODULE.0xVA` row names that file. See `references/annotation-format.md`.
 
 ### Volatile Metadata
 
@@ -169,7 +169,7 @@ rebrew test 0x<VA> --json                  # find by VA (also accepts a symbol n
 rebrew test src/bench/<file>.c --va 0x10001000 \
     --symbol _myfunc --size 64 --cflags "/O1 /Gd"        # override metadata for ad-hoc tests
 rebrew test --all --json                   # batch test all reversed .c files
-rebrew test --all --origin GAME --json     # batch mode, filter by origin
+rebrew test --all --module GAME --json     # batch mode, filter by module
 rebrew test --all --dir src/bench/ --json    # restrict to subdir
 rebrew test --all --jobs 8 --json              # parallel compile (default from config)
 rebrew test --all --dry-run                # list candidates without compiling
@@ -177,10 +177,10 @@ rebrew test src/bench/<file>.c --dry-run  # compile but PREVIEW the STATUS chang
 rebrew diagnose probe src/bench/<file>.c --json    # read-only ruler: strict + generous + aligned, never writes
 ```
 
-On a multi-function file, `--va` selects the annotation AT that VA (its symbol
+On a multi-function file, `--va` selects the metadata binding at that VA (its symbol
 and fallback size come from it, the same rule as diff/match/prove). Pass
 `--symbol` too to override the symbol explicitly; with no `--va`/`--symbol`/
-`--size`, every annotated function in the file is tested.
+`--size`, every bound function in the file is tested.
 
 **`--dry-run` previews without applying changes.** `test` single-file: compile
 + preview STATUS; `test --all --dry-run`: list only; `prove` / `verify`:
@@ -188,9 +188,9 @@ preview STATUS and cache writes. `rebrew match batch --dry-run` lists selected
 functions without compiling. `rebrew match run --seed-llm --dry-run` previews
 the seed request; other single-function searches compile and reject `--dry-run`.
 
-`--watch` (`test`, `verify`, `diff`, `prove`, `match`, `sync`) re-runs on every
-save and never exits on its own. Start it only when the user wants to iterate
-against a live loop, and stop it when they are done.
+`--watch` on `test`/`verify`/`diff`/`prove`/`match run` and `sync watch` runs a terminal loop.
+Start it only when requested and stop it when done. Watch rejects `--json`; use a one-shot run.
+`diff --dry-run` requires `--fix-blocker`.
 
 `rebrew test` syncs STATUS (`--no-promote` skips): EXACT/RELOC updates and
 clears BLOCKER unless the `.c` still has `__asm`, `_asm`, or `__emit` (kept;

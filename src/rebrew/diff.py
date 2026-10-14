@@ -18,7 +18,7 @@ import logging
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import capstone
 import typer
@@ -26,10 +26,12 @@ import typer
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
+    SOURCE_HELP,
     TargetOption,
     console,
     error_exit,
     json_print,
+    option_default,
     require_config,
 )
 from rebrew.formats.binary_loader import capstone_mode_for_arch
@@ -455,20 +457,13 @@ def run_diff(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew diff src/game/my_func.c · · · · · · · · Show full byte diff\n\n"
-    "  rebrew diff 0x10009310 · · · · · · · · · · · · Resolve VA to its source and diff\n\n"
-    "  rebrew diff src/game/my_func.c --mismatches-only · · · · · · · · Show only structural mismatches (**)\n\n"
-    "  rebrew diff src/game/my_func.c --register-aware · · · · · · · · Normalize register encodings (mark as RR)\n\n"
-    "  rebrew diff src/game/my_func.c --fix-blocker · · Auto-write BLOCKER from diff analysis\n\n"
-    "  rebrew diff src/game/my_func.c --format csv · · · CSV output\n\n"
-    "  rebrew diff src/game/my_func.c --json · · · · · JSON structured diff\n\n"
-    "[bold]Exit codes:[/bold]\n\n"
-    "  0   No structural differences\n\n"
-    "  1   Structural differences found (** and XX rows)\n\n"
-    "  2   Build failed (also a usage error: unknown flag, missing argument)\n\n"
-    "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]\n\n"
-    "[dim]Compiles source with the configured toolchain (CFLAGS from metadata) and diffs against the target binary. "
-    "Symbol, VA, and size are auto-detected from // FUNCTION markers and rebrew-functions.toml metadata.[/dim]"
+    "  rebrew diff src/game/my_func.c\n\n"
+    "  rebrew diff 0x10009310 --mismatches-only\n\n"
+    "  rebrew diff src/game/my_func.c --register-aware\n\n"
+    "  rebrew diff src/game/my_func.c --fix-blocker\n\n"
+    "  rebrew diff src/game/my_func.c --json\n\n"
+    "[dim]Compiles with resolved metadata/configuration and compares against the target binary. Symbol, VA, and size resolve from the C definition and dedicated metadata. --fix-blocker records the diagnosed blocker; ordinary diff leaves metadata unchanged.[/dim]\n\n"
+    "Exit codes: 0 no structural differences; 1 structural differences; 2 usage/config/build error; 130 interrupted; 141 output pipe closed.\n\n"
 )
 
 app = typer.Typer(
@@ -480,9 +475,7 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    seed_c: str = typer.Argument(
-        ..., metavar="source", help="C source file, symbol name, or VA (hex)"
-    ),
+    seed_c: str = typer.Argument(..., metavar="source", help=SOURCE_HELP),
     mismatches_only: bool = typer.Option(
         False,
         "--mismatches-only",
@@ -498,25 +491,34 @@ def main(
     fix_blocker: bool = typer.Option(
         False,
         "--fix-blocker",
-        help="Auto-write BLOCKER/BLOCKER_DELTA metadata from diff classification",
+        help="Record BLOCKER metadata from the diff; required with --dry-run",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    fmt: str = typer.Option(
+    fmt: Literal["terminal", "csv"] = typer.Option(
         "terminal",
         "--format",
         "-f",
         help="Output format: terminal, csv (mutually exclusive with --json)",
+        metavar="FORMAT",
     ),
     ignore_lint: bool = typer.Option(
-        False, "--ignore-lint", help="Continue even if source marker lint errors exist"
+        False, "--ignore-lint", help="Continue even if source binding lint errors exist"
     ),
     watch: bool = typer.Option(
-        False, "--watch", help="Watch the seed source and re-diff on every change"
+        False,
+        "--watch",
+        help="Watch the seed source and re-diff on every change (terminal only; no --json)",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Compile a reversed function and show a byte diff against the target."""
+    if option_default(watch, False) and option_default(json_output, False):
+        error_exit("--watch is terminal-only; omit --json", json_mode=True)
+    dry_run = option_default(dry_run, False)
+    fix_blocker = option_default(fix_blocker, False)
+    if dry_run and not fix_blocker:
+        error_exit("--dry-run requires --fix-blocker", json_mode=option_default(json_output, False))
     if fmt not in ("terminal", "csv"):
         # Bad argument value — usage error (2), not "needs code work" (1).
         error_exit("--format must be 'terminal' or 'csv'", json_mode=json_output, code=EXIT_ERROR)

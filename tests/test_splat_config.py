@@ -537,7 +537,7 @@ class TestApply:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         project, yaml_path = self._project(tmp_path, monkeypatch)
-        result = _invoke([str(yaml_path), "--write"])
+        result = _invoke([str(yaml_path), "--apply"])
         assert result.exit_code == 0, result.output
 
         reversed_dir = project / "src" / "fixture.exe"
@@ -610,16 +610,16 @@ class TestApply:
     ) -> None:
         project, yaml_path = self._project(tmp_path, monkeypatch)
         (project / "original" / "fixture.exe").unlink()
-        result = _invoke([str(yaml_path), "--write"])
+        result = _invoke([str(yaml_path), "--apply"])
         assert result.exit_code == 0, result.output
         assert (project / "original" / "fixture.exe").read_bytes() == _build_pe()
 
     def test_rerun_is_idempotent(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         project, yaml_path = self._project(tmp_path, monkeypatch)
-        assert _invoke([str(yaml_path), "--write"]).exit_code == 0
+        assert _invoke([str(yaml_path), "--apply"]).exit_code == 0
         reversed_dir = project / "src" / "fixture.exe"
         before = {p: p.stat().st_mtime_ns for p in reversed_dir.iterdir()}
-        result = _invoke([str(yaml_path), "--write", "--json"])
+        result = _invoke([str(yaml_path), "--apply", "--json"])
         assert result.exit_code == 0, result.output
         assert {p: p.stat().st_mtime_ns for p in reversed_dir.iterdir()} == before
 
@@ -635,13 +635,13 @@ class TestApply:
         )
         before = foreign.read_text(encoding="utf-8")
 
-        result = _invoke([str(yaml_path), "--write"])
+        result = _invoke([str(yaml_path), "--apply"])
         assert result.exit_code == 2
         assert "entrypoint.c already exists and does not annotate 0x00401000" in result.output
         assert foreign.read_text(encoding="utf-8") == before
         assert not (project / "src" / "fixture.exe" / "data_g_table.c").exists()
 
-        forced = _invoke([str(yaml_path), "--write", "--force"])
+        forced = _invoke([str(yaml_path), "--apply", "--force"])
         assert forced.exit_code == 0, forced.output
         forced_text = foreign.read_text(encoding="utf-8")
         assert forced_text.startswith(
@@ -671,6 +671,6 @@ class TestApply:
         empty = tmp_path / "empty"
         empty.mkdir()
         monkeypatch.chdir(empty)
-        result = _invoke([str(yaml_path), "--write"])
+        result = _invoke([str(yaml_path), "--apply"])
         assert result.exit_code == 2
         assert "rebrew-project.toml" in result.output

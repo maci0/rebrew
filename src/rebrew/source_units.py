@@ -30,7 +30,7 @@ from rebrew.workspace.status import MATCHED_STATUSES
 app = typer.Typer(
     help="Inventory native source-path strings and bounded direct references.",
     epilog=(
-        "Examples:\n\n"
+        "[bold]Examples:[/bold]\n\n"
         "  rebrew source units --json\n\n"
         "  rebrew source units --target client.exe\n\n"
         "Direct references are evidence; conflicting paths do not establish a source owner."

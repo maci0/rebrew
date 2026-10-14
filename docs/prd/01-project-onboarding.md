@@ -77,9 +77,9 @@ commands that round-trip TOML.
   host PATH/vendored binary. The legacy `--install-wibo` host runner is
   ignored for image-backed profiles.
 - Doctor does not attempt to **fix** problems. It diagnoses and exits non-zero;
-  fixes are left to the user / `rebrew cfg set ...`. The one exception is
-  `toolchain install-wibo`, which rewrites `runner` in `rebrew-project.toml`
-  for a non-image-backed profile.
+  fixes use the appropriate command, such as `rebrew cfg set`.
+  `rebrew toolchain install-wibo` separately downloads an
+  optional host runner; it does not change Docker-backed runner settings.
 - No GUI; CLI only.
 
 ## Functional Requirements
@@ -109,7 +109,7 @@ commands that round-trip TOML.
   is ignored for them (wine/DOSBox/native runtime runs inside the image).
 - `--guess-compiler` auto-selects the profile from the target binary; the
   `--wizard/--no-wizard` TTY wizard prompts for anything not passed on the CLI
-  (off under `--json`); `--install-completions` writes bash/zsh/fish completion
+  (off under `--json`); `--write-completions` writes bash/zsh/fish completion
   scripts into `completions/`; `--link-tools-from PATH` symlinks the profile's
   vendored tree from a master toolchain directory.
 - `--json` emits a structured result of what was created.
@@ -139,37 +139,33 @@ commands that round-trip TOML.
   lint rule W028) are `rebrew lint`, not doctor.
 - Exits non-zero on any failure (CI gate).
 - `--json` mode emits the full check list with per-check `status` + `message`.
-- `--install-wibo` downloads the legacy host runner into `tools/wibo`; for
-  docker-backed profiles it then prints a note and returns without running the
-  checks (the runner config is left untouched). For a profile that is not
-  image-backed it sets `runner = "tools/wibo"` in `rebrew-project.toml` in
-  place, then continues into the normal checks.
+- Host runner installation is a separate `rebrew toolchain install-wibo`
+  operation. Shipped profiles remain Docker-only.
 
 ### `rebrew cfg`
 
-- `list-targets` enumerates `[targets.*]` entries with binary + arch.
+- `target list` enumerates `[targets.*]` entries with binary + arch.
 - `show [KEY]` prints the parsed config, or one value if a dotted key is given.
 - `raw [--format json|toml]` dumps the whole file (default `json`), with
   values under secret keys redacted.
 - `path` prints the absolute path to the discovered `rebrew-project.toml`.
-- `add-target NAME --binary FILE` adds a new target stanza idempotently and
+- `target add NAME --binary FILE` adds a new target stanza idempotently and
   auto-detects format/arch from the binary using LIEF (`--arch`/`--format`
   override the detection; `--modules`, `--source-ext`, `--copy/--no-copy`; the
   command refuses a missing binary unless `--force` writes default values).
-- `remove-target NAME` removes the stanza idempotently (`--force` skips the
+- `target remove NAME` removes the stanza idempotently (`--force` skips the
   confirmation prompt; `src/`/`bin/` dirs are kept).
 - `set KEY VALUE` sets a scalar value via dotted path; bare target-scoped keys
   (e.g. `binary`) route to the default target (`--dry-run` previews).
-- `add-module MODULE` / `remove-module MODULE` manage origin module names for a
+- `module add MODULE` / `module remove MODULE` manage origin module names for a
   target selected with `--target` (e.g. `GAME`, `MSVCRT`).
-- `set-cflags MODULE FLAGS` sets the per-module CFLAGS preset; `--target`
+- `module set-cflags MODULE FLAGS` sets the per-module CFLAGS preset; `--target`
   scopes it to that target's `[targets.<name>.compiler.cflags_presets]` (omitted
   → global `[compiler.cflags_presets]`).
-- `set-compiler TARGET PROFILE` sets the per-target compiler profile
+- `target set-compiler TARGET PROFILE` sets the per-target compiler profile
   (`targets.<name>.compiler`; the per-target override from the init template).
-- `detect-crt [--write]` walks the project tree for MSVC CRT source mirror
-  directories and registers them under the target's `crt_sources` when
-  `--write` is passed.
+- `detect-crt show` previews detected MSVC CRT source directories;
+  `detect-crt apply` registers missing paths through the locked config writer.
 
 ## User Stories / Workflows
 
@@ -214,7 +210,7 @@ rebrew init [OPTIONS]
       --toolchain TEXT       Compiler profile to use (default: msvc-6.0)
       --guess-compiler       Auto-select the profile from the target binary (diec → PDB → heuristics)
       --install-wibo         Download wibo runner to tools/wibo (legacy; ignored for image-backed profiles)
-      --install-completions  Write bash/zsh/fish completion scripts into completions/
+      --write-completions  Write bash/zsh/fish completion scripts into completions/
       --link-tools-from PATH Master toolchain directory to symlink tools/<profile> from
       --refresh-agents       Rewrite the generated scaffold from rebrew-project.toml
       --check                Report generated-scaffold drift against packaged sources (exit 1 on drift)
@@ -246,7 +242,8 @@ rebrew cfg module add MODULE [--target TARGET] [--dry-run]
 rebrew cfg module remove MODULE [--target TARGET] [--force]
 rebrew cfg module set-cflags MODULE FLAGS [--target TARGET] [--dry-run]
 rebrew cfg target set-compiler TARGET PROFILE
-rebrew cfg detect-crt show [--write] [--target TARGET] [--json]
+rebrew cfg detect-crt show [--target TARGET] [--json]
+rebrew cfg detect-crt apply [--target TARGET] [--dry-run] [--json]
 ```
 
 All `cfg` write commands round-trip via `tomlkit` and preserve comments and
@@ -260,7 +257,7 @@ formatting.
   configuration.
 - `rebrew cfg` round-trip preserves comments and section ordering across a
   `raw` → external edit → `set` cycle.
-- Adding a new target is one `cfg add-target` call away (no manual TOML edit).
+- Adding a new target is one `rebrew cfg target add` call away (no manual TOML edit).
 - AI agents using the `rebrew-intake` skill can complete onboarding entirely via
   `--json` commands.
 
@@ -274,11 +271,11 @@ formatting.
   profiles (kept for old host-runner configs).
 - FIXED: `doctor` now checks FLIRT signature availability (parses every
   `.pat`/`.sig` in `flirt_sigs/`); CRT source mirror discovery lives in
-  `cfg detect-crt --write`.
-- `cfg add-target` infers format/arch from the binary at the time of the call;
+  `rebrew cfg detect-crt apply`.
+- `rebrew cfg target add` infers format/arch from the binary at the time of the call;
   if the binary is later replaced with a different arch, the stanza is stale
   (manual `cfg set targets.<name>.format/arch`, or `--force` for a binary that
   is not yet present).
-- FIXED: per-target compiler overrides are first-class now; `cfg set-compiler
+- FIXED: per-target compiler overrides are first-class now; `rebrew cfg target set-compiler
   TARGET PROFILE` (or `cfg set targets.<name>.compiler.profile`) overrides the
   shared `[compiler]` section per target.

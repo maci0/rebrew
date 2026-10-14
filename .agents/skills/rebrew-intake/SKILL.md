@@ -212,7 +212,7 @@ available under the project's `toolchain/` tree (e.g. MSVCRT at
 Field sync needs only the shared BinSync state dir, no Ghidra or MCP:
 
 ```bash
-rebrew sync push --state-dir <dir> # export annotations to the BinSync state dir
+rebrew sync push --state-dir <dir> # export names, types, and metadata fields to the BinSync state dir
 ```
 
 `sync push` exports to the state dir; `sync pull --state-dir <dir>` imports it back

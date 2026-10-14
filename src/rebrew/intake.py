@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from typer.models import TyperPath
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_OK, console, error_exit, json_print
@@ -49,9 +50,9 @@ from rebrew.utils import (
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew intake mini.exe --dry-run · · · Plan the onboarding, write nothing\n\n"
-    "  rebrew intake mini.exe --toolchain msvc-6.0 · · Pin the toolchain profile\n\n"
-    "  rebrew intake mini.exe --json · · · · · Machine-readable intake summary\n"
+    "  rebrew intake mini.exe --dry-run  # Plan the onboarding, write nothing\n\n"
+    "  rebrew intake mini.exe --toolchain msvc-6.0  # Pin the toolchain profile\n\n"
+    "  rebrew intake mini.exe --json  # Machine-readable intake summary\n"
 )
 
 
@@ -533,14 +534,18 @@ def _warn_explicit_toolchain(binary: Path, profile: str, notes: list[str]) -> No
 
 @app.callback(invoke_without_command=True)
 def main(
-    binary: str = typer.Argument(..., help="Path to the target binary (copied into original/)."),
+    binary: str = typer.Argument(
+        ...,
+        help="Path to the target binary (copied into original/)",
+        click_type=TyperPath(path_type=str),
+    ),
     toolchain: str | None = typer.Option(
-        None, "--toolchain", help="Compiler profile (default: auto-detected)."
+        None, "--toolchain", help="Compiler profile (default: auto-detected)"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = typer.Option(
-        None, "--target", "-t", help="Target name (default: binary stem)."
+        None, "--target", "-t", help="Target name (default: binary stem)"
     ),
 ) -> None:
     """Run the one-shot onboarding flow in the current directory."""

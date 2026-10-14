@@ -932,7 +932,7 @@ class TestVerifyCli:
         monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
 
-        result = CliRunner().invoke(app, ["--json", "--nolib"])
+        result = CliRunner().invoke(app, ["--json", "--skip-libraries"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["summary"]["library_excluded"] == 1
@@ -989,7 +989,7 @@ class TestVerifyCli:
         monkeypatch.setattr("rebrew.verify.save_verify_cache", _fake_save)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
 
-        result = CliRunner().invoke(app, ["--json", "--nolib"])
+        result = CliRunner().invoke(app, ["--json", "--skip-libraries"])
         assert result.exit_code == 0, result.output
         assert captured["preserve_keys"] == {"0x00001000"}
 
@@ -1028,7 +1028,7 @@ class TestVerifyCli:
         monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
 
-        result = CliRunner().invoke(app, ["--json", "--nolib"])
+        result = CliRunner().invoke(app, ["--json", "--skip-libraries"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["summary"]["library_excluded"] == 1

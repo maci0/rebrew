@@ -43,9 +43,11 @@ from rebrew.workspace import walk_up_to_root
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build calibrate-bss --dry-run · · · · · · · Show the pad search, write nothing\n\n"
-    "  rebrew build calibrate-bss --stub src/link_stubs.c · · Target the TU the linker compiles\n\n"
-    "  rebrew build calibrate-bss --target-vs 0x1A40 --max-iters 8 · Pin the reference .data size\n"
+    "  rebrew build calibrate-bss --dry-run  # Show the pad search, write nothing\n\n"
+    "  # Target the TU the linker compiles\n"
+    "  rebrew build calibrate-bss --stub src/link_stubs.c\n\n"
+    "  # Pin the reference .data size\n"
+    "  rebrew build calibrate-bss --target-vs 0x1A40 --max-iters 8\n"
 )
 
 
@@ -128,7 +130,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Calibrate *symbol* in *stub* so the raw link's .data VirtualSize == *target_vs*."""
+    """Calibrate symbol in stub so the raw link's .data VirtualSize == target_vs."""
     root = walk_up_to_root(Path.cwd())
     if root is None:
         error_exit("no rebrew-project.toml found above the cwd", json_mode=json_output)

@@ -18,9 +18,11 @@ from rebrew.link_order import order_sources
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build order-sources src/*.c · · · · · Print the VA-ordered source list\n\n"
-    "  rebrew build order-sources src/*.c --first-va 0x10001000 · · Ignore files below this VA\n\n"
-    "  rebrew build order-sources src/*.c --exclude tests/ --json · Machine-readable order\n"
+    "  rebrew build order-sources src/*.c  # Print the VA-ordered source list\n\n"
+    "  # Supply a missing first address\n"
+    "  rebrew build order-sources src/*.c --first-va helpers.c=0x10001000\n\n"
+    "  # Machine-readable order\n"
+    "  rebrew build order-sources src/*.c --exclude test_helpers.c --json\n"
 )
 
 
@@ -39,20 +41,20 @@ def main(
     first_va: list[str] = typer.Option(
         [],
         "--first-va",
-        help="File basename=0xVA for files without code markers (repeatable)",
+        help="File basename=0xVA for files without bound functions (repeatable)",
     ),
     exclude: list[str] = typer.Option(
         [], "--exclude", help="File basenames absent from the original (repeatable)"
     ),
     marker: str = typer.Option(
         "",
-        "--marker",
-        help="Code marker module to order by (e.g. SERVER) when files carry several targets",
+        "--module",
+        help="Metadata module to order by (e.g. SERVER) for multi-target sources",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Print *files* ordered by their first function's original VA."""
+    """Print files ordered by their first function's original VA."""
     table: dict[str, int] = {}
     for entry in first_va:
         name, sep, va = entry.partition("=")

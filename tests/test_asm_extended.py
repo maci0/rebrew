@@ -440,7 +440,9 @@ class TestBatchOutDirResolution:
         def fake_require_config(target=None, json_mode=False):
             return SimpleNamespace(root=tmp_path, target_binary=tmp_path / "x.dll")
 
-        def fake_batch(cfg, out_dir, verify_flag=False, stubs_only=False, inline_c=False):
+        def fake_batch(
+            cfg, out_dir, verify_flag=False, stubs_only=False, inline_c=False, dry_run=False
+        ):
             captured["out_dir"] = out_dir
 
         monkeypatch.setattr("rebrew.asm.require_config", fake_require_config)

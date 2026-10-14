@@ -23,7 +23,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew build sweep-link-flags` | Sweep LINK options to reproduce the reference PE header (find stamp-only fields). |
 | `rebrew build cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via `rebrew build driver`. |
 | `rebrew build cmake-flags` | Write per-file CFLAGS from `rebrew-functions.toml` as a CMake include. |
-| `rebrew build cmake-sources` | Write the target's marker-selected source list as a CMake include. |
+| `rebrew build cmake-sources` | Write the target's metadata-selected source list as a CMake include. |
 | `rebrew source register` | Register optional ADDRESS anchors above C declarations in format-2 stores; `--dry-run` previews. Sources and headers are scanned. |
 | `rebrew build check` | Verify `build/` still matches what CMake generated (catches a hand-edited `build.make`). |
 | `rebrew binsync init` | Create the BinSync state repository. |
@@ -33,12 +33,12 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew binsync pull` | Pull Git state and reconcile its fields. Preview with `--dry-run`. |
 | `rebrew binsync export` | Export local state; Git actions are opt-in. |
 | `rebrew binsync import` | Reconcile local state without pulling Git. |
-| `rebrew dev refactor` | Analyse Python files under `--repository` and suggest contributor refactoring opportunities. |
+| `rebrew dev refactor` | Analyze Python files under `--repository` and suggest contributor refactoring opportunities. |
 | `rebrew recommend` | Deterministic advice lanes (TU layout, hygiene, next action); `--apply` fixes safe lanes. |
 | `rebrew binary analyze` | One-shot intelligence dossier for a target binary (layout, strings, imports, coverage, FLIRT). |
 | `rebrew decompile` | Decompile a function VA (`--decompiler`: auto, r2ghidra, r2dec, ghidra, kuna, m2c; default kuna). |
 | `rebrew source fix` | Make raw decompiler output compilable (DecBench-style fixup). |
-| `rebrew diagnose drift` | Localise where compiled bytes drift from reference, from branch targets. |
+| `rebrew diagnose drift` | Localize where compiled bytes drift from reference, from branch targets. |
 | `rebrew binary switches` | Decode jump-table switch dispatches in a function (case → handler map). |
 | `rebrew match solutions` | Query the GA solutions database (`.rebrew/ga_runs.jsonl` wins + run history). |
 | `rebrew build residue` | Measure linked byte-identity residue after postlink fixers. |
@@ -48,7 +48,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew binary imports mark` | Record detected import stubs as library identifications. Preview with `--dry-run`. |
 | `rebrew binary strings` | Extract strings from binary with cross-references (`--xref`, `--section`). |
 | `rebrew library identify` | Batch identify library functions (FLIRT + imports + CRT) into `library_<module>.h`. |
-| `rebrew source import-splat` | Seed a project from a splat YAML config (names, layout, annotations); dry run unless `--write`. |
+| `rebrew source import-splat` | Seed a project from a splat YAML config (names, layout, and dedicated metadata); dry run unless `--apply`. |
 | `rebrew binary resource compare/extract` | Byte-compare two PE `.rsrc` sections (`compare` exits 1 on drift) or dump the raw bytes. |
 
 
@@ -65,9 +65,26 @@ unresolved.
 ## Reproduce a vendored library tree
 
 `rebrew library vendor MANIFEST...` checks pinned pristine files plus ordered
-patches. Use `--sync` only to regenerate the declared output trees after editing
+patches. Use `--apply` only to regenerate the declared output trees after editing
 patches. All manifests stage before any writes. Paths are root-relative, patch
 paths are manifest-relative, and GNU patch is required when patches are listed.
 Keep the manifest, checksum list, pristine sources and reviewed patches as inputs;
 do not edit the generated source tree or patch a stock archive. The archive URL
 and SHA-256 document provenance; the command verifies the unpacked file pins.
+
+## Artifact previews and machine output
+
+- `binary functions [BINARY]` uses the configured target when the path is omitted;
+  an explicit binary takes precedence and works outside a project. PDB operations
+  still take the binary beside the PDB.
+- `binary extract show VA --dry-run` plans the size and output path without
+  parsing or extracting bytes. Its explicit address has no batch size filters.
+- `binary asm show VA --dry-run` and `binary asm batch --dry-run` write no source
+  or metadata and do not run NASM verification. A written `--inline-c` artifact
+  also records function metadata. NASM `show --output FILE --json` writes FILE
+  and reports it; batch JSON emits one summary with planned/written file paths.
+- `coverage serve --print-url --json` probes the dashboard URL without starting
+  a server. JSON without `--print-url` is an error.
+- `cfg raw --format toml` and `--json` are mutually exclusive.
+- `build symbol-stubs` defaults to `src/symbol_stubs.c`; `build link-stubs`
+  defaults to `src/link_stubs.c`.

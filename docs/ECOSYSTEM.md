@@ -62,7 +62,7 @@ flowchart TB
     REPORTAL -.->|"self-hosted portal UX"| REL
     REL -.->|"snowball datasets from matched pairs"| REAGENT
     REL -.->|"community knowledge"| DECOMP
-    RB -.->|"parser reads unmigrated<br/>reccmp markers"| RECCMP
+    RB -.->|"comparison workflow<br/>separate source identity formats"| RECCMP
     RECCMP -.->|"recomp build reads<br/>Rebrew source trees"| PRJ
     RB <-.->|"state-dir TOML:<br/>binsync export / binsync import"| BINSYNC
 ```
@@ -228,15 +228,14 @@ dependency.
 [reccmp](https://github.com/isledecomp/reccmp) is the binary recompilation
 comparison framework from the LEGO Island decomp community: the de-facto
 standard toolset for Windows binary-matching decomp projects. It is
-**external** (not a sibling repo in this workspace), but rebrew deliberately
-keeps the comparison tools and the parser for reccmp's marker lines. A
-migrated rebrew tree is pure C, so a reccmp checkout of that tree sees no
-annotations. An unmigrated tree still parses.
+**external** (not a sibling repo in this workspace). Rebrew uses dedicated
+format-2 metadata and optional ADDRESS-only source anchors. It does not read
+reccmp marker blocks; a reccmp checkout needs its own compatible identities.
 
 | Boundary | How rebrew interoperates |
 |---|---|
-| Source markers | The parser still reads reccmp's `// FUNCTION: MODULE 0xVA` blocks (marker + symbol; extra KV lines are rebrew's). New writers do not emit them: identity is a `MODULE.0xVA` row and the `.c` is pure C. A reccmp checkout of a migrated tree sees no annotations. The reccmp-only `ANALYSIS` key is tolerated inline so an unmigrated reccmp file still loads (inline use fires lint W019) |
-| Tool equivalents | rebrew reimplements reccmp's toolset natively: `rebrew build check-exports` = `verexp`, `rebrew diagnose stack` = `stackcmp` (adapted; frames derived from disassembly on both sides instead of a recomp PDB, so it works for MSVC 6.0 whose PDBs `llvm-pdbutil` cannot read), `rebrew lint` = `decomplint`-inspired, `rebrew verify --nolib` = reccmp `--nolib` |
+| Source identities | Rebrew stores qualified `MODULE.0xVA` rows in managed metadata. Optional ADDRESS comments bind C declarations; inline state and older block formats are rejected. No compatibility parser or migration command is shipped |
+| Tool equivalents | rebrew reimplements reccmp's toolset natively: `rebrew build check-exports` = `verexp`, `rebrew diagnose stack` = `stackcmp` (adapted; frames derived from disassembly on both sides instead of a recomp PDB, so it works for MSVC 6.0 whose PDBs `llvm-pdbutil` cannot read), `rebrew lint` = `decomplint`-inspired, `rebrew verify --skip-libraries` = reccmp `--nolib` |
 | Match semantics | Verify's *effective match* parity: a delta that is pure register allocation counts as 100%, matching reccmp's effective-match rule (`rebrew diagnose near` reports it as `EFFECTIVE`) |
 | Adapted modules | Beyond the tool equivalents, four adaptations from reccmp's source (MIT) remain: pinned-sequence diffing, the jump-swap instruction-equivalence check (in `near_analysis`), and vtordisp/float-const detection; see [RECCMP_ADAPTATIONS.md](RECCMP_ADAPTATIONS.md) |
 | Recomp build | rebrew sources build into a reccmp-style recomp binary: `rebrew build round-trip` splices matched functions back into the PE and reports the naked-fenced sources so the reccmp build can compile them with `-DREBREW_ALLOW_NAKED=1` |
@@ -353,7 +352,7 @@ Edges point strictly upward in the diagram above: the graph is acyclic:
 | reagent | rebrew (internals) | direct `rebrew.*` imports |
 | relumea | none yet: vision layer over the stack | n/a |
 | recondb / decompedia | none | n/a |
-| reccmp (external) | nothing from rebrew: consumes its outputs | unmigrated marker lines still parse; a migrated tree is pure C. The recomp build still applies (the catalog CSV export is no longer written) |
+| reccmp (external) | nothing from rebrew: consumes its outputs | separate identity formats: Rebrew uses format-2 metadata and optional ADDRESS anchors, not reccmp blocks; recomp binary comparisons remain useful |
 | BinSync (external) | nothing from rebrew: consumes its exports | BinSync state-dir TOML layout |
 
 Decoupling is by stable contract, not shared code:
@@ -366,8 +365,8 @@ Decoupling is by stable contract, not shared code:
   resembl's database stack,
 - **compiles**: `POST /api/v1/compile` for remote consumers,
 - **collaboration**: the BinSync state-dir TOML layout for any
-  BinSync-aware decompiler. Reccmp still parses an unmigrated marker
-  line; a migrated tree has none,
+  BinSync-aware decompiler. Reccmp marker blocks are a separate format
+  and are not Rebrew input,
 - **agents/vision**: HTTP + file datasets (train JSONL), nothing shipped
   depends on the SaaS layer.
 

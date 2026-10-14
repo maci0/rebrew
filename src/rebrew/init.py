@@ -52,26 +52,14 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew init · · · · · · · · · · · · · · · · · Defaults (msvc-6.0, program.exe)\n\n"
-        "  rebrew init --target mygame --binary mygame.exe  Name the target and binary\n\n"
-        "  rebrew init --toolchain msvc-7.0 · · · · · · · · Use MSVC 7.x compiler profile\n\n"
-        "  rebrew init --toolchain gcc-14.2.0 · · · · · Use GCC (ELF targets)\n\n"
-        "[bold]What it creates:[/bold]\n\n"
-        "  rebrew-project.toml · · · Project configuration (compiler, paths, targets)\n\n"
-        "  AGENTS.md · · · · · · · · project instructions for the project\n\n"
-        "  original/ · · · · · · · · Place your original binaries here\n\n"
-        "  src/<target>/ · · · · · · Directory for reversed .c files\n\n"
-        "  bin/<target>/ · · · · · · Directory for extracted .bin files\n\n"
-        "[bold]Compiler profiles:[/bold]\n\n"
-        "  msvc-6.0 · · · MSVC 6.0 (C89, PE/x86_32) — default\n\n"
-        "  msvc# · · · MSVC 1.52–7.1 variants (PE/x86_32, 16-bit NE/MZ for 1.52)\n\n"
-        "  borland-5.5 / borland-3.1 / borland-2.0 · Borland/Turbo C (PE/x86_32, 16-bit DOS)\n\n"
-        "  watcom-2.0-win32 / watcom-2.0-win16 · Open Watcom (32-bit / 16-bit DOS)\n\n"
-        "  delphi-1.0 · · Delphi 1.0 (16-bit NE)\n\n"
-        "  mingw-16.2.0 · · GCC/MinGW (C99, PE/x86_32; also mingw-14.2.0)\n\n"
-        "  gcc-14.2.0 / clang-18.1.8 · ELF/x86_64 (also gcc-12.3.0 / clang-16.0.4)\n\n"
-        "[dim]Every profile compiles inside its docker image (wine/DOSBox/native runtime included); there is no host compiler fallback. Full list: rebrew toolchain list.[/dim]\n\n"
-        "[dim]Run this once in an empty directory, then place your binary in original/.[/dim]"
+        "  rebrew init\n\n"
+        "  rebrew init --target mygame --binary mygame.exe\n\n"
+        "  rebrew init --toolchain gcc-14.2.0\n\n"
+        "  rebrew init --refresh-agents\n\n"
+        "[dim]Creates rebrew-project.toml, project instructions and skills, and source/binary directories. Defaults to msvc-6.0 and program.exe. Place reference binaries in original/. --refresh-agents updates generated instructions while preserving the project-owned section. Use rebrew intake for guided binary onboarding.[/dim]\n\n"
+        "[bold]Toolchains:[/bold]\n\n"
+        "  rebrew toolchain list\n\n"
+        "[dim]All shipped profiles compile in Docker. Pull or build the selected image before compiling; there is no host compiler fallback.[/dim]\n\n"
     ),
 )
 
@@ -413,7 +401,7 @@ def _write_completion_scripts(project_root: Path) -> list[Path]:
 
     The live ``rebrew --show-completion`` derives the shell from ``$SHELL``
     and ignores an explicit shell argument, so ``rebrew init
-    --install-completions`` generates all three explicitly under
+    --write-completions`` generates all three explicitly under
     ``completions/``.  Each script drives the same click completion protocol
     (``_REBREW_COMPLETE`` env var) the installed CLI uses.
     """
@@ -685,7 +673,7 @@ def _run_wizard(
     target_name: str,
     binary_name: str,
     compiler_profile: str,
-    install_completions: bool,
+    write_completion_scripts: bool,
 ) -> tuple[str, str, str, bool]:
     """Interactive onboarding: binary, profile, target name, completions.
 
@@ -695,12 +683,12 @@ def _run_wizard(
     if ctx is None:
         # Direct Python call: no parameter-source information — treat every
         # value as user-provided and return the inputs unchanged.
-        return target_name, binary_name, compiler_profile, install_completions
-    covered = ("binary_name", "compiler_profile", "target_name", "install_completions")
+        return target_name, binary_name, compiler_profile, write_completion_scripts
+    covered = ("binary_name", "compiler_profile", "target_name", "write_completion_scripts")
     needed = [p for p in covered if not _wizard_param_explicit(ctx, p)]
     if not needed:
         # Fully flagged: nothing to ask — zero prompts even on a TTY.
-        return target_name, binary_name, compiler_profile, install_completions
+        return target_name, binary_name, compiler_profile, write_completion_scripts
 
     console.print("[bold]rebrew init — onboarding wizard[/] (pass --no-wizard to skip)")
     if "binary_name" in needed:
@@ -739,8 +727,8 @@ def _run_wizard(
 
     # Every wizard question is asked before the summary: a prompt after the
     # confirmation would ask about a setting the user already said yes to.
-    if not _wizard_param_explicit(ctx, "install_completions"):
-        install_completions = Confirm.ask(
+    if not _wizard_param_explicit(ctx, "write_completion_scripts"):
+        write_completion_scripts = Confirm.ask(
             "Write shell completion scripts into completions/?", default=False, console=console
         )
 
@@ -750,7 +738,7 @@ def _run_wizard(
         ("compiler profile", compiler_profile),
         (
             "shell completions",
-            "completions/ (bash, zsh, fish)" if install_completions else "no",
+            "completions/ (bash, zsh, fish)" if write_completion_scripts else "no",
         ),
     ]
     if suggestion and suggestion != compiler_profile:
@@ -765,14 +753,14 @@ def _run_wizard(
             f"  rebrew init --no-wizard --target {target_name} "
             f"--binary {binary_name} --toolchain {compiler_profile}"
         )
-        if install_completions:
-            flags += " --install-completions"
+        if write_completion_scripts:
+            flags += " --write-completions"
         console.print(
             "Aborted — nothing was written. Re-run with flags to skip the wizard:\n" + flags
         )
         raise typer.Exit(code=EXIT_OK)
 
-    return target_name, binary_name, compiler_profile, install_completions
+    return target_name, binary_name, compiler_profile, write_completion_scripts
 
 
 def _toolchain_image_followup(compiler_profile: str) -> None:
@@ -1047,66 +1035,59 @@ def main(
         "program.exe",
         "--binary",
         "-b",
-        help="Name of the executable binary file (an 'original/' prefix is accepted and stripped).",
+        help="Name of the executable binary file (an 'original/' prefix is accepted and stripped)",
     ),
-    compiler_profile: str = typer.Option(
-        "msvc-6.0", "--toolchain", help="Compiler profile to use."
-    ),
+    compiler_profile: str = typer.Option("msvc-6.0", "--toolchain", help="Compiler profile to use"),
     guess_compiler: bool = typer.Option(
         False,
         "--guess-compiler",
         help=(
-            "Auto-select the compiler profile from the target binary "
-            "(diec → PDB → PE metadata → heuristics; prefers the 16-bit "
-            "profile for DOS/NE binaries).  Requires the binary to be in place."
+            "Auto-select the compiler profile from the target binary (diec → PDB → PE metadata → heuristics; prefers the 16-bit profile for DOS/NE binaries).  Requires the binary to be in place"
         ),
     ),
     install_wibo: bool = typer.Option(
-        False, "--install-wibo", help="Download wibo runner to tools/wibo."
-    ),
-    install_completions: bool = typer.Option(
         False,
-        "--install-completions",
-        help="Write bash/zsh/fish completion scripts into completions/.",
+        "--install-wibo",
+        help="Download optional tools/wibo for host-only plugin toolchains",
+    ),
+    write_completion_scripts: bool = typer.Option(
+        False,
+        "--write-completions",
+        help="Write bash/zsh/fish completion scripts into completions/",
     ),
     toolchain_dir: Path | None = typer.Option(
         None,
         "--link-tools-from",
         help=(
-            "Master toolchain directory to symlink tools/<profile> from "
-            "(e.g. ~/zine/tools).  Skips profiles with nothing to link "
-            "(gcc-14.2.0/mingw-16.2.0/clang-18.1.8 run from their docker images)."
+            "Master toolchain directory to symlink tools/<profile> from (e.g. /opt/toolchains). Skips profiles with no host tree to link (GCC, MinGW, and Clang run inside their Docker images)"
         ),
     ),
     refresh_agents: bool = typer.Option(
         False,
         "--refresh-agents",
         help=(
-            "Rewrite the generated scaffold (AGENTS.md, PRINCIPLES.md, "
-            ".agents/skills/) from rebrew-project.toml and exit."
+            "Rewrite the generated scaffold (AGENTS.md, PRINCIPLES.md, .agents/skills/) from rebrew-project.toml and exit"
         ),
     ),
     check: bool = typer.Option(
         False,
         "--check",
         help=(
-            "Report generated-scaffold drift (AGENTS.md, PRINCIPLES.md, "
-            ".agents/skills/) against the packaged sources instead of writing; "
-            "exit 1 when any file differs."
+            "Report generated-scaffold drift (AGENTS.md, PRINCIPLES.md, .agents/skills/) against the packaged sources instead of writing; exit 1 when any file differs"
         ),
     ),
     wizard: bool = typer.Option(
         True,
         "--wizard/--no-wizard",
         help=(
-            "Run the interactive onboarding wizard (TTY only, off under "
-            "--json).  Only parameters not passed on the CLI are prompted."
+            "Run the interactive onboarding wizard (TTY only, off under --json).  Only parameters not passed on the CLI are prompted"
         ),
+        rich_help_panel="Interactive setup",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target_name: str = typer.Option(
-        "main", "--target", "-t", help="Target name for the initial target (default: main)"
+        "main", "--target", "-t", help="Target name for the initial binary"
     ),
     # typer injects the real Context on CLI runs; direct Python calls get None
     # (a union annotation would defeat typer's Context detection).
@@ -1114,8 +1095,7 @@ def main(
 ) -> None:
     """Initialize a new rebrew project in the current directory.
 
-    Creates a rebrew-project.toml configuration, an AGENTS.md for project workflows,
-    and the necessary directory structure for decompilation.
+    Creates a rebrew-project.toml configuration, an AGENTS.md for project workflows, and the necessary directory structure for decompilation.
     """
     cwd = Path.cwd()
     toml_path = cwd / "rebrew-project.toml"
@@ -1131,7 +1111,7 @@ def main(
     json_output = option_default(json_output, False)
     wizard = option_default(wizard, True)
     install_wibo = option_default(install_wibo, False)
-    install_completions = option_default(install_completions, False)
+    write_completion_scripts = option_default(write_completion_scripts, False)
     target_name = option_default(target_name, "main")
     refresh_agents = option_default(refresh_agents, False)
     check = option_default(check, False)
@@ -1155,8 +1135,8 @@ def main(
     # Python calls (ctx=None) take the non-interactive path unchanged.
     wizard_ran = False
     if _wizard_active(wizard, json_output, ctx):
-        target_name, binary_name, compiler_profile, install_completions = _run_wizard(
-            ctx, cwd, target_name, binary_name, compiler_profile, install_completions
+        target_name, binary_name, compiler_profile, write_completion_scripts = _run_wizard(
+            ctx, cwd, target_name, binary_name, compiler_profile, write_completion_scripts
         )
         wizard_ran = True
     elif wizard and not json_output and not stdin_is_tty():
@@ -1407,7 +1387,7 @@ def main(
 
     # 10. Optionally write shell completion scripts
     completion_paths: list[Path] = []
-    if install_completions:
+    if write_completion_scripts:
         completion_paths = _write_completion_scripts(cwd)
         for p in completion_paths:
             console.print(f"[green]Created {p.relative_to(cwd)}[/] (source this for completions)")
@@ -1464,7 +1444,7 @@ def main(
         if wizard_ran:
             console.print("5. Run 'rebrew doctor' to check project health and toolchain setup")
             console.print("6. Run 'rebrew intake original/<binary>' to onboard the binary")
-        if install_completions:
+        if write_completion_scripts:
             console.print("\n[bold cyan]Shell completion:[/]")
             console.print("  bash: source completions/rebrew.bash")
             console.print("  zsh:  source completions/rebrew.zsh")

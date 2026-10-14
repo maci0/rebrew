@@ -43,7 +43,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - Single command, flag sweep mode: `rebrew match flags seed.c
   --tier targeted` tries combinations of MSVC flags.
 - Batch GA / flag-sweep across all `STUB` or `NEAR_MATCHING` functions
-  (`--all`, `--near-miss`, `--improve`).
+  (`rebrew match batch`, `--near-miss`, `--improve`).
 - Cross-function solution database: successful flag sets and mutations
   seed future GA runs (`--seed-file`, opt-out via `--no-seeds`).
 - Symbolic equivalence prover via angr (`rebrew prove`) for the residue
@@ -89,8 +89,8 @@ prover that promotes NEAR_MATCHING → PROVEN.
   `docs/FLAG_SWEEP_TIERS.md`).
 - `--tier quick|targeted|normal|thorough|full` (default `targeted`).
 - Auto-detects symbol/VA/size/CFLAGS like `rebrew test`/`rebrew diff`.
-- On success, prints the winning flag combination and (in `--all` mode)
-  can write it back to `rebrew-functions.toml`.
+- On success, prints the winning flag combination. Batch flag searches use
+  `rebrew match batch --algorithm flags`; `--fix-cflags` records winning flags.
 
 ### `rebrew match batch` (batch)
 
@@ -98,7 +98,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - `--improve` runs on every NEAR_MATCHING function (no delta threshold).
 - `--near-miss` runs only on NEAR_MATCHING with delta ≤ `--threshold`
   (default 10 bytes).
-- `--flag-sweep` runs the flag sweep instead of GA on NEAR_MATCHING set;
+- `--algorithm flags` runs the flag sweep instead of GA on NEAR_MATCHING set;
   `--fix-cflags` writes wins back to `rebrew-functions.toml`.
 - `--jobs JOBS` parallelism, `--dry-run` previews changes without running.
 

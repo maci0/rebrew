@@ -36,8 +36,9 @@ from rebrew.data_ownership import LinkSymbol, is_compiler_literal, parse_link_ma
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build check-tu-data · · · · · · · · · · Check the active target's build map\n\n"
-    "  rebrew build check-tu-data --link-map build/game.map --json · Per-object JSON\n"
+    "  rebrew build check-tu-data  # Check the active target's build map\n\n"
+    "  # Per-object JSON\n"
+    "  rebrew build check-tu-data --link-map build/game.map --json\n"
 )
 
 #: Initialized-data sections whose per-object order carries the TU shape.

@@ -13,10 +13,11 @@ runner = CliRunner()
 
 
 def _patch_cfg(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
+    project_root = root
     monkeypatch.setattr(
         cache_cli,
         "require_config",
-        lambda target=None, json_mode=False: SimpleNamespace(root=root),
+        lambda root=None, json_mode=False: SimpleNamespace(root=project_root),
     )
 
 

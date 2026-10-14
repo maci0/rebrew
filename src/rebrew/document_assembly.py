@@ -12,23 +12,29 @@ from rebrew.utils import console, untrusted_ident
 app = typer.Typer(
     help=__doc__,
     rich_markup_mode="rich",
-    epilog="Examples:\n\n  rebrew source document-assembly src/game.c --symbol fill0 --evidence 'Original macro at 0x401123' --target client\n\n  rebrew source document-assembly src/game.c --symbol fill0 --clear --target client\n",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew source document-assembly f.c --symbol fill --evidence macro\n\n"
+        "  rebrew source document-assembly f.c --symbol fill --evidence macro\n"
+    ),
 )
 
 
 @app.callback(invoke_without_command=True)
 def main(
-    file: Path = typer.Argument(..., help="Source file containing the definition."),
+    file: Path = typer.Argument(..., help="Source file containing the definition"),
     symbol: str = typer.Option(
-        ..., "--symbol", help="C identifier of the definition, including inline helpers."
+        ..., "--symbol", help="C identifier of the definition, including inline helpers"
     ),
     evidence: str | None = typer.Option(
         None,
         "--evidence",
-        help="Positive evidence of original assembly; a byte match alone is insufficient.",
+        help="Positive evidence of original assembly; a byte match alone is insufficient; excludes --clear",
     ),
     clear: bool = typer.Option(
-        False, "--clear", help="Remove this definition's evidence for the selected target."
+        False,
+        "--clear",
+        help="Remove this definition's evidence for the selected target; excludes --evidence",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

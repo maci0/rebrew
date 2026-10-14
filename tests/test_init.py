@@ -307,7 +307,7 @@ class TestInit:
             compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         toml_path = tmp_path / "rebrew-project.toml"
         assert toml_path.exists()
@@ -329,7 +329,7 @@ class TestInit:
             "compiler_profile": "msvc-6.0",
             "install_wibo": False,
             "json_output": False,
-            "install_completions": False,
+            "write_completion_scripts": False,
         }
         with pytest.raises(Exit):
             main(**kwargs, toolchain_dir=master)
@@ -348,7 +348,7 @@ class TestInit:
             compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
             dry_run=True,
         )
         assert not (tmp_path / "rebrew-project.toml").exists()
@@ -367,7 +367,7 @@ class TestInit:
             compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
         assert 'profile = "msvc-6.0"' in content
@@ -391,7 +391,7 @@ class TestInit:
             compiler_profile="msvc-7.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
         assert 'profile = "msvc-7.0"' in content
@@ -412,7 +412,7 @@ class TestInit:
             compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         agents_path = tmp_path / "AGENTS.md"
         assert agents_path.exists()
@@ -428,7 +428,7 @@ class TestInit:
             compiler_profile="gcc-14.2.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         assert (tmp_path / "original").is_dir()
         assert (tmp_path / "src" / "game").is_dir()
@@ -445,7 +445,7 @@ class TestInit:
             compiler_profile="clang-18.1.8",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         assert not (tmp_path / "src" / "t" / "functions.txt").exists()
 
@@ -460,7 +460,7 @@ class TestInit:
             compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
         assert 'binary = "original/bench.exe"' in content
@@ -476,7 +476,7 @@ class TestInit:
             compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
         assert 'binary = "original/bench.exe"' in content
@@ -494,7 +494,7 @@ class TestInit:
             compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
             toolchain_dir=master,
         )
         link = tmp_path / "toolchain" / "msvc" / "6.0-win32"
@@ -516,7 +516,7 @@ class TestInit:
             compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
             toolchain_dir=master,
         )
         link = tmp_path / "toolchain" / "msvc" / "6.0-sp6-win32"
@@ -540,7 +540,7 @@ class TestInit:
                 compiler_profile="msvc-6.0",
                 install_wibo=False,
                 json_output=False,
-                install_completions=False,
+                write_completion_scripts=False,
                 toolchain_dir=master,
             )
 
@@ -565,7 +565,7 @@ class TestInit:
                 compiler_profile="msvc-6.0",
                 install_wibo=False,
                 json_output=False,
-                install_completions=False,
+                write_completion_scripts=False,
                 toolchain_dir=master,
             )
         assert exc.value.exit_code != 0
@@ -584,7 +584,7 @@ class TestInit:
             compiler_profile="mingw-16.2.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
             toolchain_dir=master,
         )
         assert not (tmp_path / "tools").exists()
@@ -600,7 +600,7 @@ class TestInit:
                 compiler_profile="msvc-6.0",
                 install_wibo=False,
                 json_output=False,
-                install_completions=False,
+                write_completion_scripts=False,
             )
 
     def test_unknown_compiler_profile(
@@ -615,7 +615,7 @@ class TestInit:
                 compiler_profile="borland",
                 install_wibo=False,
                 json_output=False,
-                install_completions=False,
+                write_completion_scripts=False,
             )
 
     def test_msvc7_uses_msvc7_constraints(
@@ -629,7 +629,7 @@ class TestInit:
             compiler_profile="msvc-7.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         agents = (tmp_path / "AGENTS.md").read_text()
         assert "C99" in agents
@@ -645,7 +645,7 @@ class TestInit:
             compiler_profile="gcc-14.2.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         agents = (tmp_path / "AGENTS.md").read_text()
         assert "ELF" in agents
@@ -937,7 +937,7 @@ class TestInitAgentSkills:
 
 
 class TestInitCompletions:
-    """rebrew init --install-completions writes bash/zsh/fish scripts."""
+    """rebrew init --write-completions writes bash/zsh/fish scripts."""
 
     def test_writes_all_three_scripts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -949,7 +949,7 @@ class TestInitCompletions:
             compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
-            install_completions=True,
+            write_completion_scripts=True,
         )
         bash = tmp_path / "completions" / "rebrew.bash"
         zsh = tmp_path / "completions" / "rebrew.zsh"
@@ -988,7 +988,7 @@ class TestInitCompletions:
             "compiler_profile": "msvc-6.0",
             "install_wibo": False,
             "json_output": False,
-            "install_completions": True,
+            "write_completion_scripts": True,
         }
         monkeypatch.setattr(init_mod, "_write_completion_scripts", boom)
         with pytest.raises(OSError):
@@ -1010,7 +1010,7 @@ class TestInitCompletions:
             compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         assert not (tmp_path / "completions").exists()
 
@@ -1022,7 +1022,7 @@ class TestInitCompletions:
             compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
-            install_completions=True,
+            write_completion_scripts=True,
         )
         first = (tmp_path / "completions" / "rebrew.bash").read_bytes()
         other = tmp_path / "other"
@@ -1047,22 +1047,22 @@ class TestInitCompletions:
             compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=True,
-            install_completions=True,
+            write_completion_scripts=True,
         )
         payload = json.loads(capsys.readouterr().out)
         assert len(payload["completions"]) == 3
         assert all("completions" in p for p in payload["completions"])
 
-    def test_cli_flag_wires_install_completions(
+    def test_cli_flag_wires_write_completion_scripts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--install-completions through the typer app writes the scripts."""
+        """--write-completions through the typer app writes the scripts."""
         from typer.testing import CliRunner
 
         from rebrew.init import app
 
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, ["--install-completions"])
+        result = CliRunner().invoke(app, ["--write-completions"])
         assert result.exit_code == 0
         assert (tmp_path / "completions" / "rebrew.bash").is_file()
         assert (tmp_path / "completions" / "rebrew.zsh").is_file()
@@ -1298,7 +1298,7 @@ class TestInitTc16:
             compiler_profile="borland-3.1",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
         assert 'profile = "borland-3.1"' in content
@@ -1330,7 +1330,7 @@ class TestInitDelphi16:
             compiler_profile="delphi-1.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
         assert 'profile = "delphi-1.0"' in content
@@ -1359,7 +1359,7 @@ class TestInitDelphi16:
             compiler_profile="delphi-1.0",
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         agents = (tmp_path / "AGENTS.md").read_text()
         assert "Object Pascal" in agents
@@ -1389,7 +1389,7 @@ class TestInitGuessCompiler:
             guess_compiler=True,
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
         assert 'profile = "borland-3.1"' in content
@@ -1417,7 +1417,7 @@ class TestInitGuessCompiler:
             guess_compiler=True,
             install_wibo=False,
             json_output=False,
-            install_completions=False,
+            write_completion_scripts=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
         assert 'profile = "msvc-1.52"' in content
@@ -1433,7 +1433,7 @@ class TestInitGuessCompiler:
                 guess_compiler=True,
                 install_wibo=False,
                 json_output=False,
-                install_completions=False,
+                write_completion_scripts=False,
             )
 
 
@@ -1467,7 +1467,7 @@ class TestGuessCompilerFailure:
                 guess_compiler=True,
                 install_wibo=False,
                 json_output=False,
-                install_completions=False,
+                write_completion_scripts=False,
             )
         captured = capsys.readouterr()
         assert "cannot guess" in captured.err

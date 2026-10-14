@@ -269,7 +269,7 @@ class TestFlagValidation:
         assert result.exit_code == 2
         assert "--size" in result.output
 
-    def test_bad_format_json_envelope(
+    def test_bad_format_is_a_parser_error_even_with_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from typer.testing import CliRunner
@@ -279,7 +279,6 @@ class TestFlagValidation:
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["show", "--format", "bogus", "--json", "0x1000"])
         assert result.exit_code == 2
-        assert json.loads(result.output) == {
-            "error": "--format must be 'hex', 'nasm' or 'cfg'",
-            "code": 2,
-        }
+        assert result.stdout == ""
+        assert "Invalid value" in result.stderr
+        assert "--format" in result.stderr

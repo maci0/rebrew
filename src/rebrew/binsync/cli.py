@@ -68,14 +68,12 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binsync init .binsync · · · · Create the state dir (root + user branch)\n\n"
-        "  rebrew binsync summary .binsync · · · Preview push/pull, writes nothing\n\n"
-        "  rebrew binsync push .binsync · · · · · Export the project and commit\n\n"
-        "  rebrew binsync pull .binsync · · · · · Import a state dir back in\n\n"
-        "  rebrew binsync diff .binsync · · · · · Read-only divergence report\n\n"
-        "[dim]Names, comments, prototypes, structs, and globals sync through the state\n"
-        "directory; Ghidra structural edits (create-function, bookmarks) stay on the\n"
-        "MCP side. See the rebrew-ghidra-sync skill.[/dim]"
+        "  rebrew binsync init .binsync\n\n"
+        "  rebrew binsync summary .binsync\n\n"
+        "  rebrew binsync push .binsync\n\n"
+        "  rebrew binsync pull .binsync\n\n"
+        "  rebrew binsync diff .binsync\n\n"
+        "[dim]push exports into Rebrew's own Git-backed user branch and commits. pull imports peer branches; summary and diff preview without writing. export/import exchange raw state directories. Ghidra function creation and bookmarks use rebrew sync.[/dim]\n\n"
     ),
 )
 
@@ -108,7 +106,11 @@ def _require_state_repo(state_dir: Path, *, json_mode: bool) -> None:
 
 
 @app.command(
-    epilog="Examples:\n\n  rebrew binsync push .binsync --dry-run --json\n\nPreview exported fields with --dry-run. Use --git-push when publishing is intended."
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binsync push .binsync --dry-run --json\n\n"
+        "Preview exported fields with --dry-run. Use --git-push when publishing is intended."
+    )
 )
 def push(
     state_dir: Path = typer.Argument(..., help="BinSync state directory to export into"),
@@ -153,7 +155,11 @@ def push(
 
 
 @app.command(
-    epilog="Examples:\n\n  rebrew binsync pull .binsync --dry-run --json\n\nDry runs preview local state without pulling Git; accepted fields retain provenance."
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binsync pull .binsync --dry-run --json\n\n"
+        "Dry runs preview local state without pulling Git; accepted fields retain provenance."
+    )
 )
 def pull(
     state_dir: Path = typer.Argument(..., help="BinSync state directory to import from"),
@@ -182,9 +188,7 @@ def pull(
 ) -> None:
     """Import the other BinSync users' branches into the project.
 
-    In a BinSync repo every ``binsync/<user>`` branch except rebrew's own is
-    imported (fetched from ``--remote`` first when it is configured); a plain
-    state directory is fast-forwarded and imported from its working tree.
+    In a BinSync repo every binsync/<user> branch except rebrew's own is imported (fetched from --remote first when it is configured); a plain state directory is fast-forwarded and imported from its working tree.
     """
     if accept_binsync and accept_local:
         error_exit(
@@ -226,7 +230,11 @@ def pull(
 
 
 @app.command(
-    epilog="Examples:\n\n  rebrew binsync summary .binsync --json\n\nPreview both synchronization directions without writing or contacting Git."
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binsync summary .binsync --json\n\n"
+        "Preview both synchronization directions without writing or contacting Git."
+    )
 )
 def summary(
     state_dir: Path = typer.Argument(..., help="BinSync state directory to preview"),

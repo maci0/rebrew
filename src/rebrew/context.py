@@ -62,9 +62,10 @@ def render_context_text(blocks: list[str]) -> str:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew export context · · · · · · · · · Write ctx.c from headers and reversed sources\n\n"
-    "  rebrew export context --sources-only · · · · · · Only the project's own declarations\n\n"
-    "  rebrew export context --output decomp/ctx.c · · · Write somewhere else\n"
+    "  rebrew export context  # Write ctx.c from headers and reversed sources\n\n"
+    "  # Only the project's own declarations\n"
+    "  rebrew export context --sources-only\n\n"
+    "  rebrew export context --output decomp/ctx.c  # Write somewhere else\n"
 )
 
 
@@ -131,7 +132,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Write the deduplicated context to *output*."""
+    """Write the deduplicated context to output."""
     cfg = require_config(target=target, json_mode=json_output)
     blocks, file_count = collect_context(cfg, include_headers=not sources_only)
     text = render_context_text(blocks)

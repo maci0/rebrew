@@ -6,6 +6,7 @@ enumeration, and header reader are pure and pinned here against the
 checked-in mini PE fixture.
 """
 
+import json
 import struct
 from pathlib import Path
 
@@ -602,3 +603,33 @@ class TestImpSuffix:
         assert "/include:__imp__Sleep@4" in text
         assert "/include:__imp_hook@@12" in text
         assert "/include:__imp_@keeps@4" in text
+
+
+class TestLinkSweepTemplate:
+    @pytest.mark.parametrize(
+        "template",
+        [
+            "link objects.obj /OUT:{out}",
+            "link objects.obj {options}",
+            "link objects.obj {{out}} {{options}}",
+            "link objects.obj {options} {out} {unknown}",
+            "link objects.obj {options} {out",
+        ],
+    )
+    def test_invalid_template_is_rejected_before_project_or_link(
+        self, template: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.link_sweep import app
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--link-cmd", template, "--json"])
+        assert result.exit_code == 2
+        assert "error" in json.loads(result.stdout)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_template_can_repeat_valid_placeholders(self) -> None:
+        from rebrew.link_sweep import _validate_link_template
+
+        _validate_link_template("link objects.obj /OUT:{out} {options} /MAP:{out}.map")

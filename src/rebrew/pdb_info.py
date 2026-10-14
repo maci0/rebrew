@@ -35,6 +35,7 @@ from pathlib import Path
 
 import tomlkit
 import typer
+from typer.models import TyperPath
 
 from rebrew.cli import console, error_exit, json_print, untrusted_ident
 
@@ -42,9 +43,12 @@ log = logging.getLogger(__name__)
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew binary pdb show game.pdb · · · · · · Report compiler version, flags, names\n\n"
-    "  rebrew binary pdb import-cflags game.pdb · Record the flags in the metadata\n\n"
-    "  rebrew binary pdb import-cflags game.exe --dry-run --json · Plan the write, change nothing\n"
+    "  # Report compiler version, flags, names\n"
+    "  rebrew binary pdb show original/game.exe\n\n"
+    "  # Record the flags in the metadata\n"
+    "  rebrew binary pdb import-cflags original/game.exe\n\n"
+    "  # Plan the write, change nothing\n"
+    "  rebrew binary pdb import-cflags game.exe --dry-run --json\n"
 )
 
 
@@ -284,10 +288,18 @@ def inspect_pdb(
 
 @app.command(
     "show",
-    epilog="Examples:\n\n  rebrew binary pdb show original/game.exe --json\n\nInput and output paths are shown above; use --help at the parent group to discover related operations.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binary pdb show original/game.exe --json\n\n"
+        "Reads the binary and its sibling PDB to report compiler and function evidence."
+    ),
 )
 def show(
-    binary: str = typer.Argument(..., help="Path to the binary whose sibling .pdb to read."),
+    binary: str = typer.Argument(
+        ...,
+        help="Path to the binary whose sibling .pdb to read",
+        click_type=TyperPath(path_type=str),
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Show PDB compiler evidence and function names."""
@@ -296,10 +308,18 @@ def show(
 
 @app.command(
     "import-cflags",
-    epilog="Examples:\n\n  rebrew binary pdb import-cflags original/game.exe --dry-run --json\n\nInput and output paths are shown above; use --help at the parent group to discover related operations.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binary pdb import-cflags original/game.exe --dry-run --json\n\n"
+        "Previews verified PDB command-line flags before recording them in function metadata."
+    ),
 )
 def import_cflags(
-    binary: str = typer.Argument(..., help="Path to the binary whose sibling .pdb to read."),
+    binary: str = typer.Argument(
+        ...,
+        help="Path to the binary whose sibling .pdb to read",
+        click_type=TyperPath(path_type=str),
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:

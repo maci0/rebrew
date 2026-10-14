@@ -15,8 +15,8 @@ the `db/coverage-<target>.toml` documents this repo builds, `recompile` wraps th
 as an HTTP API, and `reagent` automates the loop with an LLM. External
 tools interoperate through file formats: the coverage document and the
 BinSync state directory (`rebrew binsync`, plus `rebrew binsync export` /
-`-import` / `-diff` / `-init` / `-overlay`). A migrated tree is pure C; the
-parser still reads an unmigrated reccmp marker. The catalog's reccmp CSV
+`-import` / `-diff` / `-init` / `-overlay`). C carries optional ADDRESS-only anchors;
+all identity and state live in dedicated format-2 metadata. The catalog's reccmp CSV
 export is gone with the catalog's own artifacts.
 The full cross-repo map, dependency layering, and mermaid diagrams are in
 [ECOSYSTEM.md](ECOSYSTEM.md). Open [architecture.drawio](architecture.drawio)
@@ -30,7 +30,7 @@ landscape.
 ```mermaid
 flowchart LR
     subgraph Sources
-        C[".c source files<br/>FUNCTION:/STUB: markers"]
+        C[".c source files<br/>optional ADDRESS anchors"]
         TOML["rebrew-project.toml<br/>targets, compiler, paths"]
         META["rebrew-functions.toml<br/>STATUS/SIZE/CFLAGS/…"]
     end
@@ -39,7 +39,7 @@ flowchart LR
     META --> FACADE["metadata/functions.py + metadata/model.py<br/>store, typed facade, merge_into_binding"]
     TOML --> CFG["config.py<br/>ProjectConfig"]
 
-    ANNOT --> MERGED["merged Annotation"]
+    ANNOT --> MERGED["SourceBinding"]
     FACADE --> MERGED
 
     CFG --> TOOLCHAIN["compiler/toolchain.py<br/>spec registry + docker-only runner"]
@@ -78,7 +78,7 @@ flowchart LR
 | `rebrew/limits.py` | `NO_MAX_SIZE` / `NO_DELTA`, the "bound not measured" sentinels behind `--max-size` and `--max-delta`. A leaf so `match_run` can recognise an unset bound without importing the `skeleton` or `match_batch` command modules |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/workspace/` | Workspace-root discovery and the target list (`find_root`, `db_dir`, `default_target`, `config.py`'s resolved view, `status.py`, `va.py`). Stdlib-only leaf, so a tool needing just the project's directories and target names never pulls in LIEF, capstone, or tree-sitter. It resolves no coverage data: `db_dir` names the directory, `coverage_toml.py` reads it |
-| `rebrew/metadata/bindings.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata), `iter_source_bindings` batch loader |
+| `rebrew/metadata/bindings.py` | AST-bound optional ADDRESS comments plus dedicated format-2 metadata; `iter_source_bindings` batch loader |
 | `rebrew/metadata/functions.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELD_TYPES`, `METADATA_FIELDS`, `SYNC_FIELD_RULES`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata/model.py` (`MetadataEntry`) |
 | `rebrew/decompiler.py` | Pluggable decompiler backends for pseudo-C (`r2`/`rz` ghidra and dec, Ghidra via the ReVa MCP bridge, m2c for MIPS/PPC/ARM/SH), registered through the `rebrew.decompiler_backends` entry-point group. `fetch_decompilation` is the one entry point `rebrew skeleton --decomp` calls; `"auto"` picks the first backend that answers |
 | `rebrew/llm_seed.py` | Optional LLM-assisted GA seeding for `rebrew match run --seed-llm`: asks the `[llm]` endpoint for alternative C, keeps only tree-sitter-valid single-function snippets, injects them as extra seeds. Off by default; with no endpoint the flag warns and the GA runs unchanged |
@@ -90,7 +90,7 @@ flowchart LR
 | `rebrew/app/` | CLI composition layer: `main.py` (console script), `builtins.py` (`CliComponent` rows), `plugin.py` (component runtime). Nothing outside it imports it at module scope |
 | `rebrew/compiler/` | Compile execution and the compile cache: `compile.py`, `cache.py`, `toolchain.py` + spec/data/paths, `overrides.py`, `context.py`, `recompile_client.py`, the 16-bit DOSBox drivers |
 | `rebrew/formats/` | Executable, object and archive parsers (`binary_loader.py`, `binary_model.py`, PE/NE/OMF/LZEXE, `import_table.py`, `relocations.py`, `archives.py`); imports only `errors`, `registry`, `utils` |
-| `rebrew/metadata/` | Source annotations and the locked stores: `functions.py` (`rebrew-functions.toml`), `data.py` (`rebrew-data.toml`), `document.py`, `model.py`, `annotation.py` |
+| `rebrew/metadata/` | Source annotations and the locked stores: `functions.py` (`rebrew-functions.toml`), `data.py` (`rebrew-data.toml`), `document.py`, `model.py`, `anchors.py`, `bindings.py`, `source_provenance.py` |
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (`ALL_MUTATIONS`: the 128 tree-sitter mutations from `mutations/*.py` plus plugin entry points), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry and the coverage grid (`grid.py`) the `db/coverage-<target>.toml` document is rendered from |
 | `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function create/delete and similar) |
@@ -168,7 +168,7 @@ would be a second answer to that question. See
    gcc/clang/mingw; images built from the `recompile-toolchains` checkout) and
    byte-compares against the target bytes → `CompareResult`.
 4. `update_source_status()` writes STATUS to the metadata file only: the
-   `.c` marker lines are never rewritten. `update_field` / `remove_field`
+   C state comments are never written. `update_field` / `remove_field`
    (via `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, etc.) do the
    same for BLOCKER/BLOCKER_DELTA: never hand-edit `rebrew-functions.toml`.
 

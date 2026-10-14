@@ -2435,53 +2435,25 @@ def _print_summary(results: list[LintResult]) -> None:
 
 
 app = typer.Typer(
-    help="Lint source marker standards for decomp C source files.",
+    help="Check C source bindings, metadata, and project conventions.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew lint · · · · · · · · · · · · Lint all .c files in reversed_dir\n\n"
-        "  rebrew lint --quiet · · · · · · · · Errors only, suppress warnings\n\n"
-        "  rebrew lint --json · · · · · · · · · Machine-readable JSON output\n\n"
-        "  rebrew lint --summary · · · · · · · Show status/origin breakdown table\n\n"
-        "  rebrew lint src/game/foo.c · · · · · Lint specific files only\n\n"
-        "  rebrew lint --fix --dry-run · · · · Preview migrations, strips, and backfills before commit\n\n"
-        "[bold]Error codes:[/bold]\n\n"
-        "  E001   No marker and no metadata row for this file (or reason-less // SUPPORT:)\n\n"
-        "  E002   Invalid VA format or range\n\n"
-        "  E012   Module doesn't match configured marker\n\n"
-        "  E013   Duplicate VA across files\n\n"
-        "  W005   STUB without BLOCKER explanation\n\n"
-        "  W016   DATA/GLOBAL missing SECTION metadata\n\n"
-        "  W010   Unknown marker key\n\n"
-        "  W018   Missing CFLAGS with no config fallback\n\n"
-        "  W019   Inline metadata key (STATUS, NOTE, etc.) should be in rebrew-functions.toml\n\n"
-        "  W020   Asm-dump placeholder (__emit / __asm block) instead of real C source\n\n"
-        "  E023   Whole-function __declspec(naked) + __asm/__emit (only 1-2 nop/0x90/0xCC padding bytes allowed)\n\n"
-        "  W021   Duplicate global symbol annotated in multiple files\n\n"
-        "  W022   File-scope zero initializer (= {0}) forces the global into .data, not .bss\n"
-        '         (exempt: globals annotated section = ".data" in rebrew-data.toml)\n\n'
-        "  W023   Function has a default name (fcn, fn, fun, etc.); consider renaming\n\n"
-        "  W024   Function name does not match project naming convention\n\n"
-        "  W025   Opening brace style does not match project configuration\n\n"
-        "  W026   Line indent style does not match project configuration\n\n"
-        "  W027   Line too long (exceeds max_line_length)\n\n"
-        "  W028   SourceBinding VA matches no function in the current function list\n"
-        "         (stale after a binary update — re-annotate or refresh the list)\n\n"
-        "  W029   Redundant cflags — per-function or preset cflags that only repeat\n"
-        "         the inherited value (project cflags / module preset) — --fix drops them\n"
-        "         (the fallback chain already supplies the same flags)\n\n"
-        "  W030   A file's FUNCTION/STUB markers for one module do not ascend by VA\n\n"
-        "  W031   Metadata store problem — an unknown field, a STATUS outside the store's\n"
-        "         vocabulary, half an updated_by/updated_at pair, an unknown provenance\n"
-        "         tag, a stray top-level key, or a missing / foreign format stamp\n\n"
-        "  W032   Coverage store hygiene — a leftover artifact from a store rebrew no\n"
-        "         longer reads, or a coverage-<target>.toml the dashboards cannot serve\n\n"
-        "  W033   Rendered agent instructions have drifted from the packaged skills\n\n"
-        "  W034   A stored `file` identity is absolute or escapes the project with '..'\n\n"
-        "  W035   A metadata row's module matches no target marker or library module\n"
-        "         (invisible to status/todo after a rename)\n\n"
-        "[dim]Checks for reccmp-style markers in each .c file, plus project-level\n"
-        "corpus hygiene (W029 cflags redundancy, W031-W035 store and scaffold drift).[/dim]"
+        "  rebrew lint\n\n"
+        "  rebrew lint src/game/foo.c --quiet\n\n"
+        "  rebrew lint --summary\n\n"
+        "  rebrew lint --fix --dry-run\n\n"
+        "  rebrew lint --json\n\n"
+        "[dim]Checks C bindings, dedicated metadata, compiler flags, project style, storage declarations, and scaffold drift. Optional ADDRESS comments bind the next definition; all identity/state stays in format-2 metadata. Unsupported inline state is diagnosed, not migrated.[/dim]\n\n"
+        "[bold]Fixes:[/bold]\n\n"
+        "  --fix removes redundant compiler flags and backfills known SECTION metadata. Preview with --dry-run; other findings require review.\n\n"
+        "[bold]Common findings:[/bold]\n\n"
+        "  E001: missing metadata identity or support purpose; E013: duplicate VA.\n\n"
+        "  E023: whole-function naked assembly instead of reconstructed C.\n\n"
+        "  W005: STUB without BLOCKER; W016: data without SECTION metadata.\n\n"
+        "  E024: unsupported inline state; W028: bound VA absent from function inventory.\n\n"
+        "  W029: redundant flags; W031: metadata schema/provenance problem.\n\n"
+        "  W032-W035: coverage, scaffold, file identity, or module drift.\n\n"
     ),
 )
 
@@ -2491,7 +2463,7 @@ def main(
     fix: bool = typer.Option(
         False,
         "--fix",
-        help=("Migrate inline metadata, strip redundant lines, backfill SECTION (W016)"),
+        help=("Remove redundant compiler flags and backfill SECTION metadata (W016)"),
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only show errors, suppress warnings"),
@@ -2508,7 +2480,7 @@ def main(
     target: str | None = TargetOption,
     all_targets: bool = AllTargetsOption,
 ) -> None:
-    """Lint source marker standards in decomp C source files."""
+    """Check C source bindings, metadata, and project conventions."""
     all_targets = option_default(all_targets, False)
     if all_targets_run(
         target=target,

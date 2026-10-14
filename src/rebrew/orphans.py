@@ -16,7 +16,7 @@ from typing import Any
 
 import typer
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import SOURCE_HELP, TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import inventory_path_for
 from rebrew.errors import RebrewError
 from rebrew.utils import preset_module_key
@@ -31,18 +31,15 @@ class OrphanInventoryError(RebrewError, RuntimeError):
 
 
 app = typer.Typer(
-    help="List or prune orphaned metadata blocks (no source marker).",
+    help="List or prune metadata rows without a live source binding.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew orphans list · · · · · · · · List orphaned metadata blocks\n\n"
-        "  rebrew orphans prune --dry-run · · · · Preview what would delete\n\n"
-        "  rebrew orphans prune · · · · · Delete every orphaned block\n\n"
-        "  rebrew orphans drop 0x10009310 · Delete one VA's block\n\n"
-        "[dim]A block is an orphan when no // FUNCTION: / // DATA: / // GLOBAL: marker "
-        "claims its (module, VA): left behind by a deleted or re-discovered function. "
-        "A VA present in the target's function list is never an orphan, and --prune "
-        "holds back EXACT / RELOC / PROVEN blocks unless --include-matched.[/dim]"
+        "  rebrew orphans list --json\n\n"
+        "  rebrew orphans prune --dry-run\n\n"
+        "  rebrew orphans prune\n\n"
+        "  rebrew orphans drop 0x10009310 --dry-run\n\n"
+        "[dim]Orphans are metadata rows without a live source binding. Function addresses still in the target inventory are protected. prune also preserves EXACT, RELOC, and PROVEN results unless --include-matched is supplied. drop explicitly removes one selected row; inspect and preview it first.[/dim]\n\n"
     ),
 )
 
@@ -247,7 +244,11 @@ def manage_orphans(
 
 @app.command(
     "list",
-    epilog="Examples:\n\n  rebrew orphans list --json\n\nInspect orphaned records before pruning; --dry-run previews removals.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew orphans list --json\n\n"
+        "Read-only inventory. Preview removals with rebrew orphans prune --dry-run."
+    ),
 )
 def list_orphans(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -259,7 +260,11 @@ def list_orphans(
 
 @app.command(
     "prune",
-    epilog="Examples:\n\n  rebrew orphans prune --dry-run --json\n\nInspect orphaned records before pruning; --dry-run previews removals.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew orphans prune --dry-run --json\n\n"
+        "Inspect orphaned records before pruning; --dry-run previews removals."
+    ),
 )
 def prune(
     include_matched: bool = typer.Option(
@@ -283,10 +288,14 @@ def prune(
 
 @app.command(
     "drop",
-    epilog="Examples:\n\n  rebrew orphans drop 0x401000 --dry-run --json\n\nInspect orphaned records before pruning; --dry-run previews removals.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew orphans drop 0x401000 --dry-run --json\n\n"
+        "Explicitly selects one row for deletion, even if bound. Remove --dry-run to delete it."
+    ),
 )
 def drop(
-    function: str = typer.Argument(..., help="Hex VA (0x...), file path, or symbol"),
+    function: str = typer.Argument(..., help=SOURCE_HELP),
     va_override: str | None = typer.Option(
         None, "--va", help="Disambiguate VA in a multi-function file (hex)"
     ),

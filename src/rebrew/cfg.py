@@ -29,10 +29,11 @@ import os
 import shutil
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import tomlkit
 import typer
+from typer.models import TyperPath
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -41,6 +42,7 @@ from rebrew.cli import (
     console,
     error_exit,
     json_print,
+    option_default,
 )
 from rebrew.config import (
     ARCH_PRESETS,
@@ -294,7 +296,7 @@ def _resolve_target(
     targets = doc.get("targets", {})
     if not targets:
         error_exit(
-            "No [targets] section in rebrew-project.toml. Add one with 'rebrew cfg add-target'.",
+            "No [targets] section in rebrew-project.toml. Add one with 'rebrew cfg target add'.",
             json_mode=json_mode,
         )
     if target is None:
@@ -357,27 +359,34 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew cfg show compiler.command · · · · Read a config value\n\n"
-        "  rebrew cfg set compiler.timeout 120 · · · Set a config value\n\n"
-        "  rebrew cfg show targets.main.binary · · · Read target-specific setting\n\n"
-        "  rebrew cfg raw · · · · · · · · · · · · · Dump rebrew-project.toml as JSON\n\n"
-        "  rebrew cfg raw --format toml · · · · · · Dump as TOML\n\n"
-        "  rebrew cfg path · · · · · · · · · · · · · Print path to rebrew-project.toml\n\n"
-        "[dim]Useful for scripting and automation. Supports dotted key paths "
-        "for nested TOML tables (e.g. 'targets.main.binary').[/dim]"
+        "  rebrew cfg show targets.main.binary\n\n"
+        "  rebrew cfg effective --json\n\n"
+        "  rebrew cfg set compiler.timeout 120\n\n"
+        "  rebrew cfg target list --json\n\n"
+        "  rebrew cfg raw --format toml\n\n"
+        "[dim]show reads stored TOML; effective shows resolved defaults and environment overrides. set edits scalar values through the config writer. Use target/module subcommands to manage structured configuration, and path to locate the project file.[/dim]\n\n"
     ),
 )
 
 
 target_app = typer.Typer(
-    help="Manage configured targets.", epilog="Examples: rebrew cfg target list --json"
+    help="Manage configured targets.",
+    rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg target list --json\n\n"
+        "  rebrew cfg target add client --binary original/client.exe --dry-run"
+    ),
 )
 module_app = typer.Typer(
-    help="Manage source modules and flags.", epilog="Examples: rebrew cfg module add game"
+    help="Manage source modules and flags.",
+    rich_markup_mode="rich",
+    epilog="[bold]Examples:[/bold]\n\n  rebrew cfg module add GAME --dry-run\n\n  rebrew cfg module set-cflags GAME /O2 --dry-run",
 )
 crt_app = typer.Typer(
     help="Detect and import CRT source paths.",
-    epilog="Examples: rebrew cfg detect-crt show show --json",
+    rich_markup_mode="rich",
+    epilog="[bold]Examples:[/bold]\n\n  rebrew cfg detect-crt show --json\n\n  rebrew cfg detect-crt apply --dry-run",
 )
 app.add_typer(target_app, name="target")
 app.add_typer(module_app, name="module")
@@ -386,7 +395,11 @@ app.add_typer(crt_app, name="detect-crt")
 
 @target_app.command(
     "list",
-    epilog="Examples:\n\n  rebrew cfg target list --json\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg target list --json\n\n"
+        "Lists configured targets without modifying the project."
+    ),
 )
 def list_targets(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -430,7 +443,11 @@ def list_targets(
 
 @app.command(
     "show",
-    epilog="Examples:\n\n  rebrew cfg show --json\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg show --json\n\n"
+        "Reads stored configuration; use effective for resolved defaults and environment settings."
+    ),
 )
 def show(
     key: str | None = typer.Argument(
@@ -506,7 +523,11 @@ def env_vars_present(environ: Mapping[str, str] | None = None) -> list[str]:
 
 @app.command(
     "effective",
-    epilog="Examples:\n\n  rebrew cfg effective --json\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg effective --json\n\n"
+        "Read-only resolved configuration with credentials redacted and invalid environment settings reported."
+    ),
 )
 def effective(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -514,20 +535,9 @@ def effective(
 ) -> None:
     """Show the config values in force after env and default resolution.
 
-    `cfg show` echoes the TOML file; this resolves it, so an env override,
-    a default, and a typo-rejected value are told apart.  Credentials are
-    redacted, and `env_overrides` names the REBREW_* variables present in the
-    environment, never their values: `\\[llm]` endpoint and model still lose to
-    a set TOML field, so presence alone does not mean the value was used.
-    `env_errors` names the knobs whose value the code that reads them would
-    reject, so a mistyped container runtime or wine-headless flag is reported
-    here rather than as a spawn failure from inside a compile.
+    `cfg show` echoes the TOML file; this resolves it, so an env override, a default, and a typo-rejected value are told apart.  Credentials are redacted, and `env_overrides` names the REBREW_* variables present in the environment, never their values: `\\[llm]` endpoint and model still lose to a set TOML field, so presence alone does not mean the value was used. `env_errors` names the knobs whose value the code that reads them would reject, so a mistyped container runtime or wine-headless flag is reported here rather than as a spawn failure from inside a compile.
 
-    A config that fails to load is itself the finding, so the env report is
-    still printed: several knobs (`REBREW_LLM_MAX_REQUESTS`,
-    `REBREW_LLM_ENDPOINT`, `REBREW_RECOMPILE_URL`, ...) are validated during
-    the load, and aborting on the first one would leave this command unable to
-    report the very error it exists to diagnose.
+    A config that fails to load is itself the finding, so the env report is still printed: several knobs (`REBREW_LLM_MAX_REQUESTS`, `REBREW_LLM_ENDPOINT`, `REBREW_RECOMPILE_URL`, ...) are validated during the load, and aborting on the first one would leave this command unable to report the very error it exists to diagnose.
     """
     from rebrew.config import load_config
 
@@ -583,17 +593,33 @@ def effective(
 
 @app.command(
     "raw",
-    epilog="Examples:\n\n  rebrew cfg raw --json\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg raw --format toml\n\n"
+        "Writes redacted project configuration to stdout in the selected format."
+    ),
 )
 def raw(
-    fmt: str = typer.Option("json", "--format", "-f", help="Output format: json, toml"),
+    fmt: Literal["json", "toml"] = typer.Option(
+        "json",
+        "--format",
+        "-f",
+        case_sensitive=False,
+        help="Output format: json, toml (toml conflicts with --json)",
+        metavar="FORMAT",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Dump entire rebrew-project.toml as JSON or TOML (raw machine-readable output)."""
-    doc, _ = load_toml(json_mode=json_output)
-    fmt = fmt.lower()
+    json_output = option_default(json_output, False)
+    fmt = option_default(fmt, "json").lower()
     if fmt not in {"json", "toml"}:
         error_exit(f"Unknown format: {fmt}. Use json or toml.", json_mode=json_output)
+    if fmt == "toml" and json_output:
+        error_exit(
+            "--format toml and --json select different output formats; pass one.", json_mode=True
+        )
+    doc, _ = load_toml(json_mode=json_output)
     import tomllib
 
     raw_doc = _redact_secrets(tomllib.loads(tomlkit.dumps(doc)))
@@ -606,7 +632,11 @@ def raw(
 
 @app.command(
     "path",
-    epilog="Examples:\n\n  rebrew cfg path --json\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg path --json\n\n"
+        "Prints the discovered project configuration path without editing it."
+    ),
 )
 def path_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -622,50 +652,59 @@ def path_cmd(
 
 @target_app.command(
     "add",
-    epilog="Examples:\n\n  rebrew cfg target add CLIENT --binary original/client.dll --dry-run\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg target add client --binary original/client.dll --dry-run\n\n"
+        "Configuration edits support --dry-run."
+    ),
 )
 def add_target(
-    name: str = typer.Argument(..., help="Target name (e.g. 'mygame')."),
-    binary: str = typer.Option(..., "--binary", "-b", help="Path to the original binary."),
+    name: str = typer.Argument(..., help="Target name (e.g. 'mygame')"),
+    binary: str = typer.Option(
+        ...,
+        "--binary",
+        "-b",
+        help="Path to the original binary",
+        click_type=TyperPath(path_type=str),
+    ),
     arch: str | None = typer.Option(
         None,
         "--arch",
         "-a",
-        help=("Architecture: " + ", ".join(ARCH_PRESETS) + " (auto-detected if omitted)."),
+        help=("Architecture: " + ", ".join(ARCH_PRESETS) + " (auto-detected if omitted)"),
     ),
-    fmt: str | None = typer.Option(
+    fmt: Literal["pe", "elf", "macho", "ne", "mz"] | None = typer.Option(
         None,
         "--format",
         "-f",
-        help="Binary format: pe, elf, macho, ne, mz (auto-detected if omitted).",
+        help="Binary format: pe, elf, macho, ne, mz (auto-detected if omitted)",
+        metavar="FORMAT",
     ),
     origins: str | None = typer.Option(
         None,
         "--modules",
-        help="Comma-separated module list (inherits from project or defaults to GAME).",
+        help="Comma-separated module list (inherits from project or defaults to GAME)",
     ),
     source_ext: str | None = typer.Option(
         None,
         "--source-ext",
-        help="Source file extension (e.g. .c, .cpp). Auto-detected from binary if omitted.",
+        help="Source file extension (e.g. .c, .cpp). Auto-detected from binary if omitted",
     ),
-    copy_binary: bool = typer.Option(True, "--copy/--no-copy", help="Copy binary into original/."),
+    copy_binary: bool = typer.Option(True, "--copy/--no-copy", help="Copy binary into original/"),
     force: bool = typer.Option(
         False,
         "--force",
-        help="Skip binary existence check; write stanza with default format/arch.",
+        help="Skip binary existence check; write stanza with default format/arch",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Add a new target section to rebrew-project.toml (idempotent).
 
-    Auto-detects binary format and architecture from file headers when not
-    specified.  Origins and other defaults are inherited from the first
-    existing target in the project if available.
+    Auto-detects binary format and architecture from file headers when not specified.  Origins and other defaults are inherited from the first existing target in the project if available.
 
     If the binary does not exist yet, the command refuses with an error unless
-    ``--force`` is passed (in which case a stanza with default format/arch is
+    --force is passed (in which case a stanza with default format/arch is
     written and a warning is emitted).
     """
     root = _find_root(json_mode=json_output)
@@ -867,10 +906,14 @@ def _add_target_locked(
 
 @target_app.command(
     "remove",
-    epilog="Examples:\n\n  rebrew cfg target remove my-game --dry-run --json\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg target remove my-game --dry-run --json\n\n"
+        "Configuration edits support --dry-run."
+    ),
 )
 def remove_target(
-    name: str = typer.Argument(..., help="Target name to remove."),
+    name: str = typer.Argument(..., help="Target name to remove"),
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -921,13 +964,17 @@ def _remove_target_locked(name: str, *, force: bool, dry_run: bool, json_mode: b
 
 @app.command(
     "set",
-    epilog="Examples:\n\n  rebrew cfg set project.name my-game --dry-run --json\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg set project.name my-game --dry-run --json\n\n"
+        "Configuration edits support --dry-run."
+    ),
 )
 def set_value(
     key: str = typer.Argument(
-        ..., help="Dot-separated key, e.g. 'compiler.cflags' or 'targets.mygame.arch'."
+        ..., help="Dot-separated key, e.g. 'compiler.cflags' or 'targets.mygame.arch'"
     ),
-    value: str = typer.Argument(..., help="Value to set."),
+    value: str = typer.Argument(..., help="Value to set"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
@@ -1081,10 +1128,14 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
 
 @module_app.command(
     "add",
-    epilog="Examples:\n\n  rebrew cfg module add GAME --dry-run\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg module add GAME --dry-run\n\n"
+        "Configuration edits support --dry-run."
+    ),
 )
 def add_module(
-    module: str = typer.Argument(..., help="Module name to add (e.g. 'ZLIB')."),
+    module: str = typer.Argument(..., help="Module name to add (e.g. 'ZLIB')"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -1167,10 +1218,14 @@ def _add_module_locked(module: str, *, target: str | None, dry_run: bool, json_m
 
 @module_app.command(
     "remove",
-    epilog="Examples:\n\n  rebrew cfg module remove GAME --dry-run\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg module remove GAME --dry-run\n\n"
+        "Configuration edits support --dry-run."
+    ),
 )
 def remove_module(
-    module: str = typer.Argument(..., help="Module name to remove."),
+    module: str = typer.Argument(..., help="Module name to remove"),
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -1261,18 +1316,22 @@ def _remove_module_locked(
 
 @module_app.command(
     "set-cflags",
-    epilog="Examples:\n\n  rebrew cfg module set-cflags --dry-run -- GAME /O2\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg module set-cflags --dry-run -- GAME /O2\n\n"
+        "Configuration edits support --dry-run."
+    ),
 )
 def set_cflags(
-    module: str = typer.Argument(..., help="Module/preset name (e.g. 'ZLIB', 'GAME')."),
-    flags: str = typer.Argument(..., help="Compiler flags string (e.g. '/O3')."),
+    module: str = typer.Argument(..., help="Module/preset name (e.g. 'ZLIB', 'GAME')"),
+    flags: str = typer.Argument(..., help="Compiler flags string (e.g. '/O3')"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = typer.Option(
         None,
         "--target",
         "-t",
-        help="Target name (sets per-target preset). Omit to set global preset.",
+        help="Target name (sets per-target preset). Omit to set global preset",
     ),
 ) -> None:
     """Set cflags preset for a module."""
@@ -1338,22 +1397,24 @@ def _set_cflags_locked(
 
 @target_app.command(
     "set-compiler",
-    epilog="Examples:\n\n  rebrew cfg target set-compiler SERVER msvc-6.0 --dry-run\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg target set-compiler server msvc-6.0 --dry-run\n\n"
+        "Configuration edits support --dry-run."
+    ),
 )
 def set_compiler(
-    target: str = typer.Argument(..., help="Target name (e.g. 'mygame')."),
+    target: str = typer.Argument(..., help="Target name (e.g. 'mygame')"),
     profile: str = typer.Argument(
         ...,
-        help="Compiler profile to set (e.g. 'msvc-6.0', 'gcc-14.2.0'; run 'rebrew toolchain list' for all).",
+        help="Compiler profile to set (e.g. 'msvc-6.0', 'gcc-14.2.0'; run 'rebrew toolchain list' for all)",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Set the compiler profile for a target.
 
-    Writes ``targets.<TARGET>.compiler.profile`` plus
-    ``command``/``includes``/``libs`` from the named profile preset.
-    Existing values for that target are overwritten.
+    Writes targets.<TARGET>.compiler.profile plus command/includes/libs from the named profile preset. Existing values for that target are overwritten.
 
     Run 'rebrew toolchain list' to inspect available compiler profiles.
     """
@@ -1534,7 +1595,11 @@ def detect_crt(
 
 @crt_app.command(
     "show",
-    epilog="Examples:\n\n  rebrew cfg detect-crt show --json\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg detect-crt show --json\n\n"
+        "Reports detected runtime source paths without registering them. Use apply to record missing paths."
+    ),
 )
 def show_crt(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -1546,7 +1611,11 @@ def show_crt(
 
 @crt_app.command(
     "apply",
-    epilog="Examples:\n\n  rebrew cfg detect-crt apply --dry-run --json\n\nSelect the operation first, then its arguments and options. Configuration edits support --dry-run.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg detect-crt apply --dry-run --json\n\n"
+        "Configuration edits support --dry-run."
+    ),
 )
 def apply_crt(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),

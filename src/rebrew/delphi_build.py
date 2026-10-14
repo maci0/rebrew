@@ -12,9 +12,9 @@ from rebrew.utils import safe_shlex_split
 app = typer.Typer(
     help="Compile a complete Delphi 1.0 Pascal program through its Docker image.",
     epilog=(
-        "Examples:\n\n"
+        "[bold]Examples:[/bold]\n\n"
         "  rebrew build delphi src/main/HOLIDAY.DPR --dcc-args '-$S-'\n\n"
-        "  rebrew build delphi HELLO.DPR --output build/HELLO.EXE --map build/HELLO.MAP --json\n\n"
+        "  rebrew build delphi hello.dpr -o hello.exe --map hello.map --json\n\n"
         "Source units always rebuild; a map uses the same compiler invocation and switches."
     ),
 )

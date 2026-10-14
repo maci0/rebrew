@@ -1321,14 +1321,12 @@ class TestProveInputsWatchedVasMetadata:
             self._prepare(tmp_path, monkeypatch, [0x100000000])  # type: ignore[arg-type]
 
 
-class TestWatchVaDecimal:
-    def test_decimal_watch_va_accepted(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """--watch-va decimal form still works (int(v, 0) preserves it)."""
-        result, watched, _ = _watch_va_run(tmp_path, monkeypatch, "268574328")
+class TestWatchVaBareHex:
+    def test_bare_watch_va_is_hex(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Bare watch addresses follow the hexadecimal VA contract."""
+        result, watched, _ = _watch_va_run(tmp_path, monkeypatch, "10027078")
         assert result.exit_code != 0
-        assert watched.get("watch_va") == [268574328]
+        assert watched.get("watch_va") == [0x10027078]
 
 
 class TestMaxDeltaFilter:

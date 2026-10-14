@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from typer.models import TyperPath
 
 from rebrew import source_paths
 from rebrew.c_parser import (
@@ -64,13 +65,17 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew source split src/game/funcs.c · · · · · · · · Split all functions into individual files\n\n"
-        "  rebrew source split src/game/funcs.c --va 0x10003da0 · Extract one function by VA\n\n"
-        "  rebrew source split src/game/funcs.c --dry-run · · · · Preview without writing files\n\n"
-        "  rebrew source split src/game/funcs.c --output out · · Custom output directory\n\n"
-        "  rebrew source split src/game/funcs.c --force · · · · · Overwrite existing output files\n\n"
-        "[dim]Each output file gets the shared preamble (includes, typedefs) plus one function. "
-        "With --va, the function is extracted and removed from the original source.[/dim]"
+        "  # Split all functions into individual files\n"
+        "  rebrew source split src/game/funcs.c\n\n"
+        "  # Extract one function by VA\n"
+        "  rebrew source split src/game/funcs.c --va 0x10003da0\n\n"
+        "  # Preview without writing files\n"
+        "  rebrew source split src/game/funcs.c --dry-run\n\n"
+        "  # Custom output directory\n"
+        "  rebrew source split src/game/funcs.c --output out\n\n"
+        "  # Overwrite existing output files\n"
+        "  rebrew source split src/game/funcs.c --force\n\n"
+        "[dim]Each output file gets the shared preamble (includes, typedefs) plus one function. With --va, the function is extracted and removed from the original source.[/dim]"
     ),
 )
 
@@ -756,11 +761,15 @@ def _split_definitions(
 
 @app.callback(invoke_without_command=True)
 def main(
-    source: str | None = typer.Argument(None, help="Path to a multi-function source file"),
+    source: str = typer.Argument(
+        ..., help="Path to a multi-function source file", click_type=TyperPath(path_type=str)
+    ),
     va: str | None = typer.Option(
         None, "--va", help="Extract a single function by VA (hex) into its own file"
     ),
-    output_dir: str | None = typer.Option(None, "--output", "-o", help="Output directory"),
+    output_dir: str | None = typer.Option(
+        None, "--output", "-o", help="Output directory", click_type=TyperPath(path_type=str)
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     force: bool = typer.Option(
         False,
@@ -772,12 +781,8 @@ def main(
 ) -> None:
     """Split a multi-function C file into one file per function block.
 
-    With --va, extract a single function into its own file (preamble included).
-    Without --va, split ALL functions into individual files.
+    With --va, extract a single function into its own file (preamble included). Without --va, split ALL functions into individual files.
     """
-    if source is None:
-        error_exit("Source file argument is required", json_mode=json_output)
-
     cfg = require_config(target=target, json_mode=json_output)
     source_path = Path(source)
     if not source_path.exists() or not source_path.is_file():

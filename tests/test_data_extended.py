@@ -1628,3 +1628,64 @@ class TestDataMove:
         assert result.exit_code != 0
         assert "ADDRESS anchor" in json.loads(result.stdout)["error"]
         assert "SERVER.0x00001004" not in meta.read_text(encoding="utf-8")
+
+
+class TestDataOptionContracts:
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["layout", "audit", "--dry-run"],
+            ["layout", "fill", "--section", ".rdata"],
+            ["layout", "own", "--bss-only"],
+            ["layout", "fix-ownership", "--stub-file", "stubs.c"],
+            ["layout", "converge", "--stub-file", "stubs.c"],
+            ["fix-bss", "--force"],
+        ],
+    )
+    def test_removed_options_fail_before_execution(
+        self, monkeypatch: pytest.MonkeyPatch, args: list[str]
+    ) -> None:
+        from rebrew.data import app
+
+        def _unexpected(**kwargs: object) -> None:
+            pytest.fail("an invalid option reached the data writer")
+
+        monkeypatch.setattr("rebrew.data.execute_data", _unexpected)
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 2, result.output
+        assert "No such option" in result.output
+
+    @pytest.mark.parametrize("bss_only", [False, True])
+    def test_fill_forwards_bss_selection_to_layout_writer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bss_only: bool
+    ) -> None:
+        from rebrew.data import app
+
+        cfg = _cfg(tmp_path, shared_dir=tmp_path / "shared")
+        write_store_fixture(tmp_path / "rebrew-data.toml", "format = 2\n")
+        monkeypatch.setattr("rebrew.data.require_config", lambda **kw: cfg)
+        seen: dict = {}
+
+        def _fill(*args: object, **kwargs: object) -> dict[str, int]:
+            seen.update(args=args, kwargs=kwargs)
+            return {"init_pads": 0, "bss_pads": 1}
+
+        monkeypatch.setattr("rebrew.data_layout.fill_data", _fill)
+        args = ["layout", "fill", "--dry-run", "--json", "--target", "SERVER"]
+        if bss_only:
+            args.append("--bss-only")
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == {"init_pads": 0, "bss_pads": 1}
+        assert seen["args"] == (
+            tmp_path,
+            tmp_path / "rebrew-data.toml",
+            cfg.target_binary,
+            cfg.reversed_dir,
+        )
+        assert seen["kwargs"] == {
+            "dry_run": True,
+            "bss_only": bss_only,
+            "target": "SERVER",
+            "shared_dir": cfg.shared_dir,
+        }

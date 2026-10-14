@@ -56,10 +56,14 @@ from rebrew.utils import (
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew source inline-strings --dry-run · · · · · Preview the globals, write nothing\n\n"
-    "  rebrew source inline-strings --files src/a.c src/b.c · · Only these source files\n\n"
-    "  rebrew source inline-strings --inline-only · · · · · Replace uses, add no new globals\n\n"
-    "  rebrew source inline-strings --named --files src/a.c · Inline a.c's own char s_x[] pool\n"
+    "  # Preview the globals, write nothing\n"
+    "  rebrew source inline-strings --dry-run\n\n"
+    "  # Only these source files\n"
+    "  rebrew source inline-strings --files src/a.c --files src/b.c\n\n"
+    "  # Replace uses, add no new globals\n"
+    "  rebrew source inline-strings --inline-only\n\n"
+    "  # Inline a.c's own char s_x[] pool\n"
+    "  rebrew source inline-strings --named --files src/a.c\n"
 )
 
 
@@ -615,7 +619,11 @@ def main(
     token_prefix: str = typer.Option(
         "s_", "--token-prefix", help="Placeholder token prefix (s_<hint>_<ADDR>)"
     ),
-    inline_only: bool = typer.Option(False, "--inline-only", help="Skip --define materialization"),
+    inline_only: bool = typer.Option(
+        False,
+        "--inline-only",
+        help="Replace string uses without materializing new global definitions",
+    ),
     named: bool = typer.Option(
         False,
         "--named",

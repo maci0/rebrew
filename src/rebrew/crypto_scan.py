@@ -398,17 +398,14 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary crypto · · · · · · · · Scan the project's target binary\n\n"
-        "  rebrew binary crypto original/game.exe Scan a specific binary\n\n"
-        "  rebrew binary crypto game.exe --json · Machine-readable findings\n\n"
+        "  rebrew binary crypto  # Scan the project's target binary\n\n"
+        "  rebrew binary crypto original/game.exe  # Scan a specific binary\n\n"
+        "  rebrew binary crypto game.exe --json  # Machine-readable findings\n\n"
         "[bold]What it detects:[/bold]\n\n"
-        "  Constant tables · · · · AES S-box / inverse, SHA-256 K and H,\n\n"
-        "                          SHA-1 H, MD5 T (both endiannesses)\n\n"
-        "  Imports · · · · · · · · · Crypt* / BCrypt* / NCrypt*, EVP_* / RSA_*,\n\n"
-        "                          SHA* / MD5* / HMAC*, libsodium, mbedtls_*, ...\n\n"
-        "  Function names · · · · · Project functions matching those patterns\n\n"
-        "[dim]An import is high confidence; a function name is medium.  A\n"
-        "finding is an indicator, not proof the code is called.[/dim]"
+        "  Constant tables · ·  AES S-box / inverse, SHA-256 K and H, SHA-1 H, MD5 T (both endiannesses)\n\n"
+        "  Imports · · · · · ·  Crypt* / BCrypt* / NCrypt*, EVP_* / RSA_*, SHA* / MD5* / HMAC*, libsodium, mbedtls_*, ...\n\n"
+        "  Function names · · · Project functions matching those patterns\n\n"
+        "[dim]An import is high confidence; a function name is medium.  A finding is an indicator, not proof the code is called.[/dim]"
     ),
 )
 

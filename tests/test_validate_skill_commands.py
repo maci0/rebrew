@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import typer
+from typer.main import get_command
 
 from tools import validate_skill_commands as vsc
 
@@ -174,9 +176,20 @@ class TestDocumentationValidation:
         monkeypatch.setattr(vsc, "_SKILLS_DIR", skills)
         monkeypatch.setattr(vsc, "_current_docs", lambda: [guide])
         monkeypatch.setattr(vsc, "_run_help", lambda sub: (True, "--target-bin"))
+        app = typer.Typer()
+
+        @app.callback()
+        def main() -> None:
+            pytest.fail("validation invoked a command callback")
+
+        @app.command("test")
+        def command(target_bin: str | None = typer.Option(None, "--target-bin")) -> None:
+            pytest.fail("validation invoked a command callback")
+
+        monkeypatch.setattr(vsc, "_command_tree", lambda: get_command(app))
         assert not vsc.validate(quiet=True, docs=True)
         output = capsys.readouterr().out
-        assert "--target" in output and "flag not in --help" in output
+        assert "--target" in output and "flag not registered" in output
         assert "1 failure(s)" in output
 
     def test_docs_flag_checks_guide_flags(
@@ -190,3 +203,75 @@ class TestDocumentationValidation:
         monkeypatch.setattr(vsc, "_current_docs", lambda: [guide])
         monkeypatch.setattr(vsc, "_run_help", lambda sub: (True, "--json --target"))
         assert not vsc.validate(quiet=True, docs=True)
+
+    def test_prose_does_not_authorize_an_unregistered_option(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        guide = _md("`rebrew sync watch --json`", tmp_path)
+        app = typer.Typer()
+        sync = typer.Typer()
+        app.add_typer(sync, name="sync")
+
+        @sync.command("watch", help="Terminal only; no --json support")
+        def watch() -> None:
+            pytest.fail("validation invoked the watch callback")
+
+        monkeypatch.setattr(vsc, "_REPO_ROOT", tmp_path)
+        monkeypatch.setattr(vsc, "_SKILLS_DIR", skills)
+        monkeypatch.setattr(vsc, "_current_docs", lambda: [guide])
+        monkeypatch.setattr(vsc, "_command_tree", lambda: get_command(app))
+        monkeypatch.setattr(
+            vsc, "_run_help", lambda sub: (True, "Terminal only; no --json support")
+        )
+        assert not vsc.validate(quiet=True, docs=True)
+        assert "sync watch --json — flag not registered" in capsys.readouterr().out
+
+    def test_registered_option_is_checked_independently_of_help_prose(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        guide = _md("`rebrew status --json`", tmp_path)
+        monkeypatch.setattr(vsc, "_REPO_ROOT", tmp_path)
+        monkeypatch.setattr(vsc, "_SKILLS_DIR", skills)
+        monkeypatch.setattr(vsc, "_current_docs", lambda: [guide])
+        monkeypatch.setattr(vsc, "_run_help", lambda sub: (True, "status help"))
+        assert vsc.validate(quiet=True, docs=True)
+
+    def test_secondary_option_declarations_are_supported(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = typer.Typer()
+
+        @app.callback()
+        def main() -> None:
+            pytest.fail("validation invoked a command callback")
+
+        @app.command("toggle")
+        def toggle(enabled: bool = typer.Option(True, "--enabled/--no-enabled")) -> None:
+            pytest.fail("validation invoked a command callback")
+
+        monkeypatch.setattr(vsc, "_command_tree", lambda: get_command(app))
+        assert vsc._registered_flags("toggle") == {"--enabled", "--no-enabled"}
+
+    def test_failed_help_probe_keeps_its_diagnostic_without_option_lookup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        guide = _md("`rebrew status --json`", tmp_path)
+
+        def _unexpected(subcommand: str) -> set[str]:
+            pytest.fail("failed help probe triggered an option lookup")
+
+        monkeypatch.setattr(vsc, "_REPO_ROOT", tmp_path)
+        monkeypatch.setattr(vsc, "_SKILLS_DIR", skills)
+        monkeypatch.setattr(vsc, "_current_docs", lambda: [guide])
+        monkeypatch.setattr(vsc, "_run_help", lambda sub: (False, "<timeout>"))
+        monkeypatch.setattr(vsc, "_registered_flags", _unexpected)
+        assert not vsc.validate(quiet=True, docs=True)
+        output = capsys.readouterr().out
+        assert "probe timeout" in output
+        assert "not a skill defect" in output

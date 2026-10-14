@@ -1213,3 +1213,53 @@ class TestConfirmAbort:
         result = CliRunner().invoke(self._app(), input="")
         assert result.exit_code == EXIT_ERROR
         assert "--force" in result.stderr
+
+
+class TestResolveStoredSymbol:
+    def test_function_identity_inside_shared_file_is_selectable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.cli import select_annotation
+
+        monkeypatch.chdir(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        shared = src / "duo.c"
+        write_source(
+            shared,
+            "// ADDRESS: SERVER 0x1000\nint first(void) { return 1; }\n"
+            "// ADDRESS: SERVER 0x2000\nint __stdcall chosen(int x) { return x; }\n",
+            metadata_dir=tmp_path,
+            metadata_fields={
+                "SERVER.0x1000": {"kind": "FUNCTION", "symbol": "_first", "size": 4},
+                "SERVER.0x2000": {"kind": "FUNCTION", "symbol": "_chosen@4", "size": 8},
+            },
+        )
+        cfg = SimpleNamespace(
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            target_name="server",
+            source_ext=".c",
+        )
+        assert resolve_source_arg(cfg, "chosen") == shared
+        assert resolve_source_arg(cfg, "_chosen@4") == shared
+        path, ann, va = select_annotation(cfg, "chosen", None)
+        assert path == shared
+        assert va == ann.va == 0x2000
+        assert ann.symbol == "_chosen@4"
+
+    def test_exact_file_stem_precedes_stored_identity_in_another_file(self, tmp_path: Path) -> None:
+        named = tmp_path / "chosen.c"
+        named.write_text("int exact(void) { return 0; }\n")
+        shared = tmp_path / "another.c"
+        write_source(
+            shared,
+            "// ADDRESS: SERVER 0x1000\nint chosen(void) { return 1; }\n",
+            metadata_dir=tmp_path,
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "symbol": "_chosen", "size": 4}},
+        )
+        cfg = SimpleNamespace(
+            reversed_dir=tmp_path, metadata_dir=tmp_path, marker="SERVER", source_ext=".c"
+        )
+        assert resolve_source_arg(cfg, "chosen") == named

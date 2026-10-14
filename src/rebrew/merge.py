@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from typer.models import TyperPath
 
 from rebrew import source_paths
 from rebrew.c_parser import CALLING_CONVENTION
@@ -70,13 +71,15 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew source merge src/game/func1.c src/game/func2.c --output merged.c · Merge two files\n\n"
-        "  rebrew source merge src/game/ --output all_funcs.c · · · · · · · · · · · Merge entire directory\n\n"
-        "  rebrew source merge src/game/ --output merged.c --delete · · · · · · · · Merge and delete originals\n\n"
-        "  rebrew source merge src/game/ --output merged.c --consolidate · · · · · · Hoist declarations to the top\n\n"
-        "[dim]Shared preambles (includes, typedefs) are deduplicated. "
-        "Optional address anchors follow their declarations. "
-        "Definitions are selected through canonical metadata.[/dim]"
+        "  # Merge two files\n"
+        "  rebrew source merge src/game/func1.c src/game/func2.c --output merged.c\n\n"
+        "  # Merge entire directory\n"
+        "  rebrew source merge src/game/ --output all_funcs.c\n\n"
+        "  # Merge and delete originals\n"
+        "  rebrew source merge src/game/ --output merged.c --delete\n\n"
+        "  # Hoist declarations to the top\n"
+        "  rebrew source merge src/game/ --output merged.c --consolidate\n\n"
+        "[dim]Shared preambles (includes, typedefs) are deduplicated. Optional address anchors follow their declarations. Definitions are selected through canonical metadata.[/dim]"
     ),
 )
 
@@ -1153,14 +1156,17 @@ def _merge_definitions(
 
 @app.callback(invoke_without_command=True)
 def main(
-    sources: list[str] | None = typer.Argument(None, help="Input source files (or directories)"),
-    output: str = typer.Option(..., "--output", "-o", help="Output merged source file"),
+    sources: list[str] = typer.Argument(
+        ..., help="Input source files (or directories)", click_type=TyperPath(path_type=str)
+    ),
+    output: str = typer.Option(
+        ..., "--output", "-o", help="Output merged source file", click_type=TyperPath(path_type=str)
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     force: bool = typer.Option(
         False,
         "--force",
-        help="Overwrite output if it exists, skip the --delete confirmation, "
-        "and apply a migrated merge without a prompt",
+        help="Overwrite existing output and skip merge/delete confirmation prompts",
     ),
     delete: bool = typer.Option(
         False, "--delete", help="Delete input files after successful merge"
@@ -1173,10 +1179,8 @@ def main(
     shared: bool = typer.Option(
         False,
         "--shared",
-        help="Collapse twin files (same body, different target markers) into "
-        "one stacked block per body (one address anchor per target). "
-        "A migrated file keeps one C definition and retargets every row "
-        "that names an input. Bodies that differ are refused, never merged",
+        help="Combine identical bodies across targets into one definition with stacked "
+        "ADDRESS anchors; retarget all input metadata rows. Different bodies are refused",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

@@ -99,7 +99,7 @@ class TestWizardGating:
             target_name="demo",
             binary_name="demo.exe",
             compiler_profile="msvc-6.0",
-            install_completions=False,
+            write_completion_scripts=False,
             json_output=True,
             wizard=True,
         )
@@ -250,7 +250,7 @@ class TestWizardFullyFlagged:
                 "mini_pe.exe",
                 "--toolchain",
                 "msvc-6.0",
-                "--install-completions",
+                "--write-completions",
             ],
         )
         assert result.exit_code == 0, result.output + result.stderr
@@ -274,7 +274,7 @@ _FLAGGED = [
     "mini_pe.exe",
     "--toolchain",
     "msvc-6.0",
-    "--install-completions",
+    "--write-completions",
 ]
 
 

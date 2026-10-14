@@ -761,8 +761,6 @@ def write_coverage_toml(
     root_dir: Path,
     *,
     target: str | None = None,
-    force: bool = False,
-    regen: bool = False,
     json_output: bool = False,
     now: datetime | None = None,
 ) -> list[Path]:
@@ -770,15 +768,8 @@ def write_coverage_toml(
 
     The catalog inputs and every normalization come from
     :func:`rebrew.coverage_db.load_coverage_datasets` and its helpers, so this
-    writer and ``build_db`` answer the same questions the same way.  What it
-    does not inherit is the SQLite-only ceremony: there is no schema version to
-    check, no ``--force`` unlink of a previous file, and no sidecars to
-    recover.
-
-    *force* is accepted for signature symmetry with
-    :func:`rebrew.coverage_db.build_db` and has no effect: a stale file is fully
-    replaced on every write, so there is nothing to force past.  So is *regen*:
-    the catalog analysis always runs in this process.
+    writer and ``build_db`` answer the same questions the same way. The catalog
+    analysis always runs in this process, and each document is replaced whole.
 
     *now* fixes every instant this build stamps: the history rows it appends
     and the fallback date for a verify row whose cache mtime cannot be read.
@@ -792,7 +783,6 @@ def write_coverage_toml(
         root_dir,
         target=target,
         json_output=json_output,
-        regen=regen,
     )
     stamp = (now or datetime.now(UTC)).isoformat()
     written: list[Path] = []

@@ -45,11 +45,13 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew diagnose config src/f.c · · · · · · · · · Trace toolchain, flags, and library overrides\n\n"
-        "  rebrew diagnose config src/f.c --json · · · · · Machine-readable resolution steps to stdout\n\n"
-        "  rebrew diagnose config src/f.c -t mygame · · · Trace a specific target's resolution\n\n"
-        "[dim]The trace names every step in order: project default, per-function TOOLCHAIN/CFLAGS, "
-        "the nearest rebrew-libraries.toml, then the preset that filled the gaps.[/dim]"
+        "  # Trace toolchain, flags, and library overrides\n"
+        "  rebrew diagnose config src/f.c\n\n"
+        "  # Machine-readable resolution steps to stdout\n"
+        "  rebrew diagnose config src/f.c --json\n\n"
+        "  # Trace a specific target's resolution\n"
+        "  rebrew diagnose config src/f.c -t mygame\n\n"
+        "[dim]The trace names every step in order: project default, per-function TOOLCHAIN/CFLAGS, the nearest rebrew-libraries.toml, then the preset that filled the gaps.[/dim]"
     ),
 )
 

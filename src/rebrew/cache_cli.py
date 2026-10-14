@@ -1,9 +1,11 @@
 """rebrew cache: Manage the compile result cache."""
 
+from pathlib import Path
+
 import typer
 
 from rebrew.cli import (
-    TargetOption,
+    RootOption,
     confirm_abort,
     console,
     error_exit,
@@ -35,26 +37,27 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew cache stats · · · · · · Show cache size and entry count\n\n"
-        "  rebrew cache clear · · · · · · Delete all cached .obj files\n\n"
-        "  rebrew cache clear --force · · · Delete without a confirmation prompt\n\n"
-        "[dim]The compile cache stores .obj bytes keyed by (source + flags + compiler), "
-        "skipping docker/compiler startup on cache hit (hundreds of ms savings). "
-        "The store is pluggable: \\[cache] backend in rebrew-project.toml selects it "
-        "(default diskcache at {project_root}/.rebrew/compile_cache/).[/dim]"
+        "  rebrew cache stats\n\n"
+        "  rebrew cache clear\n\n"
+        "  rebrew cache clear --force\n\n"
+        "[dim]Cached objects avoid compiler startup when source, flags, and compiler inputs agree. clear prompts before deletion; --force skips that prompt. The \\[cache] backend is configurable; the default store is .rebrew/compile_cache/ under the project root.[/dim]\n\n"
     ),
 )
 
 
 @app.command(
-    epilog="Examples:\n\n  rebrew cache stats --json\n\nCache entries are compiler results keyed by source, flags, and compiler identity."
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cache stats --json\n\n"
+        "Cache entries are compiler results keyed by source, flags, and compiler identity."
+    )
 )
 def stats(
+    root: Path | None = RootOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
 ) -> None:
     """Show compile cache statistics."""
-    cfg = require_config(target=target, json_mode=json_output)
+    cfg = require_config(root=root, json_mode=json_output)
 
     backend = getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND)
     cache_dir = cfg.root / ".rebrew" / "compile_cache"
@@ -111,15 +114,19 @@ def stats(
 
 
 @app.command(
-    epilog="Examples:\n\n  rebrew cache clear --force\n\nCache entries are compiler results keyed by source, flags, and compiler identity."
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cache clear --force\n\n"
+        "Cache entries are compiler results keyed by source, flags, and compiler identity."
+    )
 )
 def clear(
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
+    root: Path | None = RootOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
 ) -> None:
     """Delete all cached .obj files."""
-    cfg = require_config(target=target, json_mode=json_output)
+    cfg = require_config(root=root, json_mode=json_output)
 
     backend = getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND)
     cache_dir = cfg.root / ".rebrew" / "compile_cache"

@@ -23,7 +23,7 @@ app = typer.Typer(
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew binary resource compare np_recompiled.exe original/notepad.exe\n"
-        "  rebrew binary resource compare --json np_recompiled.exe original/notepad.exe\n"
+        "  rebrew binary resource compare built.exe original.exe --json\n"
         "  rebrew binary resource extract np_recompiled.exe --output out/notepad.rsrc\n"
     ),
 )
@@ -46,7 +46,11 @@ def _rsrc_bytes(path: Path) -> tuple[bytes | None, dict[str, Any]]:
 
 @app.command(
     "compare",
-    epilog="Examples:\n\n  rebrew binary resource compare RECOMPILED ORIGINAL --json\n\nInput and output paths are shown above; use --help at the parent group to discover related operations.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binary resource compare build/game.exe original/game.exe --json\n\n"
+        "Compares raw resource bytes without modifying either binary. Returns 1 when they differ."
+    ),
 )
 def compare(
     recompiled: Path = typer.Argument(..., help="Recompiled PE (e.g. np_recompiled.exe)"),
@@ -112,14 +116,18 @@ def compare(
 
 @app.command(
     "extract",
-    epilog="Examples:\n\n  rebrew binary resource extract PE --json\n\nInput and output paths are shown above; use --help at the parent group to discover related operations.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binary resource extract game.exe -o game.rsrc --json\n\n"
+        "Writes the raw resource section into the selected output file."
+    ),
 )
 def extract(
     pe: Path = typer.Argument(..., help="PE to extract the .rsrc section from"),
     output: Path = typer.Option(Path("resource.rsrc"), "--output", "-o", help="Output file"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Extract the .rsrc section raw bytes to *output*."""
+    """Extract the .rsrc section raw bytes to output."""
     raw, info = _rsrc_bytes(pe)
     if raw is None:
         if json_output:

@@ -18,7 +18,12 @@ from rebrew.formats.ne_loader import NeParseError
 
 app = typer.Typer(
     help="Compare NE file/segment bytes and report separate content overlap.",
-    epilog="Examples:\n\n  rebrew binary ne-compare build/HOLIDAY.EXE --json\n\n  rebrew binary ne-compare rebuilt.EXE --original reference.EXE --window 32\n\nContent overlap is not source recovery; exit status follows complete file equality.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binary ne-compare build/HOLIDAY.EXE --json\n\n"
+        "  rebrew binary ne-compare rebuilt.EXE --original reference.EXE --window 32\n\n"
+        "Content overlap is not source recovery; exit status follows complete file equality."
+    ),
 )
 
 

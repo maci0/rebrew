@@ -3,7 +3,7 @@
 Runs the validator against packaged skills and current guides/templates to confirm
 it doesn't crash and that all commands found in SKILL.md files are actually
 registered in the CLI.  Does NOT invoke real rebrew commands; it only confirms
-``--help`` works (i.e., the subcommand exists and the flag is advertised).
+``--help`` works and referenced flags are registered on the resolved command.
 
 Note: This test spawns subprocesses via ``uv run rebrew <subcommand> --help``,
 so it requires the package to be installed (editable install is fine).

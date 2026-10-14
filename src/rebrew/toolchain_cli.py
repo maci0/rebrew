@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 import typer
 from rich.table import Table
+from typer.models import TyperPath
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -102,25 +103,23 @@ _TOOLCHAIN_DOWNLOAD_HOST_SUFFIXES = frozenset(
 )
 
 app = typer.Typer(
-    help="Standardized toolchain management (Windows/DOS profiles run in docker).",
+    help="Manage compiler profiles and Docker images for shipped toolchains.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew toolchain list · · · · · · · · List profiles and how each is invoked\n\n"
-        "  rebrew toolchain status msvc-6.0 · · · Is the docker image built?\n\n"
-        "  rebrew toolchain detect build/server.dll · Which profile built a binary?\n\n"
-        "  rebrew toolchain pull msvc-6.0 · · · · · Fetch the image from the registry\n\n"
-        "  rebrew toolchain build msvc-6.0 · · · · Build the image from source\n\n"
-        "[dim]Every shipped toolchain runs in docker: there is no host wine/wibo/\n"
-        "dosbox fallback, and a missing image is a hard error. Image tags and pins\n"
-        "are documented in the rebrew repo's docs/TOOLCHAIN.md.[/dim]"
+        "  rebrew toolchain list\n\n"
+        "  rebrew toolchain status msvc-6.0\n\n"
+        "  rebrew toolchain detect original/game.exe\n\n"
+        "  rebrew toolchain pull msvc-6.0\n\n"
+        "  rebrew toolchain build msvc-6.0\n\n"
+        "[dim]Shipped profiles compile in Docker. pull downloads an image; build uses the sibling recompile-toolchains checkout (or REBREW_TOOLCHAINS_DIR). vendor assembles compiler files for image builds. A missing image is an error; host Wine/wibo/DOSBox are not fallbacks.[/dim]\n\n"
     ),
 )
 
 
 @app.command(
     "list",
-    epilog="Examples:\n\n  rebrew toolchain list --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew toolchain list --json\n\n"),
 )
 def list_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -155,7 +154,7 @@ def list_cmd(
 
 @app.command(
     "status",
-    epilog="Examples:\n\n  rebrew toolchain status my-game --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew toolchain status msvc-6.0 --json\n\n"),
 )
 def status_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. msvc-6.0, delphi-1.0)"),
@@ -163,9 +162,8 @@ def status_cmd(
 ) -> None:
     """Show how one toolchain resolves (image built? vendored tree present?).
 
-    Execution is docker-only for every Windows/DOS toolchain, so the image
-    state is the primary signal; the vendored tree is informational (it is
-    the byte-identical source the image builds from)."""
+    Execution is Docker-only for every shipped toolchain, so the image state is the primary signal; the vendored tree is informational (it is the byte-identical source the image builds from).
+    """
     from rebrew.compiler.toolchain import get_toolchain, vendored_binary
 
     try:
@@ -251,10 +249,14 @@ def external_ranges(cfg: Any) -> list[tuple[int, int]]:
 
 @app.command(
     "detect",
-    epilog="Examples:\n\n  rebrew toolchain detect original/game.exe --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew toolchain detect original/game.exe --json\n\n"),
 )
 def detect_cmd(
-    binary: str = typer.Argument(..., help="Path to the target binary (PE/NE/ELF/Mach-O)"),
+    binary: str = typer.Argument(
+        ...,
+        help="Path to the target binary (PE/NE/ELF/Mach-O)",
+        click_type=TyperPath(path_type=str),
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -367,7 +369,7 @@ def detect_cmd(
 
 @app.command(
     "pull",
-    epilog="Examples:\n\n  rebrew toolchain pull my-game --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew toolchain pull msvc-6.0 --json\n\n"),
 )
 def pull_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. delphi-1.0)"),
@@ -597,7 +599,7 @@ def _abort_incomplete_vendor(extract_dir: Path, msg: str, *, json_mode: bool) ->
 
 @app.command(
     "vendor",
-    epilog="Examples:\n\n  rebrew toolchain vendor my-game --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew toolchain vendor msvc-6.0 --json\n\n"),
 )
 def vendor_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. msvc-1.52, borland-5.5)"),
@@ -605,13 +607,7 @@ def vendor_cmd(
 ) -> None:
     """Assemble the host toolchain tree from the pinned source.
 
-    Downloads (sha256-verified) or extracts the pinned tarball into
-    ``<family>/<version>-<arch>/source`` under the recompile-toolchains
-    checkout — the same source the docker image builds from, so host trees
-    and containers are byte-identical.  A *complete* tree is an idempotent
-    success (``already_present``), matching ``pull``.  An incomplete
-    ``source/`` from a failed prior run is removed so retry converges;
-    unexpected non-meta content still refuses to clobber.
+    Downloads (sha256-verified) or extracts the pinned tarball into <family>/<version>-<arch>/source under the recompile-toolchains checkout — the same source the docker image builds from, so host trees and containers are byte-identical.  A complete tree is an idempotent success (already_present), matching pull.  An incomplete source/ from a failed prior run is removed so retry converges; unexpected non-meta content still refuses to clobber.
     """
     import hashlib
     import tempfile
@@ -1150,15 +1146,18 @@ _SMOKE_GOLDEN: dict[
 
 @app.command(
     "smoke",
-    epilog="Examples:\n\n  rebrew toolchain smoke --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew toolchain smoke --json\n\n"
+        "Compiles a fixed probe in each selected image and compares masked object hashes with recorded expectations."
+    ),
 )
 def smoke_cmd(
     name: str | None = typer.Argument(None, help="Toolchain name; all image-backed by default"),
     print_goldens: bool = typer.Option(
         False,
         "--print-goldens",
-        help="Print the computed masked sha256 per toolchain (for updating "
-        "_SMOKE_GOLDEN after a toolchain source change) instead of comparing",
+        help="Print computed masked SHA-256 hashes instead of comparing recorded expectations",
     ),
     fixture: str | None = typer.Option(
         None,
@@ -1168,20 +1167,11 @@ def smoke_cmd(
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Compile the fixed smoke source in each image and verify the object
-    hash matches the golden bytes (reproducibility gate).
+    """Compile the fixed smoke source in each image and verify the object hash matches the golden bytes (reproducibility gate).
 
-    Deterministic inputs: a FIXED work directory and a FIXED source mtime
-    (the object metadata embeds both the source path and its modification
-    time — fresh writes would break the golden hashes).
+    Deterministic inputs: a FIXED work directory and a FIXED source mtime (the object metadata embeds both the source path and its modification time — fresh writes would break the golden hashes).
 
-    --print-goldens recomputes the masked hashes WITHOUT comparing, so a
-    maintainer who bumps a pinned toolchain source (new tarball/snapshot)
-    can regenerate the _SMOKE_GOLDEN table mechanically: run it, verify the
-    new hashes are stable across a second run, then paste them in.
-    --fixture selects another profile's smoke inputs for a named new or
-    overlay profile; it is only accepted with --print-goldens and never
-    supplies an expected hash for that profile.
+    --print-goldens recomputes the masked hashes WITHOUT comparing, so a maintainer who bumps a pinned toolchain source (new tarball/snapshot) can refresh the recorded expectations: run it, verify the new hashes are stable across a second run, then paste them in. --fixture selects another profile's smoke inputs for a named new or overlay profile; it is only accepted with --print-goldens and never supplies an expected hash for that profile.
     """
     import os
 
@@ -1301,7 +1291,7 @@ def smoke_cmd(
 
 @app.command(
     "build",
-    epilog="Examples:\n\n  rebrew toolchain build my-game --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew toolchain build msvc-6.0 --json\n\n"),
 )
 def build_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. watcom-2.0-win32, msvc-6.0)"),
@@ -1610,20 +1600,19 @@ def _live_commit_sha(
 
 @app.command(
     "check-updates",
-    epilog="Examples:\n\n  rebrew toolchain check-updates --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew toolchain check-updates --json\n\n"
+        "Reports upstream drift in pinned sources without changing pins or compiler trees."
+    ),
 )
 def check_updates_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Detect upstream drift in pinned toolchain sources.
 
-    GitHub-codeload sources (archaic-msvc, archaic-toolchains, itsmattkc,
-    open-watcom): compares the live default-branch commit sha (GitHub API —
-    no download) against the commit the pin was taken from.  The Open
-    Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded
-    and re-hashed.  Immutable release assets (decomp.me, archive.org) and
-    pinned tarballs (16-bit media in the recompile-toolchains checkout) are
-    reported as static."""
+    GitHub-codeload sources (archaic-msvc, archaic-toolchains, itsmattkc, open-watcom): compares the live default-branch commit sha (GitHub API — no download) against the commit the pin was taken from.  The Open Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded and re-hashed.  Immutable release assets (decomp.me, archive.org) and pinned tarballs (16-bit media in the recompile-toolchains checkout) are reported as static.
+    """
     import hashlib
     import re
     import tempfile
@@ -1778,7 +1767,7 @@ def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
 
 @app.command(
     "update",
-    epilog="Examples:\n\n  rebrew toolchain update my-game --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew toolchain update msvc-6.0 --json\n\n"),
 )
 def update_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. msvc-6.0, watcom-2.0-win32)"),
@@ -1789,11 +1778,8 @@ def update_cmd(
 ) -> None:
     """Re-pin a toolchain source to the current upstream and rebuild.
 
-    Dry-run (default): downloads the current source and reports the
-    old -> new pin (sha256 + commit).  --apply additionally rewrites
-    SOURCES, clears + re-vendors the host tree, rebuilds the docker
-    image, regenerates the smoke golden (verified stable across two
-    compiles) and runs the smoke gate for that toolchain."""
+    Dry-run (default): downloads the current source and reports the old -> new pin (sha256 + commit).  --apply additionally rewrites SOURCES, clears + re-vendors the host tree, rebuilds the docker image, regenerates the smoke golden (verified stable across two compiles) and runs the smoke gate for that toolchain.
+    """
     import contextlib
     import hashlib
     import re
@@ -1940,7 +1926,12 @@ def update_cmd(
 
 @app.command(
     "install-wibo",
-    epilog="Examples:\n\n  rebrew toolchain install-wibo\n\n  rebrew toolchain install-wibo --json\n\nDownloads the optional host runner. Docker-backed profiles retain their runner configuration.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew toolchain install-wibo\n\n"
+        "  rebrew toolchain install-wibo --json\n\n"
+        "Downloads the optional host runner. Docker-backed profiles retain their runner configuration."
+    ),
 )
 def install_wibo(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

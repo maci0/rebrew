@@ -377,7 +377,6 @@ def load_coverage_datasets(
     *,
     target: str | None,
     json_output: bool,
-    regen: bool,
 ) -> list[tuple[str, dict[str, Any]]]:
     """Build the catalog input for every target to write.
 
@@ -385,11 +384,6 @@ def load_coverage_datasets(
     :func:`rebrew.catalog.pipeline.build_catalog_data`; there is no snapshot
     file in between, so a document can never describe an older tree than the
     one that produced it.
-
-    *regen* is accepted and dropped: generating in this process is the only
-    mode left, so there is nothing for it to select.  It stays in the signature
-    because it is an existing call shape and ``build-db --regen`` an existing
-    command line.
     """
     from rebrew.catalog.pipeline import build_catalog_data
 
@@ -420,29 +414,19 @@ def write_coverage(
     root_dir: Path,
     *,
     target: str | None,
-    force: bool,
     json_output: bool,
-    regen: bool = False,
 ) -> list[Path]:
     """Write every target's document and report the result.  Returns the paths.
 
     The output directory is created first: the writer replaces files in place
     (``os.replace`` of a sibling temp file) and has nothing to put a project's
     first document into.
-
-    *force* is accepted and dropped: :func:`rebrew.coverage_toml.
-    write_coverage_toml` replaces each document whole, so there is no stale
-    schema to migrate past and no partial state to recover.  It stays in the
-    signature because ``rebrew coverage build --force`` is an existing command line
-    and a script that passes it should not start exiting 2.
     """
     from rebrew.coverage_toml import write_coverage_toml
 
     db_directory = resolve_db_dir(root_dir, json_output=json_output)
     db_directory.mkdir(parents=True, exist_ok=True)
-    written = write_coverage_toml(
-        root_dir, target=target, force=force, json_output=json_output, regen=regen
-    )
+    written = write_coverage_toml(root_dir, target=target, json_output=json_output)
     # The filename IS the target name (coverage_toml resolves one from the
     # other in both directions), so the stem is the only place a caller of the
     # writer can read back which datasets it wrote.
@@ -461,20 +445,15 @@ def build_db(
     project_root: Path | None = None,
     target: str | None = None,
     json_output: bool = False,
-    force: bool = False,
-    regen: bool = False,
 ) -> None:
     """Write the configured project's ``coverage-<target>.toml`` documents.
 
-    The in-process twin of the ``build-db`` command, kept as a function so a
+    The in-process twin of ``rebrew coverage build``, kept as a function so a
     tool that writes coverage inside its own process (recoverage's ``regen``)
     has a call to make.  It is the same code path the command runs.
-
-    *regen* is accepted and dropped, exactly as ``build-db --regen`` accepts it
-    and drops it: the analysis always runs here.
     """
     root_dir = Path(project_root).resolve() if project_root else Path.cwd().resolve()
-    write_coverage(root_dir, target=target, force=force, json_output=json_output, regen=regen)
+    write_coverage(root_dir, target=target, json_output=json_output)
 
 
 def _verify_cache_belongs_to_project(root_dir: Path, target_name: str, raw: dict[str, Any]) -> bool:

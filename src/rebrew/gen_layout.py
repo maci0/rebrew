@@ -64,9 +64,9 @@ from rebrew.utils import atomic_write_text, container_runtime, fold_ident, pe_na
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build layout --dry-run · · · · · · Show the generated script, write nothing\n\n"
-    "  rebrew build layout --def-only · · · · · · Only the module .def\n\n"
-    "  rebrew build layout --data-gap 0x40 · · · · Copy a reference .data tail\n"
+    "  rebrew build layout --dry-run  # Show the generated script, write nothing\n\n"
+    "  rebrew build layout --def-only  # Only the module .def\n\n"
+    "  rebrew build layout --data-gap 0x40  # Copy a reference .data tail\n"
 )
 
 
@@ -643,7 +643,7 @@ def main(
     if json_output:
         json_print(result)
     else:
-        console.print(f"gen-layout: {len(exports)} exports, {len(imports)} imports")
+        console.print(f"build layout: {len(exports)} exports, {len(imports)} imports")
         for w in written:
             console.print(f"  wrote {w}")
 

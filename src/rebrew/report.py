@@ -1616,11 +1616,11 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew coverage report · · · · · · · · · · · · · · Write site to <output_dir>/report\n\n"
-    "  rebrew coverage report --output site · · · · · · · · Write site to ./site\n\n"
-    "  rebrew coverage report --decomp-dev report.json · · Write an objdiff-format\n"
+    "  rebrew coverage report  # Write site to <output_dir>/report\n\n"
+    "  rebrew coverage report --output site  # Write site to ./site\n\n"
+    "  rebrew coverage report --decomp-dev report.json  # Write an objdiff-format\n"
     "                                            report.json for decomp.dev\n\n"
-    "  rebrew coverage report --json · · · · · · · · · · · Machine-readable summary\n\n"
+    "  rebrew coverage report --json  # Machine-readable summary\n\n"
     "[dim]Generates a self-contained static HTML site (function index, strings, "
     "imports, call graph) with all styling inlined — no external assets.  "
     "Long tables paginate; a call graph over 32 KB of Mermaid moves to "
@@ -1643,7 +1643,7 @@ def main(
     decomp_dev: Path | None = typer.Option(
         None,
         "--decomp-dev",
-        help="Write an objdiff-format report.json for decomp.dev (path to report.json).",
+        help="Write an objdiff-format report.json for decomp.dev (path to report.json)",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

@@ -1387,31 +1387,28 @@ def collect_all(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew todo · · · · · · · · · · Top 20 actions by ROI (size + similarity to target)\n\n"
-    "  rebrew todo --limit 50 · · · · · Show top 50\n\n"
-    "  rebrew todo --category fix-delta · · · · Filter to quick-win near-misses (<= 20B diff)\n\n"
-    "  rebrew todo --category improve-match · · Filter to functions needing general work\n\n"
-    "  rebrew todo --json · · · · · · · Machine-readable JSON output\n\n"
+    "  rebrew todo  # Top 20 actions by ROI (size + similarity to target)\n\n"
+    "  rebrew todo --limit 50  # Show top 50\n\n"
+    "  # Filter to quick-win near-misses (<= 20B diff)\n"
+    "  rebrew todo --category fix-delta\n\n"
+    "  # Filter to functions needing general work\n"
+    "  rebrew todo --category improve-match\n\n"
+    "  rebrew todo --json  # Machine-readable JSON output\n\n"
     "[bold]Categories (interleaved globally by continuous ROI score):[/bold]\n\n"
     "  setup · · · · · · · · · Project setup steps (fresh projects)\n\n"
     "  compile-error · · · · · Failed verify syntax/includes\n\n"
-    "  extract-error · · · · · Symbol not found in .obj — marker/symbol/implementation issue\n\n"
+    "  extract-error · · · · · Symbol not found in .obj — binding/symbol/implementation issue\n\n"
     "  fix-delta · · · · · · · Known tiny byte diffs (<= 20B) — flag sweeps, padding, GA\n\n"
     "  improve-match · · · · · Functions in-progress without a known small delta\n\n"
-    "  start-function · · · · · Uncovered functions, ranked by difficulty\n\n"
-    "  missing-annotation · · · Found in Ghidra but missing C body or SIZE annotation\n\n"
-    "  identify-library · · · · Uncovered library-origin functions\n\n"
-    "  run-prover · · · · · · · Small nearly-matching functions (angr equivalence)\n\n"
-    "  documented · · · · · · · IAT thunks / non-reproducible code — audit only, "
-    "hidden from the default list\n\n"
-    "  data-drift · · · · · · · Data symbol differs from reference bytes — run\n\n"
-    "                         `rebrew verify --data`\n\n"
-    "  start-data · · · · · · · Data symbol never verified — run\n\n"
-    "                         `rebrew verify --data`\n\n"
-    "  exact-only · · · · · · · RELOC matches: identical only with relocations\n"
-    "                         masked, not straight out of the toolchain\n\n"
-    "  postlink-mangled · · · · Functions whose shipped bytes a postlink fixer\n"
-    "                         rewrote (needs `raw_link` configured)\n\n"
+    "  start-function · · · ·  Uncovered functions, ranked by difficulty\n\n"
+    "  missing-annotation · ·  Found in Ghidra but missing C body or SIZE metadata\n\n"
+    "  identify-library · · ·  Uncovered library-origin functions\n\n"
+    "  run-prover · · · · · ·  Small nearly-matching functions (angr equivalence)\n\n"
+    "  documented · · · · · ·  IAT thunks / non-reproducible code — audit only, hidden from the default list\n\n"
+    "  data-drift · · · · · ·  Data symbol differs from reference bytes — run `rebrew verify --data`\n\n"
+    "  start-data · · · · · ·  Data symbol never verified — run `rebrew verify --data`\n\n"
+    "  exact-only · · · · · ·  RELOC matches: identical only with relocations masked, not straight out of the toolchain\n\n"
+    "  postlink-mangled · · ·  Functions whose shipped bytes a postlink fixer rewrote (needs `raw_link` configured)\n\n"
     "[dim]Reads from function_structure.json, source files, and .rebrew/verify_cache.toml.[/dim]"
 )
 
@@ -1424,7 +1421,7 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    count: int = typer.Option(20, "--limit", "-n", help="Number of items to show"),
+    count: int = typer.Option(20, "--limit", "-n", help="Number of items to show (0 = none)"),
     category: str | None = typer.Option(
         None,
         "--category",

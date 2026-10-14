@@ -94,7 +94,7 @@ provenance tables. Deleting derived coverage/cache files does not delete them.
   alone is not a provider.
 
 When a source identity and a map entry both exist, the source wins.
-`--nolib` drops every library-origin row, source-built and statically linked.
+`--skip-libraries` drops every library-origin row, source-built and statically linked.
 A header with no source binding is skipped as a declaration. Never count an
 identified-only header's default EXACT as a source verification.
 

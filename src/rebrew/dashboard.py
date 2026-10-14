@@ -210,7 +210,7 @@ import zstandard
 from rich.markup import escape
 
 from rebrew import theme
-from rebrew.cli import RootOption, console, error_exit, json_print, require_root
+from rebrew.cli import RootOption, console, error_exit, json_print, option_default, require_root
 from rebrew.compression import precompress
 from rebrew.coverage_db import resolve_db_dir
 from rebrew.coverage_toml import (
@@ -3743,33 +3743,24 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew coverage build · · · · · · · · Write db/coverage-<target>.toml first\n\n"
-        "  rebrew coverage serve · · · · · · · Serve on http://127.0.0.1:8000\n\n"
-        "  rebrew coverage serve --port 9000 · Custom port\n\n"
-        "  rebrew coverage serve --json · · · · Print bind URL + db path, then exit\n\n"
+        "  rebrew coverage build  # Write db/coverage-<target>.toml first\n\n"
+        "  rebrew coverage serve  # Serve on http://127.0.0.1:8000\n\n"
+        "  rebrew coverage serve --port 9000  # Custom port\n\n"
+        "  # Print bind URL + db path, then exit\n"
+        "  rebrew coverage serve --print-url --json\n\n"
         "[bold]Endpoints:[/bold]\n\n"
-        "  / · · · · · · · · · · · · HTML shell (targets, summary, function search)\n\n"
-        "  /app.js · · · · · · · · · Deferred dashboard client\n\n"
-        "  /favicon.svg · · · · · · The rebrew mark\n\n"
-        "  /api/bootstrap · · · · · · Targets + first target summary/functions\n\n"
+        "  / · · · · · · · · · · · · · HTML shell (targets, summary, function search)\n\n"
+        "  /app.js · · · · · · · · · · Deferred dashboard client\n\n"
+        "  /favicon.svg · · · · · · ·  The rebrew mark\n\n"
+        "  /api/bootstrap · · · · · ·  Targets + first target summary/functions\n\n"
         "  /api/health · · · · · · · · Liveness: server up + coverage readable\n\n"
-        "  /api/targets · · · · · · List targets\n\n"
-        "  /api/summary?target= · · Coverage stats (target required)\n\n"
-        "  /api/functions?target= · Function rows (status/module/q/limit/offset)\n\n"
-        "  /api/sections?target= · · Per-section cell stats\n\n"
-        "  /api/globals?target= · · Global data rows (module/q/limit/offset)\n\n"
-        "  /api/history?target= · · Status-change history (limit/offset)\n\n"
-        "[dim]Read-only: the documents are opened for reading only. "
-        "Target-scoped routes need ?target= "
-        "(400 if missing, 404 if unknown; a target is one readable "
-        "coverage-<target>.toml; an unknown status= is "
-        "400, not an empty page). A present empty "
-        "module= matches a blank module. Non-GET/HEAD on a served route → 405 "
-        "with Allow: GET, HEAD; a path the server does not serve → 404 whatever "
-        "the method; a directory yielding no readable document → 500 "
-        "database_error on /api/health. A connection past the in-flight cap → "
-        "503 server_busy with Retry-After. Error bodies are "
-        '{"error": "<message>", "code": "<code>"}; branch on code.[/dim]'
+        "  /api/targets · · · · · · ·  List targets\n\n"
+        "  /api/summary?target= · · ·  Coverage stats (target required)\n\n"
+        "  /api/functions?target= · ·  Function rows (status/module/q/limit/offset)\n\n"
+        "  /api/sections?target= · · · Per-section cell stats\n\n"
+        "  /api/globals?target= · · ·  Global data rows (module/q/limit/offset)\n\n"
+        "  /api/history?target= · · ·  Status-change history (limit/offset)\n\n"
+        '[dim]Read-only: the documents are opened for reading only. Target-scoped routes need ?target= (400 if missing, 404 if unknown; a target is one readable coverage-<target>.toml; an unknown status= is 400, not an empty page). A present empty module= matches a blank module. Non-GET/HEAD on a served route → 405 with Allow: GET, HEAD; a path the server does not serve → 404 whatever the method; a directory yielding no readable document → 500 database_error on /api/health. A connection past the in-flight cap → 503 server_busy with Retry-After. Error bodies are {"error": "<message>", "code": "<code>"}; branch on code.[/dim]'
     ),
 )
 
@@ -3779,9 +3770,15 @@ def main(
     host: str = typer.Option("127.0.0.1", "--host", help="Bind host"),
     port: int = typer.Option(8000, "--port", "-p", help="Bind port"),
     root: Path | None = RootOption,
+    print_url: bool = typer.Option(
+        False, "--print-url", help="Print the dashboard URL without serving; required with --json"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Serve the coverage documents as a read-only web dashboard."""
+    print_url = option_default(print_url, False)
+    if json_output and not print_url:
+        error_exit("--json requires --print-url; omit --json to start the server", json_mode=True)
     root_dir = require_root(root, json_mode=json_output)
     db_dir = resolve_db_dir(root_dir, json_output=json_output)
 
@@ -3792,12 +3789,13 @@ def main(
     except CoverageTomlError as exc:
         error_exit(str(exc), json_mode=json_output)
 
-    if json_output:
-        # Machine-readable probe: emit the bind URL and the coverage directory,
-        # then exit.  Starting the server here would hang every ``rebrew
-        # dashboard --json | jq`` consumer (and mix the later "serving…" line
-        # onto stderr).
-        json_print({"url": f"http://{host}:{port}", "coverage_dir": str(db_dir)})
+    if print_url:
+        url_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+        url = f"http://{url_host}:{port}"
+        if json_output:
+            json_print({"url": url, "coverage_dir": str(db_dir)})
+        else:
+            print(url)
         return
 
     # Non-loopback binds expose the read-only coverage API with no auth

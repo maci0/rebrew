@@ -203,19 +203,21 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew skills list · · · · · · · · · · List all available skills\n\n"
-        "  rebrew skills show rebrew-workflow · · Show the rebrew-workflow skill guide\n\n"
-        "  rebrew skills list --json · · · · · · Machine-readable skill list\n\n"
-        "[dim]Skills live in src/rebrew/agent-skills/ (community skills merge "
-        "in via $REBREW_SKILLS_DIR). "
-        "Each directory contains a SKILL.md with YAML frontmatter.[/dim]"
+        "  rebrew skills list\n\n"
+        "  rebrew skills list --json\n\n"
+        "  rebrew skills show rebrew-workflow\n\n"
+        "[dim]show writes the skill guide to stdout. REBREW_SKILLS_DIR merges user skills over packaged skills by name. rebrew init copies the merged skill set into a project.[/dim]\n\n"
     ),
 )
 
 
 @app.command(
     "list",
-    epilog="Examples:\n\n  rebrew skills list --json\n\nPackaged skills are the source of generated project guidance; user skills merge by name.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew skills list --json\n\n"
+        "Packaged skills are the source of generated project guidance; user skills merge by name."
+    ),
 )
 def list_skills(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -248,10 +250,14 @@ def list_skills(
 
 @app.command(
     "show",
-    epilog="Examples:\n\n  rebrew skills show my-game --json\n\nPackaged skills are the source of generated project guidance; user skills merge by name.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew skills show rebrew-workflow --json\n\n"
+        "Packaged skills are the source of generated project guidance; user skills merge by name."
+    ),
 )
 def show_skill(
-    name: str = typer.Argument(..., help="Skill name (e.g. 'rebrew-workflow')."),
+    name: str = typer.Argument(..., help="Skill name (e.g. 'rebrew-workflow')"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Pretty-print the SKILL.md for the named skill."""

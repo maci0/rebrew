@@ -248,7 +248,7 @@ PLACEHOLDER_A Name mangling schemes differ per compiler family: **Microsoft `?na
 
 | ID | Rule | Scope | Status |
 |----|------|-------|--------|
-| K1 | COMDAT VA-contiguity (F15): each `.c`'s functions link as a contiguous VA run (0x10-padded), so VA-adjacent functions must stay in one file; uncovered holes need naked `_emit` placeholders in VA order; duplicate `// FUNCTION:` coverage breaks the layout silently | VC 6.0 linking | D (GD finding 15) |
+| K1 | COMDAT VA-contiguity (F15): each `.c`'s functions link as a contiguous VA run (0x10-padded), so VA-adjacent functions must stay in one file; uncovered holes need naked `_emit` placeholders in VA order; duplicate address-bound ownership breaks the layout silently | VC 6.0 linking | D (GD finding 15) |
 
 ## How to add a rule
 

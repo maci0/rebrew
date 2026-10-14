@@ -1268,12 +1268,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew source import-related --from v1.1 · · · · · · · Import v1.1's matched functions\n"
+        "  # Import v1.1's matched functions\n"
+        "  rebrew source import-related --from v1.1\n"
         "  rebrew source import-related --from game.exe --min-score 90\n"
-        "  rebrew source import-related --from v1.1 --dry-run --json · Preview\n\n"
-        "[dim]Matches the source target's EXACT/RELOC functions against this\n"
-        "target's unmatched functions structurally (no compile needed to match);\n"
-        "imported sources are verified against this target before STATUS promotion.[/dim]"
+        "  rebrew source import-related --from v1.1 --dry-run --json  # Preview\n\n"
+        "[dim]Matches the source target's EXACT/RELOC functions against this target's unmatched functions structurally (no compile needed to match); imported sources are verified against this target before STATUS promotion.[/dim]"
     ),
 )
 
@@ -1286,7 +1285,7 @@ def main(
     min_score: float = typer.Option(
         95.0,
         "--min-score",
-        help="Minimum similarity score (0-100) to import (default 95: identical "
+        help="Minimum similarity score (0-100) to import (identical "
         "code scores 100, structural siblings with a shared prologue score "
         "high 80s-low 90s)",
     ),
@@ -1301,7 +1300,9 @@ def main(
         "--source-va",
         help="Restrict to one matched source VA (hex); score, gap and verification still apply",
     ),
-    limit: int | None = typer.Option(None, "--limit", help="Import at most N functions"),
+    limit: int | None = typer.Option(
+        None, "--limit", help="Import at most N functions (0 = none; omitted = unlimited)"
+    ),
     shared: bool = typer.Option(
         False,
         "--shared",
@@ -1587,7 +1588,9 @@ def main(
         json_print(payload)
         return
 
-    table = Table(title=f"cross-import {from_target} → {cfg.target_name}", header_style="bold")
+    table = Table(
+        title=f"source import-related {from_target} → {cfg.target_name}", header_style="bold"
+    )
     for col in (
         "Dest VA",
         "Src VA",

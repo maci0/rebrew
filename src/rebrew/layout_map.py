@@ -43,9 +43,10 @@ from rebrew.utils import atomic_write_text
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build layout-map · · · · · · · · · Dump sections, gaps, IAT, and exports\n\n"
-    "  rebrew build layout-map --output layout.json · Write the measurements to a file\n\n"
-    "  rebrew build layout-map --target win16 --json · Machine-readable output\n"
+    "  rebrew build layout-map  # Dump sections, gaps, IAT, and exports\n\n"
+    "  # Write measurement text files into a directory\n"
+    "  rebrew build layout-map --output output/layout/\n\n"
+    "  rebrew build layout-map --target win16 --json  # Machine-readable output\n"
 )
 
 

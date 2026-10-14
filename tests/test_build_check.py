@@ -424,3 +424,29 @@ def test_object_freshness_make_missing_is_not_reported_as_ok(
     assert result["status"] == "not-configured"
     assert "could not run make" in result["message"]
     assert "No such file" in result["message"]
+
+
+@pytest.mark.parametrize("status, code", [("ok", 0), ("drift", 1), ("not-configured", 2)])
+def test_json_and_objects_remain_independent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str, code: int
+) -> None:
+    import json
+
+    from typer.main import get_command
+    from typer.testing import CliRunner
+
+    seen: dict = {}
+
+    def _check(build_dir: Path, *, objects: bool) -> dict:
+        seen.update(build_dir=build_dir, objects=objects)
+        return {"status": status, "message": "checked", "drift": []}
+
+    monkeypatch.setattr(build_check, "check", _check)
+    result = CliRunner().invoke(
+        build_check.app, ["--build-dir", str(tmp_path), "--objects", "--json"]
+    )
+    assert result.exit_code == code, result.output
+    assert json.loads(result.stdout)["status"] == status
+    assert seen == {"build_dir": tmp_path, "objects": True}
+    names = [param.name for param in get_command(build_check.app).params]
+    assert names.index("objects") < names.index("json_output")

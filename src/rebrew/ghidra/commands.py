@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from rebrew.catalog import RegistryEntry
 
+from rebrew.cli import json_print
 from rebrew.config import ProjectConfig
 from rebrew.ghidra.client import (
     MAX_MCP_ITEMS,
@@ -199,6 +200,8 @@ def pull_data(
     endpoint: str,
     program_path: str,
     dry_run: bool,
+    *,
+    json_output: bool = False,
 ) -> None:
     """Pull data labels from Ghidra and generate rebrew_globals.h.
 
@@ -207,6 +210,20 @@ def pull_data(
     with extern declarations.
     """
     import httpx  # deferred: ~46 ms of startup for non-Ghidra commands
+
+    out_file = cfg.reversed_dir / "rebrew_globals.h"
+
+    def _report(count: int = 0, *, written: bool = False, error: str | None = None) -> None:
+        if json_output:
+            payload: dict[str, Any] = {
+                "output": str(out_file),
+                "globals": count,
+                "written": written,
+                "dry_run": dry_run,
+            }
+            if error is not None:
+                payload["error"] = error
+            json_print(payload)
 
     def _canonical_section_name(section_name: str) -> str:
         name = section_name.lower()
@@ -361,6 +378,7 @@ def pull_data(
             session_cleanup.callback(end_mcp_session, client, endpoint, session_id)
         except (httpx.HTTPError, McpError) as e:
             console.print(f"[yellow]warning:[/yellow] Could not connect to MCP endpoint: {e}")
+            _report(error=f"Could not connect to MCP endpoint: {e}")
             return
 
         try:
@@ -377,6 +395,7 @@ def pull_data(
             )
         except httpx.HTTPError as e:
             console.print(f"[yellow]warning:[/yellow] Could not fetch symbols count: {e}")
+            _report(error=f"Could not fetch symbols count: {e}")
             return
 
         total_count = 0
@@ -407,6 +426,7 @@ def pull_data(
                 )
             except httpx.HTTPError as e:
                 console.print(f"[yellow]warning:[/yellow] Could not fetch symbols page: {e}")
+                _report(error=f"Could not fetch symbols page: {e}")
                 return
 
             request_id += 1
@@ -438,6 +458,7 @@ def pull_data(
         data_symbols = [s for s in all_symbols if not s.get("isFunction", False)]
         if not data_symbols:
             console.print("[yellow]No non-function data symbols found in Ghidra.[/yellow]")
+            _report()
             return
 
         rows: list[dict[str, Any]] = []
@@ -544,6 +565,7 @@ def pull_data(
                 f"[yellow]warning:[/yellow] all {failed} symbol(s) failed to pull; "
                 f"no data labels were written"
             )
+        _report(error=f"All {failed} symbols failed to pull" if failed else None)
         return
 
     rows.sort(key=lambda x: int(x["va"]))
@@ -567,7 +589,6 @@ def pull_data(
         sec = str(row.get("section") or "")
         grouped.setdefault(sec, []).append(row)
 
-    out_file = cfg.reversed_dir / "rebrew_globals.h"
     generated = datetime.now(UTC).isoformat(timespec="seconds")
 
     header_lines = [
@@ -612,6 +633,7 @@ def pull_data(
     if dry_run:
         console.print(f"[yellow]Dry run: would write {out_file} with {len(rows)} globals[/yellow]")
         console.print(header_text)
+        _report(len(rows))
         return
 
     # Idempotency: regeneration only bumps the "Generated:" timestamp —
@@ -628,6 +650,7 @@ def pull_data(
             console.print(
                 f"[dim]{out_file.name} unchanged[/dim] ({len(rows)} data labels from Ghidra)"
             )
+            _report(len(rows))
             return
 
     atomic_write_text(out_file, header_text, encoding="utf-8")
@@ -639,3 +662,4 @@ def pull_data(
             f"{out_file.name} holds {len(rows)} of {len(rows) + failed} data labels"
         )
     console.print(f"Pulled {len(rows)} data labels from Ghidra, wrote {out_file.name}")
+    _report(len(rows), written=True)

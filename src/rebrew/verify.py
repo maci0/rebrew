@@ -38,6 +38,7 @@ import typer
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
 from rich.text import Text
+from typer.models import TyperPath
 
 from rebrew.catalog import (
     build_function_registry,
@@ -419,27 +420,19 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew verify · · · · · · · · · · · · · Verify all .c files (rich progress bar)\n\n"
-        "  rebrew verify --json · · · · · · · · · · Emit structured JSON report to stdout\n\n"
-        "  rebrew verify --output report.json · · · · · · Export the JSON report to a file\n\n"
-        "  rebrew verify --jobs 8 · · · · · · · · · · · Use 8 parallel compile jobs\n\n"
-        "  rebrew verify --target mygame · · · · · · · · · Verify a specific target\n\n"
-        "  rebrew verify --compare · · · · · · · · · Compare against last run, detect regressions\n\n"
-        "  rebrew verify --full --jobs 8 · · · · · · · · Force full re-verify with 8 workers\n\n"
-        "  rebrew verify --summary · · · · · · · · · Show detailed STATUS breakdown table\n\n"
-        "  rebrew verify --text --raw-link · · · · · Promote RELOC to EXACT where the raw link "
-        "is byte-identical\n\n"
+        "  rebrew verify  # Verify all .c files (rich progress bar)\n\n"
+        "  rebrew verify --json  # Emit structured JSON report to stdout\n\n"
+        "  rebrew verify --output report.json  # Export the JSON report to a file\n\n"
+        "  rebrew verify --jobs 8  # Use 8 parallel compile jobs\n\n"
+        "  rebrew verify --target mygame  # Verify a specific target\n\n"
+        "  rebrew verify --compare  # Compare against last run, detect regressions\n\n"
+        "  rebrew verify --full --jobs 8  # Force full re-verify with 8 workers\n\n"
+        "  rebrew verify --summary  # Show detailed STATUS breakdown table\n\n"
+        "  # Promote RELOC to EXACT where the raw link is byte-identical\n"
+        "  rebrew verify --text --raw-link\n\n"
         "[bold]How it works:[/bold]\n\n"
-        "  For each .c file in reversed_dir, compiles it, extracts the symbol, "
-        "and compares the output bytes against the target binary. Reports EXACT, "
-        "RELOC (match after relocation masking), NEAR_MATCHING, STUB, or COMPILE_ERROR. "
-        "A RELOC function whose bytes in the raw link equal the reference is EXACT "
-        "(recorded by --text --raw-link, kept until the inputs or the image change).\n\n"
-        "[bold]Exit codes:[/bold]\n\n"
-        "  0   All functions passed verification\n\n"
-        "  1   Failures or regressions detected\n\n"
-        "  2   Build or config error (also a usage error: unknown flag, missing argument)\n\n"
-        "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]\n\n"
+        "  For each .c file in reversed_dir, compiles it, extracts the symbol, and compares the output bytes against the target binary. Reports EXACT, RELOC (match after relocation masking), NEAR_MATCHING, STUB, or COMPILE_ERROR. A RELOC function whose bytes in the raw link equal the reference is EXACT (recorded by --text --raw-link, kept until the inputs or the image change).\n\n"
+        "Exit codes: 0 all checks passed; 1 failures or regressions; 2 usage/config/build error; 130 interrupted; 141 output pipe closed.\n\n"
         "[dim]Requires rebrew-project.toml with valid compiler and target binary paths.[/dim]"
     ),
 )
@@ -687,7 +680,9 @@ _ORPHAN_REPORT_LIMIT = 10
 @app.callback(invoke_without_command=True)
 def main(
     file: str | None = typer.Argument(
-        None, help="Restrict to one source file (e.g. src/x/foo.c) for per-file CI gating"
+        None,
+        help="Restrict to one source file (e.g. src/x/foo.c) for per-file CI gating",
+        click_type=TyperPath(path_type=str),
     ),
     root: Path | None = RootOption,
     jobs: int | None = typer.Option(
@@ -702,6 +697,7 @@ def main(
         "-o",
         help="Write the JSON report to a file (explicit export; the --compare "
         "baseline lives in .rebrew/ and needs no flag)",
+        click_type=TyperPath(path_type=str),
     ),
     summary: bool = typer.Option(
         False,
@@ -722,26 +718,31 @@ def main(
     fix_sizes: bool = typer.Option(
         False,
         "--fix-sizes",
-        help="Correct annotation SIZE from the binary-derived size: stale sizes "
+        help="Correct stored SIZE from the binary-derived size: stale sizes "
         "(false SIZE_MISMATCH) and missing sizes (MISSING_SIZE stubs, which "
         "rebrew test refuses) are both backfilled into metadata",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     batch_dir: str | None = typer.Option(
-        None, "--dir", help="Restrict to this subdirectory of reversed_dir"
+        None,
+        "--dir",
+        help="Restrict to this subdirectory of reversed_dir",
+        click_type=TyperPath(path_type=str),
     ),
-    origin: str | None = typer.Option(None, "--origin", help="Restrict to one module (e.g. GAME)"),
+    origin: str | None = typer.Option(None, "--module", help="Restrict to one module (e.g. GAME)"),
     no_promote: bool = typer.Option(
         False,
         "--no-promote",
         help="Measure only: write NOTHING to rebrew-functions.toml (report + cache still save)",
     ),
     watch: bool = typer.Option(
-        False, "--watch", help="Re-verify all sources whenever any .c file changes"
+        False,
+        "--watch",
+        help="Re-verify all sources whenever any .c file changes (terminal only; no --json)",
     ),
     nolib: bool = typer.Option(
         False,
-        "--nolib",
+        "--skip-libraries",
         help="Exclude library-origin functions from verification. "
         "Game code only: source-built and statically linked library rows "
         "are left out of the compile and the count",
@@ -749,7 +750,7 @@ def main(
     prune_orphans: bool = typer.Option(
         False,
         "--prune-orphans",
-        help="Delete metadata blocks whose VA has no source marker (orphans) "
+        help="Prune orphaned metadata rows (earned results are preserved) "
         "before verifying — same scan as `rebrew orphans prune`",
     ),
     data: bool = typer.Option(
@@ -760,15 +761,14 @@ def main(
     built: Path | None = typer.Option(
         None,
         "--built",
-        help="Built binary for --data/--whole-binary/--text comparison (default: build/<target>)",
+        help="Built image for data, text, or whole-binary checks (default: build/<target>)",
     ),
     raw_link: bool = typer.Option(
         False,
         "--raw-link",
-        help="Ack that --built is the raw link, not a postlinked deliverable. "
-        "Without it or a matching configured raw_link, --data suppresses DRIFT status write-backs "
-        "and --text suppresses linked EXACT promotion (postlink can copy reference "
-        "bytes into the image, so agreement there is not evidence)",
+        help="Confirm --built is an unmodified raw link. Required for --data DRIFT writes "
+        "and --text linked EXACT promotion unless --built matches configured raw_link. "
+        "Postlink byte copies cannot establish these verdicts",
     ),
     link_map: Path | None = typer.Option(
         None,
@@ -780,7 +780,7 @@ def main(
     text: bool = typer.Option(
         False,
         "--text",
-        help="Check .text function placement against markers (position-alignment gate). "
+        help="Check .text function placement against metadata addresses (position-alignment gate). "
         "With an acknowledged raw link, a RELOC function placed at its VA whose linked "
         "bytes equal the reference becomes EXACT (linked EXACT)",
     ),
@@ -803,6 +803,8 @@ def main(
     all_targets: bool = AllTargetsOption,
 ) -> None:
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
+    if option_default(watch, False) and option_default(json_output, False):
+        error_exit("--watch is terminal-only; omit --json", json_mode=True)
     all_targets = option_default(all_targets, False)
     # An OptionInfo reaching the jobs bound is truthy, so a direct callback
     # call from a test would feed min(jobs, fresh_count) an object.
@@ -1825,7 +1827,7 @@ def _save_report(
 
     # `-o` is an explicit export of the report just computed, independent of
     # the baseline: it was nested in the baseline guard above, so every
-    # scope-filtered run (`--dir`, `--nolib`, a positional FILE) and a
+    # scope-filtered run (`--dir`, `--skip-libraries`, a positional FILE) and a
     # failing --compare gate silently wrote no file and printed nothing.
     if not dry_run and output_path:
         out_file = Path(output_path)
@@ -2114,7 +2116,7 @@ def scope_entries(
     int,
     set[str],
 ]:
-    """Restrict the batch work list to --nolib/--dir/--origin scope.
+    """Restrict the batch work list to --skip-libraries/--dir/--module scope.
 
     Shared by ``rebrew verify`` and ``rebrew test --all`` so both batch
     paths filter identically.  *batch_dir* resolves against
@@ -2135,10 +2137,10 @@ def scope_entries(
     library_excluded = 0
     excluded_keys: set[str] = set()
     all_keys = {f"0x{e.va:08x}" for e in unique_entries}
-    # --nolib (reccmp equivalent): drop LIBRARY-marked functions entirely —
+    # --skip-libraries (reccmp equivalent): drop LIBRARY-marked functions entirely —
     # from the work list, the cached results already counted, and the size
     # audit — so the gate reflects game code only.  Excluded functions are
-    # neither compiled nor counted, exactly like reccmp's --nolib filter.
+    # neither compiled nor counted, exactly like reccmp's --skip-libraries filter.
     if nolib:
         lib_vas = _library_vas(cfg, unique_entries) & {e.va for e in unique_entries}
         if lib_vas:
@@ -2181,8 +2183,8 @@ def scope_entries(
             e for e in unique_entries if (Path(cfg.reversed_dir) / e.filepath).resolve() == target
         ]
     if not unique_entries and (batch_dir or origin_filter or batch_file):
-        # A scope filter that matched nothing (a mistyped --dir or --origin)
-        # would otherwise verify zero functions and exit green.  --nolib is
+        # A scope filter that matched nothing (a mistyped --dir or --module)
+        # would otherwise verify zero functions and exit green.  --skip-libraries is
         # not in this set: emptying the work list that way is the point.
         from rebrew.cli import error_exit
 
@@ -2194,7 +2196,7 @@ def scope_entries(
     if library_excluded or batch_dir or origin_filter or batch_file:
         keep = {f"0x{e.va:08x}" for e in unique_entries}
         # Every scope flag narrows the run, so every dropped entry must be
-        # preserved in the cache file: --nolib, --dir, --origin and the
+        # preserved in the cache file: --skip-libraries, --dir, --module and the
         # positional FILE all erase the rows they exclude otherwise, and the
         # next unscoped run recompiles the whole corpus.
         excluded_keys = all_keys - keep
@@ -2211,7 +2213,7 @@ def scope_entries(
         cached_count = len(results)
         if not json_output:
             scope = (
-                f"--nolib excluded {library_excluded}"
+                f"--skip-libraries excluded {library_excluded}"
                 if nolib and library_excluded
                 else f"scoped to {len(unique_entries)}"
             )
@@ -2254,7 +2256,7 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
 
     Keyed on the header paths and their ``(mtime_ns, size, ino)``, so an edited
     header re-parses and ``verify --watch`` still sees the change while two
-    calls in one run (the library set and the ``--nolib`` filter) parse the
+    calls in one run (the library set and the ``--skip-libraries`` filter) parse the
     tree once.  The size and inode are what catch a same-size rename-over
     inside one mtime tick (an editor's atomic save, a ``cp -p`` restore, a
     coarse-timestamp filesystem), which mtime alone cannot see; same triple

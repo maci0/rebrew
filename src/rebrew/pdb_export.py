@@ -65,11 +65,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew export pdb · · · · · · · · · · · Functions + data, named as the target expects\n\n"
-        "  rebrew export pdb --pe-symbols · · · · Also IAT slots, exports, TLS callbacks, ...\n\n"
-        "  rebrew export pdb --unmatched -o x.pdb · Target has no CodeView record\n\n"
-        "[dim]Needs llvm-pdbutil on PATH.  The PDB is stamped with the GUID/age\n"
-        "(RSDS) or signature/age (NB10) from the target's debug directory.[/dim]"
+        "  rebrew export pdb  # Functions + data, named as the target expects\n\n"
+        "  # Also IAT slots, exports, TLS callbacks, ...\n"
+        "  rebrew export pdb --pe-symbols\n\n"
+        "  rebrew export pdb --unmatched -o x.pdb  # Target has no CodeView record\n\n"
+        "[dim]Needs llvm-pdbutil on PATH.  The PDB is stamped with the GUID/age (RSDS) or signature/age (NB10) from the target's debug directory.[/dim]"
     ),
 )
 

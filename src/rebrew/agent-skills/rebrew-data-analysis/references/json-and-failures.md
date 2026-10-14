@@ -47,7 +47,7 @@ names, CRT prefixes, and unselected archive definitions establish no owner.
 Check `summary.conflicts > 0` to decide whether `--conflicts` needs attention.
 `globals` with `"annotated": false` are plain `extern` declarations with no VA.
 Record a data row (`rebrew data annotate`) so they resolve to a section. Do not
-add a new marker line.
+add inline metadata state.
 
 ## `--bss --json`
 

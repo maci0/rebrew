@@ -40,20 +40,14 @@ from rebrew.utils import floor_pct, untrusted_ident
 log = logging.getLogger(__name__)
 
 app = typer.Typer(
-    help="Rebrew validation pipeline: parse annotations, generate catalog and coverage data.",
+    help="Validate source bindings and summarize function catalog and coverage data.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew coverage catalog · · · · · · · · · · · · Validate and summarize (default)\n\n"
-        "  rebrew coverage catalog --json · · · · · · · · · Machine-readable summary to stdout\n\n"
-        "  rebrew coverage catalog -t mygame · · · · · · · · Catalog a specific target\n\n"
-        "[bold]What it does:[/bold]\n\n"
-        "  1. Scans reversed_dir for .c files with FUNCTION annotations\n\n"
-        "  2. Cross-references with function_structure.json\n\n"
-        "  3. Builds function registry merging all detection sources\n\n"
-        "  4. Generates cell-level coverage data for the .text section\n\n"
-        "  5. Outputs structured data\n\n"
-        "[dim]Run 'rebrew coverage build' to write db/coverage-<target>.toml.[/dim]"
+        "  rebrew coverage catalog\n\n"
+        "  rebrew coverage catalog --json\n\n"
+        "  rebrew coverage catalog --target mygame\n\n"
+        "[dim]Combines source bindings and dedicated function metadata with discovery inventory and binary evidence. Builds the function registry and .text coverage grid, then prints a summary. It does not write coverage documents; use rebrew coverage build for db/coverage-<target>.toml. Explicit export/fix options write their requested artifacts.[/dim]\n\n"
     ),
 )
 
@@ -284,7 +278,9 @@ def run_catalog(
 def main(
     summary: bool = typer.Option(False, "--summary", help="Print summary table (stderr)"),
     export_ghidra: bool = typer.Option(
-        False, "--export-ghidra", help="Print instructions for exporting the Ghidra function list"
+        False,
+        "--export-ghidra",
+        help="Print Ghidra function-list export instructions (mutually exclusive with --json)",
     ),
     export_ghidra_labels: bool = typer.Option(
         False,
@@ -294,14 +290,14 @@ def main(
     fix_sizes: bool = typer.Option(
         False,
         "--fix-sizes",
-        help="Update SIZE in rebrew-functions.toml metadata to match canonical sizes",
+        help="Update stored SIZE to canonical sizes (requires --force with --json)",
     ),
     force: bool = typer.Option(False, "--force", help="Skip the --fix-sizes confirmation prompt"),
     root: Path | None = RootOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Rebrew validation pipeline: parse annotations, generate catalog and coverage data."""
+    """Validate source bindings and summarize function catalog and coverage data."""
     cfg = require_config(target=target, json_mode=json_output, root=root)
 
     if fix_sizes:

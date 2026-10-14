@@ -10,7 +10,7 @@ Usage:
     rebrew test <source.c> [--symbol NAME] [--va 0xHEX --size N] [--cflags ...]
     rebrew test <source.c> --no-promote   # skip STATUS update
     rebrew test --all                     # batch: verify's engine, always recompiles
-    rebrew test --all --origin GAME       # batch mode, filter by module
+    rebrew test --all --module GAME       # batch mode, filter by module
     rebrew test --all --dir src/game_dll/ # batch mode, restrict to subdir
 """
 
@@ -24,10 +24,12 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from typer.models import TyperPath
 
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
+    SOURCE_HELP,
     AllTargetsOption,
     TargetOption,
     all_targets_run,
@@ -190,31 +192,14 @@ def _patch_verify_cache(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew test src/game_dll/my_func.c · · · · · · Auto-detect symbol, VA, size from source\n\n"
-    "  rebrew test src/game_dll/my_func.c --symbol _my_func · · Explicit symbol name\n\n"
-    "  rebrew test f.c --symbol _sym --va 0x10009310 --size 42 · Override VA and size from CLI\n\n"
-    '  rebrew test f.c --symbol _sym --cflags "/O1 /Gd" · · · · Override compiler flags\n\n'
-    "  rebrew test src/game_dll/my_func.c --no-promote  Measure only, write no metadata\n\n"
-    "  rebrew test src/game_dll/my_func.c --json · · · · Machine-readable JSON output\n\n"
-    "  rebrew test --all · · · · · · · · · · · · · · · Batch test all reversed functions\n\n"
-    "  rebrew test --all --origin GAME · · · · · · · · Only GAME-module functions\n\n"
-    "  rebrew test --all --dir src/game_dll/ · · · · · Restrict batch to a subdirectory\n\n"
-    "  rebrew test --all --dry-run · · · · · · · · · · List batch candidates without testing\n\n"
-    "[bold]Auto-promote (default behaviour):[/bold]\n\n"
-    "  1. Compiles the .c file with the configured toolchain (docker image; execution is docker-only per ADR-008) using CFLAGS from metadata\n\n"
-    "  2. Extracts the named symbol from the compiled object\n\n"
-    "  3. Compares compiled bytes against the target binary bytes at the given VA\n\n"
-    "  4. Reports EXACT, RELOC (match after masking relocations), NEAR_MATCHING (≥60%), or STUB\n\n"
-    "  5. Updates STATUS in metadata (EXACT / RELOC / NEAR_MATCHING) — skip with --no-promote (auto-skipped if file is outside project)\n\n"
-    "  6. If EXACT/RELOC: clears any auto-generated BLOCKER from metadata\n\n"
-    "[bold]Exit codes:[/bold]\n\n"
-    "  0   EXACT or RELOC match (bytes identical or match after relocation masking)\n\n"
-    "  1   NEAR_MATCHING, STUB, or SIZE_MISMATCH (code needs improvement)\n\n"
-    "  2   Tooling error (compilation failed, target bytes unextractable, VA-map scan failed; "
-    "also a usage error: unknown flag, missing argument)\n\n"
-    "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]\n\n"
-    "[dim]Parameters are auto-detected from // FUNCTION markers in source, "
-    "plus STATUS, SIZE, and CFLAGS from rebrew-functions.toml metadata.[/dim]"
+    "  rebrew test src/game/my_func.c\n\n"
+    "  rebrew test src/game/my_func.c --no-promote --json\n\n"
+    "  rebrew test --all --dry-run\n\n"
+    "  rebrew test --all --dir src/game/\n\n"
+    "[dim]Compiles and compares function bytes with the reference. Resolves identity, SIZE, and CFLAGS from the C definition and dedicated metadata/configuration. By default, records the byte verdict in STATUS and clears auto-generated BLOCKER on EXACT/RELOC. --no-promote measures without metadata writes; files outside the project are not promoted.[/dim]\n\n"
+    "[bold]Batch verification:[/bold]\n\n"
+    "  test --all always recompiles. verify reuses unchanged cached results.\n\n"
+    "Exit codes: 0 byte match; 1 byte mismatch; 2 usage/config/build error; 130 interrupted; 141 output pipe closed.\n\n"
 )
 
 app = typer.Typer(
@@ -274,23 +259,33 @@ def _marker_va_from_annotation(sel_ann: SourceBinding | None, meta: dict[str, st
 
 @app.callback(invoke_without_command=True)
 def main(
-    source: str | None = typer.Argument(None, help="C source file (omit with --all)"),
-    va: str | None = typer.Option(None, "--va", help="VA in hex (e.g. 0x10009310)"),
-    symbol: str | None = typer.Option(None, "--symbol", help="COFF symbol name (e.g. _funcname)"),
-    target_bin: str | None = typer.Option(None, "--target-bin", help="Target .bin file"),
+    source: str | None = typer.Argument(None, help=SOURCE_HELP + " (omit with --all)"),
+    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
+    symbol: str | None = typer.Option(
+        None, "--symbol", help="Compiled symbol name (default: from metadata or source definition)"
+    ),
+    target_bin: str | None = typer.Option(
+        None,
+        "--target-bin",
+        help="Raw function byte slice to compare against",
+        click_type=TyperPath(path_type=str),
+    ),
     size: int | None = typer.Option(None, "--size", help="Size in bytes"),
     cflags: str | None = typer.Option(None, "--cflags", help="Compiler flags"),
     toolchain: str | None = typer.Option(
         None,
         "--toolchain",
-        help="Vendored compiler (e.g. msvc-5.0) - overrides the project default",
+        help="Compiler profile (e.g. msvc-5.0); overrides the project default",
     ),
     all_sources: bool = typer.Option(False, "--all", help="Batch test all reversed .c files"),
     batch_dir: str | None = typer.Option(
-        None, "--dir", help="With --all, restrict to this subdirectory"
+        None,
+        "--dir",
+        help="With --all, restrict to this subdirectory",
+        click_type=TyperPath(path_type=str),
     ),
     origin: str | None = typer.Option(
-        None, "--origin", help="With --all, filter by module (e.g. GAME)"
+        None, "--module", help="With --all, filter by module (e.g. GAME)"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     jobs: int | None = typer.Option(
@@ -300,12 +295,7 @@ def main(
         False,
         "--no-promote",
         help=(
-            "Measure only: write NOTHING to rebrew-functions.toml. Without it a "
-            "run also persists STATUS, and any explicit --cflags/--toolchain/"
-            "--size you passed (so `verify` later recompiles the way this run "
-            "did). Use it when you are reading a verdict rather than recording "
-            "one — otherwise measuring a function with a candidate flag set "
-            "silently changes the flags every other tool resolves for it."
+            "Measure without metadata writes. Otherwise records STATUS and explicit --cflags/--toolchain/--size overrides for future runs. Use this when trying candidate settings"
         ),
     ),
     force_status: bool = typer.Option(
@@ -320,22 +310,20 @@ def main(
         False,
         "--fix-sizes",
         help=(
-            "Fix a stale SIZE annotation when ALL common bytes match: writes the "
-            "compiled size into metadata and reclassifies as EXACT/RELOC.  "
-            "No-op when the mismatch is a real byte difference."
+            "Fix stale SIZE metadata when all common bytes match: writes the compiled size into metadata and reclassifies as EXACT/RELOC.  No-op when the mismatch is a real byte difference"
         ),
     ),
     linked: bool = typer.Option(
         False,
         "--linked",
         help=(
-            "Linked compare: compile in a padded .text shell, LINK a real DLL "
-            "at the target base, compare linker-resolved bytes (no reloc "
-            "masking).  Single-function only, requires a VA."
+            "Compare linker-resolved bytes in a padded shell; requires a VA; excludes --all, --context, and --fix-sizes"
         ),
     ),
     watch: bool = typer.Option(
-        False, "--watch", help="Watch the source file and re-test on every change"
+        False,
+        "--watch",
+        help="Watch the source file and re-test on every change (terminal only; no --json)",
     ),
     context: Path | None = typer.Option(
         None,
@@ -351,50 +339,16 @@ def main(
 ) -> None:
     """Compile a source file and compare one function against target bytes.
 
-    With --all, batch-tests every .c file found in the reversed directory
-    (iterating via ``iter_sources``).  Optional --dir and --origin flags
-    restrict the batch.  Without --all, a single source file must be provided.
+    With --all, batch-tests every .c file found in the reversed directory (iterating via iter_sources).  Optional --dir and --module flags restrict the batch.  Without --all, a single source file must be provided.
 
-    In single-function mode it resolves ``symbol``, ``va``, and ``size`` from
-    CLI arguments first, then falls back to source markers. In multi-function
-    mode (when no explicit symbol/va/size is provided), it compiles once and
-    evaluates each annotated function independently.
+    In single-function mode it resolves symbol, va, and size from CLI arguments first, then falls back to source markers. In multi-function mode (when no explicit symbol/va/size is provided), it compiles once and evaluates each annotated function independently.
 
-    Comparison is relocation-aware: COFF relocation records are used to mask
-    relocation-dependent byte spans before scoring exactness. Output status is
-    reported as EXACT, RELOC, NEAR_MATCHING, SIZE_MISMATCH, STUB, or an error
-    state.
+    Comparison is relocation-aware: COFF relocation records are used to mask relocation-dependent byte spans before scoring exactness. Output status is reported as EXACT, RELOC, NEAR_MATCHING, SIZE_MISMATCH, STUB, or an error state.
 
-    Args:
-        source: Path to the C source file to compile.
-        symbol: Optional COFF symbol name to extract from the produced object.
-        target_bin: Optional path to a raw target byte blob for direct compare.
-        va: Optional hex VA used with ``size`` to extract target bytes.
-        size: Optional byte count for the target function.
-        cflags: Optional compiler flags string overriding annotation/config defaults.
-        toolchain: Vendored compiler profile overriding the project default.
-        all_sources: Batch mode — verify's engine over every .c file in
-        reversed_dir (always recompiles).
-        batch_dir: Optional subdirectory to restrict batch mode.
-        origin: Optional module filter for batch mode.
-        dry_run: List batch candidates without running tests.
-        jobs: Parallel compile jobs for ``--all`` (defaults to the project
-        ``[project].jobs``).
-        no_promote: Measure only — write no STATUS, CFLAGS, TOOLCHAIN, or SIZE.
-        force_status: Write STATUS where the promotion policy refuses it
-        (unpark a SKIP, replace a STUB with SIZE_MISMATCH); single-function only.
-        fix_sizes: Rewrite a stale SIZE when all common bytes match.
-        linked: Linked compare (shell + real DLL link, no reloc masking);
-        single-function only and needs a VA.
-        watch: Re-test the source file on every change (single-file mode only).
-        context: Extra declarations to compile with the source; the result
-        records the context hash the match was earned under.
-        json_output: Emit machine-readable JSON responses.
-        target: Optional target profile name from ``rebrew-project.toml``.
-        all_targets: Repeat the run across every configured target; refused
-        with ``--va``, ``--target-bin``, and ``--watch``.
-
+    Args: source: Path to the C source file to compile. symbol: Optional COFF symbol name to extract from the produced object. target_bin: Optional path to a raw target byte blob for direct compare. va: Optional hex VA used with size to extract target bytes. size: Optional byte count for the target function. cflags: Optional compiler flags string overriding annotation/config defaults. toolchain: Vendored compiler profile overriding the project default. all_sources: Batch mode — verify's engine over every .c file in reversed_dir (always recompiles). batch_dir: Optional subdirectory to restrict batch mode. origin: Optional module filter for batch mode. dry_run: List batch candidates without running tests. jobs: Parallel compile jobs for --all (defaults to the project [project].jobs). no_promote: Measure only — write no STATUS, CFLAGS, TOOLCHAIN, or SIZE. force_status: Write STATUS where the promotion policy refuses it (unpark a SKIP, replace a STUB with SIZE_MISMATCH); single-function only. fix_sizes: Rewrite a stale SIZE when all common bytes match. linked: Linked compare (shell + real DLL link, no reloc masking); single-function only and needs a VA. watch: Re-test the source file on every change (single-file mode only). context: Extra declarations to compile with the source; the result records the context hash the match was earned under. json_output: Emit machine-readable JSON responses. target: Optional target profile name from rebrew-project.toml. all_targets: Repeat the run across every configured target; refused with --va, --target-bin, and --watch.
     """
+    if option_default(watch, False) and option_default(json_output, False):
+        error_exit("--watch is terminal-only; omit --json", json_mode=True)
     all_targets = option_default(all_targets, False)
     if all_targets:
         # --va/--target-bin pin ONE target's address space and --watch blocks
@@ -510,7 +464,7 @@ def main(
             )
         # The batch path is verify's shared pipeline (scan → scope →
         # compile → STATUS sync), emitted in test's shape:
-        # always recompile (full), filterable by --dir/--origin, measurable
+        # always recompile (full), filterable by --dir/--module, measurable
         # via --no-promote.
         emit_test_batch(
             cfg,

@@ -26,22 +26,20 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary unpack-lzexe packed.exe · · · · · · · · Unpack in place (packed.exe.unpacked.exe)\n\n"
-        "  rebrew binary unpack-lzexe packed.exe --output original.exe · Write to a specific path\n\n"
-        "  rebrew binary unpack-lzexe packed.exe --json · · · · · Machine-readable result\n\n"
-        "[dim]LZEXE (Fabrice Bellard, 1989-91) compressed many DOS games; the "
-        "format is documented only by its own decompressor stub.  Detection "
-        "matches the stub byte-for-byte, so merely patching the 'LZ91' magic "
-        "does not fool it.[/dim]"
+        "  rebrew binary unpack-lzexe packed.exe  # Unpack to packed.exe.unpacked.exe\n\n"
+        "  # Write to a specific path\n"
+        "  rebrew binary unpack-lzexe packed.exe --output original.exe\n\n"
+        "  rebrew binary unpack-lzexe packed.exe --json  # Machine-readable result\n\n"
+        "[dim]LZEXE (Fabrice Bellard, 1989-91) compressed many DOS games; the format is documented only by its own decompressor stub.  Detection matches the stub byte-for-byte, so merely patching the 'LZ91' magic does not fool it.[/dim]"
     ),
 )
 
 
 @app.callback(invoke_without_command=True)
 def main(
-    binary: Path = typer.Argument(..., help="Path to the LZEXE-packed executable."),
+    binary: Path = typer.Argument(..., help="Path to the LZEXE-packed executable"),
     output: Path | None = typer.Option(
-        None, "--output", "-o", help="Output path for the unpacked file."
+        None, "--output", "-o", help="Output path for the unpacked file"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:

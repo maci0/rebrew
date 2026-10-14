@@ -27,8 +27,8 @@ from rebrew.utils import atomic_write_text, is_safe_c_ident, load_tomllib, read_
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build link-stubs --dry-run · · · · · Preview the placeholder TU\n\n"
-    "  rebrew build link-stubs --output src/link_stubs.c · · Write the TU there\n\n"
+    "  rebrew build link-stubs --dry-run  # Preview the placeholder TU\n\n"
+    "  rebrew build link-stubs --output src/link_stubs.c  # Write the TU there\n\n"
     "  rebrew build link-stubs --data-metadata rebrew-data.toml --json\n"
 )
 
@@ -187,7 +187,7 @@ def main(
             }
         )
         return
-    console.print(f"[green]gen-link-stubs:[/] wrote {target}")
+    console.print(f"[green]build link-stubs:[/] wrote {target}")
     if preserved:
         console.print(f"  kept the calibrated {TAIL_SYMBOL} size {tail:#x}")
     else:

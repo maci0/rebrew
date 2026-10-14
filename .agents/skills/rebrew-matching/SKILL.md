@@ -44,19 +44,20 @@ rebrew diff src/bench/<file>.c --mismatches-only --json      # mismatches only (
 rebrew diff src/bench/<file>.c --register-aware --json      # register-aware (mark RR encoding diffs)
 rebrew diff src/bench/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x10009310 --json                    # resolve a VA directly (no .c path needed)
-rebrew diagnose drift src/bench/<file>.c --json        # localise branch-target drift windows
+rebrew diagnose drift src/bench/<file>.c --json        # localize branch-target drift windows
 rebrew diagnose near src/bench/<file>.c --json    # classify WHY it doesn't match (first-mismatch diagnosis)
 rebrew diagnose gap src/bench/<file>.c --json    # length-gap trace (short body? early table?) when scores stall flat
 rebrew export objdiff --output objdiff.json                # GUI diffing project (objdiff) from target objects
 ```
 
-`rebrew export objdiff` synthesizes one target COFF object per annotated source file
+`rebrew export objdiff` synthesizes one target COFF object per metadata-bound source file
 from the reference binary and writes an objdiff project config; open
 `objdiff.json` in the objdiff GUI for instruction-level diffing of every
 function at once (objdiff rebuilds base objects via `rebrew build objdiff-driver`).
 
-> **VA on a multi-function file**: `rebrew diff/match/prove/test 0x<va>` targets the
-> annotation whose VA matches, NOT the first function in the file. When the
+> **VA on a multi-function file**: `rebrew diff 0x<va>`, `rebrew match run 0x<va>`,
+> `rebrew prove 0x<va>`, and `rebrew test 0x<va>` select the stored binding
+> at that VA, rather than the first function in the file. When the
 > resolved file covers a different function than the VA, the tool errors out
 > instead of silently diffing the wrong bytes.
 
@@ -177,7 +178,7 @@ qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
 - While iterating on a single function, `--watch` (on `diff`, `prove`, or `match run`) re-runs on every
   file save, faster than re-typing the command. It never exits on its own: start it only when the
   user wants a live loop, and stop it when they are done. `rebrew match run --watch` is single-function only;
-  batch selection uses `rebrew match batch`.
+  batch selection uses `rebrew match batch`. Watch mode rejects `--json`; use a one-shot run for structured output.
 - Use the authorized time/scope for GA batches. Clarify before a multi-hour
   run when that scope has not already been authorized.
 

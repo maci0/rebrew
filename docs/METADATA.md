@@ -11,8 +11,8 @@ same tiers and the data/globals/layout pipeline.
 
 | Tier | Stores | Contract |
 |---|---|---|
-| **Canonical (durable)** | pure C sources, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-source.toml`, `rebrew-types.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | Source/config are editable; identity and other non-derivable evidence are CLI/API-managed. An unmigrated marker line is legacy input. Derived views are rebuilt from these plus the binary; recorded history is identified separately below. |
-| **Derived, VCS-intended** | `src/<target>/function_structure.json` (discovery inventory), `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (gen-layout, discover-functions, catalog, gen-link-stubs, `rebrew data fix-bss` / `--gen-header`, flirt).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
+| **Canonical (durable)** | pure C sources, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-source.toml`, `rebrew-types.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | Source/config are editable; identity and other non-derivable evidence are CLI/API-managed. Optional ADDRESS anchors bind declarations; old inline blocks and earlier schemas are rejected. Derived views are rebuilt from these plus the binary; recorded history is identified separately below. |
+| **Derived, VCS-intended** | `src/<target>/function_structure.json` (discovery inventory), `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (`rebrew build layout`, `rebrew binary functions`, `rebrew coverage catalog`, `rebrew build link-stubs`, `rebrew data fix-bss`, `rebrew data header`, signature tools).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
 | **Derived, gitignored (build output)** | `db/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew coverage build` / `rebrew verify` / `rebrew binary extract` / `rebrew coverage report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.toml` (the old `db/verify_results.json` snapshot was unguarded and is no longer written; see `verify_cache.load_baseline`). |
 | **Cache (delete-safe)** | `.rebrew/verify_cache.toml`, `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, `.rebrew/source-backups/*.orig`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache; it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce, each record is fsynced before `rebrew match run` reports the run so a host that loses power does not take the win with it, and only the non-winning lines are capped (newest `_LOSS_RECORD_RETENTION`, wins kept forever).  `.rebrew/source-backups/` holds a copy of a `.c` that `rebrew match climb` / `rebrew match qualifiers` is about to rewrite in place: it exists only while that run is in flight, is removed when the run finishes, and is the way back to the pre-run bytes after a kill that runs no cleanup (SIGKILL, OOM, power cut).  `rebrew skeleton --force` keeps its backup after a clean replacement (`*.pre-skeleton.*.orig`).  They accumulate one file per rewrite; prune the directory when the migration or the overwrite is confirmed good.  There is no per-run build diskcache: same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
 
@@ -34,9 +34,9 @@ these records create no game progress or function/data verdict.
 0444 writer. Keep `rebrew-source.toml` in version control and ignore its
 `rebrew-source.toml.lock` coordination file, just like the function/data locks.
 It records reviewed original-assembly evidence for a definition
-without requiring a VA. `format = 1` and
+without requiring a VA. `format = 2` and
 `definitions."metadata-relative/file.c".C_symbol.MODULE` identify each record;
-its only fields are `source_hash` and `evidence`. The SHA-256 binds the parsed
+each definition record has `source_hash` and `evidence`; the separate `files` table records target-scoped support purposes. The SHA-256 binds the parsed
 definition text, including its signature/body/comments, to the selected target.
 The review record neither asserts compiled reachability nor creates a byte
 STATUS. Renames, moves and definition edits require clearing the old record
@@ -46,7 +46,7 @@ and cannot exempt W020. See [the CLI contract](CLI.md#rebrew-source-document-ass
 | Fact | Canonical store | Derived/cached copies |
 |---|---|---|
 | Function **identity** (which VAs are functions) | merged registry (`catalog/registry.py`: discovery inventory + `function_structure.json` + exports, minus IAT slots) | the coverage document's `functions` array (the grid is built in-process by `catalog/grid.py` and has no file of its own) |
-| Function **size** | registry `canonical_size` (`+ size_reason`): the compile contract is annotation/metadata `SIZE` | the coverage document's `functions[].size` |
+| Function **size** | registry `canonical_size` (`+ size_reason`): the compile contract is stored metadata `SIZE` | the coverage document's `functions[].size` |
 | Function **name** | C definition name (or the row's `name` / catalog fallback). The `MODULE.0xVA` key is the address | the coverage document's `functions[].name`, plus `list_name`/`ghidra_name` preserving the other authorities |
 | Match **STATUS** | `rebrew-functions.toml`: written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate: SKIP stays parked); triggered by `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake`). Every write tags `updated_by` (test/verify/prove/match/lint/binsync-import/intake) + UTC `updated_at` | the coverage document's `functions[].status` + `updated_by`/`updated_at` and its `history[]` change log; `.rebrew/verify_cache.toml` measured-result overlay at report time |
 | **BLOCKER / BLOCKER_DELTA** | `rebrew-functions.toml`: `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, and `rebrew source document-unmatched`. Never hand-edited | the coverage document's `functions[].blocker`/`blockerDelta`; `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
@@ -151,38 +151,29 @@ for inspection. Sync health reports stale measurement evidence independently.
 
 ## Precedence rules (who wins on conflict)
 
-1. **Metadata wins over inline `.c` annotations** for owned fields (STATUS,
-   TOOLCHAIN, BLOCKER, NOTE, GHIDRA, SIZE, CFLAGS, …).  Inline forms of
-   those keys are deprecated: lint **W019** flags them, `--fix` migrates an
-   equal copy and strips it. A disagreement warns and the store wins; the
-   inline text stays so `--fix` cannot clobber the store. Numeric SIZE
-   spellings agree (`32` and `0x20`). CFLAGS disagreement ignores flag order
-   and `/D` defines. `// SOURCE: naked` is file-borne and exempt (it must
-   travel with the file; self-clears when the C body replaces it). Identity
-   is the `MODULE.0xVA` row. An unmigrated file may still carry
-   `// FUNCTION: MODULE 0xVA`; new writers do not emit it.
+1. **Dedicated metadata is the only state source.** Identity is the qualified
+   `MODULE.0xVA` row with `file`, `symbol`, `name`, and `kind`. SIZE, CFLAGS,
+   STATUS, reconstruction `source`, STRUCT/CALLERS and other state are stored
+   there. Optional ADDRESS comments bind exactly the next C declaration.
+   Inline state and old block formats fail lint E024; `--fix` does not migrate
+   them. `rebrew source register` validates current anchors and preserves
+   existing stored fields. No compatibility reader is shipped.
 2. **STATUS display precedence**: metadata `PROVEN`/`SKIP` (and `STUB` over
    the cache's `SIZE_MISMATCH`/`MISSING_SIZE`/`STUB`) > `.rebrew/verify_cache.toml`
    measured result (the cache holds byte verdicts only, never PROVEN)
    > grid/DB snapshot.
 3. **Per-function > per-library > project** for toolchain/cflags
    (`resolve_compile_overrides`).
-4. **SIZE precedence**: compile contract = annotation/metadata `SIZE`;
+4. **SIZE precedence**: compile contract = stored metadata `SIZE`;
    coverage = registry canonical size.
-5. **Shared-tree scoping**: one `rebrew-functions.toml` holds every
-   target's rows under module-prefixed keys (`SERVER.0x…`, `GOLD.0x…`);
-   one TOML per metadata root, not one per target.  Progress commands
-   (`status`, `todo`) count rows whose module matches the active
-   target, `LIBRARY` rows whose module is one of that target's
-   `external_libs`, and module-less legacy rows.  A `library_*.h`
-   marker enters a target's scan only when its module is that target's
-   marker or one of its `external_libs`; those rows count as library
-   code (`library_identified`), not as matched game code.  Same-VA
-   cross-target entries coexist as separate rows and never collide. Library
-   header parsing combines remaining legacy markers with managed LIBRARY rows
-   bound to that header; the managed identity wins for the same module/VA.
-   An explicit compiled-source binding wins over the header in status/todo.
-6. **Library attributions are not progress**: `LIBRARY`-marker rows and
+5. **Shared-tree scoping**: one `rebrew-functions.toml` holds qualified rows
+   for every target at a metadata root. Shared C definitions may bind one row
+   per target, with optional stacked ADDRESS anchors. Library headers carry no
+   inventory state: readers use managed LIBRARY rows naming the header, scoped
+   to the active target and configured libraries. A compiled-source provider
+   binding takes precedence over a header declaration. Independent same-VA
+   identities in different modules remain separate.
+6. **Library attributions are not progress**: `kind = "LIBRARY"` rows and
    rows whose module is listed in `targets.<name>.external_libs` tally
    into `library_identified`, outside the EXACT/RELOC progress table and
    its denominators; the table answers "how much of this binary's code
@@ -228,7 +219,7 @@ A store **rebrew owns** is clear-text TOML, one format for all of them:
 and `.rebrew/verify_baseline.toml` (the last two replaced JSON files of the same
 name, and `rebrew lint` reports a leftover as a stale artifact, W032).  The
 verify cache's rows are the report's rows, so `status`, `todo`, `report`,
-`build-db` and the dashboards decode one document with `tomllib` and write it
+`rebrew coverage build` and the dashboards decode one document with `tomllib` and write it
 back with `tomlkit`.
 
 The stores that stay in another tool's format are that tool's contract, not

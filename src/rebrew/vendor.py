@@ -192,7 +192,7 @@ def check(manifest: Manifest, staged: Path) -> None:
     ]
     if errors:
         raise VendorError(
-            "\n".join(errors) + "\nedit a patch, then run rebrew library vendor MANIFEST --sync"
+            "\n".join(errors) + "\nedit a patch, then run rebrew library vendor MANIFEST --apply"
         )
 
 
@@ -244,8 +244,9 @@ app = typer.Typer(
     help="Check or regenerate vendored sources from pristine files plus ordered patches.",
     rich_markup_mode="rich",
     epilog=(
-        "Examples:\n\n  rebrew library vendor references/vendor/zlib/vendor.toml\n\n"
-        "  rebrew library vendor references/vendor/zlib/vendor.toml --sync\n"
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew library vendor references/vendor/zlib/vendor.toml\n\n"
+        "  rebrew library vendor references/vendor/zlib/vendor.toml --apply\n"
     ),
 )
 
@@ -253,14 +254,14 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     manifests: list[Path] = typer.Argument(..., help="Vendor TOML manifests (relative to root)"),
-    sync_output: bool = typer.Option(False, "--sync", help="Regenerate the output trees"),
+    apply: bool = typer.Option(False, "--apply", help="Regenerate the output trees"),
     root: Path | None = RootOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Check pinned originals, apply patches without fuzz, then compare or sync output."""
     base = require_root(root, json_mode=json_output)
     try:
-        result = vendor_trees(base, manifests, write=sync_output)
+        result = vendor_trees(base, manifests, write=apply)
     except VendorError as exc:
         error_exit(str(exc), json_mode=json_output, code=EXIT_MISMATCH)
     except (OSError, ValueError) as exc:

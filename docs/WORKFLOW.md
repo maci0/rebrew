@@ -121,7 +121,7 @@ rebrew diff src/target_name/my_func.c
 # Show only structural differences (** lines)
 rebrew diff --mismatches-only src/target_name/my_func.c
 
-# VA form works too: resolves to the source file and targets the annotation
+# VA form works too: resolves to the source file and selects the stored function identity
 # whose VA matches (multi-function files: NOT the first function).
 rebrew diff 0x10009310
 ```
@@ -231,7 +231,7 @@ rebrew verify  # recompiles all tracked functions; auto-updates any drifted STAT
 `verify` promotes and corrects drifted statuses, PROVEN included (see
 section 9).  Only parked SKIP is left alone.
 
-### 11. Lint and verify source marker health
+### 11. Lint source bindings and metadata
 
 ```bash
 rebrew lint              # check for invalid headers, statuses, and origins
@@ -239,7 +239,7 @@ rebrew coverage catalog --summary # view overall RE progress and stats
 ```
 
 **Data identity:** each global has one `rebrew-data.toml` row (`file` plus
-`kind`). Repeating that row, or an unmigrated marker line, across
+`kind`). Assigning conflicting owners or addresses across
 files fires lint **E013** (duplicate VA) and **W021** (duplicate name). Keep
 the row on the symbol's home (for example `globals.c`) and leave plain
 `extern` declarations elsewhere.
@@ -383,24 +383,21 @@ added; users control the directory structure freely.
 | Symbol-based | `alloc_object.c`, `sbh_heap_init.c`, `adler32.c` |
 | Unknown/Unnamed | `func_10003da0.c` |
 
-## Source Marker Format
+## Source Addresses and Metadata
 
-Function identity is a `MODULE.0xVA` row (`file` plus a kind). Link-only files
-use `// SUPPORT: MODULE reason`. See
-[ANNOTATIONS.md](ANNOTATIONS.md) for the legacy marker format the parser still
-reads, and for E001. `STATUS`, `SIZE`, and `CFLAGS` are metadata-owned.
-Conditional: SOURCE (for CRT/ZLIB), BLOCKER
-(for NEAR_MATCHING/STUB; stored in `rebrew-functions.toml`).
+Function and data identities are qualified `MODULE.0xVA` rows in dedicated
+format-2 stores. C may carry an optional `ADDRESS: MODULE 0xVA` comment immediately
+above a definition or variable declaration; stack one per target for shared C.
+All state, including STATUS, SIZE, CFLAGS, reconstruction source and BLOCKER,
+is metadata-only. Record support purposes with
+`rebrew source register FILE --support "reason"`. Old blocks and schemas are
+rejected; there is no migration reader. See [ANNOTATIONS.md](ANNOTATIONS.md).
 
-A migrated file holds several functions as several rows that name that file. An
-unmigrated file may still carry several marker blocks. `rebrew source merge` and
-`rebrew source split` still rearrange a file that already has those lines. On a
-migrated file, `rebrew source split` reads the function row: it slices that C
-definition, leaves file-scope storage in the original, and retargets every row
-that shares the definition. `rebrew source merge` copies each definition and
-its file-scope objects into the output and retargets every row that names an
-input. See
-[ANNOTATIONS.md](ANNOTATIONS.md#multi-function-files) for that legacy block format.
+A multi-function file has several stored rows naming that file. `rebrew source
+split` slices the selected C definition, preserves file-scope storage, and
+retargets every row bound to that definition. `rebrew source merge` copies
+selected definitions and file-scope objects into the output and retargets input
+rows. Preview either operation with `--dry-run` and verify affected functions.
 
 ---
 
@@ -412,7 +409,7 @@ input. See
 | [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) | MSVC6 codegen patterns, SEH helpers, matching idioms |
 | [ONBOARDING.md](ONBOARDING.md) | Adding a new binary (incl. manual discovery without `intake`) |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING explained with byte-level examples |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Full marker format reference and linter codes (E000–E023, W003–W038) |
+| [ANNOTATIONS.md](ANNOTATIONS.md) | Dedicated metadata, ADDRESS anchors, and lint diagnostics |
 | [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | BinSync bridge + `rebrew sync push` feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
 | [CLI.md](CLI.md) | All CLI commands, flags, and examples |

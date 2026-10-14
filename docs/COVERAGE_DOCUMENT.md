@@ -42,10 +42,10 @@ next request, because the reader keys its snapshot cache on the documents' own
 stat.  A project that never ran `build-db` has no documents, and `rebrew coverage serve`
 refuses to start on a directory that yields no readable document.
 
-`--force` is a no-op.  Every run replaces each document whole (a temporary
+Every run replaces each document whole (a temporary
 sibling file moved over the old one) so there is no stale schema to migrate past
-and no partial state to recover.  The flag stays in the command line because
-scripts pass it.
+and no partial state to recover. The catalog analysis always runs in-process
+against the current project tree.
 
 ---
 

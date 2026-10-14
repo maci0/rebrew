@@ -254,6 +254,35 @@ class TestListUncoveredExtras:
 
 
 class TestSkeletonCli:
+    def test_negative_batch_fails_before_project_load(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.skeleton import app
+
+        def _unexpected(**kwargs: object) -> None:
+            pytest.fail("a negative batch size reached the project loader")
+
+        monkeypatch.setattr("rebrew.skeleton.require_config", _unexpected)
+        result = CliRunner().invoke(app, ["--batch", "-1"])
+        assert result.exit_code == 2, result.output
+        assert "--batch" in result.output
+
+    def test_zero_batch_creates_no_skeletons(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.catalog import FunctionEntry
+        from rebrew.skeleton import app
+
+        cfg = self._setup(tmp_path, monkeypatch)
+        monkeypatch.setattr(
+            "rebrew.skeleton.load_function_structure",
+            lambda p: [FunctionEntry(va=0x1000, size=64, name="func_a")],
+        )
+        result = CliRunner().invoke(app, ["--batch", "0", "--json"])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["count"] == 0
+        assert not (cfg.reversed_dir / "func_a.c").exists()
+
     def _setup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         cfg = _cfg(tmp_path)
         monkeypatch.setattr("rebrew.skeleton.require_config", lambda **kw: cfg)

@@ -1190,9 +1190,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary pe · · · · · · · Dump the project's target binary\n\n"
-        "  rebrew binary pe game.exe · · Dump a specific binary\n\n"
-        "  rebrew binary pe game.exe --json · Machine-readable payload\n\n"
+        "  rebrew binary pe  # Dump the project's target binary\n\n"
+        "  rebrew binary pe game.exe  # Dump a specific binary\n\n"
+        "  rebrew binary pe game.exe --json  # Machine-readable payload\n\n"
         "[dim]ELF and Mach-O inputs report the shared identity fields and a "
         "note that the PE-only metadata is unavailable.[/dim]"
     ),

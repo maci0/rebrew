@@ -66,7 +66,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   binary-derived edges (`--include-dispatch`, `--from-binary`).
 - `cache` does not manage other on-disk artifacts (e.g. `db/coverage-<target>.toml`
   belongs to PRD 02). It only handles `.rebrew/compile_cache/`.
-- Coverage in `status` is computed from local annotations and metadata,
+- Coverage in `status` is computed from source bindings and dedicated metadata,
   not from a live recompile (use `verify` for that).
 
 ## Functional Requirements
@@ -76,7 +76,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 - For each `.c` file in `reversed_dir`, compiles with project-configured
   CFLAGS and compares against the target DLL.
 - Optional positional `file.c` restricts the run to one source (ADR-018);
-  `--dir` / `--origin` compose with file scope.
+  `--dir` / `--module` compose with file scope.
 - Reports EXACT, RELOC, NEAR_MATCHING (with delta), STUB, or
   COMPILE_ERROR.
 - Writes no default report file: `--output` is explicit export only
@@ -88,9 +88,9 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   headers or include dirs otherwise invalidate the affected cache entries
   automatically).
 - `--summary` prints a STATUS breakdown table.
-- `--nolib` excludes LIBRARY-marked functions; `--no-promote` measures
+- `--skip-libraries` excludes LIBRARY-marked functions; `--no-promote` measures
   without writing STATUS; `--prune-orphans` deletes metadata with no
-  source marker before verifying.
+  live source binding before verifying (earned results stay protected).
 - `--data` / `--text` / `--whole-binary` (with `--built`) compare built
   artifacts against the reference; `--raw-link` acknowledges that `--built`
   is a raw link (enabling data verdict/evidence writes; otherwise suppressed); `--context PATH` compiles
@@ -107,13 +107,12 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 ### `rebrew status`
 
 - Reads `rebrew-functions.toml` (STATUS lives in per-function metadata via
-  `rebrew.metadata`), source markers, and function structure; no
-  compilation.  Inline `// STATUS:` comments in `.c` files are legacy:
-  they are counted as a W019 warning and `rebrew lint` migrates them to
+  `rebrew.metadata`), source bindings, and function structure; no
+  compilation. Inline state in C is rejected by lint E024; the only state source is
   metadata.
 - Prints:
   - Counts per STATUS (PROVEN, EXACT, RELOC, NEAR_MATCHING, STUB,
-    SKIP, …; per `metadata.KNOWN_STATUSES`; LIBRARY is a marker type,
+    SKIP, …; per `metadata.KNOWN_STATUSES`; LIBRARY is a metadata classification,
     not a status).
   - Coverage as % bytes / % functions.
   - Pointer to next action (`rebrew todo`).
@@ -121,7 +120,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 ### `rebrew source graph`
 
-- Scans reversed `.c` files for call targets; uses annotations to label
+- Scans reversed `.c` files for call targets; uses metadata to label
   origin/status of each node.
 - `--format mermaid` (default) | `dot` | `summary`.
 - `--focus FN [--depth N]` extracts a neighbourhood.
@@ -223,10 +222,10 @@ rebrew verify [file.c] [OPTIONS]
       --fix-sizes
       --dry-run
       --dir TEXT
-      --origin TEXT
+      --module TEXT
       --no-promote
       --watch
-      --nolib
+      --skip-libraries
       --prune-orphans
       --data
       --built PATH

@@ -6,13 +6,126 @@ entries, 150 routes including the root and groups, and 139 distinct callbacks**.
 All 150 help and 150 version invocations returned exit 0. Third-party extension APIs remain
 subject to the existing [component registration contract](CLI.md#component-registration-plugins).
 
-The recommendations are implemented in the current worktree: **33 root entries
-and 196 routes including groups and the root**. The accepted decision is
-[ADR 028](adr/028-cli-domains-and-explicit-operations.md); see
-[CLI_MIGRATION.md](CLI_MIGRATION.md) for old-to-new routes and mode flags, and
-[CLI.md](CLI.md) for the current API. The complete route review below records
-the original baseline and its disposition. Validation results are recorded
-in the verification section below.
+The current CLI has **33 root entries and 213 surfaces**, including the root,
+30 groups, and 185 distinct callbacks. The earlier organization pass produced
+196 routes; the original route disposition below records that historical pass.
+The accepted organization is [ADR 028](adr/028-cli-domains-and-explicit-operations.md).
+See [CLI.md](CLI.md) for current commands and [CLI_MIGRATION.md](CLI_MIGRATION.md)
+for the historical old-to-new routes.
+
+## Current usability pass (2026-10-14)
+
+Every mounted surface is rendered at 60, 80, and 120 columns, including nested
+operations and protocol adapters. `tests/test_cli_surfaces.py` repeats that
+inventory from an empty directory: help must succeed without project state,
+fit the terminal, include examples, and create no files. Source review checks
+option semantics, write/preview descriptions, examples, and parent summaries.
+Help probes do not execute compilers, remote services, uploads, or real project
+mutations; focused owner tests cover changed behavior.
+
+The pass corrects removed inline-marker instructions and obsolete mode flags,
+repairs malformed examples, explains metadata writes, and shortens the longest
+help pages. Parent lists and command pages share the same command description. Project,
+output, and global options have separate panels; existing command-specific
+panels remain intact. `--verbose` is shown as a repeatable logging flag with no
+value argument. `-h` and `--help` work at every depth.
+Example headings use bold styling, command lines fit within 76 columns, and
+explanatory comments move above commands when needed. Callback paragraphs flow
+at the terminal width; unavailable-command summaries match the live first
+paragraph. Dedicated contracts check these properties across every surface.
+
+Coverage generation has one mode: scan the project and replace the complete
+coverage document while retaining its history. The inert `coverage build
+--force` and `--regen` options and their ignored Python arguments are removed;
+they now fail before a coverage document can be created or rewritten.
+
+Current inventory by root entry (counts include each entry's own landing page):
+
+| Entry | Surfaces | Groups |
+|---|---:|---:|
+| `rebrew test` | 1 | 0 |
+| `rebrew verify` | 1 | 0 |
+| `rebrew skeleton` | 1 | 0 |
+| `rebrew lint` | 1 | 0 |
+| `rebrew decompile` | 1 | 0 |
+| `rebrew diff` | 1 | 0 |
+| `rebrew init` | 1 | 0 |
+| `rebrew intake` | 1 | 0 |
+| `rebrew status` | 1 | 0 |
+| `rebrew todo` | 1 | 0 |
+| `rebrew doctor` | 1 | 0 |
+| `rebrew prove` | 1 | 0 |
+| `rebrew recommend` | 1 | 0 |
+| `rebrew sync` | 8 | 1 |
+| `rebrew data` | 16 | 2 |
+| `rebrew blocker` | 4 | 1 |
+| `rebrew orphans` | 4 | 1 |
+| `rebrew types` | 5 | 1 |
+| `rebrew cfg` | 18 | 4 |
+| `rebrew cache` | 3 | 1 |
+| `rebrew skills` | 3 | 1 |
+| `rebrew library` | 14 | 1 |
+| `rebrew toolchain` | 11 | 1 |
+| `rebrew binsync` | 9 | 1 |
+| `rebrew source` | 17 | 1 |
+| `rebrew build` | 24 | 1 |
+| `rebrew diagnose` | 7 | 1 |
+| `rebrew binary` | 30 | 6 |
+| `rebrew coverage` | 5 | 1 |
+| `rebrew match` | 10 | 1 |
+| `rebrew similarity` | 3 | 1 |
+| `rebrew dev` | 2 | 1 |
+| `rebrew export` | 6 | 1 |
+
+The root adds one surface and one group to those counts.
+
+The current reference gives every non-root surface its own section, with
+argument and option tables reconciled to the composed command tree. Shared
+version, logging, and help options are documented once. Nested scopes use one
+Commands list; root discovery retains workflow and domain panels.
+
+The reviewed changes remove options that never reached their owner, make write
+activation explicit (`--apply`), separate an output path from an activation
+flag (`types recover --output`), and preserve requested artifacts with JSON
+output. Assembly and extraction previews report plans before creating files or
+metadata. Structured watch output is rejected instead of mixing multiple
+formats. `coverage serve --print-url` explicitly selects a URL probe, and
+`--json` alone cannot start one.
+Assembly batches exclude their resolved output subtree from inputs and reject
+destinations equal to or above configured source roots before writes or probes,
+keeping repeated runs stable.
+
+Two apparent inconsistencies retain distinct behavior:
+
+- `sync` exchanges local BinSync fields and offers live Ghidra operations,
+  including `pull --create-functions`. `binsync push/pull` manages Git
+  collaboration by default; raw `export/import` keeps explicit Git controls.
+  These effects are separate under ADR 028; the routes remain available.
+- `--fix-sizes` uses different evidence by operation. `test` requires all common
+  bytes to match before adopting the compiled size; `verify` uses the binary's
+  extent; `coverage catalog` uses canonical registry sizes with confirmation.
+  Each command documents its evidence and writes through its metadata owner.
+
+Function and data identity, comments, provenance, and state live in dedicated
+format-2 stores. Generated C includes ADDRESS anchors bound to the next definition or
+declaration, one per target. Anchors are optional in manually maintained source. No legacy block parser, old schema,
+or inline-state migration reader remains. BinSync comment exchange reads and
+writes dedicated metadata only.
+
+Packaged skills, templates, and current command documentation use the same
+names and constraints. All 46 discovered project roots receive the generated
+guidance through `init --refresh-agents`, followed by `init --check`; custom
+project rule tails and native sources are checked separately from generated
+files. These refreshes do not invoke metadata writers or reversing commands.
+
+Current guidance gates pass 81 tests across skill synchronization, rendering,
+documentation hygiene, and command validation. Four help-copy contracts pass;
+1,669 command/flag combinations validate against the live tree. The final
+project pass checks all 46 roots with zero scaffold drift and zero writes on a
+repeat refresh. Its before/after hashes preserve 19,486 native source files,
+185 configuration/metadata stores, and both customized AGENTS tails. Existing
+Rebrew/Recoverage environments and configured dependency paths resolve to the
+canonical checkouts. Historical project receipts remain historical.
 
 - [Review method and limits](#review-method-and-limits)
 - [Priority changes](#priority-changes)

@@ -1114,16 +1114,10 @@ def run_doctor(target: str | None = None) -> DoctorReport:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew doctor · · · · · · · · · Check default target\n\n"
-    "  rebrew doctor --target mygame · · Check specific target\n\n"
-    "  rebrew doctor --json · · · · · · Machine-readable output\n\n"
-    "[dim]Exits 0 when every check passes, 2 when any check fails.  A failing check is "
-    "a missing prerequisite, an unreadable config, or an unusable toolchain, so it is "
-    "never the 1 that a byte mismatch returns.[/dim]\n\n"
-    "[dim]Validates: rebrew-project.toml, target binary, arch/format, compiler "
-    "toolchain & runner, include/lib paths, function inventory, source dir, bin dir, "
-    "and metadata files.  Per-function/corpus checks (markers, VAs, metadata "
-    "fields, cflags redundancy) are `rebrew lint` instead.[/dim]"
+    "  rebrew doctor\n\n"
+    "  rebrew doctor --target mygame\n\n"
+    "  rebrew doctor --json\n\n"
+    "[dim]Checks project configuration, target binary/architecture, toolchain and runner, include/library paths, function inventory, source directories, and metadata files. Use rebrew lint for per-function bindings, metadata fields, flags, and corpus conventions. Returns 0 when checks pass, 2 for failed prerequisites or configuration.[/dim]\n\n"
 )
 
 _STATUS_ICONS = {
@@ -1536,7 +1530,7 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
             status=_WARN,
             message=f"BinSync state dir {state} has no commits yet — sync state "
             "is unchecked (Ghidra may not see exports)",
-            fix="Export once with 'rebrew sync push --state-dir <dir>' and"
+            fix="Export once with 'rebrew sync push --state-dir <dir>' and "
             "confirm the BinSync Ghidra plugin is watching this state dir.",
         )
     return CheckResult(

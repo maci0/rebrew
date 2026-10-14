@@ -36,7 +36,7 @@ from pathlib import Path
 
 import typer
 
-from rebrew.cli import console, error_exit, json_print
+from rebrew.cli import console, error_exit, json_print, option_default, require_config
 from rebrew.compiler.temp_dirs import xdg_cache_home
 from rebrew.compiler.toolchain import ToolchainSpec, bind_mount, kill_container
 from rebrew.config import ConfigError, check_env_wineprefix, source_date_epoch
@@ -51,11 +51,12 @@ from rebrew.workspace import walk_up_to_root
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build cmake-toolchain --toolchain msvc-6.0 · · Write cmake/toolchain-msvc-6.0-docker.cmake\n\n"
-    "  rebrew build cmake-toolchain --toolchain gcc-14.2.0 --output cmake/ · Choose the output directory\n\n"
+    "  # Write cmake/toolchain-msvc-6.0-docker.cmake\n"
+    "  rebrew build cmake-toolchain --toolchain msvc-6.0\n\n"
+    "  # Choose the output directory\n"
+    "  rebrew build cmake-toolchain --toolchain gcc-14.2.0 --output cmake/\n\n"
     "  cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake\n\n"
-    "[dim]Then configure and build as usual; the file routes cl/link/lib through "
-    "rebrew build driver cl/link/lib.[/dim]\n"
+    "[dim]Then configure and build as usual; the file routes cl/link/lib through rebrew build driver cl/link/lib.[/dim]\n"
 )
 
 
@@ -450,7 +451,7 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
 
 
 def driver_main(
-    mode: ToolMode = typer.Argument(..., help="Tool to invoke inside the compiler image"),
+    mode: ToolMode = typer.Argument(..., metavar="MODE", help="Tool to invoke: cl, link, or lib"),
     args: list[str] = typer.Argument(None, help="Tool arguments (place flags after --)"),
 ) -> None:
     """Run a CMake tool: rebrew build driver <cl|link|lib> -- <arguments>."""
@@ -561,7 +562,11 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 
 @app.callback(invoke_without_command=True)
 def main(
-    toolchain: str = typer.Option("msvc-6.0", "--toolchain", help="Toolchain name"),
+    toolchain: str | None = typer.Option(
+        None,
+        "--toolchain",
+        help="Toolchain profile (default: project profile, or msvc-6.0 outside a project)",
+    ),
     output: Path = typer.Option(
         Path("cmake"), "--output", "-o", help="Output dir for the toolchain file"
     ),
@@ -571,21 +576,30 @@ def main(
     """Write a CMake toolchain file for a docker-based toolchain.
 
     The generated file sets CMAKE_C_COMPILER/LINKER/AR to the
-    ``rebrew build driver cl/link/lib`` commands, which run the tools
+    rebrew build driver cl/link/lib commands, which run the tools
     inside the toolchain image (see the module docstring).
     """
+    toolchain = option_default(toolchain, None)
+    if toolchain is None:
+        project_root = walk_up_to_root(Path.cwd())
+        toolchain = (
+            require_config(root=project_root, json_mode=json_output).compiler_profile
+            if project_root is not None
+            else "msvc-6.0"
+        )
     spec = _resolve_spec(toolchain, json_mode=json_output)
+    planned = output / f"toolchain-{spec.name}-docker.cmake"
     if dry_run:
         if json_output:
-            json_print({"toolchain": toolchain, "output": str(output), "dry_run": True})
+            json_print({"toolchain": toolchain, "output": str(planned), "dry_run": True})
         else:
             console.print(
-                f"[cyan]dry-run:[/cyan] would write the {toolchain} toolchain file to {output}"
+                f"[cyan]dry-run:[/cyan] would write the {toolchain} toolchain file to {planned}"
             )
         return
     written = generate_toolchain_file(spec, output)
     if json_output:
-        json_print({"toolchain": toolchain, "written": str(written)})
+        json_print({"toolchain": toolchain, "output": str(written), "dry_run": False})
     else:
         console.print(f"[green]cmake-toolchain:[/] wrote {written}")
         console.print(

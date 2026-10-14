@@ -56,7 +56,7 @@ class TestVendor:
         assert report["mode"] == "check" and report["files"] == report["patches"] == 1
         (tmp_path / "lib/extra.c").write_text("extra")
         (tmp_path / "lib/f.c").write_text("edited")
-        result = CliRunner().invoke(app, ["--root", str(tmp_path), "--sync", str(manifest)])
+        result = CliRunner().invoke(app, ["--root", str(tmp_path), "--apply", str(manifest)])
         assert result.exit_code == 0, result.output
         assert not (tmp_path / "lib/extra.c").exists()
         assert "return 2;" in (tmp_path / "lib/f.c").read_text()

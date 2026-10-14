@@ -54,7 +54,7 @@ def _project(tmp_path: Path) -> Path:
     (root / "build").mkdir()
     (root / "build" / "server").write_bytes(make_pe(b"\xc3"))
     (root / "src").mkdir()
-    write_store_fixture(root / "src" / "rebrew-data.toml", "", encoding="utf-8")
+    write_store_fixture(root / "rebrew-data.toml", "", encoding="utf-8")
     return root
 
 
@@ -102,7 +102,7 @@ class TestVerifyPlacement:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
         (tmp_path / "src").mkdir()
-        write_store_fixture(tmp_path / "src" / "rebrew-data.toml", "", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-data.toml", "", encoding="utf-8")
         # Wide terminal: Rich wraps at terminal width, which varies by
         # environment (e.g. under pytest-xdist) and can split filenames
         # mid-word with a space no normalization can rejoin.
@@ -261,3 +261,74 @@ def test_data_symbols_keeps_only_the_requested_module(tmp_path: Path) -> None:
 
     assert data_symbols(toml, module="SERVER") == {"g_table": 0x10027078}
     assert data_symbols(toml, module="GOLDTL") == {"g_table": 0x677918}
+
+
+class TestMetadataPathSelection:
+    @pytest.mark.parametrize("from_subdirectory", [False, True])
+    @pytest.mark.parametrize("metadata_subdirectory", [".", "src"])
+    def test_default_uses_configured_metadata_directory(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        from_subdirectory: bool,
+        metadata_subdirectory: str,
+    ) -> None:
+        import rebrew.data_layout as dl
+        from rebrew.verify_placement import app
+
+        root = _project(tmp_path)
+        metadata_dir = root / metadata_subdirectory
+        metadata = metadata_dir / "rebrew-data.toml"
+        write_store_fixture(metadata_dir / "rebrew-functions.toml", "format = 2\n")
+        write_store_fixture(root / "rebrew-data.toml", "format = 2\n")
+        write_store_fixture(root / "src" / "rebrew-data.toml", "format = 2\n")
+        current = root / "src" if from_subdirectory else root
+        monkeypatch.chdir(current)
+        _patch_layout(monkeypatch, objects=[], expected={})
+        seen: list[Path] = []
+
+        def _symbols(path: Path, **kwargs: object) -> dict[str, int]:
+            seen.append(path)
+            return {}
+
+        monkeypatch.setattr(dl, "data_symbols", _symbols)
+        result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code == 0, result.output
+        assert seen == [metadata]
+
+    @pytest.mark.parametrize("absolute", [False, True])
+    def test_explicit_metadata_path_is_honored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, absolute: bool
+    ) -> None:
+        import rebrew.data_layout as dl
+        from rebrew.verify_placement import app
+
+        root = _project(tmp_path)
+        write_store_fixture(root / "rebrew-data.toml", "format = 2\n")
+        custom = root / "src" / "rebrew-data.toml"
+        write_store_fixture(custom, "format = 2\n")
+        monkeypatch.chdir(root)
+        _patch_layout(monkeypatch, objects=[], expected={})
+        seen: list[Path] = []
+
+        def _symbols(path: Path, **kwargs: object) -> dict[str, int]:
+            seen.append(path)
+            return {}
+
+        monkeypatch.setattr(dl, "data_symbols", _symbols)
+        selected = custom if absolute else custom.relative_to(root)
+        result = CliRunner().invoke(app, ["--data-metadata", str(selected), "--json"])
+        assert result.exit_code == 0, result.output
+        assert seen == [custom]
+
+    def test_missing_explicit_path_does_not_fall_back_to_existing_store(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.verify_placement import app
+
+        root = _project(tmp_path)
+        write_store_fixture(root / "rebrew-data.toml", "format = 2\n")
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(app, ["--data-metadata", "missing.toml", "--json"])
+        assert result.exit_code == 2, result.output
+        assert "missing.toml" in json.loads(result.stdout)["error"]

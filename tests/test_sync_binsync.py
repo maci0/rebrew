@@ -1,6 +1,7 @@
 """Tests for the BinSync-primary sync command (ghidra/cli.py) and the
 structural MCP op builders (ghidra/commands.py)."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +13,67 @@ from rebrew.ghidra.commands import build_bookmark_commands, build_new_function_c
 from rebrew.status_style import DISPLAY_STATUSES
 
 runner = CliRunner()
+
+
+class TestJsonContracts:
+    def test_watch_json_is_rejected_before_config_or_export(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def refuse(*args, **kwargs):
+            raise AssertionError("JSON watch must be rejected before setup")
+
+        monkeypatch.setattr(sync_cli, "require_config", refuse)
+        monkeypatch.setattr("rebrew.binsync.export.export_state", refuse)
+        monkeypatch.setattr("rebrew.utils.watch_files", refuse)
+        state = tmp_path / "state"
+        result = runner.invoke(sync_cli.app, ["watch", "--state-dir", str(state), "--json"])
+        assert result.exit_code == 2, result.output
+        assert "No such option" in result.output
+        assert "--json" in result.output
+        assert not result.stdout
+        assert not state.exists()
+
+    def test_watch_uses_the_configured_state_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _patch_cfg(tmp_path, monkeypatch)
+        state = tmp_path / "configured-state"
+        cfg.binsync_state_dir = str(state)
+        exported: list[Path] = []
+        monitored: list[object] = []
+
+        def export(cfg_, out, **kwargs):
+            exported.append(out)
+            return {}
+
+        monkeypatch.setattr("rebrew.binsync.export.export_state", export)
+        monkeypatch.setattr("rebrew.binsync.export.print_export_result", lambda *args, **kw: None)
+        monkeypatch.setattr(
+            "rebrew.utils.watch_files", lambda paths, callback, **kw: monitored.append(paths)
+        )
+        result = runner.invoke(sync_cli.app, ["watch"])
+        assert result.exit_code == 0, result.output
+        assert exported == [state]
+        assert len(monitored) == 1
+
+    def test_pull_data_forwards_json_to_the_writer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.cli import json_print
+
+        cfg = _patch_cfg(tmp_path, monkeypatch)
+        monkeypatch.setattr(sync_cli, "_probe_program_path", lambda *args: "/x.dll")
+
+        def pull(cfg_, endpoint, program_path, dry_run, *, json_output):
+            assert cfg_ is cfg
+            assert json_output is True
+            assert dry_run is True
+            json_print({"output": "header.h", "globals": 0, "written": False, "dry_run": True})
+
+        monkeypatch.setattr(sync_cli, "pull_data_cmd", pull)
+        result = runner.invoke(sync_cli.app, ["pull-data", "--dry-run", "--json"])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["output"] == "header.h"
 
 
 def _cfg(tmp_path: Path) -> SimpleNamespace:

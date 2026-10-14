@@ -132,15 +132,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary imports list · · · · · · · · · · · · Use the project's target binary\n\n"
-        "  rebrew binary imports list original/game.exe · · · Scan a specific binary\n\n"
-        "  rebrew binary imports list game.exe --json · · · Machine-readable output\n\n"
-        "[bold]What it shows:[/bold]\n\n"
-        "  IAT VA · · · · · · · · Virtual address of the imported function slot\n\n"
-        "  API name · · · · · · · e.g. MessageBoxA (from KERNEL32.dll)\n\n"
-        "  Import stubs · · · · · jmp dword ptr \\[iat] functions in .text\n\n"
-        "[dim]Part of the library-identification workflow: pair with rebrew library scan-signatures "
-        "(FLIRT signatures) to name statically-linked CRT/zlib functions.[/dim]"
+        "  rebrew binary imports list\n\n"
+        "  rebrew binary imports list original/game.exe --json\n\n"
+        "  rebrew binary imports mark --dry-run\n\n"
+        "[dim]list reports imported APIs, import slots, and forwarding stubs. mark records detected stubs through metadata writers. Pair with rebrew library scan-signatures to identify statically linked libraries.[/dim]\n\n"
     ),
 )
 
@@ -208,7 +203,7 @@ def inspect_imports(
 
 @app.command(
     "list",
-    epilog="Examples:\n\n  rebrew binary imports list --json\n\nUse --target to select a configured project target.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew binary imports list --json\n\n"),
 )
 def list_imports(
     binary: Path | None = typer.Argument(None, help="Binary path (default: project target)"),
@@ -221,7 +216,7 @@ def list_imports(
 
 @app.command(
     "mark",
-    epilog="Examples:\n\n  rebrew binary imports mark --dry-run --json\n\nUse --target to select a configured project target.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew binary imports mark --dry-run --json\n\n"),
 )
 def mark(
     binary: Path | None = typer.Argument(None, help="Binary path (default: project target)"),

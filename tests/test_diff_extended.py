@@ -395,13 +395,78 @@ class TestRunDiff:
 
 
 class TestDiffCli:
+    @pytest.mark.parametrize("json_output", [False, True])
+    def test_dry_run_requires_a_metadata_write_before_loading_or_compiling(
+        self, monkeypatch: pytest.MonkeyPatch, json_output: bool
+    ) -> None:
+        from rebrew.app.main import app
+
+        def refuse(*args: object, **kwargs: object) -> None:
+            raise AssertionError("Invalid dry-run must stop before config loading or compilation")
+
+        monkeypatch.setattr("rebrew.diff.require_config", refuse)
+        monkeypatch.setattr("rebrew.diff.run_diff", refuse)
+        args = ["f.c", "--dry-run"] + (["--json"] if json_output else [])
+        result = CliRunner().invoke(app, ["diff", *args])
+        assert result.exit_code == EXIT_ERROR, result.output
+        if json_output:
+            assert json.loads(result.stdout) == {
+                "error": "--dry-run requires --fix-blocker",
+                "code": EXIT_ERROR,
+            }
+        else:
+            assert "--dry-run requires --fix-blocker" in result.output
+
+    def test_direct_callback_omitted_flags_keep_their_boolean_defaults(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.diff import main
+
+        monkeypatch.setattr("rebrew.diff.require_config", lambda **kwargs: SimpleNamespace())
+        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, source: Path(source))
+        monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", lambda *a, **kw: _params())
+        seen: list[tuple[bool, bool]] = []
+        monkeypatch.setattr(
+            "rebrew.diff.run_diff",
+            lambda mm, rr, csv, fix, js, params, **kw: seen.append((fix, kw["dry_run"])),
+        )
+        main(
+            seed_c="f.c",
+            mismatches_only=False,
+            register_aware=False,
+            fmt="terminal",
+            ignore_lint=False,
+            watch=False,
+            json_output=False,
+            target=None,
+        )
+        assert seen == [(False, False)]
+
+    def test_fix_blocker_preview_is_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.app.main import app
+
+        monkeypatch.setattr("rebrew.diff.require_config", lambda **kwargs: SimpleNamespace())
+        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, source: Path(source))
+        monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", lambda *a, **kw: _params())
+        seen: list[tuple[bool, bool]] = []
+        monkeypatch.setattr(
+            "rebrew.diff.run_diff",
+            lambda mm, rr, csv, fix, js, params, **kw: seen.append((fix, kw["dry_run"])),
+        )
+        result = CliRunner().invoke(app, ["diff", "f.c", "--fix-blocker", "--dry-run", "--json"])
+        assert result.exit_code == 0, result.output
+        assert seen == [(True, True)]
+
     def test_invalid_format_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.diff import app
 
         monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: SimpleNamespace())
         result = CliRunner().invoke(app, ["--format", "xml", "f.c"])
-        assert result.exit_code != 0
-        assert "--format must be" in result.output
+        assert result.exit_code == 2
+        message = " ".join(result.output.split())
+        assert "--format" in message and "xml" in message
+        assert "not one of" in message
+        assert "terminal" in message and "csv" in message
 
     def test_csv_and_json_are_mutually_exclusive(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

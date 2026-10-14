@@ -169,8 +169,8 @@ make doctor                             # report every missing prerequisite (uv,
                                         # for a host tool the bootstrap cannot install
 make setup                              # --locked sync (extras + similarity) + pre-commit/pre-push hooks (push runs
                                         # make test, needs nasm; SKIP=pytest git push to skip)
-make test-one T=tests/test_annotation.py  # single file / pytest nodeid
-make test-one T=tests/test_annotation.py FLAGS="-k test_stdcall"   # narrow further
+make test-one T=tests/test_source_bindings.py  # single file / pytest nodeid
+make test-one T=tests/test_source_bindings.py FLAGS="-k metadata"   # narrow further
 make test-one T=tests/test_dashboard.py::TestSummaryRequests        # one class
 make test                               # full suite (ANSI-safe; same as CI)
 make lint                             # ruff check . (same scope as the pre-commit hook)

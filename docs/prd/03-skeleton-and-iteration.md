@@ -13,7 +13,7 @@ auto-promoted STATUS and ROI-prioritised next actions.
 
 The byte-matching workflow is brittle without tooling:
 
-- A skeleton file with the right `// FUNCTION:` marker, the correct
+- A skeleton file with the optional ADDRESS anchor, the correct
   prototype, and the right metadata stub is tedious to author.
 - Tracking which function has which compile flags, which is "close enough"
   (NEAR_MATCHING), and which is exact requires bookkeeping that drifts.
@@ -51,8 +51,8 @@ you what to attack next.
     `rebrew verify` verdict, not one `rebrew test` writes.)
 - A `diff` command that classifies mismatches into structural / relocation /
   register / invalid-relocation and can auto-write BLOCKER metadata.
-- A `lint` command that enforces marker discipline and migrates legacy
-  inline metadata into `rebrew-functions.toml`.
+- A `lint` command that validates declaration bindings and dedicated metadata,
+  rejecting inline state without a legacy migration reader.
 - File operations (`split`, `merge`, `rename`) that are dry-run-friendly
   and never lose annotations.
 - A `todo` ranker that scores every actionable item by ROI and groups
@@ -64,8 +64,8 @@ you what to attack next.
 - `test` does not run the GA: that's PRD 04.
 - `skeleton --decomp` does not promise a clean compile; the embedded
   decompilation is a hint, not a working candidate.
-- `lint` does not edit code structure; it only adjusts annotations and
-  optionally migrates inline metadata.
+- `lint` does not rewrite code structure or migrate old blocks; its fixes remove
+  redundant flags and backfill resolvable section metadata.
 - `merge` does not re-resolve forward references between functions; the
   user is responsible for include ordering inside the merged file.
 
@@ -74,15 +74,15 @@ you what to attack next.
 ### `rebrew skeleton`
 
 - Single mode: `rebrew skeleton 0x10003da0` writes
-  `src/<target>/<name>.c` with a `// FUNCTION: <module> 0x...` marker and a
-  placeholder body.
+  `src/<target>/<name>.c` with an ADDRESS anchor and a placeholder body,
+  recording identity and missing SIZE in dedicated function metadata.
 - `--name` overrides the auto-derived function name.
 - `--output` overrides the destination path.
 - `--batch N` generates the N smallest uncovered skeletons (`--min-size`,
   `--max-size` filter the range; `--skip-fragments` excludes entries whose
   first bytes look like data/fragments).
 - `--force` overwrites an existing file.
-- `--append PATH` appends the marker block to an existing multi-function
+- `--append PATH` appends the definition and its ADDRESS anchor to an existing multi-function
   `.c` file rather than creating a new one.
 - `--decomp [--decompiler auto|r2ghidra|r2dec|ghidra|kuna|m2c]` embeds a
   decompilation as a starting point; `--decomp-body` writes the decompiled C
@@ -99,13 +99,14 @@ you what to attack next.
   configured compiler profile (default `msvc-6.0`) via its docker image
   (execution is docker-only, ADR-008 and ADR-016), extracts the named COFF
   symbol, and byte-compares against the target.
-- Auto-detects symbol, VA, size from `// FUNCTION:` markers, and STATUS/
-  SIZE/CFLAGS from `rebrew-functions.toml`.
+- Resolves symbol and declaration from C/metadata bindings; VA, STATUS, SIZE,
+  and CFLAGS come from dedicated metadata/configuration.
 - `--va`, `--symbol`, `--size`, `--target-bin`, `--cflags`, `--toolchain`
   override values.
-- `--no-promote` disables STATUS auto-update (also auto-skipped for files
+- `--no-promote` suppresses metadata writes, including STATUS and explicit
+  flag/toolchain/size overrides (also auto-skipped for files
   outside the project).
-- Batch mode: `--all` (+ optional `--dir`, `--origin`, `--jobs JOBS`, `--dry-run`).
+- Batch mode: `--all` (+ optional `--dir`, `--module`, `--jobs JOBS`, `--dry-run`).
 - Exit codes: 0=EXACT/RELOC, 1=NEAR_MATCHING/STUB/SIZE_MISMATCH,
   2=tooling error (compile failure, unextractable target bytes, VA-map scan
   failure, or a usage error).
@@ -128,26 +129,13 @@ you what to attack next.
 
 ### `rebrew lint`
 
-- Validates `// FUNCTION:` / `// LIBRARY:` / `// STUB:` / `// GLOBAL:` /
-  `// DATA:` / `// VTABLE:` / `// STRING:` markers (and validates pure-C
-  files whose annotations are stored in metadata per ADR-023).
-- Error codes: `E000` (cannot read file), `E001` (missing or invalid marker),
-  `E002` (invalid VA), `E004` (persisted STATUS outside the known values),
-  `E008` (metadata SIZE not an integer),
-  `E012` (module mismatch), `E013` (duplicate VA), `E015` (marker inconsistent with the module),
-  `E017` (contradictory STUB marker on earned status), `E023` (whole-function
-  `__declspec(naked)` + `__asm`/`__emit` block instead of real C).
-- Warnings: `W003` (file has no function implementation), `W005` (STUB without BLOCKER),
-  `W006` (library module missing `// SOURCE:` marker), `W010` (unknown marker key),
-  `W015` (mixed-case VA hex digits), `W016` (DATA/GLOBAL missing SECTION), `W018` (missing CFLAGS),
-  `W019` (inline metadata should be in `rebrew-functions.toml`), `W020` (asm-dump
-  placeholder instead of real C source), `W021` (duplicate global symbol across files),
-  `W022` (zero-initializer forces `.data` not `.bss`), `W023` (default function name),
-  `W024` (name violates naming convention), `W025` (brace style mismatch), `W026`
-  (indent style mismatch), `W027` (line too long), `W028` (marker VA missing from inventory),
-  `W029` (redundant per-function / preset cflags), `W030` (markers out of VA order).
-- `--fix` migrates inline metadata into `rebrew-functions.toml` and removes
-  it from source.
+- Validates optional ADDRESS anchors, dedicated format-2 function/data/source
+  metadata, source declarations, compiler settings, and project conventions.
+- E024 rejects inline state or obsolete marker blocks. No old schema or migration
+  parser is supported. Full diagnostics are maintained in
+  [ANNOTATIONS.md](../ANNOTATIONS.md#lint-reference).
+- `--fix` removes redundant flags and backfills resolvable data sections;
+  `--dry-run` previews those fixes without writes.
 - `--summary` prints a STATUS/origin breakdown table.
 - `--quiet` errors-only, `--json` machine-readable.
 
@@ -164,12 +152,12 @@ you what to attack next.
   single function and leaves the rest. `--output/-o` overrides the output
   directory. `--dry-run`, `--force` available.
 - `merge SRCS... -o OUTPUT` (inputs may be files or directories)
-  deduplicates preambles (includes, typedefs) and keeps each function's
-  `// FUNCTION:` marker. `--consolidate` hoists unique
+  deduplicates preambles (includes, typedefs) and preserves declaration-bound ADDRESS anchors and retargets
+  dedicated metadata rows. `--consolidate` hoists unique
   includes/externs/typedefs/intrinsics to the top of the merged TU.
   `--delete` removes the source files on success.
 - `rename TARGET NEW` accepts a function name, file path, or VA, and
-  updates the FUNCTION marker, definition, extern declarations, and
+  updates dedicated identities, definitions, extern declarations, and
   cross-references. `--file NAME` renames the underlying file.
 
 ### `rebrew todo`
@@ -178,14 +166,13 @@ you what to attack next.
   - `setup`; fresh project steps.
   - `compile-error`; failed verify.
   - `extract-error`; symbol not found in `.obj`
-    (marker/symbol/implementation issue).
+    (binding/symbol/implementation issue).
   - `fix-delta`; known small deltas (≤20 B) ripe for flag sweep / GA.
   - `improve-match`; in-progress without small delta.
   - `start-function`; uncovered, ranked by size + difficulty.
-  - `missing-annotation`; in Ghidra but no C body / SIZE annotation.
+  - `missing-annotation`; in Ghidra but no C body / SIZE metadata.
   - `identify-library`; uncovered library code: a library-module name, or
-    bytes that match a cached stock archive and still have no `// LIBRARY:`
-    marker.
+    bytes that match a cached stock archive and still have no LIBRARY metadata identity.
   - `run-prover`; near-matches eligible for `rebrew prove`: delta ≤ 8 B
     and function ≤ 500 B.
   - `exact-only`; a `RELOC` function, identical with relocations masked but
@@ -222,8 +209,8 @@ you what to attack next.
    `.c` files under `src/main/`.
 2. `rebrew source rename old_helper new_helper --file new_helper.c` renames the
    function across files.
-3. `rebrew lint --fix` migrates any leftover inline metadata to
-   `rebrew-functions.toml`.
+3. `rebrew lint` checks retargeted identities and declarations;
+   `rebrew lint --fix --dry-run` previews supported flag/section repairs.
 
 ### Story 3: Quick action triage
 
@@ -268,7 +255,7 @@ rebrew test [SOURCE]
       --toolchain TEXT
       --all
       --dir TEXT
-      --origin GAME|MSVCRT|ZLIB|...
+      --module GAME|MSVCRT|ZLIB|...
       --dry-run
   -j, --jobs N
       --no-promote
@@ -366,6 +353,7 @@ rebrew todo
 - `rebrew source rename` does best-effort cross-reference updates by scanning the
   reversed directory; it deliberately does not rewrite macros or string
   literals: `grep` for the old name afterwards if you suspect any.
-- `rebrew source split` and `rebrew source merge` are textual operations driven by
-  `// FUNCTION:` markers; arbitrary C constructs between functions (e.g.
-  file-scope statics that span declarations) may need manual fix-up.
+- `rebrew source split` and `rebrew source merge` use C definitions and dedicated
+  identities. They preserve file-scope storage and quoted header providers;
+  ambiguous or incompatible input is refused. Preview and verify compiler-sensitive
+  declaration order after reorganization.

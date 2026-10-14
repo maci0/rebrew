@@ -23,7 +23,7 @@ from rebrew.utils import preset_module_key, read_source_text
 app = typer.Typer(
     help="Register address-only source bindings, or a support file purpose, in metadata.",
     epilog=(
-        "Examples:\n\n"
+        "[bold]Examples:[/bold]\n\n"
         "  rebrew source register\n\n"
         "  rebrew source register src/shared/net.c --dry-run\n\n"
         '  rebrew source register src/link_shims.c --support "native link layout"'

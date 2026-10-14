@@ -49,12 +49,15 @@ from typing import Any, Literal, Protocol, runtime_checkable
 import typer
 
 from rebrew.cli import (
+    SOURCE_HELP,
     TargetOption,
     console,
     error_exit,
     json_print,
     parse_va,
     require_config,
+    require_source_arg,
+    select_annotation,
 )
 from rebrew.config import DECOMPME_API_ENV, validate_http_url
 from rebrew.errors import RebrewError
@@ -75,10 +78,13 @@ log = logging.getLogger(__name__)
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew export decompme src/game_dll/my_func.c · · · Upload the function's scratch\n\n"
-    "  rebrew export decompme f.c --dry-run · · · · · · · Print the upload plan, send nothing\n\n"
-    "  rebrew export decompme f.c --va 0x10009310 --size 42 · · Override VA and size\n\n"
-    "  rebrew export decompme f.c --no-context · · · · · · Omit the C context block\n"
+    "  # Upload the function's scratch\n"
+    "  rebrew export decompme src/game_dll/my_func.c\n\n"
+    "  # Print the upload plan, send nothing\n"
+    "  rebrew export decompme f.c --dry-run\n\n"
+    "  # Override VA and size\n"
+    "  rebrew export decompme f.c --va 0x10009310 --size 42\n\n"
+    "  rebrew export decompme f.c --no-context  # Omit the C context block\n"
 )
 
 
@@ -91,19 +97,14 @@ app = typer.Typer(
 _DEFAULT_API = "https://decomp.me"
 
 
-def resolve_api(flag_value: str) -> str:
-    """The decomp.me base URL in force: the environment's, else *flag_value*.
-
-    ``REBREW_DECOMPME_API`` wins when it carries a value, so a private or
-    self-hosted instance is named once instead of on every invocation; a
-    set-but-empty variable reads as unset rather than as "no server", which
-    would fail the upload with a message about an empty URL.  The result is
-    validated here, the same rule ``--api`` alone got, so a typo names itself
-    before the first POST.
-    """
+def resolve_api(flag_value: str | None) -> str:
+    """Resolve the API URL: explicit option, environment, then decomp.me."""
     from_env = os.environ.get(DECOMPME_API_ENV, "").strip()
-    label = DECOMPME_API_ENV if from_env else "--api"
-    candidate = from_env or flag_value.strip()
+    if flag_value is not None:
+        candidate, label = flag_value.strip(), "--api"
+    else:
+        candidate = from_env or _DEFAULT_API
+        label = DECOMPME_API_ENV if from_env else "--api"
     api = validate_http_url(candidate, label)
     if not api:
         raise ValueError(f"{label} must be an http(s) URL with a host")
@@ -744,10 +745,10 @@ def _build_context(cfg: Any, context_path: Path | None, no_context: bool) -> str
 
 @app.callback(invoke_without_command=True)
 def main(
-    source: str = typer.Argument(..., help="C source file for the function to upload"),
-    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from annotation)"),
+    source: str = typer.Argument(..., help=SOURCE_HELP),
+    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
     size: int | None = typer.Option(
-        None, "--size", help="Target size in bytes (default: annotation SIZE)"
+        None, "--size", help="Target size in bytes (default: stored SIZE)"
     ),
     compiler: str | None = typer.Option(
         None,
@@ -759,8 +760,8 @@ def main(
         "--platform",
         help="decomp.me platform id (default: win32/msdos from the binary format)",
     ),
-    flags: str | None = typer.Option(
-        None, "--flags", help="Compiler flags (default: the function's resolved cflags)"
+    cflags: str | None = typer.Option(
+        None, "--cflags", help="Compiler flags (default: the function's resolved cflags)"
     ),
     context: Path | None = typer.Option(
         None,
@@ -768,8 +769,8 @@ def main(
         help="C context file (default: auto-generated via `rebrew export context`)",
     ),
     no_context: bool = typer.Option(False, "--no-context", help="Send an empty context"),
-    api: str = typer.Option(
-        _DEFAULT_API, "--api", help="decomp.me API base URL (overridden by REBREW_DECOMPME_API)"
+    api: str | None = typer.Option(
+        None, "--api", help="API base URL (default: REBREW_DECOMPME_API, then https://decomp.me)"
     ),
     reupload: bool = typer.Option(
         False, "--reupload", help="Create a new scratch even if this payload was uploaded before"
@@ -784,11 +785,11 @@ def main(
         api = resolve_api(api)
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
-    source_path = Path(source).resolve()
-    if not source_path.exists():
-        error_exit(f"source file not found: {source}", json_mode=json_output)
+    source_path = require_source_arg(cfg, source, json_mode=json_output).resolve()
 
     va_int = parse_va(va, json_mode=json_output) if va else None
+    if va_int is None and not Path(source).is_file():
+        _, _, va_int = select_annotation(cfg, source, None, json_mode=json_output)
     try:
         ann, ann_va, ann_size, symbol = _resolve_annotation(cfg, source_path, va_int, size)
     except ValueError as exc:
@@ -797,7 +798,7 @@ def main(
 
     from rebrew.compiler.overrides import resolve_compile_overrides
 
-    # Resolve the flags regardless of --compiler: --flags defaults to the
+    # Resolve the flags regardless of --compiler: --cflags defaults to the
     # function's resolved cflags, and skipping the resolution when the user
     # pins a compiler silently uploaded the scratch with no flags.
     toolchain, resolved_cflags = resolve_compile_overrides(
@@ -817,8 +818,8 @@ def main(
                 "pass --compiler (decomp.me ids include msvc4.0..msvc8.0; see decomp.me/api/compilers)",
                 json_mode=json_output,
             )
-    if flags is None:
-        flags = resolved_cflags
+    if cflags is None:
+        cflags = resolved_cflags
     if platform is None:
         platform = map_platform(getattr(cfg, "binary_format", None) or getattr(cfg, "format", ""))
         if platform is None:
@@ -827,7 +828,7 @@ def main(
                 "(win32, msdos, n64, gc_wii, ...)",
                 json_mode=json_output,
             )
-    flags_str = flags or ""
+    flags_str = cflags or ""
 
     context_text = _build_context(cfg, context, no_context)
     # UTF-8 bytes, not code points: the field is posted as form data, so that

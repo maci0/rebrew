@@ -37,7 +37,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import typer
 from rich.table import Table
@@ -58,9 +58,9 @@ _W028_VA_RE = re.compile(r"0x[0-9a-fA-F]+")
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew recommend · · · · · · · · · Project advice: TU layout, hygiene, next steps\n\n"
-    "  rebrew recommend --category hygiene --json · · Machine-readable advice\n\n"
-    "  rebrew recommend --apply --dry-run · · Show what --apply would change\n"
+    "  rebrew recommend  # Project advice: TU layout, hygiene, next steps\n\n"
+    "  rebrew recommend --category hygiene --json  # Machine-readable advice\n\n"
+    "  rebrew recommend --apply --dry-run  # Show what --apply would change\n"
 )
 
 
@@ -1137,8 +1137,8 @@ _KIND_TO_LANE = {
 
 @app.callback(invoke_without_command=True)
 def main(
-    category: str | None = typer.Option(
-        None, "--category", "-c", help="Filter lanes: tu, hygiene, next"
+    category: Literal["tu", "hygiene", "next"] | None = typer.Option(
+        None, "--category", "-c", help="Filter lanes: tu, hygiene, next", metavar="CATEGORY"
     ),
     min_confidence: float = typer.Option(
         0.0, "--min-confidence", help="Skip TU clusters below this confidence"
