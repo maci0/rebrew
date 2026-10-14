@@ -1215,5 +1215,53 @@ meaning of an explicit target selection. Replay in guild-rebrew:
 `rebrew test src/Develop/Units/Msx/msx.c --all-targets --json`. Both clients have
 eleven RELOC results, while server.dll returns code 2 because it has no identity.
 Receipts: `.scratch/goal27/order-msx-test.json`; the same occurs for character.c
-and server_stats.c. This is distinct from `verify FILE`, which already supports
-source-file filtering.
+and server_stats.c. `verify FILE --all-targets` has the same eligibility problem:
+an absent server binding correctly rejects the empty scope. Add explicit eligible
+target selection to both commands; preserve their ordinary empty-scope rejection.
+
+## Validate translation-unit effects before splitting native source
+
+Pain: a definition-only split can preserve all object matches while breaking the
+raw image. Extracting guild cm_ExProdObjekt from attested command.c preserves its
+993-byte server RELOC body, but moves literals and changes link layout: .text grows
+16 bytes, 30,085 raw file bytes differ, and 32 data rows drift. Restoring the same
+body to its original translation-unit position restores all 286,720 file bytes
+and 652 data comparisons. Source-order cycles are not evidence for a separate TU.
+
+Proposed capability: a rearrangement preview that keeps original TU composition
+explicit, checks all target orders and raw-link consequences, and distinguishes
+definition fragments from their compilation provider. Do not invent padding or
+data owners to recover the link. Evidence: guild .scratch/goal28/server.dll,
+gate-current.log, restore-command.json and gate-restored.log; existing all-target
+definition-order proposal above supplies the conflicting-order examples.
+
+## Use native operand evidence to scope a symbol rename
+
+Pain: distinct functions share one placeholder name in the same target. Target
+membership alone cannot attribute references. TL4dfba0 calls TL4937d0, but the
+placeholder fcn_005049c0 also names TL5079f0/Gold5049c0. Gold5a5ec0's self pointer
+and Gold5a60b0's callback instead collide with the independent Gold5af2f0 wrapper.
+Rename correctly refuses these ambiguous files and existing destination names.
+
+Proposed capability: an explicit, address-evidenced reference selection, including
+function-pointer operands, within a rename transaction. Reject a contradictory
+native target and preserve independent definitions. Existing CLI composition
+works by assigning a temporary caller placeholder, renaming the selected body,
+then binding that placeholder to MODULE.0xVA; avoid exposing intermediate names.
+Evidence: guild .scratch/goal28/rename-*-preview.json, rename-*-isolated-preview.json
+and bind-*-preview.json. Both inferred final names preserve independent twins.
+
+## Symbolize evidenced views before a raw client link exists
+
+Pain: source symbolize requires a raw link map. It cannot help repair a client
+whose incorrect raw addresses currently prevent that link. Two shared guild
+providers use TL addresses even for Gold; canonical declarations and native
+operand/data evidence already identify the correct views in both images.
+
+Proposed capability: a bounded preview mode using reviewed native operand and
+managed data-view evidence, without inferring a storage owner or linked provider.
+Keep unresolved aliases explicit and require complete-body checks afterward.
+Replay: source symbolize src/GOLDTL.fcn_40ec60.c --target Europa1400Gold.exe
+--dry-run --json returns no raw_link. The manual canonical VECTOR3/net-header
+repairs validate all eight Gold data operands; receipts are guild
+.scratch/goal28/symbolize-*-preview.json and *-gold-test.json.
