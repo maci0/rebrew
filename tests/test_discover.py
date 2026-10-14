@@ -666,3 +666,41 @@ def test_a_stripped_x64_pe_is_discovered_from_its_pdata(tmp_path: Path) -> None:
     assert len(truth) == len(wanted)
     found = {va for va, _size, _name in discover_functions(stripped).functions}
     assert truth <= found
+
+
+class TestRecoveredBoundaryPadding:
+    @pytest.mark.parametrize("padding", [b"", b"\x90", b"\xcc\xcc", b"\x90\xcc\x90"])
+    @pytest.mark.parametrize("known_start", [False, True])
+    def test_missing_start_is_after_padding(
+        self, monkeypatch, padding: bytes, known_start: bool
+    ) -> None:
+        """Recovered callbacks start at their prologue, never the preceding fill."""
+        from rebrew.discover import _validate_and_refine
+
+        # The original provider knows only the first and last functions.
+        raw = b"\xc3" + padding + b"\x83\xec\x04\x83\xc4\x04\xc3" + b"\x90" + b"\xc3"
+        start = 1 + len(padding)
+        last = len(raw) - 1
+
+        def instructions(info, va, size):
+            if va == 0:
+                yield SimpleNamespace(va=0, size=1, mnemonic="ret")
+            elif va == start:
+                yield SimpleNamespace(va=va, size=3, mnemonic="sub")
+                yield SimpleNamespace(va=va + 3, size=3, mnemonic="add")
+                yield SimpleNamespace(va=va + 6, size=1, mnemonic="ret")
+            elif va == last:
+                yield SimpleNamespace(va=va, size=1, mnemonic="ret")
+
+        monkeypatch.setattr("rebrew.discover.iter_instructions", instructions)
+        candidates = [(0, 0, "first"), (last, 0, "last")]
+        if known_start:
+            candidates.append((start, 0, f"fcn.{start:x}"))
+        out = _validate_and_refine(_mk_info(raw), candidates)
+        assert out == [(0, 1, "first"), (start, 7, f"fcn.{start:x}"), (last, 1, "last")]
+
+    @pytest.mark.parametrize("raw", [b"\x90\x90\x01\xc0", b"\xcc\xcc\x00\x00"])
+    def test_padding_without_a_prologue_is_not_a_start(self, raw: bytes) -> None:
+        from rebrew.discover import _function_start
+
+        assert _function_start(_mk_info(raw), 0) is None

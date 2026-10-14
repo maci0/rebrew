@@ -3078,7 +3078,7 @@ def _looks_like_inventory_merge(
     # the scan below the annotation size or every merge is missed.
     lo, hi = start_off + max(0, ann_size - 16), start_off + span
     # ONE source of truth for what opens a function.  This detector used to carry
-    # its own four shapes while `discover._starts_function` grew to eight across
+    # its own four shapes while `discover._function_start` grew to eight across
     # rounds 196-197 and 245 -- so the two disagreed about the same bytes, and this
     # one missed cm_DispatchProduction's neighbour (`8b 44 24 04`, a first-argument
     # load) until round 247.  `openers` is kept as a fallback only for callers

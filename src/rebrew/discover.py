@@ -548,7 +548,7 @@ def _is_padding(info: Any, va: int, end: int) -> bool:
     try:
         raw = extract_bytes(info, va, end - va)
     except Exception as exc:
-        # Same hazard as `_starts_function` (round 219): "could not read" and
+        # Same hazard as `_function_start` (round 219): "could not read" and
         # "not padding" are different facts and this returns False for both, so a
         # systematic read failure is indistinguishable from "no padding found".
         # Reported once per run rather than at DEBUG.
@@ -587,15 +587,15 @@ def _is_padding(info: Any, va: int, end: int) -> bool:
 _prologue_read_failed = False
 
 
-def _starts_function(info: Any, va: int) -> bool:
-    """Whether *va* opens a stack-frame prologue after optional nop padding.
+def _function_start(info: Any, va: int) -> int | None:
+    """Return the prologue VA after optional nop padding, or None.
 
     The second way a function ends, alongside trailing padding: the next
     function begins.  A compiler prologue is `push ebp; mov ebp, esp`,
     `sub esp, imm`, or the SEH form `push -1; push <handler>`, and MSVC pads
     the join with `nop` (or `int3`, which it uses between functions in a
     code segment).  Deliberately narrow: a false positive truncates a real
-    function, so anything that is not one of those exact shapes returns False
+    function, so anything that is not one of those exact shapes returns None
     and the caller keeps the conservative gap.
     """
     from rebrew.analysis import extract_bytes
@@ -614,9 +614,9 @@ def _starts_function(info: Any, va: int) -> bool:
                 va,
                 exc,
             )
-        return False
+        return None
     if not window:
-        return False
+        return None
     i = 0
     while i < len(window) and window[i] in (0x90, 0xCC):
         i += 1
@@ -647,7 +647,7 @@ def _starts_function(info: Any, va: int) -> bool:
             b"\x8b\x4c\x24\x04",
         )
     ):
-        return True
+        return va + i
     # `mov eax, imm32` -- a function that is nothing but `return <constant>`
     # compiles to exactly that and a `ret`: guild-rebrew's cm_MarkAndReturn
     # boundary is `b8 01 00 00 00 c3` at 0x1000d340, four bytes into the
@@ -655,13 +655,13 @@ def _starts_function(info: Any, va: int) -> bool:
     # immediate must be followed by a `ret`, which a mid-function `mov eax,
     # <something>` almost never is.
     if len(body) >= 6 and body[0] == 0xB8 and body[5] == 0xC3:
-        return True
+        return va + i
     # `push <reg>` then the SAME register loaded from `[esp+disp]` -- MSVC's
     # opening for a function that saves a callee-saved register and then takes
     # its first argument, e.g. cm_ExSetAttribute's `57 8b7c2408` (push edi; mov
     # edi, [esp+8]).  Generated rather than listed because the register varies;
     # the SIB byte 0x24 is what makes it `[esp+disp]`.
-    return (
+    if (
         len(body) >= 4
         and 0x50 <= body[0] <= 0x57  # push eax..edi
         and body[1] == 0x8B  # mov r32, r/m32
@@ -669,7 +669,9 @@ def _starts_function(info: Any, va: int) -> bool:
         and (body[2] & 0xC0) == 0x40  # mod=01 -> [esp+disp8]
         and (body[2] & 0x07) == 0x04  # rm=100 -> SIB follows
         and ((body[2] >> 3) & 7) == (body[0] - 0x50)  # same register
-    )
+    ):
+        return va + i
+    return None
 
 
 def _validate_and_refine(
@@ -705,6 +707,7 @@ def _validate_and_refine(
         # in verify.py scans the same way, so the two agree on what a merge is.
         ret_end = None
         boundary_end = None
+        boundary_start = None
         last_mnemonic = ""
         decoded_end = va
         try:
@@ -715,7 +718,8 @@ def _validate_and_refine(
                     continue
                 if ret_end is None:
                     ret_end = insn.va + insn.size - va
-                if _starts_function(info, insn.va + insn.size):
+                boundary_start = _function_start(info, insn.va + insn.size)
+                if boundary_start is not None:
                     boundary_end = insn.va + insn.size - va
                     break
         except Exception:
@@ -758,8 +762,8 @@ def _validate_and_refine(
         # MISSED the function that starts there.  Recovered here, before the
         # size is decided, so the new candidate takes part in the normal
         # gap/size logic and the next iteration sizes it too.
-        if boundary_end is not None and boundary_end > 0:
-            nxt_va = va + boundary_end
+        if boundary_start is not None:
+            nxt_va = boundary_start
             if not any(f[0] == nxt_va for f in funcs):
                 funcs.insert(i + 1, (nxt_va, 0, f"fcn.{nxt_va:x}"))
                 logger.info(

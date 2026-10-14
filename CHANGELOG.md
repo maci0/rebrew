@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+- Function discovery records recovered starts after intervening alignment fill,
+  preserving existing starts and excluding the fill from predecessor extents.
+
 ## [2.27.0] - 2026-10-14
 
 ### Added
