@@ -1491,7 +1491,7 @@ def _variable_name(node: Any, source: bytes) -> str | None:
     return None
 
 
-def _declares_function(node: Any) -> bool:
+def declares_function(node: Any) -> bool:
     """Distinguish a function from storage containing a function pointer."""
     closest = ""
     while node is not None:
@@ -1786,7 +1786,7 @@ def find_extern_variables(
 
             first_result = len(results)
             for child in node.children_by_field_name("declarator"):
-                if _declares_function(child):
+                if declares_function(child):
                     continue
                 if _has_function_declarator(child):
                     decl = (
@@ -1993,7 +1993,7 @@ def find_variable_roles(
             )
             for declarator in node.children_by_field_name("declarator"):
                 name = _variable_name(declarator, src)
-                if not name or _declares_function(declarator):
+                if not name or declares_function(declarator):
                     continue
                 value = declarator.child_by_field_name("value")
                 if file_scope:

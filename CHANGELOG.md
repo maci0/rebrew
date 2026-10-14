@@ -19,6 +19,8 @@
   `load_metadata` and `stored_file_matches` from `rebrew.metadata.functions`.
 
 ### Fixed
+- Source splitting checks dependencies within the selected definition and keeps
+  callback tables in their storage owner instead of copying them as prototypes.
 - Single-file and batch comparisons use the same managed function-provider
   selection for call-binding catalogs; stale duplicate names cannot validate calls.
 - Function-order lint uses the actual definition location for metadata-only

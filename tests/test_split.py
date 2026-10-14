@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -754,6 +755,58 @@ def _invoke_meta(
 
 class TestMarkerlessSplit:
     """A migrated file is split from its function rows, not from a marker line."""
+
+    @pytest.mark.parametrize("calls_sibling", [False, True])
+    def test_unrelated_dispatch_initializer_does_not_block_extraction(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, calls_sibling: bool
+    ) -> None:
+        source = (
+            "int func_b(void);\n"
+            "int (*dispatch[])(void) = {func_b};\n\n"
+            f"int func_a(void) {{ return {'func_b()' if calls_sibling else '0'}; }}\n\n"
+            "int func_b(void) { return 1; }\n"
+        )
+        _write(tmp_path / "multi.c", source)
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code == 0, result.output
+        out = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
+        assert "dispatch" not in out
+        assert "int (*dispatch[])(void) = {func_b};" in src.read_text(encoding="utf-8")
+        assert "int func_b(void) { return 1; }" not in out
+        if calls_sibling:
+            assert "int func_b(void);" in out
+
+    def test_static_dependency_also_used_by_an_initializer_is_still_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = (
+            "static int hidden = 1;\nint *view = &hidden;\n\n"
+            "int func_a(void) { return hidden; }\n\nint func_b(void) { return 0; }\n"
+        )
+        _write(tmp_path / "multi.c", source)
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code != 0
+        assert "depends on hidden" in result.output
+        assert src.read_text(encoding="utf-8") == source
+        assert not (tmp_path / "multi_c").exists()
+
+    def test_used_callback_table_is_declared_without_copying_storage(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write(
+            tmp_path / "multi.c",
+            "int func_b(void);\nint (*dispatch[])(void) = {func_b};\n\n"
+            "int func_a(void) { return dispatch[0](); }\n\nint func_b(void) { return 1; }\n",
+        )
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code == 0, result.output
+        out = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
+        assert "extern int (*dispatch[])(void);" in out
+        assert "= {func_b}" not in out
+        assert "int (*dispatch[])(void) = {func_b};" in src.read_text(encoding="utf-8")
 
     def test_va_extracts_the_definition_and_retargets_siblings(
         self, tmp_path: Path, monkeypatch: Any

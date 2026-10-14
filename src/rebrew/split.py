@@ -23,6 +23,7 @@ from typing import Any
 import typer
 
 from rebrew.c_parser import (
+    declares_function,
     find_function_name_in_node,
     find_variable_roles,
     node_text,
@@ -140,57 +141,6 @@ def _gap_is_blank(raw: bytes, start: int, end: int) -> bool:
     return raw[start:end].strip(b" \t\r\n") == b""
 
 
-def _outer_is_function(declarator: Any) -> bool:
-    """True when *declarator* declares a function, not an object."""
-    node = declarator
-    if node is not None and node.type == "init_declarator":
-        node = node.child_by_field_name("declarator")
-    saw_object = False
-    while node is not None:
-        if node.type == "function_declarator" and not saw_object:
-            return True
-        # tree-sitter parses a bare `__cdecl` as ms_call_modifier and does
-        # not link the function through the declarator field. The function
-        # is the next named sibling.
-        if node.type == "ms_call_modifier" and node.parent is not None:
-            sibs = list(node.parent.named_children)
-            idx = next((i for i, child in enumerate(sibs) if child.id == node.id), -1)
-            nxt_fn = (
-                next(
-                    (child for child in sibs[idx + 1 :] if child.type == "function_declarator"),
-                    None,
-                )
-                if idx >= 0
-                else None
-            )
-            if nxt_fn is not None and not saw_object:
-                return True
-        # A calling convention between `*` and the name is an ERROR node.
-        # tree-sitter then parses the return type as a pointer and the
-        # function as its declarator. That pointer is not a pointer to a
-        # function, so the function still wins.
-        if (
-            node.type == "pointer_declarator"
-            and any(child.type == "ERROR" for child in node.named_children)
-            and any(child.type == "function_declarator" for child in node.named_children)
-        ):
-            return True
-        # `T* f(int)` is a function returning a pointer: the pointer wraps the
-        # function declarator directly.  A pointer to a function needs the
-        # parentheses of `T (*f)(int)`, which this check does not match.
-        if node.type == "pointer_declarator" and not saw_object:
-            inner = node.child_by_field_name("declarator")
-            if inner is not None and inner.type == "function_declarator":
-                return True
-        if node.type in {"pointer_declarator", "array_declarator"}:
-            saw_object = True
-        nxt = node.child_by_field_name("declarator")
-        if nxt is None and node.type == "parenthesized_declarator":
-            nxt = next((child for child in node.named_children), None)
-        node = nxt
-    return False
-
-
 def _declarator_name(declarator: Any, raw: bytes) -> str | None:
     node = declarator
     if node is not None and node.type == "init_declarator":
@@ -210,7 +160,7 @@ def _declarator_name(declarator: Any, raw: bytes) -> str | None:
 def _extern_line(node: Any, raw: bytes) -> str | None:
     """``extern`` declaration text for one object definition, without its initializer."""
     declarators = node.children_by_field_name("declarator")
-    objects = [item for item in declarators if not _outer_is_function(item)]
+    objects = [item for item in declarators if not declares_function(item)]
     if len(objects) != 1 or _declarator_name(objects[0], raw) is None:
         return None
     cuts: list[tuple[int, int]] = []
@@ -243,7 +193,7 @@ def _declaration_span(node: Any, raw: bytes, *, inside_pp: bool) -> SourceSpan:
     declarators = node.children_by_field_name("declarator")
     if not declarators:
         return SourceSpan("preamble", node.start_byte, node.end_byte)
-    if all(_outer_is_function(item) for item in declarators):
+    if all(declares_function(item) for item in declarators):
         return SourceSpan("preamble", node.start_byte, node.end_byte)
     has_value = any(
         item.type == "init_declarator" and item.child_by_field_name("value") is not None
@@ -254,7 +204,7 @@ def _declaration_span(node: Any, raw: bytes, *, inside_pp: bool) -> SourceSpan:
     names = tuple(
         name
         for item in declarators
-        if not _outer_is_function(item) and (name := _declarator_name(item, raw))
+        if not declares_function(item) and (name := _declarator_name(item, raw))
     )
     uncertain = len(declarators) != 1 or len(names) != 1
     return SourceSpan(
@@ -443,11 +393,10 @@ def row_labels(entry: dict[str, Any]) -> set[str]:
     return names
 
 
-def _uses_at(text: str, line: int) -> tuple[set[str], set[str]]:
-    """Names used by the function at *line*, and names also used by an initializer."""
-    _, _, initializers = find_variable_roles(text, function_filter=lambda _line: False)
-    _, _, combined = find_variable_roles(text, function_filter=lambda number: number == line)
-    return combined - initializers, combined & initializers
+def _uses_at(raw: bytes, span: SourceSpan) -> set[str]:
+    """Read this definition's uses without including file-scope initializers."""
+    _, _, uses = find_variable_roles(_decode(raw, span.start, span.end))
+    return uses
 
 
 def _overlaps(start: int, end: int, extents: list[tuple[int, int]]) -> bool:
@@ -598,19 +547,13 @@ def _split_definitions(
         if span.inside_pp or not span.proto:
             problems.append(f"{span.name} is inside a preprocessor conditional or did not parse")
             continue
-        line = raw.count(b"\n", 0, span.start) + 1
-        direct, leaked = _uses_at(text, line)
-        watched = {item.name for item in functions} | {item.name for item in stores if item.name}
-        if leaked & watched:
-            problems.append(
-                f"{span.name} has an uncertain reference ({', '.join(sorted(leaked & watched))})"
-            )
+        direct = _uses_at(raw, span)
         for other in functions:
             if other is span:
                 continue
             if other.static and other.name in direct:
                 problems.append(f"{span.name} depends on static {other.name}")
-            if span.static and span.name in _uses_at(text, raw.count(b"\n", 0, other.start) + 1)[0]:
+            if span.static and span.name in _uses_at(raw, other):
                 problems.append(f"static {span.name} is used by {other.name}")
         for store in stores:
             if store.name not in direct:
@@ -682,7 +625,7 @@ def _split_definitions(
     rendered: list[tuple[dict[str, Any], str]] = []
     for plan in plans:
         span = plan["span"]
-        direct, _leaked = _uses_at(text, raw.count(b"\n", 0, span.start) + 1)
+        direct = _uses_at(raw, span)
         extras: list[str] = []
         for store in stores:
             if store.name in direct and store.extern_line:
