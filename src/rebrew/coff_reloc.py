@@ -295,30 +295,31 @@ def build_name_to_va(
                 if isinstance(name, str) and name and isinstance(va, int)
             }
         )
-        if annotations is not None:
-            for ann in annotations:
-                # LIBRARY rows are identifications, not authoritative call
-                # targets: their names come from FLIRT/Ghidra attributions
-                # and were seen swapped (`_fclose` vs `__fflush_lk` at
-                # guild-rebrew), so validating a call against them
-                # false-fails the compare.
-                if getattr(ann, "kind", "") == "LIBRARY":
-                    continue
-                ann_name = getattr(ann, "name", None)
-                ann_va = getattr(ann, "va", None)
-                if isinstance(ann_name, str) and ann_name and isinstance(ann_va, int) and ann_va:
-                    name_to_va[ann_name] = ann_va
-        else:
+        from rebrew.function_providers import select_source_bindings
+
+        if annotations is None:
             from rebrew.metadata.bindings import read_source_bindings
 
-            for path in iter_sources(cfg.reversed_dir, cfg):
+            annotations = [
+                ann
+                for path in iter_sources(cfg.reversed_dir, cfg)
                 for ann in read_source_bindings(
-                    path, target_name=active_marker, metadata_dir=cfg.metadata_dir
-                ):
-                    if getattr(ann, "kind", "") == "LIBRARY":
-                        continue
-                    if ann.name and ann.va:
-                        name_to_va[ann.name] = ann.va
+                    path,
+                    target_name=active_marker,
+                    base_dir=cfg.reversed_dir,
+                    metadata_dir=cfg.metadata_dir,
+                )
+            ]
+        selected, _duplicates = select_source_bindings(cfg, annotations)
+        for ann in selected:
+            # Library identifications can have swapped attribution names;
+            # provider selection does not establish a trusted native callee.
+            if getattr(ann, "kind", "") == "LIBRARY":
+                continue
+            ann_name = getattr(ann, "name", None)
+            ann_va = getattr(ann, "va", None)
+            if isinstance(ann_name, str) and ann_name and isinstance(ann_va, int) and ann_va:
+                name_to_va[ann_name] = ann_va
     except (ImportError, OSError, ValueError, KeyError, AttributeError) as exc:
         # Fail closed: a scan failure is indistinguishable from "nothing to
         # validate" to every caller — verify/test would then silently skip

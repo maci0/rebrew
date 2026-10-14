@@ -22,7 +22,7 @@ import json
 import logging
 import math
 import threading
-from collections import Counter, OrderedDict
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -67,12 +67,7 @@ from rebrew.linked_exact import linked_image_current
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata.bindings import SourceBinding, min_valid_va_for
 from rebrew.metadata.document import canonical_va_key
-from rebrew.metadata.functions import (
-    identity_file,
-    load_metadata,
-    should_promote_status,
-    stored_file_matches,
-)
+from rebrew.metadata.functions import should_promote_status
 from rebrew.sources import contained_path, source_roots
 from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import (
@@ -2421,58 +2416,19 @@ def prepare_entries(
         error_exit(f"{cfg.target_binary} not found", json_mode=json_output)
 
     # Filter out non-compilable annotations and deduplicate by VA
-    va_to_kept: dict[int, SourceBinding] = {}
     unique_entries: list[SourceBinding] = []
     data_count = 0
     library_header_count = 0
-    duplicate_vas: list[tuple[int, str, str]] = []
-    metadata_dir = getattr(cfg, "metadata_dir", None)
-    managed = {
-        (preset_module_key(module), va): row
-        for (module, va), row in (
-            load_metadata(metadata_dir, deepcopy=False) if metadata_dir else {}
-        ).items()
-    }
+    from rebrew.function_providers import select_source_bindings
 
-    counts = Counter(entry.va for entry in entries if not entry.is_data)
-
-    def managed_source_rank(entry: SourceBinding) -> tuple[int, bool, bool, bool, bool]:
-        """Prefer the bound definition without changing unbound ordering."""
-        if counts[entry.va] < 2:
-            return entry.va, False, False, False, entry.filepath.endswith(".h")
-        row = managed.get((preset_module_key(entry.module or module_marker(cfg)), entry.va), {})
-        path = contained_path(source_roots(cfg), entry.filepath)
-        bound = bool(
-            metadata_dir
-            and path
-            and stored_file_matches(str(row.get("file", "")), identity_file(path, metadata_dir))
-        )
-        return (
-            entry.va,
-            not bound,
-            bound and entry.kind != row.get("kind", entry.kind),
-            bound and bool(row.get("symbol")) and entry.symbol != row["symbol"],
-            entry.filepath.endswith(".h"),
-        )
-
-    for entry in sorted(entries, key=managed_source_rank):
-        if getattr(entry, "is_data", False):
+    selected, duplicate_vas = select_source_bindings(cfg, entries)
+    for entry in selected:
+        if entry.is_data:
             data_count += 1
-            continue
-        fp = getattr(entry, "filepath", "")
-        kept = va_to_kept.get(entry.va)
-        if kept is None:
-            va_to_kept[entry.va] = entry
-            if fp and fp.endswith(".h"):
-                library_header_count += 1
-            else:
-                unique_entries.append(entry)
+        elif entry.filepath.endswith(".h"):
+            library_header_count += 1
         else:
-            # Keep the managed provider, including a declaration-only library
-            # header. A stale body must not earn its bound identity's verdict.
-            duplicate_vas.append(
-                (entry.va, getattr(kept, "filepath", ""), getattr(entry, "filepath", ""))
-            )
+            unique_entries.append(entry)
     # Only selected identities enter the call catalog. Stale duplicates must
     # not introduce additional names or count a managed library as game code.
     from rebrew.coff_reloc import CatalogScanError, build_name_to_va
@@ -2480,8 +2436,7 @@ def prepare_entries(
     try:
         name_to_va = build_name_to_va(
             cfg,
-            annotations=[e for e in entries if getattr(e, "is_data", False)]
-            + list(va_to_kept.values()),
+            annotations=selected,
         )
     except CatalogScanError as exc:
         error_exit(str(exc), json_mode=json_output)

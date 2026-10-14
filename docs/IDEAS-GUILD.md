@@ -1165,3 +1165,39 @@ library names. Evidence: guild-rebrew `.scratch/goal26/production/corpus.json`,
 `transfer-{tl,gold}.json`, `strict-binding-4ec780.json` and repaired native
 literal values. Project-specific operand validation belongs in ignored scratch;
 reusable value/trust policy should live upstream.
+
+## Reorder existing definitions with all-target constraints
+
+Pain: function-order lint now locates metadata-only definitions accurately.
+A project with shared server/client source can consequently reveal ordering
+inversions that were hidden by absent ADDRESS anchors. `build order-sources`
+orders translation units, not definitions within one unit, and a single-target
+VA sort can violate another target's native order.
+
+Proposed capability: preview a metadata-driven definition reorder, retaining
+attached comments, address anchors, file-scope declarations and preprocessor
+boundaries. Check all target orders, show cycles explicitly, and require an
+evidenced source-unit split when no common order exists. Do not duplicate shared
+bodies or suppress W030 to manufacture a clean lint result.
+
+Replay: guild-rebrew `rebrew lint --all-targets --json` with address-only source
+bindings. `.scratch/goal27/lint-order-fixed.json` exposes 62 W030 findings in 12
+units; a read-only graph using `find_c_function_definitions` and `load_metadata`
+finds conflicting target orders in command.c, alchemistry_logic.c,
+friedhof_logic.c, spiel.c and loadsave.c. Those cycles need reviewed source
+organization rather than an automatic one-target sort.
+
+## Resolve blocker commands through managed names and symbols
+
+Pain: `blocker set cm_ExecCommand ... --target Europa1400Gold_TL.exe` cannot
+resolve the function even though its managed row names `cm_ExecCommand` and
+binds `_cm_ExecCommand` to `GOLDTL.cm_ExecCommand.c`. The command's existing
+symbol route resolves file stems; bare managed names are not file stems.
+The same problem occurs for `d3_LoadObjectAnim`. Address selection succeeds.
+
+Proposed capability: resolve managed names and native symbols under the selected
+target, retain shared-definition binding, and reject ambiguous names with the
+candidate identities. Keep explicit VA/file selection available. Evidence:
+guild `.scratch/goal27/blocker-command.json` and `blocker-animation.json` now
+contain the successful address-selected writes; the failed name-selected commands
+returned code 2 with "Cannot resolve function" before those writes.

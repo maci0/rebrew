@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+### Changed
+- **Breaking:** The incidental `verify.identity_file`, `verify.load_metadata`
+  and `verify.stored_file_matches` imports are removed. Import `identity_file`,
+  `load_metadata` and `stored_file_matches` from `rebrew.metadata.functions`.
+
+### Fixed
+- Single-file and batch comparisons use the same managed function-provider
+  selection for call-binding catalogs; stale duplicate names cannot validate calls.
+- Function-order lint uses the actual definition location for metadata-only
+  functions alongside optional address anchors.
+
 ## [3.0.0] - 2026-10-14
 
 ### Changed

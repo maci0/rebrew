@@ -64,6 +64,44 @@ def test_library_rows_stay_out_of_the_catalog(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("provided_annotations", [False, True])
+def test_duplicate_function_catalog_uses_the_managed_provider(
+    tmp_path: Path, provided_annotations: bool
+) -> None:
+    """Single-file and batch compares must reject the same stale callee name."""
+    from rebrew.metadata.bindings import read_source_bindings
+    from rebrew.metadata.functions import record_function_identity
+
+    (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
+    src = tmp_path / "src"
+    src.mkdir()
+    paths = [src / "stale.c", src / "bound.c"]
+    for path, name in zip(paths, ["stale", "bound"], strict=True):
+        path.write_text(f"/* ADDRESS: GAME 0x1000 */\nvoid {name}(void) {{}}\n", encoding="utf-8")
+    record_function_identity(
+        tmp_path,
+        module="GAME",
+        va=0x1000,
+        file="src/bound.c",
+        kind="FUNCTION",
+        name="bound",
+        symbol="_bound",
+        size=64,
+    )
+    annotations = [
+        ann
+        for path in paths
+        for ann in read_source_bindings(
+            path, target_name="GAME", base_dir=src, metadata_dir=tmp_path
+        )
+    ]
+    names = build_name_to_va(
+        load_config(root=tmp_path), annotations=annotations if provided_annotations else None
+    )
+    assert names["bound"] == 0x1000
+    assert "stale" not in names
+
+
+@pytest.mark.parametrize("provided_annotations", [False, True])
 @pytest.mark.parametrize("native_symbol", ["_current_year", "??_C@format@"])
 def test_verified_native_data_symbol_enters_marker_scoped_catalog(
     tmp_path: Path, provided_annotations: bool, native_symbol: str

@@ -465,6 +465,7 @@ def _check_W030_va_order(result: LintResult, all_headers: list[Any], lines: list
     """
     groups: list[dict[str, tuple[int, int]]] = []
     prev_line = -1
+    prev_definition = 0
     for found_keys, _flags in all_headers:
         if found_keys.get("MARKER", "") not in ("FUNCTION", "STUB"):
             continue
@@ -473,13 +474,20 @@ def _check_W030_va_order(result: LintResult, all_headers: list[Any], lines: list
         except ValueError:
             continue
         line = int(found_keys.get("_LINE", "1"))
+        definition = int(found_keys.get("_DEFINITION_LINE", "0"))
         between = lines[prev_line : line - 1] if prev_line >= 0 else ["code"]
-        if not groups or any(t.strip() and not t.lstrip().startswith("//") for t in between):
+        separate = (
+            definition != prev_definition
+            if definition and prev_definition
+            else any(t.strip() and not t.lstrip().startswith("//") for t in between)
+        )
+        if not groups or separate:
             groups.append({})
         mod = found_keys.get("MODULE", "")
         cur = groups[-1].get(mod)
         groups[-1][mod] = (va, line) if cur is None else (min(va, cur[0]), cur[1])
         prev_line = line
+        prev_definition = definition
     highest: dict[str, int] = {}
     for group in groups:
         for mod, (va, line) in group.items():
@@ -2129,18 +2137,25 @@ def lint_file(
         bindings = source_bindings(
             text, filepath, None, None, cfg.metadata_dir if cfg else filepath.parent
         )
+        definition_lines: dict[str, int] = {}
+        if any(a.is_function for a in bindings):
+            from rebrew.c_parser import find_c_function_definitions
+
+            definition_lines = dict(find_c_function_definitions(text))
         all_headers = [
             (
                 {
                     "MARKER": a.kind,
                     "MODULE": a.module,
                     "VA": f"0x{a.va:08x}",
-                    "_LINE": str(a.line or 1),
+                    "_LINE": str(a.line or definition_lines.get(a.name, 1)),
+                    "_DEFINITION_LINE": str(definition_lines.get(a.name, 0)),
                 },
                 {"has_new": True},
             )
             for a in bindings
         ]
+        all_headers.sort(key=lambda header: int(header[0]["_LINE"]))
     except ValueError as exc:
         result.error(1, "E001", str(exc))
         return result

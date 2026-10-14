@@ -3071,6 +3071,37 @@ class TestMarkerVaOrder:
     def _w030(result: LintResult) -> list[tuple[int, str]]:
         return [(line, m) for line, c, m in result.warnings if c == "W030"]
 
+    @pytest.mark.parametrize("descending", [False, True])
+    def test_metadata_only_definition_uses_its_actual_source_line(
+        self, tmp_path: Path, descending: bool
+    ) -> None:
+        """Optional anchors must not move an unanchored definition to the file end."""
+        from rebrew.metadata.functions import record_function_identity
+
+        first, second = (0x2000, 0x1000) if descending else (0x1000, 0x2000)
+        f = tmp_path / "a.c"
+        f.write_text(
+            f"int first(void) {{ return 0; }}\n\n/* ADDRESS: SERVER 0x{second:x} */\n"
+            "int second(void) { return 0; }\n\n/* ADDRESS: SERVER 0x3000 */\n"
+            "int third(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        for va, name in [(first, "first"), (second, "second"), (0x3000, "third")]:
+            record_function_identity(
+                tmp_path,
+                module="SERVER",
+                va=va,
+                file="a.c",
+                kind="FUNCTION",
+                name=name,
+                symbol="_" + name,
+                size=16,
+            )
+        warnings = self._w030(lint_file(f, cfg=_make_cfg(root=tmp_path)))
+        assert len(warnings) == int(descending)
+        if descending:
+            assert warnings[0][0] == 3
+
     def test_descending_marker_warns(self, tmp_path: Path) -> None:
         f = _write_c(
             tmp_path,

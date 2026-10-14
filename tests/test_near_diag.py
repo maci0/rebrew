@@ -6,6 +6,7 @@ from typing import Any
 from source_util import write_source
 
 import rebrew.near_analysis as nd
+from rebrew.metadata.bindings import SourceBinding
 
 # Hand-crafted 32-bit x86 encodings.
 MOV_EAX_EBX = b"\x89\xd8"  # mov eax, ebx
@@ -743,11 +744,23 @@ class TestAllBatch:
         assert "--va cannot be combined with --all" in result.output
 
     def test_batch_writes_blockers_for_each(self, monkeypatch, tmp_path: Path) -> None:
-        from types import SimpleNamespace as NS
-
         annos = [
-            NS(va=0x1000, size=8, symbol="_f", module="S", cflags="", status="NEAR_MATCHING"),
-            NS(va=0x2000, size=8, symbol="_g", module="S", cflags="", status="NEAR_MATCHING"),
+            SourceBinding(
+                kind="FUNCTION",
+                va=0x1000,
+                size=8,
+                symbol="_f",
+                module="S",
+                status="NEAR_MATCHING",
+            ),
+            SourceBinding(
+                kind="FUNCTION",
+                va=0x2000,
+                size=8,
+                symbol="_g",
+                module="S",
+                status="NEAR_MATCHING",
+            ),
         ]
         result, calls = self._invoke(
             monkeypatch, tmp_path, ["--all", "--fix-blocker", "--json"], annos
@@ -767,11 +780,24 @@ class TestAllBatch:
     def test_batch_includes_size_mismatch(self, monkeypatch, tmp_path: Path) -> None:
         """--all must also classify SIZE_MISMATCH functions (mirror prove --all)."""
         import json
-        from types import SimpleNamespace as NS
 
         annos = [
-            NS(va=0x1000, size=8, symbol="_f", module="S", cflags="", status="NEAR_MATCHING"),
-            NS(va=0x2000, size=8, symbol="_g", module="S", cflags="", status="SIZE_MISMATCH"),
+            SourceBinding(
+                kind="FUNCTION",
+                va=0x1000,
+                size=8,
+                symbol="_f",
+                module="S",
+                status="NEAR_MATCHING",
+            ),
+            SourceBinding(
+                kind="FUNCTION",
+                va=0x2000,
+                size=8,
+                symbol="_g",
+                module="S",
+                status="SIZE_MISMATCH",
+            ),
         ]
         result, calls = self._invoke(
             monkeypatch, tmp_path, ["--all", "--fix-blocker", "--json"], annos
@@ -784,10 +810,17 @@ class TestAllBatch:
         assert payload["results"][1]["blocker_written"] is True
 
     def test_batch_no_candidates(self, monkeypatch, tmp_path: Path) -> None:
-        from types import SimpleNamespace as NS
-
         # Only a STUB annotation — nothing NEAR_MATCHING to diagnose.
-        annos = [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="", status="STUB")]
+        annos = [
+            SourceBinding(
+                kind="FUNCTION",
+                va=0x1000,
+                size=8,
+                symbol="_f",
+                module="S",
+                status="STUB",
+            )
+        ]
         result, calls = self._invoke(monkeypatch, tmp_path, ["--all", "--json"], annos)
         assert result.exit_code == 0, result.output
         assert calls == []
@@ -798,11 +831,23 @@ class TestAllBatch:
         assert payload["results"] == []
 
     def test_batch_compile_error_continues(self, monkeypatch, tmp_path: Path) -> None:
-        from types import SimpleNamespace as NS
-
         annos = [
-            NS(va=0x1000, size=8, symbol="_f", module="S", cflags="", status="NEAR_MATCHING"),
-            NS(va=0x2000, size=8, symbol="_g", module="S", cflags="", status="NEAR_MATCHING"),
+            SourceBinding(
+                kind="FUNCTION",
+                va=0x1000,
+                size=8,
+                symbol="_f",
+                module="S",
+                status="NEAR_MATCHING",
+            ),
+            SourceBinding(
+                kind="FUNCTION",
+                va=0x2000,
+                size=8,
+                symbol="_g",
+                module="S",
+                status="NEAR_MATCHING",
+            ),
         ]
         # The FIRST function fails to compile; the batch must continue and
         # still diagnose the second one.

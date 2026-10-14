@@ -2,14 +2,74 @@
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-from rebrew.config import ProjectConfig
-from rebrew.metadata.bindings import SourceBinding
-from rebrew.metadata.functions import validate_identity_file
-from rebrew.utils import rel_display_path
+from rebrew.config import ProjectConfig, module_marker
+from rebrew.metadata.bindings import DATA_KINDS, SourceBinding
+from rebrew.metadata.functions import (
+    identity_file,
+    load_metadata,
+    stored_file_matches,
+    validate_identity_file,
+)
+from rebrew.sources import contained_path, source_roots
+from rebrew.utils import preset_module_key, rel_display_path
+
+
+def select_source_bindings(
+    cfg: ProjectConfig, entries: Sequence[SourceBinding]
+) -> tuple[list[SourceBinding], list[tuple[int, str, str]]]:
+    """Select one function provider per VA, retaining data and duplicate diagnostics.
+
+    Managed file, kind and symbol bindings win over conflicting candidates.
+    Without a managed provider, preserve the first source before headers.
+    Both compile selection and operand catalogs must use this same decision.
+    """
+    metadata_dir = getattr(cfg, "metadata_dir", None)
+    managed = {
+        (preset_module_key(module), va): row
+        for (module, va), row in (
+            load_metadata(metadata_dir, deepcopy=False) if metadata_dir else {}
+        ).items()
+    }
+    counts = Counter(entry.va for entry in entries if entry.kind not in DATA_KINDS)
+
+    def rank(entry: SourceBinding) -> tuple[int, bool, bool, bool, bool]:
+        """Resolve source paths only when a duplicate needs disambiguation."""
+        filepath = getattr(entry, "filepath", "")
+        if entry.kind in DATA_KINDS or counts[entry.va] < 2:
+            return entry.va, False, False, False, filepath.endswith(".h")
+        row = managed.get((preset_module_key(entry.module or module_marker(cfg)), entry.va), {})
+        path = contained_path(source_roots(cfg), filepath)
+        bound = bool(
+            metadata_dir
+            and path
+            and stored_file_matches(str(row.get("file", "")), identity_file(path, metadata_dir))
+        )
+        return (
+            entry.va,
+            not bound,
+            bound and entry.kind != row.get("kind", entry.kind),
+            bound and bool(row.get("symbol")) and entry.symbol != row["symbol"],
+            filepath.endswith(".h"),
+        )
+
+    selected: list[SourceBinding] = []
+    kept: dict[int, SourceBinding] = {}
+    duplicates: list[tuple[int, str, str]] = []
+    for entry in sorted(entries, key=rank):
+        if entry.kind in DATA_KINDS:
+            selected.append(entry)
+        elif entry.va in kept:
+            duplicates.append((entry.va, kept[entry.va].filepath, entry.filepath))
+        else:
+            kept[entry.va] = entry
+            selected.append(entry)
+    return selected, duplicates
 
 
 def bind_library_source(
