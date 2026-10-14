@@ -593,7 +593,7 @@ class TestRecordMigratedDataMarkers:
     def test_rejects_status(self, tmp_path: Path) -> None:
         from rebrew.metadata.data import record_data_rows
 
-        with pytest.raises(ValueError, match="data migration does not write STATUS"):
+        with pytest.raises(ValueError, match="data registration does not write STATUS"):
             record_data_rows(
                 tmp_path,
                 [

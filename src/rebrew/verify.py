@@ -22,7 +22,7 @@ import json
 import logging
 import math
 import threading
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -2434,8 +2434,12 @@ def prepare_entries(
         ).items()
     }
 
+    counts = Counter(entry.va for entry in entries if not entry.is_data)
+
     def managed_source_rank(entry: SourceBinding) -> tuple[int, bool, bool, bool, bool]:
         """Prefer the bound definition without changing unbound ordering."""
+        if counts[entry.va] < 2:
+            return entry.va, False, False, False, entry.filepath.endswith(".h")
         row = managed.get((preset_module_key(entry.module or module_marker(cfg)), entry.va), {})
         path = contained_path(source_roots(cfg), entry.filepath)
         bound = bool(

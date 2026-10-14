@@ -2,8 +2,8 @@
 
 A glob over a shared tree over-includes: every target's TUs compile and
 link into every binary (duplicate symbols at best, foreign bytes at
-worst).  Marker-selected lists include exactly the files carrying the
-target's FUNCTION/LIBRARY/STUB block, plus unannotated helpers.
+worst). Canonical identities and file-purpose metadata select target
+translation units, with unbound helpers shared across targets.
 """
 
 from __future__ import annotations
@@ -130,6 +130,8 @@ def test_emitted_include_sets_variable(tmp_path: Path, monkeypatch: pytest.Monke
     assert out.exit_code == 0, out.output
     assert "set(MYSRC" in out.stdout
     assert "src/shared/a.c" in out.stdout
+    for name in ("rebrew-functions.toml", "rebrew-data.toml", "rebrew-source.toml"):
+        assert f'"${{CMAKE_CURRENT_SOURCE_DIR}}/{name}"' in out.stdout
 
 
 def test_json_reports_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
