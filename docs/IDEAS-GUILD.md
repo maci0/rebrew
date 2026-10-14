@@ -1159,6 +1159,17 @@ Evidence: guild-rebrew `.scratch/goal24/production/callee-interface.json`,
 0x005725c7..0x005725cf. Project repair must validate complete helper bodies,
 existing callers and typed operands independently of the byte-match totals.
 
+Repair follow-up: allow a reviewed signature to move into an existing subsystem
+header, remove conflicting per-file prototypes, add the selected header to its
+users and preview caller argument conversions through the MSVC-aware AST.
+`types apply` edits one definition parameter; `source rename` preserves caller
+types. Neither performs this reconciliation. Preserve target-specific provider
+bindings and compiler-sensitive declaration order, and list every affected
+target/source context for verification. Guild renderer wrapper TL442be0 /
+Gold447190 needed one byte return and one D3_OBJECT pointer contract across
+31 contexts; replay `.scratch/goal39/canonical_calls.py` and inspect
+`scope-audit-current.json`, `wrapper-native-proof.json` and six type receipts.
+
 
 ## Verify compiler literal values and distinguish reviewed library bindings
 
