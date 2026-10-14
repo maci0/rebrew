@@ -1067,6 +1067,24 @@ Europa1400Gold_TL.exe --json` and `rebrew binary asm show 0x571870 --size 96
 reconciliation receipt: `.scratch/goal23/pool-unification/inspect-text-gaps.py`
 and `text-gaps.json`; no new project inventory/parser or status edits.
 
+Follow-up: provide an evidence-backed, atomic edit of selected inventory extents
+without replacing the entire discovery catalog. `binary functions --output`
+regenerates all rows; `source register` owns managed source sizes, not the
+inventory. A stale discovery extent can therefore block CU recommendations
+even when the source's complete native size is already correct.
+
+Guild TL0x4186c0 is a five-byte external tail jump followed by eleven NOPs;
+its old47-byte inventory span included the following function. TL0x571720
+ends with a return at0x57186e and one NOP before the production callback;
+its verified335-byte body was recorded as4160 bytes. Curated repairs using
+the existing atomic emitter preserve all6337 identities and unblock
+`rebrew recommend --target Europa1400Gold_TL.exe --json`. Require reviewed
+complete-body/next-entry evidence, preserve names and unrelated rows, and
+report the changed bytes separately from source verification. Do not truncate
+at an early return or blindly replace a curated inventory with a new scan.
+Receipts: guild-rebrew `.scratch/goal37/inventory-*-repair.json`, native assembly
+and `tl-discovered.json`; the full new scan has7503 rows and was not installed.
+
 ## Structured decompiler failures for native callback seeds
 
 After repairing Rizin project persistence, the native TL production callback
