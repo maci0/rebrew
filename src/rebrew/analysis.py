@@ -68,10 +68,10 @@ class Xref:
     - ``call`` / ``jmp``      — direct relative call/jump
     - ``iat_call`` / ``iat_jmp`` — ``call [slot]`` / ``jmp [slot]`` (IAT)
     - ``push``                — ``push imm32`` (string/address load)
-    - ``mov``                 — ``mov reg, imm32`` (address load)
+    - ``mov``                 — ``mov reg/[mem], imm32`` (address load/store)
     - ``lea``                 — ``lea reg, [abs]``
     - ``mov_mem``             — ``mov reg, [abs]`` (data read)
-    - ``mov_mem_store``       — ``mov [abs], reg`` (data write)
+    - ``mov_mem_store``       — ``mov [abs], reg/imm`` (data write)
     - otherwise               — mnemonic + ``_mem`` (e.g. ``and_mem``)
     """
 
@@ -423,15 +423,11 @@ def scan_references(
         for insn in md.disasm(raw[start:], va + start):
             if insn.mnemonic == "db":  # skipdata placeholder
                 continue
-            ref = _classify_insn(info, insn)
-            if ref is None:
-                continue
-            kind, from_va, to_va = ref
-            if target_va is not None and to_va != target_va:
-                continue
-            if not is_inside(info, to_va):
-                continue
-            xrefs.append(Xref(kind=kind, from_va=from_va, to_va=to_va))
+            for kind, from_va, to_va in _classify_insn(info, insn):
+                if target_va is not None and to_va != target_va:
+                    continue
+                if is_inside(info, to_va):
+                    xrefs.append(Xref(kind=kind, from_va=from_va, to_va=to_va))
     xrefs.sort(key=lambda x: (x.from_va, x.to_va))
     return xrefs
 
@@ -458,12 +454,9 @@ def data_references(info: BinaryInfo, va: int, size: int) -> list[Xref]:
     for insn in md.disasm(raw[start:], va + start):
         if insn.mnemonic == "db":  # skipdata placeholder
             continue
-        ref = _classify_insn(info, insn)
-        if ref is None:
-            continue
-        kind, from_va, to_va = ref
-        if is_inside(info, to_va):
-            out.append(Xref(kind=kind, from_va=from_va, to_va=to_va))
+        for kind, from_va, to_va in _classify_insn(info, insn):
+            if is_inside(info, to_va):
+                out.append(Xref(kind=kind, from_va=from_va, to_va=to_va))
     return out
 
 
@@ -498,8 +491,9 @@ def reachable_code(info: BinaryInfo, va: int, size: int) -> tuple[list[Insn], li
             raise ValueError(f"instruction at 0x{pc:x} overlaps another instruction")
         covered.update(occupied)
         decoded[pc] = Insn(pc, insn.size, insn.mnemonic, insn.op_str, bytes(insn.bytes))
-        if (ref := _classify_insn(info, insn)) and is_inside(info, ref[2]):
-            refs.append(Xref(*ref))
+        for ref in _classify_insn(info, insn):
+            if is_inside(info, ref[2]):
+                refs.append(Xref(*ref))
         if insn.group(capstone.CS_GRP_RET) or insn.group(capstone.CS_GRP_IRET):
             continue
         if insn.mnemonic in {"int3", "ud2", "hlt"}:
@@ -533,12 +527,12 @@ def _ne_segment_of(info: BinaryInfo, va: int) -> int | None:
     return None
 
 
-def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
-    """Classify one capstone instruction into ``(kind, from_va, to_va)``."""
+def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[tuple[str, int, int], ...]:
+    """Classify every absolute reference in one capstone instruction."""
     from_va = insn.address
     ops = insn.operands
     if not ops:
-        return None
+        return ()
     mnemonic = insn.mnemonic
     op_reg, op_imm, op_mem = _op_constants()
 
@@ -548,14 +542,14 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
     if info.format == "ne":
         seg_index = _ne_segment_of(info, from_va)
         if seg_index is None:
-            return None
+            return ()
         if mnemonic in ("call", "jmp"):
             op = ops[0]
             if op.type == op_imm:
                 # capstone resolves 16-bit relative branches to the absolute
                 # target already.
-                return mnemonic, from_va, int(op.imm)
-            return None
+                return ((mnemonic, from_va, int(op.imm)),)
+            return ()
         if mnemonic in ("push", "mov"):
             # `push 0x0D000` / `mov reg, 0x0D000` push/load a 16-bit absolute
             # (usually a string/global address in the autodata segment) —
@@ -567,7 +561,7 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
                 if 0 <= disp <= 0xFFFF:
                     autodata = getattr(info, "ne_header", None)
                     data_seg = autodata.autodata_segment if autodata is not None else 1
-                    return mnemonic, from_va, (data_seg << 16) | disp
+                    return ((mnemonic, from_va, data_seg << 16 | disp),)
         # Absolute [imm16] operands: a1/a3 (mov), and generic [abs] memory ops
         for op in ops:
             if (
@@ -582,8 +576,8 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
                     data_seg = autodata.autodata_segment if autodata is not None else 1
                     to_va = (data_seg << 16) | disp
                     kind = "mov_mem" if mnemonic == "mov" else f"{mnemonic}_mem"
-                    return kind, from_va, to_va
-        return None
+                    return ((kind, from_va, to_va),)
+        return ()
 
     # Non-x86 direct calls and unconditional branches.  The address is in
     # the operand text: SH ``bsr`` is not an immediate operand (its ``imm``
@@ -591,61 +585,66 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
     # ``jmp`` so call-graph consumers do not grow a per-arch set.
     call_target = direct_call_target(mnemonic, insn.op_str)
     if call_target is not None:
-        return "call", from_va, call_target
+        return (("call", from_va, call_target),)
     jump_target = direct_jump_target(mnemonic, insn.op_str)
     if jump_target is not None:
-        return "jmp", from_va, jump_target
+        return (("jmp", from_va, jump_target),)
 
     if mnemonic in ("call", "jmp"):
         op = ops[0]
         if op.type == op_imm:
-            return mnemonic, from_va, op.imm
+            return ((mnemonic, from_va, op.imm),)
         if op.type == op_mem:
             addr = _mem_absolute(op.mem, insn)
             if addr is not None:
-                return f"iat_{mnemonic}", from_va, addr
-        return None
+                return ((f"iat_{mnemonic}", from_va, addr),)
+        return ()
 
     if mnemonic == "push":
         op = ops[0]
         if op.type == op_imm:
-            return "push", from_va, op.imm
+            return (("push", from_va, op.imm),)
         if op.type == op_mem:  # push [abs] — reads a global
             addr = _mem_absolute(op.mem, insn)
             if addr is not None:
-                return "push_mem", from_va, addr
-        return None
+                return (("push_mem", from_va, addr),)
+        return ()
 
     if mnemonic == "lea":
         if len(ops) >= 2 and ops[1].type == op_mem:
             addr = _mem_absolute(ops[1].mem, insn)
             if addr is not None:
-                return "lea", from_va, addr
-        return None
+                return (("lea", from_va, addr),)
+        return ()
 
     if mnemonic == "mov":
         if len(ops) < 2:
-            return None
+            return ()
         a, b = ops[0], ops[1]
-        if a.type == op_reg and b.type == op_imm:  # mov reg, imm32
-            return "mov", from_va, b.imm
+        if a.type in (op_reg, op_mem) and b.type == op_imm:
+            immediate = ("mov", from_va, int(b.imm))
+            if a.type == op_mem:
+                addr = _mem_absolute(a.mem, insn)
+                if addr is not None:
+                    return (immediate, ("mov_mem_store", from_va, addr))
+            return (immediate,)
         if a.type == op_reg and b.type == op_mem:  # mov reg, [abs] — data read
             addr = _mem_absolute(b.mem, insn)
             if addr is not None:
-                return "mov_mem", from_va, addr
+                return (("mov_mem", from_va, addr),)
         if a.type == op_mem and b.type == op_reg:  # mov [abs], reg — data write
             addr = _mem_absolute(a.mem, insn)
             if addr is not None:
-                return "mov_mem_store", from_va, addr
-        return None
+                return (("mov_mem_store", from_va, addr),)
+        return ()
 
     # Generic absolute memory operand (and/or/cmp/test/inc/... [abs]).
     for op in ops:
         if op.type == op_mem:
             addr = _mem_absolute(op.mem, insn)
             if addr is not None:
-                return f"{mnemonic}_mem", from_va, addr
-    return None
+                return ((f"{mnemonic}_mem", from_va, addr),)
+    return ()
 
 
 # ---------------------------------------------------------------------------

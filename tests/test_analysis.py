@@ -22,6 +22,7 @@ from rebrew.analysis import (
     is_inside,
     iter_instructions,
     iter_strings,
+    reachable_code,
     scan_references,
     section_range,
     string_refs,
@@ -61,6 +62,33 @@ def _code_image(code: bytes, *, arch: str, endian: str = "little") -> object:
 
 
 class TestScanReferences:
+    def test_callback_address_stored_through_register(self) -> None:
+        code = bytes.fromhex("c7 00 10 10 00 00 c3") + b"\x90" * 32
+        info = _code_image(code, arch="x86_32")
+        expected = [Xref("mov", 0x1000, 0x1010)]
+        assert scan_references(info, target_va=0x1010) == expected
+        assert data_references(info, 0x1000, 7) == expected
+        assert reachable_code(info, 0x1000, 7)[1] == expected
+
+    def test_absolute_callback_store_references_both_addresses(self) -> None:
+        code = bytes.fromhex("c7 05 20 10 00 00 10 10 00 00 c3") + b"\x90" * 32
+        info = _code_image(code, arch="x86_32")
+        expected = [("mov", 0x1000, 0x1010), ("mov_mem_store", 0x1000, 0x1020)]
+        for refs in (
+            scan_references(info),
+            data_references(info, 0x1000, 11),
+            reachable_code(info, 0x1000, 11)[1],
+        ):
+            assert sorted((r.kind, r.from_va, r.to_va) for r in refs) == expected
+        assert scan_references(info, target_va=0x1020) == [Xref("mov_mem_store", 0x1000, 0x1020)]
+
+    def test_scalar_store_is_not_an_address_reference(self) -> None:
+        code = bytes.fromhex("c7 00 01 00 00 00 c3")
+        info = _code_image(code, arch="x86_32")
+        assert scan_references(info) == []
+        assert data_references(info, 0x1000, len(code)) == []
+        assert reachable_code(info, 0x1000, len(code))[1] == []
+
     def test_finds_all_abs_refs(self, tmp_path: Path) -> None:
         path, syms = make_xref_probe(tmp_path)
         info = load_binary(path)
@@ -278,7 +306,7 @@ class TestRipRelativeOperands:
         md.detail = True
         insn = next(md.disasm(code, 0x1000))
         info = SimpleNamespace(format="elf", arch="x86_64")
-        kind, _from_va, to_va = _classify_insn(info, insn)
+        ((kind, _from_va, to_va),) = _classify_insn(info, insn)
         assert kind == "mov_mem"
         assert to_va == 0x1000 + len(code) + 0x10
 

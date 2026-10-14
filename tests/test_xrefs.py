@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 import pytest
-from bin_util import PROBE_IMAGE_BASE, make_xref_probe
+from bin_util import PROBE_IMAGE_BASE, PROBE_TEXT_VA, make_pe, make_xref_probe
 from typer.testing import CliRunner
 
 from rebrew.xrefs import app, build_xrefs_payload
@@ -25,6 +25,19 @@ from rebrew.xrefs import app, build_xrefs_payload
 
 
 class TestXrefsCli:
+    def test_stored_callback_xref(self, tmp_path: Path) -> None:
+        callback = PROBE_TEXT_VA + 0x10
+        code = b"\xc7\x00" + callback.to_bytes(4, "little") + b"\xc3" + b"\x90" * 32
+        path = tmp_path / "callback.exe"
+        path.write_bytes(make_pe(code))
+        result = CliRunner().invoke(app, ["--json", "--kind", "mov", hex(callback), str(path)])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["target"] == callback
+        assert payload["count"] == 1
+        assert payload["refs"][0]["from_va"] == PROBE_TEXT_VA
+        assert payload["refs"][0]["instruction"] == f"mov dword ptr [eax], {callback:#x}"
+
     def test_direct_call_xref(self, tmp_path: Path) -> None:
         path, syms = make_xref_probe(tmp_path)
         call_dst = syms["call"] + 5 + 0x10

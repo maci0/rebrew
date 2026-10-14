@@ -115,6 +115,9 @@
   `load_metadata` and `stored_file_matches` from `rebrew.metadata.functions`.
 
 ### Fixed
+- Reference scans now include callback addresses stored by `mov [memory], immediate`.
+  Absolute stores report both their destination and immediate address in section,
+  function and reachable-code scans; scalar values outside the image remain excluded.
 - Preserve byte-verified data rows during default orphan pruning, including
   `verify --prune-orphans` and cleanup recommendations. Removing `VERIFIED`
   data requires the same explicit `--include-matched` choice as other earned results.
