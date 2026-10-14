@@ -1318,3 +1318,25 @@ cases compare complete call inputs, records, returns and three globals; a wrong
 position control rejects. Replay with the Guild pinned environment:
 `uv run --frozen python .scratch/goal32/compare-transition-traces.py`.
 Receipt: `.scratch/goal32/transition-trace-proof.json`.
+
+## Retire an incorrect target binding without losing native inventory or history
+
+Pain: three legacy Guild TL bindings passed coarse structural similarity but
+identified unrelated routines as cm_ExDestroyBuilding, gm_AllocGebaeude and
+InitNewDynastyEntity. Native argument use, calls, constants and allocation labels
+establish the real counterparts; two already have matched numeric implementations.
+The current source CLI has no detach/rebind operation. The public locked
+clear_identity_fields and record_function_identity APIs can perform the repair,
+but callers must compose its history, collision and related-reference checks.
+
+Proposed capability: preview and atomically retire a proved-wrong source binding,
+with its reason and optional evidenced counterpart. Keep the native inventory,
+extent and historical comparison receipts; make historical verdicts distinguishable
+from current source claims. Adopting an existing counterpart must preserve its
+verdict and refuse drifting duplicate definitions or guessed call bindings.
+
+Evidence: Guild `.scratch/goal34/identity-retirement.json` and native Kuna/dossier
+receipts. Coarse related-import scores were95–97 for the false identities; replay
+`rebrew source import-related --from server.dll --source-va 0x1000f680
+--target Europa1400Gold_TL.exe --dry-run --candidates-only --json` and inspect the
+reported TL0x57c7b0 against its one-argument daily-update body.
