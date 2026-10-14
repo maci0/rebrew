@@ -14,7 +14,6 @@ row, copies that C definition and its file-scope objects into the output,
 and retargets every row that names an input.  ``--dry-run`` writes nothing.
 """
 
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,6 +21,7 @@ from typing import Any
 
 import typer
 
+from rebrew import source_paths
 from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.cli import (
     TargetOption,
@@ -300,29 +300,6 @@ def normalize_body(block: str) -> str:
     return "\n".join(
         line.rstrip() for i, line in enumerate(block.splitlines(), 1) if i not in removed
     ).strip()
-
-
-_QUOTED_INCLUDE_RE = re.compile(r'^([ \t]*#[ \t]*include[ \t]*")([.][^"]*)(")', re.M)
-
-
-def rebase_includes(text: str, source_dir: Path, output_dir: Path) -> str:
-    """Rewrite ``#include "../x.h"`` so it resolves from *output_dir*.
-
-    A relative quoted include names a file next to its source.  Merging into a
-    file in another directory leaves it pointing at the wrong place, so each
-    one that names an existing file is respelled relative to the output.
-    An include that does not exist is left alone for the compiler to report.
-    """
-    out_dir = output_dir.resolve()
-
-    def respell(match: re.Match[str]) -> str:
-        target = (source_dir / match.group(2)).resolve()
-        if not target.exists():
-            return match.group(0)
-        rebased = Path(os.path.relpath(target, out_dir)).as_posix()
-        return f"{match.group(1)}{rebased}{match.group(3)}"
-
-    return _QUOTED_INCLUDE_RE.sub(respell, text)
 
 
 def block_metadata(block: str) -> dict[str, Any] | None:
@@ -655,7 +632,9 @@ def _layout_one(
     ]
     layout = _InputLayout(
         rel=rel,
-        preamble=rebase_includes(shared_preamble(raw, spans, []), file_path.parent, output_dir),
+        preamble=source_paths.rebase_includes(
+            shared_preamble(raw, spans, []), file_path.parent, output_dir
+        ),
         va=min((piece.va for piece in func_pieces), default=_NO_VA),
         stores=store_pieces,
         functions=func_pieces,

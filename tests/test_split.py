@@ -756,6 +756,28 @@ def _invoke_meta(
 class TestMarkerlessSplit:
     """A migrated file is split from its function rows, not from a marker line."""
 
+    def test_extraction_rebases_local_and_nested_quoted_headers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write(tmp_path / "local.h", "int external(void);\n")
+        (tmp_path / "include").mkdir()
+        _write(tmp_path / "include" / "nested.h", "int nested(void);\n")
+        source = (
+            '#include "local.h"\n#ifdef VERSION\n#include "include/nested.h"\n#endif\n'
+            '#include "missing.h"\n#include <stdio.h>\n'
+            "int func_a(void) { return external(); }\nint func_b(void) { return 1; }\n"
+        )
+        _write(tmp_path / "multi.c", source)
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code == 0, result.output
+        out = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
+        assert '#include "../local.h"' in out
+        assert '#include "../include/nested.h"' in out
+        assert '#include "missing.h"' in out
+        assert "#include <stdio.h>" in out
+        assert '#include "local.h"' in src.read_text(encoding="utf-8")
+
     @pytest.mark.parametrize("calls_sibling", [False, True])
     def test_unrelated_dispatch_initializer_does_not_block_extraction(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, calls_sibling: bool

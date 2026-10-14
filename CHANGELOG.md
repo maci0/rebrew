@@ -14,6 +14,9 @@
   samples, saved-report comparisons, eighteen workloads and deterministic work budgets.
 
 ### Changed
+- **Breaking:** Move `rebrew.merge.rebase_includes` to
+  `rebrew.source_paths.rebase_includes`; source split and merge share the
+  same AST-selected header-path repair.
 - **Breaking:** `tools/bench_hotpaths.py --compare` now requires a saved JSON
   report instead of using historical machine-specific wall-time constants.
 - **Breaking:** The incidental `verify.identity_file`, `verify.load_metadata`
@@ -21,6 +24,8 @@
   `load_metadata` and `stored_file_matches` from `rebrew.metadata.functions`.
 
 ### Fixed
+- Source splitting and merging preserve local quoted-header resolution after
+  moving a definition, including sibling names without a `./` prefix.
 - Source splitting checks dependencies within the selected definition and keeps
   callback tables in their storage owner instead of copying them as prototypes.
 - Single-file and batch comparisons use the same managed function-provider

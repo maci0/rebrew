@@ -1181,7 +1181,7 @@ evidenced source-unit split when no common order exists. Do not duplicate shared
 bodies or suppress W030 to manufacture a clean lint result.
 
 Replay: guild-rebrew `rebrew lint --all-targets --json` with address-only source
-bindings. `.scratch/goal27/lint-order-fixed.json` exposes 62 W030 findings in 12
+bindings. `.scratch/goal27/lint-order-fixed.json` exposes 62 W030 findings in 11
 units; a read-only graph using `find_c_function_definitions` and `load_metadata`
 finds conflicting target orders in command.c, alchemistry_logic.c,
 friedhof_logic.c, spiel.c and loadsave.c. Those cycles need reviewed source
@@ -1201,3 +1201,19 @@ candidate identities. Keep explicit VA/file selection available. Evidence:
 guild `.scratch/goal27/blocker-command.json` and `blocker-animation.json` now
 contain the successful address-selected writes; the failed name-selected commands
 returned code 2 with "Cannot resolve function" before those writes.
+
+## Select eligible targets for a source-file comparison
+
+Pain: `test FILE --all-targets` tests every client definition in a shared client
+unit but also reports a symbol-resolution error for server.dll, which has no
+binding in that file. This makes the combined exit code unsuitable for checking
+that file's actual target contexts.
+
+Proposed capability: an explicit option to select only targets bound to the
+requested source file, with skipped target reasons in JSON. Preserve the strict
+meaning of an explicit target selection. Replay in guild-rebrew:
+`rebrew test src/Develop/Units/Msx/msx.c --all-targets --json`. Both clients have
+eleven RELOC results, while server.dll returns code 2 because it has no identity.
+Receipts: `.scratch/goal27/order-msx-test.json`; the same occurs for character.c
+and server_stats.c. This is distinct from `verify FILE`, which already supports
+source-file filtering.

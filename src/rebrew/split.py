@@ -22,6 +22,7 @@ from typing import Any
 
 import typer
 
+from rebrew import source_paths
 from rebrew.c_parser import (
     declares_function,
     find_function_name_in_node,
@@ -649,7 +650,9 @@ def _split_definitions(
         if parts[-1] and not parts[-1].endswith("\n"):
             parts.append(eol)
         parts.append(body)
-        content = "".join(parts)
+        content = source_paths.rebase_includes(
+            "".join(parts), source_path.parent, plan["path"].parent
+        )
         if not content.endswith("\n"):
             content += eol
         rendered.append((plan, content))

@@ -932,7 +932,7 @@ def _invoke_meta(tmp_path: Path, monkeypatch: Any, *args: str) -> tuple[Any, Pat
 
 class TestRebaseIncludes:
     def test_respells_relative_include_for_a_new_directory(self, tmp_path: Path) -> None:
-        from rebrew.merge import rebase_includes
+        from rebrew.source_paths import rebase_includes
 
         (tmp_path / "cmd").mkdir()
         (tmp_path / "cmd" / "sub").mkdir()
