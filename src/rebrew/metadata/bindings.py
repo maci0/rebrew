@@ -212,39 +212,29 @@ class SourceBinding:
     def get(self, key: str, default: Any = None) -> Any:
         """Return the value for *key*, or *default* if not present."""
         try:
+            if type(self) is SourceBinding:
+                return getattr(self, _FIELD_ALIASES.get(key, key), default)
             return self[key]
         except KeyError:
             return default
 
     def __deepcopy__(self, memo: dict[int, Any]) -> SourceBinding:
-        """Copy with full isolation at less than half the generic cost.
+        """Copy mutable fields with isolation while sharing exact immutable scalars.
 
-        ``copy.deepcopy``'s default dataclass path walks every field
-        through ``_reconstruct``/dispatch (~7-8 µs per annotation — the
-        dominant per-entry cost of ``_finalize_entries`` on every
-        source scan).  Exact-typed immutable fields are shared; every
-        other value (the list/dict fields and anything nested inside
-        them) still goes through ``copy.deepcopy``, so mutating a copy's
-        ``locals``/``comments`` can never reach the memoized original.
-
-        An empty ``list``/``dict`` field — the common case for a plain
-        FUNCTION marker — takes ``type(value)()`` instead: that is what
-        ``copy.deepcopy`` returns for an empty container (a fresh, equal,
-        independent one), without the dispatch, ``_keep_alive`` and ``memo``
-        bookkeeping.  The fields land as one ``__dict__`` assignment rather
-        than one ``object.__setattr__`` per field; measured at ~40% off the
-        empty-annotation copy and ~25% off a filled one, on the per-entry
-        cost of every whole-tree source scan.
+        Register the twin before copying fields to preserve cycles. Empty exact
+        lists/dicts can be allocated directly; other values follow deepcopy
+        without truth testing. One dictionary assignment installs the fields.
         """
         cls = type(self)
         twin = cls.__new__(cls)
         memo[id(self)] = twin
         fields_copy: dict[str, Any] = {}
         for name, value in self.__dict__.items():
-            if type(value) in _COPY_SCALAR_TYPES:
+            value_type = type(value)
+            if value_type in _COPY_SCALAR_TYPES:
                 fields_copy[name] = value
-            elif not value and type(value) in _EMPTY_CONTAINER_TYPES:
-                fields_copy[name] = type(value)()
+            elif value_type in _EMPTY_CONTAINER_TYPES and not value:
+                fields_copy[name] = value_type()
             else:
                 fields_copy[name] = copy.deepcopy(value, memo)
         twin.__dict__ = fields_copy

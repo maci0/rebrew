@@ -7,7 +7,6 @@ detection, gap absorption, padding classification, and thunk identification.
 import bisect
 import hashlib
 import logging
-import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -51,6 +50,7 @@ _STATUS_PRIORITY = (
     ("NEAR_MATCHING", "NEAR_MATCH"),
     ("STUB",),
 )
+_STATUS_COUNTERS = {status: group[0] for group in _STATUS_PRIORITY for status in group}
 
 
 def count_statuses(by_va: dict[int, list[SourceBinding]]) -> dict[str, int]:
@@ -63,9 +63,14 @@ def count_statuses(by_va: dict[int, list[SourceBinding]]) -> dict[str, int]:
     for vas in by_va.values():
         if not any(e.get("is_function", True) for e in vas):
             continue
+        if len(vas) == 1:
+            counter = _STATUS_COUNTERS.get(vas[0]["status"])
+            if counter is not None:
+                counters[counter] += 1
+            continue
         statuses = {e["status"] for e in vas}
         for status_group in _STATUS_PRIORITY:
-            if any(status in statuses for status in status_group):
+            if not statuses.isdisjoint(status_group):
                 counters[status_group[0]] += 1
                 break
     return counters
@@ -212,14 +217,14 @@ def _build_cells(
         remaining = seg_end - seg_start
         if remaining <= 0:
             continue
-        seg_cols = max(1, math.ceil(remaining / unit_bytes))
+        seg_cols = (remaining + unit_bytes - 1) // unit_bytes
         cur = seg_start
         cols_left = seg_cols
 
         while cols_left > 0:
             take_cols = min(cols_left, columns - col)
             take_bytes = min(seg_end - cur, take_cols * unit_bytes)
-            span = max(1, math.ceil(take_bytes / unit_bytes))
+            span = (take_bytes + unit_bytes - 1) // unit_bytes
             cell_end = cur + take_bytes
             cell_dict: dict[str, Any] = {
                 "start": cur,

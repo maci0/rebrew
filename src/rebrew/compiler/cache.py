@@ -683,6 +683,8 @@ def _iter_include_specs(text: str) -> Iterator[tuple[str, str]]:
     comments and ``#include``-shaped text outside directives are not matched
     (lines are scanned only at directive position).
     """
+    if "#" not in text:
+        return
     for raw in split_source_lines(text):
         line = _strip_leading_comments(raw)
         if not line.startswith("#"):
@@ -1169,14 +1171,13 @@ def canonicalize_cflags(cflags: list[str]) -> list[str]:
     # 2) Collapse last-wins groups; sort across groups between unknown
     #    anchors (which act as fixed boundaries).
     out: list[str] = []
-    segment: list[tuple[str, str]] = []  # (group_id, flag) for known flags
     group_last: dict[str, str] = {}
 
     def _flush() -> None:
-        group_last.update(dict(segment))  # last occurrence wins
+        if not group_last:
+            return
         for _gid, flag in sorted(group_last.items()):
             out.append(flag)
-        segment.clear()
         group_last.clear()
 
     for flag in normalized:
@@ -1185,7 +1186,7 @@ def canonicalize_cflags(cflags: list[str]) -> list[str]:
             _flush()
             out.append(flag)  # unknown → fixed anchor
         else:
-            segment.append((gid, flag))
+            group_last[gid] = flag  # last occurrence wins
     _flush()
     return out
 

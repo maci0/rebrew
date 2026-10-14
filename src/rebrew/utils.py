@@ -282,12 +282,13 @@ def merged_span_bytes(ranges: list[tuple[int, int]], section: tuple[int, int] | 
     if section is not None:
         section_va, section_size = section
         limit = section_va + section_size
-        ranges = [
-            (max(start, section_va), min(end, limit))
+        spans = sorted(
+            (clipped_start, clipped_end)
             for start, end in ranges
-            if min(end, limit) > max(start, section_va)
-        ]
-    spans = sorted((start, end) for start, end in ranges if end > start)
+            if (clipped_end := min(end, limit)) > (clipped_start := max(start, section_va))
+        )
+    else:
+        spans = sorted((start, end) for start, end in ranges if end > start)
     if not spans:
         return 0
     total = 0
@@ -329,7 +330,10 @@ def c_comment_safe(text: str) -> str:
     then compiles.  Splitting ``*/`` keeps the text readable while defusing
     the breakout; other non-printable characters become spaces.
     """
-    return "".join(" " if not ch.isprintable() else ch for ch in text.replace("*/", "* /"))
+    text = text.replace("*/", "* /")
+    if text.isprintable():
+        return text
+    return "".join(" " if not ch.isprintable() else ch for ch in text)
 
 
 def pe_name_token(name: str | None) -> str:
@@ -1201,6 +1205,8 @@ def strip_body(prototype: str) -> str:
     Brace detection is quote-aware — a ``{`` inside a string literal (e.g.
     ``const char *s = "{"``) must not be mistaken for the body delimiter.
     """
+    if "{" not in prototype:
+        return prototype.strip()
     in_str = False
     escaped = False
     for i, ch in enumerate(prototype):
@@ -1896,7 +1902,7 @@ def _parse_ascii_int(text: str, base: int) -> int:
     count; anything else is a :class:`ValueError`.
     """
     digits = _BASE_DIGITS.get(base)
-    if digits is None or not text or not all(ch in digits for ch in text):
+    if digits is None or not text or text.strip(digits):
         raise ValueError(f"not a base-{base} integer: {text!r}")
     return int(text, base)
 
@@ -1939,8 +1945,7 @@ def parse_c_integer_literal(text: str) -> int:
     body = text.strip()
     if not body or body[0] == "'":
         raise ValueError(f"not a C integer constant: {text!r}")
-    while body and body[-1] in "uUlL":
-        body = body[:-1]
+    body = body.rstrip("uUlL")
     if not body:
         raise ValueError(f"not a C integer constant: {text!r}")
     sign = -1 if body[0] == "-" else 1

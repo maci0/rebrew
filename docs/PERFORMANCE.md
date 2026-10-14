@@ -3,6 +3,73 @@
 Measured facts about where rebrew's hot paths spend time, and what was done
 (and deliberately *not* done) about it.
 
+## Twenty additional hot-path rounds (2026-10-14)
+
+Profiled the actual timed callbacks in the eighteen-workload runner, then measured
+another twenty candidates in before/after/after/before order on CPU 0. Each
+process records nine warmed CPU/wall samples; setup, output hashing and profiling
+stay outside the timed region. Fifteen changes remain and five were rejected.
+Raw profiles, reports, edge probes and candidate patches stay in the ignored
+`docs/benchmarks/2026-10-14-twenty-rounds/` directory.
+
+These are individual experiment ratios, before subsequent combined checks:
+
+| Round | Workload | Before / candidate CPU | Decision |
+|---|---|---:|---|
+| 1 | `flags_segments` | 2.06× | Retained |
+| 2 | `flags_empty_flush` | 1.46× | Retained |
+| 3 | `flags_strip` | 1.01× | Rejected |
+| 4 | `verify_fields` | 1.60× | Retained |
+| 5 | `verify_vars` | 2.48× | Rejected |
+| 6 | `module_keys` | 1.10× | Rejected |
+| 7 | `ascii_int` | 1.49× | Retained |
+| 8 | `decimal_int` | 1.00× | Rejected |
+| 9 | `integer_suffix` | 1.18× | Retained |
+| 10 | `grid_cells` | 1.05× | Retained |
+| 11 | `status_groups` | 1.64× | Retained |
+| 12 | `status_singletons` | 1.27× | Retained |
+| 13 | `binding_get` | 2.00× | Retained |
+| 14 | `prototype_body` | 2.18× | Retained |
+| 15 | `binding_copy` | 0.99× | Retained |
+| 16 | `percent_clamp` | 1.31× | Retained |
+| 17 | `comment_text` | 4.35× | Retained |
+| 18 | `span_clipping` | 1.45× | Retained |
+| 19 | `include_specs` | 286.06× | Retained |
+| 20 | `metadata_resolve` | 2.94× | Rejected |
+
+The rejected variants either changed results (quote stripping, schema-wide
+`vars()` serialization, metadata path caching), or added complexity without a
+useful measured gain (target-key caching and decimal-only specialization).
+The path-cache probe reads 16 after an ancestor retarget where the correct new
+metadata says 32; the original resolver and its regression test read 32.
+
+Retained changes preserve unknown flag anchors and last-wins groups, declared
+cache fields and subclass shapes, binding aliases and subclass lookups, ASCII
+integer validation, quoted braces, escaped comments, status priority and
+non-finite percentages. The field-name cache retains one base schema; subclass
+fields remain independently inspected. Binding copies avoid truth testing
+arbitrary objects. Coverage cells use exact integer ceilings above 2**53.
+
+The combined workloads preserve all twenty output hashes. Final verify-cache
+reconstruction measured 1.66×; binding lookups 2.06×; printable comment handling
+4.46×. Prototype trimming measured 1.91×. The no-directive scan's large ratio
+(about 293×) applies to inputs with no `#`, not compiler throughput. Unchanged
+controls varied substantially, so small timing ratios remain informational.
+Clipping's individual CPU gain did not persist in the combined run; it remains
+because median traced peak temporary memory fell from 622,752 to 330,064 bytes
+(47%) and each input bound is computed once. Deep-copy timing is neutral; its
+retained change fixes an unintended truth-value test and preserves copy semantics.
+
+Regression tests in `tests/test_hotpath_work.py` enforce empty-group work budgets,
+base-schema discovery, strict literals, preserved binding behavior, clipping
+work/ownership, exact large ceilings, and metadata retargeting. Generated
+experiments remain local; reusable benchmark tools and these tests stay tracked.
+
+Validation: 11,792 full-suite tests passed with 36 skips; the final binding-focused
+checks passed 53 tests. Full mypy, lint, cycle and layering checks passed. The
+maintained verify-cache workload measured 1.20× in the paired eighteen-workload
+check; other command-level gains are not established by these microbenchmarks.
+
 ## Ten additional source-scan rounds (2026-10-14)
 
 Committed the preceding work at `81a9ecbf`, then ran ten additional, interleaved

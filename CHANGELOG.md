@@ -1,6 +1,11 @@
 ## [Unreleased]
 
 ### Performance
+- Reduce flag-normalization, verify-cache schema, binding lookup, integer parsing,
+  text scanning and catalog aggregation work across twenty further measured
+  experiments. Retain fifteen changes and reject five; raw experiments stay ignored.
+- Use exact integer ceilings for coverage cells and avoid truth testing arbitrary
+  objects while copying bindings. Clip coverage spans with fewer temporary allocations.
 - Keep generated performance experiment reports, profiles and candidate patches
   local under the ignored `docs/benchmarks/` directory.
 - Reduce source-scan work in the C parse cache, signature traversal, convention

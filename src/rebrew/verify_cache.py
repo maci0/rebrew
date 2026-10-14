@@ -20,6 +20,7 @@ import re
 import threading
 import tomllib
 from dataclasses import dataclass, fields
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -377,7 +378,11 @@ def _clamp_percent(value: float) -> float:
     """
     if not math.isfinite(value):
         return 0.0
-    return max(0.0, min(100.0, value))
+    if value <= 0.0:
+        return 0.0
+    if value >= 100.0:
+        return 100.0
+    return value
 
 
 def _cached_percent(value: Any) -> float | None:
@@ -660,6 +665,12 @@ def order_result_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@lru_cache(maxsize=1)
+def _entry_field_names() -> tuple[str, ...]:
+    """Reuse the base entry shape; subclasses are inspected independently."""
+    return tuple(field.name for field in fields(VerifyCacheEntry))
+
+
 @dataclass
 class VerifyCacheEntry:
     """One cached verdict: the report row + its cache-identity inputs, flat.
@@ -729,7 +740,12 @@ class VerifyCacheEntry:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> VerifyCacheEntry:
         """Reconstruct a VerifyCacheEntry from a JSON dictionary (flat v2 form)."""
-        return cls(**{f.name: d[f.name] for f in fields(cls) if f.name in d})
+        names = (
+            _entry_field_names()
+            if cls is VerifyCacheEntry
+            else tuple(field.name for field in fields(cls))
+        )
+        return cls(**{name: d[name] for name in names if name in d})
 
     def result_row(self) -> dict[str, Any]:
         """The report row: verdict fields only, no cache-identity inputs.
@@ -777,7 +793,7 @@ class VerifyCache:
         Same shape ``dataclasses.asdict`` produced. Entry fields are scalars,
         so each row is a plain attribute copy instead of a deep copy.
         """
-        names = tuple(field.name for field in fields(VerifyCacheEntry))
+        names = _entry_field_names()
         return {
             "version": self.version,
             "compiler_hash": self.compiler_hash,
