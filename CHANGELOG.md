@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+## [2.27.1] - 2026-10-14
+
+### Fixed
+- `CoeffectScope` fences process-local cleanup failures: after an inverse or rollback failure,
+  the affected scope refuses subsequent managed activations, replacements, or withdrawals,
+  retains unconfirmed entries and provision reservations for diagnostics, and reports failures
+  on repeated `close()` without rerunning consumed inverses.
+
 ## [2.27.0] - 2026-10-14
 
 ### Added
@@ -44,10 +52,6 @@
 - Aligned statement-climb output labels its weighted instruction score as a
   score. JSON records the objective and uses `baseline_score`/`best_score`
   for aligned searches; positional searches keep the matched-byte fields.
-- `CoeffectScope` fences process-local cleanup failures: after an inverse or rollback failure,
-  the affected scope refuses subsequent managed activations, replacements, or withdrawals,
-  retains unconfirmed entries and provision reservations for diagnostics, and reports failures
-  on repeated `close()` without rerunning consumed inverses.
 - The synchronous plugin lifecycle rejects native asynchronous callables at
   registration and awaitable or asynchronous-generator results at invocation.
   Cleanup continues to attempt remaining inverses and reports failed completion.
