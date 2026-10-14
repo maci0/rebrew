@@ -1066,3 +1066,24 @@ Europa1400Gold_TL.exe --json` and `rebrew binary asm show 0x571870 --size 96
 --target Europa1400Gold_TL.exe --json`. Project-only composition and exact
 reconciliation receipt: `.scratch/goal23/pool-unification/inspect-text-gaps.py`
 and `text-gaps.json`; no new project inventory/parser or status edits.
+
+## Structured decompiler failures for native callback seeds
+
+After repairing Rizin project persistence, the native TL production callback
+0x00571870 still produces no pseudo-C: stderr reports `Ghidra Decompiler Error:
+Symbol var_1h extends beyond the end of the address space`. The current function
+variable inventory has no var_1h, so its origin is unresolved; do not delete
+project types or invent a seed to hide it. Rizin successfully reloads a
+32,878,102-byte database and the correct binary before this separate plugin
+failure.
+
+Expose a structured backend failure trace (backend, stage, command result and
+diagnostic) alongside seed availability, and make optional fallback attempts
+reviewable. Preserve accepted external type provenance and ordinary byte
+verification; failed/error text must never become a C body. This is a diagnostic
+capability gap, not evidence that this external plugin failure is repaired.
+
+Project receipts: `.scratch/goal23/production-callback/rizin-live-project.json`,
+`rizin-variables.json`, `rizin-decomp-without-var1.log` and the complete native
+callback/switch-table inspection. Both blind variable-removal probes failed;
+no game source, accepted types or inventory was changed by them.
