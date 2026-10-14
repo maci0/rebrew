@@ -2118,12 +2118,7 @@ def lint_file(
 
     directory = cfg.metadata_dir if cfg else filepath.parent
     relative = rel_display_path(filepath.resolve(), directory.resolve())
-    support = [
-        record
-        for record in load_source_files(directory)
-        if record.file == relative
-        and (cfg is None or record.module == preset_module_key(cfg.marker))
-    ]
+    support = [record for record in load_source_files(directory) if record.file == relative]
     if support:
         result._marker_counts["SUPPORT"] += 1
         _check_body_rules(result, lines, True)

@@ -2641,6 +2641,17 @@ class TestSupportTu:
         assert result.errors == result.warnings == []
         assert result._marker_counts["SUPPORT"] == 1
 
+    def test_support_for_another_target_has_no_missing_identity(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.metadata.source_provenance import set_source_file
+
+        f = _write_c(tmp_path, "client.c", "int client(void){return 0;}\n")
+        set_source_file(tmp_path, "client.c", "CLIENT", "client-only link helper")
+        cfg = SimpleNamespace(metadata_dir=tmp_path, marker="SERVER")
+        result = lint_file(f, cfg=cfg)
+        assert result.errors == result.warnings == []
+
     def test_support_without_code_warns(self, tmp_path: Path) -> None:
         from rebrew.metadata.source_provenance import set_source_file
 

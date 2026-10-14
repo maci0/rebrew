@@ -67,6 +67,7 @@
 
 
 ### Fixed
+- Target-scoped support files remain valid during other targets’ lint scans.
 - Generated CMake source lists track function, data and source-purpose metadata
   changes. Verification reuses resolved cache inputs for unique function identities.
 - Batch verification prefers managed source, symbol and kind bindings over
