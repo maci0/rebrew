@@ -32,6 +32,8 @@
   `load_metadata` and `stored_file_matches` from `rebrew.metadata.functions`.
 
 ### Fixed
+- Recon dossiers use known inventory extents when source size is missing,
+  retaining late branches after early returns and excluding neighboring references.
 - Function boundaries and variable scopes retain conditional brace fragments
   without swallowing following definitions. Inventories include each structural
   alternative while preserving source coordinates and conditional split guards.

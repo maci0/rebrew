@@ -205,27 +205,68 @@ class TestDescribeCli:
         assert data["globals"] == []
         assert iat == {"slot": iat["slot"], "name": "HeapCreate"}
 
-    def test_unannotated_fallback_name(
+    def test_unannotated_inventory_extent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A VA without a source annotation falls back to fcn_%08x / unknown size."""
+        """An unannotated VA retains its fallback name and known inventory extent."""
         result = self._invoke(tmp_path, monkeypatch, "--json", "0x401016")
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["name"] == "fcn_00401016"
         assert data["status"] is None
-        assert data["size"] is None
+        assert data["size"] == 8
         # The dossier still resolves the caller's callee via annotations.
         assert {"to_va": PROBE_VA, "name": "my_func", "kind": "call"} in data["callees"]
 
-    def test_unannotated_terminal_unknown_size(
+    def test_unannotated_terminal_inventory_size(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Terminal output reports 'unknown' size for an unannotated function."""
+        """Terminal output reports the known size for an unannotated function."""
         result = self._invoke(tmp_path, monkeypatch, "0x401016")
         assert result.exit_code == 0, result.output
         assert "fcn_00401016" in result.output
-        assert "unknown" in result.output
+        assert "8 bytes" in result.output
+
+    @pytest.mark.parametrize("binding", ["absent", "unsized", "sized"])
+    def test_inventory_extent_keeps_late_branch_without_neighbor_refs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, binding: str
+    ) -> None:
+        """Known extents include a branch after an early ret and exclude the neighbor."""
+        source: str = ""
+        if binding != "absent":
+            fields: dict[str, Any] = {"kind": "FUNCTION"}
+            if binding == "sized":
+                fields["size"] = 11
+            source = SourceFixture(
+                "/* ADDRESS: GAME 0x00401000 */\nint probe(void) { return 0; }\n",
+                {"GAME.0x00401000": fields},
+            )
+        # A complete source extent outranks a shorter discovery hint.
+        inventory_size = 5 if binding == "sized" else 11
+        functions = (
+            f"0x00401000 {inventory_size} probe\n"
+            "0x0040100b 6 neighbor\n"
+            "0x00401011 1 late_helper\n"
+            "0x00401012 1 neighbor_helper\n"
+        )
+        _make_project(tmp_path, source=source, functions=functions)
+        # test eax,eax; jne late; ret; late: call late_helper; ret;
+        # neighbor: call neighbor_helper; ret; late_helper: ret; neighbor_helper: ret.
+        code = (
+            b"\x85\xc0\x75\x01\xc3\xe8"
+            + struct.pack("<i", 7)
+            + b"\xc3\xe8"
+            + struct.pack("<i", 2)
+            + b"\xc3\xc3\xc3"
+        )
+        (tmp_path / "game.exe").write_bytes(make_pe(code))
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--json", f"0x{PROBE_VA:x}"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["size"] == 11
+        assert {"to_va": PROBE_VA + 17, "name": "late_helper", "kind": "call"} in data["callees"]
+        assert not any(callee["to_va"] == PROBE_VA + 18 for callee in data["callees"])
 
     def test_va_outside_binary_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

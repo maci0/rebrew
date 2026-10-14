@@ -4,7 +4,7 @@ Builds a one-screen intelligence summary for a single target function by
 merging source annotations with whole-binary cross-references:
 
 * Identity - name/status/size/cflags from source annotations (metadata-merged),
-  falling back to ``fcn_%08x`` / "unknown" for unannotated functions.
+  falling back to ``fcn_%08x`` and known inventory extents for unannotated functions.
 * Callers  - direct ``call``/``jmp`` sites targeting the function.
 * Callees  - direct calls plus IAT calls/jumps inside the function body,
   resolved to source names / import names.
@@ -395,6 +395,13 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
         cflags = ann.cflags or None
         blocker = ann.blocker or None
         note = ann.note or None
+    if size is None:
+        # Discovery can include late branches after an early return. Reuse
+        # exact-start extents already collected for reference attribution.
+        size = min(
+            (end - start for start, end, _name in ranges if start == va and end > start),
+            default=None,
+        )
     start, end = _function_range(info, va, size)
 
     all_refs = _safe_section(lambda: scan_references(info), [])
