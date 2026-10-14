@@ -19,7 +19,7 @@ def test_identity_removal_preserves_verdict_provenance_and_other_target(tmp_path
         "file": "old.c",
         "name": "old",
         "symbol": "_old",
-        "marker_type": "FUNCTION",
+        "kind": "FUNCTION",
         "status": "RELOC",
         "size": 80,
         "note": "keep native evidence",
@@ -48,7 +48,7 @@ def test_invalid_identity_key_cannot_partially_clear_a_row(tmp_path: Path, inval
     path = tmp_path / METADATA_FILENAME
     before = path.read_bytes()
 
-    with pytest.raises(ValueError, match="unknown marker identity field"):
+    with pytest.raises(ValueError, match="unknown function identity field"):
         clear_identity_fields(tmp_path, 0x1000, "SERVER", "file", invalid)
 
     assert path.read_bytes() == before

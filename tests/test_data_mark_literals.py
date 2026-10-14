@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from source_util import write_store_fixture
 from typer.testing import CliRunner, Result
 
 PROJECT_TOML = """\
@@ -27,35 +28,7 @@ includes = ""
 libs = ""
 """
 
-STORE = """\
-["SERVER.0x10003004"]
-name = "s_abc"
-size = 4
-section = ".data"
-link_symbol = "_s_abc"
-
-["SERVER.0x10002000"]
-name = "flt_2000"
-size = 8
-section = ".rdata"
-storage_kind = "object"
-
-["SERVER.0x10003014"]
-name = "s_def"
-section = ".data"
-storage_kind = "literal"
-link_symbol = "??_C@_03DEF@def?$AA@"
-
-["SERVER.0x10003020"]
-name = "view"
-section = ".data"
-storage_kind = "alias"
-backing = "g_c"
-
-["SERVER.0x10003000"]
-name = "g_a"
-section = ".data"
-"""
+STORE = 'format = 2\n["SERVER.0x10003004"]\nname = "s_abc"\nsize = 4\nsection = ".data"\nlink_symbol = "_s_abc"\n\n["SERVER.0x10002000"]\nname = "flt_2000"\nsize = 8\nsection = ".rdata"\nstorage_kind = "object"\n\n["SERVER.0x10003014"]\nname = "s_def"\nsection = ".data"\nstorage_kind = "literal"\nlink_symbol = "??_C@_03DEF@def?$AA@"\n\n["SERVER.0x10003020"]\nname = "view"\nsection = ".data"\nstorage_kind = "alias"\nbacking = "g_c"\n\n["SERVER.0x10003000"]\nname = "g_a"\nsection = ".data"\n'
 
 MAP = """\
   Start         Length     Name                   Class
@@ -75,7 +48,7 @@ MAP = """\
 def _project(tmp_path: Path) -> Path:
     (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
     (tmp_path / "src").mkdir()
-    (tmp_path / "rebrew-data.toml").write_text(STORE, encoding="utf-8")
+    write_store_fixture(tmp_path / "rebrew-data.toml", STORE, encoding="utf-8")
     (tmp_path / "server.map").write_text(MAP, encoding="utf-8")
     return tmp_path
 

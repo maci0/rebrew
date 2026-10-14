@@ -5,12 +5,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.skeleton import (
-    _render_annotation_block,
+    _render_skeleton,
     fetch_xref_context,
-    generate_annotation_block,
     generate_skeleton,
     list_uncovered,
 )
@@ -45,9 +45,9 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
 
 class TestRenderersWithDecomp:
     def test_skeleton_with_decomp(self) -> None:
-        # _render_skeleton was consolidated into _render_annotation_block; the
+        # _render_skeleton was consolidated into _render_skeleton; the
         # origin_comment branch (always empty) is gone, todo_text is the hook.
-        out = _render_annotation_block(
+        out = _render_skeleton(
             marker="FUNCTION",
             cfg_marker="SERVER",
             va=0x1000,
@@ -73,7 +73,7 @@ class TestRenderersWithDecomp:
             "int f(void *self, int a1)\n"
             "#endif"
         )
-        out = _render_annotation_block(
+        out = _render_skeleton(
             marker="FUNCTION",
             cfg_marker="SERVER",
             va=0x1000,
@@ -93,7 +93,7 @@ class TestRenderersWithDecomp:
         assert "#endif" in out
 
     def test_annotation_block_with_decomp(self) -> None:
-        out = _render_annotation_block(
+        out = _render_skeleton(
             marker="FUNCTION",
             cfg_marker="SERVER",
             va=0x1000,
@@ -120,9 +120,9 @@ class TestRenderersWithDecomp:
         assert "my_func" in out
         assert "Decompilation (r2dec)" in out
 
-    def test_generate_annotation_block_custom_name(self) -> None:
+    def test_generate_skeleton_custom_name(self) -> None:
         cfg = _cfg(Path("/tmp"))
-        out = generate_annotation_block(cfg, 0x1000, "ghidra_name", custom_name="renamed")
+        out = generate_skeleton(cfg, 0x1000, "ghidra_name", custom_name="renamed")
         assert "int __cdecl renamed(void)" in out
 
 
@@ -335,8 +335,11 @@ class TestSkeletonCliModes:
 
         cfg = self._setup(tmp_path, monkeypatch)
         target = cfg.reversed_dir / "multi.c"
-        target.write_text(
-            "// FUNCTION: SERVER 0x2000\nint other(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            target,
+            "/* ADDRESS: SERVER 0x2000 */\nint other(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION"}},
         )
         result = CliRunner().invoke(app, ["--append", "multi.c", "--json", "0x1000"])
         assert result.exit_code == 0
@@ -347,18 +350,18 @@ class TestSkeletonCliModes:
         _assert_pure_c(text)
         assert "int other(void)" in text
         assert "func_a" in text
-        assert "0x00001000" not in text
+        assert "ADDRESS: SERVER 0x00001000" in text
         from rebrew.metadata.functions import get_entry
 
         old = get_entry(cfg.metadata_dir, 0x2000, "SERVER")
         new = get_entry(cfg.metadata_dir, 0x1000, "SERVER")
-        assert old["marker_type"] == "FUNCTION"
+        assert old["kind"] == "FUNCTION"
         assert old["name"] == "other"
         assert old["symbol"] == "_other"
         assert old["file"] == "src/SERVER/multi.c"
-        assert "status" not in old
+        assert old["status"] == "STUB"
         assert "size" not in old
-        assert new["marker_type"] == "FUNCTION"
+        assert new["kind"] == "FUNCTION"
         assert new["name"] == "func_a"
         assert new["symbol"] == "_func_a"
         assert new["size"] == 64
@@ -379,16 +382,21 @@ class TestSkeletonCliModes:
 
         cfg = self._setup(tmp_path, monkeypatch)
         target = cfg.reversed_dir / "multi.c"
-        original = (
-            "// FUNCTION: SERVER 0x2000\nint other(void) { return 0; }\n"
-            "int kept(void) { return 1; } // FUNCTION: SERVER 0x3000\n"
+        original = SourceFixture(
+            "/* ADDRESS: SERVER 0x2000 */\nint other(void) { return 0; }\nint kept(void) { return 1; } // FUNCTION: SERVER 0x3000\n",
+            {"SERVER.0x2000": {"kind": "FUNCTION"}},
         )
-        target.write_text(original, encoding="utf-8")
+        write_source(
+            target,
+            original,
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION"}},
+        )
         result = CliRunner().invoke(app, ["--append", "multi.c", "--json", "0x1000"])
         assert result.exit_code != 0
-        assert "not recorded" in result.output
+        assert "not a source field" in result.output
         assert target.read_text(encoding="utf-8") == original
-        assert not (tmp_path / "rebrew-functions.toml").exists()
+        assert (tmp_path / "rebrew-functions.toml").is_file()
 
     def test_append_missing_target_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -411,9 +419,15 @@ class TestSkeletonCliModes:
         cfg = self._setup(tmp_path, monkeypatch)
         target = cfg.reversed_dir / "multi.c"
         original = (
-            b"// FUNCTION: SERVER 0x2000\n// Caf\xe9 comment\nint other(void) { return 0; }\n"
+            b"/* ADDRESS: SERVER 0x2000 */\n// Caf\xe9 comment\nint other(void) { return 0; }\n"
         )
-        target.write_bytes(original)
+        write_source(
+            target,
+            original.decode("cp1252"),
+            encoding="cp1252",
+            metadata_dir=cfg.metadata_dir,
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION"}},
+        )
         result = CliRunner().invoke(app, ["--append", "multi.c", "--json", "0x1000"])
         assert result.exit_code == 0, result.output
         text, encoding = read_source_text(target)
@@ -428,7 +442,7 @@ class TestSkeletonCliModes:
         from rebrew.metadata.functions import get_entry
 
         assert get_entry(cfg.metadata_dir, 0x2000, "SERVER")["name"] == "other"
-        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER")["marker_type"] == "FUNCTION"
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER")["kind"] == "FUNCTION"
 
     def test_append_existing_va_skips(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -437,8 +451,11 @@ class TestSkeletonCliModes:
 
         cfg = self._setup(tmp_path, monkeypatch)
         target = cfg.reversed_dir / "multi.c"
-        target.write_text(
-            "// FUNCTION: SERVER 0x1000\nint func_a(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            target,
+            "/* ADDRESS: SERVER 0x1000 */\nint func_a(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         result = CliRunner().invoke(app, ["--append", "multi.c", "0x1000"])
         # Refusal is an ERROR (non-zero), not success — the old exit 0 told
@@ -461,8 +478,11 @@ class TestSkeletonCliModes:
 
         cfg = self._setup(tmp_path, monkeypatch)
         target = cfg.reversed_dir / "multi.c"
-        target.write_text(
-            "// FUNCTION: SERVER 0x2000\nint other(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            target,
+            "/* ADDRESS: SERVER 0x2000 */\nint other(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION"}},
         )
         first = CliRunner().invoke(app, ["--append", "multi.c", "--force", "--json", "0x1000"])
         assert first.exit_code == 0, first.output
@@ -483,14 +503,17 @@ class TestSkeletonCliModes:
 
         cfg = self._setup(tmp_path, monkeypatch)
         target = cfg.reversed_dir / "multi.c"
-        target.write_text(
-            "// FUNCTION: SERVER 0x1000\nint hand_written(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            target,
+            "/* ADDRESS: SERVER 0x1000 */\nint hand_written(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         result = CliRunner().invoke(app, ["--append", "multi.c", "--force", "--json", "0x1000"])
         assert result.exit_code == 0, result.output
         text = target.read_text(encoding="utf-8")
         assert "hand_written" in text
-        assert "func_a" in text
+        assert "void func_a(" not in text and "int __cdecl func_a(" not in text
         _assert_pure_c(text)
         from rebrew.metadata.functions import get_entry
 
@@ -498,11 +521,11 @@ class TestSkeletonCliModes:
         # write does not replace that name, fills the missing size, and
         # never writes STATUS.
         entry = get_entry(cfg.metadata_dir, 0x1000, "SERVER")
-        assert entry["marker_type"] == "FUNCTION"
+        assert entry["kind"] == "FUNCTION"
         assert entry["name"] == "hand_written"
-        assert entry["symbol"] == "_func_a"
+        assert entry["symbol"] == "_hand_written"
         assert entry["size"] == 64
-        assert "status" not in entry
+        assert entry["status"] == "STUB"
 
     def test_batch_existing_skips(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.skeleton import app

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_MISMATCH, EXIT_OK
@@ -496,12 +497,16 @@ class TestLoadCatalogs:
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.reversed_dir / "func.c").write_text(
-            "// FUNCTION: SERVER 0x10001000\nint func_a(void) { return 1; }\n",
+        write_source(
+            cfg.reversed_dir / "func.c",
+            "/* ADDRESS: SERVER 0x10001000 */\nint func_a(void) { return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION"}},
         )
-        (cfg.reversed_dir / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8"
+        write_store_fixture(
+            cfg.reversed_dir / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            encoding="utf-8",
         )
         funcs, data = _load_catalogs(cfg)
         assert funcs[0x5000] == "ExportFn"  # from dll_exports
@@ -513,8 +518,10 @@ class TestLoadCatalogs:
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
-        (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x10002000"]\nname = "g_counter"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x10002000"]\nname = "g_counter"\n',
+            encoding="utf-8",
         )
         _funcs, data = _load_catalogs(cfg)
         assert data == {"g_counter": 0x10002000}
@@ -533,12 +540,14 @@ class TestLoadCatalogs:
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.reversed_dir / "server.c").write_text(
-            "// FUNCTION: SERVER 0x1000\n// CreateListenSocket\n"
-            "int CreateListenSocket(void) { return 0; }\n\n"
-            "// DATA: SERVER 0x2000\n// CreateListenSocket\n"
-            "unsigned int CreateListenSocket_slot;\n",
+        write_source(
+            cfg.reversed_dir / "server.c",
+            "/* ADDRESS: SERVER 0x1000 */\n// CreateListenSocket\nint CreateListenSocket(void) { return 0; }\n\n/* ADDRESS: SERVER 0x2000 */\n// CreateListenSocket\nunsigned int CreateListenSocket_slot;\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x1000": {"kind": "FUNCTION"},
+                "SERVER.0x2000": {"kind": "DATA", "link_symbol": "_CreateListenSocket"},
+            },
         )
         funcs, data = _load_catalogs(cfg)
         assert funcs.get(0x1000) == "_CreateListenSocket"
@@ -552,11 +561,16 @@ class TestLoadCatalogs:
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.reversed_dir / "library_msvc.h").write_text(
-            "// LIBRARY: SERVER 0x3000\n// _strlen\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "library_msvc.h",
+            "\n// _strlen\n",
+            encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x3000": {"kind": "LIBRARY", "name": "strlen", "symbol": "_strlen"}
+            },
         )
         funcs, _data = _load_catalogs(cfg)
-        assert funcs.get(0x3000) == "__strlen"  # symbol derived from the `_strlen` hint
+        assert funcs.get(0x3000) == "_strlen"  # symbol derived from the `_strlen` hint
 
     def test_catalog_key_prefers_symbol(self, tmp_path: Path) -> None:
         """The catalog key is the COFF symbol, not the bare name.
@@ -569,9 +583,11 @@ class TestLoadCatalogs:
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.reversed_dir / "func.c").write_text(
-            "// FUNCTION: SERVER 0x10004000\nint __stdcall foo(void) { return 1; }\n",
+        write_source(
+            cfg.reversed_dir / "func.c",
+            "/* ADDRESS: SERVER 0x10004000 */\nint __stdcall foo(void) { return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10004000": {"kind": "FUNCTION"}},
         )
         funcs, _data = _load_catalogs(cfg)
         assert funcs.get(0x10004000) == "_foo@0"
@@ -584,8 +600,17 @@ class TestLoadCatalogs:
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.reversed_dir / "hint.c").write_text(
-            "// FUNCTION: SERVER 0x10005000\n// hint_only\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "hint.c",
+            "// native identity inventory\n",
+            encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10005000": {
+                    "kind": "FUNCTION",
+                    "name": "hint_only",
+                    "symbol": "_hint_only",
+                }
+            },
         )
         funcs, _data = _load_catalogs(cfg)
         assert funcs.get(0x10005000) == "_hint_only"
@@ -605,9 +630,12 @@ class TestLoadCatalogs:
             dll_exports={},
         )
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.reversed_dir / "func.c").write_text(
-            "// FUNCTION: SERVER 0x10006000\nint __stdcall foo(void) { return 1; }\n",
+        write_source(
+            cfg.reversed_dir / "func.c",
+            "/* ADDRESS: SERVER 0x10006000 */\nint __stdcall foo(void) { return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10006000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
         update_source_status(cfg.metadata_dir, "EXACT", "SERVER", 0x10006000)
         splice, _proven, _other = _collect_splice_set(cfg, None)
@@ -645,17 +673,19 @@ class TestCollectSpliceSet:
         STATUS always lives in ``rebrew-functions.toml`` (never the .c file);
         SIZE/CFLAGS may live in either, mirroring production layouts.
         """
-        from rebrew.metadata.functions import update_field, update_source_status
 
-        lines = [f"// FUNCTION: SERVER 0x{va:08x}", f"// SYMBOL: {symbol}"]
-        if ann_cflags:
-            lines.append(f"// CFLAGS: {ann_cflags}")
-        lines.append(f"int {symbol.lstrip('_')}(void) {{ return 0; }}")
+        from rebrew.rename_ops import c_name_from_symbol
+
         path = cfg.reversed_dir / f"{symbol}.c"
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        update_source_status(cfg.metadata_dir, status, "SERVER", va)
-        if size:
-            update_field(cfg.metadata_dir, va, "size", size, "SERVER")
+        fields = {"status": status, "size": size, "symbol": symbol}
+        if ann_cflags:
+            fields["cflags"] = ann_cflags
+        write_source(
+            path,
+            f"/* ADDRESS: SERVER 0x{va:08x} */\nint {c_name_from_symbol(symbol)}(void) {{ return 0; }}\n",
+            metadata_dir=cfg.metadata_dir,
+            metadata_fields={f"SERVER.0x{va:08x}": fields},
+        )
         return path
 
     def test_partitions_by_status(self, tmp_path: Path) -> None:
@@ -738,9 +768,11 @@ class TestCollectSpliceSet:
 
         cfg = self._cfg(tmp_path)
         path = cfg.reversed_dir / "_stub.c"
-        path.write_text(
-            "// FUNCTION: SERVER 0x10001000\nint stub(void) { return 0; }\n",
+        write_source(
+            path,
+            "/* ADDRESS: SERVER 0x10001000 */\nint stub(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION"}},
         )
         splice, proven, other = _collect_splice_set(cfg, None)
         assert splice == []
@@ -813,9 +845,12 @@ class TestRoundTripGoldenPe:
         binary.write_bytes(bin_util.make_pe(code))
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "myfunc.c").write_text(
-            "// FUNCTION: SERVER 0x00401000\n// SYMBOL: _myfunc\nint myfunc(void) { return 0; }\n",
+        write_source(
+            src / "myfunc.c",
+            "/* ADDRESS: SERVER 0x00401000 */\n\nint myfunc(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x00401000": {"kind": "FUNCTION", "symbol": "_myfunc"}},
+            metadata_dir=tmp_path,
         )
         from rebrew.metadata.functions import update_field, update_source_status
 

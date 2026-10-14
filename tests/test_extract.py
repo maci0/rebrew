@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import typer
+from source_util import write_source
 
 from rebrew.extract import cmd_extract, detect_reversed_vas, load_functions
 
@@ -205,9 +206,12 @@ class TestSetupCandidatesStructureMerge:
         monkeypatch.setattr(ex, "require_config", lambda target=None, **kw: cfg)
         # The inventory lists ONE covered function (with a .c annotation)
         # plus a second function with no source file.
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// SIZE: 48\nint func_a(void) { return 0; }\n",
+        write_source(
+            src / "func_a.c",
+            "/* ADDRESS: TEST 0x1000 */\n\nint func_a(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION", "size": 48}},
+            metadata_dir=tmp_path,
         )
         (src / "function_structure.json").write_text(
             json.dumps(

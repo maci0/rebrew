@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.link_order import find_sources_block, normalize_listed, render_block
@@ -47,16 +48,19 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "mini_pe.exe"
 
 
 def _make_project(tmp_path: Path, files: dict[str, int | None], cmake: str = _CMAKE_SET) -> None:
-    (tmp_path / "rebrew-project.toml").write_text(_TOML_CFG, encoding="utf-8")
+    write_source(tmp_path / "rebrew-project.toml", _TOML_CFG, encoding="utf-8")
     shutil.copy(_FIXTURE, tmp_path / "server.dll")
     src = tmp_path / "src"
     src.mkdir(exist_ok=True)
     for name, va in files.items():
         content = "int x;\n"
         if va is not None:
-            content += f"// FUNCTION: server.dll 0x{va:x}\nvoid f(void) {{}}\n"
-        (src / name).write_text(content, encoding="utf-8")
-    (tmp_path / "CMakeLists.txt").write_text(cmake, encoding="utf-8")
+            content += SourceFixture(
+                f"/* ADDRESS: server.dll 0x{va:x} */\nvoid f(void) {{}}\n",
+                {f"server.dll.0x{va:x}": {"kind": "FUNCTION"}},
+            )
+        write_source(src / name, content, encoding="utf-8")
+    write_source(tmp_path / "CMakeLists.txt", cmake, encoding="utf-8")
 
 
 def _invoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> Any:
@@ -121,7 +125,7 @@ class TestLinkOrderCli:
                 module="server.dll",
                 va=va,
                 file=name,
-                marker_type="FUNCTION",
+                kind="FUNCTION",
             )
         result = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0

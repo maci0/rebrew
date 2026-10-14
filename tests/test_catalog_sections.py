@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import SourceFixture, write_source
 
 from rebrew.sections import (
     get_globals,
@@ -81,12 +82,17 @@ class TestGetTextSectionSize:
 class TestGetGlobals:
     def _scan(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, src: str) -> dict[int, dict]:
         f = tmp_path / "data.c"
-        f.write_text(src, encoding="utf-8")
+        write_source(f, src, encoding="utf-8")
         return get_globals(tmp_path)
 
     def test_int_global(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         globals_dict = self._scan(
-            tmp_path, monkeypatch, "// GLOBAL: SERVER 0x10001000\nint g_counter;\n"
+            tmp_path,
+            monkeypatch,
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint g_counter;\n",
+                {"SERVER.0x10001000": {"kind": "GLOBAL"}},
+            ),
         )
         assert globals_dict[0x10001000]["name"] == "g_counter"
         assert globals_dict[0x10001000]["module"] == "SERVER"
@@ -94,14 +100,20 @@ class TestGetGlobals:
 
     def test_char_array_global(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         globals_dict = self._scan(
-            tmp_path, monkeypatch, "// GLOBAL: SERVER 0x10002000\nchar g_name[32];\n"
+            tmp_path,
+            monkeypatch,
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10002000 */\nchar g_name[32];\n",
+                {"SERVER.0x10002000": {"kind": "GLOBAL"}},
+            ),
         )
         assert globals_dict[0x10002000]["name"] == "g_name"
         assert globals_dict[0x10002000]["size"] == 32
 
     def test_short_and_double_sizes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        src = (
-            "// GLOBAL: SERVER 0x10003000\nshort g_s;\n// GLOBAL: SERVER 0x10004000\ndouble g_d;\n"
+        src = SourceFixture(
+            "/* ADDRESS: SERVER 0x10003000 */\nshort g_s;\n/* ADDRESS: SERVER 0x10004000 */\ndouble g_d;\n",
+            {"SERVER.0x10003000": {"kind": "GLOBAL"}, "SERVER.0x10004000": {"kind": "GLOBAL"}},
         )
         globals_dict = self._scan(tmp_path, monkeypatch, src)
         assert globals_dict[0x10003000]["size"] == 2
@@ -112,28 +124,57 @@ class TestGetGlobals:
     ) -> None:
         f1 = tmp_path / "a.c"
         f2 = tmp_path / "b.c"
-        f1.write_text("// GLOBAL: SERVER 0x10005000\nint g;\n", encoding="utf-8")
-        f2.write_text("// GLOBAL: SERVER 0x10005000\n", encoding="utf-8")
+        write_source(
+            f1,
+            "/* ADDRESS: SERVER 0x10005000 */\nint g;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x10005000": {"kind": "GLOBAL"}},
+        )
+        write_source(
+            f2,
+            "/* ADDRESS: SERVER 0x10005000 */\nextern int g;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x10005000": {"kind": "GLOBAL"}},
+        )
         globals_dict = get_globals(tmp_path)
         assert sorted(globals_dict[0x10005000]["files"]) == ["a.c", "b.c"]
 
     def test_missing_decl_defaults_unknown(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        globals_dict = self._scan(tmp_path, monkeypatch, "// GLOBAL: GAME 0x10006000\n")
+        globals_dict = self._scan(
+            tmp_path,
+            monkeypatch,
+            SourceFixture("\n", {"GAME.0x10006000": {"kind": "GLOBAL", "name": "unknown"}}),
+        )
         assert globals_dict[0x10006000]["name"] == "unknown"
         assert globals_dict[0x10006000]["size"] == 4
 
     def test_other_target_marker_is_omitted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        src = (
-            "// GLOBAL: SERVER 0x10001000\nint g_server;\n"
-            "// GLOBAL: GOLD 0x401000\nint g_client;\n"
-            "// GLOBAL: MSVCRT 0x10030000\nint __argc;\n"
+        (
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint g_server;\n/* ADDRESS: GOLD 0x401000 */\nint g_client;\n/* ADDRESS: MSVCRT 0x10030000 */\nint __argc;\n",
+                {
+                    "SERVER.0x10001000": {"kind": "GLOBAL"},
+                    "GOLD.0x401000": {"kind": "GLOBAL"},
+                    "MSVCRT.0x10030000": {"kind": "GLOBAL"},
+                },
+            )
         )
         f = tmp_path / "data.c"
-        f.write_text(src, encoding="utf-8")
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x10001000 */\nint g_server;\n/* ADDRESS: GOLD 0x401000 */\nint g_client;\n/* ADDRESS: MSVCRT 0x10030000 */\nint __argc;\n",
+            encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10001000": {"kind": "GLOBAL"},
+                "GOLD.0x401000": {"kind": "GLOBAL"},
+                "MSVCRT.0x10030000": {"kind": "GLOBAL"},
+            },
+            metadata_dir=tmp_path,
+        )
         cfg = SimpleNamespace(
             marker="SERVER", all_markers={"SERVER", "GOLD"}, source_ext=".c", metadata_dir=tmp_path
         )
@@ -162,7 +203,12 @@ class TestGetGlobalsSizes:
         from rebrew.sections import get_globals
 
         p = tmp_path / "g.c"
-        p.write_text(f"// GLOBAL: SERVER 0x1000\n{decl}\n", encoding="utf-8")
+        write_source(
+            p,
+            f"/* ADDRESS: SERVER 0x1000 */\n{decl}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
+        )
         return get_globals(tmp_path)
 
     def test_char_array_size(self, tmp_path: Path) -> None:
@@ -204,10 +250,14 @@ class TestGetGlobalsSizes:
             "int g_shorty;",
         ]
         src = "".join(
-            f"// GLOBAL: SERVER 0x{0x1000 + i * 0x100:x}\n{d}\n" for i, d in enumerate(decls)
+            SourceFixture(
+                f"/* ADDRESS: SERVER 0x{4096 + i * 256:x} */\n{d}\n",
+                {f"SERVER.0x{4096 + i * 256:x}": {"kind": "GLOBAL"}},
+            )
+            for i, d in enumerate(decls)
         )
         p = tmp_path / "g.c"
-        p.write_text(src, encoding="utf-8")
+        write_source(p, src, encoding="utf-8")
         globals_dict = get_globals(tmp_path)
         assert len(globals_dict) == len(decls)
         for i, d in enumerate(decls):

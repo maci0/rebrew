@@ -9,7 +9,7 @@ from rebrew.c_parser import find_variable_roles
 from rebrew.c_rename import ParsedSource, definitions
 from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
-from rebrew.metadata.annotation import FUNCTION_MARKERS, iter_annotations
+from rebrew.metadata.bindings import FUNCTION_KINDS, iter_source_bindings
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import atomic_write_text, preset_module_key
 
@@ -29,11 +29,11 @@ def anchor_symbols(
     """Keep native function symbols verbatim, sorted by selected-target VA."""
     marker = target_marker(cfg)
     rows: dict[int, str] = {}
-    for _path, annotations in iter_annotations(
+    for _path, annotations in iter_source_bindings(
         list(iter_sources(cfg)), target=marker, metadata_dir=cfg.metadata_dir
     ):
         for ann in annotations:
-            if ann.marker_type not in FUNCTION_MARKERS or ann.marker_type == "LIBRARY":
+            if ann.kind not in FUNCTION_KINDS or ann.kind == "LIBRARY":
                 continue
             if preset_module_key(ann.module) != preset_module_key(marker or ""):
                 continue

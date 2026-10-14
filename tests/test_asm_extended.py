@@ -5,6 +5,7 @@ from shutil import which
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_source
 
 from rebrew.asm import (
     _parse_annotations,
@@ -94,7 +95,8 @@ class TestGenerateInlineC:
         # Identity is not a marker line, and the string helper writes no TOML.
         assert "// FUNCTION:" not in out
         assert "// SIZE:" not in out
-        assert "// SOURCE: naked" in out
+        assert "SOURCE:" not in out
+        assert "ADDRESS:" in out
         assert "__declspec(naked) void my_func(void)" in out
         assert "__asm {" in out
         # Raw-byte emission — byte-exact by construction, no MASM syntax.
@@ -195,7 +197,8 @@ class TestGenerateInlineC:
         path.write_text(out, encoding="utf-8")
         _record_inline_c_identity(cfg, path, 0x1000, code, "_f")
         entry = get_entry(tmp_path, 0x1000, "SERVER")
-        assert entry["marker_type"] == "FUNCTION"
+        assert entry["source"] == "naked"
+        assert entry["kind"] == "FUNCTION"
         assert entry["name"] == "f"
         assert entry["symbol"] == "_f"
         assert entry["size"] == len(code)
@@ -206,7 +209,7 @@ class TestGenerateInlineC:
         cfg.marker = ""
         _record_inline_c_identity(cfg, path, 0x2000, code, "_f")
         target = get_entry(tmp_path, 0x2000, "TARGET")
-        assert target["marker_type"] == "FUNCTION"
+        assert target["kind"] == "FUNCTION"
         assert target["name"] == "f"
         assert target["symbol"] == "_f"
         assert target["size"] == len(code)
@@ -222,13 +225,17 @@ class TestGenerateInlineC:
         cfg = _cfg(tmp_path)
         src_dir = cfg.reversed_dir
         src_dir.mkdir(parents=True, exist_ok=True)
-        (src_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x10001000\n// SIZE: 8\nint f(void) { return 0; }\n",
+        write_source(
+            src_dir / "f.c",
+            "/* ADDRESS: SERVER 0x10001000 */\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION", "size": 8}},
         )
-        (src_dir / "g.c").write_text(
-            "// FUNCTION: SERVER 0x10002000\n// SIZE: 6\nint g(void) { return 0; }\n",
+        write_source(
+            src_dir / "g.c",
+            "/* ADDRESS: SERVER 0x10002000 */\n\nint g(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10002000": {"kind": "FUNCTION", "size": 6}},
         )
         code = bytes.fromhex("558bec83ec08")
         monkeypatch.setattr(
@@ -241,7 +248,8 @@ class TestGenerateInlineC:
         files = sorted(out.glob("*.c"))
         assert len(files) == 2
         text = files[0].read_text(encoding="utf-8")
-        assert "// SOURCE: naked" in text
+        assert "SOURCE: naked" not in text
+        assert "ADDRESS: SERVER" in text
         assert "// FUNCTION:" not in text
         assert "// SIZE:" not in text
         assert "_emit 0x55" in text
@@ -255,12 +263,13 @@ class TestGenerateInlineC:
             (0x10002000, "g", "g.c.10002000.c"),
         ):
             entry = get_entry(cfg.metadata_dir, va, "SERVER")
-            assert entry["marker_type"] == "FUNCTION"
+            assert entry["source"] == "naked"
+            assert entry["kind"] == "FUNCTION"
             assert entry["name"] == name
             assert entry["symbol"] == f"_{name}"
             assert entry["size"] == len(code)
             assert entry["file"] == f"naked/{filename}"
-            assert "status" not in entry
+            assert entry["status"] == "STUB"
         store = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
         assert "SERVER.0x10001000" in store
         assert "SERVER.0x10002000" in store
@@ -273,13 +282,17 @@ class TestGenerateInlineC:
         cfg = _cfg(tmp_path)
         src_dir = cfg.reversed_dir
         src_dir.mkdir(parents=True, exist_ok=True)
-        (src_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x10001000\n// SIZE: 8\nint f(void) { return 0; }\n",
+        write_source(
+            src_dir / "f.c",
+            "/* ADDRESS: SERVER 0x10001000 */\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION", "size": 8}},
         )
-        (src_dir / "g.c").write_text(
-            "// FUNCTION: SERVER 0x10002000\n// SIZE: 6\nint g(void) { return 0; }\n",
+        write_source(
+            src_dir / "g.c",
+            "/* ADDRESS: SERVER 0x10002000 */\n\nint g(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10002000": {"kind": "FUNCTION", "size": 6}},
         )
         from rebrew.metadata.functions import update_source_status
 
@@ -298,12 +311,16 @@ class TestGenerateInlineC:
 class TestParseAnnotations:
     def test_filters_statuses_and_sizes(self, tmp_path: Path) -> None:
         src = tmp_path / "f.c"
-        src.write_text(
-            "// FUNCTION: SERVER 0x1000\n// SIZE: 10\n// STATUS: EXACT\nint f(void) { return 0; }\n"
-            "// FUNCTION: SERVER 0x2000\nint g(void) { return 0; }\n",  # no size → skipped
+        write_source(
+            src,
+            "/* ADDRESS: SERVER 0x1000 */\n\n\nint f(void) { return 0; }\n/* ADDRESS: SERVER 0x2000 */\nint g(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x1000": {"kind": "FUNCTION", "size": 10},
+                "SERVER.0x2000": {"kind": "FUNCTION"},
+            },
         )
-        results = _parse_annotations(src)
+        results = _parse_annotations(src, metadata_dir=tmp_path)
         assert len(results) == 1
         assert results[0]["va"] == 0x1000
         assert results[0]["size"] == 10
@@ -312,7 +329,13 @@ class TestParseAnnotations:
         from rebrew.metadata.functions import update_source_status
 
         src = tmp_path / "f.c"
-        src.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            src,
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
         update_source_status(tmp_path, "STUB", "SERVER", 0x1000)
         update_field_guard = __import__("rebrew.metadata.functions", fromlist=["update_field"])
         update_field_guard.update_field(tmp_path, 0x1000, "size", 12, "SERVER")
@@ -333,9 +356,11 @@ class TestBuildFunctionLookup:
             json.dumps([{"va": "0x1000", "name": "ghidra_fn", "size": 10}]),
             encoding="utf-8",
         )
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x2000\n// SYMBOL: _local_fn\nint local_fn(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x2000 */\n\nint local_fn(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION", "symbol": "_local_fn"}},
         )
         lookup = build_function_lookup(cfg)  # type: ignore[arg-type]
         assert lookup[0x1000] == ("ghidra_fn", "")
@@ -354,9 +379,11 @@ class TestBatchExtractNasm:
         from rebrew.asm import batch_extract_nasm
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x1000\n// SIZE: 12\n// STATUS: STUB\nint f(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x1000 */\n\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "size": 12}},
         )
         monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: _CODE)
         out_dir = tmp_path / "nasm"
@@ -370,9 +397,11 @@ class TestBatchExtractNasm:
         from rebrew.asm import batch_extract_nasm
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x1000\n// SIZE: 12\n// STATUS: EXACT\nint f(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x1000 */\n\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "size": 12}},
         )
         monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: _CODE)
         out_dir = tmp_path / "nasm"
@@ -385,9 +414,11 @@ class TestBatchExtractNasm:
         from rebrew.asm import batch_extract_nasm
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x1000\n// SIZE: 12\n// STATUS: STUB\nint f(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x1000 */\n\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "size": 12}},
         )
 
         def _none(*a: object, **k: object) -> None:

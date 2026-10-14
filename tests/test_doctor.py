@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_source
 
 from rebrew.cli import EXIT_ERROR, EXIT_OK
 from rebrew.doctor import (
@@ -284,7 +285,12 @@ class TestCheckSourceFiles:
     def test_has_sources(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
-        (src / "func_a.c").write_text("// FUNCTION: SERVER 0x1000\n", encoding="utf-8")
+        write_source(
+            src / "func_a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
         cfg = _make_cfg(tmp_path)
         result = check_source_files(cfg)
         assert result.status == _OK

@@ -11,6 +11,7 @@ from typing import Any
 import capstone
 import pytest
 import typer
+from source_util import write_source
 from typer.testing import CliRunner, Result
 
 from rebrew.coff_reloc import CatalogScanError, CoffRelocRecord
@@ -149,11 +150,14 @@ class TestProbeAnnotationSelection:
             capstone_mode=capstone.CS_MODE_32,
         )
         source = tmp_path / "pair.c"
-        source.write_text(
-            "// FUNCTION: GAME 0x1000\n// SIZE: 3\n// CFLAGS: /O1\n"
-            "int first(void) { return 0; }\n\n"
-            "// FUNCTION: GAME 0x2000\n// SIZE: 6\n// CFLAGS: /O2 /Gd\n"
-            "int second(void) { return 1; }\n"
+        write_source(
+            source,
+            "/* ADDRESS: GAME 0x1000 */\n\n\nint first(void) { return 0; }\n\n/* ADDRESS: GAME 0x2000 */\n\n\nint second(void) { return 1; }\n",
+            metadata_fields={
+                "GAME.0x1000": {"kind": "FUNCTION", "size": 3, "cflags": "/O1"},
+                "GAME.0x2000": {"kind": "FUNCTION", "size": 6, "cflags": "/O2 /Gd"},
+            },
+            metadata_dir=tmp_path,
         )
         candidate = b"\xb8\x01\x00\x00\x00\xc3"
         calls = []
@@ -199,7 +203,7 @@ class TestProbeAnnotationSelection:
             6,
         )
         assert calls == [source]
-        assert not (tmp_path / "rebrew-functions.toml").exists()
+        assert (tmp_path / "rebrew-functions.toml").is_file()
 
         calls.clear()
         missing = CliRunner().invoke(app, [str(source), "--va", "0x3000", "--json"])

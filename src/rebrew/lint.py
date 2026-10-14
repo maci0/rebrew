@@ -1,4 +1,4 @@
-"""lint.py - Annotation linter for rebrew decomp C files.
+"""lint.py - SourceBinding linter for rebrew decomp C files.
 
 Check that every reversed ``.c`` file is either pure C whose identity lives
 in ``rebrew-functions.toml`` / ``rebrew-data.toml``, or still carries a
@@ -20,7 +20,7 @@ import re
 import shlex
 import threading
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -31,6 +31,7 @@ from rich.text import Text
 
 from rebrew.c_parser import (
     CALLING_CONVENTION,
+    find_extern_variables,
     find_function_name_in_node,
     mask_msvc_syntax,
     parse_c_source,
@@ -54,29 +55,23 @@ from rebrew.config import (
 from rebrew.lint_cflags import (
     RedundantFunctionCflags,
     RedundantPreset,
-    cflags_key,
     check_redundant_cflags,
     drop_redundant_presets,
-    inline_equals_store,
 )
-from rebrew.metadata.annotation import (
-    ALL_KNOWN_KEYS,
-    DATA_MARKERS,
-    METADATA_KEYS,
+from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
+from rebrew.metadata.bindings import (
+    DATA_KINDS,
     MIN_VALID_VA,
-    NEW_FUNC_RE,
-    NEW_KV_RE,
-    VALID_MARKERS,
+    SYMBOL_KINDS,
     file_backed_by_metadata,
     function_rows_for_file,
     min_valid_va_for,
 )
 from rebrew.metadata.data import load_data_metadata
 from rebrew.metadata.functions import (
-    MARKER_IDENTITY_FIELDS,
+    FUNCTION_IDENTITY_FIELDS,
     METADATA_FIELDS,
     canonical_status,
-    is_table_field,
     load_metadata,
 )
 from rebrew.metadata.source_provenance import (
@@ -92,17 +87,11 @@ from rebrew.utils import (
     preset_module_key,
     read_source_text,
     rel_display_path,
-    split_source_lines,
     untrusted_ident,
 )
 from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
-
-# Marker header line in either comment style.  annotation.NEW_FUNC_CAPTURE_RE
-# accepts `//` and `/*` (the C89-strict form intake emits for borland-2.0/msvc-1.52), so
-# lint must not report E001/E002 on a file the parser reads fine.
-_HEADER_MARKER_RE = re.compile(r"(?://|/\*)\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
 
 
 def _is_comment_line(text: str) -> bool:
@@ -144,14 +133,6 @@ class LintResult:
     # Counters collected during lint for --summary (avoids re-reading files).
     _status_counts: Counter[str] = field(default_factory=Counter)
     _marker_counts: Counter[str] = field(default_factory=Counter)
-    # Collected inline metadata for --fix migration: (module, va_int, key, value, marker)
-    _inline_fixes: list[tuple[str, int, str, str, str]] = field(default_factory=list)
-    # Unknown / derived-only keys (W010: SYMBOL, PROTOTYPE, …) — strip, never store.
-    _inline_strips: list[tuple[str, int, str]] = field(default_factory=list)
-    # Inline keys that duplicate a metadata-owned field with an equal value:
-    # no warning (the store already owns the field) but --fix strips the
-    # dead inline copy.  An equal SIZE or CFLAGS is one of these strips.
-    _inline_dup_strips: list[tuple[str, int, str]] = field(default_factory=list)
     # Lines of the file for style checks
     _lines: list[str] = field(default_factory=list)
     # Marker headers parsed from _lines — reused by the batch W029 VA index
@@ -206,177 +187,6 @@ class LintResult:
         }
 
 
-def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[str, bool]]]:
-    """Parse ALL annotation headers from the file.
-
-    Returns a list of tuples: (found_keys, format_flags).
-    """
-    results = []
-    current_keys: dict[str, str] = {}
-    current_flags = {"has_new": False}
-    in_block = False
-    pending_kv: dict[str, str] = {}
-    seen_code_after_marker: bool = False
-
-    for line_idx, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped:
-            continue
-
-        # NEW_FUNC_RE and NEW_KV_RE match `//` and `/*` comment lines; skip
-        # the regex calls on non-comment lines (the bulk of source files).
-        if not stripped.startswith(("//", "/*")):
-            if in_block:
-                seen_code_after_marker = True
-            continue
-
-        if NEW_FUNC_RE.match(stripped):
-            if in_block:
-                results.append((current_keys, current_flags))
-
-            current_keys = dict(pending_kv)
-            pending_kv = {}
-            current_flags = {
-                "has_new": True,
-            }
-            in_block = True
-            seen_code_after_marker = False
-            current_keys["_LINE"] = str(line_idx + 1)
-
-            m = _HEADER_MARKER_RE.match(stripped)
-            if m:
-                current_keys["MARKER"] = m.group(1)
-                current_keys["MODULE"] = m.group(2)
-                current_keys["VA"] = m.group(3)
-            continue
-
-        m = NEW_KV_RE.match(stripped)
-        if m:
-            if in_block and not seen_code_after_marker:
-                current_keys[m.group("key").upper()] = m.group("value").strip()
-            else:
-                pending_kv[m.group("key").upper()] = m.group("value").strip()
-            continue
-
-        # Any other line here is a comment (non-comment lines were handled
-        # above): a bare function-name hint (``// Foo``), an explanation, or
-        # a ``/* ... */`` block.  A comment is not code — keep the header
-        # block open so a following ``// SIZE:``/``// CFLAGS:``/etc. still
-        # attaches to the marker block (mirrors metadata/annotation.py's name-hint
-        # handling; without this, the name line orphaned later KV keys and
-        # W019/--fix could never see them).
-
-    if in_block:
-        results.append((current_keys, current_flags))
-
-    return results
-
-
-def _w019_key_backed(
-    key: str,
-    block: tuple[str, str, int],
-    fn_entries: dict[tuple[str, int], dict[str, Any]],
-    data_entries: dict[tuple[str, int], dict[str, Any]],
-    lowered_keys: dict[tuple[str, int, str], frozenset[str]] | None = None,
-) -> bool:
-    """True when the metadata store already owns *key* for *block*'s function.
-
-    The DATA/GLOBAL overlay: for those blocks only size/section/note are
-    sourced from rebrew-data.toml; everything else comes from
-    rebrew-functions.toml.  Shared by W019's check and
-    :func:`count_migratable_files` so the two can never disagree.
-
-    *lowered_keys* is an optional ``{(module, va, "fn"|"data"): frozenset}``
-    cache of the entries' lowercased field names.  A caller that checks many
-    keys against one store passes one in; without it each call rebuilds the
-    set, which is a fresh allocation per (file, block, key) triple over the
-    whole tree.
-    """
-    marker_type, module, va = block
-    mod_va = (module, va)
-
-    if marker_type in DATA_MARKERS:
-        if key.lower() in {"size", "section", "note"}:
-            if lowered_keys is not None:
-                cache_key = (module, va, "data")
-                names = lowered_keys.get(cache_key)
-                if names is None:
-                    names = frozenset(k.lower() for k in data_entries.get(mod_va, {}))
-                    lowered_keys[cache_key] = names
-            else:
-                names = frozenset(k.lower() for k in data_entries.get(mod_va, {}))
-            return key.lower() in names
-        return False
-    if lowered_keys is not None:
-        cache_key = (module, va, "fn")
-        names = lowered_keys.get(cache_key)
-        if names is None:
-            names = frozenset(k.lower() for k in fn_entries.get(mod_va, {}))
-            lowered_keys[cache_key] = names
-    else:
-        names = frozenset(k.lower() for k in fn_entries.get(mod_va, {}))
-    return key.lower() in names
-
-
-def count_migratable_files(
-    src_dir: Path, cfg: Any, *, sources: Sequence[Path] | None = None
-) -> int:
-    """Return the number of source files ``rebrew lint --fix`` can migrate.
-
-    The count twin of W019 (see ``_check_W019_inline_metadata``): a file
-    counts when an inline metadata key is attached to a marker header block
-    — found by the *same* header parser ``rebrew lint`` itself uses, so
-    block attachment cannot drift — and that field is NOT already owned by
-    the metadata store.  Markerless occurrences (the ``// CFLAGS:
-    /DREBREW_ALLOW_NAKED`` naked-guard convention) and keys already backed
-    by metadata are not counted, so the "run rebrew lint to migrate" hint
-    is always actionable.  Inline ``SIZE`` and ``CFLAGS`` count: they are
-    metadata, and ``lint --fix`` moves them.
-
-    Only scans files returned by ``iter_sources`` so that the extension
-    filter (``cfg.source_ext``) is respected.  *sources* is that list when the
-    caller already holds it, sparing a whole-tree walk.
-    """
-    fn_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
-    data_entries = load_data_metadata(cfg.metadata_dir)
-    count = 0
-    # One lowercased field-name set per metadata entry, reused across every
-    # key of every block in the tree.
-    lowered_keys: dict[tuple[str, int, str], frozenset[str]] = {}
-    for src in iter_sources(src_dir, cfg) if sources is None else sources:
-        try:
-            lines = split_source_lines(read_source_text(src)[0])
-        except OSError as exc:
-            # A file that cannot be read would otherwise contribute zero
-            # inline keys and no diagnostics, so lint would call the tree
-            # clean and `--fix` would report nothing to migrate.
-            logging.getLogger(__name__).warning("could not read %s: %s", src, exc)
-            continue
-        for found_keys, _flags in _parse_multi_headers(lines):
-            marker = found_keys.get("MARKER", "")
-            module = found_keys.get("MODULE", "")
-            va_hex = found_keys.get("VA", "")
-            if not (marker and module and va_hex):
-                continue
-            # Guarded like every other VA conversion in this module: a
-            # malformed VA must skip the block, not raise out of a counter.
-            try:
-                block = (marker, module, int(va_hex, 16))
-            except ValueError:
-                continue
-            for key, value in found_keys.items():
-                if key not in METADATA_KEYS:
-                    continue
-                if key == "SOURCE" and value.strip().lower() == "naked":
-                    continue
-                if not _w019_key_backed(
-                    key, block, fn_entries, data_entries, lowered_keys=lowered_keys
-                ):
-                    count += 1
-                    break
-    return count
-
-
 def _check_format_errors(result: LintResult, flags: dict[str, bool]) -> bool:
     """Check format-level errors (E001). Returns True if validation should proceed."""
     if not flags["has_new"]:
@@ -387,7 +197,7 @@ def _check_format_errors(result: LintResult, flags: dict[str, bool]) -> bool:
 
 
 def _check_E001_marker(result: LintResult, marker: str) -> None:
-    if marker not in VALID_MARKERS:
+    if marker not in SYMBOL_KINDS:
         result.error(result.marker_line, "E001", f"Invalid marker type: {marker}")
 
 
@@ -420,14 +230,14 @@ def _check_E013_duplicate_va(
     # (a valid layout) is not flagged, while a true duplicate — same module
     # + VA, in the same or another file — is.
     key: Any = (module, va_int) if module else va_int
-    defines = _block_defines(lines, marker_line) if marker in DATA_MARKERS else True
+    defines = _block_defines(lines, marker_line) if marker in DATA_KINDS else True
     if key in seen_vas:
         # Data-marker duplicates collide only when BOTH sides define the
         # symbol (two initializers = LNK4006 risk).  The normal
         # progressive-ownership shape — owner TU extern-declares (or bare
         # claim) while link scaffolding holds the single definition — is
         # unambiguous and must not fail the gate.
-        if marker in DATA_MARKERS and not (defines and (seen_va_defines or {}).get(key, False)):
+        if marker in DATA_KINDS and not (defines and (seen_va_defines or {}).get(key, False)):
             if seen_va_defines is not None:
                 seen_va_defines[key] = seen_va_defines.get(key, False) or defines
             seen_vas[key] = f"{rel_display_path(filepath)}"
@@ -718,20 +528,6 @@ _FIXABLE_UNKNOWN_KEYS = frozenset({"SYMBOL", "PROTOTYPE"})
 _UNCLAIMED_STATUSES = frozenset({"STUB", "SKIP"})
 
 
-def _check_W010_unknown_keys(
-    result: LintResult,
-    found_keys: dict[str, str],
-    module: str = "",
-    va_int: int | None = None,
-) -> None:
-    for key in found_keys:
-        if key in ALL_KNOWN_KEYS or key in ("MODULE", "_LINE") or key.startswith("_"):
-            continue
-        result.warning(result.marker_line, "W010", f"Unknown annotation key: {key}")
-        if module and va_int is not None and key in _FIXABLE_UNKNOWN_KEYS:
-            result._inline_strips.append((module, va_int, key))
-
-
 def _check_E015_marker_consistency(
     result: LintResult, marker: str, module: str, status: str, cfg: ProjectConfig | None = None
 ) -> None:
@@ -751,7 +547,7 @@ def _check_E015_marker_consistency(
     else:
         expected_marker = "FUNCTION"
         allowed = {"FUNCTION"}
-    if marker not in allowed and marker in VALID_MARKERS and marker not in DATA_MARKERS:
+    if marker not in allowed and marker in SYMBOL_KINDS and marker not in DATA_KINDS:
         result.error(
             result.marker_line,
             "E015",
@@ -829,7 +625,7 @@ def _check_W006_source(
         result.warning(
             result.marker_line,
             "W006",
-            f"Library module {module!r} missing // SOURCE: marker "
+            f"Library module {module!r} missing source metadata "
             "(reference file, e.g. SBHEAP.C:195 or deflate.c)",
         )
 
@@ -863,13 +659,8 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
         DATA_METADATA_FILENAME,
         validate_data_field,
     )
-    from rebrew.metadata.document import parse_metadata_key
-    from rebrew.metadata.functions import (
-        FORMAT_KEY,
-        FORMAT_VERSION,
-        PROVENANCE_TAGS,
-        validate_metadata_field,
-    )
+    from rebrew.metadata.document import FORMAT_KEY, FORMAT_VERSION, parse_metadata_key
+    from rebrew.metadata.functions import PROVENANCE_TAGS, validate_metadata_field
     from rebrew.utils import load_tomllib
     from rebrew.workspace.status import KNOWN_STATUSES
 
@@ -961,11 +752,11 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
                 res.warning(1, "W031", problem)
             results.append(res)
 
-    # METADATA_FIELDS is upper-case while MARKER_IDENTITY_FIELDS is lower-case
-    # (`file`, `symbol`, `name`, `marker_type`): compare both spellings, or a
-    # `migrate-markers` identity field reads as unknown.
+    # METADATA_FIELDS is upper-case while FUNCTION_IDENTITY_FIELDS is lower-case
+    # (`file`, `symbol`, `name`, `kind`): compare both spellings, or a
+    # canonical identity field reads as unknown.
     function_fields = frozenset(f.upper() for f in METADATA_FIELDS) | frozenset(
-        f.upper() for f in MARKER_IDENTITY_FIELDS
+        f.upper() for f in FUNCTION_IDENTITY_FIELDS
     )
     check_store(
         (Path(cfg.metadata_dir) / "rebrew-functions.toml").resolve(),
@@ -1516,7 +1307,7 @@ def _check_W016_section(
     section_for_va: Any = None,
     section_hits: list[MissingSection] | None = None,
 ) -> None:
-    if marker in DATA_MARKERS and "SECTION" not in found_keys:
+    if marker in DATA_KINDS and "SECTION" not in found_keys:
         result.warning(
             result.marker_line,
             "W016",
@@ -1531,45 +1322,6 @@ def _check_W016_section(
             section = section_for_va(va_int)
             if section:
                 section_hits.append(MissingSection(module=module, va=va_int, section=section))
-
-
-def _check_W019_inline_metadata(
-    result: LintResult,
-    found_keys: dict[str, str],
-    metadata_sourced_keys: set[str],
-    module: str = "",
-    va_int: int | None = None,
-    marker: str = "",
-) -> None:
-    """Warn when metadata-owned keys appear as inline // KEY: comments.
-
-    These keys, including ``SIZE`` and ``CFLAGS``, live in
-    rebrew-functions.toml (or rebrew-data.toml for DATA/GLOBAL markers).
-    An inline copy that the store does not already own is migration debt.
-    A copy the store already owns is handled by the overlay: equal values
-    are stripped, and a disagreement warns there without clobbering the store.
-    """
-    for key, value in found_keys.items():
-        if key == "SOURCE" and value.strip().lower() == "naked":
-            # The file-borne naked-reconstruction marker written by
-            # `rebrew binary asm show --inline-c`: like the // CFLAGS:
-            # /DREBREW_ALLOW_NAKED naked-guard convention, it must travel
-            # with the file (self-clears when the C body replaces it) —
-            # not a metadata-migration candidate.
-            continue
-        if key in METADATA_KEYS and key not in metadata_sourced_keys:
-            result.warning(
-                result.marker_line,
-                "W019",
-                f"Inline '// {key}:' is deprecated — use rebrew-functions.toml instead",
-            )
-            # Record for --fix migration (marker type routes the write to the
-            # function vs data metadata store).  A table-typed field (LOCALS,
-            # COMMENTS, PROVE_CONSTRAINTS) cannot be built from an inline
-            # scalar, so --fix must not try — `update_field` rejects the string
-            # and the traceback escaped the CLI.
-            if module and va_int is not None and not is_table_field(key):
-                result._inline_fixes.append((module, va_int, key, value, marker))
 
 
 def _check_E023_naked_asm(
@@ -1887,43 +1639,30 @@ def _check_W021_duplicate_globals(
     """
     if seen_globals is None:
         return
-    pending = False
-    marker = ""
-    module = ""
-    va = 0
-    for i, line in enumerate(lines, start=1):
-        s = line.strip()
-        ds_match = _HEADER_MARKER_RE.match(s)
-        if ds_match and ds_match.group(1) in DATA_MARKERS:
-            pending = True
-            marker = f"{ds_match.group(1)}:{ds_match.group(2)}"
-            module = ds_match.group(2)
-            va = int(ds_match.group(3), 16)
+    text = "\n".join(lines)
+    variables = {v.name: v for v in find_extern_variables(text, include_definitions=True)}
+    from rebrew.metadata.bindings import source_bindings
+    from rebrew.metadata.functions import resolve_metadata_dir
+
+    for binding in source_bindings(
+        text, filepath, None, None, resolve_metadata_dir(filepath.parent)
+    ):
+        if binding.kind not in DATA_KINDS or binding.name not in variables:
             continue
-        if not pending:
-            continue
-        if not s or _is_comment_line(s):
-            continue  # comment/blank lines inside the block
-        pending = False
-        m = _GLOBAL_NAME_RE.search(s)
-        if m:
-            name = _declared_global_name(m)
-            key = f"{module}:{name}"
-            defines = _block_defines(lines, i - 1)
-            prev = seen_globals.get(key)
-            if (
-                prev is not None
-                and prev[0] != str(filepath)
-                and (prev[1] != va or (prev[2] and defines))
-            ):
-                result.warning(
-                    i,
-                    "W021",
-                    f"global '{name}' ({marker}) is also annotated in {prev[0]} — "
-                    "duplicate definition or naming collision",
-                )
-            elif prev is None or defines:
-                seen_globals[key] = (str(filepath), va, defines)
+        variable = variables[binding.name]
+        key = f"{binding.module}:{variable.name}"
+        defines = _block_defines(lines, variable.line - 1)
+        previous = seen_globals.get(key)
+        if (
+            previous is not None
+            and previous[0] != str(filepath)
+            and (previous[1] != binding.va or (previous[2] and defines))
+        ):
+            result.warning(
+                variable.line, "W021", f"global '{variable.name}' is also defined in {previous[0]}"
+            )
+        elif previous is None or defines:
+            seen_globals[key] = (str(filepath), binding.va, defines)
 
 
 # Brackets may repeat, and one bound may contain one nested pair.
@@ -2236,8 +1975,6 @@ def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
                 result.warning(i, "W027", f"Line too long ({len(line)} > {max_len})")
 
 
-_SUPPORT_MARKER_RE = re.compile(r"//\s*SUPPORT:\s*(\S+)(?:\s+(.*))?")
-
 #: TOML field name -> uppercase ``found_keys`` name.
 _METADATA_TO_FOUND: dict[str, str] = {
     "status": "STATUS",
@@ -2256,29 +1993,6 @@ _METADATA_TO_FOUND: dict[str, str] = {
     "section": "SECTION",
     "source": "SOURCE",
 }
-
-
-def support_declaration(lines: list[str]) -> tuple[int, str, str] | None:
-    """Return ``(line_no, module, reason)`` for a ``// SUPPORT:`` declaration, or None.
-
-    A support TU exists purely for link reasons (linker-forced shims, CRT
-    guard stubs, BSS pads) and has no binary VA of its own to anchor a
-    FUNCTION/LIBRARY/STUB/GLOBAL/DATA marker to.  The declaration is a
-    single ``// SUPPORT: <MODULE> <reason>`` comment line, e.g.
-    ``// SUPPORT: SERVER linker shims keep LIBCMT sbheap.obj out of the link``.
-    Only the first such line counts; it must precede any code.
-    """
-    for idx, line in enumerate(lines, start=1):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        m = _SUPPORT_MARKER_RE.match(stripped)
-        if m:
-            return idx, m.group(1), (m.group(2) or "").strip()
-        if stripped.startswith(("//", "/*", "*")):
-            continue
-        return None
-    return None
 
 
 def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> None:
@@ -2394,28 +2108,47 @@ def lint_file(
         return result
 
     lines = text.splitlines()
-    if not lines:
-        result.error(1, "E001", "Empty file, missing FUNCTION/LIBRARY/STUB marker")
-        return result
     result._lines = lines
 
-    # A support TU declares itself with `// SUPPORT: <MODULE> <reason>` and
-    # carries no VA-anchored marker by design.  Blessed here: no E001, and
-    # none of the annotation checks below apply (there are no headers to
-    # check).  The code-presence rule (W003) still runs — a support file with no
-    # code at all is dead weight, not support.
-    support = support_declaration(lines)
-    if support is not None:
-        _support_line, _support_module, _support_reason = support
-        if not _support_reason:
-            result.error(
-                _support_line, "E001", "// SUPPORT: needs a reason (what breaks without this file)"
-            )
-            return result
+    for line, key in metadata_comments(text):
+        result.error(
+            line, "E024", f"{key} belongs in metadata; source accepts ADDRESS anchors only"
+        )
+    from rebrew.metadata.source_provenance import load_source_files
+
+    directory = cfg.metadata_dir if cfg else filepath.parent
+    relative = rel_display_path(filepath.resolve(), directory.resolve())
+    support = [
+        record
+        for record in load_source_files(directory)
+        if record.file == relative
+        and (cfg is None or record.module == preset_module_key(cfg.marker))
+    ]
+    if support:
         result._marker_counts["SUPPORT"] += 1
         _check_body_rules(result, lines, True)
         return result
-    all_headers = _parse_multi_headers(lines)
+    try:
+        from rebrew.metadata.bindings import source_bindings
+
+        bindings = source_bindings(
+            text, filepath, None, None, cfg.metadata_dir if cfg else filepath.parent
+        )
+        all_headers = [
+            (
+                {
+                    "MARKER": a.kind,
+                    "MODULE": a.module,
+                    "VA": f"0x{a.va:08x}",
+                    "_LINE": str(a.line or 1),
+                },
+                {"has_new": True},
+            )
+            for a in bindings
+        ]
+    except ValueError as exc:
+        result.error(1, "E001", str(exc))
+        return result
 
     # Load per-directory metadata (keys: (module, va_int) -> {toml_field: value}).
     # Accept pre-loaded dicts from callers that process many files in the same directory
@@ -2508,25 +2241,7 @@ def lint_file(
                     if _toml_key not in _metadata_override:
                         continue
                     store_val = str(_metadata_override[_toml_key])
-                    if _found_key not in found_keys:
-                        found_keys[_found_key] = store_val
-                    elif inline_equals_store(_found_key, found_keys[_found_key], store_val):
-                        # Dead duplicate of the store value — strip on --fix.
-                        result._inline_dup_strips.append((mod, _va_int, _found_key))
-                        found_keys[_found_key] = store_val
-                    else:
-                        # Disagreement: store wins for E015/E017/…; warn and
-                        # leave the inline so --fix cannot clobber the store.
-                        inline_val = found_keys[_found_key].strip()
-                        result.warning(
-                            result.marker_line,
-                            "W019",
-                            f"Inline '// {_found_key}: {inline_val}' disagrees with "
-                            f"metadata {_found_key} '{store_val}' — "
-                            "rebrew-functions.toml is the source of truth; "
-                            "align or remove the inline copy",
-                        )
-                        found_keys[_found_key] = store_val
+                    found_keys[_found_key] = store_val
                     _metadata_sourced_keys.add(_found_key)
             except (ValueError, KeyError) as exc:
                 # A malformed inline block drops the key from the drift
@@ -2584,7 +2299,7 @@ def lint_file(
                     metadata=_metadata_entries,
                 )
 
-            if marker not in DATA_MARKERS:
+            if marker not in DATA_KINDS:
                 # A stacked shared-source block for ANOTHER target answers to
                 # its own target's defaults, not this one's — flagging it for
                 # missing CFLAGS here is misattribution (ADR-010).
@@ -2615,22 +2330,7 @@ def lint_file(
                     if _ds_key not in _ds_override:
                         continue
                     store_val = str(_ds_override[_ds_key])
-                    if _ds_found_key not in found_keys:
-                        found_keys[_ds_found_key] = store_val
-                    elif inline_equals_store(_ds_found_key, found_keys[_ds_found_key], store_val):
-                        result._inline_dup_strips.append((mod, va_int, _ds_found_key))
-                        found_keys[_ds_found_key] = store_val
-                    else:
-                        inline_val = found_keys[_ds_found_key].strip()
-                        result.warning(
-                            result.marker_line,
-                            "W019",
-                            f"Inline '// {_ds_found_key}: {inline_val}' disagrees "
-                            f"with metadata {_ds_found_key} '{store_val}' — "
-                            "rebrew-data.toml is the source of truth; "
-                            "align or remove the inline copy",
-                        )
-                        found_keys[_ds_found_key] = store_val
+                    found_keys[_ds_found_key] = store_val
                     _metadata_sourced_keys.add(_ds_found_key)
 
             module = found_keys.get("MODULE", "")
@@ -2649,7 +2349,6 @@ def lint_file(
             _check_E015_marker_consistency(result, marker, module, status, cfg)
             _check_W005_blocker(result, status, found_keys)
             _check_W006_source(result, module, found_keys, cfg)
-            _check_W010_unknown_keys(result, found_keys, module=mod, va_int=_va_int)
             _check_E017_contradictory(result, status, marker)
             _check_E004_status_value(result, status)
             _check_E008_size_value(result, _metadata_size)
@@ -2664,14 +2363,6 @@ def lint_file(
                 va_int=_va_int,
                 section_for_va=section_for_va,
                 section_hits=section_hits,
-            )
-            _check_W019_inline_metadata(
-                result,
-                found_keys,
-                _metadata_sourced_keys,
-                module=mod,
-                va_int=_va_int if mod else None,
-                marker=marker,
             )
 
     result.context_prefix = ""
@@ -2764,7 +2455,7 @@ app = typer.Typer(
         "  W025   Opening brace style does not match project configuration\n\n"
         "  W026   Line indent style does not match project configuration\n\n"
         "  W027   Line too long (exceeds max_line_length)\n\n"
-        "  W028   Annotation VA matches no function in the current function list\n"
+        "  W028   SourceBinding VA matches no function in the current function list\n"
         "         (stale after a binary update — re-annotate or refresh the list)\n\n"
         "  W029   Redundant cflags — per-function or preset cflags that only repeat\n"
         "         the inherited value (project cflags / module preset) — --fix drops them\n"
@@ -2977,7 +2668,7 @@ def main(
             # the header's own line travels with the index.
             va_to_result: dict[tuple[str, int], tuple[LintResult, int]] = {}
             for r in all_results:
-                headers = r._headers if r._headers is not None else _parse_multi_headers(r._lines)
+                headers = r._headers if r._headers is not None else _source_headers(r._lines)
                 for keys, _flags in headers:
                     m = keys.get("MODULE", "")
                     v = keys.get("VA", "")
@@ -3089,179 +2780,8 @@ def main(
             "no config loaded, nothing migrated"
         )
     if fix and cfg:
-        from rebrew.compiler.overrides import resolve_cflags
-        from rebrew.metadata.annotation import remove_inline_annotation_key
-        from rebrew.metadata.data import (
-            DATA_METADATA_FIELDS,
-            DATA_STATUSES,
-            get_data_entry,
-            set_data_field,
-            set_data_fields_batch,
-        )
-        from rebrew.metadata.functions import (
-            coerce_metadata_value,
-            get_entry,
-            remove_fields_batch,
-            update_field,
-            update_source_status,
-        )
-
-        fix_count = 0
-        strip_count = 0
-        for r in all_results:
-            if r._inline_strips and not dry_run:
-                for _module, va, key in r._inline_strips:
-                    if remove_inline_annotation_key(r.filepath, va, key):
-                        strip_count += 1
-            elif r._inline_strips and dry_run:
-                for _module, _va, key in r._inline_strips:
-                    console.print(
-                        f"  [dim]Would strip[/dim] {untrusted_ident(r.filepath.name)} "
-                        f"// {untrusted_ident(key)}: (unknown annotation key)"
-                    )
-                    strip_count += 1
-            # Inline copies that duplicate the metadata store with an equal
-            # value: silent in the lint pass (no warning — the store owns the
-            # field), stripped here so one --fix run converges.
-            if r._inline_dup_strips and not dry_run:
-                for _module, va, key in r._inline_dup_strips:
-                    if remove_inline_annotation_key(r.filepath, va, key):
-                        strip_count += 1
-            elif r._inline_dup_strips and dry_run:
-                for _module, _va, key in r._inline_dup_strips:
-                    console.print(
-                        f"  [dim]Would strip[/dim] {untrusted_ident(r.filepath.name)} "
-                        f"// {untrusted_ident(key)}: (already in metadata)"
-                    )
-                    strip_count += 1
-        # Strips from the migration loop below (legacy keys, redundant inline
-        # CFLAGS, already-migrated copies) — counted separately so the
-        # summary never reports a pure strip as a "migration".
-        inline_strip_count = 0
-        for r in all_results:
-            if not r._inline_fixes:
-                continue
-            for module, va, key, value, marker in r._inline_fixes:
-                toml_key = key.lower()
-                is_data_marker = marker in DATA_MARKERS
-                # ORIGIN is legacy everywhere; SECTION is legacy for functions
-                # but a real data-metadata field for data markers.
-                # Legacy keys are never stored — just strip the inline form.
-                if key in ("ORIGIN", "UPDATED_BY", "UPDATED_AT") or (
-                    not is_data_marker and key == "SECTION"
-                ):
-                    if dry_run:
-                        console.print(
-                            f"  [dim]Would strip[/dim] {untrusted_ident(r.filepath.name)} "
-                            f"// {untrusted_ident(key)}: (legacy key — never stored)"
-                        )
-                        inline_strip_count += 1
-                    elif remove_inline_annotation_key(r.filepath, va, key):
-                        inline_strip_count += 1
-                    continue
-                # An inline CFLAGS that only repeats the inherited ladder
-                # would migrate into a W029-redundant per-function cflags —
-                # strip it without writing.
-                if toml_key == "cflags":
-                    inherited = resolve_cflags(cfg, None, module)
-                    if cflags_key(value.strip()) == cflags_key(inherited):
-                        if dry_run:
-                            console.print(
-                                f"  [dim]Would strip[/dim] {untrusted_ident(r.filepath.name)} "
-                                f"// {untrusted_ident(key)}: {value!r} "
-                                f"(redundant — inherits {inherited!r})"
-                            )
-                            inline_strip_count += 1
-                        elif remove_inline_annotation_key(r.filepath, va, key):
-                            inline_strip_count += 1
-                        continue
-                # A function-only key (or function STATUS value) on a
-                # DATA/GLOBAL marker has no home in rebrew-data.toml: leave it
-                # inline (W019 keeps flagging it).
-                if is_data_marker and (
-                    key not in DATA_METADATA_FIELDS
-                    or (key == "STATUS" and value.strip() not in DATA_STATUSES)
-                ):
-                    console.print(
-                        f"  [yellow]Skipped[/yellow] {untrusted_ident(r.filepath.name)} "
-                        f"// {untrusted_ident(key)}: (not a data metadata field)"
-                    )
-                    continue
-                if is_data_marker:
-                    existing = get_data_entry(cfg.metadata_dir, va, module)
-                    present = toml_key in {k.lower() for k in existing}
-                else:
-                    existing = get_entry(cfg.metadata_dir, va, module)
-                    present = toml_key in existing
-                if not present:
-                    if dry_run:
-                        store = "rebrew-data.toml" if is_data_marker else "rebrew-functions.toml"
-                        console.print(
-                            f"  [dim]Would migrate[/dim] {untrusted_ident(r.filepath.name)} "
-                            f"// {untrusted_ident(key)}: {value!r} → {store}"
-                        )
-                    else:
-                        # Coerce size/blocker_delta to int via the shared
-                        # metadata facade (single canonical coercion).
-                        write_value = coerce_metadata_value(toml_key, value)
-                        if is_data_marker:
-                            set_data_field(
-                                cfg.metadata_dir,
-                                va,
-                                toml_key,
-                                write_value,
-                                module=module,
-                                updated_by="lint",
-                            )
-                        elif toml_key == "status":
-                            # STATUS must go through the promotion gate
-                            # (validates the value, never silently unparks
-                            # SKIP).  Clear blockers only for EXACT/RELOC —
-                            # migrating // STATUS: NEAR_MATCHING must not erase
-                            # an accompanying BLOCKER that this same --fix
-                            # pass is about to migrate; PROVEN keeps blockers
-                            # for the same reason as rebrew prove.
-                            canon = canonical_status(str(write_value))
-                            update_source_status(
-                                cfg.metadata_dir,
-                                canon,
-                                module,
-                                va,
-                                force=True,
-                                clear_blockers=canon in MATCHED_STATUSES,
-                                updated_by="lint",
-                            )
-                        else:
-                            update_field(
-                                cfg.metadata_dir,
-                                va,
-                                toml_key,
-                                write_value,
-                                module=module,
-                                updated_by="lint",
-                            )
-
-                # Strip inline comment from source (file-only — the metadata
-                # write above already owns the field; routing STATUS through
-                # remove_annotation_key would raise, and removing any other
-                # metadata key would delete the field we just migrated).
-                # Already present in the store: the inline copy is still
-                # stripped, so say so under --dry-run.  Either way this is a
-                # strip, not a migration.  Count only lines actually removed.
-                if dry_run:
-                    if present:
-                        console.print(
-                            f"  [dim]Would strip[/dim] {untrusted_ident(r.filepath.name)} "
-                            f"// {untrusted_ident(key)}: (already in metadata)"
-                        )
-                        inline_strip_count += 1
-                    else:
-                        fix_count += 1
-                elif remove_inline_annotation_key(r.filepath, va, key):
-                    if present:
-                        inline_strip_count += 1
-                    else:
-                        fix_count += 1
+        from rebrew.metadata.data import get_data_entry, set_data_fields_batch
+        from rebrew.metadata.functions import remove_fields_batch
 
         w029_fn_count = 0
         if fn_redundant:
@@ -3326,12 +2846,7 @@ def main(
             parts: list[str] = []
             # Merge the two strip streams: W010 unknown keys and redundant /
             # already-migrated inline copies are all pure source-line removals.
-            all_stripped = strip_count + inline_strip_count
             if dry_run:
-                if fix_count:
-                    parts.append(f"{fix_count} inline annotations would be migrated")
-                if all_stripped:
-                    parts.append(f"{all_stripped} redundant inline lines would be stripped")
                 if w029_fn_count:
                     parts.append(f"{w029_fn_count} redundant per-function cflags would be dropped")
                 if w029_preset_count:
@@ -3341,12 +2856,6 @@ def main(
                 if parts:
                     console.print(f"\n[yellow]Dry run:[/yellow] {'; '.join(parts)}")
             else:
-                if fix_count:
-                    parts.append(
-                        f"migrated {fix_count} inline annotations to rebrew-functions.toml"
-                    )
-                if all_stripped:
-                    parts.append(f"stripped {all_stripped} redundant inline lines")
                 if w029_fn_count:
                     parts.append(f"dropped {w029_fn_count} redundant per-function cflags")
                 if w029_preset_count:
@@ -3365,6 +2874,17 @@ def main_entry() -> None:
     from rebrew.cli import run_standalone
 
     run_standalone(main)
+
+
+def _source_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[str, bool]]]:
+    """Structural address headers only; never parse state from comments."""
+    return [
+        (
+            {"MARKER": a.kind, "MODULE": a.module, "VA": f"0x{a.va:08x}", "_LINE": str(a.line)},
+            {"has_new": True},
+        )
+        for a in parse_address_anchors("\n".join(lines))
+    ]
 
 
 if __name__ == "__main__":

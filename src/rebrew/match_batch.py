@@ -6,7 +6,6 @@ lists and writes the resulting STATUS and CFLAGS back to the metadata.
 
 from __future__ import annotations
 
-import functools
 import logging
 import re
 import shutil
@@ -19,11 +18,10 @@ from typing import Any
 from rebrew.cli import console
 from rebrew.config import ProjectConfig
 from rebrew.limits import NO_DELTA
-from rebrew.metadata.annotation import (
-    NEW_FUNC_RE,
+from rebrew.metadata.bindings import (
     has_skip_annotation,
     min_valid_va_for,
-    parse_c_file_multi,
+    read_source_bindings,
     resolve_symbol,
 )
 from rebrew.metadata.functions import canonical_status, get_entry, update_source_status
@@ -94,7 +92,7 @@ def _parse_annotations(
         ignored = set()
     meta_dir = metadata_dir if metadata_dir is not None else filepath.parent
 
-    entries = parse_c_file_multi(filepath, metadata_dir=meta_dir)
+    entries = read_source_bindings(filepath, metadata_dir=meta_dir)
     if not entries:
         return []
 
@@ -403,15 +401,18 @@ def update_cflags_annotation(
         except OSError:
             return False
 
-        m = re.search(
-            r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+(0x[0-9a-fA-F]+)",
-            text,
-        )
-        if m is None:
-            return False
+        from rebrew.metadata.bindings import read_source_bindings
 
-        module = m.group(1)
-        va = int(m.group(2), 16)
+        candidates = [
+            a
+            for a in read_source_bindings(filepath, metadata_dir=metadata_dir)
+            if a.is_function
+            and (va is None or a.va == va)
+            and (module is None or a.module == module)
+        ]
+        if len(candidates) != 1:
+            return False
+        module, va = candidates[0].module, candidates[0].va
 
     meta_root = metadata_dir or filepath.parent
     entry = get_entry(meta_root, va, module=module)
@@ -420,25 +421,6 @@ def update_cflags_annotation(
 
     update_field(meta_root, va, "cflags", new_cflags, module=module, updated_by="match")
     return True
-
-
-@functools.lru_cache(maxsize=512)
-def _stub_marker_re(va: str) -> re.Pattern[str]:
-    """Annotation marker matcher for *va*; cached per stub address.
-
-    ``update_stub_to_matched`` runs once per spliced stub, and ``re.escape(va)``
-    defeats the module-level pattern cache, so each call recompiled a pattern.
-
-    The trailing lookahead is load-bearing: without it, stub.va="0x401000"
-    would also match a marker "0x4010000" (hex-prefix collision), splicing the
-    wrong function and writing STATUS/CFLAGS to the wrong module.
-    """
-    return re.compile(
-        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+"
-        + re.escape(va)
-        + r"(?![0-9a-fA-F])",
-        re.IGNORECASE,
-    )
 
 
 def update_stub_to_matched(
@@ -467,32 +449,30 @@ def update_stub_to_matched(
 
     original, encoding = read_source_text(filepath)
 
-    m = _stub_marker_re(stub.va).search(original)
-    module = m.group(1) if m else None
-    va_int = int(stub.va, 16) if m else None
+    from rebrew.c_parser import function_definition_spans
+    from rebrew.metadata.bindings import source_bindings
 
-    # NOTE: STATUS is metadata-owned (update_source_status above); the old
-    # whole-file inline `// STATUS: RELOC` rewrite is gone — it hit the file's
-    # FIRST block regardless of stub.va (clobbering sibling functions in
-    # multi-function files and tripping lint W019).
-    updated = original
-
-    # Splice the matched body into the STUB's OWN block — search for the
-    # function definition AFTER the stub's marker, not the file's first one.
-    body_start = _FUNC_START_RE.search(updated, m.end() if m else 0)
-    best_body = _FUNC_START_RE.search(best_src)
-    spliced = bool(body_start and best_body)
-
-    if body_start and best_body:
-        # The stub's span ends at the NEXT function marker comment (or EOF) —
-        # the splice must not drop sibling functions that follow this stub's
-        # block in a multi-function file.
-        next_fn = NEW_FUNC_RE.search(updated, body_start.end())
-        body_end = next_fn.start() if next_fn else len(updated)
-        header = updated[: body_start.start()]
-        tail = updated[body_end:]
-        new_body = best_src[best_body.start() :]
-        updated = header + new_body + tail
+    candidates = [
+        a
+        for a in source_bindings(original, filepath, None, None, metadata_dir)
+        if a.va == int(stub.va, 16) and a.is_function
+    ]
+    if len(candidates) != 1:
+        return False
+    selected = candidates[0]
+    module, va_int = selected.module, selected.va
+    raw = original.encode("utf-8", errors="surrogateescape")
+    best_raw = best_src.encode("utf-8", errors="surrogateescape")
+    own = [s for s in function_definition_spans(original) if s[0] == selected.name]
+    replacements = function_definition_spans(best_src)
+    if len(own) != 1 or len(replacements) != 1:
+        return False
+    _, start, end = own[0]
+    _, best_start, best_end = replacements[0]
+    updated = (raw[:start] + best_raw[best_start:best_end] + raw[end:]).decode(
+        "utf-8", errors="surrogateescape"
+    )
+    spliced = True
 
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -505,7 +485,7 @@ def update_stub_to_matched(
         try:
             tmp.write(updated)
             tmp.close()
-            annos = parse_c_file_multi(scratch)
+            annos = source_bindings(updated, filepath, None, None, metadata_dir)
             if not annos:
                 raise RuntimeError(
                     f"Post-write validation failed: {filepath} would not re-parse after stub update"

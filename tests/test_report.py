@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from bin_util import make_pe
+from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import CliRunner
 
 from rebrew.formats.import_table import parse_import_table
@@ -31,31 +32,30 @@ reversed_dir = "src"
 marker = "SERVER"
 """
 
-_FUNC_A = (
-    "// FUNCTION: SERVER 0x10001000\n"
-    "// SIZE: 100\n"
-    "// CFLAGS: /O2 /Gd\n"
-    "int func_a(void) { return 0; }\n"
+_FUNC_A = SourceFixture(
+    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint func_a(void) { return 0; }\n",
+    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 100, "cflags": "/O2 /Gd"}},
 )
 
-_FUNC_B = "// FUNCTION: SERVER 0x10002000\n// SIZE: 200\nint func_b(void) { return 1; }\n"
+_FUNC_B = SourceFixture(
+    "/* ADDRESS: SERVER 0x10002000 */\n\nint func_b(void) { return 1; }\n",
+    {"SERVER.0x10002000": {"kind": "FUNCTION", "size": 200}},
+)
 
 # STATUS lives in rebrew-functions.toml, not inline.
-_METADATA_TOML = (
-    '["SERVER.0x10001000"]\nstatus = "EXACT"\n["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n'
-)
+_METADATA_TOML = 'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n'
 
 
 def _write_project(tmp_path: Path, pe_bytes: bytes | None = None) -> None:
     """Create a minimal rebrew project (toml + optional binary + annotated sources)."""
-    (tmp_path / "rebrew-project.toml").write_text(_TOML, encoding="utf-8")
+    write_source(tmp_path / "rebrew-project.toml", _TOML, encoding="utf-8")
     if pe_bytes is not None:
         (tmp_path / "game.exe").write_bytes(pe_bytes)
-    (tmp_path / "rebrew-functions.toml").write_text(_METADATA_TOML, encoding="utf-8")
+    write_source(tmp_path / "rebrew-functions.toml", _METADATA_TOML, encoding="utf-8")
     src = tmp_path / "src"
     src.mkdir()
-    (src / "func_a.c").write_text(_FUNC_A, encoding="utf-8")
-    (src / "func_b.c").write_text(_FUNC_B, encoding="utf-8")
+    write_source(src / "func_a.c", _FUNC_A, encoding="utf-8")
+    write_source(src / "func_b.c", _FUNC_B, encoding="utf-8")
 
 
 class TestReportCli:
@@ -152,9 +152,9 @@ class TestReportCli:
         """The function table's Blocker column surfaces near-diag blockers."""
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         # Metadata at the project root (the default metadata_dir).
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10002000"]\n'
-            'blocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x10002000"]\nblocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)
@@ -424,13 +424,19 @@ class TestDecompDevUnitNames:
         src = tmp_path / "src"
         (src / "engine").mkdir(parents=True)
         (src / "ui").mkdir()
-        (src / "engine" / "pool.c").write_text(
-            "// FUNCTION: SERVER 0x1000\n// SIZE: 8\nint pool_init(void) { return 0; }\n",
+        write_source(
+            src / "engine" / "pool.c",
+            "/* ADDRESS: SERVER 0x1000 */\n\nint pool_init(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "size": 8}},
+            metadata_dir=tmp_path,
         )
-        (src / "ui" / "pool.c").write_text(
-            "// FUNCTION: SERVER 0x2000\n// SIZE: 8\nint pool_draw(void) { return 0; }\n",
+        write_source(
+            src / "ui" / "pool.c",
+            "/* ADDRESS: SERVER 0x2000 */\n\nint pool_draw(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION", "size": 8}},
+            metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(
             root=tmp_path,
@@ -459,11 +465,26 @@ class TestLibraryHeaderRows:
 
         src = tmp_path / "src"
         src.mkdir()
-        (src / "game.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint a(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            src / "game.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint a(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
-        (src / "library_msvcrt.h").write_text(
-            "// LIBRARY: SERVER 0x2000\n// _malloc\n// SIZE: 64\n", encoding="utf-8"
+        write_source(
+            src / "library_msvcrt.h",
+            "\n// _malloc\n\n",
+            encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x2000": {
+                    "kind": "LIBRARY",
+                    "size": 64,
+                    "name": "malloc",
+                    "symbol": "_malloc",
+                }
+            },
+            metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(
             root=tmp_path,
@@ -489,11 +510,26 @@ class TestLibraryHeaderRows:
 
         src = tmp_path / "src"
         src.mkdir()
-        (src / "game.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint a(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            src / "game.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint a(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
-        (src / "library_msvcrt.h").write_text(
-            "// LIBRARY: SERVER 0x2000\n// _malloc\n// SIZE: 64\n", encoding="utf-8"
+        write_source(
+            src / "library_msvcrt.h",
+            "\n// _malloc\n\n",
+            encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x2000": {
+                    "kind": "LIBRARY",
+                    "size": 64,
+                    "name": "malloc",
+                    "symbol": "_malloc",
+                }
+            },
+            metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(
             root=tmp_path,
@@ -547,18 +583,22 @@ class TestReportPayloadShape:
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         src = tmp_path / "src"
         meta_lines = [
-            '["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
             '["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n',
         ]
         # Enough extras that page 1 is full and page 2 exists.
         for i in range(_TABLE_PAGE_SIZE):
             va = 0x10003000 + i * 0x10
-            (src / f"extra_{i:04d}.c").write_text(
-                f"// FUNCTION: SERVER 0x{va:08x}\n// SIZE: 16\nint extra_{i}(void) {{ return 0; }}\n",
+            write_source(
+                src / f"extra_{i:04d}.c",
+                f"/* ADDRESS: SERVER 0x{va:08x} */\n\nint extra_{i}(void) {{ return 0; }}\n",
                 encoding="utf-8",
+                metadata_fields={f"SERVER.0x{va:08x}": {"kind": "FUNCTION", "size": 16}},
             )
             meta_lines.append(f'["SERVER.0x{va:08x}"]\nstatus = "STUB"\n')
-        (tmp_path / "rebrew-functions.toml").write_text("".join(meta_lines), encoding="utf-8")
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml", "".join(meta_lines), encoding="utf-8"
+        )
         monkeypatch.chdir(tmp_path)
         site = tmp_path / "site"
         cfg = load_config(tmp_path)
@@ -925,9 +965,9 @@ class TestStatusLegend:
     ) -> None:
         """A non-standard status gets a card, so it also gets a line."""
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10001000"]\nstatus = "EXACT"\n'
-            '["SERVER.0x10002000"]\nstatus = "COMPILE_ERROR"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n["SERVER.0x10002000"]\nstatus = "COMPILE_ERROR"\n',
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)
@@ -943,7 +983,7 @@ class TestStatusLegend:
     ) -> None:
         """An empty project still prints the four standard cards, so it explains them."""
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
-        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
         for source in (tmp_path / "src").glob("*.c"):
             source.write_text("int nothing(void) { return 0; }\n", encoding="utf-8")
         monkeypatch.chdir(tmp_path)
@@ -966,7 +1006,7 @@ class TestStatusLegend:
         note say the same thing.
         """
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
-        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
         for source in (tmp_path / "src").glob("*.c"):
             source.write_text("int nothing(void) { return 0; }\n", encoding="utf-8")
         monkeypatch.chdir(tmp_path)
@@ -1114,17 +1154,21 @@ class TestGeneratedMarkup:
         _write_project(tmp_path, pe_bytes=make_pe(code, imports=[("KERNEL32.dll", ["HeapCreate"])]))
         src = tmp_path / "src"
         meta_lines = [
-            '["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
             '["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n',
         ]
         for i in range(_TABLE_PAGE_SIZE):
             va = 0x10003000 + i * 0x10
-            (src / f"extra_{i:04d}.c").write_text(
-                f"// FUNCTION: SERVER 0x{va:08x}\n// SIZE: 16\nint extra_{i}(void) {{ return 0; }}\n",
+            write_source(
+                src / f"extra_{i:04d}.c",
+                f"/* ADDRESS: SERVER 0x{va:08x} */\n\nint extra_{i}(void) {{ return 0; }}\n",
                 encoding="utf-8",
+                metadata_fields={f"SERVER.0x{va:08x}": {"kind": "FUNCTION", "size": 16}},
             )
             meta_lines.append(f'["SERVER.0x{va:08x}"]\nstatus = "STUB"\n')
-        (tmp_path / "rebrew-functions.toml").write_text("".join(meta_lines), encoding="utf-8")
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml", "".join(meta_lines), encoding="utf-8"
+        )
         monkeypatch.chdir(tmp_path)
         site = tmp_path / "site"
         generate_report(load_config(tmp_path), site)
@@ -1161,14 +1205,14 @@ class TestDisplayName:
         and it turned ``__foo`` into ``foo``. A stored name wins. A missing
         symbol still uses the file stem.
         """
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
         from rebrew.report import _display_name
 
         src = Path("hook.c")
-        assert _display_name(Annotation(name="", symbol="hook@@12"), src) == "hook"
-        assert _display_name(Annotation(name="", symbol="@keeps@4"), src) == "keeps"
-        assert _display_name(Annotation(name="", symbol="_sleepish@4"), src) == "sleepish"
-        assert _display_name(Annotation(name="", symbol="__foo"), src) == "_foo"
-        assert _display_name(Annotation(name="", symbol="_foo"), src) == "foo"
-        assert _display_name(Annotation(name="kept", symbol="hook@@12"), src) == "kept"
-        assert _display_name(Annotation(name="", symbol=""), src) == "hook"
+        assert _display_name(SourceBinding(name="", symbol="hook@@12"), src) == "hook"
+        assert _display_name(SourceBinding(name="", symbol="@keeps@4"), src) == "keeps"
+        assert _display_name(SourceBinding(name="", symbol="_sleepish@4"), src) == "sleepish"
+        assert _display_name(SourceBinding(name="", symbol="__foo"), src) == "_foo"
+        assert _display_name(SourceBinding(name="", symbol="_foo"), src) == "foo"
+        assert _display_name(SourceBinding(name="kept", symbol="hook@@12"), src) == "kept"
+        assert _display_name(SourceBinding(name="", symbol=""), src) == "hook"

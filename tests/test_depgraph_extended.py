@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.depgraph import build_graph, render_summary
@@ -38,14 +39,17 @@ class TestBuildGraphBranches:
 
     def test_global_marker_skipped(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "g.c").write_text(
-            "// GLOBAL: SERVER 0x1000\n// SYMBOL: g_x\nextern int g_x;\n",
+        write_source(
+            cfg.reversed_dir / "g.c",
+            "/* ADDRESS: SERVER 0x1000 */\n\nextern int g_x;\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL", "symbol": "g_x"}},
         )
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x2000\n// SYMBOL: _my_func\n"
-            "extern int g_x;\nint my_func(void) { return g_x; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "\n\nextern int g_x;\n/* ADDRESS: SERVER 0x2000 */\nint my_func(void) { return g_x; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION", "symbol": "_my_func"}},
         )
         nodes, edges, _ = build_graph(cfg.reversed_dir, cfg)
         assert "g_x" not in nodes  # GLOBAL markers are not graph nodes
@@ -55,9 +59,11 @@ class TestBuildGraphBranches:
 
     def test_dispatch_entry_name_fallback(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x2000\n// SYMBOL: _my_func\nint my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x2000 */\n\nint my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION", "symbol": "_my_func"}},
         )
         tbl = SimpleNamespace(
             va=0x4000,
@@ -118,9 +124,11 @@ class TestDepgraphCli:
         from rebrew.depgraph import app
 
         cfg = self._cfg_and_patch(tmp_path, monkeypatch)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x2000\n// SYMBOL: _my_func\nint my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x2000 */\n\nint my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION", "symbol": "_my_func"}},
         )
         result = CliRunner().invoke(app, ["--format", "summary"])
         assert result.exit_code == 0
@@ -130,9 +138,11 @@ class TestDepgraphCli:
         from rebrew.depgraph import app
 
         cfg = self._cfg_and_patch(tmp_path, monkeypatch)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x2000\n// SYMBOL: _my_func\nint my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x2000 */\n\nint my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION", "symbol": "_my_func"}},
         )
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 0
@@ -145,9 +155,11 @@ class TestDepgraphCli:
         from rebrew.depgraph import app
 
         cfg = self._cfg_and_patch(tmp_path, monkeypatch)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x2000\n// SYMBOL: _my_func\nint my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x2000 */\n\nint my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION", "symbol": "_my_func"}},
         )
         out = tmp_path / "graph.md"
         result = CliRunner().invoke(app, ["-o", str(out)])
@@ -167,9 +179,11 @@ class TestDepgraphCli:
         from rebrew.depgraph import app
 
         cfg = self._cfg_and_patch(tmp_path, monkeypatch)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x2000\n// SYMBOL: _my_func\nint my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x2000 */\n\nint my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION", "symbol": "_my_func"}},
         )
         result = CliRunner().invoke(app, ["--focus", "nonexistent"])
         assert result.exit_code != 0
@@ -179,9 +193,11 @@ class TestDepgraphCli:
         from rebrew.depgraph import app
 
         cfg = self._cfg_and_patch(tmp_path, monkeypatch)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x2000\n// SYMBOL: _my_func\nint my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x2000 */\n\nint my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION", "symbol": "_my_func"}},
         )
         result = CliRunner().invoke(app, ["--format", "svg"])
         assert result.exit_code != 0
@@ -219,9 +235,11 @@ class TestDepgraphCliMore:
 
         cfg = _cfg(tmp_path)
         monkeypatch.setattr("rebrew.depgraph.require_config", lambda **kw: cfg)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x2000\n// SYMBOL: _my_func\nint my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x2000 */\n\nint my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION", "symbol": "_my_func"}},
         )
         result = CliRunner().invoke(app, ["--format", "dot"])
         assert result.exit_code == 0
@@ -232,9 +250,11 @@ class TestDepgraphCliMore:
 
         cfg = _cfg(tmp_path)
         monkeypatch.setattr("rebrew.depgraph.require_config", lambda **kw: cfg)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x2000\n// SYMBOL: _parse_message\nint parse_message(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x2000 */\n\nint parse_message(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION", "symbol": "_parse_message"}},
         )
         result = CliRunner().invoke(app, ["--focus", "message"])
         assert result.exit_code == 0

@@ -16,6 +16,7 @@ than inferred from a compiler's output.
 from __future__ import annotations
 
 import pytest
+from source_util import write_source
 
 from rebrew.drift import branch_targets, derive_regions, drift_windows
 
@@ -184,7 +185,12 @@ class TestDriftCommand:
         from rebrew import drift_cli
 
         src = tmp_path / "f.c"
-        src.write_text("// FUNCTION: GAME 0x10001000\nint f(void) { return 1; }\n")
+        write_source(
+            src,
+            "/* ADDRESS: GAME 0x10001000 */\nint f(void) { return 1; }\n",
+            metadata_fields={"GAME.0x10001000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
         ref = _jmp_rel8(4) + _nops(4) + b"\xc3"
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
@@ -274,7 +280,12 @@ class TestDriftCommand:
         from rebrew import drift_cli
 
         src = tmp_path / "f.c"
-        src.write_text("// FUNCTION: GAME 0x10001000\nint f(void) { return 1; }\n")
+        write_source(
+            src,
+            "/* ADDRESS: GAME 0x10001000 */\nint f(void) { return 1; }\n",
+            metadata_fields={"GAME.0x10001000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
         cfg = SimpleNamespace(metadata_dir=tmp_path, marker="GAME", target_name="GAME")
         monkeypatch.setattr(drift_cli, "require_config", lambda **_kw: cfg)
         monkeypatch.setattr(drift_cli, "target_marker", lambda _cfg: "GAME")

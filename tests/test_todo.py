@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 from cache_util import cache_text
+from source_util import write_store_fixture
 
 from rebrew.catalog import FunctionEntry
 from rebrew.todo import (
@@ -1376,7 +1377,7 @@ class TestTodoCli:
         import json
 
         lib = {
-            0x1000 + 0x40 * i: {"filename": "library_x.h", "size": "64", "marker_type": "LIBRARY"}
+            0x1000 + 0x40 * i: {"filename": "library_x.h", "size": "64", "kind": "LIBRARY"}
             for i in range(60)
         }
         funcs = [FunctionEntry(va=va, size=64, name=f"lib{va:x}") for va in lib]
@@ -1470,13 +1471,13 @@ class TestTodoCli:
                     "status": "EXACT",
                     "symbol": "game_fn",
                     "size": "100",
-                    "marker_type": "FUNCTION",
+                    "kind": "FUNCTION",
                 },
                 0x2000: {
                     "status": "EXACT",
                     "symbol": "lib_fn",
                     "size": "50",
-                    "marker_type": "LIBRARY",
+                    "kind": "LIBRARY",
                 },
             },
             covered_vas={0x1000: "game_fn.c", 0x2000: "library_x.h"},
@@ -1683,9 +1684,9 @@ class TestTodoCli:
     def test_start_data_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json
 
-        (tmp_path / "rebrew-data.toml").write_text(
-            '["TEST.0x00002000"]\nname = "g_counter"\nsize = 4\nstatus = "UNCHECKED"\n'
-            '["TEST.0x00002010"]\nname = "g_done"\nsize = 4\nstatus = "VERIFIED"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["TEST.0x00002000"]\nname = "g_counter"\nsize = 4\nstatus = "UNCHECKED"\n["TEST.0x00002010"]\nname = "g_done"\nsize = 4\nstatus = "VERIFIED"\n',
             encoding="utf-8",
         )
         result = self._invoke(
@@ -2173,7 +2174,7 @@ class TestLibraryAndCrossTargetScoping:
     def test_library_va_excluded_from_every_lane(self, tmp_path: Path) -> None:
         existing = {
             0x1A140: {
-                "marker_type": "LIBRARY",
+                "kind": "LIBRARY",
                 "module": "SERVER",
                 "status": "STUB",
                 "filename": "library_msvc.h",
@@ -2222,7 +2223,7 @@ class TestMissingManagedBindings:
             module="TEST",
             va=0x1000,
             file="src/owner.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             name="KnownQuery",
             symbol="_KnownQuery",
             size=56,
@@ -2285,7 +2286,7 @@ class TestMissingManagedBindings:
                 module=module,
                 va=va,
                 file="src/missing.c",
-                marker_type=kind,
+                kind=kind,
                 name="Missing",
                 symbol="_Missing",
                 size=32,
@@ -2311,7 +2312,7 @@ class TestMissingManagedBindings:
                 module="TEST",
                 va=va,
                 file=file,
-                marker_type="FUNCTION",
+                kind="FUNCTION",
                 name=name,
                 symbol="_" + name,
                 size=32,

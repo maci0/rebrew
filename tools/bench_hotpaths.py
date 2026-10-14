@@ -4,7 +4,7 @@ Measures the Python-bound workloads that dominate real usage (and the test
 suite's pure-Python tail), so optimizations are driven by numbers instead of
 guesswork:
 
-1. annotation parsing   — ``parse_c_file_multi`` over a synthetic multi-function .c
+1. annotation parsing   — ``read_source_bindings`` over a synthetic multi-function .c
 2. metadata loading     — ``load_metadata`` over a generated rebrew-functions.toml
 3. catalog grid build   — the real ``catalog --json`` pipeline on the fixture binary
 4. verify-cache I/O     — save + load of a large VerifyCache
@@ -71,16 +71,14 @@ def _timeit(fn: Callable[[], Any], repeat: int = 5) -> float:
 
 
 def bench_annotation_parsing() -> dict[str, float]:
-    """parse_c_file_multi over a synthetic 200-function .c."""
-    from rebrew.metadata.annotation import _PARSE_MEMO, parse_c_file_multi
+    """read_source_bindings over a synthetic 200-function .c."""
+    from rebrew.metadata.bindings import read_source_bindings
 
     blocks = []
     for i in range(200):
         va = 0x10001000 + i * 0x100
         blocks.append(
-            f"// FUNCTION: SERVER 0x{va:x}\n"
-            f"// NOTE: function {i}\n"
-            f"int func_{i}(int a, int b) {{ return a + b; }}\n\n"
+            f"/* ADDRESS: SERVER 0x{va:x} */\nint func_{i}(int a, int b) {{ return a + b; }}\n\n"
         )
     text = "".join(blocks)
     with tempfile.TemporaryDirectory() as d:
@@ -88,8 +86,8 @@ def bench_annotation_parsing() -> dict[str, float]:
         src.write_text(text, encoding="utf-8")
 
         def run() -> None:
-            _PARSE_MEMO.clear()  # the parser memo would hide real parse time
-            annos = parse_c_file_multi(src, metadata_dir=None)
+            # C syntax caches are shared by normal scans.
+            annos = read_source_bindings(src, metadata_dir=None)
             assert len(annos) == 200
 
         return {"ops": 200, "seconds": _timeit(run, repeat=10)}
@@ -99,7 +97,7 @@ def bench_metadata_load() -> dict[str, float]:
     """load_metadata over a generated 500-entry rebrew-functions.toml."""
     from rebrew.metadata.functions import clear_metadata_cache, load_metadata
 
-    lines: list[str] = []
+    lines: list[str] = ["format = 2"]
     for i in range(500):
         va = 0x10001000 + i * 0x100
         lines.append(f'["SERVER.0x{va:x}"]')
@@ -306,28 +304,26 @@ _REAL_BODY = bytes.fromhex(
 
 
 def bench_parse_tree() -> dict[str, float]:
-    """parse_c_file_multi + metadata merge over a 1000-function tree."""
-    from rebrew.metadata.annotation import _PARSE_MEMO, parse_c_file_multi
+    """read_source_bindings + metadata merge over a 1000-function tree."""
+    from rebrew.metadata.bindings import read_source_bindings
 
     blocks = []
     for i in range(1000):
         va = 0x10001000 + i * 0x100
-        blocks.append(
-            f"// FUNCTION: SERVER 0x{va:x}\n// NOTE: fn {i}\nint f_{i}(int a) {{ return a; }}\n\n"
-        )
+        blocks.append(f"/* ADDRESS: SERVER 0x{va:x} */\nint f_{i}(int a) {{ return a; }}\n\n")
     with tempfile.TemporaryDirectory() as d:
         meta_dir = Path(d)
         src = meta_dir / "tree.c"
         src.write_text("".join(blocks), encoding="utf-8")
-        meta_lines: list[str] = []
+        meta_lines: list[str] = ["format = 2"]
         for i in range(1000):
             va = 0x10001000 + i * 0x100
             meta_lines += [f'["SERVER.0x{va:x}"]', 'status = "STUB"', "size = 64"]
         (meta_dir / "rebrew-functions.toml").write_text("\n".join(meta_lines), encoding="utf-8")
 
         def run() -> None:
-            _PARSE_MEMO.clear()
-            anns = parse_c_file_multi(src, metadata_dir=meta_dir)
+            # C syntax caches are shared by normal scans.
+            anns = read_source_bindings(src, metadata_dir=meta_dir)
             assert len(anns) == 1000
 
         return {"ops": 1000, "seconds": _timeit(run, repeat=5)}
@@ -395,7 +391,7 @@ def bench_status_aggregation() -> dict[str, float]:
         import json as _json2
 
         (src_dir / "function_structure.json").write_text(_json2.dumps(rows), encoding="utf-8")
-        meta_lines: list[str] = []
+        meta_lines: list[str] = ["format = 2"]
         for i in range(500):
             va = 0x10001000 + i * 0x100
             meta_lines += [f'["SERVER.0x{va:x}"]', 'status = "STUB"', "size = 64"]

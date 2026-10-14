@@ -57,7 +57,7 @@ from rebrew.config import ProjectConfig
 from rebrew.formats.binary_loader import load_binary, va_to_file_offset
 from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
-from rebrew.metadata.annotation import iter_annotations, resolve_symbol
+from rebrew.metadata.bindings import iter_source_bindings, resolve_symbol
 from rebrew.metadata.functions import load_metadata
 from rebrew.sections import trim_trailing_padding
 from rebrew.sources import (
@@ -168,7 +168,7 @@ def _collect_splice_set(
     proven: list[_SpliceFn] = []
     other_count = 0
     entries = load_metadata(cfg.metadata_dir, deepcopy=False)
-    for path, anns in iter_annotations(
+    for path, anns in iter_source_bindings(
         iter_sources(cfg.reversed_dir, cfg),
         target=target_marker(cfg),
         metadata_dir=cfg.metadata_dir,
@@ -864,7 +864,7 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
     # LIBRARY/FUNCTION annotations.  Headers carry CRT and Win32 symbol VAs.
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     sources.extend(cfg.reversed_dir.rglob("*.h"))
-    for _path, anns in iter_annotations(
+    for _path, anns in iter_source_bindings(
         sources,
         target=marker,
         metadata_dir=cfg.metadata_dir,
@@ -886,6 +886,8 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
     for (mod, va), meta in load_data_metadata(cfg.metadata_dir).items():
         if mod == marker and meta.get("name"):
             data[meta["name"]] = va
+            if meta.get("link_symbol"):
+                data[str(meta["link_symbol"])] = va
     return funcs, data
 
 

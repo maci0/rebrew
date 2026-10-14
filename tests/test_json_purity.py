@@ -18,6 +18,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -159,9 +160,11 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         ),
         encoding="utf-8",
     )
-    (root / "src" / "SERVER" / "fcn.c").write_text(
-        "// FUNCTION: SERVER 0x00401000\nint __cdecl _func1(void) { return 0; }\n",
+    write_source(
+        root / "src" / "SERVER" / "fcn.c",
+        "/* ADDRESS: SERVER 0x00401000 */\nint __cdecl _func1(void) { return 0; }\n",
         encoding="utf-8",
+        metadata_fields={"SERVER.0x00401000": {"kind": "FUNCTION"}},
     )
     # Hermetic FLIRT scan: a sibling recondb checkout on the host
     # would otherwise load standard sigs and flip flirt's exit code.

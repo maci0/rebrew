@@ -5,16 +5,17 @@ from types import SimpleNamespace
 
 import pytest
 from cache_util import cache_text as _cache_text
+from source_util import write_source
 
 import rebrew.verify as verify_mod
 import rebrew.verify_cache as verify_cache_mod
 import rebrew.verify_hash as verify_hash_mod
-from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.bindings import SourceBinding
 
 
-def _ann(va: int, marker: str = "FUNCTION", filepath: str = "f.c", size: int = 64) -> Annotation:
-    return Annotation(
-        va=va, name=f"f{va:x}", status="STUB", size=size, filepath=filepath, marker_type=marker
+def _ann(va: int, marker: str = "FUNCTION", filepath: str = "f.c", size: int = 64) -> SourceBinding:
+    return SourceBinding(
+        va=va, name=f"f{va:x}", status="STUB", size=size, filepath=filepath, kind=marker
     )
 
 
@@ -27,7 +28,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
     )
 
 
-def _patch(monkeypatch: pytest.MonkeyPatch, entries: list[Annotation]) -> None:
+def _patch(monkeypatch: pytest.MonkeyPatch, entries: list[SourceBinding]) -> None:
     monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None: entries)
     monkeypatch.setattr(verify_mod, "cached_function_list", lambda _cfg: [])
     monkeypatch.setattr(verify_mod, "build_function_registry", lambda *a, **k: {})
@@ -40,6 +41,117 @@ def _patch(monkeypatch: pytest.MonkeyPatch, entries: list[Annotation]) -> None:
 
 
 class TestPrepareEntries:
+    @pytest.mark.parametrize("reverse", [False, True])
+    @pytest.mark.parametrize("marker,filepath", [("FUNCTION", "bound.c"), ("LIBRARY", "bound.h")])
+    def test_managed_source_binding_wins_over_duplicate(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        reverse: bool,
+        marker: str,
+        filepath: str,
+    ) -> None:
+        """Do not compile a stale body and store its verdict on another definition."""
+        from rebrew.metadata.functions import record_function_identity
+
+        cfg = _cfg(tmp_path)
+        cfg.marker = "GAME"
+        cfg.src_dir = cfg.reversed_dir
+        (tmp_path / "x.dll").write_bytes(b"MZ")
+        record_function_identity(
+            tmp_path,
+            module="GAME",
+            va=0x1000,
+            file=f"src/{filepath}",
+            kind=marker,
+            name="bound",
+            symbol="_bound",
+            size=64,
+        )
+        stale = _ann(0x1000, filepath="stale.c")
+        stale.module = "GAME"
+        stale.name = "stale"
+        bound = _ann(0x1000, marker=marker, filepath=filepath)
+        bound.module = "GAME"
+        bound.name = "bound"
+        candidates = [bound, stale] if reverse else [stale, bound]
+        _patch(monkeypatch, candidates)
+        seen = []
+
+        def catalog(_cfg, annotations=None):
+            seen.extend(annotations)
+            return {e.name: e.va for e in annotations}
+
+        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", catalog)
+        entries, *_rest, duplicates, _names, _inventory = verify_mod.prepare_entries(
+            cfg, full=True, json_output=False
+        )
+        assert entries == ([] if marker == "LIBRARY" else [bound])
+        assert duplicates == [{"va": "0x00001000", "kept": filepath, "dropped": "stale.c"}]
+        assert seen == [bound]
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_managed_marker_kind_wins_within_same_source(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        reverse: bool,
+    ) -> None:
+        """A stale FUNCTION marker must not count a managed LIBRARY as game code."""
+        from rebrew.metadata.functions import record_function_identity
+
+        cfg = _cfg(tmp_path)
+        cfg.marker = "GAME"
+        cfg.src_dir = cfg.reversed_dir
+        (tmp_path / "x.dll").write_bytes(b"MZ")
+        record_function_identity(
+            tmp_path,
+            module="GAME",
+            va=0x1000,
+            file="src/same.c",
+            kind="LIBRARY",
+            name="f1000",
+            symbol="_f1000",
+            size=64,
+        )
+        stale = _ann(0x1000, filepath="same.c")
+        bound = _ann(0x1000, marker="LIBRARY", filepath="same.c")
+        stale.module = bound.module = "GAME"
+        _patch(monkeypatch, [bound, stale] if reverse else [stale, bound])
+        entries, *_rest = verify_mod.prepare_entries(cfg, full=True, json_output=False)
+        assert entries == [bound]
+
+    def test_managed_symbol_wins_within_same_source(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Distinct definitions in one file still have a managed symbol binding."""
+        from rebrew.metadata.functions import record_function_identity
+
+        cfg = _cfg(tmp_path)
+        cfg.marker = "GAME"
+        cfg.src_dir = cfg.reversed_dir
+        (tmp_path / "x.dll").write_bytes(b"MZ")
+        record_function_identity(
+            tmp_path,
+            module="GAME",
+            va=0x1000,
+            file="src/same.c",
+            kind="FUNCTION",
+            name="bound",
+            symbol="_bound",
+            size=64,
+        )
+        stale = _ann(0x1000, filepath="same.c")
+        bound = _ann(0x1000, filepath="same.c")
+        stale.module = bound.module = "GAME"
+        stale.symbol = "_stale"
+        bound.symbol = "_bound"
+        _patch(monkeypatch, [stale, bound])
+        entries, *_rest = verify_mod.prepare_entries(cfg, full=True, json_output=False)
+        assert entries == [bound]
+
     def test_filters_and_dedups(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
         cfg.src_dir = cfg.reversed_dir
@@ -110,10 +222,10 @@ class TestPrepareEntriesCache:
     # hashing a path outside its own tmp_path.
     _src_dir: Path | None = None
     _root: Path | None = None
-    _entry: Annotation | None = None
+    _entry: SourceBinding | None = None
 
     def _setup(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: Annotation
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: SourceBinding
     ) -> SimpleNamespace:
         cfg = _cfg(tmp_path)
         (tmp_path / "x.dll").write_bytes(b"MZ")
@@ -834,7 +946,7 @@ def test_scope_entries_batch_file_filters_to_file(tmp_path: Path) -> None:
     """Single-file scope keeps only that file's annotations."""
     from types import SimpleNamespace
 
-    from rebrew.metadata.annotation import Annotation
+    from rebrew.metadata.bindings import SourceBinding
     from rebrew.verify import scope_entries
 
     rev = tmp_path / "src"
@@ -842,8 +954,8 @@ def test_scope_entries_batch_file_filters_to_file(tmp_path: Path) -> None:
     (rev / "a.c").write_text("x", encoding="utf-8")
     (rev / "b.c").write_text("x", encoding="utf-8")
 
-    def _ann(path: str, va: int) -> Annotation:
-        return Annotation(va=va, name="f", filepath=path, module="T")
+    def _ann(path: str, va: int) -> SourceBinding:
+        return SourceBinding(va=va, name="f", filepath=path, module="T")
 
     cfg = SimpleNamespace(reversed_dir=rev, root=tmp_path)
     entries = [_ann("a.c", 0x1000), _ann("b.c", 0x2000)]
@@ -860,7 +972,7 @@ def test_scope_entries_batch_file_empty_errors(tmp_path: Path) -> None:
 
     import typer
 
-    from rebrew.metadata.annotation import Annotation
+    from rebrew.metadata.bindings import SourceBinding
     from rebrew.verify import scope_entries
 
     rev = tmp_path / "src"
@@ -868,7 +980,7 @@ def test_scope_entries_batch_file_empty_errors(tmp_path: Path) -> None:
     cfg = SimpleNamespace(reversed_dir=rev, root=tmp_path)
     with pytest.raises(typer.Exit):
         scope_entries(
-            [Annotation(va=0x1000, name="f", filepath="a.c", module="T")],
+            [SourceBinding(va=0x1000, name="f", filepath="a.c", module="T")],
             (0, 0, [], [], 0),
             ([], []),
             batch_file="missing.c",
@@ -919,15 +1031,19 @@ def test_scope_entries_nolib_drops_header_attributed_functions(tmp_path: Path) -
 
     rev = tmp_path / "src"
     rev.mkdir()
-    (rev / "library_msvc.h").write_text(
-        "// LIBRARY: T 0x2000\n// LIBRARY: OTHER 0x1000\n", encoding="utf-8"
+    write_source(
+        rev / "library_msvc.h",
+        "",
+        encoding="utf-8",
+        metadata_fields={"T.0x2000": {"kind": "LIBRARY"}, "OTHER.0x1000": {"kind": "LIBRARY"}},
+        metadata_dir=tmp_path,
     )
     cfg = SimpleNamespace(
         reversed_dir=rev, root=tmp_path, metadata_dir=tmp_path, marker="T", external_libs=None
     )
     entries = [
-        Annotation(va=0x1000, name="game", filepath="a.c", module="T", marker_type="FUNCTION"),
-        Annotation(va=0x2000, name="crt", filepath="b.c", module="T", marker_type="FUNCTION"),
+        SourceBinding(va=0x1000, name="game", filepath="a.c", module="T", kind="FUNCTION"),
+        SourceBinding(va=0x2000, name="crt", filepath="b.c", module="T", kind="FUNCTION"),
     ]
     scoped, total, *_rest, library_excluded, _keys = scope_entries(
         entries, (0, 0, [], [], 0), ([], []), nolib=True, cfg=cfg
@@ -957,8 +1073,15 @@ def test_scan_keeps_only_this_targets_library_headers(tmp_path: Path) -> None:
 
     rev = tmp_path / "src"
     rev.mkdir()
-    (rev / "library_mixed.h").write_text(
-        "// LIBRARY: SERVER 0x2000\n// LIBRARY: GOLDTL 0x5E0000\n", encoding="utf-8"
+    write_source(
+        rev / "library_mixed.h",
+        "",
+        encoding="utf-8",
+        metadata_fields={
+            "SERVER.0x2000": {"kind": "LIBRARY"},
+            "GOLDTL.0x5E0000": {"kind": "LIBRARY"},
+        },
+        metadata_dir=tmp_path,
     )
     cfg = SimpleNamespace(
         reversed_dir=rev, root=tmp_path, metadata_dir=tmp_path, marker="SERVER", source_ext=".c"

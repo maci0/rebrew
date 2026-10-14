@@ -50,9 +50,9 @@ from rebrew.config import (
 from rebrew.decompiler import BACKEND_HELP_CHOICES, fetch_decompilation
 from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
 from rebrew.limits import NO_MAX_SIZE
-from rebrew.metadata.annotation import (
-    marker_for_module,
-    parse_c_file_multi,
+from rebrew.metadata.bindings import (
+    kind_for_module,
+    read_source_bindings,
 )
 from rebrew.naming import (
     load_existing_vas,
@@ -103,7 +103,7 @@ def _decompiled_body_usable(body: str, func_name: str) -> bool:
     return valid_c_source(body, expect_name=func_name, allow_declarations=True)
 
 
-def _render_annotation_block(
+def _render_skeleton(
     marker: str,
     cfg_marker: str,
     va: int,
@@ -138,77 +138,78 @@ def _render_annotation_block(
             body = body.replace(result[0], func_name, 1)
         if _decompiled_body_usable(body, func_name):
             lines.append(f"{body}\n")
-        else:
-            # The body is the one place decompiler output becomes live code that
-            # `rebrew test` compiles and runs, so it passes the same C gate the
-            # LLM and Kuna seeds pass: one function definition, the marker's
-            # name, no preprocessor directives, pragma operators, or inline asm.
-            # Refused output lands in the comment block below instead, so the
-            # decompilation is still on the page, just not compiled.
-            warnings.warn(
-                f"decompiled body for {func_name} failed the C gate "
-                "(exceeds the seed size budget, is not a single function definition "
-                "with the expected name, or it "
-                "carries a preprocessor directive, pragma, or inline asm); "
-                "embedded it as a comment instead of as code",
-                stacklevel=2,
-            )
-            lines.extend(_decomp_comment_lines(decomp_code, decomp_backend))
+            return "".join(lines)
+        # The body is the one place decompiler output becomes live code that
+        # `rebrew test` compiles and runs, so it passes the same C gate the
+        # LLM and Kuna seeds pass: one function definition, the marker's
+        # name, no preprocessor directives, pragma operators, or inline asm.
+        # Refused output lands in the comment block below instead, so the
+        # decompilation is still on the page, just not compiled.
+        warnings.warn(
+            f"decompiled body for {func_name} failed the C gate "
+            "(exceeds the seed size budget, is not a single function definition "
+            "with the expected name, or it "
+            "carries a preprocessor directive, pragma, or inline asm); "
+            "embedded it as a comment instead of as code",
+            stacklevel=2,
+        )
+        lines.extend(_decomp_comment_lines(decomp_code, decomp_backend))
     elif decomp_code:
         lines.extend(_decomp_comment_lines(decomp_code, decomp_backend))
-    else:
-        signature: str | None = None  # the fenced naked stub emits its own bodies
-        if convention_stub is not None and convention_stub.startswith("#ifdef REBREW_ALLOW_NAKED"):
-            # Fenced naked/fallback stub: each branch needs its own body —
-            # a naked function cannot contain C statements.
-            _parts = convention_stub.splitlines()
-            _naked_sig, _fallback_sig = _parts[1], _parts[3]
-            lines.append("#ifdef REBREW_ALLOW_NAKED\n")
-            lines.append(f"{_naked_sig}\n{{\n")
-            lines.append("    /* TODO: naked body — inline asm (this in ecx),")
-            if convention_note:
-                lines.append(f"       {c_comment_safe(convention_note)} */")
-            else:
-                lines.append("       end with `ret N` */")
-            lines.append("}\n")
-            lines.append("#else\n")
-            lines.append(f"{_fallback_sig}\n{{\n")
-            lines.append("    /* TODO: idiomatic C89 fallback for the comparison build */\n")
-            lines.append("    return 0;\n")
-            lines.append("}\n")
-            lines.append("#endif\n")
-        elif convention_stub is not None:
-            signature = convention_stub
-        elif profile in (
-            "borland-2.0",
-            "borland-3.1",
-            "borland-5.5",
-            "watcom-2.0-win32",
-            "watcom-2.0-win16",
-            "gcc-14.2.0",
-            "mingw-16.2.0",
-            "clang-18.1.8",
-        ):
-            # TCC/bcc32/wcc/gcc: cdecl is the default convention; __cdecl is
-            # a syntax error in TCC 3.1 ("Declaration syntax error").
-            signature = f"int {func_name}(void)"
+    signature: str | None = None  # the fenced naked stub emits its own bodies
+    if convention_stub is not None and convention_stub.startswith("#ifdef REBREW_ALLOW_NAKED"):
+        # Fenced naked/fallback stub: each branch needs its own body —
+        # a naked function cannot contain C statements.
+        _parts = convention_stub.splitlines()
+        _naked_sig, _fallback_sig = _parts[1], _parts[3]
+        lines.append("#ifdef REBREW_ALLOW_NAKED\n")
+        lines.append(f"{_naked_sig}\n{{\n")
+        lines.append("    /* TODO: naked body — inline asm (this in ecx),")
+        if convention_note:
+            lines.append(f"       {c_comment_safe(convention_note)} */")
         else:
-            # MSVC profiles and the historical default: __cdecl.
-            signature = f"int __cdecl {func_name}(void)"
-        if signature is not None:
-            lines.append(f"{signature}\n")
-            lines.append("{\n")
-            if todo_text:
-                lines.append(f"    /* TODO: {todo_text} */\n")
-                if convention_note:
-                    lines.append(f"    /* {c_comment_safe(convention_note)} */\n")
-                lines.append(f"    /* Ghidra name: {c_comment_safe(ghidra_name)} */\n")
-            else:
-                lines.append(
-                    f"    /* TODO: Implement — Ghidra name: {c_comment_safe(ghidra_name)} */\n"
-                )
-            lines.append("    return 0;\n")
-            lines.append("}\n")
+            lines.append("       end with `ret N` */")
+        lines.append("}\n")
+        lines.append("#else\n")
+        lines.append(f"{_fallback_sig}\n{{\n")
+        lines.append("    /* TODO: idiomatic C89 fallback for the comparison build */\n")
+        lines.append("    return 0;\n")
+        lines.append("}\n")
+        lines.append("#endif\n")
+    elif convention_stub is not None:
+        signature = convention_stub
+    elif profile in (
+        "borland-2.0",
+        "borland-3.1",
+        "borland-5.5",
+        "watcom-2.0-win32",
+        "watcom-2.0-win16",
+        "gcc-14.2.0",
+        "mingw-16.2.0",
+        "clang-18.1.8",
+    ):
+        # TCC/bcc32/wcc/gcc: cdecl is the default convention; __cdecl is
+        # a syntax error in TCC 3.1 ("Declaration syntax error").
+        signature = f"int {func_name}(void)"
+    else:
+        # MSVC profiles and the historical default: __cdecl.
+        signature = f"int __cdecl {func_name}(void)"
+    if signature is not None:
+        lines.append(f"{signature}\n")
+        lines.append("{\n")
+        if decomp_code:
+            lines.append(f"    /* Ghidra name: {c_comment_safe(ghidra_name)} */\n")
+        elif todo_text:
+            lines.append(f"    /* TODO: {todo_text} */\n")
+            if convention_note:
+                lines.append(f"    /* {c_comment_safe(convention_note)} */\n")
+            lines.append(f"    /* Ghidra name: {c_comment_safe(ghidra_name)} */\n")
+        else:
+            lines.append(
+                f"    /* TODO: Implement — Ghidra name: {c_comment_safe(ghidra_name)} */\n"
+            )
+        lines.append("    return 0;\n")
+        lines.append("}\n")
     return "".join(lines)
 
 
@@ -243,7 +244,7 @@ def generate_skeleton(
 
     """
     lib_modules = cfg.library_modules or set()
-    marker = marker_for_module(module, "RELOC", lib_modules)
+    marker = kind_for_module(module, "RELOC", lib_modules)
 
     # Determine symbol name.  A custom name gets the same sanitization as a
     # Ghidra name (non-identifier characters, leading digit, length), so
@@ -256,7 +257,7 @@ def generate_skeleton(
     # wrong starting signature costs a rewrite per function.
     signature, conv_note = _convention_stub(cfg, va, func_name, func_lookup)
 
-    return _render_annotation_block(
+    content = _render_skeleton(
         marker=marker,
         cfg_marker=cfg.marker,
         va=va,
@@ -271,6 +272,10 @@ def generate_skeleton(
         convention_stub=signature,
         convention_note=conv_note,
     )
+    from rebrew.metadata.anchors import add_address_anchor
+
+    address_module = module or target_marker(cfg) or cfg.target_name
+    return add_address_anchor(content, address_module, va, func_name) if address_module else content
 
 
 def _convention_stub(
@@ -431,37 +436,6 @@ def _ret_arg_count(insns: list[Any], word_size: int = 4) -> int:
             n = ret_pop_count(insn.op_str)
             return max(0, n // word_size) if n and word_size > 0 else 0
     return 0
-
-
-def generate_annotation_block(
-    cfg: ProjectConfig,
-    va: int,
-    ghidra_name: str,
-    module: str = "",
-    custom_name: str | None = None,
-    xref_context: str | None = None,
-    decomp_code: str | None = None,
-    decomp_backend: str = "",
-    decomp_body: bool = False,
-    func_lookup: FuncLookup | None = None,
-) -> str:
-    """Generate an annotation block + stub body for appending to an existing file.
-
-    Produces a compact block suitable for appending after existing code.
-    """
-    return generate_skeleton(
-        cfg=cfg,
-        va=va,
-        ghidra_name=ghidra_name,
-        module=module,
-        custom_name=custom_name,
-        xref_context=xref_context,
-        decomp_code=decomp_code,
-        decomp_backend=decomp_backend,
-        decomp_body=decomp_body,
-        func_lookup=func_lookup,
-        todo_text=None,
-    )
 
 
 def fetch_xref_context(
@@ -1191,23 +1165,30 @@ def _write_skeleton_metadata(
     An existing row keeps its name unless *overwrite_name* (an explicit
     ``--name``), which otherwise would disagree with the rewritten symbol.
     """
-    from rebrew.metadata.annotation import derive_c_symbol, marker_for_module
+    from rebrew.metadata.bindings import derive_c_symbol, kind_for_module
     from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
 
     existing = get_entry(cfg.metadata_dir, va_int, module_val)
     name = sanitize_name(func_name)
+    from rebrew.c_parser import function_signatures
+
+    prototype = (
+        function_signatures(read_source_text(filepath)[0]).get(name, "")
+        if filepath.is_file()
+        else ""
+    )
     record_function_identity(
         cfg.metadata_dir,
         module=module_val,
         va=va_int,
         file=identity_file(filepath, cfg.metadata_dir),
-        marker_type=marker_for_module(
+        kind=kind_for_module(
             kind_module or module_val,
             "RELOC",
             set(getattr(cfg, "library_modules", None) or ()),
         ),
         name=name,
-        symbol=derive_c_symbol(name, ""),
+        symbol=derive_c_symbol(name, prototype),
         size=size if "size" not in existing and size else 0,
         updated_by="skeleton",
         overwrite_name=overwrite_name,
@@ -1231,7 +1212,7 @@ def _run_append_mode(
     dry_run: bool = False,
     decomp_body: bool = False,
 ) -> None:
-    """Append a function annotation block to an existing .c file."""
+    """Append a new definition, or replace its existing identity with --force."""
     root = cfg.root
     src_dir = cfg.reversed_dir
     append_path = Path(append)
@@ -1240,17 +1221,24 @@ def _run_append_mode(
     if not append_path.exists():
         error_exit(f"--append target does not exist: {append_path}", json_mode=json_output)
 
-    if not force:
-        existing_in_file = parse_c_file_multi(
+    try:
+        existing_in_file = read_source_bindings(
             append_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
         )
-        for entry in existing_in_file:
-            if entry.va == va_int:
-                error_exit(
-                    f"VA 0x{va_int:08x} already in {append_path.name} — "
-                    f"re-run with --force to append anyway (nothing was written)",
-                    json_mode=json_output,
-                )
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    existing = next((entry for entry in existing_in_file if entry.va == va_int), None)
+    if existing is not None and not force:
+        error_exit(
+            f"VA 0x{va_int:08x} already in {append_path.name} — re-run with --force to replace its definition (nothing was written)",
+            json_mode=json_output,
+        )
+    if existing is not None and name and sanitize_name(name) != existing.name:
+        error_exit(
+            "Use rebrew source rename to change an existing definition's name",
+            json_mode=json_output,
+        )
+    generated_name = existing.name if existing is not None else name or ghidra_name
 
     decomp_code_val, decomp_backend_name, xref_context_val = _fetch_extras(
         cfg,
@@ -1261,29 +1249,18 @@ def _run_append_mode(
         endpoint,
     )
 
-    block = generate_annotation_block(
+    block = generate_skeleton(
         cfg,
         va_int,
         ghidra_name,
         module_val,
-        name,
+        generated_name,
         xref_context=xref_context_val,
         decomp_code=decomp_code_val,
         decomp_backend=decomp_backend_name,
         decomp_body=decomp_body,
+        todo_text=None,
     )
-
-    # A file that still has marker lines is read from those lines, so an
-    # appended pure-C function is invisible until the file is migrated.
-    # target_name=None records every marker, including another target's.
-    from rebrew.metadata.marker_migration import migrate_source_file
-
-    migrated = migrate_source_file(cfg, append_path, None, dry_run=dry_run)
-    if migrated and migrated.get("skipped") == "unrecorded-markers":
-        error_exit(
-            f"{append_path.name} has marker lines that were not recorded; nothing was appended",
-            json_mode=json_output,
-        )
 
     # Read with the tolerant reader and write back in the file's own encoding
     # so legacy-encoded sources (cp1252/shift_jis) survive the append.
@@ -1295,14 +1272,7 @@ def _run_append_mode(
         # An embedded decompilation body may already carry CRLF; normalise
         # every terminator instead of appending, so it gains no second \r.
         block = re.sub(r"\r\n|\r|\n", eol, block)
-    # A byte-identical copy of the block is already in the file: a retry of
-    # the same invocation, since the block is a pure function of its inputs.
-    # Appending it again would give the file two definitions of the same
-    # symbol, and the second copy's ``// KEY: value`` lines shadow the first
-    # for the metadata parser.  ``--force`` means "append despite the VA
-    # being present", not "append a duplicate", so an exact repeat is
-    # refused either way and only a block that actually differs (a new
-    # decompilation, a renamed function) is written.
+    # A forced retry must not create another definition of the same symbol.
     if block.strip() and block.strip() in existing_text:
         rel_path_val = rel_display_path(append_path, root)
         console.print(
@@ -1317,7 +1287,7 @@ def _run_append_mode(
                     "file": str(rel_path_val),
                     "va": f"0x{va_int:08x}",
                     "size": size,
-                    "symbol": "_" + sanitize_name(name if name else ghidra_name),
+                    "symbol": "_" + sanitize_name(generated_name),
                 }
             )
         return
@@ -1327,26 +1297,59 @@ def _run_append_mode(
         separator = eol
     else:
         separator = eol * 2
+    replacement = existing_text + separator + block
+    if existing is not None:
+        from rebrew.split import source_layout, span_extent
+
+        raw, spans = source_layout(existing_text)
+        selected = [
+            span for span in spans if span.kind == "function" and span.name == existing.name
+        ]
+        if len(selected) != 1 or selected[0].inside_pp:
+            error_exit(
+                "Cannot replace an ambiguous or conditional definition with --append; nothing was written",
+                json_mode=json_output,
+            )
+        start, end = span_extent(raw, selected[0], spans)
+        replacement = (
+            raw[:start] + block.encode("utf-8", errors="surrogateescape") + raw[end:]
+        ).decode("utf-8", errors="surrogateescape")
+    overwrite_backup: Path | None = None
+    operation = "replace" if existing is not None else "append"
+    completed_action = "replaced" if existing is not None else "appended"
     if dry_run:
         console.print(
-            f"[dim]Would append[/dim] to {untrusted_ident(rel_display_path(append_path, root))}"
+            f"[dim]Would {operation}[/dim] to {untrusted_ident(rel_display_path(append_path, root))}"
         )
     else:
-        atomic_write_text(append_path, existing_text + separator + block, encoding=encoding)
+        if existing is not None:
+            overwrite_backup = _preserve_overwrite(cfg, append_path)
+            if overwrite_backup is None:
+                error_exit(
+                    "Could not preserve the existing source; nothing was written",
+                    json_mode=json_output,
+                )
+        atomic_write_text(append_path, replacement, encoding=encoding)
         _write_skeleton_metadata(
             cfg,
             append_path,
             va_int,
             size,
             module_val,
-            name if name else ghidra_name,
+            generated_name,
             overwrite_name=bool(name),
         )
 
     rel_path_val = rel_display_path(append_path, root)
-    symbol_val = "_" + sanitize_name(name if name else ghidra_name)
+    symbol_val = "_" + sanitize_name(generated_name)
     if not dry_run:
-        console.print(f"[bold green]APPENDED[/] to {untrusted_ident(rel_path_val)}:")
+        console.print(
+            f"[bold green]{completed_action.upper()}[/] to {untrusted_ident(rel_path_val)}:"
+        )
+    if overwrite_backup is not None:
+        console.print(
+            f"  [dim]replaced source kept at: {untrusted_ident(str(overwrite_backup))}[/dim]"
+        )
     console.print(f"  VA:     [cyan]0x{va_int:08x}[/]")
     console.print(f"  Size:   {size}B")
     console.print(f"  Symbol: [magenta]{untrusted_ident(symbol_val)}[/]")
@@ -1356,7 +1359,8 @@ def _run_append_mode(
     if json_output:
         json_print(
             {
-                "action": "would_append" if dry_run else "appended",
+                "action": f"would_{operation}" if dry_run else completed_action,
+                "replaced_backup": str(overwrite_backup) if overwrite_backup else None,
                 "dry_run": dry_run,
                 "file": str(rel_path_val),
                 "va": f"0x{va_int:08x}",

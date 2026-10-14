@@ -387,7 +387,6 @@ def _plan_source_level(
     """Rename a source symbol this target has no row for."""
     if not is_valid_new_name(old_name) or _parse_va(old_name) is not None:
         error_exit(f"Could not find function matching '{old_name}'", json_mode=json_output)
-    _check_scan_collision(entries, None, new_name, json_output)
     plan = plan_symbol_rename(
         cfg,
         old_name,

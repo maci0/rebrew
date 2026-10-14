@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from cache_util import cache_text
+from source_util import write_source, write_store_fixture
 
 from rebrew.status import (
     StatusReport,
@@ -203,16 +204,21 @@ class TestCollectStatus:
 
         # Create source files with annotations (SIZE/CFLAGS stay inline;
         # STATUS lives in rebrew-functions.toml)
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\nvoid func_a(void) {}\n",
+        write_source(
+            src / "func_a.c",
+            "/* ADDRESS: TEST 0x1000 */\nvoid func_a(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
-        (src / "func_b.c").write_text(
-            "// FUNCTION: TEST 0x2000\nvoid func_b(void) {}\n",
+        write_source(
+            src / "func_b.c",
+            "/* ADDRESS: TEST 0x2000 */\nvoid func_b(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x2000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["TEST.0x1000"]\nstatus = "EXACT"\n["TEST.0x2000"]\nstatus = "NEAR_MATCHING"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["TEST.0x1000"]\nstatus = "EXACT"\n["TEST.0x2000"]\nstatus = "NEAR_MATCHING"\n',
             encoding="utf-8",
         )
 
@@ -234,14 +240,15 @@ class TestCollectStatus:
             json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "func_a"}]),
             encoding="utf-8",
         )
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// SIZE: 100\n// SOURCE: naked\nvoid func_a(void) {}\n",
+        write_source(
+            src / "func_a.c",
+            "/* ADDRESS: TEST 0x1000 */\n\n\nvoid func_a(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION", "size": 100, "source": "naked"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["TEST.0x1000"]\nstatus = "EXACT"\n',
-            encoding="utf-8",
-        )
+        from rebrew.metadata.functions import update_source_status
+
+        update_source_status(tmp_path, "EXACT", "TEST", 0x1000, clear_blockers=False)
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.naked_matched == 1
         assert report.status_counts.get("EXACT") == 1  # still byte-matched
@@ -260,16 +267,21 @@ class TestCollectStatus:
             json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "func_a"}]),
             encoding="utf-8",
         )
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\nvoid func_a(void) {}\n",
+        write_source(
+            src / "func_a.c",
+            "/* ADDRESS: TEST 0x1000 */\nvoid func_a(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
-        (src / "other.c").write_text(
-            "// FUNCTION: OTHER 0x2000\nvoid other(void) {}\n",
+        write_source(
+            src / "other.c",
+            "/* ADDRESS: OTHER 0x2000 */\nvoid other(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"OTHER.0x2000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["TEST.0x1000"]\nstatus = "EXACT"\n["OTHER.0x2000"]\nstatus = "EXACT"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["TEST.0x1000"]\nstatus = "EXACT"\n["OTHER.0x2000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
 
@@ -290,21 +302,21 @@ class TestCollectStatus:
                 "size": "100",
                 "status": "EXACT",
                 "module": "TEST",
-                "marker_type": "FUNCTION",
+                "kind": "FUNCTION",
             },
             0x2000: {
                 "filename": "library_x.h",
                 "size": "50",
                 "status": "EXACT",
                 "module": "TEST",
-                "marker_type": "LIBRARY",
+                "kind": "LIBRARY",
             },
             0x3000: {
                 "filename": "other.h",
                 "size": "50",
                 "status": "EXACT",
                 "module": "OTHER",
-                "marker_type": "LIBRARY",
+                "kind": "LIBRARY",
             },
         }
         monkeypatch.setattr(
@@ -320,11 +332,17 @@ class TestCollectStatus:
     def test_sourced_library_excluded_from_function_counts(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         cfg.reversed_dir.mkdir()
-        (cfg.reversed_dir / "game.c").write_text(
-            "// FUNCTION: TEST 0x1000\nvoid game(void) {}\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "game.c",
+            "/* ADDRESS: TEST 0x1000 */\nvoid game(void) {}\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
-        (cfg.reversed_dir / "gzread.c").write_text(
-            "// LIBRARY: TEST 0x2000\nint gzread(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "gzread.c",
+            "/* ADDRESS: TEST 0x2000 */\nint gzread(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x2000": {"kind": "LIBRARY"}},
         )
         report = collect_status(cfg)
         assert report.total_functions == report.covered_functions == 1
@@ -346,7 +364,7 @@ class TestCollectStatus:
                 "size": "50",
                 "status": "PROVEN",
                 "module": "TEST",
-                "marker_type": "LIBRARY",
+                "kind": "LIBRARY",
             },
         }
         monkeypatch.setattr(
@@ -376,9 +394,16 @@ class TestCollectStatus:
             ),
             encoding="utf-8",
         )
-        (src / "f.c").write_text("// FUNCTION: TEST 0x1000\nvoid f(void) {}\n", encoding="utf-8")
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["TEST.0x1000"]\nstatus = "EXACT"\nsize = 128\n', encoding="utf-8"
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: TEST 0x1000 */\nvoid f(void) {}\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
+        )
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["TEST.0x1000"]\nstatus = "EXACT"\nsize = 128\n',
+            encoding="utf-8",
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.total_functions == 1
@@ -397,9 +422,7 @@ class TestCollectStatus:
         from rebrew.catalog.models import FunctionEntry
 
         cfg = _make_cfg(tmp_path)
-        existing = {
-            0x1000: {"filename": "library_x.h", "size": str(annotated), "marker_type": "LIBRARY"}
-        }
+        existing = {0x1000: {"filename": "library_x.h", "size": str(annotated), "kind": "LIBRARY"}}
         monkeypatch.setattr(
             rebrew.naming,
             "load_data",
@@ -459,7 +482,7 @@ class TestCollectStatus:
         )
         if annotated:
             (cfg.reversed_dir / "trap.c").write_text(
-                f"// FUNCTION: TEST {candidate:#x}\nvoid trap(void) {{}}\n", encoding="utf-8"
+                f"/* ADDRESS: TEST {candidate:#x} */\nvoid trap(void) {{}}\n", encoding="utf-8"
             )
         functions, _, _ = load_data(cfg)
         assert len(functions) == expected
@@ -478,10 +501,21 @@ class TestCollectStatus:
         (src / "function_structure.json").write_text(
             json.dumps([{"va": 0x1000, "size": 0x40, "ghidra_name": "a"}]), encoding="utf-8"
         )
-        (src / "a.c").write_text("// FUNCTION: TEST 0x1000\nvoid a(void) {}\n", encoding="utf-8")
-        (src / "b.c").write_text("// FUNCTION: TEST 0x1020\nvoid b(void) {}\n", encoding="utf-8")
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["TEST.0x1000"]\nstatus = "EXACT"\n["TEST.0x1020"]\nstatus = "STUB"\n',
+        write_source(
+            src / "a.c",
+            "/* ADDRESS: TEST 0x1000 */\nvoid a(void) {}\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
+        )
+        write_source(
+            src / "b.c",
+            "/* ADDRESS: TEST 0x1020 */\nvoid b(void) {}\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1020": {"kind": "FUNCTION"}},
+        )
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["TEST.0x1000"]\nstatus = "EXACT"\n["TEST.0x1020"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
@@ -498,7 +532,7 @@ class TestCollectStatus:
         cfg = _make_cfg(tmp_path)
         existing = {
             0x1000: {"filename": "a.c", "size": "16", "status": "EXACT", "module": "TEST"},
-            0x2000: {"filename": "library_x.h", "size": "16", "marker_type": "LIBRARY"},
+            0x2000: {"filename": "library_x.h", "size": "16", "kind": "LIBRARY"},
         }
         monkeypatch.setattr(
             rebrew.naming,
@@ -537,9 +571,16 @@ class TestCollectStatus:
             ),
             encoding="utf-8",
         )
-        (src / "f.c").write_text("// FUNCTION: TEST 0x1000\nvoid f(void) {}\n", encoding="utf-8")
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["TEST.0x1000"]\nstatus = "EXACT"\nsize = 64\n', encoding="utf-8"
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: TEST 0x1000 */\nvoid f(void) {}\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
+        )
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["TEST.0x1000"]\nstatus = "EXACT"\nsize = 64\n',
+            encoding="utf-8",
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.total_functions == 2  # f and the unstarted g; not the arm
@@ -553,8 +594,8 @@ class TestCollectStatus:
 
         cfg = _make_cfg(tmp_path)
         existing = {
-            0x1000: {"filename": "library_x.h", "size": "40", "marker_type": "LIBRARY"},
-            0x1008: {"filename": "library_x.h", "size": "32", "marker_type": "LIBRARY"},
+            0x1000: {"filename": "library_x.h", "size": "40", "kind": "LIBRARY"},
+            0x1008: {"filename": "library_x.h", "size": "32", "kind": "LIBRARY"},
         }
         monkeypatch.setattr(
             rebrew.naming,
@@ -578,7 +619,7 @@ class TestCollectStatus:
                 "filename": "library_x.h",
                 "size": "50",
                 "module": "LIBX",
-                "marker_type": "LIBRARY",
+                "kind": "LIBRARY",
             },
         }
         monkeypatch.setattr(
@@ -601,7 +642,7 @@ class TestCollectStatus:
                 "size": "50",
                 "status": "PROVEN",
                 "module": "TEST",
-                "marker_type": "LIBRARY",
+                "kind": "LIBRARY",
             },
         }
         monkeypatch.setattr(
@@ -625,7 +666,7 @@ class TestCollectStatus:
                 "filename": "library_x.h",
                 "size": "40",
                 "module": "TEST",
-                "marker_type": "LIBRARY",
+                "kind": "LIBRARY",
                 **({"status": status} if status else {}),
             }
             for va, status in ((0x1000, "EXACT"), (0x2000, "PROVEN"), (0x3000, ""))
@@ -744,21 +785,29 @@ class TestCollectStatus:
         (src / "function_structure.json").write_text(json.dumps(funcs), encoding="utf-8")
 
         # Source tree has 4 annotated VAs — 2 inside Ghidra set, 2 outside it
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// STATUS: EXACT\nvoid func_a(void) {}\n",
+        write_source(
+            src / "func_a.c",
+            "/* ADDRESS: TEST 0x1000 */\n\nvoid func_a(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
-        (src / "func_b.c").write_text(
-            "// FUNCTION: TEST 0x2000\n// STATUS: RELOC\nvoid func_b(void) {}\n",
+        write_source(
+            src / "func_b.c",
+            "/* ADDRESS: TEST 0x2000 */\n\nvoid func_b(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x2000": {"kind": "FUNCTION"}},
         )
-        (src / "func_c.c").write_text(
-            "// FUNCTION: TEST 0x3000\n// STATUS: STUB\nvoid func_c(void) {}\n",
+        write_source(
+            src / "func_c.c",
+            "/* ADDRESS: TEST 0x3000 */\n\nvoid func_c(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x3000": {"kind": "FUNCTION"}},
         )
-        (src / "func_d.c").write_text(
-            "// FUNCTION: TEST 0x4000\n// STATUS: STUB\nvoid func_d(void) {}\n",
+        write_source(
+            src / "func_d.c",
+            "/* ADDRESS: TEST 0x4000 */\n\nvoid func_d(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x4000": {"kind": "FUNCTION"}},
         )
 
         report = collect_status(cfg)  # type: ignore[arg-type]
@@ -789,22 +838,27 @@ class TestCollectStatus:
         (src / "function_structure.json").write_text(json.dumps(funcs), encoding="utf-8")
 
         # All annotated as RELOC (via metadata; inline STATUS no longer parses)
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\nvoid func_a(void) {}\n",
+        write_source(
+            src / "func_a.c",
+            "/* ADDRESS: TEST 0x1000 */\nvoid func_a(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
-        (src / "func_b.c").write_text(
-            "// FUNCTION: TEST 0x2000\nvoid func_b(void) {}\n",
+        write_source(
+            src / "func_b.c",
+            "/* ADDRESS: TEST 0x2000 */\nvoid func_b(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x2000": {"kind": "FUNCTION"}},
         )
-        (src / "func_c.c").write_text(
-            "// FUNCTION: TEST 0x3000\nvoid func_c(void) {}\n",
+        write_source(
+            src / "func_c.c",
+            "/* ADDRESS: TEST 0x3000 */\nvoid func_c(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x3000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["TEST.0x1000"]\nstatus = "RELOC"\n'
-            '["TEST.0x2000"]\nstatus = "RELOC"\n'
-            '["TEST.0x3000"]\nstatus = "RELOC"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["TEST.0x1000"]\nstatus = "RELOC"\n["TEST.0x2000"]\nstatus = "RELOC"\n["TEST.0x3000"]\nstatus = "RELOC"\n',
             encoding="utf-8",
         )
 
@@ -868,12 +922,15 @@ class TestCollectStatus:
             json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "parked"}]),
             encoding="utf-8",
         )
-        (src / "parked.c").write_text(
-            "// FUNCTION: TEST 0x1000\nvoid parked(void) {}\n",
+        write_source(
+            src / "parked.c",
+            "/* ADDRESS: TEST 0x1000 */\nvoid parked(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["TEST.0x1000"]\nstatus = "SKIP"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["TEST.0x1000"]\nstatus = "SKIP"\n',
             encoding="utf-8",
         )
         cache_dir = tmp_path / ".rebrew"
@@ -913,14 +970,15 @@ class TestCollectStatus:
             json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "func_a"}]),
             encoding="utf-8",
         )
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\nvoid func_a(void) {}\n",
+        write_source(
+            src / "func_a.c",
+            "/* ADDRESS: TEST 0x1000 */\nvoid func_a(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["TEST.0x1000"]\nstatus = "EXACT"\n',
-            encoding="utf-8",
-        )
+        from rebrew.metadata.functions import update_source_status
+
+        update_source_status(tmp_path, "EXACT", "TEST", 0x1000, clear_blockers=False)
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
         (cache_dir / "verify_cache.toml").write_text(
@@ -954,160 +1012,6 @@ class TestCollectStatus:
 # ---------------------------------------------------------------------------
 # E10 — W019 quick lint (inline metadata detection)
 # ---------------------------------------------------------------------------
-
-
-class TestInlineMetadataWarning:
-    def test_no_inline_metadata(self, tmp_path: Path) -> None:
-        """Source files with no inline metadata → warning count == 0."""
-        cfg = _make_cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "function_structure.json").write_text("[]", encoding="utf-8")
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\nvoid func_a(void) {}\n",
-            encoding="utf-8",
-        )
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        assert report.inline_metadata_warning == 0
-
-    def test_inline_status_detected(self, tmp_path: Path) -> None:
-        """A file with // STATUS: inline → warning count == 1."""
-        cfg = _make_cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "function_structure.json").write_text("[]", encoding="utf-8")
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// STATUS: EXACT\nvoid func_a(void) {}\n",
-            encoding="utf-8",
-        )
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        assert report.inline_metadata_warning == 1
-
-    def test_inline_cflags_detected(self, tmp_path: Path) -> None:
-        """A file with // CFLAGS: inline → warning count == 1."""
-        cfg = _make_cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "function_structure.json").write_text("[]", encoding="utf-8")
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// CFLAGS: /O2 /Gd\nvoid func_a(void) {}\n",
-            encoding="utf-8",
-        )
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        assert report.inline_metadata_warning == 1
-
-    def test_multiple_files_with_inline(self, tmp_path: Path) -> None:
-        """Multiple files with inline metadata → count matches number of files."""
-        cfg = _make_cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "function_structure.json").write_text("[]", encoding="utf-8")
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// STATUS: EXACT\nvoid func_a(void) {}\n",
-            encoding="utf-8",
-        )
-        (src / "func_b.c").write_text(
-            "// FUNCTION: TEST 0x2000\n// SIZE: 100\nvoid func_b(void) {}\n",
-            encoding="utf-8",
-        )
-        # func_c.c has no inline metadata
-        (src / "func_c.c").write_text(
-            "// FUNCTION: TEST 0x3000\nvoid func_c(void) {}\n",
-            encoding="utf-8",
-        )
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        # func_a's STATUS and func_b's SIZE are both migratable. func_c has
-        # only the marker line.
-        assert report.inline_metadata_warning == 2
-
-    def test_markerless_cflags_not_counted(self, tmp_path: Path) -> None:
-        """A markerless // CFLAGS (naked-guard #else convention) is not counted.
-
-        It is not migratable (no marker block) and lint's E023 documents the
-        inline REBREW_ALLOW_NAKED CFLAGS form — the status warning must not nag
-        about files lint cannot fix.
-        """
-        cfg = _make_cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "function_structure.json").write_text("[]", encoding="utf-8")
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\nint func_a(void) {}\n"
-            "#else\n// CFLAGS: /O2 /Gd /DREBREW_ALLOW_NAKED\n",
-            encoding="utf-8",
-        )
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        assert report.inline_metadata_warning == 0
-
-    def test_metadata_backed_inline_not_counted(self, tmp_path: Path) -> None:
-        """An inline key already owned by rebrew-functions.toml is not counted."""
-        from rebrew.metadata.functions import update_field
-
-        cfg = _make_cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "function_structure.json").write_text("[]", encoding="utf-8")
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// SIZE: 42\nvoid func_a(void) {}\n",
-            encoding="utf-8",
-        )
-        update_field(tmp_path, 0x1000, "size", 42, module="TEST")
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        assert report.inline_metadata_warning == 0
-
-    def test_pending_cflags_before_marker_backed_not_counted(self, tmp_path: Path) -> None:
-        """A // CFLAGS before the marker, backed by metadata, is not counted."""
-        from rebrew.metadata.functions import update_field
-
-        cfg = _make_cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "function_structure.json").write_text("[]", encoding="utf-8")
-        (src / "func_a.c").write_text(
-            "// CFLAGS: /O2 /Gd /DREBREW_ALLOW_NAKED\n// FUNCTION: TEST 0x1000\n"
-            "void func_a(void) {}\n",
-            encoding="utf-8",
-        )
-        update_field(tmp_path, 0x1000, "cflags", "/O2 /Gd /DREBREW_ALLOW_NAKED", module="TEST")
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        assert report.inline_metadata_warning == 0
-
-    def test_pending_cflags_before_marker_unbacked_counted(self, tmp_path: Path) -> None:
-        """A // CFLAGS before the marker with no metadata backing is counted."""
-        cfg = _make_cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "function_structure.json").write_text("[]", encoding="utf-8")
-        (src / "func_a.c").write_text(
-            "// CFLAGS: /O2 /Gd\n// FUNCTION: TEST 0x1000\nvoid func_a(void) {}\n",
-            encoding="utf-8",
-        )
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        assert report.inline_metadata_warning == 1
-
-    def test_data_size_backed_not_counted(self, tmp_path: Path) -> None:
-        """DATA blocks source size/section/note from rebrew-data.toml."""
-        from rebrew.metadata.data import set_data_field
-
-        cfg = _make_cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "function_structure.json").write_text("[]", encoding="utf-8")
-        (src / "globals.c").write_text(
-            "// DATA: TEST 0x1000\n// SIZE: 16\nint g_x;\n", encoding="utf-8"
-        )
-        set_data_field(tmp_path, 0x1000, "size", 16, "TEST")
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        assert report.inline_metadata_warning == 0
-
-    def test_inline_warning_in_to_dict(self, tmp_path: Path) -> None:
-        """inline_metadata_warning appears in to_dict() only when non-zero."""
-        report_clean = StatusReport()
-        assert "inline_metadata_warning" not in report_clean.to_dict()
-
-        report_dirty = StatusReport(inline_metadata_warning=3)
-        d = report_dirty.to_dict()
-        assert d["inline_metadata_warning"] == 3
 
 
 class TestVerifyCacheHelpers:
@@ -1547,7 +1451,6 @@ class TestRenderTerminal:
             "matched_bytes": 512,
             "total_text_bytes": 1024,
             "verify_info": VerifyInfo(timestamp="2026-08-07 06:00", passed=5, failed=1, total=6),
-            "inline_metadata_warning": 2,
         }
         base.update(kw)
         return StatusReport(**base)
@@ -1772,7 +1675,7 @@ class TestRenderTerminal:
         from rebrew.status import _render_terminal
 
         buf = self._capture(monkeypatch)
-        _render_terminal(self._report(inline_metadata_warning=0))
+        _render_terminal(self._report())
         out = buf.getvalue()
         assert "SERVER" in out
         # Warning only emitted when inline_metadata_warning > 0.
@@ -1831,14 +1734,15 @@ class TestCollectStatusSizeFallback:
         src = tmp_path / "src"
         src.mkdir()
         # EXACT function with metadata SIZE but NO function_structure.json.
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// SIZE: 100\nvoid func_a(void) {}\n",
+        write_source(
+            src / "func_a.c",
+            "/* ADDRESS: TEST 0x1000 */\n\nvoid func_a(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION", "size": 100}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["TEST.0x1000"]\nstatus = "EXACT"\n',
-            encoding="utf-8",
-        )
+        from rebrew.metadata.functions import update_source_status
+
+        update_source_status(tmp_path, "EXACT", "TEST", 0x1000, clear_blockers=False)
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.status_counts.get("EXACT") == 1
         # Size came from the annotation metadata, not Ghidra.
@@ -1991,9 +1895,11 @@ class TestEffectiveMatches:
             json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "func_a"}]),
             encoding="utf-8",
         )
-        (src / "f.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// STATUS: NEAR_MATCHING\nint f(void){return 0;}\n",
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: TEST 0x1000 */\n\nint f(void){return 0;}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
         cache = {
             "target": "test",
@@ -2010,22 +1916,6 @@ class TestEffectiveMatches:
         report = collect_status(cfg)
         assert report.effective_matches == 1
         assert report.to_dict()["verify_cache"]["effective_matches"] == 1
-
-
-class TestInlineTableKeyWarning:
-    def test_inline_locals_is_counted(self, tmp_path: Path) -> None:
-        """The inline-key regex claims to mirror annotation.METADATA_KEYS but
-        omitted LOCALS/COMMENTS, so status' W019 count disagreed with lint's."""
-        cfg = _make_cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "function_structure.json").write_text("[]", encoding="utf-8")
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// LOCALS: eax, ecx\nvoid func_a(void) {}\n",
-            encoding="utf-8",
-        )
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        assert report.inline_metadata_warning == 1
 
 
 class TestRenderTerminalBarClamping:
@@ -2136,7 +2026,7 @@ class TestAccounting:
         existing = {
             0x400FF8: {"status": "EXACT", "size": "16"},  # half outside .text
             0x401008: {"status": "RELOC", "size": "8", "source": "naked"},
-            0x401010: {"size": "4", "marker_type": "LIBRARY"},
+            0x401010: {"size": "4", "kind": "LIBRARY"},
             0x401020: {"status": "EXACT", "size": "100"},  # entirely outside
         }
         monkeypatch.setattr(

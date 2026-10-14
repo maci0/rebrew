@@ -10,11 +10,12 @@ from typing import Any
 
 import pytest
 from cache_util import cache_text
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.compiler.compile import CompareResult
 from rebrew.config import ProjectConfig
-from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.bindings import SourceBinding
 from rebrew.verify import app
 from rebrew.verify_cache import (
     binary_id,
@@ -69,7 +70,7 @@ def _write_cache(cfg: ProjectConfig, **overrides: Any) -> Path:
 def _patch_verify(
     monkeypatch: pytest.MonkeyPatch,
     cfg: ProjectConfig,
-    entries: list[Annotation],
+    entries: list[SourceBinding],
     calls: list[int] | None = None,
 ) -> None:
     """Stub the five verify seams so the CLI runs the real cache and report path.
@@ -91,7 +92,7 @@ def _patch_verify(
         return {}
 
     def fake_verify_entry(
-        entry: Annotation,
+        entry: SourceBinding,
         _cfg: ProjectConfig,
         cache: object = None,
         **_kwargs: object,
@@ -1153,13 +1154,13 @@ class TestIncrementalVerify:
         (cfg.reversed_dir / "vendor.c").write_text(
             "int first(void) { return 1; }\nint second(void) { return 2; }\n"
         )
-        entry = Annotation(
+        entry = SourceBinding(
             va=0x10001000,
             name="vendor",
             filepath="vendor.c",
             size=16,
             symbol="_first",
-            marker_type="LIBRARY",
+            kind="LIBRARY",
             status="STUB",
         )
         calls: list[int] = []
@@ -1206,24 +1207,24 @@ class TestIncrementalVerify:
         file_b.write_text("int func_b(void) { return 2; }\n", encoding="utf-8")
 
         entries = [
-            Annotation(
+            SourceBinding(
                 va=0x10001000,
                 name="func_a",
                 filepath="func_a.c",
                 size=16,
                 cflags="",
                 symbol="",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
                 status="EXACT",
             ),
-            Annotation(
+            SourceBinding(
                 va=0x10002000,
                 name="func_b",
                 filepath="func_b.c",
                 size=16,
                 cflags="",
                 symbol="",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
                 status="EXACT",
             ),
         ]
@@ -1273,7 +1274,7 @@ class TestIncrementalVerify:
         file_a.write_text("int func_a(void) { return 1; }\n", encoding="utf-8")
 
         entries = [
-            Annotation(
+            SourceBinding(
                 va=0x10001000,
                 name="func_a",
                 filepath="func_a.c",
@@ -1281,7 +1282,7 @@ class TestIncrementalVerify:
                 cflags="",
                 symbol="",
                 status="NEAR_MATCHING",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
             )
         ]
 
@@ -1312,7 +1313,7 @@ class TestIncrementalVerify:
             "int func_a(void) { return 1; }\n", encoding="utf-8"
         )
         entries = [
-            Annotation(
+            SourceBinding(
                 va=0x10001000,
                 name="func_a",
                 filepath="func_a.c",
@@ -1320,7 +1321,7 @@ class TestIncrementalVerify:
                 cflags="",
                 symbol="",
                 status="EXACT",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
             )
         ]
 
@@ -1354,7 +1355,7 @@ class TestIncrementalVerify:
             "int func_a(void) { return 1; }\n", encoding="utf-8"
         )
         entries = [
-            Annotation(
+            SourceBinding(
                 va=0x10001000,
                 name="func_a",
                 filepath="func_a.c",
@@ -1363,7 +1364,7 @@ class TestIncrementalVerify:
                 symbol="",
                 module="OLD",
                 status="EXACT",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
             )
         ]
 
@@ -1860,11 +1861,11 @@ class TestCompareLogicHashMembership:
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
         import rebrew.matcher.parsers
-        import rebrew.metadata.annotation
+        import rebrew.metadata.bindings
         from rebrew.verify_hash import _compare_logic_hash, _package_source_fingerprint
 
         names = {
-            rebrew.metadata.annotation._kv_to_annotation.__code__.co_filename,
+            rebrew.metadata.bindings.source_bindings.__code__.co_filename,
             rebrew.compiler.compile.classify_compare_result.__code__.co_filename,
             rebrew.compiler.compile._extract_and_compare.__code__.co_filename,
             rebrew.coff_reloc.smart_reloc_compare.__code__.co_filename,
@@ -2056,12 +2057,11 @@ def _write_hit_sources(cfg: ProjectConfig) -> tuple[Path, Path]:
     other.write_text("typedef int UNUSED;\n", encoding="utf-8")
     for index, name in enumerate(("fa", "fb")):
         va = 0x10001000 + index * 16
-        (cfg.reversed_dir / f"{name}.c").write_text(
-            f"// FUNCTION: SERVER 0x{va:08X}\n"
-            f"// SIZE: 16\n"
-            f'#include "shared.h"\n'
-            f"int {name}(void) {{ return {index}; }}\n",
+        write_source(
+            cfg.reversed_dir / f"{name}.c",
+            f'#include "shared.h"\n/* ADDRESS: SERVER 0x{va:08X} */\nint {name}(void) {{ return {index}; }}\n',
             encoding="utf-8",
+            metadata_fields={f"SERVER.0x{va:08X}": {"kind": "FUNCTION", "size": 16}},
         )
     return shared, other
 
@@ -2164,12 +2164,10 @@ class TestCurrentWriterCacheIdentity:
     def test_toolchain_change_misses(self, tmp_path: Path) -> None:
         cfg, _shared, _other = _seed_current_cache(tmp_path)
         assert _prepare_cached(cfg) == (2, 2)
-        for path in cfg.reversed_dir.glob("*.c"):
-            text = path.read_text(encoding="utf-8")
-            path.write_text(
-                text.replace("// SIZE: 16\n", "// SIZE: 16\n// TOOLCHAIN: watcom-2.0-win32\n", 1),
-                encoding="utf-8",
-            )
+        from rebrew.metadata.functions import update_field
+
+        for va in (0x10001000, 0x10001010):
+            update_field(cfg.metadata_dir, va, "toolchain", "watcom-2.0-win32", "SERVER")
         assert _prepare_cached(cfg) == (2, 0)
 
     def test_defines_change_misses(self, tmp_path: Path) -> None:
@@ -2181,19 +2179,25 @@ class TestCurrentWriterCacheIdentity:
     def test_size_change_misses(self, tmp_path: Path) -> None:
         cfg, _shared, _other = _seed_current_cache(tmp_path)
         assert _prepare_cached(cfg) == (2, 2)
-        for path in cfg.reversed_dir.glob("*.c"):
-            text = path.read_text(encoding="utf-8")
-            path.write_text(text.replace("// SIZE: 16\n", "// SIZE: 32\n", 1), encoding="utf-8")
+        from rebrew.metadata.functions import update_field
+
+        for va in (0x10001000, 0x10001010):
+            update_field(cfg.metadata_dir, va, "size", 32, "SERVER")
         assert _prepare_cached(cfg) == (2, 0)
 
     def test_module_change_misses(self, tmp_path: Path) -> None:
         cfg, _shared, _other = _seed_current_cache(tmp_path)
         assert _prepare_cached(cfg) == (2, 2)
+        from rebrew.metadata.functions import load_metadata, save_metadata
+
+        rows = load_metadata(cfg.metadata_dir)
+        save_metadata(
+            cfg.metadata_dir, {("CLIENT", va): fields for (_module, va), fields in rows.items()}
+        )
         for path in cfg.reversed_dir.glob("*.c"):
             text = path.read_text(encoding="utf-8")
-            path.write_text(
-                text.replace("// FUNCTION: SERVER ", "// FUNCTION: CLIENT ", 1), encoding="utf-8"
-            )
+            path.write_text(text.replace("ADDRESS: SERVER ", "ADDRESS: CLIENT "), encoding="utf-8")
+        cfg.marker = "CLIENT"
         assert _prepare_cached(cfg) == (2, 0)
 
     def test_context_digest_change_misses(self, tmp_path: Path) -> None:

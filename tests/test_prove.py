@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 from cache_util import cache_text
+from source_util import write_source, write_store_fixture
 from typer.testing import Result
 
 from rebrew.prove import (
@@ -276,17 +277,23 @@ class TestProveCLIStatusGuard:
     def _make_project(self, tmp_path: Path, status: str) -> tuple[Path, Path]:
         """Create a minimal rebrew project with one .c file at the given status."""
         toml = tmp_path / "rebrew-project.toml"
-        toml.write_text(
-            '[targets.GAME]\nbinary = "game.exe"\nreversed_dir = "src"\nsource_ext = ".c"\n'
+        write_store_fixture(
+            toml, '[targets.GAME]\nbinary = "game.exe"\nreversed_dir = "src"\nsource_ext = ".c"\n'
         )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         src = src_dir / "foo.c"
-        src.write_text("// FUNCTION: GAME 0x00001000\nint __cdecl foo(void) { return 0; }\n")
+        write_source(
+            src,
+            "/* ADDRESS: GAME 0x00001000 */\nint __cdecl foo(void) { return 0; }\n",
+            metadata_fields={"GAME.0x00001000": {"kind": "FUNCTION"}},
+        )
         # Write status to metadata — cfg.metadata_dir is reversed_dir.parent,
         # i.e. the project root for reversed_dir="src".
         metadata_toml = tmp_path / "rebrew-functions.toml"
-        metadata_toml.write_text(f'["GAME.0x00001000"]\nstatus = "{status}"\nsize = 16\n')
+        write_store_fixture(
+            metadata_toml, f'format = 2\n["GAME.0x00001000"]\nstatus = "{status}"\nsize = 16\n'
+        )
         # Real PE fixture (parseable) — downstream needs a valid binary.
         import shutil
 
@@ -327,9 +334,9 @@ class TestProveCLIStatusGuard:
         real body) could never reach prove to earn PROVEN."""
         proj_dir, src = self._make_project(tmp_path, "STUB")
         toml = proj_dir / "rebrew-functions.toml"
-        toml.write_text(
-            '["GAME.0x00001000"]\nstatus = "STUB"\nsize = 16\n'
-            'blocker = "scheduler phase shift, instruction-identical to reference"\n'
+        write_store_fixture(
+            toml,
+            'format = 2\n["GAME.0x00001000"]\nstatus = "STUB"\nsize = 16\nblocker = "scheduler phase shift, instruction-identical to reference"\n',
         )
         result = self._invoke(proj_dir, src, monkeypatch)
         assert result.exit_code != 0
@@ -794,8 +801,8 @@ class TestProveConstraintsMetadata:
     """Test that prove_constraints round-trips through metadata."""
 
     def test_merge_prove_constraints(self, tmp_path: Path) -> None:
-        from rebrew.metadata.annotation import Annotation
-        from rebrew.metadata.functions import merge_into_annotation, update_field
+        from rebrew.metadata.bindings import SourceBinding
+        from rebrew.metadata.functions import merge_into_binding, update_field
 
         meta_dir = tmp_path
         # Write a prove_constraints dict to metadata
@@ -803,19 +810,19 @@ class TestProveConstraintsMetadata:
         update_field(meta_dir, 0x1000, "prove_constraints", constraints, module="GAME")
 
         # Create an annotation and merge
-        ann = Annotation(va=0x1000, module="GAME")
-        merge_into_annotation(ann, meta_dir)
+        ann = SourceBinding(va=0x1000, module="GAME")
+        merge_into_binding(ann, meta_dir)
         assert ann.prove_constraints == {"arg0": {"type": "pointer", "struct_size": 24}}
 
     def test_merge_without_constraints_leaves_default(self, tmp_path: Path) -> None:
-        from rebrew.metadata.annotation import Annotation
-        from rebrew.metadata.functions import _set_field, merge_into_annotation
+        from rebrew.metadata.bindings import SourceBinding
+        from rebrew.metadata.functions import _set_field, merge_into_binding
 
         meta_dir = tmp_path
         _set_field(meta_dir, 0x1000, "status", "NEAR_MATCHING", module="GAME")
 
-        ann = Annotation(va=0x1000, module="GAME")
-        merge_into_annotation(ann, meta_dir)
+        ann = SourceBinding(va=0x1000, module="GAME")
+        merge_into_binding(ann, meta_dir)
         assert ann.prove_constraints == {}
 
 
@@ -1035,15 +1042,20 @@ class TestPrepareProveInputsDir32:
         )
         cfg = SimpleNamespace(
             target_binary=tmp_path / "x.dll",
-            metadata_dir=tmp_path / "md",
+            metadata_dir=tmp_path,
             reversed_dir=tmp_path,
             marker="SERVER",
             source_ext=".c",
         )
         (tmp_path / "x.dll").write_bytes(b"\x00" * 64)
-        (tmp_path / "md").mkdir()
         src = tmp_path / "f.c"
-        src.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            src,
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
 
         captured: dict[str, object] = {}
 
@@ -1101,15 +1113,20 @@ class TestPrepareProveInputsDir32:
         )
         cfg = SimpleNamespace(
             target_binary=tmp_path / "x.dll",
-            metadata_dir=tmp_path / "md",
+            metadata_dir=tmp_path,
             reversed_dir=tmp_path,
             marker="SERVER",
             source_ext=".c",
         )
         (tmp_path / "x.dll").write_bytes(b"\x00" * 64)
-        (tmp_path / "md").mkdir()
         src = tmp_path / "f.c"
-        src.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            src,
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
 
         monkeypatch.setattr(
             pm,
@@ -1152,11 +1169,17 @@ def _watch_va_run(
     src = tmp_path / "src"
     src.mkdir(exist_ok=True)
     f = src / "foo.c"
-    f.write_text(
-        "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
+    write_source(
+        f,
+        "/* ADDRESS: GAME 0x1000 */\nint __cdecl foo(void) { return 0; }\n",
+        encoding="utf-8",
+        metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}},
+        metadata_dir=src,
     )
-    (src / "rebrew-functions.toml").write_text(
-        '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
+    write_store_fixture(
+        src / "rebrew-functions.toml",
+        'format = 2\n["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n',
+        encoding="utf-8",
     )
     cfg = SimpleNamespace(
         root=tmp_path,
@@ -1241,15 +1264,20 @@ class TestProveInputsWatchedVasMetadata:
         )
         cfg = SimpleNamespace(
             target_binary=tmp_path / "x.dll",
-            metadata_dir=tmp_path / "md",
+            metadata_dir=tmp_path,
             reversed_dir=tmp_path,
             marker="SERVER",
             source_ext=".c",
         )
         (tmp_path / "x.dll").write_bytes(b"\x00" * 64)
-        (tmp_path / "md").mkdir()
         src = tmp_path / "f.c"
-        src.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            src,
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
 
         monkeypatch.setattr(
             pm,
@@ -1307,16 +1335,16 @@ class TestMaxDeltaFilter:
     """J4: prove --all --max-delta focuses on the closest near-misses."""
 
     def _anno(self, va: int, delta: int | None) -> Any:
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
-        return Annotation(
+        return SourceBinding(
             va=va,
             name=f"f{va}",
             symbol=f"_f{va}",
             module="T",
             status="NEAR_MATCHING",
             size=10,
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             filepath="f.c",
             blocker_delta=delta,
         )
@@ -1326,7 +1354,13 @@ class TestMaxDeltaFilter:
 
         src = tmp_path / "src"
         src.mkdir()
-        (src / "f.c").write_text("// FUNCTION: T 0x1000\n", encoding="utf-8")
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: T 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"T.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
@@ -1337,7 +1371,7 @@ class TestMaxDeltaFilter:
             marker="T",
         )
         annos = [self._anno(0x1000, 2), self._anno(0x2000, 40), self._anno(0x3000, None)]
-        monkeypatch.setattr("rebrew.prove.parse_c_file_multi", lambda *a, **k: annos)
+        monkeypatch.setattr("rebrew.prove.read_source_bindings", lambda *a, **k: annos)
         # Capture which candidates reach the proving loop, and that
         # --stub-thunks is forwarded to each _prove_single call.
         seen: list[int] = []
@@ -1417,22 +1451,27 @@ class TestProveCeilingFilter:
         import shutil
 
         toml = tmp_path / "rebrew-project.toml"
-        toml.write_text(
-            '[targets.GAME]\nbinary = "game.exe"\nreversed_dir = "src"\nsource_ext = ".c"\n'
+        write_store_fixture(
+            toml, '[targets.GAME]\nbinary = "game.exe"\nreversed_dir = "src"\nsource_ext = ".c"\n'
         )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         ceiling = src_dir / "ceiling.c"
-        ceiling.write_text(
-            "// FUNCTION: GAME 0x00001000\nint __cdecl ceiling_fn(void) { return 0; }\n"
+        write_source(
+            ceiling,
+            "/* ADDRESS: GAME 0x00001000 */\nint __cdecl ceiling_fn(void) { return 0; }\n",
+            metadata_fields={"GAME.0x00001000": {"kind": "FUNCTION"}},
         )
         plain = src_dir / "plain.c"
-        plain.write_text("// FUNCTION: GAME 0x00002000\nint __cdecl plain_fn(void) { return 0; }\n")
+        write_source(
+            plain,
+            "/* ADDRESS: GAME 0x00002000 */\nint __cdecl plain_fn(void) { return 0; }\n",
+            metadata_fields={"GAME.0x00002000": {"kind": "FUNCTION"}},
+        )
         metadata_toml = tmp_path / "rebrew-functions.toml"
-        metadata_toml.write_text(
-            '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n'
-            'blocker = "GA_CEILING: register-only byte delta (effective match)"\n'
-            '["GAME.0x00002000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n'
+        write_store_fixture(
+            metadata_toml,
+            'format = 2\n["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\nblocker = "GA_CEILING: register-only byte delta (effective match)"\n["GAME.0x00002000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n',
         )
         shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")
         calls: list[str] = []
@@ -1492,11 +1531,13 @@ class TestProveBatchEmptySchema:
             '[targets.GAME]\nbinary = "game.exe"\nreversed_dir = "src"\nsource_ext = ".c"\n'
         )
         (tmp_path / "src").mkdir()
-        (tmp_path / "src" / "f.c").write_text(
-            "// FUNCTION: GAME 0x00001000\nint __cdecl f(void) { return 0; }\n"
+        write_source(
+            tmp_path / "src" / "f.c",
+            "/* ADDRESS: GAME 0x00001000 */\nint __cdecl f(void) { return 0; }\n",
+            metadata_fields={"GAME.0x00001000": {"kind": "FUNCTION"}},
         )
         shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")
-        (tmp_path / "rebrew-functions.toml").write_text("")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "")
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(
             app, ["--all", "--json", "--target", "GAME"], catch_exceptions=False
@@ -1615,8 +1656,10 @@ class TestPromoteAlreadyMatched:
 
         cfg = self._make_cfg(tmp_path)
         va = 0x1000
-        (tmp_path / "rebrew-functions.toml").write_text(
-            f'["GAME.0x{va:08x}"]\nstatus = "NEAR_MATCHING"\nsize = 8\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            f'format = 2\n["GAME.0x{va:08x}"]\nstatus = "NEAR_MATCHING"\nsize = 8\n',
+            encoding="utf-8",
         )
         cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1671,8 +1714,10 @@ class TestPromoteAlreadyMatched:
 
         cfg = self._make_cfg(tmp_path)
         va = 0x1000
-        (tmp_path / "rebrew-functions.toml").write_text(
-            f'["GAME.0x{va:08x}"]\nstatus = "SKIP"\nsize = 8\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            f'format = 2\n["GAME.0x{va:08x}"]\nstatus = "SKIP"\nsize = 8\n',
+            encoding="utf-8",
         )
         cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1713,22 +1758,27 @@ class TestDecoratedNameSelection:
         shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")
         src = tmp_path / "src"
         src.mkdir()
-        (src / "_foo.c").write_text(
-            "// FUNCTION: GAME 0x00003000\nint _foo(void) { return 0; }\n\n"
-            "// FUNCTION: GAME 0x00004000\nint foo(void) { return 1; }\n",
+        write_source(
+            src / "_foo.c",
+            "/* ADDRESS: GAME 0x00003000 */\nint _foo(void) { return 0; }\n\n/* ADDRESS: GAME 0x00004000 */\nint foo(void) { return 1; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "GAME.0x00003000": {"kind": "FUNCTION"},
+                "GAME.0x00004000": {"kind": "FUNCTION"},
+            },
         )
-        (src / "hook.c").write_text(
-            "// FUNCTION: GAME 0x00001000\nint other(void) { return 1; }\n\n"
-            "// FUNCTION: GAME 0x00002000\n"
-            "int __vectorcall hook(int a, int b, int c) { return 0; }\n",
+        write_source(
+            src / "hook.c",
+            "/* ADDRESS: GAME 0x00001000 */\nint other(void) { return 1; }\n\n/* ADDRESS: GAME 0x00002000 */\nint __vectorcall hook(int a, int b, int c) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "GAME.0x00001000": {"kind": "FUNCTION"},
+                "GAME.0x00002000": {"kind": "FUNCTION"},
+            },
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["GAME.0x00003000"]\nstatus = "EXACT"\n'
-            '["GAME.0x00004000"]\nstatus = "STUB"\n'
-            '["GAME.0x00001000"]\nstatus = "EXACT"\n'
-            '["GAME.0x00002000"]\nstatus = "STUB"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["GAME.0x00003000"]\nstatus = "EXACT"\n["GAME.0x00004000"]\nstatus = "STUB"\n["GAME.0x00001000"]\nstatus = "EXACT"\n["GAME.0x00002000"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)

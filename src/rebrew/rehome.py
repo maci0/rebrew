@@ -91,7 +91,7 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
     from rebrew.metadata.functions import (
         get_entry,
         identity_file,
-        record_migrated_markers,
+        record_function_rows,
         validate_identity_file,
     )
     from rebrew.rename_ops import redecorated_symbol
@@ -129,7 +129,7 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
             row["symbol"] = redecorated_symbol(old_symbol, bind)
         rows.append(row)
     if not dry_run:
-        record_migrated_markers(
+        record_function_rows(
             cfg.metadata_dir,
             [
                 {
@@ -158,7 +158,7 @@ def retarget_file(
     from rebrew.metadata.data import set_data_fields_batch
     from rebrew.metadata.functions import (
         identity_file,
-        record_migrated_markers,
+        record_function_rows,
         validate_identity_file,
     )
 
@@ -199,7 +199,7 @@ def retarget_file(
         for module, va, entry in data
     ]
     if not dry_run:
-        record_migrated_markers(
+        record_function_rows(
             cfg.metadata_dir,
             [
                 {"module": module, "va": va, "identity": {"file": new_rel}}

@@ -1,6 +1,6 @@
 """Tests for the shared annotated-span predicate (span_contains_factory)."""
 
-from rebrew.metadata.annotation import span_contains_factory
+from rebrew.metadata.bindings import span_contains_factory
 
 
 class TestSpanContainsFactory:

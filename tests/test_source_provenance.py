@@ -174,13 +174,12 @@ class TestAssemblyLint:
         assert "unknown target" in _check_W031_source_provenance(cfg)[0].warnings[0][2]
 
     def test_malformed_store_never_exempts_assembly(self, tmp_path: Path) -> None:
-        from rebrew.lint import _check_W031_source_provenance
 
         file = _source(tmp_path)
         cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, marker="CLIENT")
         (tmp_path / SOURCE_PROVENANCE_FILENAME).write_text("format = 1.0\ndefinitions = {}")
-        assert len([c for _, c, _ in lint_file(file, cfg).warnings if c == "W020"]) == 2
-        assert "invalid" in _check_W031_source_provenance(cfg)[0].warnings[0][2]
+        with pytest.raises(ValueError, match="source metadata requires format = 2"):
+            lint_file(file, cfg)
 
     def test_legacy_source_encoding_uses_the_same_definition_hash(self, tmp_path: Path) -> None:
         file = _source(tmp_path)

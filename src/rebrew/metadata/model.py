@@ -67,9 +67,9 @@ def _coerce(key: str, value: Any) -> Any:
     if key in _JSON_FIELDS and not isinstance(value, dict):
         raise MetadataValidationError(f"{key} must be a table, got {value!r}")
     if key == "globals":
-        # Store accepts list | str (metadata._FIELD_TYPES); Annotation merge
+        # Store accepts list | str (metadata._FIELD_TYPES); SourceBinding merge
         # turns lists into globals_list.  Normalize to the comma-string form
-        # so update_annotation_key idempotency compares like-for-like.
+        # so set_binding_field idempotency compares like-for-like.
         if isinstance(value, list):
             return ", ".join(str(g) for g in value)
         if not isinstance(value, str):
@@ -101,6 +101,8 @@ class MetadataEntry:
     locals: dict[str, Any] | None = None
     comments: dict[str, Any] | None = None
     source: str | None = None
+    struct: str | None = None
+    callers: str | None = None
     prove_constraints: dict[str, Any] | None = None
     updated_by: str | None = None
     updated_at: str | None = None

@@ -12,7 +12,7 @@ rebrew verify --watch                   # re-verify on every file change
 rebrew verify --full --json             # ignore cache
 rebrew lint src/<target>/<file>.c       # lint one file (files are POSITIONAL)
 rebrew lint --json                      # annotation correctness
-rebrew lint --fix                       # migrate inline metadata; drop W029-redundant cflags
+rebrew lint --fix                       # drop W029-redundant cflags; source metadata tags are errors
 rebrew lint --fix --dry-run
 rebrew lint --summary
 rebrew lint --quiet                     # errors only

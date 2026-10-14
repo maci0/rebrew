@@ -47,10 +47,11 @@ itself, and the consequences (including trade-offs accepted).
 | 020 | Init scaffolding skill (`rebrew-init`) |
 | 021 | Batch container compiles (`compile_batch_objs` / `precompile_batch`) |
 | 022 | Shared single-file imports (`cross-import --shared`) |
-| 023 | Markers: TOML single source (pure-C sources, `rebrew migrate-markers`) |
+| 023 | Markers: TOML single source *(superseded by 030)* |
 | 024 | PROVEN is not matched and not sticky |
 | 025 | Remove the todo blocked lens |
 | 026 | One installed CLI for routine commands *(amended by 027)* |
 | 027 | Build hooks under the umbrella CLI *(amended by 028)* |
 | 028 | [CLI domains and explicit operations](028-cli-domains-and-explicit-operations.md) |
 | 029 | [Managed type identities and target layout evidence](029-managed-type-identities.md) |
+| 030 | [Address-only source bindings and dedicated metadata](030-address-only-source.md) |

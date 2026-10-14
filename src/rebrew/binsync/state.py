@@ -20,7 +20,6 @@ from typing import Any
 
 import tomlkit
 
-from rebrew.c_parser import type_from_declaration
 from rebrew.catalog import build_function_registry, cached_function_list, scan_reversed_dir
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.types import StructDef
@@ -358,7 +357,7 @@ def index_local_and_catalog(
     local_by_va: dict[int, object] = {}
     for e in local_entries:
         va = getattr(e, "va", 0)
-        if va and (va not in local_by_va or getattr(e, "marker_type", "") == "FUNCTION"):
+        if va and (va not in local_by_va or getattr(e, "kind", "") == "FUNCTION"):
             # Keep FUNCTION entries preferentially; DATA/GLOBAL overwrite only if no function
             local_by_va[va] = e
 
@@ -450,84 +449,38 @@ def global_name_and_type(
     va: int,
     filepath: str,
 ) -> tuple[str | None, str | None]:
-    """Return ``(name, type_str)`` for the ``// GLOBAL:`` / ``// DATA:`` marker at *va*.
+    """Resolve a canonical data identity to its actual C declaration."""
+    from rebrew.c_parser import find_extern_variables
+    from rebrew.metadata.bindings import DATA_KINDS, read_source_bindings
+    from rebrew.sources import iter_sources
+    from rebrew.utils import read_source_text
 
-    Parses the declaration line that follows the marker (the next non-comment
-    line).  Uses tree-sitter's ``find_extern_variables`` for accurate parsing
-    and falls back to a regex extraction.  ``DATA`` declarations may be bare
-    (no ``extern``), e.g. ``char g_buf[64];``, so the plain-declaration helper
-    is also tried.  Returns ``(None, None)`` if the marker/decl cannot be found.
-    """
-    try:
-        from rebrew.c_parser import (
-            find_extern_variables as _find_extern,
-        )
-        from rebrew.utils import read_source_text as _rts
-
-        cfg_reversed = getattr(cfg, "reversed_dir", None)
-        if cfg_reversed is None:
-            return None, None
-        full = Path(cfg_reversed) / filepath if filepath else None
-        if full is None or not full.exists():
-            from rebrew.sources import iter_sources as _iter_sources
-
-            found = None
-            for cand in _iter_sources(Path(cfg_reversed), cfg):
-                try:
-                    txt, _ = _rts(cand)
-                except OSError:
-                    continue
-                if f"0x{va:08x}" in txt.lower() or f"0x{va:x}" in txt.lower():
-                    found = cand
-                    break
-            full = found
-        if full is None or not full.exists():
-            return None, None
-        text, _ = _rts(full)
-        lines = text.splitlines()
-        for idx, line in enumerate(lines):
-            if (f"0x{va:08x}" in line.lower() or f"0x{va:x}" in line.lower()) and (
-                "GLOBAL:" in line or "DATA:" in line
-            ):
-                for j in range(idx + 1, min(idx + 4, len(lines))):
-                    cand_decl = lines[j].strip()
-                    if not cand_decl or cand_decl.startswith("//"):
-                        continue
-                    if cand_decl.startswith("#"):
-                        # Preprocessor directive (#include/#define/#pragma) is
-                        # not a declaration.  A DATA marker placed above one
-                        # (synthetic link-stub VAs like notepad's 0xDEADBEEF)
-                        # must fall through to the g_<hex> fallback instead of
-                        # fabricating a name/type from the directive.
-                        continue
-                    ext_vars = _find_extern(cand_decl)
-                    if not ext_vars:
-                        # ``char (*g_row)[4];`` is a file-scope definition.
-                        # The name is inside parentheses, so the regex below
-                        # skips the line and the next declaration is reported
-                        # for this marker.
-                        ext_vars = _find_extern(cand_decl, include_definitions=True)
-                    if ext_vars:
-                        return ext_vars[0].name, ext_vars[0].type_str
-                    # Bare declaration (no extern) — try regex extraction.
-                    # The extracted name must be a plain C identifier: a
-                    # function-definition line ('void f(void) {}') or other
-                    # non-declaration yields '{}'/'{' and must be skipped,
-                    # not fabricated into a name/type.
-                    decl_name = (
-                        cand_decl.split(";")[0].split()[-1].split("[")[0].split("*")[-1].strip()
-                    )
-                    if (
-                        decl_name
-                        and decl_name != cand_decl
-                        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", decl_name)
-                    ):
-                        t = type_from_declaration(cand_decl, decl_name)
-                        if t:
-                            return decl_name, t
-                break
-    except Exception:
-        log.debug("name/type resolve failed for VA 0x%x", va, exc_info=True)
+    directory = getattr(cfg, "reversed_dir", None)
+    if directory is None:
+        return None, None
+    candidate = Path(directory) / filepath if filepath else None
+    paths = (
+        [candidate]
+        if candidate is not None and candidate.is_file()
+        else iter_sources(Path(directory), cfg)
+    )
+    for path in paths:
+        bindings = read_source_bindings(path, metadata_dir=getattr(cfg, "metadata_dir", None))
+        matching = [
+            b
+            for b in bindings
+            if b.va == va
+            and b.kind in DATA_KINDS
+            and (not getattr(cfg, "marker", "") or b.module == cfg.marker)
+        ]
+        if not matching:
+            continue
+        text, _ = read_source_text(path)
+        variables = {v.name: v for v in find_extern_variables(text, include_definitions=True)}
+        for binding in matching:
+            variable = variables.get(binding.name)
+            if variable is not None:
+                return variable.name, variable.type_str
     return None, None
 
 
@@ -1101,7 +1054,8 @@ def sync_health(
     """
     import json
 
-    from rebrew.metadata.functions import FORMAT_VERSION, SYNC_FIELD_RULES
+    from rebrew.metadata.document import FORMAT_VERSION
+    from rebrew.metadata.functions import SYNC_FIELD_RULES
 
     manifest = load_manifest(state_dir)
     binary = binary_identity(cfg)

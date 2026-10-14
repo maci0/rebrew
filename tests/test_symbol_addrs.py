@@ -37,7 +37,7 @@ def _fake_ann(
         va=va,
         name=name,
         symbol=symbol,
-        marker_type=marker,
+        kind=marker,
         size=size,
         is_data=marker in ("GLOBAL", "DATA"),
     )
@@ -65,7 +65,7 @@ def _patch(
     )
     monkeypatch.setattr(
         symbol_addrs,
-        "iter_annotations",
+        "iter_source_bindings",
         lambda sources, target=None, metadata_dir=None: [(Path("a.c"), annos)],
     )
     return cfg

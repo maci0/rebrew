@@ -115,7 +115,7 @@ def missing_relocations(cfg: Any, source: Path, built: Path, link_map: Path) -> 
     from rebrew.data_ownership import parse_link_map
     from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
     from rebrew.formats.relocations import relocation_spans
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
     from rebrew.rename_ops import c_name_from_symbol
     from rebrew.sources import target_marker
 
@@ -137,7 +137,7 @@ def missing_relocations(cfg: Any, source: Path, built: Path, link_map: Path) -> 
     widths = dict(ref_spans)
 
     report = SiteReport({}, [], [])
-    annotations = parse_c_file_multi(
+    annotations = read_source_bindings(
         source,
         target_name=target_marker(cfg),
         base_dir=cfg.root,

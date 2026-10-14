@@ -25,7 +25,7 @@ from rebrew.config import (
     env_dir_path,
     load_config,
 )
-from rebrew.metadata.annotation import parse_c_file_multi
+from rebrew.metadata.bindings import read_source_bindings
 from rebrew.metadata.data import load_data_metadata
 from rebrew.metadata.functions import load_metadata
 from rebrew.workspace.status import KNOWN_STATUSES
@@ -187,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
                             continue
                         total_files += 1
                         try:
-                            parse_c_file_multi(
+                            read_source_bindings(
                                 c, target_name=cfg.marker or None, metadata_dir=meta_root
                             )
                         except Exception as e:

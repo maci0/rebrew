@@ -62,7 +62,7 @@ from rebrew.compiler.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.formats.binary_loader import extract_raw_bytes
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
-from rebrew.metadata.annotation import parse_c_file_multi, resolve_symbol
+from rebrew.metadata.bindings import read_source_bindings, resolve_symbol
 from rebrew.prove_simprocs import get_win32_simprocs
 from rebrew.sources import (
     iter_sources,
@@ -1298,7 +1298,7 @@ def main(
 
     # Parse annotation — use multi-parser with metadata_dir so STATUS/CFLAGS/SIZE
     # are read from rebrew-functions.toml (where volatile metadata lives).
-    annotations = parse_c_file_multi(
+    annotations = read_source_bindings(
         source_path,
         target_name=target_marker(cfg),
         metadata_dir=cfg.metadata_dir,
@@ -1977,7 +1977,7 @@ def _run_all_batch(
     all_annos: list[Any] = []
     for src in sources:
         try:
-            annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
+            annos = read_source_bindings(src, target_name=tm, metadata_dir=cfg.metadata_dir)
         except Exception as exc:
             # Dropping the file quietly makes a batch run indistinguishable
             # from one where every function was already out of scope.

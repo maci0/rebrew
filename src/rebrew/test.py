@@ -63,11 +63,11 @@ from rebrew.compiler.context import CompileContext
 from rebrew.config import ProjectConfig
 from rebrew.formats.binary_loader import PADDING_BYTES, extract_raw_bytes
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-from rebrew.metadata.annotation import (
-    Annotation,
+from rebrew.metadata.bindings import (
+    SourceBinding,
     min_valid_va_for,
-    parse_c_file_multi,
-    parse_source_metadata,
+    read_function_fields,
+    read_source_bindings,
 )
 from rebrew.metadata.functions import (
     is_status_parked,
@@ -237,8 +237,8 @@ def _watch_loop(source_path: Path, retest: Callable[[], None], interval: float =
 
 
 def _select_annotation_for_va(
-    lint_annos: list[Annotation], va: str, json_output: bool
-) -> Annotation | None:
+    lint_annos: list[SourceBinding], va: str, json_output: bool
+) -> SourceBinding | None:
     """The annotation whose VA matches *va*, or None if none does.
 
     Shared selection for the single-function path: an explicit ``--va`` on a
@@ -251,10 +251,10 @@ def _select_annotation_for_va(
     return next((a for a in lint_annos if a.va == want_va), None)
 
 
-def _marker_va_from_annotation(sel_ann: Annotation | None, meta: dict[str, str]) -> str | None:
+def _marker_va_from_annotation(sel_ann: SourceBinding | None, meta: dict[str, str]) -> str | None:
     """VA string for the selected annotation, else the file's first marker.
 
-    ``parse_source_metadata`` is first-block only, so on a shared file carrying
+    ``read_function_fields`` is first-block only, so on a shared file carrying
     one ``// FUNCTION:`` marker per target it reports the OTHER target's VA.
     *sel_ann* already comes from a target-filtered parse, so it wins when it
     carries a VA (guild-rebrew round 1291: ``rebrew test cm_MarkAndReturn.c
@@ -895,8 +895,8 @@ def _status_skip_for_source(cfg: ProjectConfig, source: str, no_promote: bool) -
     source_path = Path(source).resolve()
     if not source_path.is_relative_to(cfg.metadata_dir.resolve()):
         bound_library = source_path.is_relative_to(cfg.root.resolve()) and any(
-            entry.marker_type == "LIBRARY" and not entry.is_data
-            for entry in parse_c_file_multi(
+            entry.kind == "LIBRARY" and not entry.is_data
+            for entry in read_source_bindings(
                 source_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
             )
         )
@@ -911,7 +911,7 @@ def _lint_preamble(
     *,
     size: int | None,
     json_output: bool,
-) -> tuple[list[Annotation], dict[str, int]]:
+) -> tuple[list[SourceBinding], dict[str, int]]:
     """Build the name→VA map and lint the source's annotations once.
 
     Shared by the callback's multi-function dispatch and by the
@@ -932,7 +932,7 @@ def _lint_preamble(
     except CatalogScanError as exc:
         error_exit(str(exc), json_mode=json_output, code=EXIT_ERROR)
 
-    lint_annos = parse_c_file_multi(
+    lint_annos = read_source_bindings(
         Path(source), target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
     lint_annos = [anno for anno in lint_annos if not anno.is_data]
@@ -967,7 +967,7 @@ def _run_test_impl(
     no_promote: bool = False,
     json_output: bool = False,
     status_skip_reason: str = "",
-    lint_annos: list[Annotation],
+    lint_annos: list[SourceBinding],
     name_to_va: dict[str, int],
 ) -> dict[str, Any]:
     """Compile one function and return the ``rebrew test --json`` result object.
@@ -981,14 +981,14 @@ def _run_test_impl(
     *lint_annos* and *name_to_va* come from :func:`_lint_preamble`, so the
     source is parsed and the project's VA map scanned once per invocation.
     """
-    meta = parse_source_metadata(source, metadata_dir=cfg.metadata_dir)
+    meta = read_function_fields(source, metadata_dir=cfg.metadata_dir)
 
     # Derive symbol from annotation (C function definition).  The
     # VA-based selection happens UNCONDITIONALLY (not just when symbol is
     # absent): an explicit --va on a multi-module file must target the
     # function AT that VA for symbol derivation AND for the metadata
     # promotion below, even with --symbol given.
-    sel_ann: Annotation | None = None
+    sel_ann: SourceBinding | None = None
     if va is not None:
         # An explicit --va targets ONE function in (possibly) a
         # multi-function file: derive the symbol (and fallback size) from
@@ -1023,7 +1023,7 @@ def _run_test_impl(
         va_str = _marker_va_from_annotation(sel_ann, meta)
 
     size_val = size
-    # ``meta["SIZE"]`` is the first annotation only (parse_source_metadata).
+    # ``meta["SIZE"]`` is the first annotation only (read_function_fields).
     # A sibling selected via --va with no SIZE must not borrow that span.
     if (
         size_val is None
@@ -1306,7 +1306,7 @@ def _run_test_impl(
             # to the file's own marker for the requested VA so the SIZE /
             # STATUS writes land under the real (module, VA) key instead of
             # raising on an empty module (or worse, writing an unreadable one).
-            from rebrew.metadata.annotation import module_for_va as _module_for_va
+            from rebrew.metadata.bindings import module_for_va as _module_for_va
 
             anno_module = _module_for_va(Path(source), va_int_for_promote)
         # Persist the resolved SIZE alongside STATUS so downstream tools
@@ -1532,7 +1532,7 @@ def run_test(
 def _test_multi(
     cfg: ProjectConfig,
     source: str,
-    annotations: list[Annotation],
+    annotations: list[SourceBinding],
     cflags_override: str | None,
     *,
     name_to_va: dict[str, int] | None = None,
@@ -1557,7 +1557,7 @@ def _test_multi(
     # default) so this path compiles each function exactly like verify_entry
     # and the single-function path do; an explicit --toolchain / --cflags
     # wins over the annotation value.
-    def _effective_overrides(ann: Annotation) -> tuple[str | None, str]:
+    def _effective_overrides(ann: SourceBinding) -> tuple[str | None, str]:
         from rebrew.compiler.overrides import resolve_compile_overrides_cached
 
         return resolve_compile_overrides_cached(
@@ -2220,7 +2220,7 @@ def emit_test_batch(
         raise typer.Exit(code=EXIT_MISMATCH)
 
 
-def print_test_summary(deferred: list[tuple[Annotation, str, int]], total_files: int) -> None:
+def print_test_summary(deferred: list[tuple[SourceBinding, str, int]], total_files: int) -> None:
     """Compact batch summary for ``rebrew test --all`` (STATUS transitions)."""
     transitions: list[tuple[str, str]] = []
     for entry, status, _delta in deferred:

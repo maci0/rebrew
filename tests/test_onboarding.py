@@ -40,7 +40,7 @@ _TOOLCHAIN_INDEPENDENT = {
     "Target binary",
     "Arch / Format",
     "Function list",
-    "Annotation staleness",
+    "SourceBinding staleness",
     "Source files",
     "Bin directory",
     "Metadata TOML",
@@ -80,7 +80,7 @@ class TestOnboardingJourney:
 
         # Pure-C skeletons resolve their identities from the managed store.
         from rebrew.config import load_config
-        from rebrew.metadata.annotation import parse_c_file_multi
+        from rebrew.metadata.bindings import read_source_bindings
 
         cfg = load_config(tmp_path)
         skeletons = sorted((tmp_path / "src" / "mini_pe").glob("*.c"))
@@ -91,10 +91,10 @@ class TestOnboardingJourney:
             for line in f.read_text(encoding="utf-8").splitlines()
         )
         identities = [
-            ann for f in skeletons for ann in parse_c_file_multi(f, metadata_dir=cfg.metadata_dir)
+            ann for f in skeletons for ann in read_source_bindings(f, metadata_dir=cfg.metadata_dir)
         ]
         assert {ann.va for ann in identities} == vas
-        assert all(ann.marker_type == "STUB" and ann.symbol for ann in identities)
+        assert all(ann.kind == "STUB" and ann.symbol for ann in identities)
 
         # Binary copied into original/.
         assert (tmp_path / "original" / "mini_pe.exe").exists()

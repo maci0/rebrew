@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 from bin_util import make_pe
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.compiler.compile import CompareResult, CompareStatus
@@ -35,8 +36,10 @@ def _project(root: Path) -> Path:
     (root / "server.dll").write_bytes(make_pe(_CODE + b"\xcc" * 10))
     (root / "src").mkdir()
     source = root / "src" / "foo.c"
-    source.write_text(
-        f"// FUNCTION: SERVER 0x{_VA:x}\n// SIZE: {_SIZE}\nint foo(void) {{ return 1; }}\n"
+    write_source(
+        source,
+        f"/* ADDRESS: SERVER 0x{_VA:x} */\n\nint foo(void) {{ return 1; }}\n",
+        metadata_fields={f"SERVER.0x{_VA:x}": {"kind": "FUNCTION", "size": int(f"{_SIZE}", 0)}},
     )
     built = root / "build" / "server"
     built.parent.mkdir()
@@ -260,7 +263,7 @@ class TestStickiness:
         source = tmp_path / "src" / "foo.c"
         source.write_text(
             source.read_text()
-            + f"// FUNCTION: SERVER 0x{_VA + 0x10:x}\n// SIZE: 1\nint bar(void) {{ return 0; }}\n"
+            + f"/* ADDRESS: SERVER 0x{_VA + 0x10:x} */\nint bar(void) {{ return 0; }}\n"
         )
         _age(source)
         _mock(monkeypatch)

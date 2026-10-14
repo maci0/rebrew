@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import pytest
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.inline_strings import c_literal, inline_string_uses
@@ -20,7 +21,10 @@ class TestCLiteral:
         assert c_literal(b"\x01\xff") == '"\\001\\377"'
 
 
-SRC = "// FUNCTION: TEST 0x1000\nint f(void) { return s_foo_10027000[0]; }\n"
+SRC = SourceFixture(
+    "/* ADDRESS: TEST 0x1000 */\nint f(void) { return s_foo_10027000[0]; }\n",
+    {"TEST.0x1000": {"kind": "FUNCTION"}},
+)
 
 
 def _token_re() -> re.Pattern[str]:
@@ -30,28 +34,25 @@ def _token_re() -> re.Pattern[str]:
 class TestInlineUses:
     def test_inlines_string(self, tmp_path: Path) -> None:
         f = tmp_path / "a.c"
-        f.write_text(SRC, encoding="utf-8")
+        write_source(f, SRC, encoding="utf-8")
         n = inline_string_uses(f, b"hello\x00", 0x10027000, _token_re(), {}, dry_run=False)
         assert n == 1
         assert 'return "hello"[0];' in f.read_text()
 
     def test_dry_run(self, tmp_path: Path) -> None:
         f = tmp_path / "a.c"
-        f.write_text(SRC, encoding="utf-8")
+        write_source(f, SRC, encoding="utf-8")
         n = inline_string_uses(f, b"hello\x00", 0x10027000, _token_re(), {}, dry_run=True)
         assert n == 1
         assert "s_foo_10027000" in f.read_text()
 
     def test_skips_asm_and_extern(self, tmp_path: Path) -> None:
         f = tmp_path / "a.c"
-        f.write_text(
-            "// FUNCTION: TEST 0x1000\n"
-            "extern char s_foo_10027000[];\n"
-            "int f(void) {\n"
-            "    __asm { push offset s_foo_10027000 }\n"
-            "    return 0;\n"
-            "}\n",
+        write_source(
+            f,
+            "\nextern char s_foo_10027000[];\n/* ADDRESS: TEST 0x1000 */\nint f(void) {\n    __asm { push offset s_foo_10027000 }\n    return 0;\n}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
         n = inline_string_uses(f, b"hello\x00", 0x10027000, _token_re(), {}, dry_run=False)
         assert n == 0  # asm + extern only — nothing inlinable
@@ -61,9 +62,11 @@ class TestInlineUses:
         """A token inside a C string literal is not a replaceable use: inlining
         it nested quotes and produced invalid C."""
         f = tmp_path / "a.c"
-        f.write_text(
-            '// FUNCTION: TEST 0x1000\nchar *m = "use s_foo_10027000 here";\n',
+        write_source(
+            f,
+            '/* ADDRESS: TEST 0x1000 */\nchar *m = "use s_foo_10027000 here";\n',
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
         n = inline_string_uses(f, b"hello\x00", 0x10027000, _token_re(), {}, dry_run=False)
         assert n == 0
@@ -73,9 +76,11 @@ class TestInlineUses:
         """A `//` inside a string literal used to start a comment mask, hiding a
         real token use later on the same line."""
         f = tmp_path / "a.c"
-        f.write_text(
-            '// FUNCTION: TEST 0x1000\nchar *u = "http://x"; int g = s_foo_10027000[0];\n',
+        write_source(
+            f,
+            'char *u = "http://x"; int g = s_foo_10027000[0];\n',
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
         n = inline_string_uses(f, b"hello\x00", 0x10027000, _token_re(), {}, dry_run=False)
         assert n == 1
@@ -97,19 +102,18 @@ class TestDefineRemaining:
         from rebrew.inline_strings import define_remaining_strings
 
         a = tmp_path / "a.c"
-        a.write_text(
-            "// FUNCTION: TEST 0x1000\n"
-            "extern char s_msg_10027000[];\n"
-            "// mentions s_msg_10027000 twice: s_msg_10027000\n"
-            "int a(void) { return 0; }\n",
+        write_source(
+            a,
+            "\nextern char s_msg_10027000[];\n// mentions s_msg_10027000 twice: s_msg_10027000\n/* ADDRESS: TEST 0x1000 */\nint a(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
         b = tmp_path / "b.c"
-        b.write_text(
-            "// FUNCTION: TEST 0x2000\n"
-            "extern char s_msg_10027000[];\n"
-            "int b(void) { return s_msg_10027000[0]; }\n",
+        write_source(
+            b,
+            "\nextern char s_msg_10027000[];\n/* ADDRESS: TEST 0x2000 */\nint b(void) { return s_msg_10027000[0]; }\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x2000": {"kind": "FUNCTION"}},
         )
         n = define_remaining_strings([a, b], b"hi\x00", 0x10027000, _token_re(), dry_run=False)
         assert n == 1
@@ -133,14 +137,11 @@ class TestDefineRemaining:
 
         (tmp_path / "src").mkdir(parents=True)
         src = tmp_path / "src" / "a.c"
-        src.write_text(
-            "// FUNCTION: TEST 0x1000\n"
-            "extern char s_msg_10027000[];\n"
-            "int f(void) {\n"
-            "    __asm { push offset s_msg_10027000 }\n"
-            "    return 0;\n"
-            "}\n",
+        write_source(
+            src,
+            "\nextern char s_msg_10027000[];\n/* ADDRESS: TEST 0x1000 */\nint f(void) {\n    __asm { push offset s_msg_10027000 }\n    return 0;\n}\n",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
         # reference binary: .data raw "hi\x00" at data_base 0x10027000
 
@@ -164,8 +165,10 @@ class TestEncodingSafety:
         f = tmp_path / "a.c"
         # 0xA9 is a valid Shift-JIS/cp1252 byte but not valid UTF-8.
         f.write_bytes(
-            "// FUNCTION: TEST 0x1000\n// \xa9 note\n"
-            "int f(void) { return s_foo_10027000[0]; }\n".encode("latin-1")
+            SourceFixture(
+                "/* ADDRESS: TEST 0x1000 */\n// © note\nint f(void) { return s_foo_10027000[0]; }\n",
+                {"TEST.0x1000": {"kind": "FUNCTION"}},
+            ).encode("latin-1")
         )
         n = inline_string_uses(f, b"hello\x00", 0x10027000, _token_re(), {}, dry_run=False)
         assert n == 1
@@ -179,13 +182,10 @@ class TestEncodingSafety:
 
         f = tmp_path / "a.c"
         f.write_bytes(
-            "// FUNCTION: TEST 0x1000\n"
-            'char *note = "caf\xe9 \x85 end";\n'
-            "extern char s_msg_10027000[];\n"
-            "int f(void) {\n"
-            "    __asm { push offset s_msg_10027000 }\n"
-            "    return 0;\n"
-            "}\n".encode("latin-1")
+            SourceFixture(
+                '\nchar *note = "café \x85 end";\n/* ADDRESS: TEST 0x1000 */\nextern char s_msg_10027000[];\nint f(void) {\n    __asm { push offset s_msg_10027000 }\n    return 0;\n}\n',
+                {"TEST.0x1000": {"kind": "FUNCTION"}},
+            ).encode("latin-1")
         )
         assert (
             define_remaining_strings(
@@ -205,11 +205,11 @@ class TestEncodingSafety:
         from rebrew.inline_strings import define_remaining_strings
 
         f = tmp_path / "a.c"
-        f.write_text(
-            "// FUNCTION: TEST 0x1000\n"
-            "extern char s_msg_10027000[];\n"
-            "int f(void) { __asm { push offset s_msg_10027000 } return 0; }",
+        write_source(
+            f,
+            "\nextern char s_msg_10027000[];\n/* ADDRESS: TEST 0x1000 */\nint f(void) { __asm { push offset s_msg_10027000 } return 0; }",
             encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
         define_remaining_strings(
             [f],
@@ -286,7 +286,7 @@ class TestNamedMode:
         src = self._project(tmp_path, monkeypatch)
         a = src / "a.c"
         a_text = 'char s_shared[] = "x";\nint f(void) { return s_shared[0]; }\n'
-        a.write_text(a_text, encoding="utf-8")
+        write_source(a, a_text, encoding="utf-8")
         (src / "b.c").write_text(
             "extern char s_shared[];\nint g(void) { return s_shared[0]; }\n", encoding="utf-8"
         )
@@ -318,7 +318,7 @@ class TestNamedMode:
             "    return s_asm[0];\n"
             "}\n"
         )
-        a.write_text(a_text, encoding="utf-8")
+        write_source(a, a_text, encoding="utf-8")
         payload = self._run()
         assert payload["named"] == 0
         files = payload["files"]
@@ -330,7 +330,7 @@ class TestNamedMode:
         src = self._project(tmp_path, monkeypatch)
         a = src / "a.c"
         a_text = 'char s_x[] = "x";\nchar *p(void) { return s_x; }\n'
-        a.write_text(a_text, encoding="utf-8")
+        write_source(a, a_text, encoding="utf-8")
         payload = self._run("--dry-run")
         assert payload["named"] == 1
         assert a.read_text(encoding="utf-8") == a_text

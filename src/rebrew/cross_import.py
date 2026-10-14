@@ -24,7 +24,6 @@ are left untouched and reported.
 from __future__ import annotations
 
 import heapq
-import re
 import shutil
 from dataclasses import replace
 from pathlib import Path
@@ -57,7 +56,7 @@ from rebrew.workspace.status import MATCHED_STATUSES
 if TYPE_CHECKING:
     from rebrew.compiler.cache import CacheBackend
     from rebrew.compiler.compile import CompareResult
-    from rebrew.metadata.annotation import Annotation
+    from rebrew.metadata.bindings import SourceBinding
 
 
 from rebrew.cli import console
@@ -147,11 +146,11 @@ def annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     Status comes from the metadata overlay (``rebrew-functions.toml`` via
     ``cfg.metadata_dir``); filepath is relative to ``cfg.reversed_dir``.
     """
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
 
     out: dict[int, tuple[str, str]] = {}
     for path in iter_sources(cfg.reversed_dir, cfg):
-        for ann in parse_c_file_multi(
+        for ann in read_source_bindings(
             path,
             target_name=target_marker(cfg),
             base_dir=cfg.reversed_dir,
@@ -324,7 +323,7 @@ def _merged_entry_body_size(
 
 
 def _verify_import(
-    entry: Annotation,
+    entry: SourceBinding,
     cfg_dst: ProjectConfig,
     *,
     cache: CacheBackend | None,
@@ -387,7 +386,7 @@ def _library_vas(cfg: ProjectConfig) -> set[int]:
     bodies in GOLDTL's ``0x5e0000-0x64ffff`` band against GOLD's copies before
     this filter existed.
     """
-    from rebrew.metadata.annotation import library_annotations_from_metadata, parse_c_file_multi
+    from rebrew.metadata.bindings import library_inventory_bindings, read_source_bindings
     from rebrew.sources import iter_library_headers
 
     reversed_dir = getattr(cfg, "reversed_dir", None)
@@ -396,12 +395,12 @@ def _library_vas(cfg: ProjectConfig) -> set[int]:
     modules = {preset_module_key(str(m)) for m in (getattr(cfg, "external_libs", None) or ())}
     out: set[int] = set()
     for path in iter_library_headers(reversed_dir, cfg):
-        for ann in parse_c_file_multi(path, metadata_dir=cfg.metadata_dir):
-            kind = str(getattr(ann, "marker_type", "") or "").upper()
+        for ann in read_source_bindings(path, metadata_dir=cfg.metadata_dir):
+            kind = str(getattr(ann, "kind", "") or "").upper()
             module = preset_module_key(str(getattr(ann, "module", "") or ""))
             if ann.va and (kind == "LIBRARY" or (module and module in modules)):
                 out.add(int(ann.va))
-    for ann in library_annotations_from_metadata(cfg.metadata_dir, reversed_dir):
+    for ann in library_inventory_bindings(cfg.metadata_dir, reversed_dir):
         if ann.va:
             out.add(int(ann.va))
     return out
@@ -461,143 +460,65 @@ def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> 
 # Import mechanics
 # ---------------------------------------------------------------------------
 
-#: A ``// FUNCTION: MOD 0xVA`` or ``/* FUNCTION: MOD 0xVA */`` marker line.
-#: ``\r?`` before the anchor: ``$`` matches at the end of a ``\r\n`` line only
-#: after the ``\r``, which ``[ \t]*`` cannot consume, so a CRLF source matched
-#: no marker at all ("no FUNCTION/LIBRARY/STUB marker found").
-_MARKER_RE = re.compile(
-    r"^(?P<indent>[ \t]*)(?P<open>//|/\*)\s*(?P<type>FUNCTION|LIBRARY|STUB)\s*:\s+"
-    r"(?P<module>[^\s]+)\s+(?P<va>0x[0-9a-fA-F]+)(?P<close>\s*\*/)?[ \t]*\r?$"
-)
 
-#: Any marker, including the data types ``_MARKER_RE`` does not rewrite.  The
-#: module filter below must see them too: a `// DATA: SERVER 0x...` line left in
-#: a copy is the same lint error (E012) as a foreign FUNCTION marker.
-_ANY_MARKER_RE = re.compile(
-    r"^(?P<indent>[ \t]*)(?P<open>//|/\*)\s*"
-    r"(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA|VTABLE|STRING)\s*:\s+"
-    r"(?P<module>[^\s]+)\s+(?P<va>0x[0-9a-fA-F]+)(?P<close>\s*\*/)?[ \t]*\r?$"
-)
+def _extract_function_text(text: str, name: str) -> str | None:
+    """Copy one C definition, its shared declarations and static dependencies."""
+    from rebrew.split import shared_preamble, source_layout, span_extent
 
-#: A ``// KEY: value`` (or ``/* KEY: value */``) line inside a marker block.
-_KV_RE = re.compile(r"^[ \t]*(?://|/\*)[ \t]*[A-Za-z_][A-Za-z0-9_]*:[ \t]*")
-
-#: A ``// SIZE: N`` or ``/* SIZE: N */`` key-value line inside the marker block.
-#: The block form must be matched too: the annotation parser accepts it and is
-#: last-wins, so inserting a second `// SIZE` before an existing `/* SIZE: */`
-#: left the SOURCE's size in force for the destination.
-_SIZE_KV_RE = re.compile(r"^[ \t]*(?://|/\*)[ \t]*SIZE:[ \t]*\S+(?:[ \t]*\*/)?")
-
-
-def _extract_function_text(text: str, src_va: int) -> str | None:
-    """Reduce a (possibly multi-function) source to preamble + the one block.
-
-    Cross-import previously copied the WHOLE source file into the destination
-    tree.  A multi-function SERVER file landed with every SERVER marker intact,
-    so the GOLDTL tree inherited E012 lint (foreign module marker) and
-    duplicated every co-resident function.  The imported copy must carry only
-    the matched function and the shared preamble/headers it needs to compile,
-    re-tagged for the destination.
-
-    Returns the block text (marker + body, still in the SOURCE module) or
-    ``None`` when *src_va* matches no marker block.
-    """
-    from rebrew.metadata.annotation import NEW_FUNC_CAPTURE_RE, split_annotation_sections
-
-    preamble, blocks = split_annotation_sections(text)
-    if not blocks:
+    raw, spans = source_layout(text)
+    functions = [span for span in spans if span.kind == "function"]
+    selected = [span for span in functions if span.name == name]
+    if not selected:
         return None
-    for block in blocks:
-        for line in block.splitlines():
-            m = NEW_FUNC_CAPTURE_RE.match(line.strip())
-            if m and int(m.group("va"), 16) == src_va:
-                return preamble + block
-    return None
+    if len(functions) == 1:
+        return text
+    if any(span.inside_pp for span in selected):
+        raise ValueError("cannot extract a conditional definition from a multi-function file")
+    copied = [
+        span
+        for span in spans
+        if span in selected or span.kind == "storage" or (span.kind == "function" and span.static)
+    ]
+    extents = [span_extent(raw, span, spans) for span in copied]
+    preamble = shared_preamble(raw, spans, extents)
+    return preamble + "\n".join(
+        raw[start:end].decode("utf-8", errors="surrogateescape") for start, end in extents
+    )
 
 
-def _rewrite_marker(text: str, _module: str, _va: int, _size: int) -> str:
-    """Return *text* with marker lines and their key-value comments removed.
+def _rewrite_address(text: str, module: str, va: int, *, name: str) -> str:
+    """A copied definition receives only the destination address."""
+    from rebrew.metadata.anchors import add_address_anchor, parse_address_anchors
 
-    The copy's identity is recorded in the destination store. The arguments
-    stay so existing positional callers keep working. Raises ValueError when
-    the text has no FUNCTION/LIBRARY/STUB marker.
-    """
-    from rebrew.metadata.marker_migration import strip_marker_blocks
-
-    lines = text.splitlines(keepends=True)
-    if not any(_MARKER_RE.match(line) for line in lines):
-        raise ValueError("no FUNCTION/LIBRARY/STUB marker found in source")
-    return "".join(strip_marker_blocks(lines))
-
-
-def _stack_marker(text: str, module: str, va: int, size: int) -> str:
-    """Return *text* unchanged.
-
-    A shared import records the destination row. It does not insert a marker
-    line. The arguments stay so existing callers keep their shape, and an
-    already-present claim stays idempotent.
-    """
-    del module, va, size
-    return text
-
-
-def _block_marker(block: str) -> tuple[str, int] | None:
-    """``(module, va)`` of a block's first marker line, or ``None``."""
-    from rebrew.metadata.annotation import NEW_FUNC_CAPTURE_RE
-
-    for line in block.splitlines():
-        m = NEW_FUNC_CAPTURE_RE.match(line.strip())
-        if m:
-            return str(m.group("module")), int(m.group("va"), 16)
-    return None
+    anchors = parse_address_anchors(text)
+    removed = {a.line for a in anchors if a.kind == "FUNCTION" and a.name == name}
+    body = "".join(
+        line for i, line in enumerate(text.splitlines(keepends=True), 1) if i not in removed
+    )
+    return add_address_anchor(body, module, va, name)
 
 
 def _strip_claim(block: str, claim: tuple[str, int]) -> str:
-    """Blank a superseded claim, keeping other owners and every source line."""
-    from rebrew.metadata.annotation import FUNC_NAME_HINT_RE, scan_annotation_lines
-    from rebrew.metadata.marker_migration import file_borne_comment
+    """Remove one superseded address while preserving the declaration and other targets."""
+    from rebrew.metadata.anchors import parse_address_anchors
 
-    lines = block.splitlines(keepends=True)
-    indexes, covered = scan_annotation_lines(lines)
-    markers = set(indexes)
-    matching = {
-        i
-        for i in indexes
-        if (m := _MARKER_RE.match(lines[i].strip())) is not None
-        and preset_module_key(m.group("module")) == preset_module_key(claim[0])
-        and int(m.group("va"), 16) == claim[1]
+    removed = {
+        a.line
+        for a in parse_address_anchors(block)
+        if preset_module_key(a.module) == preset_module_key(claim[0]) and a.va == claim[1]
     }
-    if not matching:
-        return block
-    start = 0
-    for i in range(len(lines) + 1):
-        if i < len(lines):
-            stripped = lines[i].strip()
-            if not stripped or covered[i] or stripped.startswith(("//", "/*")):
-                continue
-        header = set(range(start, i))
-        selected = matching & header
-        if selected:
-            blank = set(selected)
-            if not (markers & header) - selected:
-                for j in header:
-                    if covered[j]:
-                        continue
-                    text = lines[j].strip()
-                    if (
-                        _KV_RE.match(text) or FUNC_NAME_HINT_RE.match(text)
-                    ) and not file_borne_comment(text):
-                        blank.add(j)
-            for j in blank:
-                lines[j] = lines[j][len(lines[j].rstrip("\r\n")) :]
-        start = i + 1
-    return "".join(lines)
+    return "".join(
+        ("\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else "")
+        if i in removed
+        else line
+        for i, line in enumerate(block.splitlines(keepends=True), 1)
+    )
 
 
 def _retire_shared_stub(cfg: ProjectConfig, path: Path, claim: tuple[str, int]) -> bool:
     """Delete only an unowned single-body stub; return whether it was retired."""
     from rebrew.c_parser import find_c_function_definitions, find_variable_roles
-    from rebrew.metadata.annotation import scan_annotation_lines
+    from rebrew.metadata.anchors import parse_address_anchors
     from rebrew.metadata.data import load_data_metadata
     from rebrew.metadata.functions import identity_file, load_metadata, stored_file_matches
     from rebrew.utils import SOURCE_BACKUP_DIRNAME, source_backup
@@ -609,7 +530,7 @@ def _retire_shared_stub(cfg: ProjectConfig, path: Path, claim: tuple[str, int]) 
         *load_data_metadata(cfg.metadata_dir).values(),
     ]
     kept = _strip_claim(text, claim)
-    indexes, _covered = scan_annotation_lines(kept.splitlines(keepends=True))
+    indexes = parse_address_anchors(kept)
     definitions, _declarations, _uses = find_variable_roles(text)
     remaining = any(stored_file_matches(str(row.get("file") or ""), rel) for row in owners)
     if remaining or indexes or definitions or len(find_c_function_definitions(text)) != 1:
@@ -626,35 +547,6 @@ def _retire_shared_stub(cfg: ProjectConfig, path: Path, claim: tuple[str, int]) 
         return False
     path.unlink()
     return True
-
-
-def stack_marker_on_block(
-    text: str,
-    module: str,
-    va: int,
-    size: int,
-    src_module: str,
-    src_va: int,
-    drop: tuple[str, int] | None = None,
-) -> str | None:
-    """Whether *text* already contains the source function's block.
-
-    The unified (``shared_dir``) layout puts every target's sources in ONE tree
-    and often in ONE file. Importing there is not a copy: the body is already
-    in the file, and the caller records the destination row. Returns *text*
-    when a block for *src_module*/*src_va* exists, or ``None`` when it does
-    not. The file is not edited. *module*, *va*, *size*, and *drop* stay so
-    callers keep their shape.
-    """
-    from rebrew.metadata.annotation import split_annotation_sections
-
-    del module, va, size, drop
-    _preamble, blocks = split_annotation_sections(text)
-    for block in blocks:
-        for line in block.splitlines():
-            if _block_marker(line) == (src_module, src_va):
-                return text
-    return None
 
 
 def promote_to_shared(
@@ -745,11 +637,11 @@ def _retarget_moved_identity(cfg: Any, old_path: Path, new_path: Path) -> None:
     meta = getattr(cfg, "metadata_dir", None)
     if meta is None:
         return
-    from rebrew.metadata.data import load_data_metadata, record_migrated_data_markers
+    from rebrew.metadata.data import load_data_metadata, record_data_rows
     from rebrew.metadata.functions import (
         identity_file,
         load_metadata,
-        record_migrated_markers,
+        record_function_rows,
         validate_identity_file,
     )
 
@@ -771,14 +663,14 @@ def _retarget_moved_identity(cfg: Any, old_path: Path, new_path: Path) -> None:
         if _matches(entry)
     ]
     if rows:
-        record_migrated_markers(meta, rows)
+        record_function_rows(meta, rows)
     data_rows = [
         {"module": module, "va": va, "identity": {"file": new_rel}}
         for (module, va), entry in load_data_metadata(meta).items()
         if _matches(entry)
     ]
     if data_rows:
-        record_migrated_data_markers(meta, data_rows)
+        record_data_rows(meta, data_rows)
 
 
 def _import_result(
@@ -885,26 +777,25 @@ def import_shared_function(
         )
     module = target_marker(cfg_dst) or cfg_dst.target_name
 
-    from rebrew.metadata.annotation import (
-        FUNCTION_MARKERS,
-        NEW_FUNC_RE,
-        parse_c_file_multi,
-        split_annotation_sections,
+    from rebrew.metadata.bindings import (
+        FUNCTION_KINDS,
+        read_source_bindings,
+        split_address_sections,
     )
 
-    existing = parse_c_file_multi(
+    existing = read_source_bindings(
         target_path, target_name=module, metadata_dir=cfg_dst.metadata_dir
     )
     src_module = target_marker(cfg_src) or cfg_src.target_name
     superseded = any(e.va == dst_va for e in existing)
-    _preamble, blocks = split_annotation_sections(text)
+    _preamble, blocks = split_address_sections(text)
     already_on_source = False
     dst_elsewhere = False
     has_src = False
     for block in blocks:
-        claims = [
-            found for line in block.splitlines() if (found := _block_marker(line)) is not None
-        ]
+        from rebrew.metadata.anchors import parse_address_anchors
+
+        claims = [(a.module, a.va) for a in parse_address_anchors(block)]
         if (src_module, src_va) in claims:
             has_src = True
             if (module, dst_va) in claims:
@@ -922,10 +813,10 @@ def import_shared_function(
     # Managed identities can bind another definition in this same file.
     name, symbol = _symbol_for_va(text, src_module, src_va, target_path.stem)
     if name == target_path.stem:
-        for ann in parse_c_file_multi(
+        for ann in read_source_bindings(
             target_path, target_name=src_module, metadata_dir=getattr(cfg_src, "metadata_dir", None)
         ):
-            if ann.va == src_va and ann.name and ann.marker_type in FUNCTION_MARKERS:
+            if ann.va == src_va and ann.name and ann.kind in FUNCTION_KINDS:
                 name, symbol = ann.name, ann.symbol or ("_" + ann.name)
                 break
     prior = get_entry(cfg_dst.metadata_dir, dst_va, module)
@@ -948,7 +839,7 @@ def import_shared_function(
             message=note,
         )
 
-    from rebrew.metadata.annotation import Annotation
+    from rebrew.metadata.bindings import SourceBinding
     from rebrew.metadata.functions import remove_field, update_field
     from rebrew.verify import apply_status_updates
 
@@ -968,18 +859,40 @@ def import_shared_function(
     # The verify filepath resolves against the destination's reversed_dir —
     # a shared file becomes ``../shared/f.c`` via the standard helper.
     rel_dst = rel_display_path(target_path, cfg_dst.reversed_dir)
-    entry = Annotation(
+    entry = SourceBinding(
         va=dst_va,
         name=name,
         symbol=symbol,
         size=dst_size,
         filepath=rel_dst,
-        marker_type="FUNCTION",
+        kind="FUNCTION",
         status="STUB",
         module=module,
         cflags=cflags,
     )
-    result, body = _verify_import(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
+    # Removing a superseded address preserves physical lines and C semantics.
+    # Compare the exact candidate bytes so the stored input hash names that source.
+    candidate = _strip_claim(text, (module, dst_va)) if needs_move else text
+    from rebrew.utils import SOURCE_BACKUP_DIRNAME, source_backup
+
+    with source_backup(
+        target_path,
+        text,
+        _encoding,
+        Path(cfg_dst.root) / SOURCE_BACKUP_DIRNAME,
+        label="shared-import",
+        keep=candidate != text,
+    ):
+        try:
+            if candidate != text:
+                atomic_write_text(target_path, candidate, encoding=_encoding)
+            result, body = _verify_import(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
+        except BaseException:
+            if candidate != text:
+                atomic_write_text(target_path, text, encoding=_encoding)
+            raise
+        if not result.matched and candidate != text:
+            atomic_write_text(target_path, text, encoding=_encoding)
     # A failed new claim, and a failed move of an existing claim onto a
     # different body, must not promote STATUS. An existing claim that is
     # already on the source body still records the verify result.
@@ -999,25 +912,13 @@ def import_shared_function(
     else:
         if result.matched:
             from rebrew.metadata.functions import identity_file, record_function_identity
-            from rebrew.metadata.marker_migration import migrate_source_file
 
-            if NEW_FUNC_RE.search(text):
-                migrated = migrate_source_file(cfg_src, target_path, None, dry_run=False)
-                if migrated and migrated.get("skipped") == "unrecorded-markers":
-                    return _import_result(
-                        dst_va,
-                        src_va,
-                        action="error",
-                        status="READ_ERROR",
-                        filepath=rel_dst,
-                        message=f"{target_path.name} has marker lines that were not recorded",
-                    )
             record_function_identity(
                 cfg_dst.metadata_dir,
                 module=module,
                 va=dst_va,
                 file=identity_file(target_path, cfg_dst.metadata_dir),
-                marker_type="FUNCTION",
+                kind="FUNCTION",
                 name=name,
                 symbol=symbol,
                 size=body if body is not None else dst_size,
@@ -1117,48 +1018,31 @@ def import_function(
 
     module = target_marker(cfg_dst) or cfg_dst.target_name
     src_module = target_marker(cfg_src) or cfg_src.target_name
-    # Emit only the matched function, as pure C. Copying a multi-function
-    # source would duplicate the other functions. A marker-less file can be
-    # copied whole only when it holds this one function.
-    extracted = _extract_function_text(text, src_va)
-    if extracted is None:
-        from rebrew.metadata.annotation import FUNCTION_MARKERS, parse_c_file_multi
+    from rebrew.metadata.bindings import FUNCTION_KINDS, read_source_bindings
 
-        anns = [
+    donor = next(
+        (
             ann
-            for ann in parse_c_file_multi(
+            for ann in read_source_bindings(
                 src_path, target_name=src_module, metadata_dir=cfg_src.metadata_dir
             )
-            if ann.marker_type in FUNCTION_MARKERS
-        ]
-        if len(anns) == 1 and anns[0].va == src_va:
-            copied_name = anns[0].name
-            copied_symbol = anns[0].symbol or (f"_{copied_name}" if copied_name else "")
-            rewritten = text
-        elif len(anns) > 1:
-            return _import_result(
-                dst_va,
-                src_va,
-                action="error",
-                status="NO_MARKER",
-                filepath=src_file,
-                message=(
-                    f"source {src_file} has more than one function and no marker "
-                    f"to split at 0x{src_va:x}"
-                ),
-            )
-        else:
-            return _import_result(
-                dst_va,
-                src_va,
-                action="error",
-                status="NO_MARKER",
-                filepath=src_file,
-                message=f"source {src_file} has no function row for 0x{src_va:x}",
-            )
-    else:
-        copied_name, copied_symbol = _symbol_for_va(extracted, src_module, src_va, src_path.stem)
-        rewritten = _rewrite_marker(extracted, module, dst_va, dst_size)
+            if ann.va == src_va and ann.kind in FUNCTION_KINDS
+        ),
+        None,
+    )
+    extracted = _extract_function_text(text, donor.name) if donor is not None else None
+    if donor is None or extracted is None:
+        return _import_result(
+            dst_va,
+            src_va,
+            action="error",
+            status="NO_DEFINITION",
+            filepath=src_file,
+            message=f"source {src_file} has no definition for 0x{src_va:x}",
+        )
+    copied_name = donor.name
+    copied_symbol = donor.symbol or ("_" + donor.name)
+    rewritten = _rewrite_address(extracted, module, dst_va, name=copied_name)
     if dst_file is None:
         # Keep the source's path relative to its own reversed_dir: it gives
         # one destination file per source file (two imports out of one
@@ -1187,14 +1071,19 @@ def import_function(
     # the marker onto the body already in the file.  Checked before the
     # dry-run return so the preview lists it.
     if dst_path.exists():
-        from rebrew.metadata.annotation import parse_c_file_multi
+        from rebrew.metadata.bindings import read_source_bindings
 
-        existing = parse_c_file_multi(dst_path, target_name=module)
+        existing = read_source_bindings(
+            dst_path, target_name=module, metadata_dir=cfg_dst.metadata_dir
+        )
         own = [e for e in existing if e.va == dst_va]
         other = [e for e in existing if e.va != dst_va]
         src_module = target_marker(cfg_src) or cfg_src.target_name
         src_in_file = any(
-            e.va == src_va for e in parse_c_file_multi(dst_path, target_name=src_module)
+            e.va == src_va
+            for e in read_source_bindings(
+                dst_path, target_name=src_module, metadata_dir=cfg_src.metadata_dir
+            )
         )
         if not own or other or src_in_file:
             if src_in_file:
@@ -1261,7 +1150,7 @@ def import_function(
     # promote STATUS exactly like `rebrew verify` would.  A wrong match
     # compiles to bytes that don't compare → NEAR_MATCHING/STUB — the source
     # stays but is not promoted as matched.
-    from rebrew.metadata.annotation import Annotation
+    from rebrew.metadata.bindings import SourceBinding
     from rebrew.metadata.functions import update_field
     from rebrew.verify import apply_status_updates
 
@@ -1285,20 +1174,20 @@ def import_function(
         module=module,
         va=dst_va,
         file=identity_file(dst_path, cfg_dst.metadata_dir),
-        marker_type="FUNCTION",
+        kind="FUNCTION",
         name=copied_name,
         symbol=copied_symbol,
         size=dst_size,
     )
     update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module, updated_by="cross-import")
 
-    entry = Annotation(
+    entry = SourceBinding(
         va=dst_va,
         name=copied_name,
         symbol=copied_symbol,
         size=dst_size,
         filepath=rel_dst,
-        marker_type="FUNCTION",
+        kind="FUNCTION",
         status="STUB",
         module=module,
         cflags=cflags,
@@ -1311,7 +1200,7 @@ def import_function(
             module=module,
             va=dst_va,
             file=identity_file(dst_path, cfg_dst.metadata_dir),
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             name=copied_name,
             symbol=copied_symbol,
             overwrite_name=True,
@@ -1334,22 +1223,13 @@ def import_function(
 
 
 def _symbol_for_va(text: str, module: str, va: int, fallback: str) -> tuple[str, str]:
-    """``(name, symbol)`` of the function the *module*/*va* marker annotates.
+    """The C definition attached to a target address, with native symbol decoration."""
+    from rebrew.metadata.anchors import parse_address_anchors
+    from rebrew.metadata.bindings import derive_c_symbol
 
-    Read with the annotation parser ``rebrew test`` and ``rebrew verify`` use,
-    so the import verifies the symbol those commands look up: the definition
-    line of the marker's own block (a marker stacked above another block
-    shares its definition), decorated for ``__stdcall``/``__fastcall``.
-    Declarations, struct members and a macro before the name
-    (``int ZEXPORT deflate(...)``) never name it, even when an ``__asm`` body
-    leaves the file without a parseable definition.  Without a definition the
-    name is *fallback*.
-    """
-    from rebrew.metadata.annotation import parse_new_format_multi
-
-    for ann in parse_new_format_multi(text.splitlines()):
-        if preset_module_key(ann.module) == preset_module_key(module) and ann.va == va and ann.name:
-            return ann.name, ann.symbol
+    for anchor in parse_address_anchors(text):
+        if preset_module_key(anchor.module) == preset_module_key(module) and anchor.va == va:
+            return anchor.name, derive_c_symbol(anchor.name, anchor.prototype)
     return fallback, "_" + fallback
 
 
@@ -1360,10 +1240,10 @@ def _source_flags(cfg_src: ProjectConfig, src_path: Path, src_va: int) -> str:
     source built at ``/O1`` would not compare under the destination's ``/O2``.
     """
     from rebrew.compiler.overrides import resolve_cflags
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
 
     try:
-        anns = parse_c_file_multi(
+        anns = read_source_bindings(
             src_path,
             target_name=target_marker(cfg_src),
             metadata_dir=cfg_src.metadata_dir,

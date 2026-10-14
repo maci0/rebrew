@@ -1,143 +1,73 @@
-# Annotation Format Reference
+# Source addresses and metadata
 
-## What goes in the `.c` file
-
-New writers emit pure C and record a `MODULE.0xVA` row. An unmigrated file
-may still carry a MODULE/VA marker. SIZE and CFLAGS are metadata-owned.
-`rebrew source migrate-markers` moves function identity into `rebrew-functions.toml`
-and data identity into `rebrew-data.toml`, and leaves pure C. An inline blocker,
-note, ghidra name, skip, and globals list move with the function row. A value
-already in the store wins. `// SOURCE: naked`, `// STRUCT:`, and `// CALLERS:`
-stay in the file. Do not add markers back to migrated files.
-
-Unmigrated input the parser still reads:
+All Rebrew state lives in dedicated metadata files. C source may carry optional
+address anchors immediately above a function definition, variable declaration,
+or data constant:
 
 ```c
-// FUNCTION: SERVER 0x10008880
+/* ADDRESS: SERVER 0x10001000 */
+/* ADDRESS: CLIENT 0x00402000 */
+int tick(void) { return 1; }
 
-int __cdecl bit_reverse(int x)
-{
-    return x;
-}
+/* ADDRESS: SERVER 0x10025000 */
+extern const unsigned char lookup[256];
 ```
 
-Unmigrated library input:
+Each anchor identifies exactly the next C declaration. Stack one line per target
+when targets share the declaration. Blank lines and comments may intervene;
+preprocessor directives and other code may not. Multiple declarators on one line
+are ambiguous and rejected. An extern is a declaration, never a storage owner.
+Generated C uses C89-safe block comments. Strings and function-body comments do
+not establish identities.
 
-```c
-// LIBRARY: SERVER 0x10023714
+`rebrew source register [SOURCE] --dry-run` previews identities recovered from
+these addresses; run without `--dry-run` to record them. It validates the complete
+selection before writes and preserves existing metadata fields. With no SOURCE,
+it scans configured sources and headers. `--support "reason"` with one source
+records its target-scoped support purpose in `rebrew-source.toml`.
 
-int stub(void) { return 0; }
-```
+Sources without addresses remain supported through stored `file`, `symbol`,
+`name`, and `kind` identities. Library inventories without a C declaration are
+metadata-only. No fake definitions or storage are needed for inventory rows.
 
-`LIBRARY` is origin. The provider is separate: a project `.c` is built from
-source, and a unique member of a configured external archive is statically
-linked. A row with neither stays unresolved. When both exist, the source wins.
+## Managed stores
 
-Unmigrated stub input:
-```c
-// STUB: SERVER 0x1002dead
+Function and data stores require `format = 2`, then qualified `MODULE.0xVA`
+tables. `rebrew-source.toml` requires format 2 and the `definitions` and `files`
+tables. No older schema or inline metadata blocks are read, including during
+registration. `kind` is the sole identity field for classification.
 
-int stub(void) { return 0; }
-```
-
-> [!CAUTION]
-> **Never manually edit `rebrew-functions.toml`.** All volatile metadata (STATUS, SIZE, CFLAGS,
-> BLOCKER, NOTE, GHIDRA, …; full key list in the SKILL.md caution) is managed exclusively by Rebrew CLI tools:
-> - `rebrew test` / `rebrew verify` → STATUS (EXACT/RELOC auto-promote; `--no-promote` skips the test write). Those clear BLOCKER unless the file still has `__asm`, `_asm`, or `__emit`
-> - `rebrew blocker set/clear` → BLOCKER / BLOCKER_DELTA (ad-hoc; for STUBs diff cannot classify)
-> - `rebrew diff --fix-blocker` / `rebrew diagnose near --fix-blocker` → BLOCKER / BLOCKER_DELTA (auto-classified)
-> - `rebrew source document-unmatched` → STUB skeletons + BLOCKER for every unmatched function
-> - `rebrew sync pull --state-dir <dir>` → NOTE, GHIDRA
-
-## What goes in `rebrew-functions.toml` metadata file
-
-Illustrative managed output, not a file to edit:
+Illustrative managed output (use the CLI or locked owner APIs to edit):
 
 ```toml
-["SERVER.0x10008880"]
-status = "EXACT"
-size = 31
+format = 2
 
-["SERVER.0x10023714"]
+["SERVER.0x10001000"]
+file = "src/tick.c"
+name = "tick"
+symbol = "_tick"
+kind = "FUNCTION"
+size = 16
 status = "STUB"
-size = 103
-cflags = "/O1"
-blocker = "missing CRT internals"
-source = "ENVIRON.C"
 ```
 
-The metadata file lives **only** at `cfg.metadata_dir`: the parent of `reversed_dir` (e.g.
-`src/` for sources under `src/<target>/`) when a store sits there, otherwise the outermost
-`rebrew-functions.toml` found walking up to the project root, so one store serves every
-target of a multi-target project. The loader does no walk-up of its own: it reads exactly
-`directory / rebrew-functions.toml`, so library code must pass `cfg.metadata_dir`, not the
-`.c` file's directory. This includes **`rebrew lint`**,
-which reads the metadata file before validation so that STATUS, SIZE, CFLAGS etc. are accessible
-even when not present inline.
+`rebrew-functions.toml` owns identity, size, flags, toolchain, blockers, notes,
+external origins, verification evidence, STRUCT/CALLERS information, and
+`source = "naked"` for generated assembly reconstructions. `rebrew-data.toml`
+owns data identity, type, extent, section, storage relationships and data
+verification. `rebrew-source.toml` owns assembly evidence for definitions without
+a native address and target-scoped file purposes. File paths are relative to
+`cfg.metadata_dir`; pass that directory to readers and writers.
 
-## Status Progression
+Never hand-edit these stores. Writers use their owning metadata APIs, locks,
+atomic replacement and mode 0444. STATUS is earned only by comparison through
+`rebrew test` / `rebrew verify`; an address or registration is no match evidence.
+`PROVEN` is not a byte match. Library origin and actual linked provider remain
+separate; a signature candidate is not a verified provider.
 
-STUB -> NEAR_MATCHING -> RELOC -> EXACT
-           \-> PROVEN (via rebrew prove)
+Function and data verification have separate denominators. Data aliases are
+views into one backing allocation, externs are users or declarations, and BSS
+is not initialized file data. Preserve canonical provenance and stored comparison
+inputs when moving or renaming identities.
 
-A RELOC function also becomes EXACT (linked EXACT) when its bytes in the raw
-link equal the reference with no masking: `rebrew verify --text --raw-link`
-records it with the image path and hash in `verification`. It stays EXACT while
-the compile inputs and image hash are unchanged; otherwise the object verdict
-(RELOC or worse) is recorded.
-
-Byte verdicts come from `rebrew test` / `rebrew verify`, including regressions.
-PROVEN records bounded semantic evidence, earns no matched bytes, and the next
-byte verdict replaces it. Never edit STATUS by hand.
-
-`updated_by` / `updated_at` describe ordinary edits. `origins` holds per-field
-external source facts; `verification` holds the comparison inputs and measurement
-time independently. Repeating identical evidence preserves its timestamp;
-changing source, headers, or compiler inputs requires another comparison.
-
-## Multi-Target
-
-One pure-C body, one `MODULE.0xVA` row per target. Both rows name that file:
-
-```c
-void my_func(void) {}
-```
-
-```toml
-# One rebrew-functions.toml at cfg.metadata_dir (e.g. src/ for src/<target>/):
-["LEGO1.0x1009a8c0"]
-file = "shared/my_func.c"
-marker_type = "FUNCTION"
-status = "EXACT"
-size = 42
-
-["BETA10.0x101832f7"]
-file = "shared/my_func.c"
-marker_type = "FUNCTION"
-status = "NEAR_MATCHING"
-size = 42
-blocker = "register allocation"
-```
-
-The qualified key is the address an unmigrated marker line used to spell.
-Two images can share a VA. An unmigrated file may still stack one marker
-line per target; `rebrew source merge` and `rebrew source split` still
-rearrange those lines. A migrated file is split from the row: the definition
-moves, storage stays, and every row that shares it is retargeted. A migrated
-merge copies the definitions into one file and retargets every row that names
-an input.
-`import-related --shared` records the destination row on the one file.
-
-Shared files live under `src/shared` (one `MODULE.0xVA` row per target, per-target
-`STATUS`). Shared headers live there too: a shared source finds them by
-bare name (the shared root is on the include path). Move a per-target file
-there with `rebrew source import-related --from <src> --promote`; import with
-`--shared` instead of copying.
-
-## Data Annotations
-
-Data rows live in `rebrew-data.toml` (`file` plus `marker_type`). An unmigrated
-`// DATA:` or `// GLOBAL:` line is still read, and `rebrew source migrate-markers`
-moves it out of `.c` sources with the function markers, including a note when
-the row lacks one. A marker-less header
-is read from its row. Load `rebrew-data-analysis` before touching a global.
+See the project AGENTS.md and the metadata owner API documentation.

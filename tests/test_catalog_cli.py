@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
 import rebrew.catalog.cli as catalog_cli
@@ -122,9 +123,11 @@ class TestCatalogCli:
         cfg.source_ext = ".c"
         cfg.marker = "T"
         func_c = cfg.reversed_dir / "func.c"
-        func_c.write_text(
-            "// FUNCTION: T 0x1000\n// SIZE: 32\nint f_a(void) { return 0; }\n",
+        write_source(
+            func_c,
+            "/* ADDRESS: T 0x1000 */\n\nint f_a(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"T.0x1000": {"kind": "FUNCTION", "size": 32}},
         )
         # --fix-sizes picks the files worth re-parsing out of the scan the
         # pipeline already ran, so this case needs the real scan.
@@ -165,9 +168,11 @@ class TestCatalogCli:
         cfg = _patch(monkeypatch, tmp_path)
         cfg.source_ext = ".c"
         cfg.marker = "T"
-        (cfg.reversed_dir / "func.c").write_text(
-            "// FUNCTION: T 0x1000\n// SIZE: 64\nint f_a(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "func.c",
+            "/* ADDRESS: T 0x1000 */\n\nint f_a(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"T.0x1000": {"kind": "FUNCTION", "size": 64}},
         )
         from rebrew.catalog.loaders import scan_reversed_dir
 
@@ -189,13 +194,13 @@ class TestCatalogCli:
             },
         )
         parsed: list[Path] = []
-        real_parse = catalog_cli.parse_c_file_multi
+        real_parse = catalog_cli.read_source_bindings
 
         def spy(path: Path, *a: object, **k: object) -> object:
             parsed.append(path)
             return real_parse(path, *a, **k)  # type: ignore[arg-type]
 
-        monkeypatch.setattr(catalog_cli, "parse_c_file_multi", spy)
+        monkeypatch.setattr(catalog_cli, "read_source_bindings", spy)
         r = runner.invoke(catalog_cli.app, ["--fix-sizes"], input="y\n")
         assert r.exit_code == 0
         assert "Updated 0 SIZE annotations" in r.output
@@ -217,13 +222,13 @@ class TestCatalogCli:
 
 class TestCatalogCliSummary:
     def _entries(self) -> list[dict]:
-        # Shape mirrors Annotation.to_dict() (which always emits size +
-        # is_function/is_data alongside marker_type).
+        # Shape mirrors SourceBinding.to_dict() (which always emits size +
+        # is_function/is_data alongside kind).
         return [
             {
                 "va": 0x1000,
                 "module": "GAME",
-                "marker_type": "FUNCTION",
+                "kind": "FUNCTION",
                 "status": "EXACT",
                 "size": 64,
                 "is_function": True,
@@ -232,7 +237,7 @@ class TestCatalogCliSummary:
             {
                 "va": 0x2000,
                 "module": "GAME",
-                "marker_type": "FUNCTION",
+                "kind": "FUNCTION",
                 "status": "RELOC",
                 "size": 32,
                 "is_function": True,
@@ -241,7 +246,7 @@ class TestCatalogCliSummary:
             {
                 "va": 0x3000,
                 "module": "ZLIB",
-                "marker_type": "FUNCTION",
+                "kind": "FUNCTION",
                 "status": "NEAR_MATCHING",
                 "size": 16,
                 "is_function": True,
@@ -250,7 +255,7 @@ class TestCatalogCliSummary:
             {
                 "va": 0x4000,
                 "module": "GAME",
-                "marker_type": "FUNCTION",
+                "kind": "FUNCTION",
                 "status": "STUB",
                 "size": 8,
                 "is_function": True,
@@ -259,7 +264,7 @@ class TestCatalogCliSummary:
             {
                 "va": 0x5000,
                 "module": "GAME",
-                "marker_type": "DATA",
+                "kind": "DATA",
                 "status": "EXACT",
                 "size": 4,
                 "is_function": False,
@@ -346,9 +351,11 @@ def _write_project(tmp_path: Path) -> Path:
     """Minimal on-disk project: config, one reversed source, one inventory entry."""
     reversed_dir = tmp_path / "original"
     reversed_dir.mkdir()
-    (reversed_dir / "func.c").write_text(
-        "// FUNCTION: GAME 0x10001000\n// STATUS: EXACT\n// SIZE: 16\nint f(void) { return 0; }\n",
+    write_source(
+        reversed_dir / "func.c",
+        "/* ADDRESS: GAME 0x10001000 */\n\n\nint f(void) { return 0; }\n",
         encoding="utf-8",
+        metadata_fields={"GAME.0x10001000": {"kind": "FUNCTION", "size": 16}},
     )
     (reversed_dir / "function_structure.json").write_text(
         json.dumps([{"va": 0x10001000, "size": 16, "name": "f"}]), encoding="utf-8"
@@ -378,11 +385,16 @@ class TestRunCatalog:
             ),
             encoding="utf-8",
         )
-        (root / "original" / "library_msvc.h").write_text(
-            "// LIBRARY: GAME 0x10002000\n", encoding="utf-8"
+        write_source(
+            root / "original" / "library_msvc.h",
+            "/* library inventory */\n",
+            encoding="utf-8",
+            metadata_fields={"GAME.0x10002000": {"kind": "LIBRARY"}},
         )
-        (root / "rebrew-functions.toml").write_text(
-            '["GAME.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8"
+        write_store_fixture(
+            root / "rebrew-functions.toml",
+            'format = 2\n["GAME.0x10001000"]\nstatus = "EXACT"\n["GAME.0x10002000"]\nkind = "LIBRARY"\nfile = "original/library_msvc.h"\n',
+            encoding="utf-8",
         )
         cfg = load_config(root=root)
 

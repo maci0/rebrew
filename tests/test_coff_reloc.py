@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from source_util import write_source
 
 from rebrew.coff_reloc import build_name_to_va
 from rebrew.config import load_config
@@ -39,10 +40,10 @@ libs = ""
 
 
 class _FakeAnn:
-    def __init__(self, name: str, va: int, marker_type: str) -> None:
+    def __init__(self, name: str, va: int, kind: str) -> None:
         self.name = name
         self.va = va
-        self.marker_type = marker_type
+        self.kind = kind
         self.module = "GAME"
 
 
@@ -114,12 +115,11 @@ def test_name_map_does_not_walk_variable_roles(
     (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
     src = tmp_path / "src"
     src.mkdir()
-    (src / "g.c").write_text(
-        "// GLOBAL: GAME 0x401000\n"
-        "int shared_value;\n"
-        "// FUNCTION: GAME 0x1000\n"
-        "int f(void) { return shared_value; }\n",
+    write_source(
+        src / "g.c",
+        "/* ADDRESS: GAME 0x401000 */\nint shared_value;\n/* ADDRESS: GAME 0x1000 */\nint f(void) { return shared_value; }\n",
         encoding="utf-8",
+        metadata_fields={"GAME.0x401000": {"kind": "GLOBAL"}, "GAME.0x1000": {"kind": "FUNCTION"}},
     )
     cfg = load_config(root=tmp_path)
     calls = {"n": 0}
@@ -151,27 +151,29 @@ def test_function_catalog_scan_is_marker_scoped(
 
     import rebrew.coff_reloc as cr
     import rebrew.data_scan as data_mod
-    import rebrew.metadata.annotation as annotation_mod
+    import rebrew.metadata.bindings as annotation_mod
     import rebrew.metadata.data as dm_mod
 
     src = tmp_path / "src"
     src.mkdir()
     shared = src / "shared.c"
-    shared.write_text(
-        "// FUNCTION: GAME 0x1000\nvoid shared_fn(void) {}\n"
-        "// FUNCTION: OTHER 0x5000\nvoid shared_fn(void) {}\n",
+    write_source(
+        shared,
+        "/* ADDRESS: GAME 0x1000 */\nvoid shared_fn(void) {}\n/* ADDRESS: OTHER 0x5000 */\nvoid shared_fn(void) {}\n",
         encoding="utf-8",
+        metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}, "OTHER.0x5000": {"kind": "FUNCTION"}},
+        metadata_dir=tmp_path,
     )
 
     seen: list[str | None] = []
-    real_parse = annotation_mod.parse_c_file_multi
+    real_parse = annotation_mod.read_source_bindings
 
     def spy(path, target_name=None, *args, **kwargs):  # type: ignore[no-untyped-def]
         seen.append(target_name)
         return real_parse(path, target_name, *args, **kwargs)
 
     monkeypatch.setattr(cr, "iter_sources", lambda _dir, _cfg: [shared])
-    monkeypatch.setattr(annotation_mod, "parse_c_file_multi", spy)
+    monkeypatch.setattr(annotation_mod, "read_source_bindings", spy)
     monkeypatch.setattr(
         data_mod,
         "scan_globals",

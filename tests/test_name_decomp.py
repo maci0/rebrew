@@ -1,5 +1,7 @@
 """Tests for name_decomp.py — applying known struct names to decompiler output."""
 
+from source_util import write_source
+
 from rebrew.name_decomp import (
     apply_known_names,
     struct_definitions_to_layouts,
@@ -535,16 +537,12 @@ class TestCli:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
-        (src / "f.c").write_text(
-            "// FUNCTION: SERVER 0x401000\n"
-            "typedef struct command_s {\n"
-            "\tchar gap_0000[0x10];\n"
-            "\tchar field_10;\n"
-            "\tchar gap_0011[0x3];\n"
-            "\tint field_14;\n"
-            "} command_s;\n"
-            "int f(void) { return 0; }\n",
+        write_source(
+            src / "f.c",
+            "\ntypedef struct command_s {\n\tchar gap_0000[0x10];\n\tchar field_10;\n\tchar gap_0011[0x3];\n\tint field_14;\n} command_s;\n/* ADDRESS: SERVER 0x401000 */\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(
             target_name="SERVER",
@@ -581,8 +579,12 @@ class TestCli:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
-        (src / "f.c").write_text(
-            "// FUNCTION: SERVER 0x401000\nint f(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: SERVER 0x401000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(
             target_name="SERVER",

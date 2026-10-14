@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from rich.console import Console
+from source_util import write_source
 
 from rebrew.diff import classify_blockers
 from rebrew.match_sweep import print_structural_similarity
@@ -133,9 +134,12 @@ class TestDiffSourceResolution:
         from typer.testing import CliRunner
 
         src = tmp_path / "target_func.c"
-        src.write_text(
-            "// FUNCTION: GAME 0x1000\n// STATUS: NEAR_MATCHING\nint f(void) { return 0; }\n",
+        write_source(
+            src,
+            "/* ADDRESS: GAME 0x1000 */\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path.parent,
         )
         cfg = SimpleNamespace(
             root=tmp_path,

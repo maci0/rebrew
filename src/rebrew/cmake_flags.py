@@ -45,7 +45,7 @@ from rebrew.cli import (
 from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
 from rebrew.lint_cflags import codegen_cflags_key
-from rebrew.metadata.annotation import parse_c_file_multi
+from rebrew.metadata.bindings import read_source_bindings
 from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, preset_module_key
 from rebrew.workspace.config import config_path
@@ -109,10 +109,10 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str]
     for src in iter_sources(cfg.reversed_dir, cfg):
         entries = [
             e
-            for e in parse_c_file_multi(src, metadata_dir=cfg.metadata_dir)
+            for e in read_source_bindings(src, metadata_dir=cfg.metadata_dir)
             if e.va
             and preset_module_key(e.module) == preset_module_key(marker)
-            and (not e.marker_type or e.marker_type.upper() in CODE_MARKERS)
+            and (not e.kind or e.kind.upper() in CODE_MARKERS)
         ]
         if not entries:
             continue

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 from rebrew.catalog.loaders import load_ghidra_data_labels
 from rebrew.catalog.registry import RegistryEntry, is_jump_table
-from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.bindings import SourceBinding
 from rebrew.metadata.data import DATA_STATUS_UNCHECKED
 from rebrew.sections import (
     get_globals,
@@ -53,7 +53,7 @@ _STATUS_PRIORITY = (
 )
 
 
-def count_statuses(by_va: dict[int, list[Annotation]]) -> dict[str, int]:
+def count_statuses(by_va: dict[int, list[SourceBinding]]) -> dict[str, int]:
     """Count function VAs by highest-priority status present.
 
     GLOBAL/DATA markers are excluded.  Returns a dict keyed by the five
@@ -72,7 +72,7 @@ def count_statuses(by_va: dict[int, list[Annotation]]) -> dict[str, int]:
 
 
 def covered_bytes(
-    by_va: dict[int, list[Annotation]],
+    by_va: dict[int, list[SourceBinding]],
     sizes: dict[int, int],
     section: tuple[int, int] | None = None,
 ) -> int:
@@ -240,7 +240,7 @@ def _build_cells(
 
 
 def build_coverage_data(
-    entries: list[Annotation],
+    entries: list[SourceBinding],
     funcs: list[dict[str, Any]],
     text_size: int,
     bin_path: Path | None = None,
@@ -256,7 +256,7 @@ def build_coverage_data(
     classification from annotations and the target binary.  Includes
     absorption of jump tables and out-of-line code into parent functions.
     """
-    by_va: dict[int, list[Annotation]] = {}
+    by_va: dict[int, list[SourceBinding]] = {}
     for e in entries:
         # GLOBAL/DATA markers describe data globals, not code functions
         if e.is_data:
@@ -362,7 +362,7 @@ def build_coverage_data(
     layout_omitted = 0
 
     functions = {}
-    emitted_by_va: dict[int, list[Annotation]] = {}
+    emitted_by_va: dict[int, list[SourceBinding]] = {}
     for va in sorted(unique_vas):
         elist = by_va[va]
         e = elist[0]
@@ -422,7 +422,7 @@ def build_coverage_data(
             "size": canonical_size,
             "status": e["status"],
             "module": e["module"],
-            "markerType": e["marker_type"],
+            "markerType": e["kind"],
             "cflags": e["cflags"],
             "symbol": e["symbol"],
             "fileOffset": file_off,

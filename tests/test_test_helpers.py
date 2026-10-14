@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 import typer
+from source_util import write_source, write_store_fixture
 
 from rebrew.compiler.compile import CompareResult
 from rebrew.test import (
@@ -28,7 +29,7 @@ class TestExpandRelocOffsets:
 
 class TestMarkerVaFromAnnotation:
     """A shared file carries one ``// FUNCTION:`` marker per target and
-    ``parse_source_metadata`` is first-block only, so the file's first marker
+    ``read_function_fields`` is first-block only, so the file's first marker
     is not necessarily the active target's."""
 
     @staticmethod
@@ -242,8 +243,10 @@ class TestSizePersistence:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "single.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint f1(void) { return 1; }\n"
+        write_source(
+            src_dir / "single.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint f1(void) { return 1; }\n",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
 
         monkeypatch.setattr(
@@ -265,7 +268,7 @@ class TestSizePersistence:
         assert result.exit_code == 1, result.output
         meta = (tmp_path / "rebrew-functions.toml").read_text()
         assert "size = 4" in meta
-        assert "status" not in meta, meta
+        assert 'status = "STUB"' in meta, meta
 
     def test_persists_size_on_promote(self, tmp_path: Path, monkeypatch: Any) -> None:
         import shutil
@@ -286,7 +289,11 @@ class TestSizePersistence:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "f.c").write_text("// FUNCTION: X 0x1000\nint f(void) { return 1; }\n")
+        write_source(
+            src_dir / "f.c",
+            "/* ADDRESS: X 0x1000 */\nint f(void) { return 1; }\n",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+        )
 
         def _fake_compile(*a, **k):
             return CompareResult(
@@ -336,9 +343,13 @@ class TestSizePersistence:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "multi.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint f1(void) { return 1; }\n\n"
-            f"// FUNCTION: {module} 0x2000\nint f2(void) {{ return 2; }}\n"
+        write_source(
+            src_dir / "multi.c",
+            f"/* ADDRESS: SERVER 0x1000 */\nint f1(void) {{ return 1; }}\n\n/* ADDRESS: {module} 0x2000 */\nint f2(void) {{ return 2; }}\n",
+            metadata_fields={
+                "SERVER.0x1000": {"kind": "FUNCTION"},
+                f"{module}.0x2000": {"kind": "FUNCTION"},
+            },
         )
 
         monkeypatch.setattr(
@@ -365,7 +376,7 @@ class TestSizePersistence:
         if selector:
             assert "SERVER.0x00002000" not in meta
         # The first function's entry is untouched (no status written for it).
-        assert "SERVER.0x00001000" not in meta
+        assert 'status = "STUB"' in meta
 
     def test_no_promote_skips_size_write(self, tmp_path: Path, monkeypatch: Any) -> None:
         import shutil
@@ -386,7 +397,11 @@ class TestSizePersistence:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "f.c").write_text("// FUNCTION: TEST 0x1000\nint f(void) { return 1; }\n")
+        write_source(
+            src_dir / "f.c",
+            "/* ADDRESS: TEST 0x1000 */\nint f(void) { return 1; }\n",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
+        )
 
         monkeypatch.setattr(
             "rebrew.test.compile_and_compare",
@@ -437,7 +452,11 @@ class TestFixSize:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "f.c").write_text("// FUNCTION: X 0x1000\nvoid __stdcall f(int a) { g = a; }\n")
+        write_source(
+            src_dir / "f.c",
+            "/* ADDRESS: X 0x1000 */\nvoid __stdcall f(int a) { g = a; }\n",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+        )
 
     def _size_mismatch_result(self, match_percent: float) -> CompareResult:
         return CompareResult(
@@ -580,11 +599,10 @@ class TestFixSize:
             '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src = tmp_path / "src" / "x" / "f.c"
-        src.write_text(
-            "// FUNCTION: A 0x1000\n"
-            "void __stdcall f(int a) { g = a; }\n"
-            "// FUNCTION: B 0x2000\n"
-            "void __stdcall f2(int a) { g = a; }\n"
+        write_source(
+            src,
+            "/* ADDRESS: A 0x1000 */\nvoid __stdcall f(int a) { g = a; }\n/* ADDRESS: B 0x2000 */\nvoid __stdcall f2(int a) { g = a; }\n",
+            metadata_fields={"A.0x1000": {"kind": "FUNCTION"}, "B.0x2000": {"kind": "FUNCTION"}},
         )
         monkeypatch.setattr(
             "rebrew.test.compile_and_compare",
@@ -639,11 +657,16 @@ class TestUnchangedStatusCachePatch:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "f.c").write_text("// FUNCTION: X 0x1000\nint f(void) { return 1; }\n")
+        write_source(
+            src_dir / "f.c",
+            "/* ADDRESS: X 0x1000 */\nint f(void) { return 1; }\n",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+        )
         # The annotation already carries the same status the compile yields, so
         # should_promote_status refuses the write and only the cache patch runs.
-        (tmp_path / "src" / "rebrew-functions.toml").write_text(
-            '["X.0x00001000"]\nstatus = "NEAR_MATCHING"\n'
+        write_store_fixture(
+            tmp_path / "src" / "rebrew-functions.toml",
+            'format = 2\n["X.0x00001000"]\nstatus = "NEAR_MATCHING"\n',
         )
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(
@@ -691,9 +714,14 @@ class TestMultiUnchangedStatusCachePatch:
         import typer
 
         import rebrew.test as testmod
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
-        (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(int a) { g = a; }\n")
+        write_source(
+            tmp_path / "f.c",
+            "/* ADDRESS: X 0x1000 */\nvoid f(int a) { g = a; }\n",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
         cfg = NS(
             target_binary=str(tmp_path / "x.bin"),
             metadata_dir=tmp_path,
@@ -703,8 +731,8 @@ class TestMultiUnchangedStatusCachePatch:
             compile_timeout=60,
         )
         (tmp_path / "x.bin").write_bytes(b"\x90" * 12)
-        ann = Annotation(
-            marker_type="FUNCTION",
+        ann = SourceBinding(
+            kind="FUNCTION",
             module="X",
             va=0x1000,
             size=12,
@@ -762,9 +790,14 @@ class TestRefusedPromotionSkipsCache:
         from types import SimpleNamespace as NS
 
         import rebrew.test as testmod
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
-        (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(int a) { g = a; }\n")
+        write_source(
+            tmp_path / "f.c",
+            "/* ADDRESS: X 0x1000 */\nvoid f(int a) { g = a; }\n",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
         cfg = NS(
             target_binary=str(tmp_path / "x.bin"),
             metadata_dir=tmp_path,
@@ -774,8 +807,8 @@ class TestRefusedPromotionSkipsCache:
             compile_timeout=60,
         )
         (tmp_path / "x.bin").write_bytes(b"\x90" * 12)
-        ann = Annotation(
-            marker_type="FUNCTION",
+        ann = SourceBinding(
+            kind="FUNCTION",
             module="X",
             va=0x1000,
             size=12,
@@ -825,7 +858,11 @@ class TestCflagsPersistence:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "f.c").write_text("// FUNCTION: X 0x1000\nint f(void) { return 1; }\n")
+        write_source(
+            src_dir / "f.c",
+            "/* ADDRESS: X 0x1000 */\nint f(void) { return 1; }\n",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+        )
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(
             "rebrew.test.compile_and_compare",
@@ -879,8 +916,10 @@ class TestCliSizeLintSuppression:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "f.c").write_text(
-            "// FUNCTION: TEST 0x1000\nint f(void) { return 1; }\n"  # no Size: line
+        write_source(
+            src_dir / "f.c",
+            "/* ADDRESS: TEST 0x1000 */\nint f(void) { return 1; }\n",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
         )
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(
@@ -909,10 +948,10 @@ class TestMultiFixSize:
 
     @staticmethod
     def _ann(size: int = 9) -> Any:
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
-        return Annotation(
-            marker_type="FUNCTION",
+        return SourceBinding(
+            kind="FUNCTION",
             module="X",
             va=0x1000,
             size=size,
@@ -925,7 +964,12 @@ class TestMultiFixSize:
 
         import rebrew.test as testmod
 
-        (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(int a) { g = a; }\n")
+        write_source(
+            tmp_path / "f.c",
+            "/* ADDRESS: X 0x1000 */\nvoid f(int a) { g = a; }\n",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
         cfg = NS(
             target_binary=str(tmp_path / "x.bin"),
             metadata_dir=tmp_path,
@@ -990,7 +1034,12 @@ class TestMultiFixSize:
 
         import rebrew.test as testmod
 
-        (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(int a) { g = a; }\n")
+        write_source(
+            tmp_path / "f.c",
+            "/* ADDRESS: X 0x1000 */\nvoid f(int a) { g = a; }\n",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
         cfg = NS(
             target_binary=str(tmp_path / "x.bin"),
             metadata_dir=tmp_path,
@@ -1059,7 +1108,12 @@ class TestMultiFixSize:
 
         import rebrew.test as testmod
 
-        (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(void) { g(); }\n")
+        write_source(
+            tmp_path / "f.c",
+            "/* ADDRESS: X 0x1000 */\nvoid f(void) { g(); }\n",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
         cfg = NS(
             target_binary=str(tmp_path / "x.bin"),
             metadata_dir=tmp_path,
@@ -1186,7 +1240,7 @@ class TestFixSizeEvidence:
         assert ok is False
 
     def test_annotation_extra_padding_allowed(self, tmp_path: Path) -> None:
-        # Annotation 12B > compiled 9B; extra bytes are int3 padding.
+        # SourceBinding 12B > compiled 9B; extra bytes are int3 padding.
         (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xcc\xcc\xcc")
         from rebrew.test import _fix_size_evidence_ok
 
@@ -1200,7 +1254,7 @@ class TestFixSizeEvidence:
         assert ok is True
 
     def test_annotation_extra_real_code_refuses(self, tmp_path: Path) -> None:
-        # Annotation 12B > compiled 9B; extra bytes are REAL code (partial
+        # SourceBinding 12B > compiled 9B; extra bytes are REAL code (partial
         # reproduction hazard — shrinking the size would false-EXACT).
         (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xe8\x00\x00")
         from rebrew.test import _fix_size_evidence_ok
@@ -1296,9 +1350,14 @@ class TestMultiCachePatchDelta:
         from types import SimpleNamespace as NS
 
         import rebrew.test as testmod
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
-        (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(int a) { g = a; }\n")
+        write_source(
+            tmp_path / "f.c",
+            "/* ADDRESS: X 0x1000 */\nvoid f(int a) { g = a; }\n",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
         cfg = NS(
             target_binary=str(tmp_path / "x.bin"),
             metadata_dir=tmp_path,
@@ -1308,8 +1367,8 @@ class TestMultiCachePatchDelta:
             compile_timeout=60,
         )
         (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xc2\x04\x00")
-        ann = Annotation(
-            marker_type="FUNCTION",
+        ann = SourceBinding(
+            kind="FUNCTION",
             module="X",
             va=0x1000,
             size=12,
@@ -1371,8 +1430,10 @@ class TestRunTest:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "f.c").write_text(
-            "// FUNCTION: X 0x1000\n// SIZE: 4\nint f(void) { return 1; }\n"
+        write_source(
+            src_dir / "f.c",
+            "/* ADDRESS: X 0x1000 */\n\nint f(void) { return 1; }\n",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION", "size": 4}},
         )
         monkeypatch.chdir(tmp_path)
         return tmp_path
@@ -1423,7 +1484,7 @@ class TestRunTest:
 
         run_test(load_config(root), "src/x/f.c", no_promote=True, json_output=True)
         meta_path = root / "rebrew-functions.toml"
-        assert not meta_path.exists() or "status" not in meta_path.read_text()
+        assert 'status = "STUB"' in meta_path.read_text()
 
 
 class TestMissingSizeHint:
@@ -1445,7 +1506,12 @@ class TestMissingSizeHint:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "f.c").write_text("// STUB: X 0x1000\nvoid f(void) {}\n", encoding="utf-8")
+        write_source(
+            src_dir / "f.c",
+            "/* ADDRESS: X 0x1000 */\nvoid f(void) {}\n",
+            encoding="utf-8",
+            metadata_fields={"X.0x1000": {"kind": "STUB"}},
+        )
         (src_dir / "function_structure.json").write_text(
             _json.dumps([{"va": 0x1000, "size": 32, "name": "f"}]),
             encoding="utf-8",
@@ -1592,7 +1658,7 @@ class TestMultiBlockerSource:
         from types import SimpleNamespace as NS
 
         import rebrew.test as testmod
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
         source = tmp_path / "nested" / "f.c"
         source.parent.mkdir()
@@ -1605,8 +1671,8 @@ class TestMultiBlockerSource:
             default_jobs=1,
             compile_timeout=60,
         )
-        ann = Annotation(
-            marker_type="FUNCTION",
+        ann = SourceBinding(
+            kind="FUNCTION",
             module="X",
             va=0x1000,
             size=1,

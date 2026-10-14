@@ -1,61 +1,9 @@
-"""metadata/data.py — Per-directory metadata store for DATA/GLOBAL annotations.
+"""Locked format-2 data identities, extents, storage relationships and verdicts.
 
-Volatile metadata for data annotations (NAME, SIZE, SECTION, NOTE) are stored in a
-single ``rebrew-data.toml`` metadata file at the ``metadata_dir`` root
-(``cfg.metadata_dir``).  This mirrors the pattern established by
-``metadata/functions.py`` for function annotations.
-
-Location
---------
-The metadata file lives **only** at ``cfg.metadata_dir``.  There is no walk-up
-discovery — callers must pass the correct root directory.  Subdirectories
-do **not** have their own data metadata files.
-
-An unmigrated ``.c`` may still carry the marker line plus the C declaration.
-New writers emit the declaration and record the row. ``rebrew source
-migrate-markers`` copies identity into this store and strips that line, so a
-migrated file is pure C and readers bind the row by ``file``::
-
-    // DATA: SERVER 0x10025000
-
-    extern const unsigned char g_sprite_lut[256];
-
-All rebrew-specific metadata lives in ``rebrew-data.toml``::
-
-    ["SERVER.0x10025000"]
-    file        = "src/server/lut.c"
-    marker_type = "DATA"
-    name        = "g_sprite_lut"
-    size        = 256
-    section     = ".rdata"
-    note        = "sprite index lookup table"
-
-Key format
-----------
-Identical to ``rebrew-functions.toml``: ``"MODULE.0xVA"`` (qualified key).
-This makes the metadata unambiguous across multi-target projects.  Reads key
-on the parsed ``(module, va)``, so an entry spelled with different hex
-padding than :func:`rebrew.metadata.document.qualified_key` produces is still found and
-updated in place, never shadowed by an appended twin.
-
-Owned fields per entry::
-
-    file, marker_type, name, type, size, section, note, status,
-    updated_by, updated_at
-
-``file`` and ``marker_type`` are the identity ``rebrew source migrate-markers``
-writes.  ``marker_type`` keeps the source word (``GLOBAL``, ``DATA``,
-``VTABLE``, or ``STRING``).  Rows written before that migration have neither
-field; readers treat a missing ``marker_type`` as ``DATA``.
-
-(``status`` is the data-verify verdict: ``VERIFIED`` / ``DRIFT`` / ``UNCHECKED``.
-``updated_by`` / ``updated_at`` are the write provenance pair, stamped by the
-gated writers in the same write as the field they changed.)
-
-Atomicity
----------
-Writes use ``tomlkit`` for round-trip-safe serialisation and
-``atomic_write_locked`` (``.tmp`` + ``os.replace``, then re-lock to 0444).
+All fields belong in rebrew-data.toml at cfg.metadata_dir. Optional source
+addresses bind real declarations; externs and aliases do not allocate storage.
+Writers validate current documents and use the shared lock and atomic mode-0444
+replacement. Data comparison evidence remains separate from ordinary edit stamps.
 """
 
 from __future__ import annotations
@@ -75,11 +23,12 @@ from rebrew.metadata.document import (
     MetadataDocCache,
     build_metadata_key_index,
     load_metadata_doc,
+    load_metadata_for_write,
     metadata_write_lock,
-    parse_metadata_key,
     pop_metadata_doc_cache,
     qualified_key,
     resolve_metadata_key,
+    stamp_format,
 )
 from rebrew.metadata.functions import (
     METADATA_FIELD_TYPES,
@@ -88,15 +37,14 @@ from rebrew.metadata.functions import (
     canonical_status,
     record_verification,
     resolve_metadata_dir,
-    stamp_format,
     stamp_provenance,
     validate_identity_file,
     validate_provenance_table,
 )
-from rebrew.utils import atomic_write_locked, load_toml_for_write
+from rebrew.utils import atomic_write_locked
 
 if TYPE_CHECKING:
-    from rebrew.metadata.annotation import Annotation
+    from rebrew.metadata.bindings import SourceBinding
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +168,7 @@ DATA_METADATA_FILENAME = "rebrew-data.toml"
 #: forward but does not recreate it.
 DATA_METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "file": str,
-    "marker_type": str,
+    "kind": str,
     "name": str,
     "type": str,
     **{
@@ -260,7 +208,7 @@ DATA_STATUSES: frozenset[str] = frozenset(
 # `rebrew data set` and the verdict writers already emit.
 _CANONICAL_ORDER = [
     "file",
-    "marker_type",
+    "kind",
     "name",
     "type",
     "size",
@@ -276,12 +224,11 @@ _CANONICAL_ORDER = [
     "verification",
 ]
 
-#: Identity keys ``rebrew source migrate-markers`` moves out of a data marker.
-#: ``name`` is filled only when the row has none, so a later rename survives
-#: a second migration.  Deliberately written by :func:`record_migrated_data_markers`
+#: Canonical data identity keys. ``name`` fills an absent value, preserving
+#: explicit renames on repeated registration. Written by :func:`record_data_rows`
 #: rather than :func:`set_data_fields_batch`, which clears a verdict when
 #: ``name`` / ``type`` / ``size`` / ``section`` change.
-_DATA_MARKER_IDENTITY = ("file", "marker_type", "name")
+_DATA_MARKER_IDENTITY = ("file", "kind", "name")
 _DATA_MARKER_FILL = ("type", "size", "section", "note")
 
 __all__ = [
@@ -290,6 +237,7 @@ __all__ = [
     "DATA_METADATA_FIELD_TYPES",
     "data_definition_hash",
     "load_data_metadata",
+    "save_data_metadata",
     "iter_data_symbols",
     "get_data_entry",
     "delete_data_entries_batch",
@@ -298,8 +246,8 @@ __all__ = [
     "set_data_field",
     "set_data_fields_batch",
     "validate_data_field",
-    "merge_into_data_annotation",
-    "record_migrated_data_markers",
+    "merge_into_data_binding",
+    "record_data_rows",
     "data_file_index",
     "data_rows_for_path",
 ]
@@ -341,15 +289,13 @@ def validate_data_field(key: str, value: Any) -> Any:
         )
     if key == "file":
         return validate_identity_file(value)
-    if key == "marker_type":
+    if key == "kind":
         # Lazy: annotation synthesizes data rows from this module, so a
         # module-level import here would cycle at import time.
-        from rebrew.metadata.annotation import DATA_MARKERS
+        from rebrew.metadata.bindings import DATA_KINDS
 
-        if value not in DATA_MARKERS:
-            raise ValueError(
-                f"marker_type must be one of {', '.join(sorted(DATA_MARKERS))}, got {value!r}"
-            )
+        if value not in DATA_KINDS:
+            raise ValueError(f"kind must be one of {', '.join(sorted(DATA_KINDS))}, got {value!r}")
     return value
 
 
@@ -361,42 +307,12 @@ def validate_data_field(key: str, value: Any) -> Any:
 def iter_data_symbols(
     doc: dict[str, Any], section: str | None = ".data"
 ) -> Iterator[tuple[str, int, dict[str, Any]]]:
-    """Yield ``(module, va, fields)`` for every entry in a parsed ``rebrew-data.toml``.
+    """Yield typed rows from a current data metadata document."""
+    from rebrew.metadata.document import parse_metadata_doc
 
-    The canonical key parser for raw (string-keyed) data-metadata documents:
-    keys are ``"MODULE.0xVA"`` with the module possibly containing dots, so
-    the VA is everything after the *last* dot.  Entries whose key has no dot
-    or a non-hex VA are skipped.  The VA is plain ASCII hex digits, with an
-    optional ``0x`` prefix: a key like ``"MOD.1_0"``, ``"MOD. 0x10"``, or one
-    spelled in a non-ASCII digit set is skipped rather than read as an
-    address nobody wrote. Module names use the same NFC normalization as
-    the cached metadata reader. Duplicate identities merge fields, with later
-    fields winning, before filtering by section, just as the cached reader does.
-
-    Args:
-        doc: Parsed ``rebrew-data.toml`` content (string keys → field dicts).
-        section: Keep only entries whose ``section`` field equals this;
-            ``None`` keeps every entry.
-
-    Yields:
-        ``(module, va, fields)`` triples.
-
-    """
-    merged: dict[tuple[str, int], dict[str, Any]] = {}
-    for key, val in doc.items():
-        if not isinstance(val, dict):
-            continue
-        module, sep, addr_text = str(key).rpartition(".")
-        if not sep:
-            continue
-        address = addr_text if addr_text[:2].lower() == "0x" else f"0x{addr_text}"
-        parsed = parse_metadata_key(f"{module}.{address}")
-        if parsed is None:
-            continue
-        merged.setdefault(parsed, {}).update(val)
-    for (module, va), fields in merged.items():
-        if section is None or fields.get("section") == section:
-            yield module, va, fields
+    for (module, va), entry in parse_metadata_doc(doc, known_fields=DATA_METADATA_FIELDS).items():
+        if section is None or entry.get("section") == section:
+            yield module, va, entry
 
 
 # ---------------------------------------------------------------------------
@@ -601,7 +517,7 @@ def set_data_fields_batch(
     path = dir_path / DATA_METADATA_FILENAME
     changed_entries = 0
     with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
-        doc = load_toml_for_write(path, "data metadata")
+        doc = load_metadata_for_write(path, "data metadata", known_fields=DATA_METADATA_FIELDS)
         key_index = build_metadata_key_index(doc)
         from rebrew.utils import toml_safe
 
@@ -685,7 +601,7 @@ def delete_data_entries_batch(directory: Path | str | Any, targets: list[tuple[s
         return 0
     removed = 0
     with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
-        doc = load_toml_for_write(path, "data metadata")
+        doc = load_metadata_for_write(path, "data metadata", known_fields=DATA_METADATA_FIELDS)
         key_index = build_metadata_key_index(doc)
         for module, va in targets:
             if not module:
@@ -725,12 +641,11 @@ def move_data_entry(
 
     Raises :class:`ValueError` when the VAs are equal, no row is at
     *old_va*, a row already holds *new_va*, or the row's ``file`` still
-    carries an inline marker for *old_va* (moving only the row would leave
-    that marker naming the old address; ``rebrew source migrate-markers``
-    moves it into the store first).  Returns the move as
+    carries an address anchor for *old_va* (update or remove that anchor
+    before moving the canonical row).  Returns the move as
     ``{module, from, to, name, status_was}``; *dry_run* checks without writing.
     """
-    from rebrew.metadata.annotation import block_markers
+    from rebrew.metadata.bindings import address_pairs
 
     module = unicodedata.normalize("NFC", module)
     if not module:
@@ -742,7 +657,7 @@ def move_data_entry(
     dir_path = resolve_metadata_dir(directory)
     path = dir_path / DATA_METADATA_FILENAME
     with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
-        doc = load_toml_for_write(path, "data metadata")
+        doc = load_metadata_for_write(path, "data metadata", known_fields=DATA_METADATA_FIELDS)
         index = build_metadata_key_index(doc)
         old_key = index.get((module, old_va))
         if old_key is None or old_key not in doc:
@@ -758,11 +673,11 @@ def move_data_entry(
             entry.get("file")
             and source.is_file()
             and (module, old_va)
-            in block_markers(source.read_text(encoding="utf-8", errors="replace"))
+            in address_pairs(source.read_text(encoding="utf-8", errors="replace"))
         ):
             raise ValueError(
-                f"{entry['file']} still marks {module} 0x{old_va:x} inline; run "
-                "rebrew source migrate-markers before moving the row"
+                f"{entry['file']} still binds {module} 0x{old_va:x}; "
+                "update or remove that ADDRESS anchor before moving the row"
             )
         moved = {
             "module": module,
@@ -790,13 +705,11 @@ def move_data_entry(
     return moved
 
 
-def record_migrated_data_markers(
-    metadata_dir: Path | str | Any, rows: list[dict[str, Any]]
-) -> None:
-    """Write ``migrate-markers`` data rows into ``rebrew-data.toml`` in one edit.
+def record_data_rows(metadata_dir: Path | str | Any, rows: list[dict[str, Any]]) -> None:
+    """Write canonical data identity rows into ``rebrew-data.toml`` in one edit.
 
     Each row carries ``module``, ``va``, ``identity`` (``file``,
-    ``marker_type``, and ``name``; empty values are skipped and ``name`` is
+    ``kind``, and ``name``; empty values are skipped and ``name`` is
     set only when the entry has none) and ``fill`` (``type``, ``size``,
     ``section``, ``note``, written only when the entry lacks that key).  A stored
     verdict is left in place: this writer does not go through
@@ -811,12 +724,12 @@ def record_migrated_data_markers(
     """
     if not rows:
         return
-    from rebrew.utils import load_toml_for_write_strict, toml_safe
+    from rebrew.utils import toml_safe
 
     dir_path = resolve_metadata_dir(metadata_dir)
     path = (dir_path / DATA_METADATA_FILENAME).resolve()
     with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
-        doc = load_toml_for_write_strict(path, "data metadata")
+        doc = load_metadata_for_write(path, "data metadata", known_fields=DATA_METADATA_FIELDS)
         key_index = build_metadata_key_index(doc)
         changed = False
         for row in rows:
@@ -839,7 +752,7 @@ def record_migrated_data_markers(
             updates: dict[str, Any] = {}
             for key, value in (row.get("identity") or {}).items():
                 if key == "status":
-                    raise ValueError("data migration does not write STATUS")
+                    raise ValueError("data registration does not write STATUS")
                 if key not in _DATA_MARKER_IDENTITY:
                     raise ValueError(f"unknown data marker identity field {key!r}")
                 if value and not (key == "name" and entry.get("name")):
@@ -848,7 +761,7 @@ def record_migrated_data_markers(
                         updates[key] = toml_safe(stored)
             for key, value in (row.get("fill") or {}).items():
                 if key == "status":
-                    raise ValueError("data migration does not write STATUS")
+                    raise ValueError("data registration does not write STATUS")
                 if key not in _DATA_MARKER_FILL:
                     raise ValueError(f"unknown data marker fill field {key!r}")
                 if value in (None, "", 0):
@@ -867,11 +780,11 @@ def record_migrated_data_markers(
 
 
 # ---------------------------------------------------------------------------
-# Annotation merge
+# SourceBinding merge
 # ---------------------------------------------------------------------------
 
 
-def merge_into_data_annotation(ann: Annotation, directory: Path | str | Any) -> Annotation:
+def merge_into_data_binding(ann: SourceBinding, directory: Path | str | Any) -> SourceBinding:
     """Overlay data metadata values onto *ann*, returning the same object mutated.
 
     The metadata wins for every field it defines (SIZE, SECTION, NOTE).
@@ -879,7 +792,7 @@ def merge_into_data_annotation(ann: Annotation, directory: Path | str | Any) -> 
     Lookup uses the qualified key ``(ann.module, ann.va)``.
 
     Args:
-        ann: The ``Annotation`` object to mutate (must have ``marker_type``
+        ann: The ``SourceBinding`` object to mutate (must have ``kind``
             of ``DATA`` or ``GLOBAL``).
         directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
 
@@ -895,6 +808,9 @@ def merge_into_data_annotation(ann: Annotation, directory: Path | str | Any) -> 
         return ann
 
     if name := entry.get("name"):
+        # Another C declaration at the same VA can be an interior/first-field view.
+        if ann.name and ann.name != name:
+            return ann
         ann.name = str(name)
 
     if "size" in entry:
@@ -946,3 +862,27 @@ def data_definition_hash(
         **{field: fields.get(field, "") for field in ("size", "type", "section")},
     }
     return hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
+
+
+def save_data_metadata(
+    directory: Path, rows: dict[tuple[str, int], dict[str, Any]], *, expected_hash: str | None
+) -> None:
+    """Write reviewed complete data rows, preserving their existing verdict evidence."""
+    import hashlib
+
+    from rebrew.metadata.document import build_metadata_doc
+
+    validated = {
+        key: {field: validate_data_field(field, value) for field, value in row.items()}
+        for key, row in rows.items()
+    }
+    doc = build_metadata_doc(
+        validated, ("file", "name", "kind", "type", "size", "section", "status")
+    )
+    path = directory / DATA_METADATA_FILENAME
+    with metadata_write_lock(directory, DATA_METADATA_FILENAME):
+        current = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+        if current != expected_hash:
+            raise ValueError(f"{path} changed since its rows were reviewed")
+        atomic_write_locked(path, tomlkit.dumps(doc))
+        pop_metadata_doc_cache(_data_metadata_cache, path.resolve())

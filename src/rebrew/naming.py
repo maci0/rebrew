@@ -23,7 +23,11 @@ from rebrew.analysis import capstone_handle
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 from rebrew.formats.binary_model import BinaryInfo
-from rebrew.metadata.annotation import min_valid_va_for, parse_c_file_multi, parse_library_header
+from rebrew.metadata.bindings import (
+    library_bindings_for_file,
+    min_valid_va_for,
+    read_source_bindings,
+)
 from rebrew.sources import (
     iter_library_headers,
     iter_sources,
@@ -268,7 +272,7 @@ def load_data(
 
     Returns (ghidra_funcs, existing, covered_vas) where:
     - ghidra_funcs: list of FunctionEntry objects
-    - existing: dict mapping VA -> {filename, size, status, blocker, blocker_delta, symbol, source, module, marker_type}
+    - existing: dict mapping VA -> {filename, size, status, blocker, blocker_delta, symbol, source, module, kind}
     - covered_vas: dict mapping VA -> filename (for find_neighbor_file)
 
     *tree* is a :func:`rebrew.sources.scan_files` result for ``cfg.reversed_dir``.
@@ -284,7 +288,7 @@ def load_data(
     # Ghidra functions
     ghidra_funcs = load_function_structure(ghidra_json)
 
-    # Existing source files — use parse_c_file_multi to capture all VAs in
+    # Existing source files — use read_source_bindings to capture all VAs in
     # multi-function files (not just the first annotation).
     existing: dict[int, dict[str, str]] = {}
     covered_vas: dict[int, str] = {}
@@ -293,7 +297,7 @@ def load_data(
     metadata_root = cfg.metadata_dir
     marker_name = target_marker(cfg)
     for cfile in iter_sources(src_dir, cfg, scanned=tree):
-        entries = parse_c_file_multi(cfile, target_name=marker_name, metadata_dir=metadata_root)
+        entries = read_source_bindings(cfile, target_name=marker_name, metadata_dir=metadata_root)
         rel_name = rel_display_path(cfile, src_dir)
         for entry in entries:
             if entry.is_data:
@@ -305,7 +309,7 @@ def load_data(
                 "size": str(entry.size),
                 "status": entry.status,
                 "module": entry.module or "",
-                "marker_type": entry.marker_type or "",
+                "kind": entry.kind or "",
                 "blocker": entry.blocker,
                 "blocker_delta": str(entry.blocker_delta)
                 if entry.blocker_delta is not None
@@ -324,7 +328,7 @@ def load_data(
     if marker:
         own_modules.add(preset_module_key(marker))
     for hfile in iter_library_headers(src_dir, cfg, scanned=tree):
-        lib_entries = parse_library_header(hfile, metadata_dir=metadata_root)
+        lib_entries = library_bindings_for_file(hfile, metadata_dir=metadata_root)
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
                 continue
@@ -335,7 +339,7 @@ def load_data(
                 "size": str(entry.size),
                 "status": entry.status,
                 "module": entry.module or "",
-                "marker_type": entry.marker_type or "",
+                "kind": entry.kind or "",
                 "blocker": entry.blocker or "",
                 "blocker_delta": str(entry.blocker_delta)
                 if entry.blocker_delta is not None
@@ -360,7 +364,7 @@ def load_data(
             "size": str(entry.size),
             "status": entry.status or "STUB",
             "module": entry.module or "",
-            "marker_type": entry.marker_type or "LIBRARY",
+            "kind": entry.kind or "LIBRARY",
             "blocker": entry.blocker or "",
             "blocker_delta": str(entry.blocker_delta) if entry.blocker_delta is not None else "",
             "symbol": entry.symbol,
@@ -424,7 +428,7 @@ def inside_annotated_vas(
     pseudo-functions; they are not functions, so neither progress nor
     pending work.  `rebrew status` and `rebrew todo` share this rule.
     """
-    from rebrew.metadata.annotation import span_contains_factory
+    from rebrew.metadata.bindings import span_contains_factory
 
     inside = span_contains_factory(
         [
@@ -460,7 +464,7 @@ def scope_to_target(
         for va, info in existing.items()
         if preset_module_key(info.get("module") or "") in ("", marker)
         or (
-            (info.get("marker_type") or "").upper() == "LIBRARY"
+            (info.get("kind") or "").upper() == "LIBRARY"
             and preset_module_key(info.get("module") or "") in libs
         )
     }
@@ -482,7 +486,7 @@ def external_vas(
     modules = {preset_module_key(m) for m in (external_libs or ())}
     out: set[int] = set()
     for va, info in existing.items():
-        if (info.get("marker_type") or "").upper() == "LIBRARY" or preset_module_key(
+        if (info.get("kind") or "").upper() == "LIBRARY" or preset_module_key(
             info.get("module") or ""
         ) in modules:
             out.add(va)
@@ -513,7 +517,7 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     existing: dict[int, str] = {}
     for cfile in iter_sources(src_path, cfg):
         rel_name = rel_display_path(cfile, src_path)
-        entries = parse_c_file_multi(
+        entries = read_source_bindings(
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
         )
         for entry in entries:
@@ -526,7 +530,9 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     # Scan library_*.h files for identified CRT/zlib functions (plus the
     # project's shared root when cfg says this directory is the target tree).
     for hfile in iter_library_headers(src_path, cfg):
-        lib_entries = parse_library_header(hfile, metadata_dir=cfg.metadata_dir if cfg else None)
+        lib_entries = library_bindings_for_file(
+            hfile, metadata_dir=cfg.metadata_dir if cfg else None
+        )
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
                 continue

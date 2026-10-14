@@ -1821,7 +1821,7 @@ def converge_layout(
                 text = text[:start] + decl_line + text[end:]
             else:
                 new_text = re.sub(
-                    r"(\n)(?=\s*(?:extern|static|__declspec|// FUNCTION|// GLOBAL))",
+                    r"(\n)(?=\s*(?:extern|static|__declspec|(?://|/\*) ADDRESS:))",
                     r"\1" + decl_line,
                     text,
                     count=1,

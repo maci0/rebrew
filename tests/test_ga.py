@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import write_source, write_store_fixture
 
 from rebrew.match_batch import (
     find_all_matching,
@@ -31,24 +32,23 @@ class TestParseStubInfo:
         symbol="_my_func",
     ) -> Path:
         # Derive clean function name from symbol for the C definition
-        func_name = symbol.lstrip("_")
-        f = tmp_path / f"func_{va:08x}.c"
-        f.write_text(
-            f"// FUNCTION: SERVER 0x{va:08X}\n"
-            f"// CFLAGS: /O2 /Gd\n"
-            f"void __cdecl {func_name}(void) {{\n"
-            f"    // stub\n"
-            f"}}\n",
-            encoding="utf-8",
+        name = symbol.lstrip("_")
+        path = tmp_path / f"func_{va:08x}.c"
+        write_source(
+            path,
+            f"/* ADDRESS: SERVER 0x{va:08x} */\nvoid __cdecl {name}(void) {{}}\n",
+            metadata_dir=tmp_path,
+            metadata_fields={
+                f"SERVER.0x{va:08x}": {
+                    "kind": "FUNCTION",
+                    "size": size,
+                    "status": status,
+                    "cflags": "/O2 /Gd",
+                    "symbol": symbol,
+                }
+            },
         )
-        # SIZE + STATUS live in metadata, not inline
-        metadata_toml = tmp_path / "rebrew-functions.toml"
-        existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
-        metadata_toml.write_text(
-            existing + f'["SERVER.0x{va:08X}"]\nsize = {size}\nstatus = "{status}"\n',
-            encoding="utf-8",
-        )
-        return f
+        return path
 
     def test_parses_stub(self, tmp_path: Path) -> None:
         f = self._make_stub_file(tmp_path)
@@ -91,8 +91,8 @@ class TestParseStubInfo:
         recompile a library function with the project default compiler."""
         f = self._make_stub_file(tmp_path, size=64)
         meta = tmp_path / "rebrew-functions.toml"
-        meta.write_text(
-            meta.read_text(encoding="utf-8") + 'toolchain = "msvc-5.0"\n', encoding="utf-8"
+        write_store_fixture(
+            meta, meta.read_text(encoding="utf-8") + 'toolchain = "msvc-5.0"\n', encoding="utf-8"
         )
         result = parse_stub_info(f)
         assert len(result) == 1
@@ -112,22 +112,19 @@ class TestParseStubInfo:
 
 class TestFindAllStubs:
     def _make_stub(self, d, va, symbol, size=64) -> None:
-        func_name = symbol.lstrip("_")
-        f = d / f"func_{va:08x}.c"
-        f.write_text(
-            f"// FUNCTION: SERVER 0x{va:08X}\n"
-            f"// STATUS: STUB\n"
-            f"// ORIGIN: GAME\n"
-            f"// CFLAGS: /O2 /Gd\n"
-            f"void __cdecl {func_name}(void) {{}}\n",
-            encoding="utf-8",
-        )
-        # SIZE in metadata
-        metadata_toml = d / "rebrew-functions.toml"
-        existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
-        metadata_toml.write_text(
-            existing + f'["SERVER.0x{va:08X}"]\nsize = {size}\n',
-            encoding="utf-8",
+        name = symbol.lstrip("_")
+        write_source(
+            d / f"func_{va:08x}.c",
+            f"/* ADDRESS: SERVER 0x{va:08x} */\nvoid __cdecl {name}(void) {{}}\n",
+            metadata_dir=d,
+            metadata_fields={
+                f"SERVER.0x{va:08x}": {
+                    "kind": "FUNCTION",
+                    "size": size,
+                    "cflags": "/O2 /Gd",
+                    "symbol": symbol,
+                }
+            },
         )
 
     def test_finds_stubs(self, tmp_path: Path) -> None:
@@ -156,16 +153,19 @@ class TestFindAllStubs:
 
     def test_ignores_exact(self, tmp_path: Path) -> None:
         f = tmp_path / "exact.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// SIZE: 64\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "void __cdecl _exact(void) {}\n",
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\nvoid __cdecl _exact(void) {}\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10001000": {"kind": "FUNCTION", "size": 64, "cflags": "/O2 /Gd"}
+            },
         )
         # STATUS lives in metadata, not inline
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            encoding="utf-8",
         )
         stubs = find_all_stubs(tmp_path)
         assert stubs == []
@@ -175,17 +175,20 @@ class TestFindAllStubs:
         self._make_stub(tmp_path, 0x10001000, "_dup_a")
         # Create second file with same VA
         f2 = tmp_path / "dup_file.c"
-        f2.write_text(
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: STUB\n"
-            "// SIZE: 64\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _dup_b\n"
-            "void __cdecl _dup_b(void) {}\n",
+        write_source(
+            f2,
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\nvoid __cdecl _dup_b(void) {}\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10001000": {
+                    "kind": "FUNCTION",
+                    "size": 64,
+                    "cflags": "/O2 /Gd",
+                    "symbol": "_dup_b",
+                }
+            },
         )
-        stubs = find_all_stubs(tmp_path)
-        assert len(stubs) == 1
+        assert len(find_all_stubs(tmp_path)) == 1
 
     def test_filters_ignored(self, tmp_path: Path) -> None:
         self._make_stub(tmp_path, 0x10001000, "_asm_builtin")
@@ -209,29 +212,27 @@ class TestParseMatchingAll:
         skip: bool = False,
         cflags: str = "/O2 /Gd",
     ) -> Path:
-        lines = [
-            f"// FUNCTION: SERVER 0x{va:08x}",
-            f"// SYMBOL: _{name}",
-        ]
-        if skip:
-            lines.append("// SKIP: reason")
-        lines.append(f"int __cdecl {name}(void) {{ return 0; }}")
-        path = d / f"{name}.c"
-        path.write_text("\n".join(lines), encoding="utf-8")
-        # Write metadata-owned fields to rebrew-functions.toml
-        import re
-
-        metadata_toml = d / "rebrew-functions.toml"
-        existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
-        entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = 100\ncflags = "{cflags}"\n'
+        fields: dict[str, Any] = {
+            "kind": "FUNCTION",
+            "size": 100,
+            "status": status,
+            "cflags": cflags,
+            "symbol": "_" + name,
+        }
         if blocker:
-            entry += f'blocker = "{blocker}"\n'
-            m = re.match(r"(\d+)B", blocker)
-            if m:
-                entry += f"blocker_delta = {m.group(1)}\n"
+            fields["blocker"] = blocker
+            prefix = blocker.split("B", 1)[0]
+            if prefix.isdecimal():
+                fields["blocker_delta"] = int(prefix)
         if skip:
-            entry += 'skip = "reason"\n'
-        metadata_toml.write_text(existing + entry, encoding="utf-8")
+            fields["skip"] = "reason"
+        path = d / f"{name}.c"
+        write_source(
+            path,
+            f"/* ADDRESS: SERVER 0x{va:08x} */\nint __cdecl {name}(void) {{ return 0; }}\n",
+            metadata_dir=d,
+            metadata_fields={f"SERVER.0x{va:08x}": fields},
+        )
         return path
 
     def test_accepts_matching_without_blocker(self, tmp_path: Path) -> None:
@@ -289,24 +290,25 @@ class TestFindAllMatching:
         blocker: str = "",
         size: int = 100,
     ) -> None:
-        lines = [
-            f"// FUNCTION: SERVER 0x{va:08x}",
-            f"// SYMBOL: _{name}",
-            f"int __cdecl {name}(void) {{ return 0; }}",
-        ]
-        (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
-        # Write metadata-owned fields to rebrew-functions.toml
-        import re
-
-        metadata_toml = d / "rebrew-functions.toml"
-        existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
-        entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = {size}\ncflags = "/O2 /Gd"\n'
+        fields: dict[str, Any] = {
+            "kind": "FUNCTION",
+            "size": size,
+            "status": status,
+            "cflags": "/O2 /Gd",
+            "symbol": "_" + name,
+        }
         if blocker:
-            entry += f'blocker = "{blocker}"\n'
-            m = re.match(r"(\d+)B", blocker)
-            if m:
-                entry += f"blocker_delta = {m.group(1)}\n"
-        metadata_toml.write_text(existing + entry, encoding="utf-8")
+            fields["blocker"] = blocker
+            prefix = blocker.split("B", 1)[0]
+            if prefix.isdecimal():
+                fields["blocker_delta"] = int(prefix)
+        path = d / f"{name}.c"
+        write_source(
+            path,
+            f"/* ADDRESS: SERVER 0x{va:08x} */\nint __cdecl {name}(void) {{ return 0; }}\n",
+            metadata_dir=d,
+            metadata_fields={f"SERVER.0x{va:08x}": fields},
+        )
 
     def test_finds_all_matching(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "Match1", 0x10001000, "NEAR_MATCHING", "2B diff")
@@ -343,17 +345,20 @@ class TestFindAllMatching:
     def test_duplicate_va_keeps_first(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "Dup1", 0x10001000, "NEAR_MATCHING")
         f2 = tmp_path / "dup2.c"
-        f2.write_text(
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: NEAR_MATCHING\n"
-            "// SIZE: 100\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _Dup2\n"
-            "int __cdecl Dup2(void) { return 0; }\n",
+        write_source(
+            f2,
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\nint __cdecl Dup2(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10001000": {
+                    "kind": "FUNCTION",
+                    "size": 100,
+                    "cflags": "/O2 /Gd",
+                    "symbol": "_Dup2",
+                }
+            },
         )
-        results = find_all_matching(tmp_path, warn_duplicates=False)
-        assert len(results) == 1
+        assert len(find_all_matching(tmp_path, warn_duplicates=False)) == 1
 
 
 # -------------------------------------------------------------------------
@@ -366,11 +371,11 @@ class TestUpdateCflagsAnnotation:
 
     def _make_source(self, tmp_path: Path) -> Path:
         f = tmp_path / "func.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: NEAR_MATCHING\n"
-            "int __cdecl func(void) { return 0; }\n",
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x10001000 */\n\nint __cdecl func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION"}},
         )
         return f
 
@@ -418,19 +423,20 @@ class TestUpdateCflagsAnnotation:
         """Multi-function files: module+va must address the matched stub, not
         the file's first marker (STATUS already uses stub.va; CFLAGS must too)."""
         f = tmp_path / "multi.c"
-        f.write_text(
-            "// FUNCTION: A 0x1000\n"
-            "int __cdecl a(void) { return 0; }\n"
-            "// FUNCTION: B 0x2000\n"
-            "int __cdecl b(void) { return 1; }\n",
+        write_source(
+            f,
+            "/* ADDRESS: A 0x1000 */\nint __cdecl a(void) { return 0; }\n/* ADDRESS: B 0x2000 */\nint __cdecl b(void) { return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"A.0x1000": {"kind": "FUNCTION"}, "B.0x2000": {"kind": "FUNCTION"}},
         )
         changed = update_cflags_annotation(f, "/O1 /Gz", module="B", va=0x2000)
         assert changed is True
         meta = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
         assert '"B.0x00002000"' in meta
         assert "/O1 /Gz" in meta
-        assert "A.0x00001000" not in meta
+        from rebrew.metadata.functions import get_entry
+
+        assert get_entry(tmp_path, 0x1000, "A").get("cflags") is None
 
 
 class TestStubMetadataDir:
@@ -442,12 +448,19 @@ class TestStubMetadataDir:
         reversed_dir = tmp_path / "src" / "game"
         reversed_dir.mkdir(parents=True)
         f = reversed_dir / "func.c"
-        f.write_text(
-            "// STUB: SERVER 0x10001000\nvoid __cdecl func(void) {}\n",
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x10001000 */\nvoid __cdecl func(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "STUB"}},
+            metadata_dir=tmp_path / "src",
         )
         meta = tmp_path / "src" / "rebrew-functions.toml"
-        meta.write_text('["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n', encoding="utf-8")
+        write_store_fixture(
+            meta,
+            'format = 2\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n',
+            encoding="utf-8",
+        )
         cfg = SimpleNamespace(
             reversed_dir=reversed_dir,
             metadata_dir=tmp_path / "src",
@@ -2330,8 +2343,11 @@ class TestPerFunctionToolchain:
     def _stub(tmp_path: Path) -> Any:
         from rebrew.match_batch import StubInfo
 
-        (tmp_path / "s.c").write_text(
-            "// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            tmp_path / "s.c",
+            "/* ADDRESS: SERVER 0x10001000 */\nint s(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION"}},
         )
         return StubInfo(
             filepath=tmp_path / "s.c",
@@ -2433,10 +2449,14 @@ class TestRunOneStubGaPersistsFlags:
         """
         from rebrew.match_batch import StubInfo
 
-        (tmp_path / "s.c").write_text("// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n")
+        write_source(
+            tmp_path / "s.c",
+            "/* ADDRESS: SERVER 0x10001000 */\nint s(void) { return 0; }\n",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION"}},
+        )
         out = tmp_path / "output" / "ga_runs" / "s"
         out.mkdir(parents=True)
-        (out / "best.c").write_text(best)
+        write_source(out / "best.c", best)
         return StubInfo(
             filepath=tmp_path / "s.c",
             va="0x10001000",

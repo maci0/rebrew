@@ -36,16 +36,16 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
 
 
 def _ann(va: int) -> object:
-    from rebrew.metadata.annotation import Annotation
+    from rebrew.metadata.bindings import SourceBinding
 
-    return Annotation(
+    return SourceBinding(
         va=va,
         name="my_func",
         symbol="_my_func",
         module="SERVER",
         status="STUB",
         size=64,
-        marker_type="FUNCTION",
+        kind="FUNCTION",
         filepath="f.c",
     )
 

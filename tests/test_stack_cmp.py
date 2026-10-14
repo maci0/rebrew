@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
@@ -157,7 +158,12 @@ class TestRunStackCmp:
 
         cfg = SimpleNamespace(arch="x86_32", compile_timeout=None)
         src = tmp_path / "f.c"
-        src.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            src,
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
         monkeypatch.setattr("rebrew.stack_cmp.require_config", lambda **kw: cfg)
         params = SimpleNamespace(
             cfg=cfg,

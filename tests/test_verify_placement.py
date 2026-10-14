@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from bin_util import make_pe
+from source_util import write_store_fixture
 from typer.testing import CliRunner
 
 FAKE_DATA_VA = 0x3000
@@ -53,7 +54,7 @@ def _project(tmp_path: Path) -> Path:
     (root / "build").mkdir()
     (root / "build" / "server").write_bytes(make_pe(b"\xc3"))
     (root / "src").mkdir()
-    (root / "src" / "rebrew-data.toml").write_text("", encoding="utf-8")
+    write_store_fixture(root / "src" / "rebrew-data.toml", "", encoding="utf-8")
     return root
 
 
@@ -101,7 +102,7 @@ class TestVerifyPlacement:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
         (tmp_path / "src").mkdir()
-        (tmp_path / "src" / "rebrew-data.toml").write_text("", encoding="utf-8")
+        write_store_fixture(tmp_path / "src" / "rebrew-data.toml", "", encoding="utf-8")
         # Wide terminal: Rich wraps at terminal width, which varies by
         # environment (e.g. under pytest-xdist) and can split filenames
         # mid-word with a space no normalization can rejoin.
@@ -119,7 +120,7 @@ class TestVerifyPlacement:
 
         monkeypatch.chdir(tmp_path)
         (tmp_path / "src").mkdir()
-        (tmp_path / "src" / "rebrew-data.toml").write_text("", encoding="utf-8")
+        write_store_fixture(tmp_path / "src" / "rebrew-data.toml", "", encoding="utf-8")
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 2
         assert "rebrew-project.toml" in result.output
@@ -252,9 +253,9 @@ def test_data_symbols_keeps_only_the_requested_module(tmp_path: Path) -> None:
     from rebrew.data_layout import data_symbols
 
     toml = tmp_path / "rebrew-data.toml"
-    toml.write_text(
-        '["GOLDTL.0x00677918"]\nname = "g_table"\nsection = ".data"\n\n'
-        '["SERVER.0x10027078"]\nname = "g_table"\nsection = ".data"\n',
+    write_store_fixture(
+        toml,
+        'format = 2\n["GOLDTL.0x00677918"]\nname = "g_table"\nsection = ".data"\n\n["SERVER.0x10027078"]\nname = "g_table"\nsection = ".data"\n',
         encoding="utf-8",
     )
 

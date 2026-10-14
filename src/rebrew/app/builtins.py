@@ -37,18 +37,15 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             panel=Panel.ANALYSIS,
         ),
         CliComponent(
-            name="rename",
-            module="rebrew.rename",
-            help="Rename a function, global, type or struct member and update every reference.",
+            name="register",
+            module="rebrew.source_register",
+            help="Register address anchors and support file purposes in metadata.",
             panel=Panel.DEVELOPMENT,
         ),
         CliComponent(
-            name="migrate-markers",
-            module="rebrew.migrate_markers",
-            help=(
-                "Move inline function and data markers into the metadata stores "
-                "(ADR 023: pure-C sources)."
-            ),
+            name="rename",
+            module="rebrew.rename",
+            help="Rename a function, global, type or struct member and update every reference.",
             panel=Panel.DEVELOPMENT,
         ),
         CliComponent(

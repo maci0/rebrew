@@ -345,7 +345,7 @@ def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, Any]]:
         if not module or not va or va in allow:
             continue
         # A marker of GLOBAL/DATA is not a reversed function body.
-        if getattr(entry, "marker_type", "FUNCTION") not in ("FUNCTION", "STUB"):
+        if getattr(entry, "kind", "FUNCTION") not in ("FUNCTION", "STUB"):
             continue
         try:
             data = extract_raw_bytes(cfg.target_binary, va, entry.size or PREFIX_BYTES)

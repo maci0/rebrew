@@ -97,7 +97,7 @@ class StatusReport:
     padding_bytes: int | None = None
     unattributed_bytes: int | None = None
 
-    # Naked reconstructions (`// SOURCE: naked`) that are byte-exact via a
+    # Naked reconstructions (`source = "naked"`) that are byte-exact via a
     # generated skeleton — reproduced, NOT decompiled.  Counted separately so
     # coverage can distinguish "decompiled" from "byte-covered via asm".
     naked_matched: int = 0
@@ -131,7 +131,6 @@ class StatusReport:
 
     # W019 quick-lint result: number of .c files with inline metadata comments.
     # 0 means no issues found (or scan not yet run).
-    inline_metadata_warning: int = 0
 
     # Data verification verdicts from rebrew-data.toml STATUS (written by
     # `verify --data`): symbol counts per verdict, and the same counts per
@@ -299,8 +298,7 @@ class StatusReport:
                 "missing_size": self.verify_missing_size,
                 "effective_matches": self.effective_matches,
             }
-        if self.inline_metadata_warning:
-            d["inline_metadata_warning"] = self.inline_metadata_warning
+
         if self.file_total_bytes > 0:
             d["file"] = {
                 "matched_bytes": self.file_matched_bytes,
@@ -819,7 +817,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             )
             continue
         ann_status = info.get("status", "STUB")
-        # A naked reconstruction (`// SOURCE: naked`) is byte-exact via a
+        # A naked reconstruction (`source = "naked"`) is byte-exact via a
         # generated skeleton — reproduced, not decompiled (ct-recomp's
         # NAKED_REQUIRED vs PURE_C_EXACT distinction).  Detected from the
         # source annotation so the bucket survives metadata status churn.
@@ -926,9 +924,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
 
     # Quick W019 scan: files ``rebrew lint --fix`` can migrate — counted by
     # lint's own rule (shared header parser, no full lint run).
-    from rebrew.lint import count_migratable_files
 
-    report.inline_metadata_warning = count_migratable_files(src_dir, cfg, sources=sources)
     _attach_file_similarity(report, cfg)
 
     return report
@@ -1503,14 +1499,6 @@ def _render_terminal(report: StatusReport) -> None:
                 f"[cyan]{report.effective_matches} effective match(es)[/cyan]"
                 " — register-allocation-only delta, prove candidates"
             )
-
-    # W019 inline metadata warning
-    if report.inline_metadata_warning:
-        n = report.inline_metadata_warning
-        summary_lines.append(
-            f"[yellow]Warning:[/yellow] {n} file(s) contain inline STATUS/CFLAGS/SIZE comments"
-            " — run [bold]rebrew lint[/bold] to migrate to rebrew-functions.toml"
-        )
 
     # --- Assemble panel ---
     from rich.console import Group

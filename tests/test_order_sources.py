@@ -2,12 +2,14 @@
 
 from pathlib import Path
 
+from source_util import SourceFixture, write_source
+
 from rebrew.link_order import _base_key, file_va, order_sources
 from rebrew.metadata.functions import record_function_identity
 
 
 def _write(path: Path, text: str) -> Path:
-    path.write_text(text, encoding="utf-8")
+    write_source(path, text, encoding="utf-8")
     return path
 
 
@@ -15,8 +17,10 @@ class TestFileVa:
     def test_lowest_va_wins(self, tmp_path: Path) -> None:
         f = _write(
             tmp_path / "a.c",
-            "// FUNCTION: T 0x10002000\nint a(void){return 0;}\n"
-            "// FUNCTION: T 0x10001000\nint b(void){return 1;}\n",
+            SourceFixture(
+                "/* ADDRESS: T 0x10002000 */\nint a(void){return 0;}\n/* ADDRESS: T 0x10001000 */\nint b(void){return 1;}\n",
+                {"T.0x10002000": {"kind": "FUNCTION"}, "T.0x10001000": {"kind": "FUNCTION"}},
+            ),
         )
         assert file_va(f) == 0x10001000
 
@@ -29,7 +33,7 @@ class TestFileVa:
     def test_cp1252_source_still_finds_ascii_marker(self, tmp_path: Path) -> None:
         """Legacy-encoded sources go through read_source_text, not UTF-8-replace."""
         f = tmp_path / "legacy.c"
-        f.write_bytes(b"// FUNCTION: T 0x10001000\n// Caf\xe9\nint a(void){return 0;}\n")
+        f.write_bytes(b"/* ADDRESS: T 0x10001000 */\n// Caf\xe9\nint a(void){return 0;}\n")
         assert file_va(f) == 0x10001000
 
 
@@ -56,7 +60,7 @@ class TestOrderSources:
                 module=module,
                 va=va,
                 file=f"nested/{path.name}",
-                marker_type=marker,
+                kind=marker,
             )
         assert file_va(hi, "SERVER", metadata_dir=tmp_path) == 0x10003000
         assert order_sources([hi, lo], marker="SERVER", metadata_dir=tmp_path)[0] == [lo, hi]
@@ -68,8 +72,20 @@ class TestOrderSources:
         )[0] == [hi, lo]
 
     def test_known_first_then_unknown(self, tmp_path: Path) -> None:
-        hi = _write(tmp_path / "hi.c", "// FUNCTION: T 0x10002000\nint h(void){return 0;}\n")
-        lo = _write(tmp_path / "lo.c", "// FUNCTION: T 0x10001000\nint l(void){return 0;}\n")
+        hi = _write(
+            tmp_path / "hi.c",
+            SourceFixture(
+                "/* ADDRESS: T 0x10002000 */\nint h(void){return 0;}\n",
+                {"T.0x10002000": {"kind": "FUNCTION"}},
+            ),
+        )
+        lo = _write(
+            tmp_path / "lo.c",
+            SourceFixture(
+                "/* ADDRESS: T 0x10001000 */\nint l(void){return 0;}\n",
+                {"T.0x10001000": {"kind": "FUNCTION"}},
+            ),
+        )
         unk = _write(tmp_path / "z.c", "int z;\n")
         ordered, excluded = order_sources([hi, unk, lo])
         assert ordered == [lo, hi, unk]
@@ -92,14 +108,29 @@ class TestBlockMarkersAndZeroVa:
     def test_block_style_marker_is_read(self, tmp_path: Path) -> None:
         f = _write(
             tmp_path / "tc.c",
-            "/* FUNCTION: MAIN 0x00001000 */\nint a(void){return 0;}\n",
+            SourceFixture(
+                "/* ADDRESS: MAIN 0x00001000 */\nint a(void){return 0;}\n",
+                {"MAIN.0x00001000": {"kind": "FUNCTION"}},
+            ),
         )
         assert file_va(f) == 0x1000
 
     def test_explicit_zero_va_overrides_marker(self, tmp_path: Path) -> None:
         """`--first-va f=0x0` is a real override, not a missing value."""
-        hi = _write(tmp_path / "a.c", "// FUNCTION: T 0x10003000\nint a(void){return 0;}\n")
-        lo = _write(tmp_path / "b.c", "// FUNCTION: T 0x10001000\nint b(void){return 0;}\n")
+        hi = _write(
+            tmp_path / "a.c",
+            SourceFixture(
+                "/* ADDRESS: T 0x10003000 */\nint a(void){return 0;}\n",
+                {"T.0x10003000": {"kind": "FUNCTION"}},
+            ),
+        )
+        lo = _write(
+            tmp_path / "b.c",
+            SourceFixture(
+                "/* ADDRESS: T 0x10001000 */\nint b(void){return 0;}\n",
+                {"T.0x10001000": {"kind": "FUNCTION"}},
+            ),
+        )
         ordered, _ = order_sources([hi, lo], first_va={"a.c": 0x0})
         assert ordered == [hi, lo]
 
@@ -109,11 +140,14 @@ class TestFileVaMarker:
 
     def _stacked(self, tmp_path: Path) -> Path:
         p = tmp_path / "s.c"
-        p.write_text(
-            "// FUNCTION: V2 0x501000\n// SIZE: 11\n"
-            "// FUNCTION: V1 0x401000\n// SIZE: 11\n"
-            "int common(void){return 1;}\n",
+        write_source(
+            p,
+            "/* ADDRESS: V2 0x501000 */\n\n/* ADDRESS: V1 0x401000 */\n\nint common(void){return 1;}\n",
             encoding="utf-8",
+            metadata_fields={
+                "V2.0x501000": {"kind": "FUNCTION", "size": 11},
+                "V1.0x401000": {"kind": "FUNCTION", "size": 11},
+            },
         )
         return p
 
@@ -131,16 +165,24 @@ class TestFileVaMarker:
     def test_library_and_stub_keep_target_link_positions(self, tmp_path: Path) -> None:
         lib = _write(
             tmp_path / "gzread.c",
-            "// LIBRARY: SERVER 0x10003960\n// FUNCTION: GOLDTL 0x45f380\n"
-            "int gzread(void){return 1;}\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10003960 */\n/* ADDRESS: GOLDTL 0x45f380 */\nint gzread(void){return 1;}\n",
+                {"SERVER.0x10003960": {"kind": "LIBRARY"}, "GOLDTL.0x45f380": {"kind": "FUNCTION"}},
+            ),
         )
         stub = _write(
             tmp_path / "stub.c",
-            "/* STUB: SERVER 0x10003d20 */\nint stub(void){return 0;}\n"
-            "/* DATA: SERVER 0x10001000 */\nint data;\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10003d20 */\nint stub(void){return 0;}\n/* ADDRESS: SERVER 0x10001000 */\nint data;\n",
+                {"SERVER.0x10003d20": {"kind": "STUB"}, "SERVER.0x10001000": {"kind": "DATA"}},
+            ),
         )
         game = _write(
-            tmp_path / "game.c", "// FUNCTION: SERVER 0x10006c80\nint game(void){return 0;}\n"
+            tmp_path / "game.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10006c80 */\nint game(void){return 0;}\n",
+                {"SERVER.0x10006c80": {"kind": "FUNCTION"}},
+            ),
         )
         assert file_va(lib, "SERVER") == 0x10003960
         assert file_va(stub, "SERVER") == 0x10003D20

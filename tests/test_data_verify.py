@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from source_util import write_store_fixture
 
 
 def _write(path: Path, text: str) -> None:
@@ -25,8 +26,7 @@ class TestCoverageReporting:
         meta = tmp_path / "rebrew-data.toml"
         _write(
             meta,
-            '["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n'
-            '["SERVER.0x2000"]\nname = "g_b"\nsize = 4\nsection = ".data"\n',
+            'format = 2\n["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n["SERVER.0x2000"]\nname = "g_b"\nsize = 4\nsection = ".data"\n',
         )
         res = verify_data_bytes(
             metadata_path=meta,
@@ -45,8 +45,7 @@ class TestCoverageReporting:
         meta = tmp_path / "rebrew-data.toml"
         _write(
             meta,
-            '["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n'
-            '["SERVER.0x2000"]\nname = "g_bss"\nsize = 4\nsection = ".data"\n',
+            'format = 2\n["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n["SERVER.0x2000"]\nname = "g_bss"\nsize = 4\nsection = ".data"\n',
         )
         res = verify_data_bytes(
             metadata_path=meta,
@@ -66,8 +65,7 @@ class TestCoverageReporting:
         meta = tmp_path / "rebrew-data.toml"
         _write(
             meta,
-            '["SERVER.0x1000"]\nname = "g_a"\nsize = 2\nsection = ".data"\n'
-            '["SERVER.0x3000"]\nname = "g_r"\nsize = 2\nsection = ".rdata"\n',
+            'format = 2\n["SERVER.0x1000"]\nname = "g_a"\nsize = 2\nsection = ".data"\n["SERVER.0x3000"]\nname = "g_r"\nsize = 2\nsection = ".rdata"\n',
         )
         res = verify_data_bytes(
             metadata_path=meta,
@@ -83,7 +81,7 @@ class TestCoverageReporting:
         from rebrew.data_verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
-        _write(meta, "")
+        _write(meta, "format = 2\n")
         res = verify_data_bytes(metadata_path=meta, expected={}, actual={}, sizes={})
         assert res["coverage"] == 0.0
         assert (res["compared"], res["total"]) == (0, 0)
@@ -93,7 +91,7 @@ class TestCoverageReporting:
         from rebrew.data_verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
-        _write(meta, '["SERVER.0x1000"]\nsize = 2\nsection = ".data"\n')
+        _write(meta, 'format = 2\n["SERVER.0x1000"]\nsize = 2\nsection = ".data"\n')
         res = verify_data_bytes(
             metadata_path=meta,
             expected={0x1000: b"\x01\x02"},
@@ -150,23 +148,23 @@ class TestVerifyDataBytes:
         meta = tmp_path / "rebrew-data.toml"
         _write(
             meta,
-            '["SERVER.0x00001000"]\nname="g_a"\nsize=4\nsection=".data"\n'
-            '["SERVER.0X1000"]\nname="g_a"\nnote="same identity"\n',
+            'format = 2\n["SERVER.0x00001000"]\nname="g_a"\nsize=4\nsection=".data"\n["SERVER.0X1000"]\nname="g_a"\nnote="same identity"\n',
         )
-        report = verify_data_bytes(
-            metadata_path=meta,
-            expected={0x1000: b"abcd"},
-            actual={0x1000: b"abcd"},
-            sizes={0x1000: 4},
-        )
-        assert report["matched"] == report["compared"] == report["total"] == 1
-        assert len(report["results"]) == 1
+        import pytest
+
+        with pytest.raises(ValueError, match="duplicate metadata keys"):
+            verify_data_bytes(
+                metadata_path=meta,
+                expected={0x1000: b"abcd"},
+                actual={0x1000: b"abcd"},
+                sizes={0x1000: 4},
+            )
 
     def test_equal_truncated_bytes_cannot_verify_a_larger_symbol(self, tmp_path: Path) -> None:
         from rebrew.data_verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
-        _write(meta, '["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n')
+        _write(meta, 'format = 2\n["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n')
         report = verify_data_bytes(
             metadata_path=meta, expected={0x1000: b"ab"}, actual={0x1000: b"ab"}, sizes={0x1000: 4}
         )
@@ -233,7 +231,7 @@ class TestVerifyDataBytes:
         meta = tmp_path / "rebrew-data.toml"
         _write(
             meta,
-            '["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n',
+            'format = 2\n["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n',
         )
         res = verify_data_bytes(
             metadata_path=meta,
@@ -251,8 +249,7 @@ class TestVerifyDataBytes:
         meta = tmp_path / "rebrew-data.toml"
         _write(
             meta,
-            '["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n'
-            '["SERVER.0x1010"]\nname = "g_b"\nsize = 4\nsection = ".data"\n',
+            'format = 2\n["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n["SERVER.0x1010"]\nname = "g_b"\nsize = 4\nsection = ".data"\n',
         )
         res = verify_data_bytes(
             metadata_path=meta,
@@ -271,7 +268,7 @@ class TestVerifyDataBytes:
         meta = tmp_path / "rebrew-data.toml"
         _write(
             meta,
-            '["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n',
+            'format = 2\n["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n',
         )
         res = verify_data_bytes(
             metadata_path=meta,
@@ -288,8 +285,9 @@ class TestSectionFilter:
         from rebrew.data_verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
-        meta.write_text(
-            '["SERVER.0x1000"]\nname = "g_c"\nsize = 2\nsection = ".rdata"\n',
+        write_store_fixture(
+            meta,
+            'format = 2\n["SERVER.0x1000"]\nname = "g_c"\nsize = 2\nsection = ".rdata"\n',
             encoding="utf-8",
         )
         res = verify_data_bytes(
@@ -308,7 +306,9 @@ class TestSectionFilter:
         from rebrew.data_verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
-        meta.write_text('["SERVER.0x1000"]\nname = "g_x"\nsize = 2\n', encoding="utf-8")
+        write_store_fixture(
+            meta, 'format = 2\n["SERVER.0x1000"]\nname = "g_x"\nsize = 2\n', encoding="utf-8"
+        )
         res = verify_data_bytes(
             metadata_path=meta,
             expected={0x1000: b"\x01\x02"},
@@ -329,8 +329,7 @@ class TestSectionSymbolBytesBounds:
         meta = tmp_path / "rebrew-data.toml"
         _write(
             meta,
-            '["SERVER.0x1000"]\nname = "long"\nsize = 8\nsection = ".data"\n'
-            '["LIB.0x1000"]\nname = "short"\nsize = 2\nsection = ".data"\n',
+            'format = 2\n["SERVER.0x1000"]\nname = "long"\nsize = 8\nsection = ".data"\n["LIB.0x1000"]\nname = "short"\nsize = 2\nsection = ".data"\n',
         )
         by_va, sizes = section_symbol_bytes(metadata_path=meta, binary_path=tmp_path / "ref.dll")
         assert sizes[0x1000] == 8
@@ -341,8 +340,9 @@ class TestSectionSymbolBytesBounds:
 
     def _meta(self, tmp_path: Path, size: int, va: int = 0x1000) -> Path:
         meta = tmp_path / "rebrew-data.toml"
-        meta.write_text(
-            f'["SERVER.{va:#x}"]\nname = "g_a"\nsize = {size}\nsection = ".data"\n',
+        write_store_fixture(
+            meta,
+            f'format = 2\n["SERVER.{va:#x}"]\nname = "g_a"\nsize = {size}\nsection = ".data"\n',
             encoding="utf-8",
         )
         return meta
@@ -483,9 +483,9 @@ class TestSectionSymbolBytesBounds:
         )
         monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda _p: info)
         meta = tmp_path / "rebrew-data.toml"
-        meta.write_text(
-            '["SERVER.0x2010"]\nname = "g_bss"\nsize = 4\nsection = ".bss"\n'
-            '["SERVER.0x1000"]\nname = "imp"\nsize = 4\nsection = ".idata"\n',
+        write_store_fixture(
+            meta,
+            'format = 2\n["SERVER.0x2010"]\nname = "g_bss"\nsize = 4\nsection = ".bss"\n["SERVER.0x1000"]\nname = "imp"\nsize = 4\nsection = ".idata"\n',
             encoding="utf-8",
         )
         by_va, sizes = section_symbol_bytes(metadata_path=meta, binary_path=tmp_path / "x.dll")
@@ -509,9 +509,7 @@ def test_size_falls_back_to_declared_type(tmp_path: Path, monkeypatch) -> None:
     meta = tmp_path / "rebrew-data.toml"
     _write(
         meta,
-        '["SERVER.0x10001000"]\nname = "g_typed"\nsection = ".data"\ntype = "char[4]"\n'
-        '["SERVER.0x10001004"]\nname = "g_sized"\nsection = ".data"\nsize = 4\n'
-        '["SERVER.0x10001008"]\nname = "g_untyped"\nsection = ".data"\n',
+        'format = 2\n["SERVER.0x10001000"]\nname = "g_typed"\nsection = ".data"\ntype = "char[4]"\n["SERVER.0x10001004"]\nname = "g_sized"\nsection = ".data"\nsize = 4\n["SERVER.0x10001008"]\nname = "g_untyped"\nsection = ".data"\n',
     )
 
     sec = SimpleNamespace(name=".data", va=0x10001000, size=0x100, raw_size=0x100, file_offset=0)
@@ -537,8 +535,7 @@ class TestUncoveredZeroFill:
         meta = tmp_path / "rebrew-data.toml"
         _write(
             meta,
-            '["SERVER.0x1040"]\nname = "inside"\nsize = 4\nsection = ".data"\n'
-            '["SERVER.0x1100"]\nname = "outside"\nsize = 4\nsection = ".data"\n',
+            'format = 2\n["SERVER.0x1040"]\nname = "inside"\nsize = 4\nsection = ".data"\n["SERVER.0x1100"]\nname = "outside"\nsize = 4\nsection = ".data"\n',
         )
 
         def image(path: Path):
@@ -571,11 +568,7 @@ class TestPlacement:
     equal to the reference while the link map placed them 0x13ac bytes late.
     """
 
-    META = (
-        '["SERVER.0x1000"]\nname = "g_init"\nsize = 4\nsection = ".data"\n'
-        '["SERVER.0x2000"]\nname = "g_zero"\nsize = 4\nsection = ".bss"\n'
-        '["SERVER.0x3000"]\nname = "g_unmapped"\nsize = 4\nsection = ".data"\n'
-    )
+    META = 'format = 2\n["SERVER.0x1000"]\nname = "g_init"\nsize = 4\nsection = ".data"\n["SERVER.0x2000"]\nname = "g_zero"\nsize = 4\nsection = ".bss"\n["SERVER.0x3000"]\nname = "g_unmapped"\nsize = 4\nsection = ".data"\n'
 
     def _run(self, tmp_path: Path, built_symbols: dict[str, int] | None) -> dict:
         from rebrew.data_verify import verify_data_bytes
@@ -618,7 +611,7 @@ class TestPlacement:
         meta = tmp_path / "rebrew-data.toml"
         _write(
             meta,
-            '["SERVER.0x1000"]\nname = "argc"\nlink_symbol = "___argc"\nsize = 4\nsection = ".data"\n',
+            'format = 2\n["SERVER.0x1000"]\nname = "argc"\nlink_symbol = "___argc"\nsize = 4\nsection = ".data"\n',
         )
         res = verify_data_bytes(
             metadata_path=meta,

@@ -14,7 +14,8 @@ class TestQualifiedKey:
     def test_without_module(self) -> None:
         from rebrew.metadata.document import qualified_key
 
-        assert qualified_key(None, 0x01006364) == "0x01006364"
+        with pytest.raises(ValueError, match="non-empty target"):
+            qualified_key(None, 0x01006364)
 
     def test_nfd_module_normalized_to_nfc(self) -> None:
         from rebrew.metadata.document import qualified_key
@@ -140,82 +141,41 @@ class TestResolveMetadataKey:
         assert resolve_metadata_key(doc, nfd_mod, 0x24000, index=index) == "M\u00d6DULE.0x24000"
 
 
-class TestParseMetadataDocDuplicates:
-    def test_duplicate_keys_merge_fields(self, caplog: pytest.LogCaptureFixture) -> None:
-        """SERVER.0x24000 and SERVER.0x00024000 parse to one (module, va) —
-        the fields must merge instead of the later table replacing the earlier."""
-        import tomllib
-
+class TestParseMetadataDocValidation:
+    @pytest.mark.parametrize("second", ["SERVER.0x00001000", "SERVER.0X1000"])
+    def test_duplicate_keys_are_rejected(self, second: str) -> None:
         from rebrew.metadata.document import parse_metadata_doc
 
-        text = (
-            '["SERVER.0x24000"]\n'
-            'name = "g_iat_region"\n'
-            'section = ".rdata"\n'
-            "\n"
-            '["SERVER.0x00024000"]\n'
-            'status = "UNCHECKED"\n'
-        )
-        with caplog.at_level("WARNING", logger="rebrew.metadata.document"):
-            parsed = parse_metadata_doc(tomllib.loads(text))
+        document = {"format": 2, "SERVER.0x1000": {"size": 4}, second: {"size": 8}}
+        with pytest.raises(ValueError, match="duplicate metadata"):
+            parse_metadata_doc(document)
+        assert document["SERVER.0x1000"] == {"size": 4}
 
-        assert parsed[("SERVER", 0x24000)] == {
-            "name": "g_iat_region",
-            "section": ".rdata",
-            "status": "UNCHECKED",
-        }
-        assert "Duplicate metadata keys" in caplog.text
-
-    def test_later_key_wins_contested_field(self) -> None:
+    def test_known_fields_read_without_warnings(self, caplog: pytest.LogCaptureFixture) -> None:
         from rebrew.metadata.document import parse_metadata_doc
 
-        parsed = parse_metadata_doc(
-            {"SERVER.0x24000": {"size": 4}, "SERVER.0x00024000": {"size": 8}}
-        )
-        assert parsed[("SERVER", 0x24000)]["size"] == 8
-
-    def test_no_duplicates_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        from rebrew.metadata.document import parse_metadata_doc
-
-        with caplog.at_level("WARNING", logger="rebrew.metadata.document"):
-            parse_metadata_doc({"SERVER.0x1000": {"status": "STUB"}})
-
+        assert parse_metadata_doc(
+            {"format": 2, "S.0x1000": {"size": 4}}, known_fields=frozenset({"SIZE"})
+        ) == {("S", 0x1000): {"size": 4}}
         assert caplog.text == ""
 
-    def test_unknown_key_warns_when_field_set_known(self, caplog: pytest.LogCaptureFixture) -> None:
-        """A hand-edited CFLAGSS is dropped by every reader: say so."""
+    @pytest.mark.parametrize("field", ["CFLAGSS", "SIZE", "marker_type"])
+    def test_unknown_or_retired_field_is_rejected(self, field: str) -> None:
         from rebrew.metadata.document import parse_metadata_doc
 
-        with caplog.at_level("WARNING", logger="rebrew.metadata.document"):
+        with pytest.raises(ValueError):
             parse_metadata_doc(
-                {"SERVER.0x1000": {"CFLAGSS": "/O2", "cflags": "/O1"}},
-                known_fields=frozenset({"STATUS", "CFLAGS"}),
-                source="rebrew-functions.toml",
+                {"format": 2, "S.0x1000": {field: 4}},
+                known_fields=frozenset({"SIZE"}),
+                source="store.toml",
             )
 
-        assert "['CFLAGSS']" in caplog.text
-        assert "SERVER.0x00001000" in caplog.text
-        assert "rebrew-functions.toml" in caplog.text
-
-    def test_known_keys_do_not_warn(self, caplog: pytest.LogCaptureFixture) -> None:
+    @pytest.mark.parametrize("version", [None, 1, 3, True, 2.0, "2"])
+    def test_current_integer_format_is_required(self, version: object) -> None:
         from rebrew.metadata.document import parse_metadata_doc
 
-        with caplog.at_level("WARNING", logger="rebrew.metadata.document"):
-            parse_metadata_doc(
-                {"SERVER.0x1000": {"cflags": "/O2", "file": "a.c"}},
-                known_fields=frozenset({"STATUS", "CFLAGS", "FILE"}),
-            )
-
-        assert caplog.text == ""
-
-    def test_report_is_capped_per_file(self, caplog: pytest.LogCaptureFixture) -> None:
-        from rebrew.metadata.document import parse_metadata_doc
-
-        doc = {f"SERVER.0x{va:04x}": {"typo": 1} for va in range(10)}
-        with caplog.at_level("WARNING", logger="rebrew.metadata.document"):
-            parse_metadata_doc(doc, known_fields=frozenset({"STATUS"}), source="m.toml")
-
-        assert "(+5 more entries)" in caplog.text
+        with pytest.raises(ValueError, match="format = 2"):
+            parse_metadata_doc({"format": version})
 
 
 class TestMetadataWriteLock:
@@ -241,14 +201,14 @@ class TestMetadataWriteLock:
         from rebrew.utils import atomic_write_text
 
         target = tmp_path / "rebrew-functions.toml"
-        atomic_write_text(target, "")
+        atomic_write_text(target, "format = 2\n")
 
         def _write(i: int) -> None:
             with metadata_write_lock(tmp_path, "rebrew-functions.toml"):
                 doc = parse_metadata_doc(tomllib.loads(target.read_text(encoding="utf-8")))
                 doc[("M", i)] = {"note": str(i)}
-                lines = "".join(
-                    f'["M.0x{va:x}"]\nnote = "{entry["note"]}"\n'
+                lines = "format = 2\n" + "".join(
+                    f"""["M.0x{va:x}"]\nnote = "{entry["note"]}"\n"""
                     for (_, va), entry in sorted(doc.items(), key=lambda kv: kv[0])
                 )
                 atomic_write_text(target, lines)

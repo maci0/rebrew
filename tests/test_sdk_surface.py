@@ -1221,7 +1221,7 @@ class TestAllListsDeclareTheirModuleSurface:
         """A walk that stopped importing packages would gate almost nothing."""
         names = {module.__name__ for module in self._modules()}
         for expected in (
-            "rebrew.metadata.annotation",
+            "rebrew.metadata.bindings",
             "rebrew.cli",
             "rebrew.compiler.compile",
             "rebrew.config",

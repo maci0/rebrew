@@ -32,7 +32,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, require_config
-from rebrew.metadata.annotation import iter_annotations
+from rebrew.metadata.bindings import iter_source_bindings
 from rebrew.sources import (
     contained_path,
     iter_sources,
@@ -150,7 +150,7 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
 
     from rebrew.formats.binary_loader import extract_raw_bytes
 
-    for path, annos in iter_annotations(sources, target=marker, metadata_dir=cfg.metadata_dir):
+    for path, annos in iter_source_bindings(sources, target=marker, metadata_dir=cfg.metadata_dir):
         fns: list[tuple[str, int, bytes]] = []
         for a in annos:
             if a.is_data:
@@ -232,9 +232,9 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
     # mismatch for a function rebrew reports EXACT.
     from rebrew.compiler.compile import compile_to_obj
     from rebrew.compiler.overrides import resolve_compile_overrides
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
 
-    annos = parse_c_file_multi(
+    annos = read_source_bindings(
         source, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
     ann = annos[0] if annos else None

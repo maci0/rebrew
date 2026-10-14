@@ -115,31 +115,8 @@ def test_pat_line_rejects_tampered_bytes(code: bytes, reloc_offsets: list[int]) 
 
 
 # ---------------------------------------------------------------------------
-# Annotation block parsing (rebrew.metadata.annotation)
+# SourceBinding block parsing (rebrew.metadata.bindings)
 # ---------------------------------------------------------------------------
-
-
-@st.composite
-def annotation_block(draw: st.DrawFn) -> tuple[list[str], int, str | None, int | None, str | None]:
-    """A valid annotation block: marker + optional canonical keys + C body."""
-    va = draw(st.integers(min_value=0, max_value=0xFFFFFFFF))
-    lines = [f"// FUNCTION: SERVER 0x{va:08x}"]
-    status: str | None = None
-    size: int | None = None
-    cflags: str | None = None
-    if draw(st.booleans()):
-        status = draw(
-            st.sampled_from(["STUB", "EXACT", "RELOC", "NEAR_MATCHING", "PROVEN", "SKIP"])
-        )
-        lines.append(f"// STATUS: {status}")
-    if draw(st.booleans()):
-        size = draw(st.integers(min_value=1, max_value=1_000_000))
-        lines.append(f"// SIZE: {size}")
-    if draw(st.booleans()):
-        cflags = draw(st.from_regex(r"/[A-Za-z0-9]+", fullmatch=True))
-        lines.append(f"// CFLAGS: {cflags}")
-    lines.append("int fn(void) { return 0; }")
-    return lines, va, status, size, cflags
 
 
 # ---------------------------------------------------------------------------
@@ -270,37 +247,6 @@ def test_crc16_flirt_known_vectors() -> None:
     assert _crc16_flirt(b"function_code\x00\x00") == 0x77D2
 
 
-@settings(max_examples=200, deadline=None)
-@given(annotation_block())
-def test_annotation_block_roundtrip(
-    data: tuple[list[str], int, str | None, int | None, str | None],
-) -> None:
-    from rebrew.metadata.annotation import parse_new_format
-
-    lines, va, status, size, cflags = data
-    ann = parse_new_format(lines)
-    assert ann is not None
-    assert ann.va == va
-    assert ann.module == "SERVER"
-    # Volatile keys live in rebrew-functions.toml: inline STATUS is ignored.
-    assert ann.status == "STUB"
-    if size is not None:
-        assert ann.size == size
-    if cflags is not None:
-        assert ann.cflags == cflags
-
-
-@settings(max_examples=200, deadline=None)
-@given(st.integers(min_value=0, max_value=0xFFFFFFFF))
-def test_annotation_va_hex_roundtrip(va: int) -> None:
-    """0x%08x formatting must round-trip through the marker regex."""
-    from rebrew.metadata.annotation import parse_new_format
-
-    ann = parse_new_format([f"// FUNCTION: SERVER 0x{va:08x}", "int fn(void) { return 0; }"])
-    assert ann is not None
-    assert ann.va == va
-
-
 # ---------------------------------------------------------------------------
 # C declarator parsing (rebrew.c_parser)
 # ---------------------------------------------------------------------------
@@ -366,7 +312,7 @@ def test_find_c_function_definitions_contains_name(data: tuple[str, str]) -> Non
 
 
 # ---------------------------------------------------------------------------
-# Annotation parser robustness on malformed input (fuzz)
+# SourceBinding parser robustness on malformed input (fuzz)
 # ---------------------------------------------------------------------------
 
 # Characters that ``str.splitlines`` treats as line boundaries beyond ``\n``.
@@ -379,83 +325,6 @@ _annotation_line = st.text(
     alphabet=st.characters(blacklist_characters=_SPLITLINES_BOUNDARY_CHARS),
     max_size=80,
 )
-
-
-@settings(max_examples=500, deadline=None)
-@given(st.lists(_annotation_line, max_size=40))
-def test_annotation_parsers_robust_on_malformed_lines(lines: list[str]) -> None:
-    """Fuzz: arbitrary/malformed line lists must never crash the parsers.
-
-    ``parse_new_format`` / ``parse_new_format_multi`` are regex-driven state
-    machines over untrusted ``.c`` source; garbage lines — truncated markers,
-    invalid hex VAs, control characters — must be tolerated without raising.
-    Also asserts the ``split_annotation_sections`` partition invariant: the
-    preamble + blocks must cover exactly the same line segments as the input
-    (the orphan-KV rescue may reorder, but never drop or duplicate).
-    """
-    from collections import Counter
-
-    from rebrew.metadata.annotation import (
-        NEW_FUNC_CAPTURE_RE,
-        parse_new_format,
-        parse_new_format_multi,
-        split_annotation_sections,
-    )
-
-    # Crash-freedom on all three entry points.
-    parse_new_format(lines)
-    parse_new_format_multi(lines)
-    text = "\n".join(lines)
-    preamble, blocks = split_annotation_sections(text)
-
-    # Partition invariant (multiset of segments must be preserved).
-    assert Counter(text.splitlines()) == Counter((preamble + "".join(blocks)).splitlines())
-
-    # Every marker line opens exactly one block, and each block holds its marker.
-    segments = text.splitlines()
-    assert len(blocks) == sum(1 for ln in segments if NEW_FUNC_CAPTURE_RE.match(ln.strip()))
-    for block in blocks:
-        assert any(NEW_FUNC_CAPTURE_RE.match(ln.strip()) for ln in block.splitlines())
-
-
-@st.composite
-def lines_with_embedded_marker(draw: st.DrawFn) -> tuple[list[str], int]:
-    """Arbitrary garbage lines with one valid ``// FUNCTION: FUZZ 0x...`` marker."""
-    lines = draw(st.lists(_annotation_line, max_size=40))
-    # A garbage line opening an unclosed ``/*`` legitimately comments out
-    # everything after it, marker included — the parser tracks block-comment
-    # state on purpose (see parse_new_format_multi).  Neutralize such an opener
-    # so this test exercises marker survival, not C comment semantics; the
-    # malformed-input crash-freedom fuzz above still feeds ``/*`` garbage.
-    lines = [
-        "x" + ln if (stripped := ln.strip()).startswith("/*") and "*/" not in stripped else ln
-        for ln in lines
-    ]
-    va = draw(st.integers(min_value=0, max_value=0xFFFFFFFF))
-    marker = f"// FUNCTION: FUZZ 0x{va:08x}"
-    pos = draw(st.integers(min_value=0, max_value=len(lines)))
-    return lines[:pos] + [marker] + lines[pos:], va
-
-
-@settings(max_examples=500, deadline=None)
-@given(lines_with_embedded_marker())
-def test_annotation_marker_survives_garbage(data: tuple[list[str], int]) -> None:
-    """A valid marker embedded in garbage must parse with exact VA/module.
-
-    Also guards against phantom annotations: every returned VA must come
-    from an actual marker line in the input.
-    """
-    from rebrew.metadata.annotation import NEW_FUNC_CAPTURE_RE, parse_new_format_multi
-
-    lines, va = data
-    anns = parse_new_format_multi(lines)
-    assert any(a.va == va and a.module == "FUZZ" for a in anns)
-
-    marker_vas = {
-        int(m.group("va"), 16) for ln in lines if (m := NEW_FUNC_CAPTURE_RE.match(ln.strip()))
-    }
-    for ann in anns:
-        assert ann.va in marker_vas
 
 
 # ---------------------------------------------------------------------------
@@ -865,8 +734,7 @@ def test_count_statuses_invariants(statuses: dict[int, list[str]]) -> None:
 
     # Convert to the annotation-dict shape count_statuses expects.
     by_va = {
-        va: [{"marker_type": "FUNCTION", "status": s} for s in slist]
-        for va, slist in statuses.items()
+        va: [{"kind": "FUNCTION", "status": s} for s in slist] for va, slist in statuses.items()
     }
     out = count_statuses(by_va)
     assert set(out) == {"EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "STUB"}
@@ -878,8 +746,8 @@ def test_count_statuses_invariants(statuses: dict[int, list[str]]) -> None:
     # Spot-check priority: a VA with EXACT+STUB counts under EXACT.
     probe = {
         0x10: [
-            {"marker_type": "FUNCTION", "status": "EXACT"},
-            {"marker_type": "FUNCTION", "status": "STUB"},
+            {"kind": "FUNCTION", "status": "EXACT"},
+            {"kind": "FUNCTION", "status": "STUB"},
         ]
     }
     assert count_statuses(probe) == {
@@ -910,7 +778,7 @@ def test_build_coverage_data_reorder_invariant(statuses: list[str]) -> None:
 
     from rebrew.catalog.grid import build_coverage_data
     from rebrew.formats.binary_loader import load_binary
-    from rebrew.metadata.annotation import Annotation
+    from rebrew.metadata.bindings import SourceBinding
 
     fixtures = Path(__file__).parent / "fixtures"
     info = load_binary(fixtures / "mini_pe.exe")
@@ -920,27 +788,27 @@ def test_build_coverage_data_reorder_invariant(statuses: list[str]) -> None:
     # Two functions inside .text with the generated statuses.
     vas = [text_start, text_start + 0x10]
     entries = [
-        Annotation(
+        SourceBinding(
             va=vas[0],
             name="fn_a",
             symbol="_fn_a",
             module="SERVER",
             status=statuses[0],
             size=11,
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             filepath="a.c",
             cflags="",
             blocker="",
             blocker_delta=None,
         ),
-        Annotation(
+        SourceBinding(
             va=vas[1],
             name="fn_b",
             symbol="_fn_b",
             module="SERVER",
             status=statuses[1],
             size=10,
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             filepath="b.c",
             cflags="",
             blocker="",

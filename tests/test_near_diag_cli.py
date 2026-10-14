@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.near_diag import app
@@ -58,24 +59,26 @@ def _setup(
 
 
 def _write_src(cfg: SimpleNamespace, text: str) -> Path:
-    # Ensure a SIZE annotation so size_val is non-zero (insert after the marker).
-    if "SIZE:" not in text:
-        lines = text.splitlines()
-        out = []
-        for line in lines:
-            out.append(line)
-            if line.startswith("// FUNCTION:"):
-                out.append("// SIZE: 12")
-        text = "\n".join(out)
-    p = cfg.reversed_dir / "f.c"
-    p.write_text(text, encoding="utf-8")
-    return p
+    path = cfg.reversed_dir / "f.c"
+    fields = (
+        {key: {"size": 12, **value} for key, value in text.metadata_fields.items()}
+        if isinstance(text, SourceFixture)
+        else None
+    )
+    write_source(path, text, metadata_dir=cfg.metadata_dir, metadata_fields=fields)
+    return path
 
 
 class TestNearDiagCli:
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _setup(tmp_path, monkeypatch)
-        _write_src(cfg, "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n")
+        _write_src(
+            cfg,
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+                {"SERVER.0x1000": {"kind": "FUNCTION"}},
+            ),
+        )
         result = CliRunner().invoke(app, ["--json", str(cfg.reversed_dir / "f.c")])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
@@ -84,7 +87,13 @@ class TestNearDiagCli:
 
     def test_va_size_flags(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _setup(tmp_path, monkeypatch)
-        _write_src(cfg, "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n")
+        _write_src(
+            cfg,
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+                {"SERVER.0x1000": {"kind": "FUNCTION"}},
+            ),
+        )
         result = CliRunner().invoke(
             app, ["--json", "--va", "0x2000", "--size", "16", str(cfg.reversed_dir / "f.c")]
         )
@@ -104,7 +113,12 @@ class TestNearDiagCli:
         # VA present but no SIZE annotation (write directly to bypass the
         # _write_src SIZE helper).
         p = cfg.reversed_dir / "f.c"
-        p.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            p,
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
         result = CliRunner().invoke(app, ["--json", str(p)])
         assert result.exit_code != 0
         assert "Cannot determine target VA/size" in result.output
@@ -112,28 +126,52 @@ class TestNearDiagCli:
     def test_extract_failure_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _setup(tmp_path, monkeypatch)
         monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: None)
-        p = _write_src(cfg, "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n")
+        p = _write_src(
+            cfg,
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+                {"SERVER.0x1000": {"kind": "FUNCTION"}},
+            ),
+        )
         result = CliRunner().invoke(app, ["--json", str(p)])
         assert result.exit_code != 0
         assert "Failed to extract target bytes" in result.output
 
     def test_compile_error_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _setup(tmp_path, monkeypatch, compile_error="cl crashed")
-        p = _write_src(cfg, "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n")
+        p = _write_src(
+            cfg,
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+                {"SERVER.0x1000": {"kind": "FUNCTION"}},
+            ),
+        )
         result = CliRunner().invoke(app, ["--json", str(p)])
         assert result.exit_code != 0
         assert "cl crashed" in result.output
 
     def test_symbol_missing_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _setup(tmp_path, monkeypatch, symbol_found=False)
-        p = _write_src(cfg, "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n")
+        p = _write_src(
+            cfg,
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+                {"SERVER.0x1000": {"kind": "FUNCTION"}},
+            ),
+        )
         result = CliRunner().invoke(app, ["--json", str(p)])
         assert result.exit_code != 0
         assert "not found in compiled .obj" in result.output
 
     def test_terminal_table(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _setup(tmp_path, monkeypatch)
-        p = _write_src(cfg, "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n")
+        p = _write_src(
+            cfg,
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+                {"SERVER.0x1000": {"kind": "FUNCTION"}},
+            ),
+        )
         result = CliRunner().invoke(app, [str(p)])
         assert result.exit_code == 0
         assert "Delta classification" in result.output
@@ -148,10 +186,14 @@ class TestVAPositionalResolution:
     ) -> None:
         cfg = _setup(tmp_path, monkeypatch)
         p = cfg.reversed_dir / "multi.c"
-        p.write_text(
-            "// FUNCTION: SERVER 0x1000\n// SIZE: 12\nint f1(void) { return 0; }\n"
-            "// FUNCTION: SERVER 0x2000\n// SIZE: 12\nint f2(void) { return 0; }\n",
+        write_source(
+            p,
+            "/* ADDRESS: SERVER 0x1000 */\n\nint f1(void) { return 0; }\n/* ADDRESS: SERVER 0x2000 */\n\nint f2(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x1000": {"kind": "FUNCTION", "size": 12},
+                "SERVER.0x2000": {"kind": "FUNCTION", "size": 12},
+            },
         )
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, src: str(p))
         result = CliRunner().invoke(app, ["--json", "0x2000"])
@@ -163,7 +205,13 @@ class TestVAPositionalResolution:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         cfg = _setup(tmp_path, monkeypatch)
-        p = _write_src(cfg, "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n")
+        p = _write_src(
+            cfg,
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+                {"SERVER.0x1000": {"kind": "FUNCTION"}},
+            ),
+        )
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, src: str(p))
         result = CliRunner().invoke(app, ["--json", "some_symbol"])
         assert result.exit_code == 0
@@ -178,9 +226,11 @@ class TestVANoMatchErrors:
     def test_va_not_in_file_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _setup(tmp_path, monkeypatch)
         p = cfg.reversed_dir / "multi.c"
-        p.write_text(
-            "// FUNCTION: SERVER 0x1000\n// SIZE: 12\nint f1(void) { return 0; }\n",
+        write_source(
+            p,
+            "/* ADDRESS: SERVER 0x1000 */\n\nint f1(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "size": 12}},
         )
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, src: str(p))
         result = CliRunner().invoke(app, ["--json", "0x9999"])

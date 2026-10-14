@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
 
@@ -28,16 +29,16 @@ def _mock_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespac
 def _write_project(tmp_path: Path, matched_orphan: bool = False) -> None:
     src = tmp_path / "reversed"
     src.mkdir(exist_ok=True)
-    (src / "foo.c").write_text(
-        "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+    write_source(
+        src / "foo.c",
+        "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+        encoding="utf-8",
+        metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
     )
-    blocks = (
-        '["SERVER.0x1000"]\nstatus = "STUB"\nsize = 16\n\n'
-        '["SERVER.0x2000"]\nstatus = "STUB"\nsize = 16\n'
-    )
+    blocks = 'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\nsize = 16\n\n["SERVER.0x2000"]\nstatus = "STUB"\nsize = 16\n'
     if matched_orphan:
         blocks += '\n["SERVER.0x3000"]\nstatus = "EXACT"\nsize = 16\n'
-    (tmp_path / "rebrew-functions.toml").write_text(blocks, encoding="utf-8")
+    write_store_fixture(tmp_path / "rebrew-functions.toml", blocks, encoding="utf-8")
 
 
 class TestOrphansList:
@@ -59,11 +60,16 @@ class TestOrphansList:
         _mock_cfg(tmp_path, monkeypatch)
         src = tmp_path / "reversed"
         src.mkdir(exist_ok=True)
-        (src / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        write_source(
+            src / "foo.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n',
+            encoding="utf-8",
         )
         res = CliRunner().invoke(app, ["list"])
         assert res.exit_code == 0, res.output
@@ -170,14 +176,15 @@ class TestKnownSourceWidening:
         cfg = _mock_cfg(tmp_path, monkeypatch)
         src = tmp_path / "reversed"
         src.mkdir(exist_ok=True)
-        (src / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        write_source(
+            src / "foo.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "STUB"\n\n'
-            '["SERVER.0x2000"]\nstatus = "STUB"\nsize = 16\n\n'
-            '["SERVER.0x3000"]\nstatus = "STUB"\nsize = 16\n\n'
-            '["SERVER.0x4000"]\nstatus = "STUB"\nsize = 16\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "STUB"\nsize = 16\n\n["SERVER.0x3000"]\nstatus = "STUB"\nsize = 16\n\n["SERVER.0x4000"]\nstatus = "STUB"\nsize = 16\n',
             encoding="utf-8",
         )
         (src / FUNCTION_STRUCTURE_JSON).write_text(
@@ -226,12 +233,15 @@ class TestDataOrphansNameExemption:
         _mock_cfg(tmp_path, monkeypatch)
         src = tmp_path / "reversed"
         src.mkdir(exist_ok=True)
-        (src / "g.c").write_text("// GLOBAL: SERVER 0x1000\nint g_live;\n", encoding="utf-8")
-        (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x1000"]\nname = "g_live"\nsection = ".data"\nsize = 4\n\n'
-            '["SERVER.0x2000"]\nname = "g_stale"\nsection = ".data"\nsize = 4\n\n'
-            '["SERVER.0x3000"]\nsection = ".data"\nsize = 4\n\n'
-            '["SERVER.0x4000"]\nname = "import_slot"\nsection = ".idata"\nsize = 4\n',
+        write_source(
+            src / "g.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint g_live;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
+        )
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x1000"]\nname = "g_live"\nsection = ".data"\nsize = 4\n\n["SERVER.0x2000"]\nname = "g_stale"\nsection = ".data"\nsize = 4\n\n["SERVER.0x3000"]\nsection = ".data"\nsize = 4\n\n["SERVER.0x4000"]\nname = "import_slot"\nsection = ".idata"\nsize = 4\n',
             encoding="utf-8",
         )
 
@@ -334,13 +344,15 @@ class TestBatchDeletes:
         _mock_cfg(tmp_path, monkeypatch)
         src = tmp_path / "reversed"
         src.mkdir(exist_ok=True)
-        (src / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        write_source(
+            src / "foo.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "STUB"\n\n'
-            f'["SERVER.0x2000"]\nstatus = "{earned}"\nsize = 16\n\n'
-            '["SERVER.0x3000"]\nstatus = "STUB"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            f'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "{earned}"\nsize = 16\n\n["SERVER.0x3000"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         res = CliRunner().invoke(app, ["prune"])
@@ -359,12 +371,15 @@ class TestBatchDeletes:
         _mock_cfg(tmp_path, monkeypatch)
         src = tmp_path / "reversed"
         src.mkdir(exist_ok=True)
-        (src / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        write_source(
+            src / "foo.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "STUB"\n\n'
-            '["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
             encoding="utf-8",
         )
         res = CliRunner().invoke(app, ["prune", "--include-matched"])
@@ -388,12 +403,15 @@ class TestCorruptInventoryFailClosed:
         _mock_cfg(tmp_path, monkeypatch)
         src = tmp_path / "reversed"
         src.mkdir(exist_ok=True)
-        (src / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        write_source(
+            src / "foo.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "STUB"\n\n'
-            '["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
             encoding="utf-8",
         )
         (src / FUNCTION_STRUCTURE_JSON).write_text("[{broken", encoding="utf-8")
@@ -412,12 +430,15 @@ class TestCorruptInventoryFailClosed:
         _mock_cfg(tmp_path, monkeypatch)
         src = tmp_path / "reversed"
         src.mkdir(exist_ok=True)
-        (src / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        write_source(
+            src / "foo.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "STUB"\n\n'
-            '["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
             encoding="utf-8",
         )
         (src / FUNCTION_STRUCTURE_JSON).write_text("[{broken", encoding="utf-8")

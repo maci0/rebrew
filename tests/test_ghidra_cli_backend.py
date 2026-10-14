@@ -135,7 +135,7 @@ class TestOpToArgs:
             "module": "SERVER",
             "size": 64,
             "cflags": "/O2",
-            "marker_type": "FUNCTION",
+            "kind": "FUNCTION",
         }
         bookmark_ops = build_bookmark_commands([entry], "/x.dll")
         assert bookmark_ops, "bookmark producer must emit operations"

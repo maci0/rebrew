@@ -27,7 +27,6 @@ from rebrew.cli import (
 )
 from rebrew.config import module_marker
 from rebrew.formats.import_table import find_import_stubs, parse_imports
-from rebrew.metadata.annotation import NEW_FUNC_CAPTURE_RE, NEW_FUNC_RE
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.utils import pe_name_token, read_source_text, untrusted_text
 
@@ -83,7 +82,6 @@ def mark_import_stubs(
     ``rebrew library crt-match`` can then attribute to CRT sources.
     """
     from rebrew.metadata.functions import identity_file, record_function_identity
-    from rebrew.metadata.marker_migration import migrate_source_file
     from rebrew.naming import load_existing_vas
     from rebrew.utils import atomic_write_text
 
@@ -94,11 +92,6 @@ def mark_import_stubs(
     # A decompiled .c and a store row both count. A legacy marker still in
     # the header counts too, and a dry run must not migrate it away.
     annotated = set(load_existing_vas(cfg.reversed_dir, cfg))
-    annotated.update(
-        int(match.group("va"), 16)
-        for match in NEW_FUNC_CAPTURE_RE.finditer(existing)
-        if match.group("va")
-    )
     new_vas = [va for va in sorted(stubs) if va not in annotated]
     if not new_vas:
         console.print("No new import stubs to annotate.")
@@ -111,16 +104,6 @@ def mark_import_stubs(
         for va in new_vas:
             console.print(f"  [dim]0x{va:08X} {pe_name_token(stubs[va])}[/]")
         return len(new_vas)
-
-    if out_file.is_file() and NEW_FUNC_RE.search(existing):
-        row = migrate_source_file(cfg, out_file, None, dry_run=False)
-        if row and row.get("skipped") == "unrecorded-markers":
-            console.print(
-                f"[yellow]warning:[/yellow] {out_file.name} has marker lines that were not "
-                "recorded; new import rows would be invisible until it is clean"
-            )
-            return 0
-        existing, encoding = read_source_text(out_file)
 
     if not existing.strip():
         atomic_write_text(out_file, _IMPORTS_BANNER, encoding=encoding or "utf-8")
@@ -135,7 +118,7 @@ def mark_import_stubs(
             module=marker,
             va=va,
             file=file_rel,
-            marker_type="LIBRARY",
+            kind="LIBRARY",
             # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
             name=c_name_from_symbol(token),
             symbol=token,

@@ -220,17 +220,17 @@ def _dest_signatures(cfg: ProjectConfig) -> dict[int, dict[str, Any]]:
 
 
 def _dest_annotation(cfg: ProjectConfig, va: int, filepath: str) -> Any:
-    """The local :class:`~rebrew.metadata.annotation.Annotation` for *(va, filepath)*."""
+    """The local :class:`~rebrew.metadata.bindings.SourceBinding` for *(va, filepath)*."""
     if not filepath:
         return None
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
 
     source = contained_path(source_roots(cfg), filepath)
     if source is None:
         log.warning("ignoring annotation file outside the source roots: %r", filepath)
         return None
     try:
-        annotations = parse_c_file_multi(
+        annotations = read_source_bindings(
             source,
             target_name=cfg.target_name,
             base_dir=cfg.reversed_dir,

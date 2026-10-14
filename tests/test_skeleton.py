@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import SourceFixture, write_source
 
 from rebrew.catalog import FunctionEntry
 from rebrew.config import ProjectConfig
@@ -14,7 +15,6 @@ from rebrew.naming import (
 )
 from rebrew.skeleton import (
     _ret_arg_count,
-    generate_annotation_block,
     generate_diff_command,
     generate_skeleton,
     generate_test_command,
@@ -129,15 +129,18 @@ class TestLoadExistingVas:
         src_dir = tmp_path / "src"
         src_dir.mkdir(exist_ok=True)
         c_file = src_dir / "game_func.c"
-        c_file.write_text(
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: STUB\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 64\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _my_func\n"
-            "void __cdecl _my_func(void) {}\n",
+        write_source(
+            c_file,
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\nvoid __cdecl _my_func(void) {}\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10001000": {
+                    "kind": "FUNCTION",
+                    "size": 64,
+                    "cflags": "/O2 /Gd",
+                    "symbol": "_my_func",
+                }
+            },
         )
         result = load_existing_vas(src_dir, cfg=self._cfg(tmp_path))
         assert 0x10001000 in result
@@ -211,7 +214,7 @@ class TestListUncovered:
 
 
 class TestGenerateSkeletonModules:
-    """Verify generate_skeleton and generate_annotation_block use library_modules."""
+    """Verify generate_skeleton and generate_skeleton use library_modules."""
 
     def _make_cfg(self, **overrides: Any) -> ProjectConfig:
         defaults: dict[str, Any] = {
@@ -243,7 +246,7 @@ class TestGenerateSkeletonModules:
             kind_module="DIRECTX",
         )
         entry = get_entry(tmp_path, 0x10001000, "SERVER")
-        assert entry["marker_type"] == "LIBRARY"
+        assert entry["kind"] == "LIBRARY"
         assert entry["name"] == "dx_init"
         assert entry["symbol"] == "_dx_init"
         assert entry["size"] == 32
@@ -266,7 +269,7 @@ class TestGenerateSkeletonModules:
             meta, tmp_path / "game_func.c", 0x10001000, 32, "SERVER", "game_func"
         )
         entry = get_entry(tmp_path, 0x10001000, "SERVER")
-        assert entry["marker_type"] == "FUNCTION"
+        assert entry["kind"] == "FUNCTION"
         assert entry["name"] == "game_func"
         assert entry["symbol"] == "_game_func"
         assert entry["size"] == 32
@@ -278,14 +281,14 @@ class TestGenerateSkeletonModules:
         from rebrew.skeleton import _write_skeleton_metadata
 
         cfg = self._make_cfg()
-        block = generate_annotation_block(cfg, 0x10001000, "dx_init", "DIRECTX")
+        block = generate_skeleton(cfg, 0x10001000, "dx_init", "DIRECTX")
         _assert_pure_c(block)
         assert "dx_init" in block
 
         meta = SimpleNamespace(metadata_dir=tmp_path, library_modules={"DIRECTX"})
         _write_skeleton_metadata(meta, tmp_path / "dx_init.c", 0x10001000, 16, "DIRECTX", "dx_init")
         entry = get_entry(tmp_path, 0x10001000, "DIRECTX")
-        assert entry["marker_type"] == "LIBRARY"
+        assert entry["kind"] == "LIBRARY"
         assert entry["name"] == "dx_init"
         assert entry["symbol"] == "_dx_init"
         assert "status" not in entry
@@ -391,18 +394,16 @@ class TestGenerateAnnotationBlock:
         return SimpleNamespace(library_modules=set(), marker="SERVER")
 
     def test_basic_block(self) -> None:
-        from rebrew.skeleton import generate_annotation_block
+        from rebrew.skeleton import generate_skeleton
 
-        block = generate_annotation_block(self._cfg(), 0x1000, "FUN_10001000")
+        block = generate_skeleton(self._cfg(), 0x1000, "FUN_10001000")
         _assert_pure_c(block)
         assert "func_10001000" in block
 
     def test_custom_name_wins(self) -> None:
-        from rebrew.skeleton import generate_annotation_block
+        from rebrew.skeleton import generate_skeleton
 
-        block = generate_annotation_block(
-            self._cfg(), 0x1000, "FUN_10001000", custom_name="my_func"
-        )
+        block = generate_skeleton(self._cfg(), 0x1000, "FUN_10001000", custom_name="my_func")
         assert "my_func" in block
         assert "func_10001000" not in block
 
@@ -410,10 +411,10 @@ class TestGenerateAnnotationBlock:
         from types import SimpleNamespace
 
         from rebrew.metadata.functions import get_entry
-        from rebrew.skeleton import _write_skeleton_metadata, generate_annotation_block
+        from rebrew.skeleton import _write_skeleton_metadata, generate_skeleton
 
         cfg = SimpleNamespace(library_modules={"MSVCRT"}, marker="SERVER", metadata_dir=tmp_path)
-        block = generate_annotation_block(cfg, 0x1000, "FUN_10001000", module="MSVCRT")
+        block = generate_skeleton(cfg, 0x1000, "FUN_10001000", module="MSVCRT")
         _assert_pure_c(block)
         assert "func_10001000" in block
         assert "LIBRARY" not in block
@@ -427,7 +428,7 @@ class TestGenerateAnnotationBlock:
             kind_module="MSVCRT",
         )
         entry = get_entry(tmp_path, 0x1000, "SERVER")
-        assert entry["marker_type"] == "LIBRARY"
+        assert entry["kind"] == "LIBRARY"
         assert entry["name"] == "func_10001000"
         assert entry["symbol"] == "_func_10001000"
         assert entry["size"] == 8
@@ -480,7 +481,7 @@ class TestSkeletonListFallback:
         from rebrew.metadata.functions import get_entry
 
         entry = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
-        assert entry["marker_type"] == "FUNCTION"
+        assert entry["kind"] == "FUNCTION"
         assert entry["name"] == "fcn_10001000"
         assert entry["symbol"] == "_fcn_10001000"
         assert entry["size"] == 42
@@ -541,7 +542,7 @@ class TestSkeletonMetadataSize:
 
         entry = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
         assert entry.get("size") == 42  # from the function list, now verifiable
-        assert entry.get("marker_type") == "FUNCTION"
+        assert entry.get("kind") == "FUNCTION"
         assert entry.get("name") == "fcn_10001000"
         assert entry.get("symbol") == "_fcn_10001000"
         assert entry.get("updated_by") == "skeleton"
@@ -559,7 +560,7 @@ class TestSkeletonMetadataSize:
         _write_skeleton_metadata(cfg, cfg.reversed_dir / "keep.c", 0x10001000, 42, "GAME", "keep")
         entry = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
         assert entry.get("size") == 99
-        assert entry.get("marker_type") == "FUNCTION"
+        assert entry.get("kind") == "FUNCTION"
         assert entry.get("name") == "keep"
         assert entry.get("symbol") == "_keep"
         assert entry.get("file") == "src/keep.c"
@@ -576,7 +577,7 @@ class TestSkeletonMetadataSize:
             module="GAME",
             va=0x10001000,
             file="src/shared.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             name="cm_Wrong",
             symbol="_cm_Wrong",
         )
@@ -675,7 +676,7 @@ class TestSkeletonDryRun:
         cfg.dll_exports = {}
         existing = cfg.reversed_dir / make_filename("fcn.10001000", cfg=cfg)
         hand = "/* hand-edited */\nint keep(void) { return 1; }\n"
-        existing.write_text(hand, encoding="utf-8")
+        write_source(existing, hand, encoding="utf-8")
         monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)
         result = CliRunner().invoke(sk.app, ["--force", "0x10001000"])
         assert result.exit_code == 0
@@ -701,8 +702,16 @@ class TestSkeletonDryRun:
         cfg = self._cfg(tmp_path)
         cfg.dll_exports = {}
         existing = cfg.reversed_dir / make_filename("fcn.10001000", cfg=cfg)
-        hand = "// FUNCTION: GAME 0x00009999\nint keep(void) { return 1; }\n"
-        existing.write_text(hand, encoding="utf-8")
+        hand = SourceFixture(
+            "/* ADDRESS: GAME 0x00009999 */\nint keep(void) { return 1; }\n",
+            {"GAME.0x00009999": {"kind": "FUNCTION"}},
+        )
+        write_source(
+            existing,
+            hand,
+            encoding="utf-8",
+            metadata_fields={"GAME.0x00009999": {"kind": "FUNCTION"}},
+        )
         monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)
         result = CliRunner().invoke(sk.app, ["--force", "0x10001000"])
         assert result.exit_code == 0, result.output
@@ -712,9 +721,9 @@ class TestSkeletonDryRun:
         backups = list((tmp_path / ".rebrew" / "source-backups").glob(f"{existing.name}.*"))
         assert len(backups) == 1
         assert backups[0].read_text(encoding="utf-8") == hand
-        assert get_entry(cfg.metadata_dir, 0x9999, "GAME") == {}
+        assert get_entry(cfg.metadata_dir, 0x9999, "GAME")["name"] == "keep"
         written = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
-        assert written["marker_type"] == "FUNCTION"
+        assert written["kind"] == "FUNCTION"
         assert written["name"] == "fcn_10001000"
         assert written["size"] == 42
         assert "status" not in written
@@ -1255,9 +1264,9 @@ class TestProfileAwareSignature:
         )
 
     def test_borland_3_1_signature_omits_cdecl(self, tmp_path: Path) -> None:
-        from rebrew.skeleton import _render_annotation_block
+        from rebrew.skeleton import _render_skeleton
 
-        out = _render_annotation_block(
+        out = _render_skeleton(
             marker="FUNCTION",
             cfg_marker="MAIN",
             va=0x1000,
@@ -1273,9 +1282,9 @@ class TestProfileAwareSignature:
         assert "__cdecl" not in out
 
     def test_msvc_6_0_signature_keeps_cdecl(self, tmp_path: Path) -> None:
-        from rebrew.skeleton import _render_annotation_block
+        from rebrew.skeleton import _render_skeleton
 
-        out = _render_annotation_block(
+        out = _render_skeleton(
             marker="FUNCTION",
             cfg_marker="MAIN",
             va=0x1000,
@@ -1374,9 +1383,10 @@ class TestSkeletonNameInjection:
 
     def test_annotation_block_keeps_single_comment(self) -> None:
         hostile = "name*/ int injected; /*"
-        block = generate_annotation_block(self._make_cfg(), 0x10001000, hostile, "SERVER")
+        block = generate_skeleton(self._make_cfg(), 0x10001000, hostile, "SERVER")
         # The only comment closers are the ones the generator itself wrote.
-        assert block.count("*/") <= 1
+        assert block.count("*/") <= 3
+        assert "name* / int injected" in block
 
 
 class TestSkeletonCliEndpointValidation:

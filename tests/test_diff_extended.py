@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 import typer
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
@@ -288,10 +289,15 @@ class TestRunDiff:
         from rebrew.diff import run_diff
         from rebrew.metadata.functions import get_entry
 
-        meta_dir = tmp_path / "meta"
-        meta_dir.mkdir()
+        meta_dir = tmp_path
         seed = tmp_path / "f.c"
-        seed.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            seed,
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=meta_dir,
+        )
         p = _params(seed_c=seed, cfg=SimpleNamespace(metadata_dir=meta_dir, compile_timeout=30))
         summary = _summary(
             instructions=[
@@ -314,10 +320,15 @@ class TestRunDiff:
         from rebrew.diff import run_diff
         from rebrew.metadata.functions import get_entry, update_field
 
-        meta_dir = tmp_path / "meta"
-        meta_dir.mkdir()
+        meta_dir = tmp_path
         seed = tmp_path / "f.c"
-        seed.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            seed,
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=meta_dir,
+        )
         update_field(meta_dir, 0x1000, "blocker", "old blocker", "SERVER")
         update_field(meta_dir, 0x1000, "blocker_delta", 7, "SERVER")
         p = _params(seed_c=seed, cfg=SimpleNamespace(metadata_dir=meta_dir, compile_timeout=30))
@@ -334,10 +345,15 @@ class TestRunDiff:
         from rebrew.diff import run_diff
         from rebrew.metadata.functions import get_entry
 
-        meta_dir = tmp_path / "meta"
-        meta_dir.mkdir()
+        meta_dir = tmp_path
         seed = tmp_path / "f.c"
-        seed.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            seed,
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=meta_dir,
+        )
         p = _params(seed_c=seed, cfg=SimpleNamespace(metadata_dir=meta_dir, compile_timeout=30))
         summary = _summary(
             instructions=[
@@ -572,13 +588,17 @@ class TestFixBlockerTargetsDiffedVa:
         from rebrew.diff import run_diff
         from rebrew.metadata.functions import get_entry
 
-        meta_dir = tmp_path / "meta"
-        meta_dir.mkdir()
+        meta_dir = tmp_path
         seed = tmp_path / "f.c"
-        seed.write_text(
-            "// FUNCTION: SERVER 0x1000\nint f1(void) { return 0; }\n"
-            "// FUNCTION: SERVER 0x2000\nint f2(void) { return 0; }\n",
+        write_source(
+            seed,
+            "/* ADDRESS: SERVER 0x1000 */\nint f1(void) { return 0; }\n/* ADDRESS: SERVER 0x2000 */\nint f2(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x1000": {"kind": "FUNCTION"},
+                "SERVER.0x2000": {"kind": "FUNCTION"},
+            },
+            metadata_dir=meta_dir,
         )
         p = _params(
             seed_c=seed,

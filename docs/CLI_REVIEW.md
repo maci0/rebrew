@@ -131,7 +131,7 @@ still reviewed as discovery/ownership boundaries.
 | `skeleton` | Keep skeleton | The normal source-creation entry; retain append, batch, and optional decompilation distinctions. | [skeleton.py](../src/rebrew/skeleton.py) |
 | `sync` | Keep sync; split its operations | Expose named field-sync and MCP structural operations; preserve their different state and transport owners. | [cli.py](../src/rebrew/ghidra/cli.py) |
 | `lint` | Keep lint | A daily validation command; keep explicit fixing separate from the default check. | [lint.py](../src/rebrew/lint.py) |
-| `migrate-markers` | source migrate-markers | An explicit format migration; keep dry-run and locked metadata APIs. | [migrate_markers.py](../src/rebrew/migrate_markers.py) |
+| `register` | source register | Record identities from address anchors, or a support file purpose, through locked metadata APIs. | [source_register.py](../src/rebrew/source_register.py) |
 | `fix` | source fix | Decompiler-output sanitization is different from lint fixing; make the output file clear. | [fixup.py](../src/rebrew/fixup.py) |
 | `recover-structs` | types recover | Type recovery belongs with type checking/application; keep inference separate from source writes. | [struct_recover.py](../src/rebrew/struct_recover.py) |
 | `decompile` | Keep decompile | Useful daily operation; use the same backend-option spelling as skeleton and type recovery. | [name_decomp.py](../src/rebrew/name_decomp.py) |

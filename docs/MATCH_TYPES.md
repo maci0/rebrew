@@ -2,11 +2,9 @@
 
 All function statuses are stored in the `rebrew-functions.toml` metadata, keyed by
 `MODULE.0xVA`; a key without a module is rejected by the writer. The row's `file`
-and `marker_type` are the identity. An unmigrated `.c` may still carry
-`// FUNCTION: MODULE 0xVA` plus inline `// SIZE:` / `// CFLAGS:`; the parser
-reads them, and `rebrew source migrate-markers` (ADR 023) leaves pure C.
-New writers emit pure C and record the row. `SIZE` and `CFLAGS` are
-metadata-owned.
+and `kind` are the identity. All state lives in format-2 dedicated metadata.
+Optional ADDRESS comments bind the next C declaration. No inline state or old
+metadata formats are read. Registration is not comparison evidence.
 
 Function presence, accounted executable bytes, and matched-function counts are
 different measures. The table below describes byte-match credit; see

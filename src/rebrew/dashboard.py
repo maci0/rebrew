@@ -220,7 +220,7 @@ from rebrew.coverage_toml import (
     Global,
     load_all_coverage_from,
 )
-from rebrew.metadata.annotation import FUNCTION_MARKERS
+from rebrew.metadata.bindings import FUNCTION_KINDS
 from rebrew.metadata.functions import canonical_status
 from rebrew.status_style import status_mark_groups
 from rebrew.utils import floor_pct, preset_module_key, strip_bidi_format
@@ -2276,7 +2276,7 @@ class Dashboard:
             for index, fn in enumerate(snapshot.functions):
                 # Code rows only, and the filter is the same one the COUNT
                 # total ran over, so the page and the total cannot disagree.
-                if fn.markerType not in FUNCTION_MARKERS:
+                if fn.markerType not in FUNCTION_KINDS:
                     continue
                 if wanted_status is not None and fn.status != wanted_status:
                     continue

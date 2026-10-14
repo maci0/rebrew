@@ -945,7 +945,7 @@ def strip_generated_timestamp(text: str) -> str:
 def filename_component(name: str) -> str:
     """*name* reduced to one safe path component.
 
-    Annotation symbols come from project metadata and reverse-engineering
+    SourceBinding symbols come from project metadata and reverse-engineering
     comments, so they are untrusted: joining one into a path as-is lets a
     ``../../..`` or absolute name escape the run directory (or a leading ``-``
     read as an option).  Everything outside ``[A-Za-z0-9._@-]`` becomes ``_``,

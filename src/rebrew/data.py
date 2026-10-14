@@ -97,7 +97,7 @@ def _generate_bss_fix(
     between the two can never leave metadata claiming coverage the source
     does not declare.
     """
-    from rebrew.metadata.data import record_migrated_data_markers, set_data_fields_batch
+    from rebrew.metadata.data import record_data_rows, set_data_fields_batch
     from rebrew.metadata.functions import identity_file
 
     meta_dir = metadata_dir if metadata_dir is not None else src_dir
@@ -132,10 +132,6 @@ def _generate_bss_fix(
                 return
             console.print(f"[yellow]{message}[/yellow]")
             return
-        for line in text.splitlines():
-            m = re.match(r"// DATA: \S+ 0x([0-9a-fA-F]{8})", line)
-            if m:
-                existing_decls[int(m.group(1), 16)] = 0
         # char gap_XXXXXXXX[N]; — recover the declared size
         for m in re.finditer(r"char gap_([0-9a-fA-F]{8})\[(\d+)\];", text):
             existing_decls[int(m.group(1), 16)] = int(m.group(2))
@@ -171,6 +167,8 @@ def _generate_bss_fix(
     # file.  Already-declared offsets keep their existing arrays untouched.
     new_gaps = [g for g in report.gaps if g.offset not in existing_decls]
 
+    from rebrew.metadata.anchors import address_comment
+
     lines = [
         _BSS_PADDING_HEADER,
         "/* SIZE/SECTION/NOTE metadata is in rebrew-data.toml */\n",
@@ -179,11 +177,13 @@ def _generate_bss_fix(
     for offset in sorted(existing_decls):
         size = existing_decls[offset]
         if size > 0:
+            lines.append(address_comment(origin, offset))
             lines.append(f"char gap_{offset:08x}[{size}];")
     # Then the newly detected gaps.
     for gap in sorted(new_gaps, key=lambda g: g.offset):
         if gap.size <= 0:
             continue
+        lines.append(address_comment(origin, gap.offset))
         lines.append(f"char gap_{gap.offset:08x}[{gap.size}];")
 
     if dry_run:
@@ -226,7 +226,7 @@ def _generate_bss_fix(
                 "va": offset,
                 "identity": {
                     "file": file_rel,
-                    "marker_type": "DATA",
+                    "kind": "DATA",
                     "name": f"gap_{offset:08x}",
                 },
                 "fill": {"size": size, "section": ".bss"},
@@ -241,14 +241,14 @@ def _generate_bss_fix(
                 "va": gap.offset,
                 "identity": {
                     "file": file_rel,
-                    "marker_type": "DATA",
+                    "kind": "DATA",
                     "name": f"gap_{gap.offset:08x}",
                 },
                 "fill": {"size": gap.size, "section": ".bss"},
             }
         )
     if identity_rows:
-        record_migrated_data_markers(meta_dir, identity_rows)
+        record_data_rows(meta_dir, identity_rows)
     if new_gaps:
         # Write metadata to data metadata (the metadata root, not src_dir).
         # Batched: one TOML RMW for all new gaps instead of three writes each.
@@ -311,7 +311,7 @@ def execute_data(
     set_size: list[str] | None = None,
     set_section: list[str] | None = None,
     set_file: list[str] | None = None,
-    set_marker_type: list[str] | None = None,
+    set_kind: list[str] | None = None,
     set_note: list[str] | None = None,
     gen_header_out: Path | None = None,
     force: bool = False,
@@ -337,7 +337,7 @@ def execute_data(
     set_size = set_size or []
     set_section = set_section or []
     set_file = set_file or []
-    set_marker_type = set_marker_type or []
+    set_kind = set_kind or []
     set_note = set_note or []
     if (
         sum(
@@ -351,7 +351,7 @@ def execute_data(
                 set_storage_kind,
                 set_backing,
                 set_link_symbol,
-                set_marker_type,
+                set_kind,
                 set_note,
             )
         )
@@ -360,7 +360,7 @@ def execute_data(
         error_exit(
             "Use only one data setter per call: --type, --name, --size, "
             "--section, --file, --storage-kind, --backing, --link-symbol, "
-            "--marker-type, or --note.",
+            "--kind, or --note.",
             json_mode=json_output,
         )
     cfg = require_config(target=target, json_mode=json_output)
@@ -388,13 +388,13 @@ def execute_data(
             console.print(f"Updated {len(rows)} data storage relationship(s).")
         return
 
-    if set_marker_type or set_note:
-        from rebrew.data_annotate import set_data_marker_types, set_data_notes
+    if set_kind or set_note:
+        from rebrew.data_annotate import set_data_kinds, set_data_notes
 
         try:
             rows = (
-                set_data_marker_types(cfg, set_marker_type, dry_run=dry_run)
-                if set_marker_type
+                set_data_kinds(cfg, set_kind, dry_run=dry_run)
+                if set_kind
                 else set_data_notes(cfg, set_note, dry_run=dry_run)
             )
         except ValueError as exc:
@@ -402,7 +402,7 @@ def execute_data(
         if json_output:
             json_print({"dry_run": dry_run, "set": rows})
         else:
-            field = "marker_type" if set_marker_type else "note"
+            field = "kind" if set_kind else "note"
             for row in rows:
                 console.print(
                     f"set {field} {untrusted_ident(str(row[field]))!r} for {row['va']} "
@@ -947,10 +947,10 @@ def set_data(
         "--file",
         help="Set the source file that defines a global: 0xVA=PATH (repeatable)",
     ),
-    set_marker_type: list[str] = typer.Option(
+    set_kind: list[str] = typer.Option(
         [],
-        "--marker-type",
-        help="Set a global's marker word: 0xVA=GLOBAL|DATA|VTABLE|STRING (repeatable)",
+        "--kind",
+        help="Set a global's kind: 0xVA=GLOBAL|DATA|VTABLE|STRING (repeatable)",
     ),
     set_note: list[str] = typer.Option(
         [],
@@ -974,7 +974,7 @@ def set_data(
                 set_size,
                 set_section,
                 set_file,
-                set_marker_type,
+                set_kind,
                 set_note,
             ]
         )
@@ -990,7 +990,7 @@ def set_data(
         set_size=set_size,
         set_section=set_section,
         set_file=set_file,
-        set_marker_type=set_marker_type,
+        set_kind=set_kind,
         set_note=set_note,
         dry_run=dry_run,
         json_output=json_output,

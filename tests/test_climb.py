@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from source_util import SourceFixture, write_source
 
 import rebrew.climb
 from rebrew.climb import _climb, _statements, _swap, _within_size_budget, function_span
@@ -21,21 +22,10 @@ from rebrew.utils import SOURCE_BACKUP_DIRNAME
 
 REPO_SRC = str(Path(rebrew.climb.__file__).resolve().parents[1])
 
-SOURCE = """// FUNCTION: SERVER 0x10001000
-// demo
-int demo(int arg)
-{
-\tint a;
-\ta = arg;
-
-\tif (a > 3) {
-\t\ta = 5;
-\t}
-
-\tb = a;
-\treturn b;
-}
-"""
+SOURCE = SourceFixture(
+    "/* ADDRESS: SERVER 0x10001000 */\n// demo\nint demo(int arg)\n{\n\tint a;\n\ta = arg;\n\n\tif (a > 3) {\n\t\ta = 5;\n\t}\n\n\tb = a;\n\treturn b;\n}\n",
+    {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+)
 
 
 def _lines() -> list[str]:
@@ -381,7 +371,7 @@ class TestRestoreOnSignal:
     def test_sigterm_restores_the_source(self, tmp_path: Path) -> None:
         source = tmp_path / "probe.c"
         original = "int demo(void) { return 0; }\n"
-        source.write_text(original)
+        write_source(source, original)
         script = tmp_path / "probe.py"
         script.write_text(
             "import os, signal, sys\n"
@@ -408,7 +398,7 @@ class TestRestoreOnSignal:
         written before the sweep is the only way back to the pre-run bytes."""
         source = tmp_path / "probe.c"
         original = "int demo(void) { return 0; }\n"
-        source.write_text(original)
+        write_source(source, original)
         backup_dir = tmp_path / ".rebrew" / SOURCE_BACKUP_DIRNAME
         script = tmp_path / "probe.py"
         script.write_text(
@@ -444,12 +434,16 @@ class TestRestoreOnSignal:
         import rebrew.climb as climb_mod
 
         source = tmp_path / "demo.c"
-        source.write_text("// FUNCTION: SERVER 0x1000\nint demo(void)\n{\n    return 0;\n}\n")
+        write_source(
+            source,
+            "/* ADDRESS: SERVER 0x1000 */\nint demo(void)\n{\n    return 0;\n}\n",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
         cfg = SimpleNamespace(metadata_dir=str(tmp_path), target_binary=str(tmp_path / "t.bin"))
         ann = SimpleNamespace(symbol="demo", size=4, va=0x1000, module="SERVER", cflags=None)
         monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
         monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
-        monkeypatch.setattr(climb_mod, "parse_c_file_multi", lambda *a, **k: [ann])
+        monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **k: [ann])
         monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
         monkeypatch.setattr(
             climb_mod, "resolve_compile_overrides", lambda *a, **k: ("msvc-6.0", "")
@@ -471,7 +465,11 @@ class TestRestoreOnSignal:
         import rebrew.climb as climb_mod
 
         source = tmp_path / "demo.c"
-        source.write_text("// FUNCTION: SERVER 0x1000\nint demo(void)\n{\n    return 0;\n}\n")
+        write_source(
+            source,
+            "/* ADDRESS: SERVER 0x1000 */\nint demo(void)\n{\n    return 0;\n}\n",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
         cfg = SimpleNamespace(
             root=str(tmp_path), metadata_dir=str(tmp_path), target_binary=str(tmp_path / "t.bin")
         )
@@ -486,7 +484,7 @@ class TestRestoreOnSignal:
 
         monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
         monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
-        monkeypatch.setattr(climb_mod, "parse_c_file_multi", lambda *a, **k: [ann])
+        monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **k: [ann])
         monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
         monkeypatch.setattr(climb_mod, "resolve_compile_overrides", _resolve)
         monkeypatch.setattr(climb_mod, "build_name_to_va", lambda c: {})
@@ -507,9 +505,10 @@ class TestRestoreOnSignal:
         import rebrew.climb as climb_mod
 
         source = tmp_path / "demo.c"
-        source.write_text(
-            "// FUNCTION: SERVER 0x1000\n"
-            "int demo(int arg)\n{\n\tint a;\n\ta = arg;\n\treturn a;\n}\n"
+        write_source(
+            source,
+            "/* ADDRESS: SERVER 0x1000 */\nint demo(int arg)\n{\n\tint a;\n\ta = arg;\n\treturn a;\n}\n",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         cfg = SimpleNamespace(
             root=str(tmp_path), metadata_dir=str(tmp_path), target_binary=str(tmp_path / "t.bin")
@@ -524,7 +523,7 @@ class TestRestoreOnSignal:
 
         monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
         monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
-        monkeypatch.setattr(climb_mod, "parse_c_file_multi", lambda *a, **k: [ann])
+        monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **k: [ann])
         monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
         monkeypatch.setattr(
             climb_mod, "resolve_compile_overrides", lambda *a, **k: ("msvc-6.0", "")
@@ -554,11 +553,15 @@ class TestRestoreOnSignal:
         import rebrew.climb as climb_mod
 
         source = tmp_path / "demo.c"
-        original_text = (
-            "// FUNCTION: SERVER 0x1000\n"
-            "int demo(int arg)\n{\n\tint a;\n\ta = arg;\n\treturn a;\n}\n"
+        original_text = SourceFixture(
+            "/* ADDRESS: SERVER 0x1000 */\nint demo(int arg)\n{\n\tint a;\n\ta = arg;\n\treturn a;\n}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
-        source.write_text(original_text)
+        write_source(
+            source,
+            original_text,
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
         cfg = SimpleNamespace(
             root=str(tmp_path), metadata_dir=str(tmp_path), target_binary=str(tmp_path / "t.bin")
         )
@@ -577,7 +580,7 @@ class TestRestoreOnSignal:
 
         monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
         monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
-        monkeypatch.setattr(climb_mod, "parse_c_file_multi", lambda *a, **k: [ann])
+        monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **k: [ann])
         monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
         monkeypatch.setattr(
             climb_mod, "resolve_compile_overrides", lambda *a, **k: ("msvc-6.0", "")
@@ -608,7 +611,7 @@ def test_preview_preserves_original_header_directory(tmp_path, monkeypatch, obje
     (source_dir.parent / "shared.h").write_text("#define SHARED 2\n")
     source = source_dir / "demo.c"
     original = '#include "local.h"\n#include "../shared.h"\nint demo(int arg)\n{\n int a;\n a = arg;\n return a;\n}\n'
-    source.write_text(original)
+    write_source(source, original)
     cfg = SimpleNamespace(root=tmp_path, metadata_dir=tmp_path, target_binary="unused")
     ann = SimpleNamespace(symbol="demo", size=4, va=0x1000, module="SERVER", cflags=None)
     seen = []
@@ -627,7 +630,7 @@ def test_preview_preserves_original_header_directory(tmp_path, monkeypatch, obje
 
     monkeypatch.setattr(rebrew.climb, "require_config", lambda **kw: cfg)
     monkeypatch.setattr(rebrew.climb, "target_marker", lambda c: "SERVER")
-    monkeypatch.setattr(rebrew.climb, "parse_c_file_multi", lambda *a, **kw: [ann])
+    monkeypatch.setattr(rebrew.climb, "read_source_bindings", lambda *a, **kw: [ann])
     monkeypatch.setattr(rebrew.climb, "extract_raw_bytes", lambda *a: b"\x90" * 4)
     monkeypatch.setattr(rebrew.climb, "resolve_compile_overrides", lambda *a: ("msvc-6.0", "/O2"))
     monkeypatch.setattr(rebrew.climb, "build_name_to_va", lambda c: {})
@@ -661,7 +664,7 @@ def test_explicit_target_accepts_unregistered_source(tmp_path, monkeypatch, mark
 
     source = tmp_path / "probe.c"
     original = "int probe(int arg)\n{\n int value;\n value = arg;\n return value;\n}\n"
-    source.write_text(original)
+    write_source(source, original)
     cfg = SimpleNamespace(
         root=tmp_path, metadata_dir=tmp_path, target_binary="unused", marker=marker
     )
@@ -680,7 +683,7 @@ def test_explicit_target_accepts_unregistered_source(tmp_path, monkeypatch, mark
 
     monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
     monkeypatch.setattr(climb_mod, "target_marker", lambda c: marker)
-    monkeypatch.setattr(climb_mod, "parse_c_file_multi", lambda *a, **kw: [])
+    monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **kw: [])
     monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90" * 4)
     monkeypatch.setattr(climb_mod, "resolve_compile_overrides", resolve)
     monkeypatch.setattr(climb_mod, "build_name_to_va", lambda c: {})
@@ -721,7 +724,7 @@ def test_unregistered_source_requires_complete_overrides(tmp_path, monkeypatch, 
     cfg = SimpleNamespace(metadata_dir=tmp_path, marker="SERVER")
     monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
     monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
-    monkeypatch.setattr(climb_mod, "parse_c_file_multi", lambda *a, **kw: [])
+    monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **kw: [])
     options = {"--va": "0x1234", "--symbol": "_probe", "--size": "4"}
     args = ["--json"]
     for option, value in options.items():

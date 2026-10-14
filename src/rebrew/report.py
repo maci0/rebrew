@@ -58,11 +58,11 @@ from rebrew.config import ProjectConfig
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
 from rebrew.formats.binary_loader import load_binary
 from rebrew.formats.import_table import find_import_stubs, parse_imports
-from rebrew.metadata.annotation import (
-    Annotation,
-    iter_annotations,
+from rebrew.metadata.bindings import (
+    SourceBinding,
+    iter_source_bindings,
+    library_bindings_for_file,
     min_valid_va_for,
-    parse_library_header,
 )
 from rebrew.sources import (
     iter_library_headers,
@@ -509,7 +509,7 @@ def _target_name(cfg: ProjectConfig) -> str:
     return getattr(cfg, "target_name", "") or getattr(cfg, "marker", "") or "rebrew"
 
 
-def _display_name(ann: Annotation, src: Path) -> str:
+def _display_name(ann: SourceBinding, src: Path) -> str:
     """Best display name for an annotation: C name, symbol, or file stem.
 
     A missing C name uses the symbol. ``hook@@12`` is ``hook``,
@@ -559,7 +559,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
             )
             entries = {}
     sources = iter_sources(reversed_path, cfg)
-    for src, annos in iter_annotations(
+    for src, annos in iter_source_bindings(
         sources,
         target=target_marker(cfg),
         metadata_dir=metadata_dir,
@@ -585,9 +585,9 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     # library_*.h entries (identify-library / crt-match --fix-source) are counted
     # by the summary cards (collect_status scans them via naming.load_data) but
     # were missing from this table: iter_sources does not glob library_*.h, and
-    # their minimal marker format needs parse_library_header.
+    # their minimal marker format needs library_bindings_for_file.
     for header in iter_library_headers(reversed_path, cfg):
-        for ann in parse_library_header(header, metadata_dir=metadata_dir):
+        for ann in library_bindings_for_file(header, metadata_dir=metadata_dir):
             if ann.va < min_valid_va_for(cfg):
                 continue
             functions.append(
@@ -1439,7 +1439,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     marker = target_marker(cfg)
     annos_by_file: list[tuple[str, list[Any]]] = []
-    for path, annos in iter_annotations(sources, target=marker, metadata_dir=cfg.metadata_dir):
+    for path, annos in iter_source_bindings(sources, target=marker, metadata_dir=cfg.metadata_dir):
         # Relative to reversed_dir, like every other source-path computation in
         # this module: a bare basename made two `pool.c` under different
         # directories indistinguishable in report.json.

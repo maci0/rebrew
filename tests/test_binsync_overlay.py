@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 import tomlkit
 from bin_util import make_pe
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -69,8 +70,11 @@ def _make_project(tmp_path: Path) -> Path:
 
 def _write_dest(tmp_path: Path, local_name: str = "func_401040") -> Path:
     dest = tmp_path / "src" / "b" / "f1.c"
-    dest.write_text(
-        f"// FUNCTION: B 0x{B_F1:08x}\nvoid {local_name}(void) {{ }}\n", encoding="utf-8"
+    write_source(
+        dest,
+        f"/* ADDRESS: B 0x{B_F1:08x} */\nvoid {local_name}(void) {{ }}\n",
+        encoding="utf-8",
+        metadata_fields={f"B.0x{B_F1:08x}": {"kind": "FUNCTION"}},
     )
     return dest
 
@@ -580,8 +584,11 @@ class TestMetadataFileContainment:
         _make_project(project)
         cfg = load_config(project, "B")
         outside = tmp_path / "outside.c"
-        outside.write_text(
-            f"// FUNCTION: B 0x{B_F1:08x}\nint victim(void) {{ return 1; }}\n", encoding="utf-8"
+        write_source(
+            outside,
+            f"/* ADDRESS: B 0x{B_F1:08x} */\nint victim(void) {{ return 1; }}\n",
+            encoding="utf-8",
+            metadata_fields={f"B.0x{B_F1:08x}": {"kind": "FUNCTION"}},
         )
         monkeyed: list[Any] = []
 
@@ -589,10 +596,10 @@ class TestMetadataFileContainment:
             monkeyed.append(path)
             return []
 
-        import rebrew.metadata.annotation as annotation_mod
+        import rebrew.metadata.bindings as annotation_mod
 
-        original = annotation_mod.parse_c_file_multi
-        annotation_mod.parse_c_file_multi = _record  # type: ignore[assignment]
+        original = annotation_mod.read_source_bindings
+        annotation_mod.read_source_bindings = _record  # type: ignore[assignment]
         try:
             for relative in (
                 "../../../outside.c",
@@ -602,7 +609,7 @@ class TestMetadataFileContainment:
             ):
                 assert _dest_annotation(cfg, B_F1, relative) is None
         finally:
-            annotation_mod.parse_c_file_multi = original  # type: ignore[assignment]
+            annotation_mod.read_source_bindings = original  # type: ignore[assignment]
         # No escaping value reached the parser, so no read outside the roots.
         assert monkeyed == []
 

@@ -9,13 +9,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_store_fixture
 
 from rebrew.metadata.data import (
     DATA_METADATA_FIELDS,
     DATA_METADATA_FILENAME,
     get_data_entry,
     load_data_metadata,
-    merge_into_data_annotation,
+    merge_into_data_binding,
     set_data_field,
 )
 
@@ -25,11 +26,11 @@ from rebrew.metadata.data import (
 
 
 def _make_annotation(**kwargs: object) -> object:
-    """Return a minimal Annotation-like object for merge tests."""
+    """Return a minimal SourceBinding-like object for merge tests."""
     defaults = {
         "va": 0x10025000,
         "module": "SERVER",
-        "marker_type": "DATA",
+        "kind": "DATA",
         "size": 0,
         "section": "",
         "note": "",
@@ -65,9 +66,11 @@ class TestLoadSaveDataMetadata:
         assert result == {}
 
     def test_corrupted_file_returns_empty(self, tmp_path: Path) -> None:
-        (tmp_path / DATA_METADATA_FILENAME).write_text("[[[[invalid toml", encoding="utf-8")
-        result = load_data_metadata(tmp_path)
-        assert result == {}
+        path = tmp_path / DATA_METADATA_FILENAME
+        path.write_text("{broken")
+        with pytest.raises(ValueError):
+            load_data_metadata(tmp_path)
+        assert path.read_text() == "{broken"
 
 
 # ---------------------------------------------------------------------------
@@ -78,26 +81,17 @@ class TestLoadSaveDataMetadata:
 class TestGetDataEntry:
     def test_duplicate_identity_merges_before_section_filter(self, tmp_path: Path) -> None:
         from rebrew.metadata.data import iter_data_symbols
-        from rebrew.utils import load_tomllib
 
-        path = tmp_path / DATA_METADATA_FILENAME
-        path.write_text(
-            '["SERVER.0x00001000"]\nname="g_a"\nsize=4\nsection=".data"\n'
-            '["SERVER.0X1000"]\nsection=".rdata"\nstatus="DRIFT"\n',
-            encoding="utf-8",
-        )
-        raw = load_tomllib(path)
-        entries = list(iter_data_symbols(raw, None))
-        assert entries == [("SERVER", 0x1000, get_data_entry(tmp_path, 0x1000, "SERVER"))]
-        assert list(iter_data_symbols(raw, ".data")) == []
-        assert list(iter_data_symbols(raw, ".rdata")) == entries
+        doc = {"format": 2, "SERVER.0x1000": {"size": 4}, "SERVER.0X00001000": {"size": 8}}
+        with pytest.raises(ValueError, match="duplicate metadata"):
+            list(iter_data_symbols(doc, None))
 
     def test_raw_iteration_and_store_loading_share_unicode_identity(self, tmp_path: Path) -> None:
         from rebrew.metadata.data import iter_data_symbols
         from rebrew.utils import load_tomllib
 
         (tmp_path / DATA_METADATA_FILENAME).write_text(
-            '["MO\u0301D.0X1000"]\nname = "g_a"\n', encoding="utf-8"
+            'format = 2\n["MO\u0301D.0X1000"]\nname = "g_a"\n', encoding="utf-8"
         )
         raw = load_tomllib(tmp_path / DATA_METADATA_FILENAME)
         assert [(module, va) for module, va, _fields in iter_data_symbols(raw, None)] == list(
@@ -173,7 +167,9 @@ class TestSetDataField:
         canonical form is SERVER.0x00024000; the loader parses both to one
         (module, va), so a second table would split the entry's fields."""
         path = tmp_path / DATA_METADATA_FILENAME
-        path.write_text('["SERVER.0x24000"]\nname = "g_iat_region"\n', encoding="utf-8")
+        write_store_fixture(
+            path, 'format = 2\n["SERVER.0x24000"]\nname = "g_iat_region"\n', encoding="utf-8"
+        )
 
         set_data_field(tmp_path, 0x24000, "section", ".rdata", "SERVER")
 
@@ -203,9 +199,9 @@ class TestSetDataFieldsBatch:
         from rebrew.metadata.data import set_data_fields_batch
 
         path = tmp_path / DATA_METADATA_FILENAME
-        path.write_text(
-            '["SERVER.0x00001000"]\nname="g_a"\nstatus="VERIFIED"\n'
-            '["SERVER.0x1000"]\nstatus="DRIFT"\n',
+        write_store_fixture(
+            path,
+            'format = 2\n["SERVER.0x00001000"]\nname="g_a"\nstatus="VERIFIED"\n["SERVER.0x1000"]\nstatus="DRIFT"\n',
             encoding="utf-8",
         )
         before = path.read_bytes()
@@ -349,7 +345,7 @@ class TestSetDataFieldsBatch:
 class TestMergeIntoDataAnnotation:
     def test_no_entry_leaves_annotation_unchanged(self, tmp_path: Path) -> None:
         ann = _make_annotation(size=256, section=".rdata", note="test")
-        merge_into_data_annotation(ann, tmp_path)  # type: ignore[arg-type]
+        merge_into_data_binding(ann, tmp_path)  # type: ignore[arg-type]
         assert ann.size == 256
         assert ann.section == ".rdata"
         assert ann.note == "test"
@@ -369,47 +365,44 @@ class TestMergeIntoDataAnnotation:
             ],
         )
         ann = _make_annotation(size=0, section="", note="")
-        merge_into_data_annotation(ann, tmp_path)  # type: ignore[arg-type]
+        merge_into_data_binding(ann, tmp_path)  # type: ignore[arg-type]
         assert ann.updated_by == "verify"
         assert ann.updated_at != ""
 
 
 class TestDataMetadataEdgeCases:
     def test_load_corrupt_toml(self, tmp_path: Path) -> None:
-        import rebrew.metadata.data as dm
-
-        (tmp_path / "rebrew-data.toml").write_text("{broken", encoding="utf-8")
-        assert dm.load_data_metadata(tmp_path) == {}
+        path = tmp_path / DATA_METADATA_FILENAME
+        path.write_text("{broken")
+        with pytest.raises(ValueError):
+            load_data_metadata(tmp_path)
+        assert path.read_text() == "{broken"
 
     def test_load_skips_non_dict_values(self, tmp_path: Path) -> None:
-        import rebrew.metadata.data as dm
-
-        (tmp_path / "rebrew-data.toml").write_text(
-            '"SERVER.0x10001000" = "scalar"\n["SERVER.0x10002000"]\nsize = 8\n',
-            encoding="utf-8",
-        )
-        result = dm.load_data_metadata(tmp_path)
-        assert ("SERVER", 0x10002000) in result
-        assert ("SERVER", 0x10001000) not in result
+        path = tmp_path / DATA_METADATA_FILENAME
+        path.write_text('format = 2\n"SERVER.0x1000" = "scalar"\n')
+        with pytest.raises(ValueError, match="MODULE.0xVA"):
+            load_data_metadata(tmp_path)
 
 
 class TestCorruptTomlRecovery:
     def test_set_data_field_recovers(self, tmp_path: Path) -> None:
-        from rebrew.metadata.data import DATA_METADATA_FILENAME, get_data_entry, set_data_field
-
-        (tmp_path / DATA_METADATA_FILENAME).write_text("{broken", encoding="utf-8")
-        set_data_field(tmp_path, 0x1000, "size", 16, "SERVER")
-        entry = get_data_entry(tmp_path, 0x1000, "SERVER")
-        assert entry.get("size") == 16
+        path = tmp_path / DATA_METADATA_FILENAME
+        path.write_text("{broken")
+        with pytest.raises(ValueError, match="refusing to overwrite"):
+            set_data_field(tmp_path, 0x1000, "size", 16, "SERVER")
+        assert path.read_text() == "{broken"
 
     def test_merge_into_data_annotation_no_crash(self, tmp_path: Path) -> None:
-        from rebrew.metadata.annotation import Annotation
-        from rebrew.metadata.data import DATA_METADATA_FILENAME, merge_into_data_annotation
+        from rebrew.metadata.bindings import SourceBinding
+        from rebrew.metadata.data import merge_into_data_binding
 
-        (tmp_path / DATA_METADATA_FILENAME).write_text("{broken", encoding="utf-8")
-        ann = Annotation(va=0x1000, module="SERVER", name="g_x", marker_type="DATA")
-        result = merge_into_data_annotation(ann, tmp_path)
-        assert result is ann
+        path = tmp_path / DATA_METADATA_FILENAME
+        path.write_text("{broken")
+        with pytest.raises(ValueError):
+            merge_into_data_binding(
+                SourceBinding(va=0x1000, module="SERVER", kind="DATA"), tmp_path
+            )
 
 
 class TestDataMetadataCache:
@@ -427,7 +420,7 @@ class TestDataMetadataCache:
             lambda doc, **kwargs: parse_calls.append(doc) or {},
         )
         f = tmp_path / "rebrew-data.toml"
-        f.write_text('["SERVER.0x1000"]\nsize = 4\n', encoding="utf-8")
+        write_store_fixture(f, 'format = 2\n["SERVER.0x1000"]\nsize = 4\n', encoding="utf-8")
         # First load parses; a second unchanged load must hit the cache.
         dm.load_data_metadata(tmp_path)
         dm.load_data_metadata(tmp_path)
@@ -451,7 +444,7 @@ class TestDataMetadataCache:
             lambda doc, **kwargs: {("SERVER", 0x1000): {"name": "g_x"}},
         )
         f = tmp_path / "rebrew-data.toml"
-        f.write_text('["SERVER.0x1000"]\nname = "g_x"\n', encoding="utf-8")
+        write_store_fixture(f, 'format = 2\n["SERVER.0x1000"]\nname = "g_x"\n', encoding="utf-8")
         assert dm.load_data_metadata(tmp_path) == {("SERVER", 0x1000): {"name": "g_x"}}
         f.unlink()
         assert dm.load_data_metadata(tmp_path) == {}
@@ -473,10 +466,12 @@ class TestMetadataFieldsAndScalarEntries:
 
         from rebrew.metadata.data import set_data_field
 
-        (tmp_path / "rebrew-data.toml").write_text(
-            '"SERVER.0x10001000" = "scalar"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n"SERVER.0x10001000" = "scalar"\n',
+            encoding="utf-8",
         )
-        with pytest.raises(ValueError, match="is not a table"):
+        with pytest.raises(ValueError, match="MODULE.0xVA"):
             set_data_field(tmp_path, 0x10001000, "size", 4, "SERVER")
 
 
@@ -529,15 +524,15 @@ class TestDataProvenance:
 
 
 class TestRecordMigratedDataMarkers:
-    """migrate-markers fills identity without clearing a stored data verdict."""
+    """register fills identity without clearing a stored data verdict."""
 
     def test_fills_a_missing_name_and_keeps_the_verdict(self, tmp_path: Path) -> None:
-        from rebrew.metadata.data import record_migrated_data_markers
+        from rebrew.metadata.data import record_data_rows
 
         set_data_field(tmp_path, 0x10025000, "size", 4, "S")
         set_data_field(tmp_path, 0x10025000, "status", "VERIFIED", "S", updated_by="verify")
         stamped = get_data_entry(tmp_path, 0x10025000, "S")
-        record_migrated_data_markers(
+        record_data_rows(
             tmp_path,
             [
                 {
@@ -545,7 +540,7 @@ class TestRecordMigratedDataMarkers:
                     "va": 0x10025000,
                     "identity": {
                         "file": "src/d.c",
-                        "marker_type": "DATA",
+                        "kind": "DATA",
                         "name": "lut",
                     },
                     "fill": {"type": "unsigned char[256]", "size": 256, "section": ".rdata"},
@@ -559,53 +554,53 @@ class TestRecordMigratedDataMarkers:
         assert entry["type"] == "unsigned char[256]"
         assert entry["section"] == ".rdata"
         assert entry["file"] == "src/d.c"
-        assert entry["marker_type"] == "DATA"
+        assert entry["kind"] == "DATA"
         assert entry["updated_by"] == stamped["updated_by"]
         assert entry["updated_at"] == stamped["updated_at"]
 
-    def test_rejects_a_function_marker_type(self, tmp_path: Path) -> None:
-        from rebrew.metadata.data import record_migrated_data_markers
+    def test_rejects_a_function_kind(self, tmp_path: Path) -> None:
+        from rebrew.metadata.data import record_data_rows
 
-        with pytest.raises(ValueError, match="marker_type must be one of"):
-            record_migrated_data_markers(
+        with pytest.raises(ValueError, match="kind must be one of"):
+            record_data_rows(
                 tmp_path,
                 [
                     {
                         "module": "S",
                         "va": 0x1000,
-                        "identity": {"file": "src/d.c", "marker_type": "FUNCTION"},
+                        "identity": {"file": "src/d.c", "kind": "FUNCTION"},
                     }
                 ],
             )
         assert not (tmp_path / "rebrew-data.toml").exists()
 
     def test_rejects_an_absolute_file(self, tmp_path: Path) -> None:
-        from rebrew.metadata.data import record_migrated_data_markers
+        from rebrew.metadata.data import record_data_rows
 
         with pytest.raises(ValueError, match="must be relative to the project"):
-            record_migrated_data_markers(
+            record_data_rows(
                 tmp_path,
                 [
                     {
                         "module": "S",
                         "va": 0x1000,
-                        "identity": {"file": "/etc/passwd", "marker_type": "DATA"},
+                        "identity": {"file": "/etc/passwd", "kind": "DATA"},
                     }
                 ],
             )
         assert not (tmp_path / "rebrew-data.toml").exists()
 
     def test_rejects_status(self, tmp_path: Path) -> None:
-        from rebrew.metadata.data import record_migrated_data_markers
+        from rebrew.metadata.data import record_data_rows
 
         with pytest.raises(ValueError, match="data migration does not write STATUS"):
-            record_migrated_data_markers(
+            record_data_rows(
                 tmp_path,
                 [
                     {
                         "module": "S",
                         "va": 0x1000,
-                        "identity": {"status": "VERIFIED", "marker_type": "DATA"},
+                        "identity": {"status": "VERIFIED", "kind": "DATA"},
                     }
                 ],
             )

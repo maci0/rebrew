@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 import typer
+from source_util import write_store_fixture
 from typer.testing import CliRunner
 
 from rebrew.cli import all_targets_run, run_for_each_target
@@ -267,7 +268,7 @@ class TestVerifyPlacementDefaults:
         from rebrew.verify_placement import app as vp_app
 
         root = _project(tmp_path)
-        (root / "src" / "rebrew-data.toml").write_text("", encoding="utf-8")
+        write_store_fixture(root / "src" / "rebrew-data.toml", "", encoding="utf-8")
         monkeypatch.chdir(root)
         result = CliRunner().invoke(vp_app, [])
         # Missing binary error must name the DEFAULT target's build path.

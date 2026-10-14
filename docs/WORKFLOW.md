@@ -157,11 +157,10 @@ rebrew test src/target_name/my_func.c           # compile + update STATUS
 rebrew test src/target_name/my_func.c --no-promote  # compile without updating STATUS
 ```
 
-Identity is a `MODULE.0xVA` row. An unmigrated source may still carry a marker
-and inline SIZE/CFLAGS; `rebrew lint --fix` moves those fields, and
-`rebrew source migrate-markers` leaves pure C. Do not restore the marker block.
-Volatile fields live in metadata. See
-[METADATA_FORMAT.md](METADATA_FORMAT.md) for ownership and provenance.
+Identity and all state live in format-2 metadata. Optional ADDRESS comments bind
+exactly the next C definition or variable; stack one per target. Register current
+anchors with `rebrew source register --dry-run`, then apply. Old source blocks
+and schemas are rejected. See [metadata format](METADATA_FORMAT.md).
 
 For NEAR_MATCHING functions, auto-classify and write the BLOCKER:
 
@@ -240,7 +239,7 @@ rebrew coverage catalog --summary # view overall RE progress and stats
 ```
 
 **Data identity:** each global has one `rebrew-data.toml` row (`file` plus
-`marker_type`). Repeating that row, or an unmigrated marker line, across
+`kind`). Repeating that row, or an unmigrated marker line, across
 files fires lint **E013** (duplicate VA) and **W021** (duplicate name). Keep
 the row on the symbol's home (for example `globals.c`) and leave plain
 `extern` declarations elsewhere.
@@ -356,17 +355,17 @@ int __cdecl my_shared_func(int param)
 ```toml
 ["SERVER.0x10001000"]
 file = "shared/my_shared_func.c"
-marker_type = "FUNCTION"
+kind = "FUNCTION"
 name = "my_shared_func"
 
 ["CLIENT.0x00401000"]
 file = "shared/my_shared_func.c"
-marker_type = "FUNCTION"
+kind = "FUNCTION"
 name = "my_shared_func"
 ```
 
-An unmigrated file may still carry one marker line per target. The parser reads
-those lines. `rebrew source migrate-markers` moves them into the rows above.
+Optional ADDRESS anchors can name each target above the shared definition.
+All compiler flags and other state remain independent metadata fields.
 
 When you fix a mismatch, both targets benefit automatically. If a function exists in
 both binaries with **different compiler flags**, each target's row can specify

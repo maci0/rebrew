@@ -69,7 +69,7 @@ rebrew data fix-bss # generate bss_padding.c + write SIZE/SECTION/NOTE to metada
 rebrew data mark-literals --dry-run --json # rows at ??_C@/__real@ map VAs -> storage_kind=literal + link_symbol
 rebrew build check-tu-data --json # per-object [data][literals] order: TU boundaries, s_* literal pools
 rebrew data header --dry-run # preview rebrew_globals.h contents
-rebrew data header # write rebrew_globals.h from scanned globals (inline markers or rebrew-data.toml rows)
+rebrew data header # write rebrew_globals.h from scanned globals (address bindings and rebrew-data.toml rows)
 rebrew data header --output /path/to/my_globals.h # override output path
 rebrew data header --force # overwrite existing file without prompting
 rebrew data layout audit --section .rdata # per-TU span/order audit for .rdata (default .data)
@@ -112,30 +112,16 @@ sources live under `src/`) when a store sits there, otherwise the outermost stor
 the project root, so one store covers every target. The loader does no walk-up of its own
 (it reads exactly `directory / rebrew-data.toml`), so library code must pass
 `cfg.metadata_dir` rather than the `.c` file's directory.
-New writers emit the declaration and record the row. An unmigrated `.c` may still carry the marker line below. `rebrew source migrate-markers` walks `.c` sources, not headers: it copies `file` and `marker_type` into `rebrew-data.toml`, fills `name`, `type`, `size`, `section`, and `note` when the row lacks them, and strips the marker. Readers bind a marker-less file, including a header, by `file`. A file that still has a data-marker line is read from the line. Do not put a marker back into a migrated file.
-
-**Unmigrated `.c` file:**
-```c
-// DATA: SERVER 0x10025000
-
-const unsigned char g_sprite_lut[256] = { ... };
-```
-
-**`rebrew-data.toml`** (auto-managed, never edit manually):
-```toml
-["SERVER.0x10025000"]
-file        = "server/lut.c"
-marker_type = "DATA"
-name        = "g_sprite_lut"      # preferred label (BinSync/Ghidra import target)
-size        = 256
-section     = ".rdata"
-note        = "lookup table for sprite indices"
-```
+New writers emit a declaration with an ADDRESS anchor and record the row.
+All identity and state belong in format-2 `rebrew-data.toml`. Register existing
+address-bound declarations with `rebrew source register --dry-run`, then apply.
+Metadata-only rows without anchors remain valid. Older inline blocks and schemas
+are rejected. Extern declarations never establish storage ownership.
 
 | Field | Purpose |
 |-------|---------|
-| `file` | Source path relative to the metadata root. `rebrew source migrate-markers` writes it |
-| `marker_type` | `GLOBAL`, `DATA`, `VTABLE`, or `STRING`. A row without it is read as `DATA` |
+| `file` | Source path relative to the metadata root. `rebrew source register` records it |
+| `kind` | `GLOBAL`, `DATA`, `VTABLE`, or `STRING`. A row without it is read as `DATA` |
 | `name` | Preferred variable label; overrides C stem; imported from BinSync state |
 | `type` | Declared type `data header` uses when the source has none; set with `rebrew data set --type 0xVA=TYPE` |
 | `size` | Size in bytes |
@@ -143,7 +129,7 @@ note        = "lookup table for sprite indices"
 | `note` | Local analysis description; native BinSync globals do not carry notes |
 | `status` | Data verdict written by `rebrew verify --data`: `VERIFIED` (built bytes match), `DRIFT` (differ), `UNCHECKED` (not compared); counted in `rebrew status` and `rebrew todo --category data-drift` |
 
-`rebrew data set` clears the previous verdict when `name`, `type`, `size`, or `section` changes: re-run verification after editing a definition. Notes (`--note`), `--marker-type`, and unchanged values preserve it. A row `data set` creates has no `marker_type` and reads as `DATA`. `rebrew data move 0xOLD 0xNEW` re-addresses a row with all its fields, drops its verdict, keeps its `verification` record, and refuses an occupied address. `rebrew source migrate-markers` fills a missing name, type, size, section, or note and leaves the verdict in place. `origins` and `verification` are nested tables for external source
+`rebrew data set` clears the previous verdict when `name`, `type`, `size`, or `section` changes: re-run verification after editing a definition. Notes (`--note`), `--kind`, and unchanged values preserve it. A row `data set` creates has no `kind` and reads as `DATA`. `rebrew data move 0xOLD 0xNEW` re-addresses a row with all its fields, drops its verdict, keeps its `verification` record, and refuses an occupied address. Registration preserves existing fields and verdicts. `origins` and `verification` are nested tables for external source
 facts and comparison evidence; ordinary edit stamps remain separate. Writers
 store `size` as a non-negative integer and descriptive fields as strings; lint W031 uses the same validation. Duplicate spellings
 of one `(module, VA)` count once; W031 reports them and granular writers
@@ -164,7 +150,7 @@ an unknown-sized symbol cannot earn `VERIFIED`.
 When a function references a global address from disassembly:
 
 1. Reuse its canonical game/subsystem or CRT header; add an extern there if missing.
-2. Put the declaration in the owning `.c` or header. `rebrew data annotate` records `file` and `marker_type` for a declaration that has no row. Do not add a new `// GLOBAL:` line.
+2. Put the declaration in the owning `.c` or header. `rebrew data annotate` records `file` and `kind` for a declaration that has no row. Do not add a new `// GLOBAL:` line.
 3. Metadata (name, size, section, note) goes in `rebrew-data.toml`, same format as DATA.
 
 `data header` picks up inline `// GLOBAL:` and `// DATA:` markers and `rebrew-data.toml` rows on sources with no data-marker line, merging in `name`/`type`/`size`/

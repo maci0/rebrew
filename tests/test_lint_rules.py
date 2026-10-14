@@ -11,7 +11,6 @@ from rebrew.lint import (
     _check_E013_duplicate_va,
     _check_E015_marker_consistency,
     _check_W005_blocker,
-    _check_W010_unknown_keys,
     _check_W015_va_case,
     _check_W018_cflags,
 )
@@ -63,11 +62,6 @@ class TestRuleChecks:
         r = _result()
         _check_W018_cflags(r, {"CFLAGS": "/O2"}, SimpleNamespace(base_cflags=""))
         assert r.warnings == []
-
-    def test_W010_unknown_key(self) -> None:
-        r = _result()
-        _check_W010_unknown_keys(r, {"BOGUS_KEY": "1"})
-        assert any(w[1] == "W010" for w in r.warnings)
 
     def test_E015_library_module_marker_mismatch(self) -> None:
         r = _result()

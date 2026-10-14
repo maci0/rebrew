@@ -1409,6 +1409,23 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
     return results
 
 
+def function_definition_spans(source: str) -> list[tuple[str, int, int]]:
+    """Return name and byte extent of each unambiguous parsed C definition."""
+    tree, parsed = parse_c_source(mask_msvc_syntax(source))
+    spans = []
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if node.type != "function_definition":
+            pending.extend(reversed(node.named_children))
+            continue
+        declarator = node.child_by_field_name("declarator")
+        name = find_function_name_in_node(declarator, parsed) if declarator else None
+        if name:
+            spans.append((name, node.start_byte, node.end_byte))
+    return spans
+
+
 def find_extern_function_names(source: str) -> list[str]:
     """Find function names from ``extern`` function declarations."""
     if not source or not source.strip():

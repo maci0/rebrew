@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from source_util import write_source
 
 
 class TestAnalysisMarkerSanitizing:
@@ -131,9 +132,11 @@ class TestGlobalNameAndType:
 
         src = tmp_path / "src"
         src.mkdir()
-        (src / "g.c").write_text(
-            "// DATA: SERVER 0x1000\nchar (*g_row)[4];\n// DATA: SERVER 0x2000\nint (*table[4]);\n",
+        write_source(
+            src / "g.c",
+            "/* ADDRESS: SERVER 0x1000 */\nchar (*g_row)[4];\n/* ADDRESS: SERVER 0x2000 */\nint (*table[4]);\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}, "SERVER.0x2000": {"kind": "DATA"}},
         )
         cfg = SimpleNamespace(reversed_dir=src)
         assert global_name_and_type(cfg, 0x1000, "g.c") == ("g_row", "char (*)[4]")

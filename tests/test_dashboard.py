@@ -2413,7 +2413,7 @@ class TestEncodingNegotiation:
         """``historyRowHtml`` takes the ``cols`` array, not the old object row.
 
         ``/api/history`` answers positional arrays under ``cols`` (see
-        ``test_functions_omit_unused_marker_type``), so the object shape the
+        ``test_functions_omit_unused_kind``), so the object shape the
         renderer used to unpack is a branch no response can reach, and it ships
         on the cold path.
         """
@@ -3028,7 +3028,7 @@ class TestHostValidation:
         assert [v for k, v in sent if k == "status"] == [200]
         assert ("ETag", dashboard.response_etag(handler.path)) in sent
 
-    def test_functions_omit_unused_marker_type(self, dashboard: Dashboard) -> None:
+    def test_functions_omit_unused_kind(self, dashboard: Dashboard) -> None:
         """The table never reads markerType; keep it off the JSON wire."""
         row = dashboard.functions("server_dll")["functions"][0]
         assert dashboard.functions("server_dll")["cols"] == [

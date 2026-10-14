@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import SourceFixture, write_source, write_store_fixture
 
 from rebrew import rename_ops
 from rebrew.rename_ops import rename_function_everywhere
@@ -16,7 +17,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
 
 def _src(tmp_path: Path, name: str, content: str) -> Path:
     f = tmp_path / name
-    f.write_text(content, encoding="utf-8")
+    write_source(f, content, encoding="utf-8")
     return f
 
 
@@ -146,8 +147,13 @@ class TestRenameFunctionEverywhere:
         a = _src(
             tmp_path,
             "func_a.c",
-            "// FUNCTION: SERVER 0x10001000\nint func_a(void) { return 1; }\n"
-            "// FUNCTION: SERVER 0x10002000\nint func_b(void) { return 2; }\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint func_a(void) { return 1; }\n/* ADDRESS: SERVER 0x10002000 */\nint func_b(void) { return 2; }\n",
+                {
+                    "SERVER.0x10001000": {"kind": "FUNCTION"},
+                    "SERVER.0x10002000": {"kind": "FUNCTION"},
+                },
+            ),
         )
         _patch_sources(monkeypatch, [a])
         rename_function_everywhere(_cfg(tmp_path), a, "func_a", "_func_a", "renamed_fn")
@@ -158,14 +164,21 @@ class TestRenameFunctionEverywhere:
 
 class TestRenameTargetIsolation:
     def test_migrated_shared_identity_and_file_follow_the_rename(self, tmp_path: Path) -> None:
-        from rebrew.metadata.annotation import parse_c_file_multi
+        from rebrew.metadata.bindings import read_source_bindings
         from rebrew.metadata.functions import get_entry, save_metadata
 
         src = tmp_path / "src"
         src.mkdir()
         primary = _src(src, "old_fn.c", "int old_fn(void) { return 1; }\n")
         server = _src(src, "server.c", "int old_fn(void) { return 2; }\n")
-        _src(src, "caller.c", "// FUNCTION: TL 0x403000\nint call(void) { return old_fn(); }\n")
+        _src(
+            src,
+            "caller.c",
+            SourceFixture(
+                "/* ADDRESS: TL 0x403000 */\nint call(void) { return old_fn(); }\n",
+                {"TL.0x403000": {"kind": "FUNCTION"}},
+            ),
+        )
         save_metadata(
             tmp_path,
             {
@@ -173,7 +186,7 @@ class TestRenameTargetIsolation:
                     "file": filename,
                     "name": "old_fn",
                     "symbol": "_old_fn",
-                    "marker_type": "FUNCTION",
+                    "kind": "FUNCTION",
                     "size": 6,
                     "status": "EXACT",
                 }
@@ -195,7 +208,7 @@ class TestRenameTargetIsolation:
         assert "new_fn" in renamed.read_text()
         assert "old_fn" in server.read_text()
         assert get_entry(tmp_path, 0x10001000, "SERVER") == original_server
-        parsed = parse_c_file_multi(renamed, metadata_dir=tmp_path)
+        parsed = read_source_bindings(renamed, metadata_dir=tmp_path)
         assert {(e.module, e.name, e.symbol) for e in parsed} == {
             ("TL", "new_fn", "_new_fn"),
             ("GOLD", "new_fn", "_new_fn"),
@@ -219,15 +232,12 @@ class TestRenameTargetIsolation:
                     "file": "src/old_fn.c",
                     "name": "old_fn",
                     "symbol": "_old_fn",
-                    "marker_type": "FUNCTION",
+                    "kind": "FUNCTION",
                 }
             },
         )
-        data_toml = (
-            '["TL.0x500000"]\nname = "g_hits"\nfile = "src/old_fn.c"\n\n'
-            '["TL.0x500004"]\nname = "g_else"\nfile = "src/else.c"\n'
-        )
-        (tmp_path / "rebrew-data.toml").write_text(data_toml, encoding="utf-8")
+        data_toml = 'format = 2\n["TL.0x500000"]\nname = "g_hits"\nfile = "src/old_fn.c"\n\n["TL.0x500004"]\nname = "g_else"\nfile = "src/else.c"\n'
+        write_source(tmp_path / "rebrew-data.toml", data_toml, encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path, reversed_dir=src, metadata_dir=tmp_path)
         rename_function_everywhere(
             cfg, primary, "old_fn", "_old_fn", "new_fn", new_filename="new_fn.c", dry_run=True
@@ -248,26 +258,35 @@ class TestRenameTargetIsolation:
         primary = _src(
             tmp_path,
             "client.c",
-            "// FUNCTION: TL 0x401000\n// FUNCTION: GOLD 0x402000\n"
-            "int old_fn(void) { return 1; }\n",
+            SourceFixture(
+                "/* ADDRESS: TL 0x401000 */\n/* ADDRESS: GOLD 0x402000 */\nint old_fn(void) { return 1; }\n",
+                {"TL.0x401000": {"kind": "FUNCTION"}, "GOLD.0x402000": {"kind": "FUNCTION"}},
+            ),
         )
         server = _src(
             tmp_path,
             "server.c",
-            "// FUNCTION: SERVER 0x10001000\nint old_fn(void) { return 2; }\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint old_fn(void) { return 2; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            ),
         )
         server_caller = _src(
             tmp_path,
             "server_caller.c",
-            "extern int old_fn(void);\n// FUNCTION: SERVER 0x10002000\n"
-            "int server_call(void) { return old_fn(); }\n",
+            SourceFixture(
+                "extern int old_fn(void);\n/* ADDRESS: SERVER 0x10002000 */\nint server_call(void) { return old_fn(); }\n",
+                {"SERVER.0x10002000": {"kind": "FUNCTION"}},
+            ),
         )
         callers = [
             _src(
                 tmp_path,
                 f"{module}.c",
-                f"extern int old_fn(void);\n// FUNCTION: {module} 0x403000\n"
-                f"int {module}_call(void) {{ return old_fn(); }}\n",
+                SourceFixture(
+                    f"extern int old_fn(void);\n/* ADDRESS: {module} 0x403000 */\nint {module}_call(void) {{ return old_fn(); }}\n",
+                    {f"{module}.0x403000": {"kind": "FUNCTION"}},
+                ),
             )
             for module in ["TL", "GOLD"]
         ]
@@ -291,16 +310,26 @@ class TestRenameTargetIsolation:
         self, tmp_path: Path, dry_run: bool, mixed: bool
     ) -> None:
         primary = _src(
-            tmp_path, "client.c", "// FUNCTION: TL 0x401000\nint old_fn(void) { return 1; }\n"
+            tmp_path,
+            "client.c",
+            SourceFixture(
+                "/* ADDRESS: TL 0x401000 */\nint old_fn(void) { return 1; }\n",
+                {"TL.0x401000": {"kind": "FUNCTION"}},
+            ),
         )
         _src(
-            tmp_path, "server.c", "// FUNCTION: SERVER 0x10001000\nint old_fn(void) { return 2; }\n"
+            tmp_path,
+            "server.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint old_fn(void) { return 2; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            ),
         )
         text = "extern int old_fn(void);\n"
         if mixed:
-            text += (
-                "// FUNCTION: TL 0x402000\nint tl_call(void) { return old_fn(); }\n"
-                "// FUNCTION: SERVER 0x10002000\nint srv_call(void) { return old_fn(); }\n"
+            text += SourceFixture(
+                "/* ADDRESS: TL 0x402000 */\nint tl_call(void) { return old_fn(); }\n/* ADDRESS: SERVER 0x10002000 */\nint srv_call(void) { return old_fn(); }\n",
+                {"TL.0x402000": {"kind": "FUNCTION"}, "SERVER.0x10002000": {"kind": "FUNCTION"}},
             )
         ambiguous = _src(tmp_path, "common.c" if mixed else "common.h", text)
         original = {p: p.read_bytes() for p in tmp_path.iterdir()}
@@ -328,13 +357,13 @@ class TestRenameTargetIsolation:
                     "file": "hook.c",
                     "name": "",
                     "symbol": "hook@@12",
-                    "marker_type": "FUNCTION",
+                    "kind": "FUNCTION",
                 },
                 ("SERVER", 0x10001000): {
                     "file": "other.c",
                     "name": "hook",
                     "symbol": "_hook",
-                    "marker_type": "FUNCTION",
+                    "kind": "FUNCTION",
                 },
             },
         )
@@ -454,8 +483,10 @@ class TestRenameCli:
 
         source = tmp_path / "src" / "SERVER" / "old_fn.c"
         source.parent.mkdir(parents=True)
-        source.write_text(
-            "// FUNCTION: SERVER 0x1000\nint __stdcall old_fn(int a, int b, int c) { return 1; }\n"
+        write_source(
+            source,
+            "/* ADDRESS: SERVER 0x1000 */\nint __stdcall old_fn(int a, int b, int c) { return 1; }\n",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         result = self._invoke(
             tmp_path,
@@ -481,9 +512,11 @@ class TestRenameCli:
 
         source = tmp_path / "src" / "SERVER" / "hook.c"
         source.parent.mkdir(parents=True)
-        source.write_text(
-            "// FUNCTION: SERVER 0x1000\nvoid __vectorcall hook(int a, int b, int c) { return; }\n",
+        write_source(
+            source,
+            "/* ADDRESS: SERVER 0x1000 */\nvoid __vectorcall hook(int a, int b, int c) { return; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         result = self._invoke(
             tmp_path,
@@ -498,9 +531,11 @@ class TestRenameCli:
         assert json.loads(result.stdout)["new_symbol"] == "new_hook@@12"
 
         fast = tmp_path / "src" / "SERVER" / "keeps.c"
-        fast.write_text(
-            "// FUNCTION: SERVER 0x1004\nvoid __fastcall keeps(int a) { return; }\n",
+        write_source(
+            fast,
+            "/* ADDRESS: SERVER 0x1004 */\nvoid __fastcall keeps(int a) { return; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1004": {"kind": "FUNCTION"}},
         )
         result = self._invoke(
             tmp_path,
@@ -548,8 +583,11 @@ class TestRenameCli:
 
         f = tmp_path / "src" / "SERVER" / "old_fn.c"
         f.parent.mkdir(parents=True)
-        f.write_text(
-            "// FUNCTION: SERVER 0x1000\nint old_fn(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x1000 */\nint old_fn(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         result = self._invoke(tmp_path, monkeypatch, "--json", "old_fn", "new_fn")
         assert result.exit_code == 0
@@ -800,8 +838,11 @@ class TestRenameCli:
 
         f = tmp_path / "src" / "SERVER" / "old_fn.c"
         f.parent.mkdir(parents=True)
-        f.write_text(
-            "// FUNCTION: SERVER 0x1000\nint old_fn(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x1000 */\nint old_fn(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         result = self._invoke(tmp_path, monkeypatch, "--json", "0x1000", "new_fn")
         assert result.exit_code == 0
@@ -813,8 +854,11 @@ class TestRenameCli:
 
         f = tmp_path / "src" / "SERVER" / "old_fn.c"
         f.parent.mkdir(parents=True)
-        f.write_text(
-            "// FUNCTION: SERVER 0x1000\nint old_fn(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x1000 */\nint old_fn(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         result = self._invoke(tmp_path, monkeypatch, "--json", "--dry-run", "old_fn", "new_fn")
         assert result.exit_code == 0
@@ -841,12 +885,21 @@ class TestRenameData:
     def _project(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir(exist_ok=True)
-        (src / "g.c").write_text("// GLOBAL: SERVER 0x2000\nint g_old;\n", encoding="utf-8")
-        (src / "use.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint f(void){return g_old;}\n", encoding="utf-8"
+        write_source(
+            src / "g.c",
+            "/* ADDRESS: SERVER 0x2000 */\nint g_old;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "GLOBAL"}},
         )
-        (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x2000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n',
+        write_source(
+            src / "use.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void){return g_old;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x2000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n',
             encoding="utf-8",
         )
 
@@ -881,8 +934,8 @@ class TestRenameData:
 
         self._project(tmp_path)
         store = tmp_path / "rebrew-data.toml"
-        store.write_text(
-            store.read_text(encoding="utf-8") + 'link_symbol = "_g_old"\n', encoding="utf-8"
+        write_store_fixture(
+            store, store.read_text(encoding="utf-8") + 'link_symbol = "_g_old"\n', encoding="utf-8"
         )
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
         res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
@@ -960,12 +1013,15 @@ class TestRenameData:
 
         src = tmp_path / "src"
         src.mkdir(exist_ok=True)
-        (src / "use.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint f(void){return $SG18890;}\n",
+        write_source(
+            src / "use.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void){return $SG18890;}\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x313fc"]\nname = "$SG18890"\nsize = 4\n',
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x313fc"]\nname = "$SG18890"\nsize = 4\n',
             encoding="utf-8",
         )
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
@@ -987,11 +1043,15 @@ class TestRenameData:
 
         src = tmp_path / "src"
         src.mkdir(exist_ok=True)
-        (src / "use.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint f(void){return 0;}\n", encoding="utf-8"
+        write_source(
+            src / "use.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
-        (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x313fc"]\nname = "$SG18890"\nsize = 4\n',
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x313fc"]\nname = "$SG18890"\nsize = 4\n',
             encoding="utf-8",
         )
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
@@ -1019,13 +1079,17 @@ class TestRenameData:
 
         src = tmp_path / "src"
         src.mkdir(exist_ok=True)
-        (src / "use.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint f(void){return $SG18890;}\n", encoding="utf-8"
+        write_source(
+            src / "use.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void){return $SG18890;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         locked = src / "locked.c"
         locked.write_text("int g(void){ return $SG18890; }\n", encoding="utf-8")
-        (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x313fc"]\nname = "$SG18890"\nsize = 4\n',
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x313fc"]\nname = "$SG18890"\nsize = 4\n',
             encoding="utf-8",
         )
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
@@ -1118,8 +1182,9 @@ class TestRenameData:
         src = tmp_path / "src"
         src.mkdir()
         (src / "g.c").write_text("int g_old;\n", encoding="utf-8")
-        (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x2000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x2000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n',
             encoding="utf-8",
         )
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
@@ -1172,8 +1237,9 @@ class TestRenameData:
         src = tmp_path / "src"
         src.mkdir()
         (src / "g.c").write_text("int g_old;\n", encoding="utf-8")
-        (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x2000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x2000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n',
             encoding="utf-8",
         )
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
@@ -1307,7 +1373,7 @@ class TestFunctionReferenceBinding:
             module="CLIENT",
             va=0x1000,
             file="vendor/writer.c",
-            marker_type="LIBRARY",
+            kind="LIBRARY",
             name="gzseek",
             symbol="_gzseek",
         )
@@ -1318,7 +1384,7 @@ class TestFunctionReferenceBinding:
                 module="OTHER",
                 va=0x2000,
                 file="vendor/twin.c",
-                marker_type="LIBRARY",
+                kind="LIBRARY",
                 name="gzseek",
                 symbol="_gzseek",
             )
@@ -1359,7 +1425,14 @@ class TestFunctionReferenceBinding:
             assert path.read_bytes() == expected
 
     @pytest.mark.parametrize(
-        "header_text", ["// LIBRARY: CLIENT 0x1000\n// _free\n", "void free(void*);\n"]
+        "header_text",
+        [
+            SourceFixture(
+                "\n// _free\n",
+                {"CLIENT.0x1000": {"kind": "LIBRARY", "name": "free", "symbol": "_free"}},
+            ),
+            "void free(void*);\n",
+        ],
     )
     @pytest.mark.parametrize("preview", [True, False])
     def test_binds_linked_library_without_creating_source_or_changing_identity(
@@ -1384,7 +1457,7 @@ class TestFunctionReferenceBinding:
             module="CLIENT",
             va=0x1000,
             file="library_crt.h",
-            marker_type="LIBRARY",
+            kind="LIBRARY",
             name="free",
             symbol="_free",
         )
@@ -1415,7 +1488,14 @@ class TestFunctionReferenceBinding:
         from rebrew.rename import app
 
         if conflict != "missing-header":
-            _src(tmp_path, "library_crt.h", "// LIBRARY: CLIENT 0x1000\n// _free\n")
+            _src(
+                tmp_path,
+                "library_crt.h",
+                SourceFixture(
+                    "\n// _free\n",
+                    {"CLIENT.0x1000": {"kind": "LIBRARY", "name": "free", "symbol": "_free"}},
+                ),
+            )
         caller = _src(tmp_path, "caller.c", "void placeholder(void*);\n")
         if conflict == "project-definition":
             _src(tmp_path, "shadow.c", "void free(void* p) {}\n")
@@ -1426,7 +1506,7 @@ class TestFunctionReferenceBinding:
             module="CLIENT",
             va=0x1000,
             file="library_crt.h",
-            marker_type="LIBRARY",
+            kind="LIBRARY",
             name="free",
             symbol="_free",
         )
@@ -1453,7 +1533,7 @@ class TestFunctionReferenceBinding:
             module="CLIENT",
             va=0x1000,
             file="builder.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             name="BuildEvent",
             symbol="_BuildEvent",
         )
@@ -1505,7 +1585,16 @@ class TestFunctionReferenceBinding:
             "typedef int placeholder(void);",
             "static int placeholder(void);",
             "#define placeholder() 0",
-            "// LIBRARY: CLIENT 0x2000\n// _placeholder\nint placeholder(void);",
+            SourceFixture(
+                "\n// _placeholder\nint placeholder(void);",
+                {
+                    "CLIENT.0x2000": {
+                        "kind": "LIBRARY",
+                        "name": "placeholder",
+                        "symbol": "_placeholder",
+                    }
+                },
+            ),
             "extern int BuildEvent; int placeholder(void);",
             "#define BuildEvent() 1\nint placeholder(void);",
         ],
@@ -1561,7 +1650,7 @@ class TestFunctionReferenceBinding:
             module="CLIENT",
             va=0x2000,
             file="caller.c",
-            marker_type="LIBRARY",
+            kind="LIBRARY",
             name="placeholder",
             symbol="_placeholder",
         )

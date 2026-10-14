@@ -51,7 +51,7 @@ from rebrew.binsync.state import (
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
 from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.metadata.annotation import span_contains_factory
+from rebrew.metadata.bindings import span_contains_factory
 from rebrew.utils import is_safe_c_ident, md5_file, strip_body
 
 app = typer.Typer(
@@ -803,7 +803,7 @@ def _write_manifest(
     """
     from datetime import UTC, datetime
 
-    from rebrew.metadata.functions import FORMAT_VERSION
+    from rebrew.metadata.document import FORMAT_VERSION
 
     content_hash = artifact_hash(outdir)
     manifest_path = outdir / "manifest.toml"

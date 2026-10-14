@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import SourceFixture, write_source
 
 from rebrew.data import _generate_bss_fix
 from rebrew.data_scan import (
@@ -24,105 +25,51 @@ from rebrew.data_scan import (
 
 def _write_c(tmp_path: Path, name: str, content: str) -> Path:
     p = tmp_path / name
-    p.write_text(content, encoding="utf-8")
+    write_source(p, content, encoding="utf-8")
     return p
 
 
-ANNOTATED_GLOBAL = """\
-// FUNCTION: SERVER 0x10011790
-// STATUS: NEAR_MATCHING
-// ORIGIN: GAME
-// SIZE: 242
-// CFLAGS: /O2 /Gd
+ANNOTATED_GLOBAL = SourceFixture(
+    "\n\n\n\n\n\n/* ADDRESS: SERVER 0x100a8c30 */\nextern int DAT_100a8c30;\n\n/* ADDRESS: SERVER 0x1003546c */\nextern int DAT_1003546c;\n\n/* ADDRESS: SERVER 0x10011790 */\nint __cdecl func_10011790(unsigned char *param_1)\n{\n    return 0;\n}\n",
+    {
+        "SERVER.0x10011790": {"kind": "FUNCTION", "size": 242, "cflags": "/O2 /Gd"},
+        "SERVER.0x100a8c30": {"kind": "GLOBAL"},
+        "SERVER.0x1003546c": {"kind": "GLOBAL"},
+    },
+)
 
-// GLOBAL: SERVER 0x100a8c30
-extern int DAT_100a8c30;
+EXTERN_DATA_ONLY = SourceFixture(
+    "\n\n\n\n\n\nextern unsigned short DAT_100358a0;\nextern char s_message_buffer[];\n\n/* ADDRESS: SERVER 0x10008880 */\nint __cdecl foo(void) { return 0; }\n",
+    {"SERVER.0x10008880": {"kind": "FUNCTION", "size": 31, "cflags": "/O2 /Gd"}},
+)
 
-// GLOBAL: SERVER 0x1003546c
-extern int DAT_1003546c;
+EXTERN_WITH_FUNCTIONS = SourceFixture(
+    "\n\n\n\n\n\nextern int __cdecl ResolveEntityById(void **, void **, void **, int);\nextern void __cdecl LogMessage(char *, int);\n\nextern int g_counter;\nextern void __declspec(dllimport) __stdcall MessageBoxA(int, const char *, const char *, unsigned int);\n\n/* ADDRESS: SERVER 0x10008880 */\nint __cdecl bar(void) { return 0; }\n",
+    {"SERVER.0x10008880": {"kind": "FUNCTION", "size": 31, "cflags": "/O2 /Gd"}},
+)
 
-int __cdecl func_10011790(unsigned char *param_1)
-{
-    return 0;
-}
-"""
+TYPE_CONFLICT_A = SourceFixture(
+    "\n\n\n\n\n\nextern int g_shared;\n\n/* ADDRESS: SERVER 0x10001000 */\nint __cdecl a(void) { return 0; }\n",
+    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 10, "cflags": "/O2 /Gd"}},
+)
 
-EXTERN_DATA_ONLY = """\
-// FUNCTION: SERVER 0x10008880
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 31
-// CFLAGS: /O2 /Gd
+TYPE_CONFLICT_B = SourceFixture(
+    "\n\n\n\n\n\nextern char *g_shared;\n\n/* ADDRESS: SERVER 0x10002000 */\nint __cdecl b(void) { return 0; }\n",
+    {"SERVER.0x10002000": {"kind": "FUNCTION", "size": 10, "cflags": "/O2 /Gd"}},
+)
 
-extern unsigned short DAT_100358a0;
-extern char s_message_buffer[];
+DOUBLE_POINTER_GLOBAL = SourceFixture(
+    "\n\n\n\n\n\nextern char **g_double_ptr;\n\n/* ADDRESS: SERVER 0x10003000 */\nint __cdecl ptrs(void) { return 0; }\n",
+    {"SERVER.0x10003000": {"kind": "FUNCTION", "size": 10, "cflags": "/O2 /Gd"}},
+)
 
-int __cdecl foo(void) { return 0; }
-"""
-
-EXTERN_WITH_FUNCTIONS = """\
-// FUNCTION: SERVER 0x10008880
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 31
-// CFLAGS: /O2 /Gd
-
-extern int __cdecl ResolveEntityById(void **, void **, void **, int);
-extern void __cdecl LogMessage(char *, int);
-extern int g_counter;
-extern void __declspec(dllimport) __stdcall MessageBoxA(int, const char *, const char *, unsigned int);
-
-int __cdecl bar(void) { return 0; }
-"""
-
-TYPE_CONFLICT_A = """\
-// FUNCTION: SERVER 0x10001000
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 10
-// CFLAGS: /O2 /Gd
-
-extern int g_shared;
-
-int __cdecl a(void) { return 0; }
-"""
-
-TYPE_CONFLICT_B = """\
-// FUNCTION: SERVER 0x10002000
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 10
-// CFLAGS: /O2 /Gd
-
-extern char *g_shared;
-
-int __cdecl b(void) { return 0; }
-"""
-
-DOUBLE_POINTER_GLOBAL = """\
-// FUNCTION: SERVER 0x10003000
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 10
-// CFLAGS: /O2 /Gd
-
-extern char **g_double_ptr;
-
-int __cdecl ptrs(void) { return 0; }
-"""
-
-BSS_LARGE_ENTRY = """\
-// FUNCTION: SERVER 0x10004000
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 10
-// CFLAGS: /O2 /Gd
-
-// GLOBAL: SERVER 0x20000000
-extern char g_bss_blob[200];
-
-int __cdecl bss_large(void) { return 0; }
-"""
+BSS_LARGE_ENTRY = SourceFixture(
+    "\n\n\n\n\n\n/* ADDRESS: SERVER 0x20000000 */\nextern char g_bss_blob[200];\n\n/* ADDRESS: SERVER 0x10004000 */\nint __cdecl bss_large(void) { return 0; }\n",
+    {
+        "SERVER.0x10004000": {"kind": "FUNCTION", "size": 10, "cflags": "/O2 /Gd"},
+        "SERVER.0x20000000": {"kind": "GLOBAL"},
+    },
+)
 
 
 # ---------------------------------------------------------------------------
@@ -197,12 +144,18 @@ class TestScanGlobals:
         _write_c(
             tmp_path,
             "obj.c",
-            "// GLOBAL: SERVER 0x10001000\nunsigned int g_table[4];\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nunsigned int g_table[4];\n",
+                {"SERVER.0x10001000": {"kind": "GLOBAL"}},
+            ),
         )
         _write_c(
             tmp_path,
             "obj.h",
-            "// GLOBAL: SERVER 0x10001000\nextern int g_table[];\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nextern int g_table[];\n",
+                {"SERVER.0x10001000": {"kind": "GLOBAL"}},
+            ),
         )
         result = scan_globals(tmp_path)
         entry = result.globals["g_table"]
@@ -213,7 +166,7 @@ class TestScanGlobals:
         assert any(path.endswith("obj.h") for path in entry.declared_in)
         assert any(path.endswith("obj.c") for path in entry.declared_in)
 
-    def test_unmarked_definition_keeps_the_marker_type(self, tmp_path: Path) -> None:
+    def test_unmarked_definition_keeps_the_kind(self, tmp_path: Path) -> None:
         """A fat link definition does not fork or retype an annotated global."""
         _write_c(
             tmp_path,
@@ -223,7 +176,10 @@ class TestScanGlobals:
         _write_c(
             tmp_path,
             "span.c",
-            "// GLOBAL: SERVER 0x10001000\nextern unsigned char g_blob[4];\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nextern unsigned char g_blob[4];\n",
+                {"SERVER.0x10001000": {"kind": "GLOBAL"}},
+            ),
         )
         result = scan_globals(tmp_path)
         assert set(result.globals) == {"g_blob"}
@@ -234,7 +190,14 @@ class TestScanGlobals:
         assert result.type_conflicts == []
 
     def test_header_only_marker_is_annotated(self, tmp_path: Path) -> None:
-        _write_c(tmp_path, "only.h", "// GLOBAL: SERVER 0x10002000\nextern int g_only;\n")
+        _write_c(
+            tmp_path,
+            "only.h",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10002000 */\nextern int g_only;\n",
+                {"SERVER.0x10002000": {"kind": "GLOBAL"}},
+            ),
+        )
         result = scan_globals(tmp_path)
         entry = result.globals["g_only"]
         assert entry.annotated is True
@@ -328,12 +291,18 @@ class TestScanGlobals:
         _write_c(
             tmp_path,
             "a.c",
-            "// GLOBAL: SERVER 0x10001000\nextern int g_dup;\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nextern int g_dup;\n",
+                {"SERVER.0x10001000": {"kind": "GLOBAL"}},
+            ),
         )
         _write_c(
             tmp_path,
             "b.c",
-            "// GLOBAL: SERVER 0x10002000\nextern int g_dup;\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10002000 */\nextern int g_dup;\n",
+                {"SERVER.0x10002000": {"kind": "GLOBAL"}},
+            ),
         )
         result = scan_globals(tmp_path)
         vas = sorted(g.va for g in result.globals.values() if g.name == "g_dup")
@@ -345,14 +314,15 @@ class TestScanGlobals:
         _write_c(
             tmp_path,
             "twin.c",
-            "// GLOBAL: GOLDTL 0x6624a0\n"
-            "extern unsigned int g_6624a0[];\n"
-            "// GLOBAL: GOLD 0x5eb380\n"
-            "extern unsigned int g_6624a0[];\n"
-            "// GLOBAL: SERVER 0x10027078\n"
-            "extern int g_server_only;\n"
-            "// GLOBAL: MSVCRT 0x10030000\n"
-            "extern int __argc;\n",
+            SourceFixture(
+                "/* ADDRESS: GOLDTL 0x6624a0 */\nextern unsigned int g_6624a0[];\n/* ADDRESS: GOLD 0x5eb380 */\nextern unsigned int g_6624a0[];\n/* ADDRESS: SERVER 0x10027078 */\nextern int g_server_only;\n/* ADDRESS: MSVCRT 0x10030000 */\nextern int __argc;\n",
+                {
+                    "GOLDTL.0x6624a0": {"kind": "GLOBAL"},
+                    "GOLD.0x5eb380": {"kind": "GLOBAL"},
+                    "SERVER.0x10027078": {"kind": "GLOBAL"},
+                    "MSVCRT.0x10030000": {"kind": "GLOBAL"},
+                },
+            ),
         )
         cfg = SimpleNamespace(
             marker="SERVER",
@@ -369,12 +339,18 @@ class TestScanGlobals:
         _write_c(
             tmp_path,
             "client.c",
-            "// FUNCTION: GOLD 0x410610\nextern int g_005f3234;\n",
+            SourceFixture(
+                "/* ADDRESS: GOLD 0x410610 */\nextern int g_005f3234;\n",
+                {"GOLD.0x410610": {"kind": "FUNCTION"}},
+            ),
         )
         _write_c(
             tmp_path,
             "server.c",
-            "// FUNCTION: SERVER 0x10001000\nextern int g_server;\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nextern int g_server;\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            ),
         )
         cfg = SimpleNamespace(
             marker="SERVER",
@@ -401,9 +377,7 @@ def test_migrated_file_retains_target_scope(tmp_path: Path, store: str) -> None:
     _write_c(tmp_path, "shared.c", "extern int g_shared;\n")
     _write_c(tmp_path, "runtime.c", "extern int g_runtime;\n")
     (tmp_path / store).write_text(
-        'format = 1\n["SERVER.0x1000"]\nfile = "server.c"\nname = "g_value"\n'
-        '["GOLD.0x2000"]\nfile = "client.c"\nname = "g_value"\n'
-        '["MSVCRT.0x3000"]\nfile = "runtime.c"\nname = "g_runtime"\n',
+        'format = 2\n["SERVER.0x1000"]\nfile = "server.c"\nname = "g_value"\n["GOLD.0x2000"]\nfile = "client.c"\nname = "g_value"\n["MSVCRT.0x3000"]\nfile = "runtime.c"\nname = "g_runtime"\n',
         encoding="utf-8",
     )
     cfg = SimpleNamespace(
@@ -526,7 +500,7 @@ class TestBssFix:
         entry_1 = get_data_entry(tmp_path, 0x1010, "GAME")
         assert entry_1["size"] == 16
         assert entry_1["section"] == ".bss"
-        assert entry_1["marker_type"] == "DATA"
+        assert entry_1["kind"] == "DATA"
         assert entry_1["name"] == "gap_00001010"
         assert entry_1["file"] == "bss_padding.c"
         assert "g_var1" in entry_1["note"] and "g_var2" in entry_1["note"]
@@ -534,7 +508,7 @@ class TestBssFix:
         entry_2 = get_data_entry(tmp_path, 0x1030, "GAME")
         assert entry_2["size"] == 32
         assert entry_2["section"] == ".bss"
-        assert entry_2["marker_type"] == "DATA"
+        assert entry_2["kind"] == "DATA"
         assert entry_2["name"] == "gap_00001030"
         assert entry_2["file"] == "bss_padding.c"
 
@@ -1084,7 +1058,7 @@ class TestBssFixDryRun:
         entry = get_data_entry(tmp_path, 0x5000, "SERVER")
         assert entry["size"] == 256
         assert entry["section"] == ".bss"
-        assert entry["marker_type"] == "DATA"
+        assert entry["kind"] == "DATA"
         assert entry["name"] == "gap_00005000"
         assert entry["file"] == "bss_padding.c"
 
@@ -1144,9 +1118,11 @@ class TestBuildDispatchKnownFunctions:
 
         cfg = self._cfg(tmp_path)
         src = cfg.reversed_dir / "f.c"
-        src.write_text(
-            "// FUNCTION: SERVER 0x1000\n// SIZE: 32\nint fcn_a(void) { return 0; }\n",
+        write_source(
+            src,
+            "/* ADDRESS: SERVER 0x1000 */\n\nint fcn_a(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "size": 32}},
         )
         known = build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
         # Source annotation wins over the function list for 0x1000.

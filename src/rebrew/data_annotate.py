@@ -98,12 +98,9 @@ def annotate_globals(
     Returns ``(per_file, skipped_unnamed)``. *skipped_unnamed* counts rows
     with no ``name``: the declaration is what locates them.
     """
-    from types import SimpleNamespace
 
-    from rebrew.metadata.annotation import DATA_MARKERS, NEW_FUNC_CAPTURE_RE
-    from rebrew.metadata.data import record_migrated_data_markers
+    from rebrew.metadata.data import record_data_rows
     from rebrew.metadata.functions import identity_file
-    from rebrew.metadata.marker_migration import migrate_source_file
     from rebrew.sources import iter_sources
     from rebrew.utils import rel_display_path
 
@@ -121,32 +118,12 @@ def annotate_globals(
         symbols[str(val["name"])] = (module, addr, bool(str(val.get("file") or "").strip()))
 
     meta_dir = metadata.parent
-    migrate_cfg: Any = (
-        cfg if cfg is not None else SimpleNamespace(metadata_dir=meta_dir, root=meta_dir)
-    )
     claimed: set[str] = set()
     rows: list[dict[str, Any]] = []
     per_file: dict[str, int] = {}
     for f in iter_sources(src_dir, cfg):
         text, _encoding = read_source_text(f)
         lines = split_source_lines(text)
-        marked = {
-            int(match.group("va"), 16)
-            for line in lines
-            if (match := NEW_FUNC_CAPTURE_RE.match(line.strip()))
-            and match.group("type") in DATA_MARKERS
-            and match.group("va")
-        }
-        if marked and not dry_run:
-            migrated = migrate_source_file(migrate_cfg, f, None, dry_run=False)
-            if migrated and migrated.get("skipped") == "unrecorded-markers":
-                log.warning(
-                    "%s has marker lines that were not recorded; its data rows were not bound",
-                    f,
-                )
-                continue
-            text, _encoding = read_source_text(f)
-            lines = split_source_lines(text)
         bound_here = 0
         seen_in_file: set[str] = set()
         for line in lines:
@@ -158,9 +135,7 @@ def annotate_globals(
                 continue
             seen_in_file.add(name)
             module, addr, has_file = symbols[name]
-            if has_file or addr in marked:
-                if addr in marked:
-                    claimed.add(name)
+            if has_file:
                 continue
             claimed.add(name)
             bound_here += 1
@@ -171,7 +146,7 @@ def annotate_globals(
                         "va": addr,
                         "identity": {
                             "file": identity_file(f, meta_dir),
-                            "marker_type": "GLOBAL",
+                            "kind": "GLOBAL",
                             "name": name,
                         },
                     }
@@ -179,7 +154,7 @@ def annotate_globals(
         if bound_here:
             per_file[rel_display_path(f, src_dir)] = bound_here
     if rows:
-        record_migrated_data_markers(meta_dir, rows)
+        record_data_rows(meta_dir, rows)
     return per_file, skipped_unnamed
 
 
@@ -332,7 +307,7 @@ def _set_global_field(
         value = value.strip()
         if not sep:
             raise ValueError(f"{option} wants 0xVA={placeholder}, got {spec!r}")
-        if not value and field in ("note", "marker_type"):
+        if not value and field in ("note", "kind"):
             raise ValueError(f"{option} wants 0xVA={placeholder}, got {spec!r}")
         if field == "name" and not is_safe_c_ident(value):
             raise ValueError(f"{option} wants a C identifier, got {value!r}")
@@ -516,22 +491,22 @@ def set_data_sizes(
     )
 
 
-def set_data_marker_types(
+def set_data_kinds(
     cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
 ) -> list[dict[str, Any]]:
     """Set the data marker word a row reads as, from ``0xVA=MARKER`` specs.
 
     A row without one reads as ``DATA``; a row ``data set`` created has none.
     """
-    from rebrew.metadata.annotation import DATA_MARKERS
+    from rebrew.metadata.bindings import DATA_KINDS
 
     return _set_global_field(
         cfg,
         specs,
-        option="--marker-type",
+        option="--kind",
         placeholder="MARKER",
-        field="marker_type",
-        allowed=tuple(sorted(DATA_MARKERS)),
+        field="kind",
+        allowed=tuple(sorted(DATA_KINDS)),
         dry_run=dry_run,
     )
 
@@ -675,7 +650,7 @@ def gen_globals_header(
     Raises:
         FileExistsError: ``out_path`` exists with differing content and ``force`` is False.
     """
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
     from rebrew.metadata.data import load_data_metadata
     from rebrew.sources import iter_sources
 
@@ -702,7 +677,9 @@ def gen_globals_header(
 
     for src in header_sources:
         try:
-            annotations = parse_c_file_multi(src, target_name=marker, metadata_dir=cfg.metadata_dir)
+            annotations = read_source_bindings(
+                src, target_name=marker, metadata_dir=cfg.metadata_dir
+            )
         except Exception:  # one bad file must not abort the scan
             logging.warning("Skipping %s: annotation parse failed", src, exc_info=True)
             continue

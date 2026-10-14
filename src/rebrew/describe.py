@@ -53,7 +53,7 @@ from rebrew.config import ProjectConfig
 from rebrew.formats.binary_loader import load_binary
 from rebrew.formats.binary_model import BinaryInfo
 from rebrew.formats.import_table import parse_import_table
-from rebrew.metadata.annotation import Annotation, parse_c_file_multi
+from rebrew.metadata.bindings import SourceBinding, read_source_bindings
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.sources import (
     iter_sources,
@@ -92,13 +92,13 @@ _JSON_KEYS = (
 # ---------------------------------------------------------------------------
 
 
-def _collect_annotations(cfg: ProjectConfig) -> list[Annotation]:
+def _collect_annotations(cfg: ProjectConfig) -> list[SourceBinding]:
     """Parse every function annotation under ``cfg.reversed_dir``."""
-    annos: list[Annotation] = []
+    annos: list[SourceBinding] = []
     for cfile in iter_sources(cfg.reversed_dir, cfg):
         try:
             annos.extend(
-                parse_c_file_multi(
+                read_source_bindings(
                     cfile,
                     target_name=target_marker(cfg),
                     metadata_dir=cfg.metadata_dir,
@@ -115,16 +115,16 @@ def _collect_annotations(cfg: ProjectConfig) -> list[Annotation]:
 
 def _build_lookup(
     cfg: ProjectConfig,
-) -> tuple[dict[int, Annotation], dict[int, str], list[tuple[int, int, str]]]:
+) -> tuple[dict[int, SourceBinding], dict[int, str], list[tuple[int, int, str]]]:
     """Build VA lookups from source annotations and the function list.
 
     Returns:
-        annotations: VA -> Annotation, for the probe function's own metadata.
+        annotations: VA -> SourceBinding, for the probe function's own metadata.
         names: VA -> display name for every known function.
         ranges: sorted ``(start, end, name)`` tuples for resolving which known
             function contains an arbitrary address (e.g. a call site).
     """
-    annotations: dict[int, Annotation] = {}
+    annotations: dict[int, SourceBinding] = {}
     names: dict[int, str] = {}
     ranges: list[tuple[int, int, str]] = []
     for ann in _collect_annotations(cfg):

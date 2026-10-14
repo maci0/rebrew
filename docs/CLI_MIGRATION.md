@@ -13,7 +13,7 @@ incorrect. Entries that now have explicit operations are expanded below.
 | Previous route (after `rebrew`) | Current route |
 | --- | --- |
 | `rename` | `rebrew source rename` |
-| `migrate-markers` | `rebrew source migrate-markers` |
+| `register` | `rebrew source register` |
 | `fix` | `rebrew source fix` |
 | `recover-structs` | `rebrew types recover` |
 | `postlink` | `rebrew build postlink` |

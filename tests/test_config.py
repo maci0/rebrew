@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from source_util import write_store_fixture
 
 from rebrew.compiler.cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
 from rebrew.config import (
@@ -250,7 +251,7 @@ binary = "test.exe"
         """A project that has not moved its TOMLs out of src/ still reads them there."""
         root = _make_project(tmp_path, self.MULTI_TOML)
         (root / "src").mkdir()
-        (root / "src" / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        write_store_fixture(root / "src" / "rebrew-functions.toml", "", encoding="utf-8")
         cfg = load_config(root)
         assert cfg.metadata_dir == (root / "src").resolve()
 
@@ -271,7 +272,7 @@ profile = "gcc-14.2.0"
 """
         root = _make_project(tmp_path, toml)
         (root / "src").mkdir()
-        (root / "src" / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        write_store_fixture(root / "src" / "rebrew-functions.toml", "", encoding="utf-8")
         cfg = load_config(root)
         assert cfg.metadata_dir == (root / "src").resolve()
 
@@ -295,7 +296,7 @@ reversed_dir = "src/sub"
 """
         root = _make_project(tmp_path, toml)
         (root / "src" / "sub").mkdir(parents=True)
-        (root / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        write_store_fixture(root / "rebrew-functions.toml", "", encoding="utf-8")
         assert load_config(root).metadata_dir == root.resolve()
         assert load_config(root, target="nested").metadata_dir == root.resolve()
 
@@ -318,7 +319,7 @@ reversed_dir = "{outside.as_posix()}"
         (root / "rebrew-project.toml").write_text(toml, encoding="utf-8")
         # A store one level above the project root: the ancestor walk used to
         # climb here, because nothing bounded it to root, and adopt it.
-        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "", encoding="utf-8")
         assert load_config(root).metadata_dir == (tmp_path / "outside").resolve()
 
     def test_all_targets_listed(self, tmp_path: Path) -> None:
@@ -334,7 +335,9 @@ reversed_dir = "{outside.as_posix()}"
         root = tmp_path / "project"
         root.mkdir()
         if outside_store:
-            (tmp_path / "rebrew-functions.toml").write_text("format = 1\n", encoding="utf-8")
+            write_store_fixture(
+                tmp_path / "rebrew-functions.toml", "format = 1\n", encoding="utf-8"
+            )
         cfg = ProjectConfig(root=root, reversed_dir=root)
         assert cfg.metadata_dir == root
 

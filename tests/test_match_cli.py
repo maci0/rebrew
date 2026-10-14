@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 import typer
+from source_util import write_source
 from typer.testing import CliRunner
 
 
@@ -213,15 +214,14 @@ class TestResolveBuildParamsSymbol:
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
         f = src / "multi.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x401000\n"
-            "// SIZE: 64\n"
-            "int first_fn(void) { return 0; }\n"
-            "\n"
-            "// FUNCTION: SERVER 0x401100\n"
-            "// SIZE: 128\n"
-            "int second_fn(void) { return 1; }\n",
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x401000 */\n\nint first_fn(void) { return 0; }\n\n/* ADDRESS: SERVER 0x401100 */\n\nint second_fn(void) { return 1; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x401000": {"kind": "FUNCTION", "size": 64},
+                "SERVER.0x401100": {"kind": "FUNCTION", "size": 128},
+            },
         )
         return f
 

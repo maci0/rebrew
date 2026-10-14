@@ -25,9 +25,11 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+import pytest
 import tomlkit
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from source_util import write_store_fixture
 
 from rebrew.metadata.document import (
     MetadataDocCache,
@@ -104,10 +106,8 @@ class TestKeyAlgebra:
         @given(va=_vas)
         @settings(max_examples=100)
         def check(va: int) -> None:
-            bare = qualified_key(None, va)
-            assert bare == f"0x{va:08x}"
-            assert parse_metadata_key(bare) is None
-            assert parse_metadata_doc({bare: {"STATUS": "EXACT"}}) == {}
+            with pytest.raises(ValueError, match="non-empty target"):
+                qualified_key(None, va)
 
         check()
 
@@ -137,12 +137,9 @@ class TestKeyAlgebra:
         def check(module: str, va: int, a: dict[str, Any], b: dict[str, Any]) -> None:
             want = parse_metadata_key(qualified_key(module, va))
             assert want is not None
-            doc = {f"{module}.0x{va:x}": dict(a), qualified_key(module, va): dict(b)}
-            parsed = parse_metadata_doc(doc)
-            assert list(parsed) == [want]
-            entry = parsed[want]
-            for field, value in b.items():
-                assert entry[field] == value
+            doc = {"format": 2, f"{module}.0x{va:x}": dict(a), f"{module}.0X{va:X}": dict(b)}
+            with pytest.raises(ValueError, match="duplicate"):
+                parse_metadata_doc(doc)
 
         check()
 
@@ -161,7 +158,10 @@ class TestDocumentReader:
                 path.write_bytes(raw)
             else:
                 path.write_bytes(text.encode("utf-8", "surrogatepass"))
-            loaded = _load(path, tmp_path, "metadata")
+            try:
+                loaded = _load(path, tmp_path, "metadata")
+            except (ValueError, UnicodeError):
+                return
             for module, va in loaded:
                 assert isinstance(module, str)
                 assert isinstance(va, int) and va >= 0
@@ -176,7 +176,7 @@ class TestDocumentReader:
             root = Path(tempfile.mkdtemp(dir=tmp_path))
             safe = {k: {f: toml_safe(v) for f, v in e.items()} for k, e in store.items()}
             path = root / "rebrew-functions.toml"
-            path.write_text(tomlkit.dumps(build_metadata_doc(safe, _CANONICAL_ORDER)))
+            write_store_fixture(path, tomlkit.dumps(build_metadata_doc(safe, _CANONICAL_ORDER)))
             loaded = _load(path, tmp_path, "metadata")
             assert set(loaded) == set(store)
             for key, entry in loaded.items():
@@ -196,8 +196,9 @@ class TestDocumentReader:
         """
         path = tmp_path / "rebrew-functions.toml"
         store = {("SRV\x1b", 0x24000): {"STATUS": "EXACT"}}
-        path.write_text(tomlkit.dumps(build_metadata_doc(store, _CANONICAL_ORDER)))
-        assert _load(path, tmp_path, "metadata") == {}
+        write_store_fixture(path, tomlkit.dumps(build_metadata_doc(store, _CANONICAL_ORDER)))
+        with pytest.raises(ValueError):
+            _load(path, tmp_path, "metadata")
 
     def test_key_index_matches_the_linear_scan(self) -> None:
         @given(modules=st.lists(_named_modules, min_size=1, max_size=4), va=_vas)

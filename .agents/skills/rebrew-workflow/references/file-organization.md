@@ -22,19 +22,17 @@ rebrew recommend --json                   # all lanes: TU layout + hygiene + nex
 ```
 
 - `rebrew source split --va <va>` moves one function out of a multi-function file.
-  A migrated file is resolved from its function row. File-scope storage stays
+  Definitions are resolved from canonical function rows and C syntax. File-scope storage stays
   in the original file. A static dependency is refused. Pass `--force` when
   the run is not interactive. `--dry-run` writes nothing.
-- `rebrew source merge` combines migrated files from their function rows.
+- `rebrew source merge` combines C definitions from their function rows.
   Definitions move to the output and every row that names an input moves
   with them. `--shared` keeps one copy when the bodies match and refuses
-  bodies that differ. A file-level `// SOURCE: naked` is not copied onto
-  a second function. Pass `--force` when the run is not interactive.
+  bodies that differ. Reconstruction source stays scoped to its metadata identity. Pass `--force` when the run is not interactive.
   `--dry-run` writes nothing.
-- `rebrew source merge --shared` on an unmigrated file still stacks marker
-  blocks and refuses divergent bodies.
-- `rebrew source import-related --shared` records the destination row on that shared file
-  (`--promote` moves the file first). `rebrew source split --va` still splits an unmigrated stacked marker.
+- `rebrew source import-related --shared` records the destination identity on
+  the shared definition (`--promote` moves the file first). Optional address
+  anchors follow their declarations; metadata carries every other field.
 - `rebrew source rename` rewrites whole identifiers only: never inside string
   literals, inside comments only with `--comments`. Read the `--dry-run` list
   (`file:line:column role` plus row changes) before writing.

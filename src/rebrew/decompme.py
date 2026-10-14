@@ -700,10 +700,10 @@ def _resolve_annotation(
     *size_override* (the CLI ``--size``) supplies the size when the annotation
     has none — the check must not reject the very case ``--size`` exists for.
     """
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
     from rebrew.sources import target_marker
 
-    annos = parse_c_file_multi(
+    annos = read_source_bindings(
         source, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
     funcs = [a for a in annos if a.is_function]

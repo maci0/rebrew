@@ -32,11 +32,11 @@ from rebrew.matcher import (
     structural_similarity,
 )
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
-from rebrew.metadata.annotation import (
-    Annotation,
+from rebrew.metadata.bindings import (
+    SourceBinding,
     min_valid_va_for,
-    parse_c_file_multi,
-    parse_source_metadata,
+    read_function_fields,
+    read_source_bindings,
 )
 from rebrew.sources import target_marker
 from rebrew.utils import fold_ident, read_compile_source
@@ -115,7 +115,7 @@ class BuildParams:
     module: str = ""
 
 
-def select_annotation(annos: list[Annotation], symbol: str | None) -> Annotation | None:
+def select_annotation(annos: list[SourceBinding], symbol: str | None) -> SourceBinding | None:
     """Pick the annotation whose symbol or name matches *symbol*.
 
     ``rebrew match run`` on a multi-function file with ``--symbol`` must target
@@ -161,7 +161,7 @@ def resolve_build_params(
         # the old guard below was skipped and read_compile_source raised a raw
         # FileNotFoundError traceback.
         error_exit(f"Source file not found: {seed_c}", json_mode=json_output)
-    annos = parse_c_file_multi(
+    annos = read_source_bindings(
         seed_c_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
     annos = [a for a in annos if a.is_function]
@@ -206,7 +206,7 @@ def resolve_build_params(
                 json_mode=json_output,
             )
 
-    meta = parse_source_metadata(seed_c, metadata_dir=cfg.metadata_dir)
+    meta = read_function_fields(seed_c, metadata_dir=cfg.metadata_dir)
     compile_cfg = cfg
 
     # Use shared helper for compiler env resolution — the returned msvc_env

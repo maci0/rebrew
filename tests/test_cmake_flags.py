@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR
@@ -39,11 +40,17 @@ profile = "msvc-6.0"
 
 
 def _project(tmp_path: Path, functions_toml: str, sources: dict[str, str]) -> ProjectConfig:
-    (tmp_path / "rebrew-project.toml").write_text(TOML, encoding="utf-8")
+    write_source(tmp_path / "rebrew-project.toml", TOML, encoding="utf-8")
     (tmp_path / "src/server_dll").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "src/rebrew-functions.toml").write_text(functions_toml, encoding="utf-8")
+    write_source(
+        tmp_path / "src/rebrew-functions.toml",
+        functions_toml
+        if functions_toml.startswith("format = 2")
+        else "format = 2\n" + functions_toml,
+        encoding="utf-8",
+    )
     for name, body in sources.items():
-        (tmp_path / "src/server_dll" / name).write_text(body, encoding="utf-8")
+        write_source(tmp_path / "src/server_dll" / name, body, encoding="utf-8")
     return load_config(root=tmp_path, target="server_dll")
 
 
@@ -51,8 +58,13 @@ def test_metadata_flags_are_emitted(tmp_path: Path) -> None:
     """The TOML value wins — that is the whole point of the command."""
     cfg = _project(
         tmp_path,
-        '["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
-        {"a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"},
+        'format = 2\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        {
+            "a.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            )
+        },
     )
     files, problems, _notes = collect(cfg, "SERVER")
     assert problems == []
@@ -72,9 +84,12 @@ def test_target_defines_reach_annotated_and_listed_sources(
         pytest.skip("cmake is required to check the generated source properties")
     _project(
         tmp_path,
-        '["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
+        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
         {
-            "a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n",
+            "a.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            ),
             "extra.c": "int extra(void) { return 1; }\n",
         },
     )
@@ -119,7 +134,13 @@ def test_target_defines_do_not_leak_between_targets(
         tmp_path,
         "",
         {
-            "a.c": "// FUNCTION: SERVER 0x10001000\n// FUNCTION: CLIENT 0x401000\nint a(void) { return 0; }\n"
+            "a.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\n/* ADDRESS: CLIENT 0x401000 */\nint a(void) { return 0; }\n",
+                {
+                    "SERVER.0x10001000": {"kind": "FUNCTION"},
+                    "CLIENT.0x401000": {"kind": "FUNCTION"},
+                },
+            )
         },
     )
     (tmp_path / "rebrew-project.toml").write_text(
@@ -140,11 +161,15 @@ def test_conflicting_functions_in_one_file_are_reported(tmp_path: Path) -> None:
     """A TU compiles with one flag set, so this cannot be honoured silently."""
     cfg = _project(
         tmp_path,
-        '["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n'
-        '["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
+        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
         {
-            "a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"
-            "// FUNCTION: SERVER 0x10001020\nint b(void) { return 0; }\n"
+            "a.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n/* ADDRESS: SERVER 0x10001020 */\nint b(void) { return 0; }\n",
+                {
+                    "SERVER.0x10001000": {"kind": "FUNCTION"},
+                    "SERVER.0x10001020": {"kind": "FUNCTION"},
+                },
+            )
         },
     )
     files, problems, _notes = collect(cfg, "SERVER")
@@ -159,11 +184,15 @@ def test_define_alone_is_not_a_conflict_and_is_not_emitted(tmp_path: Path) -> No
     define is dropped, visibly, rather than silently."""
     cfg = _project(
         tmp_path,
-        '["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n'
-        '["SERVER.0x10001020"]\ncflags = "/O2 /Gd"\n',
+        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n["SERVER.0x10001020"]\ncflags = "/O2 /Gd"\n',
         {
-            "a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"
-            "// FUNCTION: SERVER 0x10001020\nint b(void) { return 0; }\n"
+            "a.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n/* ADDRESS: SERVER 0x10001020 */\nint b(void) { return 0; }\n",
+                {
+                    "SERVER.0x10001000": {"kind": "FUNCTION"},
+                    "SERVER.0x10001020": {"kind": "FUNCTION"},
+                },
+            )
         },
     )
     files, problems, notes = collect(cfg, "SERVER")
@@ -188,10 +217,12 @@ def test_data_marker_does_not_count_as_a_function(tmp_path: Path) -> None:
     """
     cfg = _project(
         tmp_path,
-        '["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Oy-"\n',
+        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Oy-"\n',
         {
-            "a.c": "// DATA: SERVER 0x10002000\nchar blob[4] = {0};\n"
-            "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"
+            "a.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10002000 */\nchar blob[4] = {0};\n/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x10002000": {"kind": "DATA"}, "SERVER.0x10001000": {"kind": "FUNCTION"}},
+            )
         },
     )
     files, problems, _notes = collect(cfg, "SERVER")
@@ -208,8 +239,13 @@ def test_written_include_is_valid_cmake(tmp_path: Path, monkeypatch: pytest.Monk
     """
     _project(
         tmp_path,
-        '["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Ow"\n',
-        {"a b.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"},
+        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Ow"\n',
+        {
+            "a b.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            )
+        },
     )
     monkeypatch.chdir(tmp_path)
     out = tmp_path / "flags.cmake"
@@ -225,8 +261,13 @@ def test_cli_json_dry_run_stdout_is_pure(tmp_path: Path, monkeypatch: pytest.Mon
     """``--json --dry-run`` must emit only JSON on stdout (no CMake include text)."""
     _project(
         tmp_path,
-        '["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
-        {"a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"},
+        'format = 2\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        {
+            "a.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            )
+        },
     )
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(app, ["--json", "--dry-run"])
@@ -244,11 +285,15 @@ def test_cli_conflicting_flags_exit_error_with_json(
     """Conflicting per-file flags exit EXIT_ERROR and still emit a JSON envelope."""
     _project(
         tmp_path,
-        '["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n'
-        '["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
+        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
         {
-            "a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"
-            "// FUNCTION: SERVER 0x10001020\nint b(void) { return 0; }\n"
+            "a.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n/* ADDRESS: SERVER 0x10001020 */\nint b(void) { return 0; }\n",
+                {
+                    "SERVER.0x10001000": {"kind": "FUNCTION"},
+                    "SERVER.0x10001020": {"kind": "FUNCTION"},
+                },
+            )
         },
     )
     monkeypatch.chdir(tmp_path)
@@ -279,8 +324,13 @@ def test_toolchain_pin_is_reported_because_the_build_cannot_honour_it(
     """
     cfg = _project(
         tmp_path,
-        '["SERVER.0x10001000"]\ntoolchain = "msvc-6.0"\n',
-        {"a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"},
+        'format = 2\n["SERVER.0x10001000"]\ntoolchain = "msvc-6.0"\n',
+        {
+            "a.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            )
+        },
     )
     _files, problems, notes = collect(cfg, "SERVER")
     assert problems == []
@@ -295,9 +345,12 @@ def test_sources_file_unannotated_appears_in_json(
     """``--sources-file`` entries without annotations must still show in ``--json``."""
     _project(
         tmp_path,
-        '["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        'format = 2\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
         {
-            "a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n",
+            "a.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            ),
             "extra.c": "int extra(void) { return 1; }\n",
         },
     )
@@ -324,12 +377,16 @@ def test_shared_sources_are_collected(tmp_path: Path) -> None:
     )
     (tmp_path / "src/server_dll").mkdir(parents=True, exist_ok=True)
     (tmp_path / "src/shared").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "src/rebrew-functions.toml").write_text(
-        '["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n', encoding="utf-8"
-    )
-    (tmp_path / "src/shared" / "common.c").write_text(
-        "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n",
+    write_store_fixture(
+        tmp_path / "src/rebrew-functions.toml",
+        'format = 2\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
         encoding="utf-8",
+    )
+    write_source(
+        tmp_path / "src/shared" / "common.c",
+        "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
+        encoding="utf-8",
+        metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION"}},
     )
     cfg = load_config(root=tmp_path, target="server_dll")
     files, problems, _notes = collect(cfg, "SERVER")

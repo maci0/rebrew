@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.split import app
@@ -13,13 +14,13 @@ runner = CliRunner()
 
 def _make_cfg(tmp_path: Path, marker: str = "SERVER") -> Any:
     return SimpleNamespace(
-        marker=marker, source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path.parent
+        marker=marker, source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
     )
 
 
 def _write(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    write_source(path, content, encoding="utf-8")
     return path
 
 
@@ -79,33 +80,31 @@ def test_preamble_struct_keeps_its_semicolon() -> None:
         "struct t {\n\tint a;\n};\n#pragma pack(push, 1)\nstruct u {\n\tint b;\n};\n"
         "#pragma pack(pop)\n\nint f(void)\n{\n\treturn 0;\n}\n"
     )
-    text = shared_preamble(raw, spans, [], sole=False)
+    text = shared_preamble(raw, spans, [])
     assert "};\n#pragma pack(pop)" in text
     assert "}\n#pragma" not in text
     assert text.count("};") == 2
 
 
 def _multi_two() -> str:
-    return (
-        "#include <stdio.h>\n"
-        "\n"
-        "// FUNCTION: SERVER 0x10001000\n"
-        "// STATUS: EXACT\n"
-        "// ORIGIN: GAME\n"
-        "// SIZE: 42\n"
-        "// CFLAGS: /O2\n"
-        "// SYMBOL: _func_a\n"
-        "\n"
-        "int func_a(void) { return 0; }\n"
-        "\n"
-        "// FUNCTION: SERVER 0x10002000\n"
-        "// STATUS: NEAR_MATCHING\n"
-        "// ORIGIN: GAME\n"
-        "// SIZE: 84\n"
-        "// CFLAGS: /O2\n"
-        "// SYMBOL: _func_b\n"
-        "\n"
-        "int func_b(void) { return 1; }\n"
+    return SourceFixture(
+        "#include <stdio.h>\n\n/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\n\nint func_a(void) { return 0; }\n\n/* ADDRESS: SERVER 0x10002000 */\n\n\n\n\n\n\nint func_b(void) { return 1; }\n",
+        {
+            "SERVER.0x10001000": {
+                "kind": "FUNCTION",
+                "size": 42,
+                "cflags": "/O2",
+                "symbol": "_func_a",
+                "status": "EXACT",
+            },
+            "SERVER.0x10002000": {
+                "kind": "FUNCTION",
+                "size": 84,
+                "cflags": "/O2",
+                "symbol": "_func_b",
+                "status": "NEAR_MATCHING",
+            },
+        },
     )
 
 
@@ -132,7 +131,7 @@ class TestSplitExtensionHandling:
                 marker="SERVER", source_ext=".c,.cpp", reversed_dir=tmp_path, metadata_dir=tmp_path
             ),
         )
-        result = runner.invoke(app, [str(src)])
+        result = runner.invoke(app, ["--force", str(src)])
         assert result.exit_code == 0, result.output
         assert (tmp_path / "func_a.cpp").exists()
         assert not (tmp_path / "func_a.c,.cpp").exists()
@@ -147,19 +146,19 @@ class TestSplitExtensionHandling:
                 marker="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
             ),
         )
-        result = runner.invoke(app, [str(src)])
+        result = runner.invoke(app, ["--force", str(src)])
         assert result.exit_code == 0, result.output
         # Input suffix is preserved (.C stays .C); acceptance is the contract.
         assert (tmp_path / "func_a.C").exists()
         assert (tmp_path / "func_b.C").exists()
-        assert "Split 2 functions" in result.output
+        assert "Split 2 function(s)" in result.output
 
 
 class TestSplitBasic:
     def test_splits_two_functions(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "multi.c", _multi_two())
 
-        result, src = _invoke(tmp_path, monkeypatch)
+        result, src = _invoke(tmp_path, monkeypatch, "--force")
         assert result.exit_code == 0
         assert (tmp_path / "func_a.c").exists()
         assert (tmp_path / "func_b.c").exists()
@@ -167,31 +166,28 @@ class TestSplitBasic:
     def test_includes_shared_preamble_in_each_output(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        content = (
-            "#include <stdio.h>\n"
-            "#define MAGIC 7\n"
-            "\n"
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 1\n"
-            "// CFLAGS: /O2\n"
-            "// SYMBOL: _a\n"
-            "\n"
-            "int a(void) { return MAGIC; }\n"
-            "\n"
-            "// FUNCTION: SERVER 0x10002000\n"
-            "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 1\n"
-            "// CFLAGS: /O2\n"
-            "// SYMBOL: _b\n"
-            "\n"
-            "int b(void) { return MAGIC; }\n"
+        content = SourceFixture(
+            "#include <stdio.h>\n#define MAGIC 7\n\n/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\n\nint a(void) { return MAGIC; }\n\n/* ADDRESS: SERVER 0x10002000 */\n\n\n\n\n\n\nint b(void) { return MAGIC; }\n",
+            {
+                "SERVER.0x10001000": {
+                    "kind": "FUNCTION",
+                    "size": 1,
+                    "cflags": "/O2",
+                    "symbol": "_a",
+                    "status": "EXACT",
+                },
+                "SERVER.0x10002000": {
+                    "kind": "FUNCTION",
+                    "size": 1,
+                    "cflags": "/O2",
+                    "symbol": "_b",
+                    "status": "EXACT",
+                },
+            },
         )
         _write(tmp_path / "multi.c", content)
 
-        result, src = _invoke(tmp_path, monkeypatch)
+        result, src = _invoke(tmp_path, monkeypatch, "--force")
         assert result.exit_code == 0
         a_text = (tmp_path / "a.c").read_text(encoding="utf-8")
         b_text = (tmp_path / "b.c").read_text(encoding="utf-8")
@@ -203,7 +199,7 @@ class TestSplitBasic:
     def test_uses_symbol_for_filename(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "multi.c", _multi_two())
 
-        result, src = _invoke(tmp_path, monkeypatch)
+        result, src = _invoke(tmp_path, monkeypatch, "--force")
         assert result.exit_code == 0
         assert (tmp_path / "func_a.c").exists()
         assert (tmp_path / "func_b.c").exists()
@@ -212,27 +208,27 @@ class TestSplitBasic:
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
         """Function name should come from C definition even without // SYMBOL:."""
-        content = (
-            "// FUNCTION: SERVER 0x1000ABCD\n"
-            "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 1\n"
-            "// CFLAGS: /O2\n"
-            "\n"
-            "int first(void) { return 0; }\n"
-            "\n"
-            "// FUNCTION: SERVER 0x10002000\n"
-            "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 1\n"
-            "// CFLAGS: /O2\n"
-            "// SYMBOL: _named\n"
-            "\n"
-            "int named(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x1000ABCD */\n\n\n\n\n\nint first(void) { return 0; }\n\n/* ADDRESS: SERVER 0x10002000 */\n\n\n\n\n\n\nint named(void) { return 0; }\n",
+            {
+                "SERVER.0x1000ABCD": {
+                    "kind": "FUNCTION",
+                    "size": 1,
+                    "cflags": "/O2",
+                    "status": "EXACT",
+                },
+                "SERVER.0x10002000": {
+                    "kind": "FUNCTION",
+                    "size": 1,
+                    "cflags": "/O2",
+                    "symbol": "_named",
+                    "status": "EXACT",
+                },
+            },
         )
         _write(tmp_path / "multi.c", content)
 
-        result, src = _invoke(tmp_path, monkeypatch)
+        result, src = _invoke(tmp_path, monkeypatch, "--force")
         assert result.exit_code == 0
         # Name derived from C definition, not VA fallback
         assert (tmp_path / "first.c").exists()
@@ -249,21 +245,23 @@ class TestSplitBasic:
     def test_errors_when_input_has_only_one_function(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        content = (
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 1\n"
-            "// CFLAGS: /O2\n"
-            "// SYMBOL: _only\n"
-            "\n"
-            "int only(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\n\nint only(void) { return 0; }\n",
+            {
+                "SERVER.0x10001000": {
+                    "kind": "FUNCTION",
+                    "size": 1,
+                    "cflags": "/O2",
+                    "symbol": "_only",
+                    "status": "EXACT",
+                }
+            },
         )
         _write(tmp_path / "single.c", content)
 
-        result, src = _invoke(tmp_path, monkeypatch, name="single.c")
+        result, src = _invoke(tmp_path, monkeypatch, "--force", name="single.c")
         assert result.exit_code != 0
-        assert "at least two // FUNCTION: blocks" in result.output
+        assert "at least two function definitions" in result.output
 
     def test_errors_when_output_exists_without_force(
         self, tmp_path: Path, monkeypatch: Any
@@ -293,41 +291,22 @@ class TestSplitBasic:
         assert "Output file already exists" in result.output
         assert not (tmp_path / "func_a.c").exists()
 
-    def test_single_target_block_writes_nothing_and_reruns_same(
-        self, tmp_path: Path, monkeypatch: Any
-    ) -> None:
-        """Only one block for this target: refuse before writing, so a re-run
-        gets the same error instead of "Output file already exists"."""
-        # Second block is shared: its first marker is CLIENT, so split skips
-        # it, while the SERVER annotation parser still counts two entries.
-        _write(
-            tmp_path / "multi.c",
-            _multi_two().replace(
-                "// FUNCTION: SERVER 0x10002000\n",
-                "// FUNCTION: CLIENT 0x20002000\n// FUNCTION: SERVER 0x10002000\n",
-            ),
-        )
-
-        for _ in range(2):
-            result, src = _invoke(tmp_path, monkeypatch)
-            assert result.exit_code != 0
-            assert "Need at least two matching blocks" in result.output
-            assert not (tmp_path / "func_a.c").exists()
-
     def test_force_overwrites_existing_files(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "multi.c", _multi_two())
         existing = _write(tmp_path / "func_a.c", "stale\n")
 
         result, src = _invoke(tmp_path, monkeypatch, "--force")
         assert result.exit_code == 0
-        assert "// FUNCTION: SERVER 0x10001000" in existing.read_text(encoding="utf-8")
+        assert SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */", {"SERVER.0x10001000": {"kind": "FUNCTION"}}
+        ) in existing.read_text(encoding="utf-8")
 
     def test_json_output_structure(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "multi.c", _multi_two())
         payloads: list[dict[str, Any]] = []
         monkeypatch.setattr("rebrew.split.json_print", lambda data: payloads.append(data))
 
-        result, src = _invoke(tmp_path, monkeypatch, "--json")
+        result, src = _invoke(tmp_path, monkeypatch, "--force", "--json")
         assert result.exit_code == 0
         assert len(payloads) == 1
         payload = payloads[0]
@@ -337,37 +316,35 @@ class TestSplitBasic:
         assert len(payload["files"]) == 2
 
     def test_filters_blocks_to_selected_target(self, tmp_path: Path, monkeypatch: Any) -> None:
-        content = (
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 1\n"
-            "// CFLAGS: /O2\n"
-            "// SYMBOL: _server_a\n"
-            "\n"
-            "int server_a(void) { return 0; }\n"
-            "\n"
-            "// FUNCTION: CLIENT 0x20001000\n"
-            "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 1\n"
-            "// CFLAGS: /O2\n"
-            "// SYMBOL: _client_a\n"
-            "\n"
-            "int client_a(void) { return 0; }\n"
-            "\n"
-            "// FUNCTION: SERVER 0x10002000\n"
-            "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 1\n"
-            "// CFLAGS: /O2\n"
-            "// SYMBOL: _server_b\n"
-            "\n"
-            "int server_b(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\n\nint server_a(void) { return 0; }\n\n/* ADDRESS: CLIENT 0x20001000 */\n\n\n\n\n\n\nint client_a(void) { return 0; }\n\n/* ADDRESS: SERVER 0x10002000 */\n\n\n\n\n\n\nint server_b(void) { return 0; }\n",
+            {
+                "SERVER.0x10001000": {
+                    "kind": "FUNCTION",
+                    "size": 1,
+                    "cflags": "/O2",
+                    "symbol": "_server_a",
+                    "status": "EXACT",
+                },
+                "CLIENT.0x20001000": {
+                    "kind": "FUNCTION",
+                    "size": 1,
+                    "cflags": "/O2",
+                    "symbol": "_client_a",
+                    "status": "EXACT",
+                },
+                "SERVER.0x10002000": {
+                    "kind": "FUNCTION",
+                    "size": 1,
+                    "cflags": "/O2",
+                    "symbol": "_server_b",
+                    "status": "EXACT",
+                },
+            },
         )
         _write(tmp_path / "multi.c", content)
 
-        result, src = _invoke(tmp_path, monkeypatch)
+        result, src = _invoke(tmp_path, monkeypatch, "--force")
         assert result.exit_code == 0
         assert (tmp_path / "server_a.c").exists()
         assert (tmp_path / "server_b.c").exists()
@@ -386,7 +363,12 @@ class TestSplitExtractVA:
         assert out.exists()
         content = out.read_text(encoding="utf-8")
         assert "#include <stdio.h>" in content
-        assert "// FUNCTION: SERVER 0x10001000" in content
+        assert (
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */", {"SERVER.0x10001000": {"kind": "FUNCTION"}}
+            )
+            in content
+        )
         assert "int func_a(void)" in content
 
     def test_removes_extracted_block_from_source(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -396,7 +378,12 @@ class TestSplitExtractVA:
         assert result.exit_code == 0
         remaining = src.read_text(encoding="utf-8")
         assert "0x10001000" not in remaining
-        assert "// FUNCTION: SERVER 0x10002000" in remaining
+        assert (
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10002000 */", {"SERVER.0x10002000": {"kind": "FUNCTION"}}
+            )
+            in remaining
+        )
         assert "#include <stdio.h>" in remaining
 
     def test_dry_run_does_not_modify_files(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -411,15 +398,15 @@ class TestSplitExtractVA:
     def test_errors_on_unknown_va(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "multi.c", _multi_two())
 
-        result, src = _invoke(tmp_path, monkeypatch, "--va", "0xDEADBEEF")
+        result, src = _invoke(tmp_path, monkeypatch, "--force", "--va", "0xDEADBEEF")
         assert result.exit_code != 0
-        assert "No function block found" in result.output
+        assert "No function row" in result.output
 
     def test_errors_on_invalid_hex_va(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Non-hex --va should produce a clear error, not a traceback."""
         _write(tmp_path / "multi.c", _multi_two())
 
-        result, src = _invoke(tmp_path, monkeypatch, "--va", "not_hex")
+        result, src = _invoke(tmp_path, monkeypatch, "--force", "--va", "not_hex")
         assert result.exit_code != 0
         assert "Invalid VA" in result.output
 
@@ -433,21 +420,26 @@ class TestSplitExtractVA:
         result, src = _invoke(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code == 0
         content = (out_dir / "func_a.c").read_text(encoding="utf-8")
-        assert "// FUNCTION: SERVER 0x10001000" in content
+        assert (
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */", {"SERVER.0x10001000": {"kind": "FUNCTION"}}
+            )
+            in content
+        )
 
     def test_va_extracts_last_block_deletes_source(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Extracting the only remaining block should delete the source file."""
-        content = (
-            "#include <stdio.h>\n"
-            "\n"
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 1\n"
-            "// CFLAGS: /O2\n"
-            "// SYMBOL: _only\n"
-            "\n"
-            "int only(void) { return 0; }\n"
+        content = SourceFixture(
+            "#include <stdio.h>\n\n/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\n\nint only(void) { return 0; }\n",
+            {
+                "SERVER.0x10001000": {
+                    "kind": "FUNCTION",
+                    "size": 1,
+                    "cflags": "/O2",
+                    "symbol": "_only",
+                    "status": "EXACT",
+                }
+            },
         )
         _write(tmp_path / "single.c", content)
 
@@ -463,17 +455,17 @@ class TestSplitExtractVA:
 
     def test_va_extract_preserves_existing_bak(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A second last-block extract must not overwrite an existing .bak."""
-        original = (
-            "#include <stdio.h>\n"
-            "\n"
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 1\n"
-            "// CFLAGS: /O2\n"
-            "// SYMBOL: _only\n"
-            "\n"
-            "int only(void) { return 0; }\n"
+        original = SourceFixture(
+            "#include <stdio.h>\n\n/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\n\nint only(void) { return 0; }\n",
+            {
+                "SERVER.0x10001000": {
+                    "kind": "FUNCTION",
+                    "size": 1,
+                    "cflags": "/O2",
+                    "symbol": "_only",
+                    "status": "EXACT",
+                }
+            },
         )
         bak = tmp_path / "single.c.bak"
         bak.write_text("ORIGINAL BACKUP\n", encoding="utf-8")
@@ -528,33 +520,6 @@ class TestSplitExtractVA:
 
 
 class TestSplitHelpers:
-    def test_block_metadata_extracts(self) -> None:
-        from rebrew.split import _block_metadata
-
-        block = "// FUNCTION: SERVER 0x10001000\n// SIZE: 64\nint my_func(void) { return 1; }\n"
-        meta = _block_metadata(block)
-        assert meta is not None
-        assert meta["module"] == "SERVER"
-        assert meta["va"] == 0x10001000
-        assert meta["symbol"] == "my_func"
-
-    def test_block_metadata_no_marker(self) -> None:
-        from rebrew.split import _block_metadata
-
-        assert _block_metadata("int plain(void) { return 1; }\n") is None
-
-    def test_block_metadata_skips_forward_decl(self) -> None:
-        from rebrew.split import _block_metadata
-
-        block = (
-            "// FUNCTION: SERVER 0x10001000\nint my_func(void);\nint my_func(void) { return 1; }\n"
-        )
-        meta = _block_metadata(block)
-        assert meta is not None
-        # The forward declaration (ending in ';') is not captured as the name
-        # source, and the scanner stops at the first C line → symbol stays "".
-        assert meta["symbol"] == ""
-
     def test_output_name_from_symbol(self) -> None:
         from rebrew.split import _build_output_name
 
@@ -618,15 +583,15 @@ class TestSplitCliErrors:
             "rebrew.split.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path, marker="SERVER"),
         )
-        content = (
-            "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"
-            "// FUNCTION: OTHER 0x10002000\nint b(void) { return 1; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n/* ADDRESS: OTHER 0x10002000 */\nint b(void) { return 1; }\n",
+            {"SERVER.0x10001000": {"kind": "FUNCTION"}, "OTHER.0x10002000": {"kind": "FUNCTION"}},
         )
         _write(tmp_path / "multi.c", content)
         result = runner.invoke(app, [str(tmp_path / "multi.c")])
         assert result.exit_code != 0
-        # parse_c_file_multi filters the OTHER block for target SERVER → < 2.
-        assert "No splittable blocks found" in result.output
+        # read_source_bindings filters the OTHER block for target SERVER → < 2.
+        assert "at least two function definitions" in result.output
 
     def test_va_json_requires_force(self, tmp_path: Path, monkeypatch: Any) -> None:
         """--va in --json mode refuses destructive extraction without --force."""
@@ -652,38 +617,6 @@ class TestSplitCliErrors:
         data = json.loads(result.stdout)
         assert data["count"] == 1
         assert data["files"][0]["va"] == "0x10001000"
-
-
-class TestBlockMetadataComments:
-    def test_comment_line_after_marker_skipped(self) -> None:
-        """A comment line between the marker and the body is skipped."""
-        from rebrew.split import _block_metadata
-
-        block = (
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// SYMBOL: _func_a\n"
-            "// some explanatory comment\n"
-            "int func_a(void) { return 0; }\n"
-        )
-        meta = _block_metadata(block)
-        assert meta is not None
-        assert meta["symbol"] == "func_a"  # leading underscore stripped
-
-    def test_forward_declaration_skipped_for_name(self) -> None:
-        """A forward declaration ending in ';' does not supply the C name."""
-        from rebrew.split import _block_metadata
-
-        block = (
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// SYMBOL: _func_a\n"
-            "int helper(void);\n"
-            "int func_a(void) { return helper(); }\n"
-        )
-        meta = _block_metadata(block)
-        assert meta is not None
-        # Symbol is derived from the C definition name; the forward decl
-        # (ending in ';') is skipped and extraction stops there.
-        assert meta["symbol"] == ""
 
 
 class TestPreambleStripping:
@@ -728,7 +661,7 @@ class TestSplitCrlfSource:
     def test_split_outputs_keep_crlf(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "multi.c", _multi_two().replace("\n", "\r\n"))
 
-        result, src = _invoke(tmp_path, monkeypatch)
+        result, src = _invoke(tmp_path, monkeypatch, "--force")
         assert result.exit_code == 0
         raw = (tmp_path / "func_a.c").read_bytes()
         assert b"\r\n" in raw
@@ -748,12 +681,12 @@ class TestSplitStackedMarkers:
     """--va on a shared file matches any stacked marker, not just the first."""
 
     def _stacked(self) -> str:
-        return (
-            "// FUNCTION: V2 0x501000\n"
-            "// SIZE: 11\n"
-            "// FUNCTION: V1 0x401000\n"
-            "// SIZE: 11\n"
-            "int common(void) { return 1; }\n"
+        return SourceFixture(
+            "/* ADDRESS: V2 0x501000 */\n\n/* ADDRESS: V1 0x401000 */\n\nint common(void) { return 1; }\n",
+            {
+                "V2.0x501000": {"kind": "FUNCTION", "size": 11},
+                "V1.0x401000": {"kind": "FUNCTION", "size": 11},
+            },
         )
 
     def _invoke_marker(self, tmp_path: Path, monkeypatch: Any, marker: str, *args: str) -> Any:
@@ -769,18 +702,22 @@ class TestSplitStackedMarkers:
         assert result.exit_code == 0, result.output
         out = tmp_path / "common_c" / "common.c"
         assert out.exists()
-        assert "// FUNCTION: V1 0x401000" in out.read_text(encoding="utf-8")
+        assert SourceFixture(
+            "/* ADDRESS: V1 0x401000 */", {"V1.0x401000": {"kind": "FUNCTION"}}
+        ) in out.read_text(encoding="utf-8")
 
     def test_va_matches_first_marker(self, tmp_path: Path, monkeypatch: Any) -> None:
         result = self._invoke_marker(tmp_path, monkeypatch, "V2", "--va", "0x501000", "--force")
         assert result.exit_code == 0, result.output
         out = tmp_path / "common_c" / "common.c"
-        assert "// FUNCTION: V2 0x501000" in out.read_text(encoding="utf-8")
+        assert SourceFixture(
+            "/* ADDRESS: V2 0x501000 */", {"V2.0x501000": {"kind": "FUNCTION"}}
+        ) in out.read_text(encoding="utf-8")
 
     def test_va_wrong_target_still_misses(self, tmp_path: Path, monkeypatch: Any) -> None:
         result = self._invoke_marker(tmp_path, monkeypatch, "V3", "--va", "0x401000", "--force")
         assert result.exit_code != 0
-        assert "No function block found" in result.output
+        assert "No function row" in result.output
 
 
 def _meta_cfg(tmp_path: Path, marker: str = "SERVER") -> Any:
@@ -798,7 +735,7 @@ def _seed(tmp_path: Path, rows: list[tuple[str, int, str]], file: str = "multi.c
             module=module,
             va=va,
             file=file,
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             symbol=symbol,
             name=symbol[1:] if symbol.startswith("_") else symbol,
         )
@@ -844,15 +781,15 @@ class TestMarkerlessSplit:
             verification={"status": "EXACT", "writer": "verify", "input_hash": "a" * 64},
         )
         update_field(tmp_path, 0x10001000, "note", "keep", "SERVER")
-        from rebrew.metadata.data import load_data_metadata, record_migrated_data_markers
+        from rebrew.metadata.data import load_data_metadata, record_data_rows
 
-        record_migrated_data_markers(
+        record_data_rows(
             tmp_path,
             [
                 {
                     "module": "SERVER",
                     "va": 0x10025000,
-                    "identity": {"file": "multi.c", "marker_type": "DATA", "name": "g_table"},
+                    "identity": {"file": "multi.c", "kind": "DATA", "name": "g_table"},
                 }
             ],
         )
@@ -955,7 +892,7 @@ class TestMarkerlessSplit:
             module="SERVER",
             va=0x10001000,
             file="multi.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             symbol="_func_a",
             name="func_b",
         )
@@ -970,7 +907,7 @@ class TestMarkerlessSplit:
             module="SERVER",
             va=0x10003000,
             file="other.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             symbol="_missing",
             name="missing",
         )
@@ -1002,7 +939,7 @@ class TestMarkerlessSplit:
         def _boom(*_args: Any, **_kwargs: Any) -> None:
             raise RuntimeError("disk full")
 
-        monkeypatch.setattr("rebrew.split.record_migrated_markers", _boom)
+        monkeypatch.setattr("rebrew.split.record_function_rows", _boom)
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code != 0
         assert "restored" in result.output
@@ -1066,7 +1003,7 @@ class TestMarkerlessSplit:
     ) -> None:
         _write(
             tmp_path / "multi.c",
-            "// SOURCE: naked\n#include <stdio.h>\n\nint func_a(void) { return 0; }\n\nint func_b(void) { return 1; }\n",
+            "#include <stdio.h>\n\nint func_a(void) { return 0; }\n\nint func_b(void) { return 1; }\n",
         )
         _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
 
@@ -1074,7 +1011,7 @@ class TestMarkerlessSplit:
         assert result.exit_code == 0, result.output
         out = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
         assert "SOURCE: naked" not in out
-        assert "SOURCE: naked" in src.read_text(encoding="utf-8")
+        assert "SOURCE: naked" not in src.read_text(encoding="utf-8")
 
     def test_decorated_row_matches_the_c_definition(self, tmp_path: Path, monkeypatch: Any) -> None:
         """``hook@@12`` extracts ``hook``. ``__foo`` extracts ``_foo``, not ``foo``."""
@@ -1092,7 +1029,7 @@ class TestMarkerlessSplit:
             module="SERVER",
             va=0x10002000,
             file="multi.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             symbol="hook@@12",
         )
         record_function_identity(
@@ -1100,7 +1037,7 @@ class TestMarkerlessSplit:
             module="SERVER",
             va=0x10003000,
             file="multi.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             symbol="__foo",
             name="_foo",
         )
@@ -1109,7 +1046,7 @@ class TestMarkerlessSplit:
             module="SERVER",
             va=0x10004000,
             file="multi.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             symbol="_foo",
             name="foo",
         )

@@ -156,7 +156,7 @@ def write_fixture_project(project_dir: Path) -> Path:
         encoding="utf-8",
     )
     (project_dir / "src" / "SERVER" / "fcn.c").write_text(
-        "// FUNCTION: SERVER 0x00401000\nint __cdecl _func1(void) { return 0; }\n",
+        "/* ADDRESS: SERVER 0x00401000 */\nint __cdecl _func1(void) { return 0; }\n",
         encoding="utf-8",
     )
     # Keep signature inputs local: an actively updated sibling repository is
@@ -369,7 +369,7 @@ WRITE_COMMANDS = [
     # ::TestIncrementalVerify::test_cache_hit_reports_the_same_row_bytes_as_a_fresh_run.
     #
     # Strips inline markers into rebrew-functions.toml (ADR 023).
-    "source migrate-markers",
+    "source register",
     # Writes a STUB .c + BLOCKER + STATUS for every undocumented function.
     "source document-unmatched",
     # Regenerates the link_stubs.c BSS placeholder TU from rebrew-data.toml.
@@ -448,7 +448,9 @@ WRITE_COMMANDS = [
 
 #: One ``.data`` symbol, so the gen-link-stubs sweep has metadata to generate
 #: from (the read-only fixture ships no data markers).
-_DATA_TOML = "[SYMBOLS.SERVER.g_player]\nsection = '.data'\nname = 'g_player'\nsize = 0x40\n"
+_DATA_TOML = (
+    'format = 2\n["SERVER.0x00403000"]\nsection = ".data"\nname = "g_player"\nsize = 0x40\n'
+)
 
 #: Commands in :data:`WRITE_COMMANDS` that need a ``rebrew-data.toml`` with one
 #: declared symbol to write against.

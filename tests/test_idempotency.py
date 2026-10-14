@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -27,21 +28,27 @@ def _tree_digest(root: Path) -> dict[str, str]:
 
 def _write(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    if path.name in {"rebrew-functions.toml", "rebrew-data.toml"}:
+        write_store_fixture(path, content, encoding="utf-8")
+    else:
+        write_source(path, content, encoding="utf-8")
     return path
 
 
 def _single(va: int, symbol: str, *, status: str = "STUB") -> str:
     marker = "STUB" if status == "STUB" else "FUNCTION"
     name = symbol.lstrip("_")
-    return (
-        f"// {marker}: SERVER 0x{va:08x}\n"
-        f"// STATUS: {status}\n"
-        f"// ORIGIN: GAME\n"
-        f"// SIZE: 64\n"
-        f"// CFLAGS: /O2\n"
-        "\n"
-        f"int {name}(void) {{ return {va & 1}; }}\n"
+    return SourceFixture(
+        f"/* ADDRESS: SERVER 0x{va:08x} */\nint {name}(void) {{ return 0; }}\n",
+        {
+            f"SERVER.0x{va:08x}": {
+                "kind": marker,
+                "status": status,
+                "size": 31,
+                "cflags": "/O2 /Gd",
+                "symbol": symbol,
+            }
+        },
     )
 
 
@@ -131,7 +138,7 @@ marker = "SERVER"
         r2 = runner.invoke(app, args)
         assert r1.exit_code == r2.exit_code == 0
         assert _combined(r1) == _combined(r2)
-        assert "Would migrate" in _combined(r1)  # exercised the --fix dry-run path
+        assert "Dry run:" in _combined(r1)  # exercised the --fix dry-run path
         assert _tree_digest(tmp_path) == before
 
 
@@ -143,7 +150,7 @@ class TestMatchAllDryRunIdempotent:
             _write(tmp_path / f"func_{va:08x}.c", _single(va, symbol))
         _write(
             tmp_path / "rebrew-functions.toml",
-            '["SERVER.0x10001000"]\nsize = 64\n["SERVER.0x10002000"]\nsize = 128\n',
+            'format = 2\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n["SERVER.0x10002000"]\nsize = 128\nstatus = "STUB"\n',
         )
         monkeypatch.setattr(
             "rebrew.match.require_config",
@@ -217,7 +224,7 @@ class TestBlockerSetIdempotent:
         _write(tmp_path / "func_10001000.c", _single(0x10001000, "_func_a"))
         _write(
             tmp_path / "rebrew-functions.toml",
-            '["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n',
+            'format = 2\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n',
         )
         monkeypatch.setattr(
             "rebrew.blocker.require_config",
@@ -248,7 +255,12 @@ class TestConvergeLayoutIdempotent:
         src = tmp_path / "src"
         src.mkdir()
         f = src / "a.c"
-        f.write_text("// Header\n// FUNCTION: SERVER 0x10027000\nint g_a = 1;\n", encoding="utf-8")
+        write_source(
+            f,
+            "// Header\n/* ADDRESS: SERVER 0x10027000 */\nint g_a = 1;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x10027000": {"kind": "FUNCTION"}},
+        )
 
         build = tmp_path / "build"
         build.mkdir()

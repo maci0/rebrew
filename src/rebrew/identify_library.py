@@ -33,7 +33,6 @@ from rebrew.utils import (
     atomic_write_text,
     library_header_name,
     pe_name_token,
-    read_source_text,
 )
 
 app = typer.Typer(
@@ -373,29 +372,10 @@ _LIBRARY_BANNER = "/* Library function identities live in rebrew-functions.toml.
 
 
 def _prepare_library_header(cfg: Any, header: Path) -> bool:
-    """Ensure *header* exists and has no LIBRARY marker lines.
-
-    Returns False when the header still has marker lines that could not be
-    recorded. A new row on that file would be invisible, so the caller skips
-    the module. A missing header is created with a non-marker banner.
-    """
-    from rebrew.metadata.annotation import NEW_FUNC_RE
-    from rebrew.metadata.marker_migration import migrate_source_file
-
+    """Create an inventory placeholder; library identities live only in metadata."""
     if not header.is_file():
         header.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(header, _LIBRARY_BANNER, encoding="utf-8")
-        return True
-    text, _encoding = read_source_text(header)
-    if not NEW_FUNC_RE.search(text):
-        return True
-    row = migrate_source_file(cfg, header, None, dry_run=False)
-    if row and row.get("skipped") == "unrecorded-markers":
-        console.print(
-            f"[yellow]warning:[/yellow] {header.name} has marker lines that were not "
-            "recorded; new library rows would be invisible until it is clean"
-        )
-        return False
     return True
 
 
@@ -411,7 +391,7 @@ def _record_library_candidate(cfg: Any, header: Path, cand: LibCandidate, source
         module=pe_name_token(cand.module),
         va=cand.va,
         file=identity_file(header, cfg.metadata_dir),
-        marker_type="LIBRARY",
+        kind="LIBRARY",
         # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
         name=c_name_from_symbol(token),
         symbol=token,

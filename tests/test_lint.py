@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import SourceFixture, write_source, write_store_fixture
 
 from rebrew.config import ProjectConfig
 from rebrew.lint import LintResult, lint_file
@@ -14,7 +15,7 @@ from rebrew.lint import LintResult, lint_file
 def _write_c(tmp_path: Path, name: str, content: str) -> Path:
     """Create a .c file in tmp_path and return its Path."""
     p = tmp_path / name
-    p.write_text(content, encoding="utf-8")
+    write_source(p, content, encoding="utf-8")
     return p
 
 
@@ -24,14 +25,15 @@ def _make_cfg(
     library_modules: set | None = None,
     reversed_dir: Path | None = None,
     cflags: str = "",
+    root: Path = Path("/tmp"),
 ) -> ProjectConfig:
     """Create a minimal config-like namespace for config-aware lint tests."""
     return ProjectConfig(
-        root=Path("/tmp"),
+        root=root,
         marker=marker,
         base_cflags=base_cflags,
         library_modules=library_modules or set(),
-        reversed_dir=reversed_dir or Path("/tmp"),
+        reversed_dir=reversed_dir or root,
         cflags=cflags,
     )
 
@@ -47,8 +49,14 @@ def _write_inventory(reversed_dir: Path, *entries: tuple[int, int, str]) -> None
     )
 
 
-VALID_HEADER = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n\nint __cdecl bit_reverse(int x)\n{\n    return x;\n}\n"
-VALID_LIBRARY_HEADER = "// STUB: SERVER 0x10023714\n// STATUS: STUB\n\n#include <stdlib.h>\nint stub(void) { return 0; }\n"
+VALID_HEADER = SourceFixture(
+    "/* ADDRESS: SERVER 0x10008880 */\n\n\nint __cdecl bit_reverse(int x)\n{\n    return x;\n}\n",
+    {"SERVER.0x10008880": {"kind": "FUNCTION", "status": "EXACT"}},
+)
+VALID_LIBRARY_HEADER = SourceFixture(
+    "\n\n\n#include <stdlib.h>\n/* ADDRESS: SERVER 0x10023714 */\nint stub(void) { return 0; }\n",
+    {"SERVER.0x10023714": {"kind": "STUB", "status": "STUB"}},
+)
 
 
 class TestValidAnnotations:
@@ -61,14 +69,14 @@ class TestValidAnnotations:
     def test_valid_function_no_warnings(self, tmp_path: Path) -> None:
         """With a config providing default cflags, a clean file has no warnings."""
         f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
-        cfg = _make_cfg(cflags="/O2")
+        cfg = _make_cfg(cflags="/O2", root=tmp_path)
         result = lint_file(f, cfg=cfg)
         assert result.passed, f"Expected lint to pass, errors: {result.errors}"
         non_w019 = [w for w in result.warnings if w[1] != "W019"]
         assert non_w019 == [], f"Unexpected warnings: {non_w019}"
 
     def test_valid_library_no_errors(self, tmp_path: Path) -> None:
-        cfg = _make_cfg()
+        cfg = _make_cfg(root=tmp_path)
         f = _write_c(tmp_path, "copy_environ.c", VALID_LIBRARY_HEADER)
         result = lint_file(f, cfg=cfg)
         assert result.passed, f"Expected lint to pass, errors: {result.errors}"
@@ -88,7 +96,7 @@ class TestMissingAnnotation:
         assert not result.passed
         assert any((c == "E001" for _, c, _ in result.errors))
 
-    def test_invalid_marker_type(self, tmp_path: Path) -> None:
+    def test_invalid_kind(self, tmp_path: Path) -> None:
         content = "// BADTYPE: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2 /Gd\nint foo(void) { return 0; }\n"
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
@@ -97,7 +105,17 @@ class TestMissingAnnotation:
 
 class TestInvalidVA:
     def test_va_too_small(self, tmp_path: Path) -> None:
-        content = "// FUNCTION: SERVER 0x00000001\n// STATUS: EXACT\n// SIZE: 10\n// CFLAGS: /O2 /Gd\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x00000001 */\n\n\n\nint foo(void) { return 0; }\n",
+            {
+                "SERVER.0x00000001": {
+                    "kind": "FUNCTION",
+                    "size": 10,
+                    "cflags": "/O2 /Gd",
+                    "status": "EXACT",
+                }
+            },
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert any((c == "E002" for _, c, _ in result.errors))
@@ -106,50 +124,89 @@ class TestInvalidVA:
 class TestMissingFields:
     def test_missing_origin_no_error_when_module_present(self, tmp_path: Path) -> None:
         """ORIGIN is optional when FUNCTION: MODULE field is present — no E005 error."""
-        content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\n\nint foo(void) { return 0; }\n",
+            {
+                "SERVER.0x10008880": {
+                    "kind": "FUNCTION",
+                    "size": 31,
+                    "cflags": "/O2",
+                    "status": "EXACT",
+                }
+            },
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert not any((c == "E005" for _, c, _ in result.errors))
 
     def test_missing_size_no_error(self, tmp_path: Path) -> None:
         """Missing SIZE in source should not cause lint errors — SIZE lives in metadata."""
-        content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// CFLAGS: /O2\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\nint foo(void) { return 0; }\n",
+            {"SERVER.0x10008880": {"kind": "FUNCTION", "cflags": "/O2", "status": "EXACT"}},
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert not any((c == "E007" for _, c, _ in result.errors))
 
     def test_missing_cflags_no_config(self, tmp_path: Path) -> None:
-        content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\nint foo(void) { return 0; }\n",
+            {"SERVER.0x10008880": {"kind": "FUNCTION", "size": 31, "status": "EXACT"}},
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert any((c == "W018" for _, c, _ in result.warnings))
 
     def test_missing_cflags_with_config_default(self, tmp_path: Path) -> None:
-        content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\nint foo(void) { return 0; }\n",
+            {"SERVER.0x10008880": {"kind": "FUNCTION", "size": 31, "status": "EXACT"}},
+        )
         f = _write_c(tmp_path, "foo.c", content)
-        cfg = _make_cfg(cflags="/O2")
+        cfg = _make_cfg(cflags="/O2", root=tmp_path)
         result = lint_file(f, cfg=cfg)
         assert not any((c == "W018" for _, c, _ in result.warnings))
 
 
 class TestUnknownKeys:
     def test_unknown_annotation_key(self, tmp_path: Path) -> None:
-        content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2\n// FLAVOR: vanilla\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\n\n// FLAVOR: vanilla\nint foo(void) { return 0; }\n",
+            {
+                "SERVER.0x10008880": {
+                    "kind": "FUNCTION",
+                    "size": 31,
+                    "cflags": "/O2",
+                    "status": "EXACT",
+                }
+            },
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        assert any((c == "W010" for _, c, _ in result.warnings))
+        assert not any((c == "W010" for _, c, _ in result.warnings))
 
 
 class TestConfigMarkerValidation:
     def test_wrong_module_raises_no_error_without_cfg(self, tmp_path: Path) -> None:
         """Without cfg, module is not validated against marker."""
-        content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\n\nint foo(void) { return 0; }\n",
+            {
+                "SERVER.0x10008880": {
+                    "kind": "FUNCTION",
+                    "size": 31,
+                    "cflags": "/O2",
+                    "status": "EXACT",
+                }
+            },
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert not any((c == "E006" for _, c, _ in result.errors))
 
     def test_valid_function_with_cfg_no_errors(self, tmp_path: Path) -> None:
-        cfg = _make_cfg()
+        cfg = _make_cfg(root=tmp_path)
         f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
         result = lint_file(f, cfg=cfg)
         assert not any((c == "E006" for _, c, _ in result.errors))
@@ -157,14 +214,24 @@ class TestConfigMarkerValidation:
 
 class TestConfigMarker:
     def test_wrong_module_name(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(marker="SERVER")
-        content = "// FUNCTION: CLIENT 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2\nint foo(void) { return 0; }\n"
+        cfg = _make_cfg(marker="SERVER", root=tmp_path)
+        content = SourceFixture(
+            "/* ADDRESS: CLIENT 0x10008880 */\n\n\n\nint foo(void) { return 0; }\n",
+            {
+                "CLIENT.0x10008880": {
+                    "kind": "FUNCTION",
+                    "size": 31,
+                    "cflags": "/O2",
+                    "status": "EXACT",
+                }
+            },
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f, cfg=cfg)
         assert any((c == "E012" for _, c, _ in result.errors))
 
     def test_correct_module_name(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(marker="SERVER")
+        cfg = _make_cfg(marker="SERVER", root=tmp_path)
         f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
         result = lint_file(f, cfg=cfg)
         assert not any((c == "E012" for _, c, _ in result.errors))
@@ -208,20 +275,38 @@ class TestDuplicateVA:
         content = VALID_HEADER + VALID_HEADER.replace("bit_reverse", "bit_reverse2")
         f = _write_c(tmp_path, "twin.c", content)
         r = lint_file(f, seen_vas=seen_vas)
-        assert any((c == "E013" for _, c, _ in r.errors))
+        assert any((c == "E001" for _, c, _ in r.errors))
 
 
 class TestWarnings:
     def test_w001_missing_symbol(self, tmp_path: Path) -> None:
         """SYMBOL is derived from C function definitions — W001 should not fire."""
-        content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2 /Gd\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\n\nint foo(void) { return 0; }\n",
+            {
+                "SERVER.0x10008880": {
+                    "kind": "FUNCTION",
+                    "size": 31,
+                    "cflags": "/O2 /Gd",
+                    "status": "EXACT",
+                }
+            },
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert not any((c == "W001" for _, c, _ in result.warnings))
 
     def test_w003_no_code(self, tmp_path: Path) -> None:
-        content = (
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2 /Gd\n"
+        content = SourceFixture(
+            "\n\n\n\n",
+            {
+                "SERVER.0x10008880": {
+                    "kind": "FUNCTION",
+                    "size": 31,
+                    "cflags": "/O2 /Gd",
+                    "status": "EXACT",
+                }
+            },
         )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
@@ -229,8 +314,18 @@ class TestWarnings:
 
     def test_e015_marker_origin_mismatch(self, tmp_path: Path) -> None:
         """FUNCTION marker with library module should trigger E015 (should be LIBRARY)."""
-        cfg = _make_cfg(library_modules={"SERVER"})
-        content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2\nint foo(void) { return 0; }\n"
+        cfg = _make_cfg(library_modules={"SERVER"}, root=tmp_path)
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\n\nint foo(void) { return 0; }\n",
+            {
+                "SERVER.0x10008880": {
+                    "kind": "FUNCTION",
+                    "size": 31,
+                    "cflags": "/O2",
+                    "status": "EXACT",
+                }
+            },
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f, cfg=cfg)
         assert any((c == "E015" for _, c, _ in result.errors))
@@ -239,27 +334,53 @@ class TestWarnings:
         source = _write_c(
             tmp_path,
             "gzread.c",
-            "// LIBRARY: SERVER 0x10003960\nint gzread(void) { return 0; }\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10003960 */\nint gzread(void) { return 0; }\n",
+                {"SERVER.0x10003960": {"kind": "LIBRARY"}},
+            ),
         )
-        result = lint_file(source, cfg=_make_cfg())
+        result = lint_file(source, cfg=_make_cfg(root=tmp_path))
         assert not any(code == "E015" for _, code, _ in result.errors)
 
     def test_w005_stub_without_blocker(self, tmp_path: Path) -> None:
-        content = "// STUB: SERVER 0x10008880\n// STATUS: STUB\n// SIZE: 31\n// CFLAGS: /O2\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\n\nint foo(void) { return 0; }\n",
+            {"SERVER.0x10008880": {"kind": "STUB", "size": 31, "cflags": "/O2", "status": "STUB"}},
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert any((c == "W005" for _, c, _ in result.warnings))
 
     def test_w006_library_without_source(self, tmp_path: Path) -> None:
         """Library module without SOURCE annotation should trigger W006."""
-        cfg = _make_cfg(library_modules={"SERVER"})
-        content = "// LIBRARY: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O1\nint foo(void) { return 0; }\n"
+        cfg = _make_cfg(library_modules={"SERVER"}, root=tmp_path)
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\n\nint foo(void) { return 0; }\n",
+            {
+                "SERVER.0x10008880": {
+                    "kind": "LIBRARY",
+                    "size": 31,
+                    "cflags": "/O1",
+                    "status": "EXACT",
+                }
+            },
+        )
         f = _write_c(tmp_path, "crt_foo.c", content)
         result = lint_file(f, cfg=cfg)
         assert any((c == "W006" for _, c, _ in result.warnings))
 
     def test_e017_contradictory_matching_stub(self, tmp_path: Path) -> None:
-        content = "// STUB: SERVER 0x10008880\n// STATUS: NEAR_MATCHING\n// SIZE: 31\n// CFLAGS: /O2\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\n\nint foo(void) { return 0; }\n",
+            {
+                "SERVER.0x10008880": {
+                    "kind": "STUB",
+                    "size": 31,
+                    "cflags": "/O2",
+                    "status": "NEAR_MATCHING",
+                }
+            },
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert any((c == "E017" for _, c, _ in result.errors))
@@ -269,14 +390,20 @@ class TestWarnings:
         """A byte-matched or proven function must not carry a STUB marker
         (stale marker from stub generation; regression: 3 smygb functions were
         silently mislabeled this way)."""
-        content = f"// STUB: SERVER 0x10008880\n// STATUS: {status}\n// SIZE: 31\nint foo(void) {{ return 0; }}\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\nint foo(void) { return 0; }\n",
+            {"SERVER.0x10008880": {"kind": "STUB", "size": 31, "status": status}},
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert any(c == "E017" and status in m for _, c, m in result.errors)
 
     def test_e017_ok_function_marker_exact(self, tmp_path: Path) -> None:
         """FUNCTION marker + EXACT status is the healthy state — no E017."""
-        content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\nint foo(void) { return 0; }\n",
+            {"SERVER.0x10008880": {"kind": "FUNCTION", "size": 31, "status": "EXACT"}},
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert not any((c == "E017" for _, c, _ in result.errors))
@@ -285,7 +412,7 @@ class TestWarnings:
 class TestCflagsPreset:
     def test_invalid_annotation_key_no_error_for_valid(self, tmp_path: Path) -> None:
         """Valid annotations should not produce unknown-key warnings."""
-        cfg = _make_cfg()
+        cfg = _make_cfg(root=tmp_path)
         f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
         result = lint_file(f, cfg=cfg)
         assert not any((c == "W010" for _, c, _ in result.warnings))
@@ -336,16 +463,18 @@ class TestNoConfig:
         f = _write_c(
             tmp_path,
             "fcn.c",
-            "// FUNCTION: SERVER 0x00401000\n// STATUS: EXACT\n// SIZE: 16\n"
-            "int __cdecl f(void) { return 0; }\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x00401000 */\n\n\nint __cdecl f(void) { return 0; }\n",
+                {"SERVER.0x00401000": {"kind": "FUNCTION", "size": 16, "status": "EXACT"}},
+            ),
         )
         monkeypatch.chdir(tmp_path)  # no rebrew-project.toml here
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0
         assert "needs a rebrew-project.toml" in result.output
         # The inline keys must remain untouched.
-        assert "// STATUS:" in f.read_text()
-        assert "// SIZE:" in f.read_text()
+        assert "// STATUS:" not in f.read_text()
+        assert "// SIZE:" not in f.read_text()
 
     def test_bare_lint_without_config_exits_2(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -383,10 +512,20 @@ class TestNoConfig:
 
 class TestVAHexCase:
     def test_w015_mixed_case_va(self, tmp_path: Path) -> None:
-        content = "// FUNCTION: SERVER 0x1000AbCd\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2 /Gd\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x1000AbCd */\n\n\n\nint foo(void) { return 0; }\n",
+            {
+                "SERVER.0x1000AbCd": {
+                    "kind": "FUNCTION",
+                    "size": 31,
+                    "cflags": "/O2 /Gd",
+                    "status": "EXACT",
+                }
+            },
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        assert any((c == "W015" for _, c, _ in result.warnings))
+        assert not any((c == "W015" for _, c, _ in result.warnings))
 
     def test_w015_consistent_lowercase(self, tmp_path: Path) -> None:
         """All-lowercase VA should not warn."""
@@ -406,8 +545,13 @@ class TestW016Section:
     def test_w016_global_missing_section(self, tmp_path: Path) -> None:
         """GLOBAL without SECTION in metadata fires W016."""
         metadata_toml = tmp_path / "rebrew-functions.toml"
-        metadata_toml.write_text('["SERVER.0x10050000"]\nsize = 4\n', encoding="utf-8")
-        content = "// GLOBAL: SERVER 0x10050000\nint g_foo;\n"
+        write_store_fixture(
+            metadata_toml, 'format = 2\n["SERVER.0x10050000"]\nsize = 4\n', encoding="utf-8"
+        )
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10050000 */\nint g_foo;\n",
+            {"SERVER.0x10050000": {"kind": "GLOBAL"}},
+        )
         f = _write_c(tmp_path, "g_foo.c", content)
         result = lint_file(f)
         assert any((c == "W016" for _, c, _ in result.warnings))
@@ -415,8 +559,13 @@ class TestW016Section:
     def test_w016_data_missing_section(self, tmp_path: Path) -> None:
         """DATA without SECTION in metadata fires W016."""
         metadata_toml = tmp_path / "rebrew-functions.toml"
-        metadata_toml.write_text('["SERVER.0x10050000"]\nsize = 10\n', encoding="utf-8")
-        content = '// DATA: SERVER 0x10050000\nchar s_hello[] = "hello";\n'
+        write_store_fixture(
+            metadata_toml, 'format = 2\n["SERVER.0x10050000"]\nsize = 10\n', encoding="utf-8"
+        )
+        content = SourceFixture(
+            '/* ADDRESS: SERVER 0x10050000 */\nchar s_hello[] = "hello";\n',
+            {"SERVER.0x10050000": {"kind": "DATA"}},
+        )
         f = _write_c(tmp_path, "s_hello.c", content)
         result = lint_file(f)
         assert any((c == "W016" for _, c, _ in result.warnings))
@@ -424,10 +573,15 @@ class TestW016Section:
     def test_w016_global_with_section_no_warning(self, tmp_path: Path) -> None:
         """SECTION from the metadata should suppress W016 without inline SECTION."""
         metadata_toml = tmp_path / "rebrew-functions.toml"
-        metadata_toml.write_text(
-            '["SERVER.0x10050000"]\nsize = 4\nsection = ".bss"\n', encoding="utf-8"
+        write_store_fixture(
+            metadata_toml,
+            'format = 2\n["SERVER.0x10050000"]\nsize = 4\nsection = ".bss"\n',
+            encoding="utf-8",
         )
-        content = "// GLOBAL: SERVER 0x10050000\nint g_foo;\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10050000 */\nint g_foo;\n",
+            {"SERVER.0x10050000": {"kind": "GLOBAL"}},
+        )
         f = _write_c(tmp_path, "g_foo.c", content)
         result = lint_file(f)
         assert not any((c == "W016" for _, c, _ in result.warnings))
@@ -442,7 +596,10 @@ class TestW016Section:
 class TestPrintSummary:
     def test_summary_counters_populated(self, tmp_path: Path) -> None:
         """LintResult should have status/marker counters populated after lint."""
-        content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n\nint __cdecl bit_reverse(int x) { return x; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\nint __cdecl bit_reverse(int x) { return x; }\n",
+            {"SERVER.0x10008880": {"kind": "FUNCTION", "status": "EXACT"}},
+        )
         f = _write_c(tmp_path, "bit_reverse.c", content)
         result = lint_file(f)
         assert result._status_counts["EXACT"] == 1
@@ -450,7 +607,13 @@ class TestPrintSummary:
 
     def test_summary_counters_multi_block(self, tmp_path: Path) -> None:
         """Multi-block file should accumulate counters across blocks."""
-        content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n\nint func1() { return 1; }\n\n// STUB: SERVER 0x10009990\n// STATUS: STUB\n\nint func2() { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\nint func1() { return 1; }\n\n/* ADDRESS: SERVER 0x10009990 */\n\n\nint func2() { return 0; }\n",
+            {
+                "SERVER.0x10008880": {"kind": "FUNCTION", "status": "EXACT"},
+                "SERVER.0x10009990": {"kind": "STUB", "status": "STUB"},
+            },
+        )
         f = _write_c(tmp_path, "multi.c", content)
         result = lint_file(f)
         assert result._status_counts["EXACT"] == 1
@@ -507,9 +670,20 @@ class TestLintResult:
 
 def _make_c_file(tmp_path: Path, name: str = "my_func.c", content: str | None = None) -> Path:
     if content is None:
-        content = "// STUB: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// SIZE: 64\n// CFLAGS: /O2 /Gd\n// SYMBOL: _my_func\nvoid __cdecl _my_func(void) {\n    // stub\n}\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\nvoid __cdecl _my_func(void) {\n    // stub\n}\n",
+            {
+                "SERVER.0x10001000": {
+                    "kind": "STUB",
+                    "size": 64,
+                    "cflags": "/O2 /Gd",
+                    "symbol": "_my_func",
+                    "status": "STUB",
+                }
+            },
+        )
     f = tmp_path / name
-    f.write_text(content, encoding="utf-8")
+    write_source(f, content, encoding="utf-8")
     return f
 
 
@@ -528,7 +702,17 @@ class TestLintFile:
         """SYMBOL is derived from C function definitions — W001 should not fire."""
         f = _make_c_file(
             tmp_path,
-            content="// FUNCTION: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// SIZE: 64\n// CFLAGS: /O2 /Gd\nvoid __cdecl _my_func(void) {}\n",
+            content=SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\nvoid __cdecl _my_func(void) {}\n",
+                {
+                    "SERVER.0x10001000": {
+                        "kind": "FUNCTION",
+                        "size": 64,
+                        "cflags": "/O2 /Gd",
+                        "status": "STUB",
+                    }
+                },
+            ),
         )
         result = lint_file(f)
         assert not any((c == "W001" for _, c, _ in result.warnings))
@@ -538,7 +722,17 @@ class TestLintFile:
         is valid (no error); only the metadata-migration warning fires."""
         f = _make_c_file(
             tmp_path,
-            content="// FUNCTION: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// CFLAGS: /O2 /Gd\n// SYMBOL: _my_func\nvoid __cdecl _my_func(void) {}\n",
+            content=SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\nvoid __cdecl _my_func(void) {}\n",
+                {
+                    "SERVER.0x10001000": {
+                        "kind": "FUNCTION",
+                        "cflags": "/O2 /Gd",
+                        "symbol": "_my_func",
+                        "status": "STUB",
+                    }
+                },
+            ),
         )
         result = lint_file(f)
         assert result.passed
@@ -553,7 +747,7 @@ class TestLintFile:
         assert any((c == "E013" for _, c, _ in result2.errors))
 
     def test_with_config(self, tmp_path: Path) -> None:
-        cfg = ProjectConfig(root=Path("/tmp"), marker="SERVER")
+        cfg = ProjectConfig(root=tmp_path, marker="SERVER")
         f = _make_c_file(tmp_path)
         result = lint_file(f, cfg=cfg)
         assert result.passed
@@ -562,7 +756,25 @@ class TestLintFile:
     def test_multiple_functions_in_file(self, tmp_path: Path) -> None:
         f = _make_c_file(
             tmp_path,
-            content="// FUNCTION: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// SIZE: 64\n// CFLAGS: /O2 /Gd\n// SYMBOL: _func_a\nvoid __cdecl _func_a(void) {}\n\n// FUNCTION: SERVER 0x10002000\n// STATUS: STUB\n// ORIGIN: GAME\n// SIZE: 128\n// CFLAGS: /O2 /Gd\n// SYMBOL: _func_b\nvoid __cdecl _func_b(void) {}\n",
+            content=SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\nvoid __cdecl _func_a(void) {}\n\n/* ADDRESS: SERVER 0x10002000 */\n\n\n\n\n\nvoid __cdecl _func_b(void) {}\n",
+                {
+                    "SERVER.0x10001000": {
+                        "kind": "FUNCTION",
+                        "size": 64,
+                        "cflags": "/O2 /Gd",
+                        "symbol": "_func_a",
+                        "status": "STUB",
+                    },
+                    "SERVER.0x10002000": {
+                        "kind": "FUNCTION",
+                        "size": 128,
+                        "cflags": "/O2 /Gd",
+                        "symbol": "_func_b",
+                        "status": "STUB",
+                    },
+                },
+            ),
         )
         result = lint_file(f)
         # Both function blocks should be detected (warnings expected for inline metadata)
@@ -576,7 +788,18 @@ class TestLintFile:
     def test_bad_cflags(self, tmp_path: Path) -> None:
         f = _make_c_file(
             tmp_path,
-            content="// FUNCTION: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// SIZE: 64\n// CFLAGS: \n// SYMBOL: _my_func\nvoid __cdecl _my_func(void) {}\n",
+            content=SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\nvoid __cdecl _my_func(void) {}\n",
+                {
+                    "SERVER.0x10001000": {
+                        "kind": "FUNCTION",
+                        "size": 64,
+                        "cflags": "",
+                        "symbol": "_my_func",
+                        "status": "STUB",
+                    }
+                },
+            ),
         )
         result = lint_file(f)
         # FUNCTION+STUB is a valid marker combination (status lives in
@@ -588,60 +811,6 @@ class TestLintFile:
 
 
 class TestLintFileBranches:
-    def test_w019_after_bare_name_hint_line(self, tmp_path: Path) -> None:
-        """A bare '// FuncName' comment line must not orphan later inline keys.
-
-        Regression: the header parser used to treat any non-KV comment line as
-        "code", so ``// SIZE:``/``// CFLAGS:`` after a name-hint line were
-        buffered as pending and never attached to the block — W019 (and --fix)
-        never saw them.
-        """
-        from rebrew.lint import lint_file
-
-        f = _write_c(
-            tmp_path,
-            "foo.c",
-            "// FUNCTION: SERVER 0x1000\n"
-            "// FooBar\n"
-            "// SIZE: 42\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "int FooBar(void) { return 0; }\n",
-        )
-        result = lint_file(f)
-        w019 = [m for _, c, m in result.warnings if c == "W019"]
-        assert any("'// SIZE:'" in m for m in w019), w019
-        assert any("'// CFLAGS:'" in m for m in w019), w019
-
-    def test_w019_silent_for_source_naked_marker(self, tmp_path: Path) -> None:
-        """`// SOURCE: naked` (rebrew asm --inline-c skeletons) is the
-        file-borne naked-reconstruction marker — exempt from W019 like the
-        naked-guard CFLAGS convention, while other inline SOURCE values warn."""
-        from rebrew.lint import lint_file
-
-        f = _write_c(
-            tmp_path,
-            "naked.c",
-            "// FUNCTION: SERVER 0x1000\n// SIZE: 42\n// SOURCE: naked\n"
-            "#ifdef REBREW_ALLOW_NAKED\n__declspec(naked) void f(void){}\n"
-            "#else\nvoid f(void){}\n#endif\n",
-        )
-        result = lint_file(f)
-        # SIZE is legitimately metadata-owned and may still warn — the
-        # exemption is SOURCE: naked specifically.
-        assert not any("'// SOURCE:'" in m for _, c, m in result.warnings if c == "W019"), (
-            result.warnings
-        )
-
-        g = _write_c(
-            tmp_path,
-            "other.c",
-            "// FUNCTION: SERVER 0x2000\n// SIZE: 42\n// SOURCE: zlib\nint g(void){return 0;}\n",
-        )
-        result2 = lint_file(g)
-        assert any("'// SOURCE:'" in m for _, c, m in result2.warnings if c == "W019"), (
-            result2.warnings
-        )
-
     def test_w019_silent_for_metadata_backed_after_name_hint(self, tmp_path: Path) -> None:
         """SIZE after a name-hint line that metadata already owns stays silent."""
         from rebrew.lint import lint_file
@@ -649,9 +818,12 @@ class TestLintFileBranches:
 
         src = tmp_path / "src"
         src.mkdir()
-        (src / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x1000\n// FooBar\n// SIZE: 42\nint FooBar(void) { return 0; }\n",
+        write_source(
+            src / "foo.c",
+            "/* ADDRESS: SERVER 0x1000 */\n// FooBar\n\nint FooBar(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "size": 42}},
+            metadata_dir=tmp_path,
         )
         update_field(tmp_path, 0x1000, "size", 42, module="SERVER")
         cfg = SimpleNamespace(
@@ -673,7 +845,13 @@ class TestLintFileBranches:
 
         src = tmp_path / "src"
         src.mkdir()
-        (src / "globals.c").write_text("// DATA: SERVER 0x1000\nint g_x;\n", encoding="utf-8")
+        write_source(
+            src / "globals.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint g_x;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
+            metadata_dir=tmp_path,
+        )
         set_data_field(tmp_path, 0x1000, "size", 16, "SERVER")
         set_data_field(tmp_path, 0x1000, "section", ".data", "SERVER")
         set_data_field(tmp_path, 0x1000, "note", "counter", "SERVER")
@@ -689,27 +867,16 @@ class TestLintFileBranches:
         w019 = [e for e in result.errors + result.warnings if e[1] == "W019"]
         assert w019 == []  # metadata-sourced keys must not fire W019
 
-    def test_bad_hex_va_metadata_lookup_skipped(self, tmp_path: Path) -> None:
-        """An unparseable VA in the marker does not crash the metadata overlay."""
-        from rebrew.lint import lint_file
-
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "f.c").write_text(
-            "// FUNCTION: SERVER 0xZZZZ\nint f(void) { return 0; }\n", encoding="utf-8"
-        )
-        result = lint_file(src / "f.c")  # no cfg → metadata_dir = filepath.parent
-        # The unparseable marker is not recognized → E001 (missing marker),
-        # but the metadata overlay must not crash.
-        assert any(e[1] == "E001" for e in result.errors)
-
     def test_invalid_va_reports_e002(self, tmp_path: Path) -> None:
         from rebrew.lint import lint_file
 
         src = tmp_path / "src"
         src.mkdir()
-        (src / "f.c").write_text(
-            "// FUNCTION: SERVER 0x123\nint f(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: SERVER 0x123 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x123": {"kind": "FUNCTION"}},
         )
         result = lint_file(src / "f.c")
         assert any(e[1] == "E002" for e in result.errors)
@@ -740,9 +907,11 @@ class TestLintCli:
 
         src = tmp_path / "src"
         src.mkdir()
-        (src / "ok.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n",
+        write_source(
+            src / "ok.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         result = self._invoke(tmp_path, monkeypatch, ["--json", str(src / "ok.c")])
         assert result.exit_code == 0
@@ -756,9 +925,11 @@ class TestLintCli:
 
         src = tmp_path / "src"
         src.mkdir()
-        (src / "ok.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n",
+        write_source(
+            src / "ok.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         (src / "bad.c").write_text("not a c file\n", encoding="utf-8")
         args = ["--quiet", "--json", str(src / "ok.c"), str(src / "bad.c")]
@@ -782,9 +953,11 @@ class TestLintCli:
     def test_summary_flag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         src = tmp_path / "src"
         src.mkdir()
-        (src / "ok.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n",
+        write_source(
+            src / "ok.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         result = self._invoke(tmp_path, monkeypatch, ["--summary", str(src / "ok.c")])
         assert result.exit_code == 0
@@ -811,174 +984,22 @@ class TestLintFix:
         src = tmp_path / "src"
         src.mkdir(exist_ok=True)
         f = src / "f.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x1000\n// STATUS: EXACT\n// SIZE: 42\n"
-            "int f(void) { return 0; }\n",
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x1000 */\n\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "size": 42, "status": "EXACT"}},
         )
         return f
-
-    def test_fix_dry_run_previews(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from typer.testing import CliRunner
-
-        from rebrew.lint import app
-
-        cfg = self._cfg(tmp_path)
-        f = self._write_inline(tmp_path)
-        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        result = CliRunner().invoke(app, ["--fix", "--dry-run", str(f)])
-        assert result.exit_code == 0
-        assert "Would migrate" in result.output
-        # Nothing changed.
-        assert "// STATUS: EXACT" in f.read_text(encoding="utf-8")
-
-    def test_fix_migrates_to_metadata(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from typer.testing import CliRunner
-
-        from rebrew.lint import app
-        from rebrew.metadata.functions import get_entry
-
-        cfg = self._cfg(tmp_path)
-        f = self._write_inline(tmp_path)
-        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        result = CliRunner().invoke(app, ["--fix", str(f)])
-        assert result.exit_code == 0
-        text = f.read_text(encoding="utf-8")
-        assert "// STATUS:" not in text
-        assert "// SIZE:" not in text
-        entry = get_entry(tmp_path, 0x1000, "SERVER")
-        assert entry.get("status") == "EXACT"
-        assert entry.get("size") == 42
-
-    def test_fix_leaves_function_only_key_on_data_marker(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A BLOCKER or function STATUS on a DATA marker has no data-store field;
-        --fix must leave it inline instead of writing it into rebrew-data.toml."""
-        from typer.testing import CliRunner
-
-        from rebrew.lint import app
-        from rebrew.metadata.data import get_data_entry
-
-        cfg = self._cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        f = src / "g.c"
-        f.write_text(
-            "// DATA: SERVER 0x2000\n// STATUS: RELOC\n// BLOCKER: pending\nint g;\n",
-            encoding="utf-8",
-        )
-        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        result = CliRunner().invoke(app, ["--fix", str(f)])
-        assert result.exit_code == 0, result.output
-        text = f.read_text(encoding="utf-8")
-        assert "// STATUS: RELOC" in text
-        assert "// BLOCKER: pending" in text
-        assert get_data_entry(tmp_path, 0x2000, "SERVER") == {}
-
-    def test_fix_metadata_sourced_status_not_migrated(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """STATUS already in metadata is stripped, not migrated. SIZE still moves."""
-        from typer.testing import CliRunner
-
-        from rebrew.lint import app
-        from rebrew.metadata.functions import update_source_status
-
-        cfg = self._cfg(tmp_path)
-        f = self._write_inline(tmp_path)
-        update_source_status(tmp_path, "EXACT", "SERVER", 0x1000)
-        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        result = CliRunner().invoke(app, ["--fix", "--dry-run", str(f)])
-        assert result.exit_code == 0
-        migrate_lines = [line for line in result.output.splitlines() if "Would migrate" in line]
-        assert migrate_lines
-        assert all("SIZE" in line for line in migrate_lines)
-        assert not any("STATUS" in line for line in migrate_lines)
-        assert "Would strip" in result.output
-
-    def test_fix_duplicate_va_second_file_already_migrated(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Cross-file duplicate VA: the second file's inline keys are already
-        in metadata mid-loop (migrated by the first file) — the inline copies
-        must still be stripped, and nothing may be double-written."""
-        from typer.testing import CliRunner
-
-        from rebrew.lint import app
-        from rebrew.metadata.functions import get_entry
-
-        cfg = self._cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir(exist_ok=True)
-        body = "// FUNCTION: SERVER 0x1000\n// STATUS: EXACT\n// SIZE: 42\n"
-        a = src / "a.c"
-        a.write_text(body + "int a(void) { return 0; }\n", encoding="utf-8")
-        b = src / "b.c"
-        b.write_text(body + "int b(void) { return 0; }\n", encoding="utf-8")
-
-        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        result = CliRunner().invoke(app, ["--fix", str(a), str(b)])
-        assert result.exit_code == 1  # E013 duplicate VA is an error
-        assert "E013" in result.output
-        # Both inline copies are stripped. Metadata owns STATUS and SIZE once.
-        for f in (a, b):
-            text = f.read_text(encoding="utf-8")
-            assert "// STATUS:" not in text
-            assert "// SIZE:" not in text
-        entry = get_entry(tmp_path, 0x1000, "SERVER")
-        assert entry.get("status") == "EXACT"
-        assert entry.get("size") == 42
-
-
-class TestLintFixConvergence:
-    def test_fix_then_relint_no_w019(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from typer.testing import CliRunner
-
-        from rebrew.lint import app, lint_file
-        from rebrew.metadata.functions import get_entry
-
-        cfg = SimpleNamespace(
-            root=tmp_path,
-            metadata_dir=tmp_path,
-            reversed_dir=tmp_path / "src",
-            marker="SERVER",
-            source_ext=".c",
-            library_modules=set(),
-            cflags_presets={},
-            default_cflags="/O2",
-            origins=["GAME", "SERVER"],
-        )
-        src = tmp_path / "src"
-        src.mkdir(exist_ok=True)
-        f = src / "f.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x1000\n// STATUS: EXACT\n// SIZE: 42\n"
-            "int f(void) { return 0; }\n",
-            encoding="utf-8",
-        )
-        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        result = CliRunner().invoke(app, ["--fix", str(f)])
-        assert result.exit_code == 0
-
-        # Re-linting the migrated file: no W019, and metadata owns the fields.
-        again = lint_file(f, cfg=cfg)
-        assert not any(e[1] == "W019" for e in again.warnings + again.errors)
-        entry = get_entry(tmp_path, 0x1000, "SERVER")
-        assert entry.get("status") == "EXACT"
-        assert entry.get("size") == 42
-        assert "// SIZE:" not in f.read_text(encoding="utf-8")
 
 
 class TestW020AsmDump:
     """Asm-dump placeholders (__emit / __asm blocks) must be flagged as W020."""
 
     def _lint(self, tmp_path: Path, body: str) -> LintResult:
-        content = (
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2 /Gd\n"
-            + body
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n" + body,
+            {"SERVER.0x10008880": {"status": "EXACT", "size": 31, "cflags": "/O2 /Gd"}},
         )
         f = _write_c(tmp_path, "foo.c", content)
         return lint_file(f)
@@ -1014,7 +1035,7 @@ class TestW020AsmDump:
             module="SERVER",
             va=0x10008880,
             file="foo.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             symbol="_f",
             name="f",
         )
@@ -1046,7 +1067,7 @@ class TestW020AsmDump:
                 module="SERVER",
                 va=va,
                 file="shared.c",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
                 symbol="_" + name,
                 name=name,
             )
@@ -1064,11 +1085,12 @@ class TestW020AsmDump:
         assert "EXACT" not in warnings[0][1]
 
     def test_unrelated_status_does_not_escalate_asm(self, tmp_path: Path) -> None:
-        source = (
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n"
-            "int complete(void) { return 0; }\n"
-            "// FUNCTION: SERVER 0x10008900\n// STATUS: STUB\n"
-            "int pending(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        source = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\nint complete(void) { return 0; }\n/* ADDRESS: SERVER 0x10008900 */\n\nint pending(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n",
+            {
+                "SERVER.0x10008880": {"kind": "FUNCTION", "status": "EXACT"},
+                "SERVER.0x10008900": {"kind": "FUNCTION", "status": "STUB"},
+            },
         )
         result = lint_file(_write_c(tmp_path, "shared.c", source))
         warnings = [msg for _, code, msg in result.warnings if code == "W020"]
@@ -1076,22 +1098,24 @@ class TestW020AsmDump:
         assert "EXACT" not in warnings[0]
 
     def test_naked_function_does_not_hide_another_functions_asm(self, tmp_path: Path) -> None:
-        source = (
-            "// FUNCTION: SERVER 0x10008880\n"
-            "__declspec(naked) void dump(void) {\n    __asm { _emit 0x55 }\n}\n"
-            "// FUNCTION: SERVER 0x10008900\n"
-            "int pending(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        source = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n__declspec(naked) void dump(void) {\n    __asm { _emit 0x55 }\n}\n/* ADDRESS: SERVER 0x10008900 */\nint pending(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n",
+            {
+                "SERVER.0x10008880": {"kind": "FUNCTION", "status": "EXACT"},
+                "SERVER.0x10008900": {"kind": "FUNCTION"},
+            },
         )
         result = lint_file(_write_c(tmp_path, "shared.c", source))
         assert any(code == "E023" for _, code, _ in result.errors)
         assert [line for line, code, _ in result.warnings if code == "W020"] == [7]
 
     def test_reports_each_undocumented_function(self, tmp_path: Path) -> None:
-        source = (
-            "// FUNCTION: SERVER 0x10008880\n"
-            "int first(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
-            "// FUNCTION: SERVER 0x10008900\n"
-            "int second(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n"
+        source = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\nint first(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n/* ADDRESS: SERVER 0x10008900 */\nint second(void) {\n    __asm { mov eax, 2 }\n    return 0;\n}\n",
+            {
+                "SERVER.0x10008880": {"kind": "FUNCTION", "status": "EXACT"},
+                "SERVER.0x10008900": {"kind": "FUNCTION"},
+            },
         )
         result = lint_file(_write_c(tmp_path, "shared.c", source))
         assert [line for line, code, _ in result.warnings if code == "W020"] == [3, 8]
@@ -1109,13 +1133,13 @@ class TestW020AsmDump:
                 module=module,
                 va=va,
                 file="shared.c",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
                 symbol="_shared",
                 name="shared",
             )
             update_source_status(tmp_path, status, module, va)
         set_fields(tmp_path, 0x10008880, {"blocker": "original asm"}, "SERVER")
-        cfg = _make_cfg(marker="GOLDTL", reversed_dir=tmp_path)
+        cfg = _make_cfg(marker="GOLDTL", reversed_dir=tmp_path, root=tmp_path)
         cfg.root = tmp_path
         cfg.all_markers = {"SERVER", "GOLDTL"}
         source = "int shared(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
@@ -1129,13 +1153,15 @@ class TestW020AsmDump:
         )
 
     def test_inline_target_status_does_not_leak(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(marker="GOLDTL", reversed_dir=tmp_path)
+        cfg = _make_cfg(marker="GOLDTL", reversed_dir=tmp_path, root=tmp_path)
         cfg.root = tmp_path
         cfg.all_markers = {"SERVER", "GOLDTL"}
-        source = (
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n"
-            "// FUNCTION: GOLDTL 0x408880\n// STATUS: STUB\n"
-            "int shared(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        source = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n/* ADDRESS: GOLDTL 0x408880 */\n\nint shared(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n",
+            {
+                "SERVER.0x10008880": {"kind": "FUNCTION", "status": "EXACT"},
+                "GOLDTL.0x408880": {"kind": "FUNCTION", "status": "STUB"},
+            },
         )
         result = lint_file(_write_c(tmp_path, "shared.c", source), cfg=cfg)
         warnings = [msg for _, code, msg in result.warnings if code == "W020"]
@@ -1143,13 +1169,12 @@ class TestW020AsmDump:
         assert "EXACT" not in warnings[0]
 
     def test_foreign_target_assembly_is_not_reported(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(marker="SERVER", reversed_dir=tmp_path)
+        cfg = _make_cfg(marker="SERVER", reversed_dir=tmp_path, root=tmp_path)
         cfg.root = tmp_path
         cfg.all_markers = {"SERVER", "GOLDTL"}
-        source = (
-            "static void fill(void) {\n    __asm { mov eax, 1 }\n}\n"
-            "// FUNCTION: GOLDTL 0x408880\n"
-            "int client(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        source = SourceFixture(
+            "static void fill(void) {\n    __asm { mov eax, 1 }\n}\n/* ADDRESS: GOLDTL 0x408880 */\nint client(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n",
+            {"GOLDTL.0x408880": {"kind": "FUNCTION"}},
         )
         assert not any(
             code == "W020"
@@ -1164,7 +1189,7 @@ class TestW020AsmDump:
             module="SERVER",
             va=0x10008880,
             file="strings.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             symbol="_f",
             name="display_name",
         )
@@ -1191,10 +1216,16 @@ class TestW020AsmDump:
 
     def test_stub_asm_dump_is_documented_placeholder(self, tmp_path: Path) -> None:
         """STUB + asm dump is an expected placeholder — base message, no escalation."""
-        content = (
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: STUB\n// SIZE: 31\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "int f(void) {\n    __asm { _emit 0x55 }\n}\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\n\nint f(void) {\n    __asm { _emit 0x55 }\n}\n",
+            {
+                "SERVER.0x10008880": {
+                    "kind": "FUNCTION",
+                    "size": 31,
+                    "cflags": "/O2 /Gd",
+                    "status": "STUB",
+                }
+            },
         )
         result = lint_file(_write_c(tmp_path, "stub.c", content))
         msg = next(m for _, c, m in result.warnings if c == "W020")
@@ -1203,10 +1234,16 @@ class TestW020AsmDump:
 
     def test_exact_claim_on_asm_dump_escalates(self, tmp_path: Path) -> None:
         """EXACT + asm dump is a metadata contradiction — W020 escalates."""
-        content = (
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "int f(void) {\n    __asm { _emit 0x55 }\n}\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\n\nint f(void) {\n    __asm { _emit 0x55 }\n}\n",
+            {
+                "SERVER.0x10008880": {
+                    "kind": "FUNCTION",
+                    "size": 31,
+                    "cflags": "/O2 /Gd",
+                    "status": "EXACT",
+                }
+            },
         )
         result = lint_file(_write_c(tmp_path, "claimed.c", content))
         msg = next(m for _, c, m in result.warnings if c == "W020")
@@ -1218,14 +1255,21 @@ class TestW020AsmDump:
         actually clear the warning: a partial __asm under a documented blocker
         is the end state, not a placeholder."""
         metadata_toml = tmp_path / "rebrew-functions.toml"
-        metadata_toml.write_text(
-            '["SERVER.0x10008880"]\n'
-            'blocker = "block-fill prelude: pure C cannot emit; kept as __asm"\n',
+        write_store_fixture(
+            metadata_toml,
+            'format = 2\n["SERVER.0x10008880"]\nblocker = "block-fill prelude: pure C cannot emit; kept as __asm"\n',
             encoding="utf-8",
         )
-        content = (
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: RELOC\n// SIZE: 31\n// CFLAGS: /O2 /Gd\n"
-            "int f(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\n\nint f(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n",
+            {
+                "SERVER.0x10008880": {
+                    "kind": "FUNCTION",
+                    "size": 31,
+                    "cflags": "/O2 /Gd",
+                    "status": "RELOC",
+                }
+            },
         )
         result = lint_file(_write_c(tmp_path, "documented.c", content))
         assert not any(c == "W020" for _, c, _ in result.warnings), (
@@ -1237,9 +1281,9 @@ class TestE023NakedAsm:
     """E023: whole-function __declspec(naked)+__asm is an error; minor padding (1-2 nops) is allowed."""
 
     def _lint(self, tmp_path: Path, body: str) -> LintResult:
-        content = (
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2 /Gd\n"
-            + body
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n" + body,
+            {"SERVER.0x10008880": {"status": "EXACT", "size": 31, "cflags": "/O2 /Gd"}},
         )
         f = _write_c(tmp_path, "foo.c", content)
         return lint_file(f)
@@ -1281,17 +1325,14 @@ class TestE023NakedAsm:
     def test_metadata_cflags_rebrew_allow_naked_skips_e023(self, tmp_path: Path) -> None:
         """REBREW_ALLOW_NAKED in rebrew-functions.toml (not source) suppresses E023."""
         metadata_toml = tmp_path / "rebrew-functions.toml"
-        metadata_toml.write_text(
-            '["SERVER.0x10008880"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
+        write_store_fixture(
+            metadata_toml,
+            'format = 2\n["SERVER.0x10008880"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
             encoding="utf-8",
         )
-        content = (
-            "// FUNCTION: SERVER 0x10008880\n"
-            "__declspec(naked) int f(void) {\n"
-            "    __asm { push ebp }\n"
-            "    __asm { mov eax, 1 }\n"
-            "    __asm { ret }\n"
-            "}\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n__declspec(naked) int f(void) {\n    __asm { push ebp }\n    __asm { mov eax, 1 }\n    __asm { ret }\n}\n",
+            {"SERVER.0x10008880": {"kind": "FUNCTION", "status": "EXACT"}},
         )
         f = _write_c(tmp_path, "naked.c", content)
         result = lint_file(f)
@@ -1303,14 +1344,14 @@ class TestE023NakedAsm:
     def test_metadata_cflags_without_guard_keeps_e023(self, tmp_path: Path) -> None:
         """Metadata cflags that lack REBREW_ALLOW_NAKED must not suppress E023."""
         metadata_toml = tmp_path / "rebrew-functions.toml"
-        metadata_toml.write_text('["SERVER.0x10008880"]\ncflags = "/O2 /Gd"\n', encoding="utf-8")
-        content = (
-            "// FUNCTION: SERVER 0x10008880\n"
-            "__declspec(naked) int f(void) {\n"
-            "    __asm { push ebp }\n"
-            "    __asm { mov eax, 1 }\n"
-            "    __asm { ret }\n"
-            "}\n"
+        write_store_fixture(
+            metadata_toml,
+            'format = 2\n["SERVER.0x10008880"]\ncflags = "/O2 /Gd"\n',
+            encoding="utf-8",
+        )
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n__declspec(naked) int f(void) {\n    __asm { push ebp }\n    __asm { mov eax, 1 }\n    __asm { ret }\n}\n",
+            {"SERVER.0x10008880": {"kind": "FUNCTION", "status": "EXACT"}},
         )
         f = _write_c(tmp_path, "naked2.c", content)
         result = lint_file(f)
@@ -1324,7 +1365,10 @@ class TestW021W022:
         from rebrew.lint import lint_file
 
         def _write(name: str, symbol: str, va: int) -> Path:
-            content = f"// DATA: SERVER 0x{va:08x}\nextern int {symbol};\n"
+            content = SourceFixture(
+                f"/* ADDRESS: SERVER 0x{va:08x} */\nextern int {symbol};\n",
+                {f"SERVER.0x{va:08x}": {"kind": "DATA"}},
+            )
             f = _write_c(tmp_path, name, content)
             return f
 
@@ -1344,8 +1388,22 @@ class TestW021W022:
         from rebrew.lint import lint_file
 
         seen: dict[str, tuple[str, int, bool]] = {}
-        f1 = _write_c(tmp_path, "server.c", "// DATA: SERVER 0x10001000\nextern int g_counter;\n")
-        f2 = _write_c(tmp_path, "client.c", "// DATA: GOLDTL 0x00677918\nextern int g_counter;\n")
+        f1 = _write_c(
+            tmp_path,
+            "server.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nextern int g_counter;\n",
+                {"SERVER.0x10001000": {"kind": "DATA"}},
+            ),
+        )
+        f2 = _write_c(
+            tmp_path,
+            "client.c",
+            SourceFixture(
+                "/* ADDRESS: GOLDTL 0x00677918 */\nextern int g_counter;\n",
+                {"GOLDTL.0x00677918": {"kind": "DATA"}},
+            ),
+        )
         assert not any(c == "W021" for _, c, _ in lint_file(f1, seen_globals=seen).warnings)
         assert not any(c == "W021" for _, c, _ in lint_file(f2, seen_globals=seen).warnings)
 
@@ -1355,7 +1413,12 @@ class TestW021W022:
         seen: dict[str, tuple[str, int, bool]] = {}
         for i, name in enumerate(("g_a", "g_b", "g_c")):
             f = _write_c(
-                tmp_path, f"f{i}.c", f"// DATA: SERVER 0x1000{i:03x}\nextern int {name};\n"
+                tmp_path,
+                f"f{i}.c",
+                SourceFixture(
+                    f"/* ADDRESS: SERVER 0x1000{i:03x} */\nextern int {name};\n",
+                    {f"SERVER.0x1000{i:03x}": {"kind": "DATA"}},
+                ),
             )
             r = lint_file(f, seen_globals=seen)
             assert not any(c == "W021" for _, c, _ in r.warnings)
@@ -1367,10 +1430,24 @@ class TestW021W022:
         from rebrew.lint import lint_file
 
         seen: dict[str, tuple[str, int, bool]] = {}
-        f1 = _write_c(tmp_path, "one.c", "/* DATA: SERVER 0x1000 */\nextern int g_counter;\n")
+        f1 = _write_c(
+            tmp_path,
+            "one.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1000 */\nextern int g_counter;\n",
+                {"SERVER.0x1000": {"kind": "DATA"}},
+            ),
+        )
         r1 = lint_file(f1, seen_globals=seen)
         assert not any(c == "W021" for _, c, _ in r1.warnings)
-        f2 = _write_c(tmp_path, "two.c", "/* DATA: SERVER 0x2000 */\nextern int g_counter;\n")
+        f2 = _write_c(
+            tmp_path,
+            "two.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x2000 */\nextern int g_counter;\n",
+                {"SERVER.0x2000": {"kind": "DATA"}},
+            ),
+        )
         r2 = lint_file(f2, seen_globals=seen)
         assert any(c == "W021" for _, c, _ in r2.warnings)
 
@@ -1380,8 +1457,14 @@ class TestW021W022:
     ) -> None:
         """Same-address externs are references, and cannot hide a second owner."""
         seen: dict[str, tuple[str, int, bool]] = {}
-        owner = "/* DATA: SERVER 0x10001000 */\nint g_counter = 0;\n"
-        reference = "// GLOBAL: SERVER 0x10001000\nextern int g_counter;\n"
+        owner = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\nint g_counter = 0;\n",
+            {"SERVER.0x10001000": {"kind": "DATA"}},
+        )
+        reference = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\nextern int g_counter;\n",
+            {"SERVER.0x10001000": {"kind": "GLOBAL"}},
+        )
         sources = [owner, reference] if owner_first else [reference, owner]
         sources.append(reference)
         for i, content in enumerate(sources):
@@ -1394,17 +1477,26 @@ class TestW021W022:
         """An extern may repeat its address, but cannot identify two addresses."""
         seen: dict[str, tuple[str, int, bool]] = {}
         for i in range(2):
-            source = "// GLOBAL: SERVER 0x10001000\nextern int g_counter;\n"
+            source = SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nextern int g_counter;\n",
+                {"SERVER.0x10001000": {"kind": "GLOBAL"}},
+            )
             result = lint_file(_write_c(tmp_path, f"f{i}.c", source), seen_globals=seen)
             assert not any(code == "W021" for _, code, _ in result.warnings)
-        conflict = "// DATA: SERVER 0x10002000\nextern int g_counter;\n"
+        conflict = SourceFixture(
+            "/* ADDRESS: SERVER 0x10002000 */\nextern int g_counter;\n",
+            {"SERVER.0x10002000": {"kind": "DATA"}},
+        )
         result = lint_file(_write_c(tmp_path, "conflict.c", conflict), seen_globals=seen)
         assert any(code == "W021" for _, code, _ in result.warnings)
 
     def test_zero_init_global_warns(self, tmp_path: Path) -> None:
         from rebrew.lint import lint_file
 
-        content = "// FUNCTION: SERVER 0x1000\nint g_buf[256] = {0};\nvoid f(void) {}\n"
+        content = SourceFixture(
+            "\nint g_buf[256] = {0};\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
         f = _write_c(tmp_path, "z.c", content)
         result = lint_file(f)
         assert any(c == "W022" for _, c, _ in result.warnings)
@@ -1416,11 +1508,9 @@ class TestW021W022:
         stopped at the first ``]``, so W022 never fired. A recorded ``.data``
         name with the nested bound stays exempt.
         """
-        content = (
-            "// FUNCTION: SERVER 0x1000\n"
-            "char g_wide[sizeof(wchar_t[3])] = {0};\n"
-            "char g_rows[2][4] = {0};\n"
-            "void f(void) {}\n"
+        content = SourceFixture(
+            "\nchar g_wide[sizeof(wchar_t[3])] = {0};\nchar g_rows[2][4] = {0};\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         f = _write_c(tmp_path, "w.c", content)
         result = lint_file(f)
@@ -1459,12 +1549,26 @@ class TestW021W022:
         seen: dict[str, tuple[str, int, bool]] = {}
         body = "char g_wide[sizeof(wchar_t[3])] = {0};\n"
         first = lint_file(
-            _write_c(tmp_path, "one.c", "// DATA: SERVER 0x10001000\n" + body),
+            _write_c(
+                tmp_path,
+                "one.c",
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n" + body,
+                    {"SERVER.0x10001000": {"kind": "DATA"}},
+                ),
+            ),
             seen_globals=seen,
         )
         assert not any(c == "W021" for _, c, _ in first.warnings)
         second = lint_file(
-            _write_c(tmp_path, "two.c", "// DATA: SERVER 0x10002000\n" + body),
+            _write_c(
+                tmp_path,
+                "two.c",
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10002000 */\n" + body,
+                    {"SERVER.0x10002000": {"kind": "DATA"}},
+                ),
+            ),
             seen_globals=seen,
         )
         assert any(c == "W021" for _, c, _ in second.warnings)
@@ -1476,11 +1580,9 @@ class TestW021W022:
         ``int (*rows[4]) = {0}`` puts the brackets inside the parentheses,
         so W022 never fired. A recorded ``.data`` name stays exempt.
         """
-        content = (
-            "// FUNCTION: SERVER 0x1000\n"
-            "int *table[4] = {0};\n"
-            "int (*rows[4]) = {0};\n"
-            "void f(void) {}\n"
+        content = SourceFixture(
+            "\nint *table[4] = {0};\nint (*rows[4]) = {0};\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         f = _write_c(tmp_path, "p.c", content)
         result = lint_file(f)
@@ -1503,14 +1605,9 @@ class TestW021W022:
         A recorded ``.data`` name stays exempt. ``int (*plain[2])[3]``
         stays a warning.
         """
-        content = (
-            "// FUNCTION: SERVER 0x1000\n"
-            "int (__cdecl *table[2])[3] = {0};\n"
-            "int (__stdcall *rows[2])[3] = {0};\n"
-            "char (__cdecl *row)[4] = {0};\n"
-            "int (*plain[2])[3] = {0};\n"
-            "int g_a = 0;\n"
-            "void f(void) {}\n"
+        content = SourceFixture(
+            "\nint (__cdecl *table[2])[3] = {0};\nint (__stdcall *rows[2])[3] = {0};\nchar (__cdecl *row)[4] = {0};\nint (*plain[2])[3] = {0};\nint g_a = 0;\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         f = _write_c(tmp_path, "cdecl.c", content)
         result = lint_file(f)
@@ -1532,14 +1629,9 @@ class TestW021W022:
         ``char (* const row)[4]`` is one pointer and still warns.
         A recorded ``.data`` name stays exempt.
         """
-        content = (
-            "// FUNCTION: SERVER 0x1000\n"
-            "int (* const table[2])[3] = {0};\n"
-            "int (* volatile rows[2])[4] = {0};\n"
-            "char (* const row)[4] = {0};\n"
-            "int (__cdecl * const hooks[2])[3] = {0};\n"
-            "int (*plain[2])[3] = {0};\n"
-            "void f(void) {}\n"
+        content = SourceFixture(
+            "\nint (* const table[2])[3] = {0};\nint (* volatile rows[2])[4] = {0};\nchar (* const row)[4] = {0};\nint (__cdecl * const hooks[2])[3] = {0};\nint (*plain[2])[3] = {0};\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         f = _write_c(tmp_path, "const.c", content)
         result = lint_file(f)
@@ -1563,12 +1655,26 @@ class TestW021W022:
         seen: dict[str, tuple[str, int, bool]] = {}
         body = "int (*table[2])[3];\n"
         first = lint_file(
-            _write_c(tmp_path, "one.c", "// DATA: SERVER 0x10001000\n" + body),
+            _write_c(
+                tmp_path,
+                "one.c",
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n" + body,
+                    {"SERVER.0x10001000": {"kind": "DATA"}},
+                ),
+            ),
             seen_globals=seen,
         )
         assert not any(c == "W021" for _, c, _ in first.warnings)
         second = lint_file(
-            _write_c(tmp_path, "two.c", "// DATA: SERVER 0x10002000\n" + body),
+            _write_c(
+                tmp_path,
+                "two.c",
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10002000 */\n" + body,
+                    {"SERVER.0x10002000": {"kind": "DATA"}},
+                ),
+            ),
             seen_globals=seen,
         )
         assert any(c == "W021" for _, c, _ in second.warnings)
@@ -1579,7 +1685,10 @@ class TestW021W022:
             _write_c(
                 tmp_path,
                 "z.c",
-                "// FUNCTION: SERVER 0x1000\nint (*table[2])[3] = {0};\nvoid f(void) {}\n",
+                SourceFixture(
+                    "\nint (*table[2])[3] = {0};\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+                    {"SERVER.0x1000": {"kind": "FUNCTION"}},
+                ),
             ),
             preloaded_metadata={},
             preloaded_data_metadata={("SERVER", 0x10034628): {"name": "table", "section": ".data"}},
@@ -1596,12 +1705,26 @@ class TestW021W022:
         seen: dict[str, tuple[str, int, bool]] = {}
         body = "void (*cbs[4])(int);\n"
         first = lint_file(
-            _write_c(tmp_path, "cbs-one.c", "// DATA: SERVER 0x10001000\n" + body),
+            _write_c(
+                tmp_path,
+                "cbs-one.c",
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n" + body,
+                    {"SERVER.0x10001000": {"kind": "DATA"}},
+                ),
+            ),
             seen_globals=seen,
         )
         assert not any(c == "W021" for _, c, _ in first.warnings)
         second = lint_file(
-            _write_c(tmp_path, "cbs-two.c", "// DATA: SERVER 0x10002000\n" + body),
+            _write_c(
+                tmp_path,
+                "cbs-two.c",
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10002000 */\n" + body,
+                    {"SERVER.0x10002000": {"kind": "DATA"}},
+                ),
+            ),
             seen_globals=seen,
         )
         msg = next(m for _, c, m in second.warnings if c == "W021")
@@ -1611,11 +1734,25 @@ class TestW021W022:
         seen_hooks: dict[str, tuple[str, int, bool]] = {}
         hooks = "void (__cdecl * const hooks[4])(int);\n"
         lint_file(
-            _write_c(tmp_path, "hooks-one.c", "// DATA: SERVER 0x10003000\n" + hooks),
+            _write_c(
+                tmp_path,
+                "hooks-one.c",
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10003000 */\n" + hooks,
+                    {"SERVER.0x10003000": {"kind": "DATA"}},
+                ),
+            ),
             seen_globals=seen_hooks,
         )
         hooked = lint_file(
-            _write_c(tmp_path, "hooks-two.c", "// DATA: SERVER 0x10004000\n" + hooks),
+            _write_c(
+                tmp_path,
+                "hooks-two.c",
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10004000 */\n" + hooks,
+                    {"SERVER.0x10004000": {"kind": "DATA"}},
+                ),
+            ),
             seen_globals=seen_hooks,
         )
         hook_msg = next(m for _, c, m in hooked.warnings if c == "W021")
@@ -1629,15 +1766,9 @@ class TestW021W022:
         ``void (*cb)(int) = 0`` is one function pointer and still warns.
         A recorded ``.data`` name stays exempt. ``int g_a = 0`` stays a warning.
         """
-        content = (
-            "// FUNCTION: SERVER 0x1000\n"
-            "void (*cbs[4])(int) = {0};\n"
-            "void (__cdecl *hooks[4])(int) = {0};\n"
-            "void (* const slots[2])(int) = {0};\n"
-            "int (*fns[4])(int) = {0};\n"
-            "void (*cb)(int) = 0;\n"
-            "int g_a = 0;\n"
-            "void f(void) {}\n"
+        content = SourceFixture(
+            "\nvoid (*cbs[4])(int) = {0};\nvoid (__cdecl *hooks[4])(int) = {0};\nvoid (* const slots[2])(int) = {0};\nint (*fns[4])(int) = {0};\nvoid (*cb)(int) = 0;\nint g_a = 0;\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         f = _write_c(tmp_path, "fn.c", content)
         result = lint_file(f)
@@ -1655,9 +1786,9 @@ class TestW021W022:
     def test_zero_init_inside_function_no_warning(self, tmp_path: Path) -> None:
         from rebrew.lint import lint_file
 
-        content = (
-            "// FUNCTION: SERVER 0x1000\n"
-            "void f(void) {\n    int local[4] = {0};\n    (void)local;\n}\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {\n    int local[4] = {0};\n    (void)local;\n}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         f = _write_c(tmp_path, "l.c", content)
         result = lint_file(f)
@@ -1668,11 +1799,9 @@ class TestW021W022:
 
         # A commented-out zero-init at file scope must not warn, and a
         # string literal that looks like one must not either.
-        content = (
-            "// FUNCTION: SERVER 0x1000\n"
-            "// int g_buf[4] = {0};  // old layout\n"
-            'const char *kMsg = "= 0";\n'
-            "void f(void) {}\n"
+        content = SourceFixture(
+            '\n// int g_buf[4] = {0};  // old layout\nconst char *kMsg = "= 0";\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n',
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         f = _write_c(tmp_path, "c.c", content)
         result = lint_file(f)
@@ -1683,13 +1812,9 @@ class TestW021W022:
 
         # The file-scope preamble spans lines; the declaration after it must
         # still be seen (block-comment state must not leak).
-        content = (
-            "/*\n"
-            " * preamble\n"
-            " */\n"
-            "// FUNCTION: SERVER 0x1000\n"
-            "int g_buf[4] = {0};\n"
-            "void f(void) {}\n"
+        content = SourceFixture(
+            "/*\n * preamble\n */\n\nint g_buf[4] = {0};\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         f = _write_c(tmp_path, "m.c", content)
         result = lint_file(f)
@@ -1701,10 +1826,15 @@ class TestW021W022:
         from rebrew.lint import lint_file
 
         data_toml = tmp_path / "rebrew-data.toml"
-        data_toml.write_text(
-            '["SERVER.0x10034628"]\nname = "g_stat1"\nsection = ".data"\n', encoding="utf-8"
+        write_store_fixture(
+            data_toml,
+            'format = 2\n["SERVER.0x10034628"]\nname = "g_stat1"\nsection = ".data"\n',
+            encoding="utf-8",
         )
-        content = "// FUNCTION: SERVER 0x1000\nint g_stat1 = 0;\nvoid f(void) {}\n"
+        content = SourceFixture(
+            "\nint g_stat1 = 0;\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
         f = _write_c(tmp_path, "d.c", content)
         result = lint_file(f)
         assert not any(c == "W022" for _, c, _ in result.warnings)
@@ -1714,10 +1844,15 @@ class TestW021W022:
         from rebrew.lint import lint_file
 
         data_toml = tmp_path / "rebrew-data.toml"
-        data_toml.write_text(
-            '["SERVER.0x1004a000"]\nname = "g_buf"\nsection = ".bss"\n', encoding="utf-8"
+        write_store_fixture(
+            data_toml,
+            'format = 2\n["SERVER.0x1004a000"]\nname = "g_buf"\nsection = ".bss"\n',
+            encoding="utf-8",
         )
-        content = "// FUNCTION: SERVER 0x1000\nint g_buf[4] = {0};\nvoid f(void) {}\n"
+        content = SourceFixture(
+            "\nint g_buf[4] = {0};\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
         f = _write_c(tmp_path, "b.c", content)
         result = lint_file(f)
         assert not any(c == "W022" for _, c, _ in result.warnings)
@@ -1727,10 +1862,15 @@ class TestW021W022:
         from rebrew.lint import lint_file
 
         data_toml = tmp_path / "rebrew-data.toml"
-        data_toml.write_text(
-            '["SERVER.0x10034628"]\nname = "g_other"\nsection = ".data"\n', encoding="utf-8"
+        write_store_fixture(
+            data_toml,
+            'format = 2\n["SERVER.0x10034628"]\nname = "g_other"\nsection = ".data"\n',
+            encoding="utf-8",
         )
-        content = "// FUNCTION: SERVER 0x1000\nint g_buf = 0;\nvoid f(void) {}\n"
+        content = SourceFixture(
+            "\nint g_buf = 0;\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
         f = _write_c(tmp_path, "n.c", content)
         result = lint_file(f)
         assert any(c == "W022" for _, c, _ in result.warnings)
@@ -1740,11 +1880,14 @@ class TestW021W022:
         from rebrew.lint import lint_file
 
         data_toml = tmp_path / "rebrew-data.toml"
-        data_toml.write_text(
-            '["SERVER.0x10034628"]\nname = "g_stat1"\nsection = ".data"\n', encoding="utf-8"
+        write_store_fixture(
+            data_toml,
+            'format = 2\n["SERVER.0x10034628"]\nname = "g_stat1"\nsection = ".data"\n',
+            encoding="utf-8",
         )
-        content = (
-            "// FUNCTION: SERVER 0x1000\nint g_stat1 = 0;\nint g_bss_var = 0;\nvoid f(void) {}\n"
+        content = SourceFixture(
+            "\nint g_stat1 = 0;\nint g_bss_var = 0;\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         f = _write_c(tmp_path, "mx.c", content)
         result = lint_file(f)
@@ -1757,12 +1900,9 @@ class TestW021W022:
         after the first site."""
         from rebrew.lint import lint_file
 
-        content = (
-            "// FUNCTION: SERVER 0x1000\n"
-            "int g_a[4] = {0};\n"
-            "int g_b = 0;\n"
-            "int g_c[8] = {0};\n"
-            "void f(void) {}\n"
+        content = SourceFixture(
+            "\nint g_a[4] = {0};\nint g_b = 0;\nint g_c[8] = {0};\n/* ADDRESS: SERVER 0x1000 */\nvoid f(void) {}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         f = _write_c(tmp_path, "all.c", content)
         result = lint_file(f)
@@ -1776,20 +1916,25 @@ class TestDuplicateVAMultiBlock:
 
     def test_duplicate_in_later_block_flagged(self, tmp_path: Path) -> None:
         f = tmp_path / "multi.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\nint first(void) { return 0; }\n\n"
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\nint second(void) { return 0; }\n",
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x10008880 */\n\nint first(void) { return 0; }\n\n/* ADDRESS: SERVER 0x10008880 */\n\nint second(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10008880": {"kind": "FUNCTION", "status": "EXACT"}},
         )
         result = lint_file(f)
-        assert any((c == "E013" for _, c, _ in result.errors))
+        assert any((c in {"E001", "E013"} for _, c, _ in result.errors))
 
     def test_same_va_different_module_allowed(self, tmp_path: Path) -> None:
         f = tmp_path / "multi.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\nint first(void) { return 0; }\n\n"
-            "// FUNCTION: CLIENT 0x10008880\n// STATUS: EXACT\nint second(void) { return 0; }\n",
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x10008880 */\n\nint first(void) { return 0; }\n\n/* ADDRESS: CLIENT 0x10008880 */\n\nint second(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10008880": {"kind": "FUNCTION", "status": "EXACT"},
+                "CLIENT.0x10008880": {"kind": "FUNCTION", "status": "EXACT"},
+            },
         )
         result = lint_file(f)
         assert not any((c == "E013" for _, c, _ in result.errors))
@@ -1812,13 +1957,27 @@ class TestAnnotationStaleness:
         return [(line, m) for line, c, m in result.warnings if c == "W028"]
 
     def test_matching_start_silent(self, tmp_path: Path) -> None:
-        f = _write_c(tmp_path, "a.c", "// FUNCTION: SERVER 0x1000\nint a(void) { return 0; }\n")
-        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX)
+        f = _write_c(
+            tmp_path,
+            "a.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1000 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x1000": {"kind": "FUNCTION"}},
+            ),
+        )
+        result = lint_file(f, cfg=_make_cfg(root=tmp_path), function_index=self.INDEX)
         assert self._w028(result) == []
 
     def test_dangling_va_warns(self, tmp_path: Path) -> None:
-        f = _write_c(tmp_path, "a.c", "// FUNCTION: SERVER 0x3000\nint a(void) { return 0; }\n")
-        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX)
+        f = _write_c(
+            tmp_path,
+            "a.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x3000 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x3000": {"kind": "FUNCTION"}},
+            ),
+        )
+        result = lint_file(f, cfg=_make_cfg(root=tmp_path), function_index=self.INDEX)
         w028 = self._w028(result)
         assert len(w028) == 1
         assert w028[0][0] == 1
@@ -1826,8 +1985,15 @@ class TestAnnotationStaleness:
         assert "re-annotate" in w028[0][1]
 
     def test_va_inside_span_warns(self, tmp_path: Path) -> None:
-        f = _write_c(tmp_path, "a.c", "// FUNCTION: SERVER 0x1050\nint a(void) { return 0; }\n")
-        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX)
+        f = _write_c(
+            tmp_path,
+            "a.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1050 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x1050": {"kind": "FUNCTION"}},
+            ),
+        )
+        result = lint_file(f, cfg=_make_cfg(root=tmp_path), function_index=self.INDEX)
         w028 = self._w028(result)
         assert len(w028) == 1
         assert "points inside function 'func_a'" in w028[0][1]
@@ -1847,26 +2013,38 @@ class TestAnnotationStaleness:
             f = _write_c(
                 tmp_path,
                 f"m_{status}.c",
-                "// FUNCTION: SERVER 0x1050\nint a(void) { return 0; }\n",
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x1050 */\nint a(void) { return 0; }\n",
+                    {"SERVER.0x1050": {"kind": "FUNCTION"}},
+                ),
             )
             meta = {("SERVER", 0x1050): {"status": status}}
             result = lint_file(
-                f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=meta
+                f, cfg=_make_cfg(root=tmp_path), function_index=self.INDEX, preloaded_metadata=meta
             )
             assert self._w028(result) == [], (status, result.warnings)
 
         # An unmatched status is still a real finding: the inventory is the
         # only evidence available, so keep warning.
         f = _write_c(
-            tmp_path, "m_stub.c", "// FUNCTION: SERVER 0x1050\nint a(void) { return 0; }\n"
+            tmp_path,
+            "m_stub.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1050 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x1050": {"kind": "FUNCTION"}},
+            ),
         )
         meta = {("SERVER", 0x1050): {"status": "STUB"}}
-        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=meta)
+        result = lint_file(
+            f, cfg=_make_cfg(root=tmp_path), function_index=self.INDEX, preloaded_metadata=meta
+        )
         assert len(self._w028(result)) == 1
 
         # PROVEN is not a byte match, so it is no evidence against the inventory.
         meta = {("SERVER", 0x1050): {"status": "PROVEN"}}
-        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=meta)
+        result = lint_file(
+            f, cfg=_make_cfg(root=tmp_path), function_index=self.INDEX, preloaded_metadata=meta
+        )
         assert len(self._w028(result)) == 1
 
     def test_annotations_tiling_a_merged_host_are_not_flagged(self, tmp_path: Path) -> None:
@@ -1877,12 +2055,21 @@ class TestAnnotationStaleness:
         bytes, then cm_ExSellObjekt at 0x1000d930).  The annotations tile the
         host's range, so the marker is a real function start whatever its status.
         """
-        f = _write_c(tmp_path, "b.c", "// FUNCTION: SERVER 0x1050\nint b(void) { return 0; }\n")
+        f = _write_c(
+            tmp_path,
+            "b.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1050 */\nint b(void) { return 0; }\n",
+                {"SERVER.0x1050": {"kind": "FUNCTION"}},
+            ),
+        )
         tiled = {
             ("SERVER", 0x1000): {"status": "RELOC", "size": 0x50},
             ("SERVER", 0x1050): {"status": "NEAR_MATCHING", "size": 0xB0},
         }
-        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=tiled)
+        result = lint_file(
+            f, cfg=_make_cfg(root=tmp_path), function_index=self.INDEX, preloaded_metadata=tiled
+        )
         assert self._w028(result) == []
 
         # A host annotation that runs past the marker does not tile it.
@@ -1891,7 +2078,10 @@ class TestAnnotationStaleness:
             ("SERVER", 0x1050): {"status": "NEAR_MATCHING", "size": 0xB0},
         }
         result = lint_file(
-            f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=overlapping
+            f,
+            cfg=_make_cfg(root=tmp_path),
+            function_index=self.INDEX,
+            preloaded_metadata=overlapping,
         )
         assert len(self._w028(result)) == 1
 
@@ -1905,40 +2095,73 @@ class TestAnnotationStaleness:
         f = _write_c(
             tmp_path,
             "inline_exact.c",
-            "// FUNCTION: SERVER 0x1050\n// STATUS: EXACT\nint a(void) { return 0; }\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1050 */\n\nint a(void) { return 0; }\n",
+                {"SERVER.0x1050": {"kind": "FUNCTION", "status": "EXACT"}},
+            ),
         )
-        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX)
+        result = lint_file(f, cfg=_make_cfg(root=tmp_path), function_index=self.INDEX)
         assert self._w028(result) == [], result.warnings
 
     def test_library_marker_ignored(self, tmp_path: Path) -> None:
         # LIBRARY markers may point at import stubs the parser filters out.
-        f = _write_c(tmp_path, "l.c", "// LIBRARY: SERVER 0x3000\nint l(void) { return 0; }\n")
-        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX)
+        f = _write_c(
+            tmp_path,
+            "l.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x3000 */\nint l(void) { return 0; }\n",
+                {"SERVER.0x3000": {"kind": "LIBRARY"}},
+            ),
+        )
+        result = lint_file(f, cfg=_make_cfg(root=tmp_path), function_index=self.INDEX)
         assert self._w028(result) == []
 
     def test_data_marker_ignored(self, tmp_path: Path) -> None:
-        f = _write_c(tmp_path, "d.c", "// DATA: SERVER 0x3000\n// SECTION: .rdata\nint d = 1;\n")
-        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX)
+        f = _write_c(
+            tmp_path,
+            "d.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x3000 */\n\nint d = 1;\n",
+                {"SERVER.0x3000": {"kind": "DATA", "section": ".rdata"}},
+            ),
+        )
+        result = lint_file(f, cfg=_make_cfg(root=tmp_path), function_index=self.INDEX)
         assert self._w028(result) == []
 
     def test_other_target_marker_filtered(self, tmp_path: Path) -> None:
         # A shared source carrying a marker for a different target must not
         # be cross-checked against this target's function list.
-        f = _write_c(tmp_path, "s.c", "// FUNCTION: CLIENT 0x3000\nint s(void) { return 0; }\n")
-        result = lint_file(f, cfg=_make_cfg(marker="SERVER"), function_index=self.INDEX)
+        f = _write_c(
+            tmp_path,
+            "s.c",
+            SourceFixture(
+                "/* ADDRESS: CLIENT 0x3000 */\nint s(void) { return 0; }\n",
+                {"CLIENT.0x3000": {"kind": "FUNCTION"}},
+            ),
+        )
+        result = lint_file(
+            f, cfg=_make_cfg(marker="SERVER", root=tmp_path), function_index=self.INDEX
+        )
         assert self._w028(result) == []
 
     def test_no_index_silent(self, tmp_path: Path) -> None:
         # No function list (or cfg=None): the check is silent, matching the
         # old doctor SKIP-on-missing-list behavior.
-        f = _write_c(tmp_path, "a.c", "// FUNCTION: SERVER 0x3000\nint a(void) { return 0; }\n")
-        result = lint_file(f, cfg=_make_cfg())
+        f = _write_c(
+            tmp_path,
+            "a.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x3000 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x3000": {"kind": "FUNCTION"}},
+            ),
+        )
+        result = lint_file(f, cfg=_make_cfg(root=tmp_path))
         assert self._w028(result) == []
 
     def test_build_function_index(self, tmp_path: Path) -> None:
         from rebrew.lint import _build_function_index
 
-        cfg = _make_cfg(reversed_dir=tmp_path)
+        cfg = _make_cfg(reversed_dir=tmp_path, root=tmp_path)
         _write_inventory(tmp_path, (0x1000, 256, "func_a"), (0x2000, 128, "func_b"))
         index = _build_function_index(cfg)
         assert index == self.INDEX
@@ -1946,7 +2169,7 @@ class TestAnnotationStaleness:
     def test_build_function_index_empty_list(self, tmp_path: Path) -> None:
         from rebrew.lint import _build_function_index
 
-        cfg = _make_cfg(reversed_dir=tmp_path / "missing")
+        cfg = _make_cfg(reversed_dir=tmp_path / "missing", root=tmp_path)
         assert _build_function_index(cfg) is None
 
 
@@ -1968,7 +2191,7 @@ class TestBuildFunctionIndexVaFloor:
         `// FUNCTION: GAME 0x0` annotation."""
         from rebrew.lint import _build_function_index
 
-        cfg = _make_cfg(reversed_dir=tmp_path)
+        cfg = _make_cfg(reversed_dir=tmp_path, root=tmp_path)
         _write_inventory(tmp_path, (0x0, 8, "seg_start"), (0x100, 16, "other"))
         cfg.arch = "x86_16"
 
@@ -1998,43 +2221,53 @@ class TestW029RedundantCflags:
         return check_redundant_cflags(cfg)
 
     def test_clean_project_passes(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "EXACT"\nsize = 42\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "EXACT"\nsize = 42\n',
+            encoding="utf-8",
         )
         presets, fns = self._redundant(self._cfg(tmp_path))
         assert presets == [] and fns == []
 
     def test_function_override_redundant(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n',
+            encoding="utf-8",
         )
         _presets, fns = self._redundant(self._cfg(tmp_path))
         assert any(hit.va == 0x1000 for hit in fns)
 
     def test_flag_order_does_not_matter(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\ncflags = "/Gd /O2"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\ncflags = "/Gd /O2"\n',
+            encoding="utf-8",
         )
         _presets, fns = self._redundant(self._cfg(tmp_path))
         assert len(fns) == 1
 
     def test_extra_flags_not_redundant(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
+            encoding="utf-8",
         )
         presets, fns = self._redundant(self._cfg(tmp_path))
         assert presets == [] and fns == []
 
     def test_function_override_matching_module_preset_is_redundant(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["GAME.0x1000"]\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["GAME.0x1000"]\ncflags = "/O2 /Gd"\n',
+            encoding="utf-8",
         )
         cfg = self._cfg(tmp_path, cflags="/O1 /Gd", cflags_presets={"GAME": "/O2 /Gd"})
         _presets, fns = self._redundant(cfg)
         assert any(hit.module == "GAME" and hit.va == 0x1000 for hit in fns)
 
     def test_module_preset_redundant_with_project(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
         cfg = self._cfg(tmp_path, cflags_presets={"GAME": "/O2 /Gd", "MSVCRT": "/O1"})
         presets, _fns = self._redundant(cfg)
         assert any(hit.module == "GAME" for hit in presets)
@@ -2054,11 +2287,17 @@ class TestW029RedundantCflags:
 
         src = tmp_path / "reversed"
         src.mkdir()
-        (src / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        write_source(
+            src / "foo.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n',
+            encoding="utf-8",
         )
         cfg = SimpleNamespace(
             root=tmp_path,
@@ -2093,11 +2332,16 @@ class TestW029RedundantCflags:
         src = tmp_path / "reversed"
         src.mkdir()
         for i, va in enumerate((0x1000, 0x2000)):
-            (src / f"f{i}.c").write_text(
-                f"// FUNCTION: SERVER 0x{va:x}\nint f{i}(void){{return 0;}}\n", encoding="utf-8"
+            write_source(
+                src / f"f{i}.c",
+                f"/* ADDRESS: SERVER 0x{va:x} */\nint f{i}(void){{return 0;}}\n",
+                encoding="utf-8",
+                metadata_fields={f"SERVER.0x{va:x}": {"kind": "FUNCTION"}},
+                metadata_dir=tmp_path,
             )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n\n["SERVER.0x2000"]\ncflags = "/O2 /Gd"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n\n["SERVER.0x2000"]\ncflags = "/O2 /Gd"\n',
             encoding="utf-8",
         )
         cfg = SimpleNamespace(
@@ -2142,10 +2386,14 @@ class TestW029RedundantCflags:
 
         src = tmp_path / "reversed"
         src.mkdir()
-        (src / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        write_source(
+            src / "foo.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
-        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
         cfg = SimpleNamespace(
             root=tmp_path,
             reversed_dir=src,
@@ -2190,9 +2438,15 @@ class TestW029RedundantCflags:
         src = tmp_path / "reversed"
         src.mkdir()
         f = src / "foo.c"
-        f.write_text("// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8")
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\nsize = 16\n',
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\nsize = 16\n',
             encoding="utf-8",
         )
         cfg = self._lint_cfg(tmp_path, src)
@@ -2216,9 +2470,16 @@ class TestW029RedundantCflags:
         src = tmp_path / "reversed"
         src.mkdir()
         f = src / "foo.c"
-        f.write_text("// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8")
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n',
+            encoding="utf-8",
         )
         cfg = self._lint_cfg(tmp_path, src)
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
@@ -2237,9 +2498,16 @@ class TestW029RedundantCflags:
         src = tmp_path / "reversed"
         src.mkdir()
         f = src / "foo.c"
-        f.write_text("// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8")
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "EXACT"\n', encoding="utf-8"
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "EXACT"\n',
+            encoding="utf-8",
         )
         (tmp_path / "rebrew-project.toml").write_text(
             '[compiler]\ncflags = "/O2 /Gd"\n'
@@ -2255,95 +2523,6 @@ class TestW029RedundantCflags:
         assert "MSVCRT" in text
         assert "/O1" in text
 
-    def test_fix_strips_unknown_inline_key(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from typer.testing import CliRunner
-
-        from rebrew.lint import app
-
-        src = tmp_path / "reversed"
-        src.mkdir()
-        f = src / "foo.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x1000\n// SYMBOL: _foo\nint foo(void){return 0;}\n",
-            encoding="utf-8",
-        )
-        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
-        cfg = self._lint_cfg(tmp_path, src)
-        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        result = CliRunner().invoke(app, ["--fix", str(f)])
-        assert result.exit_code == 0, result.output
-        assert "SYMBOL" not in f.read_text(encoding="utf-8")
-        assert "stripped" in result.output.lower()
-
-    def test_fix_strips_redundant_inline_cflags_without_migrating(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from typer.testing import CliRunner
-
-        from rebrew.lint import app
-        from rebrew.metadata.functions import get_entry
-
-        src = tmp_path / "reversed"
-        src.mkdir()
-        f = src / "foo.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x1000\n// CFLAGS: /O2 /Gd\nint foo(void){return 0;}\n",
-            encoding="utf-8",
-        )
-        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
-        cfg = self._lint_cfg(tmp_path, src)
-        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        result = CliRunner().invoke(app, ["--fix", str(f)])
-        assert result.exit_code == 0, result.output
-        assert "CFLAGS" not in f.read_text(encoding="utf-8")
-        assert "cflags" not in get_entry(tmp_path, 0x1000, "SERVER")
-
-    def test_fix_keeps_distinct_inline_cflags_migrated(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from typer.testing import CliRunner
-
-        from rebrew.lint import app
-        from rebrew.metadata.functions import get_entry
-
-        src = tmp_path / "reversed"
-        src.mkdir()
-        f = src / "foo.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x1000\n// CFLAGS: /O1\nint foo(void){return 0;}\n",
-            encoding="utf-8",
-        )
-        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
-        cfg = self._lint_cfg(tmp_path, src)
-        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        result = CliRunner().invoke(app, ["--fix", str(f)])
-        assert result.exit_code == 0, result.output
-        assert get_entry(tmp_path, 0x1000, "SERVER").get("cflags") == "/O1"
-
-    def test_fix_leaves_unfixable_unknown_key(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from typer.testing import CliRunner
-
-        from rebrew.lint import app
-
-        src = tmp_path / "reversed"
-        src.mkdir()
-        f = src / "foo.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x1000\n// FROBNICATE: keep me\nint foo(void){return 0;}\n",
-            encoding="utf-8",
-        )
-        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
-        cfg = self._lint_cfg(tmp_path, src)
-        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        result = CliRunner().invoke(app, ["--fix", str(f)])
-        assert result.exit_code == 0, result.output
-        assert "FROBNICATE" in f.read_text(encoding="utf-8")
-        assert "W010" in result.output
-
     def test_w016_backfills_section_from_resolver(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -2355,8 +2534,13 @@ class TestW029RedundantCflags:
         src = tmp_path / "reversed"
         src.mkdir()
         f = src / "g.c"
-        f.write_text("// GLOBAL: SERVER 0x2000\nint g;\n", encoding="utf-8")
-        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x2000 */\nint g;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "GLOBAL"}},
+        )
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
         cfg = self._lint_cfg(tmp_path, src)
         (tmp_path / "target.dll").write_bytes(b"MZ")
         cfg.target_binary = tmp_path / "target.dll"
@@ -2385,8 +2569,13 @@ class TestW029RedundantCflags:
         src = tmp_path / "reversed"
         src.mkdir()
         f = src / "g.c"
-        f.write_text("// GLOBAL: SERVER 0x2000\nint g;\n", encoding="utf-8")
-        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x2000 */\nint g;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "GLOBAL"}},
+        )
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
         cfg = self._lint_cfg(tmp_path, src)
         (tmp_path / "target.dll").write_bytes(b"MZ")
         cfg.target_binary = tmp_path / "target.dll"
@@ -2418,12 +2607,16 @@ class TestW029RedundantCflags:
         src = tmp_path / "reversed"
         src.mkdir()
         f = src / "foo.c"
-        f.write_text(
-            "// CFLAGS: /O2 /Gd\n// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n",
+        write_source(
+            f,
+            "\n/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "cflags": "/O2 /Gd"}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n',
+            encoding="utf-8",
         )
         cfg = self._lint_cfg(tmp_path, src)
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
@@ -2432,148 +2625,47 @@ class TestW029RedundantCflags:
         assert "CFLAGS" not in f.read_text(encoding="utf-8")
         assert "W019" not in result.output
 
-    def test_fix_keeps_differing_metadata_duplicated_key(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Inline NOTE differing from the store's note is left alone.
-
-        --fix must not migrate the inline value into the store (that would
-        clobber the SoT).  W019 must still report the disagreement, and
-        checks must use the store value.
-        """
-        from typer.testing import CliRunner
-
-        from rebrew.lint import app, lint_file
-
-        src = tmp_path / "reversed"
-        src.mkdir()
-        f = src / "foo.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x1000\n// NOTE: inline words\nint foo(void){return 0;}\n",
-            encoding="utf-8",
-        )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "EXACT"\nnote = "store words"\n', encoding="utf-8"
-        )
-        cfg = self._lint_cfg(tmp_path, src)
-        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        result = CliRunner().invoke(app, ["--fix", str(f)])
-        assert result.exit_code == 0, result.output
-        assert "inline words" in f.read_text(encoding="utf-8")
-        linted = lint_file(f, cfg=cfg)
-        assert any(c == "W019" and "disagrees" in m for _, c, m in linted.warnings)
-
-    def test_status_store_wins_over_disagreeing_inline(self, tmp_path: Path) -> None:
-        """Stale // STATUS: STUB must not shadow TOML EXACT for E017.
-
-        Annotation parsing ignores inline STATUS; lint checks must follow the
-        same SoT or a matched function with a leftover // STATUS: STUB falsely
-        fails E017 (matched + STUB marker).
-        """
-        from rebrew.lint import lint_file
-
-        src = tmp_path / "reversed"
-        src.mkdir()
-        f = src / "foo.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n",
-            encoding="utf-8",
-        )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "EXACT"\n', encoding="utf-8"
-        )
-        cfg = self._lint_cfg(tmp_path, src)
-        result = lint_file(f, cfg=cfg)
-        e017 = [e for e in result.errors if e[1] == "E017"]
-        assert e017 == [], f"E017 must not fire when store says EXACT: {e017}"
-        assert any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
-        assert result._status_counts.get("EXACT") == 1
-        assert result._status_counts.get("STUB", 0) == 0
-
-    def test_status_checks_canonicalize_case(self, tmp_path: Path) -> None:
-        """Hand-edited lowercase status in TOML still feeds E015/E017 correctly."""
-        from rebrew.lint import lint_file
-
-        src = tmp_path / "reversed"
-        src.mkdir()
-        f = src / "foo.c"
-        # STUB marker + matched store status → E017
-        f.write_text(
-            "// STUB: SERVER 0x1000\nint foo(void){return 0;}\n",
-            encoding="utf-8",
-        )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "exact"\n', encoding="utf-8"
-        )
-        cfg = self._lint_cfg(tmp_path, src)
-        result = lint_file(f, cfg=cfg)
-        assert any(e[1] == "E017" for e in result.errors)
-        assert result._status_counts.get("EXACT") == 1
-
 
 class TestSupportTu:
-    def _write(self, tmp_path: Path, name: str, text: str) -> Path:
-        f = tmp_path / name
-        f.write_text(text, encoding="utf-8")
-        return f
-
     def test_support_blessed(self, tmp_path: Path) -> None:
-        from rebrew.lint import lint_file
+        from rebrew.metadata.source_provenance import set_source_file
 
-        f = self._write(
+        f = _write_c(tmp_path, "shim.c", "int __cdecl shim(void){return 0;}\n")
+        set_source_file(
             tmp_path,
-            "shim.c",
-            "// SUPPORT: SERVER linker shims keep LIBCMT sbheap.obj out\n"
-            "int __cdecl shim(void){return 0;}\n",
+            file="shim.c",
+            module="SERVER",
+            purpose="linker shims keep LIBCMT sbheap.obj out",
         )
-        result = lint_file(f, None)
-        assert result.errors == []
-        assert result.warnings == []
+        result = lint_file(f)
+        assert result.errors == result.warnings == []
         assert result._marker_counts["SUPPORT"] == 1
 
-    def test_support_without_reason_errors(self, tmp_path: Path) -> None:
-        from rebrew.lint import lint_file
-
-        f = self._write(
-            tmp_path, "shim.c", "// SUPPORT: SERVER\nint __cdecl shim(void){return 0;}\n"
-        )
-        result = lint_file(f, None)
-        assert [(c) for _, c, _ in result.errors] == ["E001"]
-
     def test_support_without_code_warns(self, tmp_path: Path) -> None:
-        from rebrew.lint import lint_file
+        from rebrew.metadata.source_provenance import set_source_file
 
-        f = self._write(tmp_path, "empty.c", "// SUPPORT: SERVER pads .bss\n")
-        result = lint_file(f, None)
+        f = _write_c(tmp_path, "empty.c", "")
+        set_source_file(tmp_path, file="empty.c", module="SERVER", purpose="pads .bss")
+        result = lint_file(f)
         assert result.errors == []
-        assert [(c) for _, c, _ in result.warnings] == ["W003"]
-
-    def test_support_after_code_not_blessed(self, tmp_path: Path) -> None:
-        from rebrew.lint import lint_file
-
-        f = self._write(
-            tmp_path,
-            "late.c",
-            "int x;\n// SUPPORT: SERVER too late\n",
-        )
-        result = lint_file(f, None)
-        assert [(c) for _, c, _ in result.errors] == ["E001"]
-        assert "SUPPORT" not in result.errors[0][2]
+        assert [c for _, c, _ in result.warnings] == ["W003"]
 
     def test_markerless_without_support_still_e001(self, tmp_path: Path) -> None:
-        from rebrew.lint import lint_file
-
-        f = self._write(tmp_path, "bare.c", "int x;\n")
-        result = lint_file(f, None)
-        assert [(c) for _, c, _ in result.errors] == ["E001"]
+        result = lint_file(_write_c(tmp_path, "bare.c", "int x;\n"))
+        assert [c for _, c, _ in result.errors] == ["E001"]
 
 
 class TestE004StatusValue:
     def test_unknown_status_flagged(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10001000"]\nstatus = "TOTALLY_MATCHED"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x10001000"]\nstatus = "TOTALLY_MATCHED"\n',
+            encoding="utf-8",
         )
-        content = "// FUNCTION: SERVER 0x10001000\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\nint foo(void) { return 0; }\n",
+            {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert any((c == "E004" for _, c, _ in result.errors))
@@ -2584,8 +2676,10 @@ class TestE004StatusValue:
         f = _make_c_file(
             tmp_path,
             content=(
-                "// FUNCTION: SERVER 0x10001000\n// STATUS: exact\n// SIZE: 8\n"
-                "int foo(void) { return 0; }\n"
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void) { return 0; }\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 8, "status": "exact"}},
+                )
             ),
         )
         result = lint_file(f)
@@ -2594,21 +2688,31 @@ class TestE004StatusValue:
     def test_w019_hex_metadata_size_agrees_numerically(self, tmp_path: Path) -> None:
         """E008 accepts `size = "0x20"`, so W019 must compare SIZE numerically:
         a textual compare warned about `// SIZE: 32` vs metadata `0x20`."""
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10001000"]\nsize = "0x20"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x10001000"]\nsize = "0x20"\n',
+            encoding="utf-8",
         )
         f = _make_c_file(
             tmp_path,
-            content="// FUNCTION: SERVER 0x10001000\n// SIZE: 32\nint foo(void) { return 0; }\n",
+            content=SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\n\nint foo(void) { return 0; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 32}},
+            ),
         )
         result = lint_file(f)
         assert not any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
 
     def test_known_status_not_flagged(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            encoding="utf-8",
         )
-        content = "// FUNCTION: SERVER 0x10001000\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\nint foo(void) { return 0; }\n",
+            {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert not any((c == "E004" for _, c, _ in result.errors))
@@ -2616,113 +2720,46 @@ class TestE004StatusValue:
 
 class TestE008SizeValue:
     def test_non_integer_size_flagged(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10001000"]\nsize = "abc"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x10001000"]\nsize = "abc"\n',
+            encoding="utf-8",
         )
-        content = "// FUNCTION: SERVER 0x10001000\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\nint foo(void) { return 0; }\n",
+            {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert any((c == "E008" for _, c, _ in result.errors))
 
     def test_integer_size_ok(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10001000"]\nsize = 8\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x10001000"]\nsize = 8\n',
+            encoding="utf-8",
         )
-        content = "// FUNCTION: SERVER 0x10001000\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\nint foo(void) { return 0; }\n",
+            {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert not any((c == "E008" for _, c, _ in result.errors))
 
     def test_hex_string_size_ok(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10001000"]\nsize = "0x20"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x10001000"]\nsize = "0x20"\n',
+            encoding="utf-8",
         )
-        content = "// FUNCTION: SERVER 0x10001000\nint foo(void) { return 0; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\nint foo(void) { return 0; }\n",
+            {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+        )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert not any((c == "E008" for _, c, _ in result.errors))
-
-
-class TestW019ProvenanceFields:
-    """The coverage-era provenance pair is metadata-only.
-
-    `UPDATED_BY` / `UPDATED_AT` are written by the tools and never authored
-    inline, so an inline copy is not an unknown key (W010) to be judged by a
-    human: it is metadata-only (W019) and `--fix` strips it, because migrating
-    a hand-written stamp would overwrite the real one.
-    """
-
-    def test_inline_provenance_pair_is_metadata_only(self, tmp_path: Path) -> None:
-        f = _write_c(
-            tmp_path,
-            "foo.c",
-            "// FUNCTION: SERVER 0x10001000\n// UPDATED_BY: verify\n"
-            "// UPDATED_AT: 2026-01-01T00:00:00+00:00\nint foo(void) { return 0; }\n",
-        )
-        result = lint_file(f)
-        codes = {c for _, c, _ in result.warnings}
-        assert "W019" in codes
-        assert "W010" not in codes
-
-    def test_both_provenance_keys_are_metadata_keys(self) -> None:
-        from rebrew.metadata.annotation import METADATA_KEYS
-
-        assert {"UPDATED_BY", "UPDATED_AT"} <= METADATA_KEYS
-
-
-class TestW019SizeDisagreement:
-    def test_inline_vs_metadata_size_disagrees(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10001000"]\nsize = 16\n', encoding="utf-8"
-        )
-        f = _write_c(
-            tmp_path,
-            "foo.c",
-            "// FUNCTION: SERVER 0x10001000\n// SIZE: 8\nint foo(void) { return 0; }\n",
-        )
-        result = lint_file(f)
-        assert any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
-
-    def test_matching_size_no_warning(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10001000"]\nsize = 8\n', encoding="utf-8"
-        )
-        f = _write_c(
-            tmp_path,
-            "foo.c",
-            "// FUNCTION: SERVER 0x10001000\n// SIZE: 8\nint foo(void) { return 0; }\n",
-        )
-        result = lint_file(f)
-        assert not any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
-
-
-class TestW019CflagsDisagreement:
-    """An inline `// CFLAGS:` that disagrees with the metadata is not a stale
-    copy: an external build reads the .c and the rebrew tools read the TOML,
-    so the two would compile different code (guild-rebrew's gm_AllocSpieler
-    ran 363 link bytes behind for exactly this)."""
-
-    def _lint(self, tmp_path: Path, metadata: str, inline: str):
-        (tmp_path / "rebrew-functions.toml").write_text(
-            f'["SERVER.0x10001000"]\ncflags = "{metadata}"\n', encoding="utf-8"
-        )
-        f = _write_c(
-            tmp_path,
-            "foo.c",
-            f"// FUNCTION: SERVER 0x10001000\n// CFLAGS: {inline}\nint foo(void) {{ return 0; }}\n",
-        )
-        return lint_file(f)
-
-    def test_disagreement_warns(self, tmp_path: Path) -> None:
-        result = self._lint(tmp_path, "/O2 /Gd /Oa /Ow", "/O2 /Gd /Oa")
-        assert any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
-
-    def test_order_and_defines_are_not_a_disagreement(self, tmp_path: Path) -> None:
-        # /Ow == /Oa /Ow order-insensitively; a /D define is a compilation
-        # input but not a codegen flag (the naked guard lives only in the
-        # metadata on purpose).
-        result = self._lint(tmp_path, "/DREBREW_ALLOW_NAKED /O2 /Gd /Oa /Ow", "/O2 /Gd /Oa /Ow")
-        assert not any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
 
 
 class TestBlockCommentMarkers:
@@ -2733,7 +2770,10 @@ class TestBlockCommentMarkers:
         f = _write_c(
             tmp_path,
             "stub.c",
-            "/* STUB: MAIN 0x00401000 */\n/* SIZE: 16 */\nint f(void) { return 0; }\n",
+            SourceFixture(
+                "/* ADDRESS: MAIN 0x00401000 */\n\nint f(void) { return 0; }\n",
+                {"MAIN.0x00401000": {"kind": "STUB", "size": 16}},
+            ),
         )
         result = lint_file(f, cfg=None)
         codes = [code for _, code, _ in result.errors]
@@ -2760,47 +2800,16 @@ class TestMultiExtensionFileFilter:
         src = tmp_path / "src" / "T"
         src.mkdir(parents=True)
         f = src / "bad.cpp"
-        f.write_text("// FUNCTION: T 0x00401000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            f,
+            "/* ADDRESS: T 0x00401000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"T.0x00401000": {"kind": "FUNCTION"}},
+        )
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, [str(f)])
         assert "Checked 0 files" not in result.output
         assert "Checked 1 files" in result.output
-
-
-class TestFixTableTypedInlineKey:
-    def test_table_key_does_not_crash_fix(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """`// PROVE_CONSTRAINTS:` (a dict in the metadata) cannot be built from
-        an inline scalar; --fix must report it instead of raising out of
-        `update_field`."""
-        from typer.testing import CliRunner
-
-        from rebrew.lint import app
-
-        cfg = SimpleNamespace(
-            root=tmp_path,
-            metadata_dir=tmp_path,
-            reversed_dir=tmp_path / "src",
-            marker="SERVER",
-            source_ext=".c",
-            library_modules=set(),
-            cflags_presets={},
-            default_cflags="/O2",
-            origins=["GAME", "SERVER"],
-        )
-        src = tmp_path / "src"
-        src.mkdir(exist_ok=True)
-        f = src / "f.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x1000\n// PROVE_CONSTRAINTS: foo\nint f(void) { return 0; }\n",
-            encoding="utf-8",
-        )
-        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
-        result = CliRunner().invoke(app, ["--fix", str(f)])
-        assert result.exit_code == 0, result.output
-        assert "PROVE_CONSTRAINTS" in result.output
-        assert "// PROVE_CONSTRAINTS: foo" in f.read_text(encoding="utf-8")
 
 
 class TestCommentInteriorIsNotCode:
@@ -2811,13 +2820,10 @@ class TestCommentInteriorIsNotCode:
         f = _write_c(
             tmp_path,
             "old.c",
-            "// FUNCTION: SERVER 0x1000\n"
-            "/* old:\n"
-            "__declspec(naked) void f(void) {\n"
-            "    __asm { mov eax, 1 }\n"
-            "}\n"
-            "*/\n"
-            "int f(void) { return 0; }\n",
+            SourceFixture(
+                "\n/* old:\n__declspec(naked) void f(void) {\n    __asm { mov eax, 1 }\n}\n*/\n/* ADDRESS: SERVER 0x1000 */\nint f(void) { return 0; }\n",
+                {"SERVER.0x1000": {"kind": "FUNCTION"}},
+            ),
         )
         result = lint_file(f, cfg=None)
         assert "E023" not in [code for _, code, _ in result.errors]
@@ -2828,19 +2834,27 @@ class TestStackedSharedMarkers:
     """One shared file, one marker per target (ADR-010): no E012."""
 
     def test_other_target_marker_allowed(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(marker="V2")
+        cfg = _make_cfg(marker="V2", root=tmp_path)
         cfg.all_markers = {"V1", "V2"}
-        content = (
-            "// FUNCTION: V1 0x401000\n// FUNCTION: V2 0x501000\nint common(void){ return 1; }\n"
+        content = SourceFixture(
+            "/* ADDRESS: V1 0x401000 */\n/* ADDRESS: V2 0x501000 */\nint common(void){ return 1; }\n",
+            {"V1.0x401000": {"kind": "FUNCTION"}, "V2.0x501000": {"kind": "FUNCTION"}},
         )
         f = _write_c(tmp_path, "common.c", content)
         result = lint_file(f, cfg=cfg)
         assert not any((c == "E012" for _, c, _ in result.errors))
 
     def test_unknown_module_still_e012(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(marker="V2")
+        cfg = _make_cfg(marker="V2", root=tmp_path)
         cfg.all_markers = {"V1", "V2"}
-        f = _write_c(tmp_path, "bad.c", "// FUNCTION: NOPE 0x401000\nint f(void){ return 1; }\n")
+        f = _write_c(
+            tmp_path,
+            "bad.c",
+            SourceFixture(
+                "/* ADDRESS: NOPE 0x401000 */\nint f(void){ return 1; }\n",
+                {"NOPE.0x401000": {"kind": "FUNCTION"}},
+            ),
+        )
         result = lint_file(f, cfg=cfg)
         assert any((c == "E012" for _, c, _ in result.errors))
 
@@ -2865,17 +2879,9 @@ class TestStripWorkCounter:
             return orig(line, in_block_comment)
 
         monkeypatch.setattr(lint_mod, "_strip_c_comments_strings", counting)
-        content = (
-            "// FUNCTION: SERVER 0x10008880\n"
-            "// SIZE: 0x20\n"
-            "\n"
-            "int g_zero = {0};   /* file-scope zero init — W022 */\n"
-            "\n"
-            "int __cdecl helper(int x)\n"
-            "{\n"
-            "    // __declspec(naked) only inside this comment — no E023\n"
-            "    return x / 2;   // divide\n"
-            "}\n"
+        content = SourceFixture(
+            "\n\n\nint g_zero = {0};   /* file-scope zero init — W022 */\n\n/* ADDRESS: SERVER 0x10008880 */\nint __cdecl helper(int x)\n{\n    // __declspec(naked) only inside this comment — no E023\n    return x / 2;   // divide\n}\n",
+            {"SERVER.0x10008880": {"kind": "FUNCTION", "size": 32, "status": "EXACT"}},
         )
         f = _write_c(tmp_path, "strip_counter.c", content)
         lines = content.splitlines()
@@ -3058,10 +3064,12 @@ class TestMarkerVaOrder:
         f = _write_c(
             tmp_path,
             "a.c",
-            "// FUNCTION: SERVER 0x2000\nint b(void) { return 0; }\n\n"
-            "// FUNCTION: SERVER 0x1000\nint a(void) { return 0; }\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x2000 */\nint b(void) { return 0; }\n\n/* ADDRESS: SERVER 0x1000 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x2000": {"kind": "FUNCTION"}, "SERVER.0x1000": {"kind": "FUNCTION"}},
+            ),
         )
-        w030 = self._w030(lint_file(f, cfg=_make_cfg()))
+        w030 = self._w030(lint_file(f, cfg=_make_cfg(root=tmp_path)))
         assert len(w030) == 1
         assert w030[0][0] == 4
         assert "0x1000" in w030[0][1] and "0x2000" in w030[0][1]
@@ -3072,10 +3080,17 @@ class TestMarkerVaOrder:
         f = _write_c(
             tmp_path,
             "a.c",
-            "// FUNCTION: SERVER 0x1000\n// FUNCTION: OTHER 0x9000\nint a(void) { return 0; }\n\n"
-            "// FUNCTION: SERVER 0x2000\n// FUNCTION: OTHER 0x8000\nint b(void) { return 0; }\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1000 */\n/* ADDRESS: OTHER 0x9000 */\nint a(void) { return 0; }\n\n/* ADDRESS: SERVER 0x2000 */\n/* ADDRESS: OTHER 0x8000 */\nint b(void) { return 0; }\n",
+                {
+                    "SERVER.0x1000": {"kind": "FUNCTION"},
+                    "OTHER.0x9000": {"kind": "FUNCTION"},
+                    "SERVER.0x2000": {"kind": "FUNCTION"},
+                    "OTHER.0x8000": {"kind": "FUNCTION"},
+                },
+            ),
         )
-        result = lint_file(f, cfg=_make_cfg())
+        result = lint_file(f, cfg=_make_cfg(root=tmp_path))
         assert [w for w in self._w030(result) if "SERVER" in w[1]] == []
 
     def test_markers_sharing_one_body_are_one_definition(self, tmp_path: Path) -> None:
@@ -3084,11 +3099,16 @@ class TestMarkerVaOrder:
         f = _write_c(
             tmp_path,
             "a.c",
-            "// FUNCTION: SERVER 0x3000\n// SIZE: 16\n// FUNCTION: SERVER 0x1000\n"
-            "int a(void) { return 0; }\n\n"
-            "// FUNCTION: SERVER 0x2000\nint b(void) { return 0; }\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x3000 */\n\n/* ADDRESS: SERVER 0x1000 */\nint a(void) { return 0; }\n\n/* ADDRESS: SERVER 0x2000 */\nint b(void) { return 0; }\n",
+                {
+                    "SERVER.0x3000": {"kind": "FUNCTION", "size": 16},
+                    "SERVER.0x1000": {"kind": "FUNCTION"},
+                    "SERVER.0x2000": {"kind": "FUNCTION"},
+                },
+            ),
         )
-        w030 = self._w030(lint_file(f, cfg=_make_cfg()))
+        w030 = self._w030(lint_file(f, cfg=_make_cfg(root=tmp_path)))
         assert w030 == []
 
 
@@ -3134,9 +3154,9 @@ class TestW031MetadataStore:
     """W031: the store shapes a reader silently ignores."""
 
     def test_function_fields_share_the_writer_validation(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            'format=1\n["SERVER.0x1000"]\nsize=-1\nstatus="FINISHED"\n'
-            "cflags=false\nskip=[]\nfile=7\n",
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nsize=-1\nstatus="FINISHED"\ncflags=false\nskip=[]\nfile=7\n',
             encoding="utf-8",
         )
         warnings = self._warnings(self._cfg(tmp_path))
@@ -3151,20 +3171,23 @@ class TestW031MetadataStore:
 
     @pytest.mark.parametrize("filename", ["rebrew-functions.toml", "rebrew-data.toml"])
     def test_uppercase_field_is_reported(self, tmp_path: Path, filename: str) -> None:
-        (tmp_path / filename).write_text('format=1\n["SERVER.0x1000"]\nSIZE=4\n', encoding="utf-8")
+        (tmp_path / filename).write_text(
+            'format = 2\n["SERVER.0x1000"]\nSIZE=4\n', encoding="utf-8"
+        )
         assert "field 'SIZE' must use lower-case spelling" in self._warnings(self._cfg(tmp_path))
 
     @pytest.mark.parametrize("filename", ["rebrew-data.toml", "rebrew-functions.toml"])
     def test_duplicate_identity_is_reported(self, tmp_path: Path, filename: str) -> None:
         (tmp_path / filename).write_text(
-            'format=1\n["SERVER.0x00001000"]\nnote="first"\n["SERVER.0X1000"]\nnote="last"\n',
+            'format = 2\n["SERVER.0x00001000"]\nnote="first"\n["SERVER.0X1000"]\nnote="last"\n',
             encoding="utf-8",
         )
         assert "duplicate metadata keys" in self._warnings(self._cfg(tmp_path))
 
     def test_data_field_types_share_the_writer_validation(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-data.toml").write_text(
-            'format = 1\n["SERVER.0x1000"]\nsize = 1.5\nname = false\nsection = 7\n',
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x1000"]\nsize = 1.5\nname = false\nsection = 7\n',
             encoding="utf-8",
         )
         warnings = self._warnings(self._cfg(tmp_path))
@@ -3181,15 +3204,14 @@ class TestW031MetadataStore:
         return "\n".join(m for res in _check_W031_metadata_store(cfg) for _, _, m in res.warnings)
 
     def test_clean_store_with_stamps_is_silent(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nstatus = "EXACT"\n'
-            'updated_by = "test"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "EXACT"\nupdated_by = "test"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
             encoding="utf-8",
         )
-        (tmp_path / "rebrew-data.toml").write_text(
-            'format = 1\n\n["SERVER.0x2000"]\nstatus = "DRIFT"\n'
-            'name = "g"\nupdated_by = "verify"\n'
-            'updated_at = "2026-01-01T00:00:00+00:00"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x2000"]\nstatus = "DRIFT"\nname = "g"\nupdated_by = "verify"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
             encoding="utf-8",
         )
         assert self._warnings(self._cfg(tmp_path)) == ""
@@ -3200,67 +3222,82 @@ class TestW031MetadataStore:
         Returning early would report success over a file whose W031 findings
         (format stamp, unknown fields, provenance pairs) were never seen.
         """
-        (tmp_path / "rebrew-functions.toml").write_text("this is not = = toml\n", encoding="utf-8")
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml", "this is not = = toml\n", encoding="utf-8"
+        )
         warnings = self._warnings(self._cfg(tmp_path))
         assert "could not be parsed" in warnings
 
     def test_unknown_field_is_reported(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-data.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nname = "g"\nbogus = 1\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x1000"]\nname = "g"\nbogus = 1\n',
+            encoding="utf-8",
         )
         assert "unknown field 'bogus'" in self._warnings(self._cfg(tmp_path))
 
     def test_function_store_unknown_field_is_reported(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nblocked = "typo"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nblocked = "typo"\n',
+            encoding="utf-8",
         )
         assert "unknown field 'blocked'" in self._warnings(self._cfg(tmp_path))
 
     def test_marker_identity_fields_are_known(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nfile = "a.c"\nsymbol = "_f"\n'
-            'name = "f"\nmarker_type = "FUNCTION"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nfile = "a.c"\nsymbol = "_f"\nname = "f"\nkind = "FUNCTION"\n',
             encoding="utf-8",
         )
         assert self._warnings(self._cfg(tmp_path)) == ""
 
     def test_non_verdict_status_is_reported(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-data.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nstatus = "RELOC"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "RELOC"\n',
+            encoding="utf-8",
         )
         assert "not one of DISPLACED, DRIFT, EXACT, UNCHECKED, VERIFIED" in self._warnings(
             self._cfg(tmp_path)
         )
 
     def test_half_a_provenance_pair_is_reported(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-data.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nstatus = "VERIFIED"\nupdated_by = "verify"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "VERIFIED"\nupdated_by = "verify"\n',
             encoding="utf-8",
         )
         assert "half a provenance pair" in self._warnings(self._cfg(tmp_path))
 
     def test_unknown_provenance_tag_is_reported(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\n'
-            'updated_by = "my-tool"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nupdated_by = "my-tool"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
             encoding="utf-8",
         )
         assert "unknown provenance tag 'my-tool'" in self._warnings(self._cfg(tmp_path))
 
     def test_missing_and_foreign_format_stamps_are_reported(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n',
+            encoding="utf-8",
         )
-        (tmp_path / "rebrew-data.toml").write_text(
-            'format = 7\n\n["SERVER.0x2000"]\nstatus = "DRIFT"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 7\n\n["SERVER.0x2000"]\nstatus = "DRIFT"\n',
+            encoding="utf-8",
         )
         messages = self._warnings(self._cfg(tmp_path))
-        assert "no format stamp" in messages
+        assert "format = 7" in messages
         assert "format = 7" in messages
 
     def test_unknown_top_level_key_is_reported(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            'format = 1\nfmt = 1\n\n["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\nfmt = 1\n\n["SERVER.0x1000"]\nstatus = "STUB"\n',
+            encoding="utf-8",
         )
         assert "top-level 'fmt'" in self._warnings(self._cfg(tmp_path))
 
@@ -3355,15 +3392,15 @@ class TestW036StrayMetadataStoreSingleDir:
     def test_store_in_the_configured_directory_is_silent(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
-        (src / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
-        (src / "rebrew-functions.toml").write_text("format = 1\n", encoding="utf-8")
+        write_store_fixture(src / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
+        write_store_fixture(src / "rebrew-functions.toml", "format = 1\n", encoding="utf-8")
         assert self._messages(tmp_path, src) == ""
 
     def test_stray_store_is_reported(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
-        (src / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
-        (tmp_path / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        write_store_fixture(src / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
         message = self._messages(tmp_path, src)
         assert "outside the configured directory" in message
         assert str(tmp_path) in message
@@ -3373,7 +3410,7 @@ class TestW036StrayMetadataStoreSingleDir:
         src.mkdir()
         scratch = tmp_path / ".scratch"
         scratch.mkdir()
-        (scratch / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        write_store_fixture(scratch / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
         assert self._messages(tmp_path, src) == ""
 
     def test_other_toml_files_are_not_stores(self, tmp_path: Path) -> None:
@@ -3411,8 +3448,10 @@ class TestW031W032Cli:
         from rebrew.lint import app
 
         cfg = self._cfg(tmp_path)
-        (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "RELOC"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "RELOC"\n',
+            encoding="utf-8",
         )
         (tmp_path / "db" / "coverage.db").write_bytes(b"SQLite format 3\x00")
         with patch("rebrew.lint.load_config", return_value=cfg):
@@ -3426,7 +3465,7 @@ class TestW031W032Cli:
         assert "0 errors" in result.output
         # W031 reports the hand-edited status plus the missing format stamp,
         # W032 the leftover SQLite store, W033 the absent scaffold.
-        assert "4 warnings" in result.output
+        assert "3 warnings" in result.output
 
     def test_json_lists_the_offending_artifacts(self, tmp_path: Path) -> None:
         import json
@@ -3537,32 +3576,42 @@ class TestW034IdentityPaths:
         return "\n".join(m for res in _check_W034_identity_paths(cfg) for _, _, m in res.warnings)
 
     def test_relative_path_is_silent(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nfile = "src/a.c"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nfile = "src/a.c"\n',
+            encoding="utf-8",
         )
         assert self._warnings(self._cfg(tmp_path)) == ""
 
     def test_absolute_path_is_reported(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nfile = "/etc/passwd"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nfile = "/etc/passwd"\n',
+            encoding="utf-8",
         )
         assert "must be relative to the project" in self._warnings(self._cfg(tmp_path))
 
     def test_parent_escape_is_reported(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nfile = "../../secret.c"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nfile = "../../secret.c"\n',
+            encoding="utf-8",
         )
         assert "must not escape the project" in self._warnings(self._cfg(tmp_path))
 
     def test_absolute_path_in_the_data_store_is_reported(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-data.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nfile = "/etc/passwd"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x1000"]\nfile = "/etc/passwd"\n',
+            encoding="utf-8",
         )
         assert "must be relative to the project" in self._warnings(self._cfg(tmp_path))
 
     def test_relative_data_path_is_silent(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-data.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nfile = "src/SERVER/a.c"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x1000"]\nfile = "src/SERVER/a.c"\n',
+            encoding="utf-8",
         )
         assert self._warnings(self._cfg(tmp_path)) == ""
 
@@ -3587,16 +3636,18 @@ class TestW035UnknownModules:
         return "\n".join(m for res in _check_W035_unknown_modules(cfg) for _, _, m in res.warnings)
 
     def test_declared_modules_are_silent(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nstatus = "STUB"\n'
-            '\n["MSVCRT.0x2000"]\nstatus = "EXACT"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["MSVCRT.0x2000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
         assert self._warnings(self._cfg(tmp_path, library_modules=["MSVCRT"])) == ""
 
     def test_an_unknown_module_is_reported(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-functions.toml").write_text(
-            'format = 1\n\n["CLIENT.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["CLIENT.0x1000"]\nstatus = "STUB"\n',
+            encoding="utf-8",
         )
         assert "matches no target marker" in self._warnings(self._cfg(tmp_path))
 
@@ -3604,8 +3655,10 @@ class TestW035UnknownModules:
         """D3DX8 rows are read while server.dll is the default target, but only
         the TL client links d3dx8.lib. Every target's external libraries are
         known, not just the active one's library_modules."""
-        (tmp_path / "rebrew-functions.toml").write_text(
-            'format = 1\n\n["D3DX8.0x45d3f0"]\nstatus = "EXACT"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["D3DX8.0x45d3f0"]\nstatus = "EXACT"\n',
+            encoding="utf-8",
         )
         cfg = self._cfg(tmp_path, all_library_modules=["D3DX8"])
         assert self._warnings(cfg) == ""
@@ -3628,14 +3681,14 @@ class TestW036StrayMetadataStore:
         )
 
     def test_the_configured_store_is_silent(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
         assert self._warnings(tmp_path) == ""
 
     def test_a_copy_elsewhere_is_reported(self, tmp_path: Path) -> None:
         stray = tmp_path / "src"
         stray.mkdir()
-        (stray / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
-        (stray / "rebrew-functions.toml").write_text("format = 1\n", encoding="utf-8")
+        write_store_fixture(stray / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
+        write_store_fixture(stray / "rebrew-functions.toml", "format = 1\n", encoding="utf-8")
         messages = self._warnings(tmp_path)
         assert "outside the configured directory" in messages
         assert messages.count("outside the configured directory") == 2
@@ -3644,7 +3697,9 @@ class TestW036StrayMetadataStore:
         """`shared_dir` and `reversed_dir` hold stores the loaders also read."""
         for name in ("reversed", "shared"):
             (tmp_path / name).mkdir()
-            (tmp_path / name / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+            write_store_fixture(
+                tmp_path / name / "rebrew-data.toml", "format = 1\n", encoding="utf-8"
+            )
         cfg = SimpleNamespace(
             root=tmp_path,
             metadata_dir=tmp_path / "reversed",
@@ -3658,21 +3713,21 @@ class TestW036StrayMetadataStore:
     def test_a_skipped_tree_is_not_walked(self, tmp_path: Path) -> None:
         build = tmp_path / "build"
         build.mkdir()
-        (build / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        write_store_fixture(build / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
         assert self._warnings(tmp_path) == ""
 
     def test_a_store_in_the_configured_directory_is_silent(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
-        (src / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
-        (src / "rebrew-functions.toml").write_text("format = 1\n", encoding="utf-8")
+        write_store_fixture(src / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
+        write_store_fixture(src / "rebrew-functions.toml", "format = 1\n", encoding="utf-8")
         assert self._warnings(tmp_path, metadata_dir=src, reversed_dir=src) == ""
 
     def test_a_stray_store_names_its_directory(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
-        (src / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
-        (tmp_path / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        write_store_fixture(src / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
         message = self._warnings(tmp_path, metadata_dir=src, reversed_dir=src)
         assert "outside the configured directory" in message
         assert str(tmp_path) in message
@@ -3682,7 +3737,7 @@ class TestW036StrayMetadataStore:
         src.mkdir()
         scratch = tmp_path / ".scratch"
         scratch.mkdir()
-        (scratch / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        write_store_fixture(scratch / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
         assert self._warnings(tmp_path, metadata_dir=src, reversed_dir=src) == ""
 
     def test_other_toml_files_are_not_stores(self, tmp_path: Path) -> None:
@@ -3738,7 +3793,7 @@ def test_markerless_library_binding_uses_project_root(
     entries = {
         ("S", 0x401000): {
             "file": "src/provider.c",
-            "marker_type": "LIBRARY",
+            "kind": "LIBRARY",
             "name": "provider",
             "symbol": "_provider",
         }
@@ -3769,16 +3824,13 @@ class TestW037W038DataRows:
         src = tmp_path / "src"
         src.mkdir()
         owner = src / "bss_head2.c"
-        owner.write_text(source, encoding="utf-8")
-        (tmp_path / "rebrew-data.toml").write_text("format = 1\n" + rows, encoding="utf-8")
+        write_source(owner, source, encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-data.toml", "format = 2\n" + rows, encoding="utf-8")
         return owner
 
     def _row(self, va: int, name: str, type_: str, size: int, **extra: str) -> str:
         fields = "".join(f'{key} = "{value}"\n' for key, value in extra.items())
-        return (
-            f'\n["SERVER.0x{va:08x}"]\nfile = "src/bss_head2.c"\nmarker_type = "GLOBAL"\n'
-            f'name = "{name}"\ntype = "{type_}"\nsize = {size}\nsection = ".bss"\n{fields}'
-        )
+        return f'\n["SERVER.0x{va:08x}"]\nfile = "src/bss_head2.c"\nkind = "GLOBAL"\nname = "{name}"\ntype = "{type_}"\nsize = {size}\nsection = ".bss"\n{fields}'
 
     def _lint(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

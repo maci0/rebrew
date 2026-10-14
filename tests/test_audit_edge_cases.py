@@ -11,8 +11,7 @@ from pathlib import Path
 import pytest
 
 from rebrew.coff_reloc import smart_reloc_compare
-from rebrew.metadata.annotation import __all__ as annotation_all
-from rebrew.metadata.annotation import parse_new_format_multi
+from rebrew.metadata.bindings import __all__ as annotation_all
 
 # ---------------------------------------------------------------------------
 # smart_reloc_compare edge cases
@@ -299,46 +298,6 @@ class TestSmartRelocCompareEdgeCases:
 # ---------------------------------------------------------------------------
 
 
-class TestOrphanedKVWarning:
-    def test_logs_on_orphaned_kv(self, caplog: pytest.LogCaptureFixture) -> None:
-        """KV lines before any marker should emit a debug log."""
-        lines = [
-            "// STATUS: EXACT",
-            "// SIZE: 100",
-            "int main() { return 0; }",
-        ]
-        with caplog.at_level("DEBUG", logger="root"):
-            result = parse_new_format_multi(lines)
-        assert result == []
-        orphan_msgs = [r for r in caplog.records if "orphaned" in r.message]
-        assert len(orphan_msgs) == 1
-
-    def test_no_log_for_kv_after_marker(self, caplog: pytest.LogCaptureFixture) -> None:
-        """KV lines after a marker should NOT trigger orphan log."""
-        lines = [
-            "// FUNCTION: SERVER 0x10001000",
-            "// STATUS: EXACT",
-            "// SIZE: 100",
-            "int func(void) { return 0; }",
-        ]
-        with caplog.at_level("DEBUG", logger="root"):
-            result = parse_new_format_multi(lines)
-        assert len(result) == 1
-        orphan_msgs = [r for r in caplog.records if "orphaned" in r.message]
-        assert len(orphan_msgs) == 0
-
-    def test_no_log_for_clean_file(self, caplog: pytest.LogCaptureFixture) -> None:
-        """File with no annotations at all should not log."""
-        lines = [
-            "int main() { return 0; }",
-        ]
-        with caplog.at_level("DEBUG", logger="root"):
-            result = parse_new_format_multi(lines)
-        assert result == []
-        orphan_msgs = [r for r in caplog.records if "orphaned" in r.message]
-        assert len(orphan_msgs) == 0
-
-
 # ---------------------------------------------------------------------------
 # annotation __all__ completeness
 # ---------------------------------------------------------------------------
@@ -346,8 +305,8 @@ class TestOrphanedKVWarning:
 
 class TestAnnotationAllExports:
     def test_all_exports_are_importable(self) -> None:
-        """Every name in __all__ must be importable from rebrew.metadata.annotation."""
-        import rebrew.metadata.annotation as mod
+        """Every name in __all__ must be importable from rebrew.metadata.bindings."""
+        import rebrew.metadata.bindings as mod
 
         for name in annotation_all:
             assert hasattr(mod, name), f"{name} is in __all__ but does not exist"
@@ -355,15 +314,15 @@ class TestAnnotationAllExports:
     def test_all_contains_core_names(self) -> None:
         """Critical public names must appear in __all__."""
         required = {
-            "Annotation",
-            "FUNCTION_MARKERS",
-            "DATA_MARKERS",
-            "parse_c_file_multi",
-            "parse_library_header",
-            "parse_new_format_multi",
-            "remove_annotation_key",
-            "update_annotation_key",
-            "update_size_annotation",
+            "SourceBinding",
+            "FUNCTION_KINDS",
+            "DATA_KINDS",
+            "read_source_bindings",
+            "library_bindings_for_file",
+            "source_bindings",
+            "remove_binding_field",
+            "set_binding_field",
+            "grow_function_extent",
         }
         missing = required - set(annotation_all)
         assert not missing, f"Missing from __all__: {missing}"

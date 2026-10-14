@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import SourceFixture, write_source
 
 from rebrew.match_batch import StubInfo
 from rebrew.match_ga import BinaryMatchingGA, read_ga_checkpoint
@@ -94,14 +95,14 @@ class TestSweepSelectAnnotation:
         ``bar``.
         """
         from rebrew.match_sweep import select_annotation
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
         annos = [
-            Annotation(va=0x1000, name="other", symbol="_other"),
-            Annotation(va=0x2000, name="", symbol="hook@@12"),
-            Annotation(va=0x2100, name="", symbol="@keeps@4"),
-            Annotation(va=0x3000, name="_foo", symbol="__foo"),
-            Annotation(va=0x4000, name="foo", symbol="_foo"),
+            SourceBinding(va=0x1000, name="other", symbol="_other"),
+            SourceBinding(va=0x2000, name="", symbol="hook@@12"),
+            SourceBinding(va=0x2100, name="", symbol="@keeps@4"),
+            SourceBinding(va=0x3000, name="_foo", symbol="__foo"),
+            SourceBinding(va=0x4000, name="foo", symbol="_foo"),
         ]
         asked_foo = select_annotation(annos, "foo")
         assert asked_foo is not None
@@ -115,7 +116,7 @@ class TestSweepSelectAnnotation:
         asked_under = select_annotation(annos, "_foo")
         assert asked_under is not None
         assert asked_under.va == 0x3000
-        bar = Annotation(va=0x5000, name="bar", symbol="_bar")
+        bar = SourceBinding(va=0x5000, name="bar", symbol="_bar")
         by_name = select_annotation([bar], "bar")
         by_symbol = select_annotation([bar], "_bar")
         assert by_name is not None and by_name.va == 0x5000
@@ -134,7 +135,12 @@ class TestFlagSweepBaseCflags:
         from rebrew.match_sweep import run_flag_sweep
 
         src = tmp_path / "s.c"
-        src.write_text("// FUNCTION: T 0x10001000\nint s(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            src,
+            "/* ADDRESS: T 0x10001000 */\nint s(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"T.0x10001000": {"kind": "FUNCTION"}},
+        )
         seen: list[str] = []
 
         def _fake_sweep(source, target_bytes, cl_cmd, inc_dir, cflags, symbol, *a, **k):
@@ -1079,12 +1085,15 @@ class TestUpdateStubToMatched:
         from rebrew.match_batch import update_stub_to_matched
 
         f = tmp_path / "multi.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x10001000\n"
-            "int first(void) { return 1; }\n\n"
-            "// FUNCTION: SERVER 0x10002000\n"
-            "int second(void) { return 2; }\n",
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x10001000 */\nint first(void) { return 1; }\n\n/* ADDRESS: SERVER 0x10002000 */\nint second(void) { return 2; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10001000": {"kind": "FUNCTION"},
+                "SERVER.0x10002000": {"kind": "FUNCTION"},
+            },
+            metadata_dir=tmp_path,
         )
         best = "int second(void) { return 42; }\n"
         update_stub_to_matched(f, best, self._stub("0x10002000"), metadata_dir=tmp_path)
@@ -1107,14 +1116,16 @@ class TestUpdateStubToMatched:
         from rebrew.match_batch import update_stub_to_matched
 
         f = tmp_path / "multi.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x10001000\n"
-            "int first(void) { return 1; }\n\n"
-            "// FUNCTION: SERVER 0x10002000\n"
-            "int second(void) { return 2; }\n\n"
-            "// FUNCTION: SERVER 0x10003000\n"
-            "int third(void) { return 3; }\n",
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x10001000 */\nint first(void) { return 1; }\n\n/* ADDRESS: SERVER 0x10002000 */\nint second(void) { return 2; }\n\n/* ADDRESS: SERVER 0x10003000 */\nint third(void) { return 3; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10001000": {"kind": "FUNCTION"},
+                "SERVER.0x10002000": {"kind": "FUNCTION"},
+                "SERVER.0x10003000": {"kind": "FUNCTION"},
+            },
+            metadata_dir=tmp_path,
         )
         best = "int second(void) { return 42; }\n"
         update_stub_to_matched(f, best, self._stub("0x10002000"), metadata_dir=tmp_path)
@@ -1130,8 +1141,11 @@ class TestUpdateStubToMatched:
         from rebrew.match_batch import update_stub_to_matched
 
         source = tmp_path / "stub.c"
-        source.write_text(
-            "// FUNCTION: SERVER 0x10002000\nint second(void) { return 2; }\n", encoding="utf-8"
+        write_source(
+            source,
+            "/* ADDRESS: SERVER 0x10002000 */\nint second(void) { return 2; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x10002000": {"kind": "FUNCTION"}},
         )
         assert update_stub_to_matched(
             source, "int second(void) { return 42; }\n", self._stub("0x10002000")
@@ -1145,8 +1159,16 @@ class TestUpdateStubToMatched:
         from rebrew.match_batch import update_stub_to_matched
 
         source = tmp_path / "stub.c"
-        original = "// FUNCTION: SERVER 0x10002000\nint second(void) { return 2; }\n"
-        source.write_text(original, encoding="utf-8")
+        original = SourceFixture(
+            "/* ADDRESS: SERVER 0x10002000 */\nint second(void) { return 2; }\n",
+            {"SERVER.0x10002000": {"kind": "FUNCTION"}},
+        )
+        write_source(
+            source,
+            original,
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x10002000": {"kind": "FUNCTION"}},
+        )
 
         def _fail(*_a: Any, **_kw: Any) -> None:
             raise PermissionError("rebrew-functions.toml is read-only")
@@ -1162,15 +1184,27 @@ class TestUpdateStubToMatched:
         from rebrew.match_batch import update_stub_to_matched
 
         source = tmp_path / "stub.c"
-        original = "// FUNCTION: SERVER 0x10002000\nint second(void) { return 2; }\n"
-        source.write_text(original, encoding="utf-8")
+        original = SourceFixture(
+            "/* ADDRESS: SERVER 0x10002000 */\nint second(void) { return 2; }\n",
+            {"SERVER.0x10002000": {"kind": "FUNCTION"}},
+        )
+        write_source(
+            source,
+            original,
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x10002000": {"kind": "FUNCTION"}},
+        )
         best = 'int second(void) { return "\ud800"[0]; }\n'
 
         with pytest.raises(UnicodeEncodeError):
             update_stub_to_matched(source, best, self._stub("0x10002000"))
 
         assert source.read_text(encoding="utf-8") == original
-        assert list(tmp_path.iterdir()) == [source]
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            "rebrew-functions.toml",
+            "rebrew-functions.toml.lock",
+            "stub.c",
+        ]
 
     @pytest.mark.parametrize("phase", ["close", "parse"])
     @pytest.mark.parametrize("failure", [OSError, KeyboardInterrupt])
@@ -1186,8 +1220,16 @@ class TestUpdateStubToMatched:
         from rebrew.match_batch import update_stub_to_matched
 
         source = tmp_path / "stub.c"
-        original = "// FUNCTION: SERVER 0x10002000\nint second(void) { return 2; }\n"
-        source.write_text(original, encoding="utf-8")
+        original = SourceFixture(
+            "/* ADDRESS: SERVER 0x10002000 */\nint second(void) { return 2; }\n",
+            {"SERVER.0x10002000": {"kind": "FUNCTION"}},
+        )
+        write_source(
+            source,
+            original,
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x10002000": {"kind": "FUNCTION"}},
+        )
         temporary_file = tempfile.NamedTemporaryFile
         handles = []
 
@@ -1204,14 +1246,20 @@ class TestUpdateStubToMatched:
                 monkeypatch.setattr(handle, "close", _close)
             return handle
 
-        def _parse(path: Path) -> None:
+        original_parse = __import__(
+            "rebrew.metadata.bindings", fromlist=["source_bindings"]
+        ).source_bindings
+
+        def _parse(text: str, *args: Any, **kwargs: Any) -> Any:
+            if not handles:
+                return original_parse(text, *args, **kwargs)
             assert handles[0].closed
-            assert path.read_text(encoding="utf-8").endswith("return 42; }\n")
+            assert text.endswith("return 42; }\n")
             raise failure("validation interrupted")
 
         monkeypatch.setattr("rebrew.match_batch.tempfile.NamedTemporaryFile", _temporary_file)
         if phase == "parse":
-            monkeypatch.setattr("rebrew.match_batch.parse_c_file_multi", _parse)
+            monkeypatch.setattr("rebrew.metadata.bindings.source_bindings", _parse)
 
         with pytest.raises(failure, match="validation interrupted"):
             update_stub_to_matched(
@@ -1220,7 +1268,11 @@ class TestUpdateStubToMatched:
 
         assert handles[0].closed
         assert source.read_text(encoding="utf-8") == original
-        assert list(tmp_path.iterdir()) == [source]
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            "rebrew-functions.toml",
+            "rebrew-functions.toml.lock",
+            "stub.c",
+        ]
 
     def test_bak_preserves_original_across_rerun(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1230,17 +1282,29 @@ class TestUpdateStubToMatched:
         from rebrew.match_batch import update_stub_to_matched
 
         f = tmp_path / "stub.c"
-        original = "// FUNCTION: SERVER 0x10002000\nint second(void) { return 2; }\n"
-        f.write_text(original, encoding="utf-8")
+        original = SourceFixture(
+            "/* ADDRESS: SERVER 0x10002000 */\nint second(void) { return 2; }\n",
+            {"SERVER.0x10002000": {"kind": "FUNCTION"}},
+        )
+        write_source(
+            f,
+            original,
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x10002000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
         best = "int second(void) { return 42; }\n"
         assert update_stub_to_matched(f, best, self._stub("0x10002000"), metadata_dir=tmp_path)
         bak = tmp_path / "stub.c.bak"
         assert bak.read_text(encoding="utf-8") == original
 
         # Simulate a retry / second splice: file already matched, bak must stay.
-        f.write_text(
-            "// FUNCTION: SERVER 0x10002000\nint second(void) { return 42; }\n",
+        write_source(
+            f,
+            original,
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10002000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
         again = "int second(void) { return 99; }\n"
         assert update_stub_to_matched(f, again, self._stub("0x10002000"), metadata_dir=tmp_path)
@@ -1278,10 +1342,11 @@ class TestFlagSweepMatchValidation:
         src_dir = tmp_path / "src" / "T"
         src_dir.mkdir(parents=True, exist_ok=True)
         f = src_dir / "near.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x10001000\n// STATUS: NEAR_MATCHING\n"
-            "int near(void) { return 0; }\n",
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x10001000 */\n\nint near(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION"}},
         )
         stub = StubInfo(
             filepath=f,
@@ -1346,10 +1411,11 @@ class TestFlagSweepMatchValidation:
         src_dir = tmp_path / "src" / "T"
         src_dir.mkdir(parents=True, exist_ok=True)
         f = src_dir / "near.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x10001000\n// STATUS: NEAR_MATCHING\n"
-            "int near(void) { return 0; }\n",
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x10001000 */\n\nint near(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION"}},
         )
         stub = StubInfo(
             filepath=f,
@@ -1413,10 +1479,11 @@ class TestFlagSweepMatchValidation:
         src_dir = tmp_path / "src" / "T"
         src_dir.mkdir(parents=True, exist_ok=True)
         f = src_dir / "near.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x10001000\n// STATUS: NEAR_MATCHING\n"
-            "int near(void) { return 0; }\n",
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x10001000 */\n\nint near(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION"}},
         )
         stub = StubInfo(
             filepath=f,
@@ -1462,12 +1529,14 @@ class TestFindSizeMismatch:
         from rebrew.metadata.functions import load_metadata, save_metadata
 
         f = tmp_path / name
-        f.write_text(
-            f"// FUNCTION: SERVER {va}\n// SIZE: 64\nint f(void) {{ return 0; }}\n",
-            encoding="utf-8",
+        write_source(
+            f,
+            f"/* ADDRESS: SERVER {va} */\nint f(void) {{ return 0; }}\n",
+            metadata_fields={f"SERVER.{va}": {"size": 64}},
+            metadata_dir=tmp_path,
         )
         data = dict(load_metadata(tmp_path))
-        data[("SERVER", int(va, 16))] = {"status": status}
+        data[("SERVER", int(va, 16))] = {**data.get(("SERVER", int(va, 16)), {}), "status": status}
         save_metadata(tmp_path, data)
         return f
 
@@ -1576,9 +1645,11 @@ class TestResolveBuildParamsVATargeting:
         src_dir = tmp_path / "src" / "T"
         src_dir.mkdir(parents=True)
         multi = src_dir / "multi.c"
-        multi.write_text(
-            "// FUNCTION: T 0x10001000\n// SIZE: 8\nvoid exit_handler(void) { return; }\n",
+        write_source(
+            multi,
+            "/* ADDRESS: T 0x10001000 */\n\nvoid exit_handler(void) { return; }\n",
             encoding="utf-8",
+            metadata_fields={"T.0x10001000": {"kind": "FUNCTION", "size": 8}},
         )
         cfg = self._cfg(tmp_path, src_dir)
         with pytest.raises(typer.Exit) as exc:
@@ -1603,9 +1674,11 @@ class TestResolveBuildParamsVATargeting:
         src_dir = tmp_path / "src" / "T"
         src_dir.mkdir(parents=True)
         multi = src_dir / "multi.c"
-        multi.write_text(
-            "// FUNCTION: T 0x10001000\n// SIZE: 8\nvoid exit_handler(void) { return; }\n",
+        write_source(
+            multi,
+            "/* ADDRESS: T 0x10001000 */\n\nvoid exit_handler(void) { return; }\n",
             encoding="utf-8",
+            metadata_fields={"T.0x10001000": {"kind": "FUNCTION", "size": 8}},
         )
         cfg = self._cfg(tmp_path, src_dir)
         monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
@@ -1633,9 +1706,13 @@ class TestResolveBuildParamsVATargeting:
         src_dir = tmp_path / "src" / "T"
         src_dir.mkdir(parents=True)
         source = src_dir / "mixed.c"
-        source.write_text(
-            "// GLOBAL: T 0x10002000\nint counter;\n"
-            "// FUNCTION: T 0x10001000\n// SIZE: 8\nvoid run(void) {}\n"
+        write_source(
+            source,
+            "/* ADDRESS: T 0x10002000 */\nint counter;\n/* ADDRESS: T 0x10001000 */\n\nvoid run(void) {}\n",
+            metadata_fields={
+                "T.0x10002000": {"kind": "GLOBAL"},
+                "T.0x10001000": {"kind": "FUNCTION", "size": 8},
+            },
         )
         monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
         monkeypatch.setattr(
@@ -1662,24 +1739,21 @@ class TestResolveBuildParamsVATargeting:
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
         """Per-function CFLAGS must come from the SELECTED annotation, not the
-        file's first block: ``parse_source_metadata`` returns only annos[0], so
+        file's first block: ``read_function_fields`` returns only annos[0], so
         a `--symbol`-targeted GA compiled with the wrong flags."""
         from rebrew.match import resolve_build_params
 
         src_dir = tmp_path / "src" / "T"
         src_dir.mkdir(parents=True)
         multi = src_dir / "multi.c"
-        multi.write_text(
-            "// FUNCTION: T 0x10001000\n"
-            "// SIZE: 8\n"
-            "// CFLAGS: /O2\n"
-            "void exit_handler(void) { return; }\n"
-            "\n"
-            "// FUNCTION: T 0x1000a010\n"
-            "// SIZE: 112\n"
-            "// CFLAGS: /Od\n"
-            "void cleanup(void) { return; }\n",
+        write_source(
+            multi,
+            "/* ADDRESS: T 0x10001000 */\n\n\nvoid exit_handler(void) { return; }\n\n/* ADDRESS: T 0x1000a010 */\n\n\nvoid cleanup(void) { return; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "T.0x10001000": {"kind": "FUNCTION", "size": 8, "cflags": "/O2"},
+                "T.0x1000a010": {"kind": "FUNCTION", "size": 112, "cflags": "/Od"},
+            },
         )
         cfg = self._cfg(tmp_path, src_dir)
         cfg.base_cflags = ""  # isolate the per-function flags from the project base
@@ -1705,14 +1779,14 @@ class TestResolveBuildParamsVATargeting:
         src_dir = tmp_path / "src" / "T"
         src_dir.mkdir(parents=True)
         multi = src_dir / "multi.c"
-        multi.write_text(
-            "// FUNCTION: T 0x10001000\n"
-            "// SIZE: 8\n"
-            "void exit_handler(void) { return; }\n"
-            "\n"
-            "// FUNCTION: T 0x1000a010\n"
-            "void cleanup(void) { return; }\n",
+        write_source(
+            multi,
+            "/* ADDRESS: T 0x10001000 */\n\nvoid exit_handler(void) { return; }\n\n/* ADDRESS: T 0x1000a010 */\nvoid cleanup(void) { return; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "T.0x10001000": {"kind": "FUNCTION", "size": 8},
+                "T.0x1000a010": {"kind": "FUNCTION"},
+            },
         )
         cfg = self._cfg(tmp_path, src_dir)
         extracted: list[tuple[int, int]] = []
@@ -1797,12 +1871,17 @@ class TestGaCeiling:
         from rebrew.metadata.functions import load_metadata, save_metadata
 
         f = tmp_path / name
-        f.write_text(
-            f"// FUNCTION: SERVER {va}\n// SIZE: 64\nint f(void) {{ return 0; }}\n",
-            encoding="utf-8",
+        write_source(
+            f,
+            f"/* ADDRESS: SERVER {va} */\nint f(void) {{ return 0; }}\n",
+            metadata_fields={f"SERVER.{va}": {"size": 64}},
+            metadata_dir=tmp_path,
         )
         data = dict(load_metadata(tmp_path))
-        data[("SERVER", int(va, 16))] = {"status": "NEAR_MATCHING"}
+        data[("SERVER", int(va, 16))] = {
+            **data.get(("SERVER", int(va, 16)), {}),
+            "status": "NEAR_MATCHING",
+        }
         save_metadata(tmp_path, data)
         return f
 

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 from bin_util import make_coff_obj, make_pe
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 FAKE_TEXT_VA = 0x1000
@@ -34,25 +35,23 @@ command = "cl"
 cflags = "/O2"
 """
 
-_TWO_FUNCS_C = """\
-// FUNCTION: GAME 0x00001000
-// STATUS: EXACT
-int alpha(void) { return 1; }
-"""
+_TWO_FUNCS_C = SourceFixture(
+    "/* ADDRESS: GAME 0x00001000 */\n\nint alpha(void) { return 1; }\n",
+    {"GAME.0x00001000": {"kind": "FUNCTION"}},
+)
 
-_TWO_FILES_B = """\
-// FUNCTION: GAME 0x00001020
-// STATUS: EXACT
-int beta(void) { return 2; }
-"""
+_TWO_FILES_B = SourceFixture(
+    "/* ADDRESS: GAME 0x00001020 */\n\nint beta(void) { return 2; }\n",
+    {"GAME.0x00001020": {"kind": "FUNCTION"}},
+)
 
 
 def _project(tmp_path: Path, sources: dict[str, str] | None = None) -> Path:
-    (tmp_path / "rebrew-project.toml").write_text(_TOML, encoding="utf-8")
+    write_source(tmp_path / "rebrew-project.toml", _TOML, encoding="utf-8")
     src = tmp_path / "src"
     src.mkdir(exist_ok=True)
     for name, text in (sources or {"a.c": _TWO_FUNCS_C}).items():
-        (src / name).write_text(text, encoding="utf-8")
+        write_source(src / name, text, encoding="utf-8")
     (tmp_path / "build").mkdir(exist_ok=True)
     return tmp_path
 
@@ -131,9 +130,14 @@ class TestTextAuditCli:
             tmp_path,
             {
                 "code.c": (
-                    "// FUNCTION: GAME 0x00001000\nint actual(void) { return 1; }\n"
-                    "// LIBRARY: GAME 0x00001010\nint library(void) { return 2; }\n"
-                    "// STUB: GAME 0x00001020\nint stub(void) { return 0; }\n"
+                    SourceFixture(
+                        "/* ADDRESS: GAME 0x00001000 */\nint actual(void) { return 1; }\n/* ADDRESS: GAME 0x00001010 */\nint library(void) { return 2; }\n/* ADDRESS: GAME 0x00001020 */\nint stub(void) { return 0; }\n",
+                        {
+                            "GAME.0x00001000": {"kind": "FUNCTION"},
+                            "GAME.0x00001010": {"kind": "LIBRARY"},
+                            "GAME.0x00001020": {"kind": "STUB"},
+                        },
+                    )
                 ),
                 "data.c": f"// {marker}: GAME 0x00002000\nint value = 7;\n",
             },
@@ -380,12 +384,14 @@ class TestDecoratedTextSymbols:
                 tmp_path,
                 {
                     "decorated.c": (
-                        "// FUNCTION: GAME 0x00003000\n"
-                        "int _foo(void) { return 0; }\n\n"
-                        "// FUNCTION: GAME 0x00004000\n"
-                        "int foo(void) { return 1; }\n\n"
-                        "// FUNCTION: GAME 0x00002000\n"
-                        "int __vectorcall hook(int a, int b, int c) { return 0; }\n"
+                        SourceFixture(
+                            "/* ADDRESS: GAME 0x00003000 */\nint _foo(void) { return 0; }\n\n/* ADDRESS: GAME 0x00004000 */\nint foo(void) { return 1; }\n\n/* ADDRESS: GAME 0x00002000 */\nint __vectorcall hook(int a, int b, int c) { return 0; }\n",
+                            {
+                                "GAME.0x00003000": {"kind": "FUNCTION"},
+                                "GAME.0x00004000": {"kind": "FUNCTION"},
+                                "GAME.0x00002000": {"kind": "FUNCTION"},
+                            },
+                        )
                     )
                 },
             )

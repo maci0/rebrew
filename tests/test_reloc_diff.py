@@ -13,6 +13,7 @@ from pathlib import Path
 import lief
 import pytest
 from bin_util import make_pe
+from source_util import write_store_fixture
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -34,12 +35,7 @@ command = "cl"
 cflags = "/O2"
 """
 
-_DATA = """\
-["GAME.0x00401014"]
-name = "g_table"
-section = ".text"
-size = 4
-"""
+_DATA = 'format = 2\n["GAME.0x00401014"]\nname = "g_table"\nsection = ".text"\nsize = 4\n'
 
 _MAP = """\
   Address         Publics by Value              Rva+Base     Lib:Object
@@ -68,7 +64,7 @@ def _image(path: Path, operands: list[int], relocated: list[int]) -> None:
 
 def _project(tmp_path: Path, *, link_map: bool = True) -> Path:
     (tmp_path / "rebrew-project.toml").write_text(_TOML, encoding="utf-8")
-    (tmp_path / "rebrew-data.toml").write_text(_DATA, encoding="utf-8")
+    write_store_fixture(tmp_path / "rebrew-data.toml", _DATA, encoding="utf-8")
     (tmp_path / "src").mkdir()
     (tmp_path / "build").mkdir()
     # Reference: sites at +0 and +4.  Build: +0 (displaced target) and +8.

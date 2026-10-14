@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from source_util import write_source
 
 from rebrew.intake import _suggest_profile, blocker_reason
 
@@ -84,18 +85,18 @@ class TestIntake:
         assert "fcn.00401000" in funcs
         # STUB .c written: pure C, identity in the store.
         stub = (tmp_path / "src" / "game" / "fcn_00401000.c").read_text()
-        assert "/* rebrew-stub GAME 00401000 */" in stub
+        assert "/* ADDRESS: GAME 0x00401000 */" in stub
         assert "pending per-function decompilation" in stub
         assert "// STUB:" not in stub
         from rebrew.metadata.functions import get_entry
 
         entry = get_entry(tmp_path / "src", 0x401000, "GAME")
-        assert entry["marker_type"] == "STUB"
+        assert entry["kind"] == "STUB"
         assert entry["symbol"] == "_fcn_00401000"
         assert entry["name"] == "fcn_00401000"
         assert entry["file"] == "src/game/fcn_00401000.c"
         other = get_entry(tmp_path / "src", 0x401020, "GAME")
-        assert other["marker_type"] == "STUB"
+        assert other["kind"] == "STUB"
         assert other["symbol"] == "_fcn_00401020"
         assert other["name"] == "fcn_00401020"
         assert other["file"] == "src/game/fcn_00401020.c"
@@ -154,10 +155,10 @@ class TestIntake:
     def test_rediscovery_does_not_duplicate_renamed_functions(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
     ) -> None:
-        from rebrew.metadata.annotation import iter_annotations
+        from rebrew.metadata.bindings import iter_source_bindings
         from rebrew.metadata.functions import (
             get_entry,
-            record_migrated_markers,
+            record_function_rows,
             update_field,
             update_source_status,
         )
@@ -175,7 +176,7 @@ class TestIntake:
         original.rename(renamed)
         # The marker no longer travels inside the .c. The row's file is the
         # identity a later intake uses to see the moved source.
-        record_migrated_markers(
+        record_function_rows(
             metadata_dir,
             [
                 {
@@ -197,7 +198,7 @@ class TestIntake:
             assert {path: path.read_bytes() for path in iter_sources(src_dir)} == expected_sources
             annotations = [
                 ann
-                for _, anns in iter_annotations(
+                for _, anns in iter_source_bindings(
                     iter_sources(src_dir), target="GAME", metadata_dir=metadata_dir
                 )
                 for ann in anns
@@ -377,8 +378,10 @@ class TestIntake:
 
         update_source_status(tmp_path / "src", "RELOC", "game", 0x401000)
         blocker = tmp_path / "src" / "game" / "fcn_00402000.c"
-        blocker.write_text(
-            "// STUB: game 0x00402000\n\nvoid fcn_00402000(void)\n{\n    /* user: needs float math */\n}\n"
+        write_source(
+            blocker,
+            "/* ADDRESS: game 0x00402000 */\n\nvoid fcn_00402000(void)\n{\n    /* user: needs float math */\n}\n",
+            metadata_fields={"game.0x00402000": {"kind": "STUB"}},
         )
 
         out2 = runner.invoke(main_mod.app, ["intake", "game.exe", "--json"])
@@ -625,14 +628,23 @@ class TestPruneStaleStubs:
         src_dir.mkdir(parents=True)
         meta_dir = tmp_path / "src"
 
-        (src_dir / "fcn_00401000.c").write_text(
-            "// STUB: TARGET 0x00401000\n\nvoid fcn_00401000(void)\n{\n    /* reason */\n}\n"
+        write_source(
+            src_dir / "fcn_00401000.c",
+            "/* ADDRESS: TARGET 0x00401000 */\n\nvoid fcn_00401000(void)\n{\n    /* reason */\n}\n",
+            metadata_fields={"TARGET.0x00401000": {"kind": "STUB"}},
+            metadata_dir=meta_dir,
         )
-        (src_dir / "fcn_00401010.c").write_text(
-            "// STUB: TARGET 0x00401010\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n}\n"
+        write_source(
+            src_dir / "fcn_00401010.c",
+            "/* ADDRESS: TARGET 0x00401010 */\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n}\n",
+            metadata_fields={"TARGET.0x00401010": {"kind": "STUB"}},
+            metadata_dir=meta_dir,
         )
-        (src_dir / "fcn_00401020.c").write_text(
-            "/* STUB: TARGET 0x00401020 */\n\nvoid fcn_00401020(void)\n{\n    /* reason */\n}\n"
+        write_source(
+            src_dir / "fcn_00401020.c",
+            "/* ADDRESS: TARGET 0x00401020 */\n\nvoid fcn_00401020(void)\n{\n    /* reason */\n}\n",
+            metadata_fields={"TARGET.0x00401020": {"kind": "STUB"}},
+            metadata_dir=meta_dir,
         )
         set_fields_batch(
             meta_dir,
@@ -659,10 +671,10 @@ class TestPruneStaleStubs:
         src_dir = tmp_path / "src" / "target"
         src_dir.mkdir(parents=True)
         worked = src_dir / "fcn_00401010.c"
-        worked.write_text(
-            "// STUB: TARGET 0x00401010\n\n"
-            "void fcn_00401010(void)\n"
-            "{\n    /* reason */\n    g_ticks++;\n}\n"
+        write_source(
+            worked,
+            "/* ADDRESS: TARGET 0x00401010 */\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n    g_ticks++;\n}\n",
+            metadata_fields={"TARGET.0x00401010": {"kind": "STUB"}},
         )
         funcs = [(0x401000, 32, "valid_fn")]
         assert prune_stale_stubs(tmp_path, src_dir, "TARGET", funcs) == 0
@@ -683,8 +695,11 @@ class TestPruneStaleStubs:
         src_dir.mkdir(parents=True)
         meta_dir = tmp_path / "src"
         stub = src_dir / "fcn_00401010.c"
-        stub.write_text(
-            "// STUB: TARGET 0x00401010\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n}\n"
+        write_source(
+            stub,
+            "/* ADDRESS: TARGET 0x00401010 */\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n}\n",
+            metadata_fields={"TARGET.0x00401010": {"kind": "STUB"}},
+            metadata_dir=meta_dir,
         )
         set_fields_batch(
             meta_dir, [{"module": "TARGET", "va": 0x401010, "fields": {"blocker": "reason"}}]
@@ -707,8 +722,10 @@ class TestPruneStaleStubs:
         src_dir = tmp_path / "src" / "target"
         src_dir.mkdir(parents=True)
         stub = src_dir / "fcn_00401010.c"
-        stub.write_text(
-            "// STUB: TARGET 0x00401010\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n}\n"
+        write_source(
+            stub,
+            "/* ADDRESS: TARGET 0x00401010 */\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n}\n",
+            metadata_fields={"TARGET.0x00401010": {"kind": "STUB"}},
         )
         (src_dir / "function_structure.json").write_text('{"functions": []}', encoding="utf-8")
 
@@ -722,8 +739,10 @@ class TestPruneStaleStubs:
         src_dir = tmp_path / "src" / "target"
         src_dir.mkdir(parents=True)
         stale = src_dir / "fcn_00401010.c"
-        stale.write_text(
-            "// STUB: TARGET 0x00401010\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n}\n"
+        write_source(
+            stale,
+            "/* ADDRESS: TARGET 0x00401010 */\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n}\n",
+            metadata_fields={"TARGET.0x00401010": {"kind": "STUB"}},
         )
         assert prune_stale_stubs(tmp_path, src_dir, "TARGET", [(0x401000, 32, "valid_fn")]) == 1
         assert not stale.exists()

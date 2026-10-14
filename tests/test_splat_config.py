@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from source_util import write_source
 from typer.testing import CliRunner
 
 import rebrew.splat_config as splat_config
@@ -453,7 +454,9 @@ class TestPlan:
         assert by_va[0x00401020].path == "library_other.h"
         assert by_va[0x00402000].kind == "DATA"
         assert by_va[0x00402000].section == ".data"
-        assert by_va[0x00402010].marker == ("extern unsigned int imp_KERNEL32_dll_GetTickCount;\n")
+        assert by_va[0x00402010].marker == (
+            "/* ADDRESS: FIXTURE 0x00402010 */\nextern unsigned int imp_KERNEL32_dll_GetTickCount;\n"
+        )
         # The undefined_* function lands inside .text: the config says that code
         # is a library's, so it is a LIBRARY entry with the inferred module.
         assert by_va[0x00401030].kind == "LIBRARY"
@@ -526,7 +529,7 @@ class TestApply:
         assert "dry run" in result.output
         assert "// FUNCTION:" not in result.output
         assert "// DATA:" not in result.output
-        assert "/* FUNCTION FIXTURE 0x00401000 */" in result.output
+        assert "0x00401000" in result.output
         assert "extern unsigned int imp_KERNEL32_dll_GetTickCount;" in result.output
         assert sorted(p.name for p in project.rglob("*")) == before
 
@@ -539,7 +542,9 @@ class TestApply:
 
         reversed_dir = project / "src" / "fixture.exe"
         function = (reversed_dir / "entrypoint.c").read_text(encoding="utf-8")
-        assert function.startswith("int __cdecl entrypoint(void)\n")
+        assert function.startswith(
+            "/* ADDRESS: FIXTURE 0x00401000 */\nint __cdecl entrypoint(void)\n"
+        )
         assert "// FUNCTION:" not in function
         assert "entrypoint(void)" in function
 
@@ -550,7 +555,7 @@ class TestApply:
         assert crt == banner
 
         data = (reversed_dir / "data_g_table.c").read_text(encoding="utf-8")
-        assert data.startswith("extern unsigned int g_table[4];")
+        assert data.startswith("/* ADDRESS: FIXTURE 0x00402000 */\nextern unsigned int g_table[4];")
         assert "// DATA:" not in data
 
         assert (project / "original" / "fixture.exe").is_file()
@@ -570,19 +575,19 @@ class TestApply:
         assert "size = 19" in functions
         assert "seeded from a splat config" in functions
         fn = get_entry(project, 0x00401000, "FIXTURE")
-        assert fn["marker_type"] == "FUNCTION"
+        assert fn["kind"] == "FUNCTION"
         assert fn["symbol"] == "_entrypoint"
         assert fn["name"] == "entrypoint"
         assert fn["file"] == "src/fixture.exe/entrypoint.c"
         assert fn["status"] == "STUB"
         assert fn["size"] == 19
         other = get_entry(project, 0x00401020, "OTHER")
-        assert other["marker_type"] == "LIBRARY"
+        assert other["kind"] == "LIBRARY"
         assert other["symbol"] == "imp_OTHER_dll_FarProc"
         assert other["name"] == "imp_OTHER_dll_FarProc"
         assert other["file"] == "src/fixture.exe/library_other.h"
         crt_row = get_entry(project, 0x00401030, "MSVCRT")
-        assert crt_row["marker_type"] == "LIBRARY"
+        assert crt_row["kind"] == "LIBRARY"
         assert crt_row["symbol"] == "printf"
         assert crt_row["name"] == "printf"
         assert crt_row["file"] == "src/fixture.exe/library_msvcrt.h"
@@ -591,13 +596,13 @@ class TestApply:
         assert 'section = ".data"' in data_meta
         assert "size = 16" in data_meta
         table = get_data_entry(project, 0x00402000, "FIXTURE")
-        assert table["marker_type"] == "DATA"
+        assert table["kind"] == "DATA"
         assert table["name"] == "g_table"
         assert table["section"] == ".data"
         assert table["size"] == 16
         assert table["file"] == "src/fixture.exe/data_g_table.c"
         imported = get_data_entry(project / "src", 0x00402010, "FIXTURE")
-        assert imported["marker_type"] == "DATA"
+        assert imported["kind"] == "DATA"
         assert imported["name"] == "imp_KERNEL32_dll_GetTickCount"
 
     def test_write_copies_the_binary_into_the_project(
@@ -623,7 +628,11 @@ class TestApply:
     ) -> None:
         project, yaml_path = self._project(tmp_path, monkeypatch)
         foreign = project / "src" / "fixture.exe" / "entrypoint.c"
-        foreign.write_text("// FUNCTION: FIXTURE 0xdeadbeef\nint other(void) { return 0; }\n")
+        write_source(
+            foreign,
+            "/* ADDRESS: FIXTURE 0xdeadbeef */\nint other(void) { return 0; }\n",
+            metadata_fields={"FIXTURE.0xdeadbeef": {"kind": "FUNCTION"}},
+        )
         before = foreign.read_text(encoding="utf-8")
 
         result = _invoke([str(yaml_path), "--write"])
@@ -635,7 +644,9 @@ class TestApply:
         forced = _invoke([str(yaml_path), "--write", "--force"])
         assert forced.exit_code == 0, forced.output
         forced_text = foreign.read_text(encoding="utf-8")
-        assert forced_text.startswith("int __cdecl entrypoint(void)\n")
+        assert forced_text.startswith(
+            "/* ADDRESS: FIXTURE 0x00401000 */\nint __cdecl entrypoint(void)\n"
+        )
         assert "// FUNCTION:" not in forced_text
 
     def test_json_payload_lists_the_plan(

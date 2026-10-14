@@ -4,30 +4,28 @@ import re
 import struct
 from pathlib import Path
 
+from source_util import write_source
+
 from rebrew.data_scan import DispatchEntry, DispatchTable, find_dispatch_tables
 from rebrew.match_batch import find_near_miss, parse_matching_info
 
 
 def _make_c(d, name, va, status, blocker="", skip=False) -> None:
     """Create a C source file with annotations and metadata TOML entry."""
-    lines = [
-        f"// FUNCTION: SERVER 0x{va:08x}",
-        f"// SYMBOL: _{name}",
-        f"int __cdecl {name}(void) {{ return 0; }}",
-    ]
-    (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
-    # Write metadata-owned fields to rebrew-functions.toml
-    metadata_toml = d / "rebrew-functions.toml"
-    existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
-    entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = 100\ncflags = "/O2 /Gd"\n'
+    fields = {"status": status, "size": 100, "cflags": "/O2 /Gd"}
     if blocker:
-        entry += f'blocker = "{blocker}"\n'
+        fields["blocker"] = blocker
         m = re.match(r"(\d+)B", blocker)
         if m:
-            entry += f"blocker_delta = {m.group(1)}\n"
+            fields["blocker_delta"] = int(m.group(1))
     if skip:
-        entry += 'skip = "reason"\n'
-    metadata_toml.write_text(existing + entry, encoding="utf-8")
+        fields["skip"] = "reason"
+    write_source(
+        d / f"{name}.c",
+        f"/* ADDRESS: SERVER 0x{va:08x} */\nint __cdecl {name}(void) {{ return 0; }}",
+        metadata_dir=d,
+        metadata_fields={f"SERVER.0x{va:08x}": fields},
+    )
 
 
 # ---------------------------------------------------------------------------

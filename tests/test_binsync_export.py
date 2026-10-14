@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytest
 import tomlkit
+from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -75,11 +76,11 @@ reversed_dir = "src"
 
 def _make_project(tmp_path: Path, files: dict[str, str]) -> Path:
     """Create a minimal rebrew project with caller-supplied source files."""
-    (tmp_path / "rebrew-project.toml").write_text(_TOML_CFG, encoding="utf-8")
+    write_source(tmp_path / "rebrew-project.toml", _TOML_CFG, encoding="utf-8")
     src = tmp_path / "src"
     src.mkdir()
     for name, content in files.items():
-        (src / name).write_text(content, encoding="utf-8")
+        write_source(src / name, content, encoding="utf-8")
     return tmp_path
 
 
@@ -101,7 +102,10 @@ class TestBinsyncExportBasic:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 31\nint foo() { return 1; }\n",
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo() { return 1; }\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 31}},
+                ),
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
@@ -117,7 +121,10 @@ class TestBinsyncExportBasic:
         _make_project(
             tmp_path,
             {
-                "bar.c": "// FUNCTION: SERVER 0x20002000\n// STATUS: NEAR_MATCHING\ndouble bar() { return 2.0; }\n",
+                "bar.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x20002000 */\n\ndouble bar() { return 2.0; }\n",
+                    {"SERVER.0x20002000": {"kind": "FUNCTION"}},
+                ),
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
@@ -132,7 +139,9 @@ class TestBinsyncExportBasic:
         _make_project(
             tmp_path,
             {
-                "stub.c": "// FUNCTION: SERVER 0x30003000\n// STATUS: STUB\nvoid stub(void);\n",
+                "stub.c": SourceFixture(
+                    "void stub(void);\n", {"SERVER.0x30003000": {"kind": "FUNCTION"}}
+                ),
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
@@ -155,11 +164,10 @@ class TestBinsyncExportPrototype:
             tmp_path,
             {
                 "calc.c": (
-                    "// FUNCTION: SERVER 0x10001000\n"
-                    "// STATUS: EXACT\n"
-                    "// SIZE: 20\n"
-                    "// PROTOTYPE: int __cdecl Calc(int x, int y)\n"
-                    "int __cdecl Calc(int x, int y) { return x + y; }\n"
+                    SourceFixture(
+                        "/* ADDRESS: SERVER 0x10001000 */\n\n\nint __cdecl Calc(int x, int y) { return x + y; }\n",
+                        {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 20}},
+                    )
                 ),
             },
         )
@@ -180,7 +188,10 @@ class TestBinsyncExportPrototype:
         _make_project(
             tmp_path,
             {
-                "f.c": "// FUNCTION: SERVER 0x10002000\n// STATUS: EXACT\n// SIZE: 5\nvoid f(void) {}\n"
+                "f.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10002000 */\n\n\nvoid f(void) {}\n",
+                    {"SERVER.0x10002000": {"kind": "FUNCTION", "size": 5}},
+                )
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
@@ -209,11 +220,16 @@ class TestBinsyncExportComments:
             tmp_path,
             {
                 "f.c": (
-                    "// FUNCTION: SERVER 0x10010000\n"
-                    "// STATUS: RELOC\n"
-                    "// SIZE: 12\n"
-                    "// CFLAGS: /O1 /Gd\n"
-                    "int f(void) { return 0; }\n"
+                    SourceFixture(
+                        "/* ADDRESS: SERVER 0x10010000 */\n\n\n\nint f(void) { return 0; }\n",
+                        {
+                            "SERVER.0x10010000": {
+                                "kind": "FUNCTION",
+                                "size": 12,
+                                "cflags": "/O1 /Gd",
+                            }
+                        },
+                    )
                 ),
             },
         )
@@ -241,7 +257,12 @@ class TestBinsyncExportComments:
         _make_project(
             tmp_path,
             {
-                "g.c": ("// FUNCTION: SERVER 0x10020000\n// SIZE: 8\nvoid g(void) {}\n"),
+                "g.c": (
+                    SourceFixture(
+                        "/* ADDRESS: SERVER 0x10020000 */\n\nvoid g(void) {}\n",
+                        {"SERVER.0x10020000": {"kind": "FUNCTION", "size": 8}},
+                    )
+                ),
             },
         )
         update_field(tmp_path, 0x10020000, "note", "worth double-checking", "SERVER")
@@ -266,8 +287,16 @@ class TestBinsyncExportGlobals:
         _make_project(
             tmp_path,
             {
-                "func.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nvoid func(void) {}\n",
-                "data.c": ("// GLOBAL: SERVER 0x01008000\n// SIZE: 64\nchar g_szBuffer[64];\n"),
+                "func.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nvoid func(void) {}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                ),
+                "data.c": (
+                    SourceFixture(
+                        "/* ADDRESS: SERVER 0x01008000 */\n\nchar g_szBuffer[64];\n",
+                        {"SERVER.0x01008000": {"kind": "GLOBAL", "size": 64}},
+                    )
+                ),
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
@@ -289,7 +318,10 @@ class TestBinsyncExportGlobals:
         _make_project(
             tmp_path,
             {
-                "stub.c": "// DATA: SERVER 0xDEADBEEF\n#include <windows.h>\n\nvoid f(void) {}\n",
+                "stub.c": SourceFixture(
+                    "#include <windows.h>\n\nvoid f(void) {}\n",
+                    {"SERVER.0xDEADBEEF": {"kind": "DATA"}},
+                ),
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
@@ -308,7 +340,10 @@ class TestBinsyncExportGlobals:
         _make_project(
             tmp_path,
             {
-                "func.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nvoid func(void) {}\n"
+                "func.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nvoid func(void) {}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
@@ -326,7 +361,10 @@ class TestBinsyncExportDryRun:
         _make_project(
             tmp_path,
             {
-                "f.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nvoid f(void) {}\n"
+                "f.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nvoid f(void) {}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch, "--dry-run")
@@ -340,7 +378,10 @@ class TestBinsyncExportDryRun:
         _make_project(
             tmp_path,
             {
-                "f.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nvoid f(void) {}\n"
+                "f.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nvoid f(void) {}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch, "--dry-run", "--json")
@@ -363,7 +404,10 @@ class TestBinsyncExportJson:
         _make_project(
             tmp_path,
             {
-                "f.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nvoid f(void) {}\n"
+                "f.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nvoid f(void) {}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch, "--json")
@@ -439,9 +483,13 @@ class TestBinsyncGhidraComment:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// SIZE: 11\n// NOTE: n\n"
-                "int foo(void) { return 1; }\n"
-                "// GLOBAL: SERVER 0x10003000\nint g_count;\n",
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void) { return 1; }\n/* ADDRESS: SERVER 0x10003000 */\nint g_count;\n",
+                    {
+                        "SERVER.0x10001000": {"kind": "FUNCTION", "size": 11, "note": "n"},
+                        "SERVER.0x10003000": {"kind": "GLOBAL"},
+                    },
+                ),
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
@@ -466,11 +514,10 @@ class TestBinsyncGhidraComment:
             tmp_path,
             {
                 "f.c": (
-                    "// FUNCTION: SERVER 0x10001000\n"
-                    "// STATUS: EXACT\n"
-                    "// SIZE: 4\n"
-                    "// GHIDRA: _foo\n"
-                    "int foo(void) { return 1; }\n"
+                    SourceFixture(
+                        "/* ADDRESS: SERVER 0x10001000 */\n\n\n\nint foo(void) { return 1; }\n",
+                        {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4, "ghidra": "_foo"}},
+                    )
                 )
             },
         )
@@ -486,8 +533,14 @@ class TestBinsyncExportModuleFilter:
         _make_project(
             tmp_path,
             {
-                "a.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint a(void){return 1;}\n",
-                "b.c": "// FUNCTION: OTHER 0x10002000\n// STATUS: EXACT\n// SIZE: 4\nint b(void){return 2;}\n",
+                "a.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint a(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                ),
+                "b.c": SourceFixture(
+                    "/* ADDRESS: OTHER 0x10002000 */\n\n\nint b(void){return 2;}\n",
+                    {"OTHER.0x10002000": {"kind": "FUNCTION", "size": 4}},
+                ),
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch, "--module", "SERVER")
@@ -503,7 +556,10 @@ class TestBinsyncExportModuleFilter:
         _make_project(
             tmp_path,
             {
-                "a.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint a(void){return 1;}\n"
+                "a.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint a(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         result, _ = _invoke(tmp_path, monkeypatch, "--module", "UNKNOWN", "--json")
@@ -516,7 +572,10 @@ class TestBinsyncExportModuleFilter:
         _make_project(
             tmp_path,
             {
-                "a.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint a(void){return 1;}\n"
+                "a.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint a(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         result, _ = _invoke(tmp_path, monkeypatch, "--module", "SERVER", "--json")
@@ -556,7 +615,10 @@ class TestBinsyncStructFields:
         _make_project(
             tmp_path,
             {
-                "a.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint a(void){return 1;}\n",
+                "a.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint a(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                ),
             },
         )
         # Add a header with a real typedef struct
@@ -587,11 +649,13 @@ default_target = "server"
 binary = "server.dll"
 reversed_dir = "src/server"
 """
-        (tmp_path / "rebrew-project.toml").write_text(_TOML_WITH_SERVER, encoding="utf-8")
+        write_source(tmp_path / "rebrew-project.toml", _TOML_WITH_SERVER, encoding="utf-8")
         (tmp_path / "src" / "server").mkdir(parents=True)
-        (tmp_path / "src" / "server" / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 10\nint foo(void){return 1;}\n",
+        write_source(
+            tmp_path / "src" / "server" / "foo.c",
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION", "size": 10}},
         )
         import json as _json
 
@@ -638,12 +702,13 @@ default_target = "server"
 binary = "server.dll"
 reversed_dir = "src/server"
 """
-        (tmp_path / "rebrew-project.toml").write_text(toml, encoding="utf-8")
+        write_source(tmp_path / "rebrew-project.toml", toml, encoding="utf-8")
         (tmp_path / "src" / "server").mkdir(parents=True)
-        (tmp_path / "src" / "server" / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 256\n"
-            "int foo(void){return 1;}\n",
+        write_source(
+            tmp_path / "src" / "server" / "foo.c",
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION", "size": 256}},
         )
         import json as _json
 
@@ -681,11 +746,13 @@ binary = "server.dll"
 reversed_dir = "src/server"
 """
 
-        (tmp_path / "rebrew-project.toml").write_text(_TOML_WITH_SERVER, encoding="utf-8")
+        write_source(tmp_path / "rebrew-project.toml", _TOML_WITH_SERVER, encoding="utf-8")
         (tmp_path / "src" / "server").mkdir(parents=True)
-        (tmp_path / "src" / "server" / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 10\nint foo(void){return 1;}\n",
+        write_source(
+            tmp_path / "src" / "server" / "foo.c",
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION", "size": 10}},
         )
         import json as _json
 
@@ -731,7 +798,7 @@ default_target = "server"
 binary = "server.dll"
 reversed_dir = "src/server"
 """
-        (tmp_path / "rebrew-project.toml").write_text(_TOML_WITH_SERVER, encoding="utf-8")
+        write_source(tmp_path / "rebrew-project.toml", _TOML_WITH_SERVER, encoding="utf-8")
         (tmp_path / "src" / "server").mkdir(parents=True)
         import json as _json
 
@@ -763,9 +830,12 @@ class TestBinsyncStructNames:
             source_ext=".c",
         )
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x1000\n// STRUCT: MyStruct\nint f(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x1000 */\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "struct": "MyStruct"}},
+            metadata_dir=tmp_path,
         )
         monkeypatch.setattr("rebrew.binsync.export.require_config", lambda **kw: cfg)
         outdir = tmp_path / "binsync"
@@ -779,7 +849,10 @@ class TestManifest:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 31\nint foo() { return 1; }\n",
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo() { return 1; }\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 31}},
+                ),
             },
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
@@ -810,7 +883,10 @@ class TestManifest:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 31\nint foo() { return 1; }\n",
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo() { return 1; }\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 31}},
+                ),
             },
         )
         result1, outdir = _invoke(tmp_path, monkeypatch)
@@ -897,8 +973,9 @@ class TestScanAnalysisComments:
 
 
 class TestBinaryHashAndSharedTypes:
-    _FOO = (
-        "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 31\nint foo() { return 1; }\n"
+    _FOO = SourceFixture(
+        "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo() { return 1; }\n",
+        {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 31}},
     )
 
     def test_binary_hash_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -962,7 +1039,10 @@ class TestBinaryHashAndSharedTypes:
 
 
 class TestBinsyncEnumsAndTypedefs:
-    _FOO = "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo() { return 1; }\n"
+    _FOO = SourceFixture(
+        "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo() { return 1; }\n",
+        {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+    )
 
     def test_enum_and_typedef_exported(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1027,9 +1107,15 @@ class TestDeclibParse:
             tmp_path,
             {
                 "foo.c": (
-                    "// FUNCTION: SERVER 0x10001000\n// SIZE: 16\nint foo(void) { return 1; }\n"
+                    SourceFixture(
+                        "/* ADDRESS: SERVER 0x10001000 */\n\nint foo(void) { return 1; }\n",
+                        {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 16}},
+                    )
                 ),
-                "data.c": "// GLOBAL: SERVER 0x01008000\n// SIZE: 4\nchar g_x;\n",
+                "data.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x01008000 */\n\nchar g_x;\n",
+                    {"SERVER.0x01008000": {"kind": "GLOBAL", "size": 4}},
+                ),
                 "types.h": (
                     "typedef struct { int x; } Point;\n"
                     "typedef enum { A, B } E;\n"
@@ -1064,7 +1150,10 @@ class TestDeclibParse:
     ) -> None:
         from rebrew.metadata.functions import get_entry, update_field
 
-        foo = "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 16\nint foo(void){return 1;}\n"
+        foo = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+            {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 16}},
+        )
         proj_a = tmp_path / "a"
         proj_a.mkdir()
         _make_project(proj_a, {"foo.c": foo})
@@ -1118,15 +1207,17 @@ class TestMigratedPrototypes:
         _make_project(
             tmp_path,
             {
-                "server.c": "typedef void *LPVOID;\n"
-                "// FUNCTION: SERVER 0x10001000\n// SIZE: 16\n"
-                "int __cdecl Init(LPVOID param)\n{\n    return 0;\n}\n"
-                "// FUNCTION: SERVER 0x10001010\n// SIZE: 16\n"
-                "static void __stdcall Pump(int a, int b)\n{\n}\n",
+                "server.c": SourceFixture(
+                    "typedef void *LPVOID;\n/* ADDRESS: SERVER 0x10001000 */\n\nint __cdecl Init(LPVOID param)\n{\n    return 0;\n}\n/* ADDRESS: SERVER 0x10001010 */\n\nstatic void __stdcall Pump(int a, int b)\n{\n}\n",
+                    {
+                        "SERVER.0x10001000": {"kind": "FUNCTION", "size": 16},
+                        "SERVER.0x10001010": {"kind": "FUNCTION", "size": 16},
+                    },
+                ),
             },
         )
         monkeypatch.chdir(tmp_path)
-        migrated = runner.invoke(app, ["source", "migrate-markers"], catch_exceptions=False)
+        migrated = runner.invoke(app, ["source", "register"], catch_exceptions=False)
         assert migrated.exit_code == 0, migrated.output
         source = tmp_path / "src" / "server.c"
         text = source.read_text(encoding="utf-8")
@@ -1148,7 +1239,10 @@ class TestMigratedPrototypes:
 class TestStructLayouts:
     """Exported struct members carry real names, types and offsets, never parser debris."""
 
-    _FOO = "// FUNCTION: SERVER 0x10001000\n// SIZE: 4\nint foo() { return 1; }\n"
+    _FOO = SourceFixture(
+        "/* ADDRESS: SERVER 0x10001000 */\n\nint foo() { return 1; }\n",
+        {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+    )
 
     def test_tail_padding_is_exported_and_acknowledged(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1330,16 +1424,22 @@ class TestExportIdentityWarnings:
         _make_project(
             tmp_path,
             {
-                "a.c": "// FUNCTION: SERVER 0x10001000\n// SIZE: 4\nint foo(void) { return 1; }\n",
-                "b.c": "// FUNCTION: SERVER 0x10001000\n// SIZE: 4\nint foo2(void) { return 2; }\n",
+                "a.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\nint foo(void) { return 1; }\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                ),
+                "b.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\nint foo2(void) { return 2; }\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                ),
                 "lib.c": "/* identified by its archive bytes */\n",
             },
         )
         # A library row whose name is the header's prose, as an identification
         # tool recorded it.
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10002000"]\nfile = "lib.c"\nmarker_type = "LIBRARY"\n'
-            'name = "(static, no archive symbol)"\nsize = 4\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x10002000"]\nfile = "lib.c"\nkind = "LIBRARY"\nname = "(static, no archive symbol)"\nsize = 4\n',
             encoding="utf-8",
         )
         result, outdir = _invoke(tmp_path, monkeypatch, "--json")
@@ -1359,12 +1459,14 @@ class TestMigratedPrototypeFallback:
         _make_project(
             tmp_path,
             {
-                "server.c": "// FUNCTION: SERVER 0x10001000\n// SIZE: 16\n"
-                "int __cdecl Init(void *param)\n{\n    return 0;\n}\n",
+                "server.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\nint __cdecl Init(void *param)\n{\n    return 0;\n}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 16}},
+                ),
             },
         )
         monkeypatch.chdir(tmp_path)
-        migrated = runner.invoke(app, ["source", "migrate-markers"], catch_exceptions=False)
+        migrated = runner.invoke(app, ["source", "register"], catch_exceptions=False)
         assert migrated.exit_code == 0, migrated.output
         monkeypatch.setattr("rebrew.c_parser.function_signatures", lambda _source: {})
         result, outdir = _invoke(tmp_path, monkeypatch)

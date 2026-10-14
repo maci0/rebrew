@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from bin_util import make_coff_obj, make_lib_archive
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.data_ownership import enrich_library_owners, parse_link_map
@@ -151,7 +152,12 @@ def test_data_cli_exposes_explicit_library_owners(
 
     src = tmp_path / "src"
     src.mkdir()
-    (src / "crt.h").write_text("// GLOBAL: SERVER 0x100354c4\nextern int __argc;\n")
+    write_source(
+        src / "crt.h",
+        "/* ADDRESS: SERVER 0x100354c4 */\nextern int __argc;\n",
+        metadata_fields={"SERVER.0x100354c4": {"kind": "GLOBAL"}},
+        metadata_dir=tmp_path,
+    )
     link_map = tmp_path / "server.map"
     link_map.write_text(" 0003:00000000 ___argc 117663d4 LIBCMT:crt0dat.obj\n")
     cfg = _cfg(

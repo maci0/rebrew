@@ -52,7 +52,7 @@ def detect_reversed_vas(src_dir: Path, cfg: ProjectConfig | None = None) -> set[
         # GLOBAL/DATA mark data symbols, not functions.  A bare `// STUB:`
         # marker is a pre-skeleton placeholder (no body, no SIZE) — the
         # function is not actually reversed and stays an extract candidate.
-        if entry.is_function and entry.marker_type != "STUB"
+        if entry.is_function and entry.kind != "STUB"
     }
 
 

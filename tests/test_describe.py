@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 from bin_util import append_pe_section, make_pe
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.analysis import section_range
@@ -39,23 +40,17 @@ command = "cl"
 cflags = "/O2"
 """
 
-_PROBE_C = """\
-// FUNCTION: GAME 0x00401000
-// SIZE: 22
-int my_func(void) { return 1; }
+_PROBE_C = SourceFixture(
+    "/* ADDRESS: GAME 0x00401000 */\n\nint my_func(void) { return 1; }\n\n/* ADDRESS: GAME 0x00401034 */\n\nint helper_fn(void) { return 0; }\n",
+    {
+        "GAME.0x00401000": {"kind": "FUNCTION", "size": 22},
+        "GAME.0x00401034": {"kind": "FUNCTION", "size": 4},
+    },
+)
 
-// FUNCTION: GAME 0x00401034
-// SIZE: 4
-int helper_fn(void) { return 0; }
-"""
-
-_PROBE_META = """\
-["GAME.0x00401000"]
-status = "EXACT"
-
-["GAME.0x00401034"]
-status = "STUB"
-"""
+_PROBE_META = (
+    'format = 2\n["GAME.0x00401000"]\nstatus = "EXACT"\n\n["GAME.0x00401034"]\nstatus = "STUB"\n'
+)
 
 _FUNCTIONS_TXT = """\
 0x00401000 22 my_func
@@ -144,10 +139,10 @@ def _make_project(
     functions: str = _FUNCTIONS_TXT,
 ) -> None:
     """Write a minimal rebrew project (toml + sources + function list)."""
-    (tmp_path / "rebrew-project.toml").write_text(_TOML, encoding="utf-8")
+    write_source(tmp_path / "rebrew-project.toml", _TOML, encoding="utf-8")
     src = tmp_path / "src"
     src.mkdir()
-    (src / "game.c").write_text(source, encoding="utf-8")
+    write_source(src / "game.c", source, encoding="utf-8")
     import contextlib as _contextlib
     import json as _json
 
@@ -163,7 +158,9 @@ def _make_project(
     if source == _PROBE_C:
         # Volatile STATUS lives in rebrew-functions.toml at the metadata
         # root (the parent of reversed_dir).
-        (tmp_path / "rebrew-functions.toml").write_text(_PROBE_META, encoding="utf-8")
+        from rebrew.metadata.functions import update_source_status
+
+        update_source_status(tmp_path, "EXACT", "GAME", PROBE_VA, force=True)
 
 
 def _make_binary(tmp_path: Path) -> int:
@@ -401,15 +398,15 @@ class TestDecoratedLookupName:
         """
         import rebrew.describe as describe_mod
         from rebrew.describe import _build_lookup
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
         anns = [
-            Annotation(va=0x1000, size=0x10, name="", symbol="hook@@12"),
-            Annotation(va=0x1100, size=0x10, name="", symbol="@keeps@4"),
-            Annotation(va=0x1200, size=0x10, name="", symbol="_sleepish@4"),
-            Annotation(va=0x1300, size=0x10, name="", symbol="__foo"),
-            Annotation(va=0x1400, size=0x10, name="", symbol="_foo"),
-            Annotation(va=0x1500, size=0x10, name="kept", symbol="hook@@12"),
+            SourceBinding(va=0x1000, size=0x10, name="", symbol="hook@@12"),
+            SourceBinding(va=0x1100, size=0x10, name="", symbol="@keeps@4"),
+            SourceBinding(va=0x1200, size=0x10, name="", symbol="_sleepish@4"),
+            SourceBinding(va=0x1300, size=0x10, name="", symbol="__foo"),
+            SourceBinding(va=0x1400, size=0x10, name="", symbol="_foo"),
+            SourceBinding(va=0x1500, size=0x10, name="kept", symbol="hook@@12"),
         ]
         monkeypatch.setattr(describe_mod, "_collect_annotations", lambda cfg: anns)
         monkeypatch.setattr(describe_mod, "cached_function_list", lambda cfg: [])

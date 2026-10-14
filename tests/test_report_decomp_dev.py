@@ -17,7 +17,7 @@ def _fake_ann(va: int, size: int, name: str, status: str) -> SimpleNamespace:
         symbol=f"_{name}",
         status=status,
         module="GAME",
-        marker_type="FUNCTION",
+        kind="FUNCTION",
         filepath=f"src/{name}.c",
         is_data=False,
         is_function=True,
@@ -48,7 +48,7 @@ class TestDecompDevReport:
         monkeypatch.setattr(report, "iter_sources", lambda d, cfg=None: [src_file])
         monkeypatch.setattr(
             report,
-            "iter_annotations",
+            "iter_source_bindings",
             lambda sources, target=None, metadata_dir=None: [(src_file, annos)],
         )
         monkeypatch.setattr("rebrew.sections.get_text_section_size", lambda _p: 0x1000)
@@ -257,7 +257,7 @@ class TestDecompDevDataMeasure:
         monkeypatch.setattr(report, "iter_sources", lambda d, cfg=None: [src_file])
         monkeypatch.setattr(
             report,
-            "iter_annotations",
+            "iter_source_bindings",
             lambda sources, target=None, metadata_dir=None: [
                 (src_file, [_fake_ann(0x1000, 64, "f", "EXACT")])
             ],

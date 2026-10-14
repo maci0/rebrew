@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from source_util import SourceFixture, write_source
+
 from rebrew.match_batch import (
     find_all_stubs,
     find_near_miss,
@@ -12,7 +14,7 @@ from rebrew.match_batch import (
 
 def _write_stub(tmp_path: Path, name: str, content: str) -> Path:
     f = tmp_path / name
-    f.write_text(content, encoding="utf-8")
+    write_source(f, content, encoding="utf-8")
     return f
 
 
@@ -22,19 +24,22 @@ def _write_meta(tmp_path: Path, va: int, status: str, **fields: object) -> None:
     Inline ``// STATUS:``/``// BLOCKER:`` comments are migration debt, not
     read — the parser defaults to STUB without a metadata overlay.
     """
-    from rebrew.metadata.functions import save_metadata
+    from rebrew.metadata.functions import get_entry, save_metadata
 
-    save_metadata(tmp_path, {("SERVER", va): {"status": status, **fields}})
+    save_metadata(
+        tmp_path,
+        {("SERVER", va): {**get_entry(tmp_path, va, "SERVER"), "status": status, **fields}},
+    )
 
 
 def _stub_file(tmp_path: Path, va: int = 0x10001000, status: str = "STUB", size: int = 64) -> Path:
     f = _write_stub(
         tmp_path,
         "func.c",
-        f"// FUNCTION: SERVER 0x{va:x}\n"
-        f"// SIZE: {size}\n"
-        f"// SYMBOL: _func\n"
-        f"int func(void) {{ return 1; }}\n",
+        SourceFixture(
+            f"/* ADDRESS: SERVER 0x{va:x} */\n\nint func(void) {{ return 1; }}\n",
+            {f"SERVER.0x{va:x}": {"kind": "FUNCTION", "size": int(f"{size}", 0)}},
+        ),
     )
     _write_meta(tmp_path, va, status)
     return f
@@ -72,10 +77,10 @@ class TestParseMatchingInfo:
         f = _write_stub(
             tmp_path,
             "func.c",
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// SIZE: 32\n"
-            "// SYMBOL: _func\n"
-            "int func(void) { return 1; }\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\n\n\nint func(void) { return 1; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 32, "symbol": "_func"}},
+            ),
         )
         _write_meta(tmp_path, 0x10001000, "NEAR_MATCHING", blocker_delta=4)
         stubs = parse_matching_info(f, max_delta=10)
@@ -115,9 +120,14 @@ class TestFindAllStubs:
             _write_stub(
                 tmp_path,
                 filename,
-                f"// FUNCTION: SERVER 0x{va:x}\n// SIZE: 32\n{body}",
+                SourceFixture(
+                    f"/* ADDRESS: SERVER 0x{va:x} */\n\n{body}",
+                    {f"SERVER.0x{va:x}": {"kind": "FUNCTION", "size": 32}},
+                ),
             )
-            entries[("SERVER", va)] = {"status": "STUB"}
+            from rebrew.metadata.functions import get_entry
+
+            entries[("SERVER", va)] = {**get_entry(tmp_path, va, "SERVER"), "status": "STUB"}
         save_metadata(tmp_path, entries)
 
         def symbols(ignored: set[str]) -> set[str]:
@@ -136,10 +146,10 @@ class TestFindNearMiss:
         _write_stub(
             tmp_path,
             "func.c",
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// SIZE: 32\n"
-            "// SYMBOL: _func\n"
-            "int func(void) { return 1; }\n",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\n\n\nint func(void) { return 1; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 32, "symbol": "_func"}},
+            ),
         )
         _write_meta(tmp_path, 0x10001000, "NEAR_MATCHING", blocker_delta=3)
         stubs = find_near_miss(tmp_path)

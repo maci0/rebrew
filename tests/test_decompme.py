@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_source
 from typer.testing import CliRunner
 
 import rebrew.decompme as decompme
@@ -48,14 +49,14 @@ class TestHttpProtocols:
 
 
 def _ann(va: int = 0x401000, size: int = 16, name: str = "func_a", symbol: str = "_func_a"):
-    from rebrew.metadata.annotation import Annotation
+    from rebrew.metadata.bindings import SourceBinding
 
-    return Annotation(
+    return SourceBinding(
         va=va,
         size=size,
         name=name,
         symbol=symbol,
-        marker_type="FUNCTION",
+        kind="FUNCTION",
         module="GAME",
         toolchain="msvc-6.0",
         cflags="/O2",
@@ -133,8 +134,11 @@ class TestBuildPayload:
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir).mkdir(exist_ok=True)
         src = cfg.reversed_dir / "func_a.c"
-        src.write_text(
-            "// FUNCTION: T 0x401000\n// SIZE: 16\nint func_a(void){return 0;}\n", encoding="utf-8"
+        write_source(
+            src,
+            "/* ADDRESS: T 0x401000 */\n\nint func_a(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"T.0x401000": {"kind": "FUNCTION", "size": 16}},
         )
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.extract_raw_bytes",
@@ -671,8 +675,11 @@ class TestCli:
         cfg = _cfg(tmp_path)
         cfg.reversed_dir.mkdir(exist_ok=True)
         src = cfg.reversed_dir / "func_a.c"
-        src.write_text(
-            "// FUNCTION: T 0x401000\n// SIZE: 16\nint func_a(void){return 0;}\n", encoding="utf-8"
+        write_source(
+            src,
+            "/* ADDRESS: T 0x401000 */\n\nint func_a(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"T.0x401000": {"kind": "FUNCTION", "size": 16}},
         )
         monkeypatch.setattr(decompme, "require_config", lambda target=None, json_mode=False: cfg)
         monkeypatch.setattr(
@@ -680,7 +687,7 @@ class TestCli:
             lambda p, va, size: b"\x55\x8b\xec\x5d\xc3" * 3,
         )
         monkeypatch.setattr(
-            "rebrew.metadata.annotation.parse_c_file_multi",
+            "rebrew.metadata.bindings.read_source_bindings",
             lambda p, target_name=None, metadata_dir=None: [_ann()],
         )
         monkeypatch.setattr(
@@ -742,7 +749,7 @@ class TestCli:
         message tells the user to pass the flag)."""
         cfg, src = self._patch(tmp_path, monkeypatch)
         monkeypatch.setattr(
-            "rebrew.metadata.annotation.parse_c_file_multi",
+            "rebrew.metadata.bindings.read_source_bindings",
             lambda p, target_name=None, metadata_dir=None: [_ann(size=0)],
         )
         r = runner.invoke(decompme.app, ["--dry-run", "--size", "32", str(src)])
@@ -866,9 +873,11 @@ class TestCli:
 
         monkeypatch.setattr("httpx.post", fake_post)
         runner.invoke(decompme.app, [str(src)])
-        src.write_text(
-            "// FUNCTION: T 0x401000\n// SIZE: 16\nint func_a(void){return 1;}\n",
+        write_source(
+            src,
+            "/* ADDRESS: T 0x401000 */\n\nint func_a(void){return 1;}\n",
             encoding="utf-8",
+            metadata_fields={"T.0x401000": {"kind": "FUNCTION", "size": 16}},
         )
         again = runner.invoke(decompme.app, ["--json", str(src)])
         assert again.exit_code == 0

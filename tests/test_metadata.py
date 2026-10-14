@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_source, write_store_fixture
 
 from rebrew.metadata.document import parse_metadata_key as _parse_key
 from rebrew.metadata.document import qualified_key as _qualified_key
@@ -19,7 +20,7 @@ from rebrew.metadata.functions import (
     get_entry,
     is_metadata_key,
     load_metadata,
-    merge_into_annotation,
+    merge_into_binding,
     metadata_path,
     remove_field,
     remove_fields_batch,
@@ -35,7 +36,7 @@ from rebrew.metadata.functions import (
 
 
 def _make_annotation(**kwargs: object) -> SimpleNamespace:
-    """Make a minimal Annotation-like object for merge tests."""
+    """Make a minimal SourceBinding-like object for merge tests."""
     defaults: dict[str, object] = {
         "va": 0x01006364,
         "module": "SERVER",
@@ -184,9 +185,12 @@ class TestLoadSaveMetadata:
         assert idx_low < idx_high
 
     def test_corrupt_toml_returns_empty(self, tmp_path: Path) -> None:
-        (tmp_path / METADATA_FILENAME).write_text("this is not [[valid toml", encoding="utf-8")
-        result = load_metadata(tmp_path)
-        assert result == {}
+        path = tmp_path / METADATA_FILENAME
+        original = "{broken"
+        path.write_text(original)
+        with pytest.raises(ValueError):
+            load_metadata(tmp_path)
+        assert path.read_text() == original
 
     def test_multi_target_no_collision(self, tmp_path: Path) -> None:
         """Two different modules at the same VA coexist in one metadata."""
@@ -324,7 +328,9 @@ class TestDeleteMetadataEntry:
         second canonically-spelled table: the loader parses both spellings to
         one (module, va), so a duplicate would split the entry."""
         path = tmp_path / METADATA_FILENAME
-        path.write_text('["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8")
+        write_store_fixture(
+            path, 'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
+        )
 
         _set_field(tmp_path, 0x1000, "cflags", "/O2", module="SERVER")
 
@@ -373,8 +379,9 @@ class TestDeleteField:
 
     def test_removes_field_from_non_canonical_key(self, tmp_path: Path) -> None:
         path = tmp_path / METADATA_FILENAME
-        path.write_text(
-            '["SERVER.0x1000"]\nstatus = "STUB"\nblocker = "register allocation"\n',
+        write_store_fixture(
+            path,
+            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\nblocker = "register allocation"\n',
             encoding="utf-8",
         )
 
@@ -496,12 +503,11 @@ class TestUpdateField:
             assert get_entry(tmp_path, 0x1000, "T") == {}
 
     def test_mutate_recovers_corrupt_via_preserve_path(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import METADATA_FILENAME, remove_field
-
-        original = "{broken"
-        (tmp_path / METADATA_FILENAME).write_text(original, encoding="utf-8")
-        assert remove_field(tmp_path, 0x1000, "size", "SERVER") is False
-        assert (tmp_path / (METADATA_FILENAME + ".corrupt")).read_text(encoding="utf-8") == original
+        path = tmp_path / METADATA_FILENAME
+        path.write_text("{broken")
+        with pytest.raises(ValueError):
+            remove_field(tmp_path, 0x1000, "size", "SERVER")
+        assert path.read_text() == "{broken"
 
 
 class TestRemoveField:
@@ -556,20 +562,20 @@ class TestRemoveField:
 
 
 class TestRecordMigratedMarkers:
-    """`rebrew source migrate-markers` moves an inline marker block into the TOML
+    """`rebrew source register` moves an inline marker block into the TOML
     through this one writer, so the identity keys it owns are only ever
     written here."""
 
     def test_writes_identity_and_fields_for_a_new_entry(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import record_migrated_markers
+        from rebrew.metadata.functions import record_function_rows
 
-        record_migrated_markers(
+        record_function_rows(
             tmp_path,
             [
                 {
                     "module": "SERVER",
                     "va": 0x1000,
-                    "identity": {"file": "sub_1000.c", "symbol": "_fn", "marker_type": "func"},
+                    "identity": {"file": "sub_1000.c", "symbol": "_fn", "kind": "func"},
                     "fields": {"size": 16, "cflags": "/O2"},
                 }
             ],
@@ -578,16 +584,16 @@ class TestRecordMigratedMarkers:
         assert entry == {
             "file": "sub_1000.c",
             "symbol": "_fn",
-            "marker_type": "func",
+            "kind": "func",
             "size": 16,
             "cflags": "/O2",
         }
 
     def test_merges_into_an_existing_entry_without_dropping_it(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import record_migrated_markers
+        from rebrew.metadata.functions import record_function_rows
 
         save_metadata(tmp_path, {("SERVER", 0x1000): {"status": "EXACT", "note": "kept"}})
-        record_migrated_markers(
+        record_function_rows(
             tmp_path,
             [{"module": "SERVER", "va": 0x1000, "identity": {"file": "sub_1000.c"}}],
         )
@@ -599,10 +605,10 @@ class TestRecordMigratedMarkers:
     def test_keeps_the_existing_name_and_skips_empty_values(self, tmp_path: Path) -> None:
         """`name` is the one identity key that must not overwrite a hand-set
         one, and an empty value is not worth writing at all."""
-        from rebrew.metadata.functions import record_migrated_markers
+        from rebrew.metadata.functions import record_function_rows
 
         save_metadata(tmp_path, {("SERVER", 0x1000): {"name": "Sub_1000"}})
-        record_migrated_markers(
+        record_function_rows(
             tmp_path,
             [
                 {
@@ -618,17 +624,17 @@ class TestRecordMigratedMarkers:
         assert "symbol" not in entry
 
     def test_sets_name_when_absent(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import record_migrated_markers
+        from rebrew.metadata.functions import record_function_rows
 
-        record_migrated_markers(
+        record_function_rows(
             tmp_path, [{"module": "SERVER", "va": 0x1000, "identity": {"name": "_fn"}}]
         )
         assert get_entry(tmp_path, 0x1000, "SERVER")["name"] == "_fn"
 
     def test_strips_control_chars_like_set_fields(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import record_migrated_markers
+        from rebrew.metadata.functions import record_function_rows
 
-        record_migrated_markers(
+        record_function_rows(
             tmp_path,
             [
                 {
@@ -643,33 +649,33 @@ class TestRecordMigratedMarkers:
         assert load_metadata(tmp_path)[("SERVER", 0x1000)]["note"] == "see[0m dump"
 
     def test_rejects_an_unknown_identity_field(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import record_migrated_markers
+        from rebrew.metadata.functions import record_function_rows
 
-        with pytest.raises(ValueError, match="unknown marker identity field 'cflags'"):
-            record_migrated_markers(
+        with pytest.raises(ValueError, match="unknown function identity field 'cflags'"):
+            record_function_rows(
                 tmp_path, [{"module": "SERVER", "va": 0x1000, "identity": {"cflags": "/O2"}}]
             )
         assert get_entry(tmp_path, 0x1000, "SERVER") == {}
 
     def test_rejects_status_and_a_missing_module(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import record_migrated_markers
+        from rebrew.metadata.functions import record_function_rows
 
         with pytest.raises(ValueError, match="update_statuses_batch"):
-            record_migrated_markers(
+            record_function_rows(
                 tmp_path, [{"module": "SERVER", "va": 0x1000, "fields": {"status": "EXACT"}}]
             )
         with pytest.raises(ValueError, match="non-empty module"):
-            record_migrated_markers(tmp_path, [{"va": 0x1000, "identity": {"file": "a.c"}}])
+            record_function_rows(tmp_path, [{"va": 0x1000, "identity": {"file": "a.c"}}])
 
     def test_no_rows_writes_nothing(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import record_migrated_markers
+        from rebrew.metadata.functions import record_function_rows
 
-        record_migrated_markers(tmp_path, [])
+        record_function_rows(tmp_path, [])
         assert not metadata_path(tmp_path).exists()
 
 
 # ---------------------------------------------------------------------------
-# merge_into_annotation
+# merge_into_binding
 # ---------------------------------------------------------------------------
 
 
@@ -691,7 +697,7 @@ class TestMergeIntoAnnotation:
             },
         )
         ann = _make_annotation(va=0x01006364, module="SERVER")
-        merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
+        merge_into_binding(ann, tmp_path)  # type: ignore[arg-type]
         assert ann.size == 80
         assert ann.cflags == "/O1 /Gd"
         assert ann.status == "NEAR_MATCHING"
@@ -702,23 +708,21 @@ class TestMergeIntoAnnotation:
         assert ann.source == "SBHEAP.C:100"
 
     def test_section_not_owned_by_function_metadata(self, tmp_path: Path) -> None:
-        """SECTION is owned by metadata/data.py — function metadata must not merge it."""
         save_metadata(tmp_path, {("SERVER", 0x01006364): {"section": ".text", "size": 80}})
         ann = _make_annotation(va=0x01006364, module="SERVER", section="")
-        merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
-        assert ann.section == ""  # section NOT applied by function metadata
-        assert ann.size == 80  # size still applied normally
+        with pytest.raises(ValueError, match="unknown metadata fields"):
+            merge_into_binding(ann, tmp_path)
 
     def test_metadata_wins_over_inline(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01006364): {"status": "EXACT", "size": 90}})
         ann = _make_annotation(va=0x01006364, module="SERVER", status="NEAR_MATCHING", size=80)
-        merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
+        merge_into_binding(ann, tmp_path)  # type: ignore[arg-type]
         assert ann.status == "EXACT"
         assert ann.size == 90
 
     def test_no_metadata_leaves_annotation_unchanged(self, tmp_path: Path) -> None:
         ann = _make_annotation(va=0x01006364, module="SERVER", status="NEAR_MATCHING", size=80)
-        merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
+        merge_into_binding(ann, tmp_path)  # type: ignore[arg-type]
         assert ann.status == "NEAR_MATCHING"
         assert ann.size == 80
 
@@ -727,7 +731,7 @@ class TestMergeIntoAnnotation:
         ann = _make_annotation(
             va=0x01006364, module="SERVER", status="NEAR_MATCHING", size=80, cflags="/O2 /Gd"
         )
-        merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
+        merge_into_binding(ann, tmp_path)  # type: ignore[arg-type]
         assert ann.status == "EXACT"  # metadata wins
         assert ann.size == 80  # unchanged
         assert ann.cflags == "/O2 /Gd"  # unchanged
@@ -735,26 +739,26 @@ class TestMergeIntoAnnotation:
     def test_globals_from_list(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01006364): {"globals": ["g_foo", "g_bar"]}})
         ann = _make_annotation(va=0x01006364, module="SERVER")
-        merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
+        merge_into_binding(ann, tmp_path)  # type: ignore[arg-type]
         assert ann.globals_list == ["g_foo", "g_bar"]
 
     def test_globals_from_comma_string(self, tmp_path: Path) -> None:
         # Tolerate comma-string globals (inline annotation style)
         save_metadata(tmp_path, {("SERVER", 0x01006364): {"globals": "g_foo, g_bar"}})
         ann = _make_annotation(va=0x01006364, module="SERVER")
-        merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
+        merge_into_binding(ann, tmp_path)  # type: ignore[arg-type]
         assert ann.globals_list == ["g_foo", "g_bar"]
 
     def test_returns_same_object(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01006364): {"status": "EXACT"}})
         ann = _make_annotation(va=0x01006364, module="SERVER")
-        result = merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
+        result = merge_into_binding(ann, tmp_path)  # type: ignore[arg-type]
         assert result is ann
 
     def test_va_not_in_metadata_is_noop(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01006000): {"status": "EXACT"}})
         ann = _make_annotation(va=0x01006364, module="SERVER", status="NEAR_MATCHING")
-        merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
+        merge_into_binding(ann, tmp_path)  # type: ignore[arg-type]
         assert ann.status == "NEAR_MATCHING"  # not touched
 
     def test_multi_target_merge_isolated(self, tmp_path: Path) -> None:
@@ -768,8 +772,8 @@ class TestMergeIntoAnnotation:
         )
         ann_server = _make_annotation(va=0x10008880, module="SERVER")
         ann_client = _make_annotation(va=0x10008880, module="CLIENT")
-        merge_into_annotation(ann_server, tmp_path)  # type: ignore[arg-type]
-        merge_into_annotation(ann_client, tmp_path)  # type: ignore[arg-type]
+        merge_into_binding(ann_server, tmp_path)  # type: ignore[arg-type]
+        merge_into_binding(ann_client, tmp_path)  # type: ignore[arg-type]
         assert ann_server.status == "EXACT"
         assert ann_server.blocker == ""  # CLIENT blocker not leaked into SERVER
         assert ann_client.status == "NEAR_MATCHING"
@@ -803,17 +807,20 @@ class TestIdempotentStatusUpdate:
 
     def test_writes_when_status_differs(self, tmp_path: Path) -> None:
         p = tmp_path / "func.c"
-        p.write_text(
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// ORIGIN: GAME\n"
-            "// SIZE: 31\n// CFLAGS: /O2 /Gd\n\nint __cdecl bit_reverse(int x) { return x; }\n",
+        write_source(
+            p,
+            "/* ADDRESS: SERVER 0x10008880 */\n\n\n\n\n\nint __cdecl bit_reverse(int x) { return x; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10008880": {"kind": "FUNCTION", "size": 31, "cflags": "/O2 /Gd"}
+            },
         )
         from rebrew.metadata.functions import get_entry, update_source_status
 
         update_source_status(tmp_path, "RELOC", "SERVER", 0x10008880)
         entry = get_entry(tmp_path, 0x10008880, module="SERVER")
         assert entry["status"] == "RELOC"
-        assert "STATUS: EXACT" in p.read_text(encoding="utf-8")
+        assert "STATUS:" not in p.read_text(encoding="utf-8")
 
 
 class TestStatusWriteNonCanonicalKey:
@@ -821,7 +828,7 @@ class TestStatusWriteNonCanonicalKey:
         """The status path must not append a canonically-spelled twin of a key
         the store already holds in another spelling."""
         path = tmp_path / METADATA_FILENAME
-        path.write_text('["SERVER.0x1000"]\nsize = 42\n', encoding="utf-8")
+        write_store_fixture(path, 'format = 2\n["SERVER.0x1000"]\nsize = 42\n', encoding="utf-8")
 
         from rebrew.metadata.functions import update_source_status
 
@@ -834,38 +841,36 @@ class TestStatusWriteNonCanonicalKey:
 
 class TestMetadataEdgeCases:
     def test_load_metadata_corrupt_toml(self, tmp_path: Path) -> None:
-        import rebrew.metadata.functions as md
-
-        md.clear_metadata_cache()
-        (tmp_path / "rebrew-functions.toml").write_text("{broken toml", encoding="utf-8")
-        assert md.load_metadata(tmp_path) == {}
+        path = tmp_path / METADATA_FILENAME
+        original = "{broken"
+        path.write_text(original)
+        with pytest.raises(ValueError):
+            load_metadata(tmp_path)
+        assert path.read_text() == original
 
     def test_load_metadata_skips_non_dict_values(self, tmp_path: Path) -> None:
-        import rebrew.metadata.functions as md
-
-        md.clear_metadata_cache()
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '"SERVER.0x10001000" = "scalar"\n["SERVER.0x10002000"]\nstatus = "EXACT"\n',
-            encoding="utf-8",
-        )
-        result = md.load_metadata(tmp_path)
-        # Scalar value skipped; dict value kept.
-        assert ("SERVER", 0x10002000) in result
-        assert ("SERVER", 0x10001000) not in result
+        path = tmp_path / METADATA_FILENAME
+        path.write_text('format = 2\n"SERVER.0x1000" = "scalar"\n')
+        with pytest.raises(ValueError, match="MODULE.0xVA"):
+            load_metadata(tmp_path)
 
     def test_load_metadata_mtime_cache_invalidated(self, tmp_path: Path) -> None:
         import rebrew.metadata.functions as md
 
         md.clear_metadata_cache()
         f = tmp_path / "rebrew-functions.toml"
-        f.write_text('["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8")
+        write_store_fixture(
+            f, 'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8"
+        )
         first = md.load_metadata(tmp_path)
         assert ("SERVER", 0x10001000) in first
         # Rewrite with a new status; mtime change must invalidate the cache.
         import os
 
         os.utime(f, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_000))
-        f.write_text('["SERVER.0x10001000"]\nstatus = "STUB"\n', encoding="utf-8")
+        write_store_fixture(
+            f, 'format = 2\n["SERVER.0x10001000"]\nstatus = "STUB"\n', encoding="utf-8"
+        )
         second = md.load_metadata(tmp_path)
         assert second[("SERVER", 0x10001000)]["status"] == "STUB"
 
@@ -878,11 +883,13 @@ class TestMetadataEdgeCases:
 
         md.clear_metadata_cache()
         f = tmp_path / "rebrew-functions.toml"
-        f.write_text('["SERVER.0x10001000"]\nstatus = "STUB"\n', encoding="utf-8")
+        write_store_fixture(
+            f, 'format = 2\n["SERVER.0x10001000"]\nstatus = "STUB"\n', encoding="utf-8"
+        )
         mtime_ns = f.stat().st_mtime_ns
         assert md.load_metadata(tmp_path)[("SERVER", 0x10001000)]["status"] == "STUB"
         tmp = tmp_path / "new.toml"
-        tmp.write_text('["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8")
+        tmp.write_text('format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8")
         os.utime(tmp, ns=(mtime_ns, mtime_ns))
         os.replace(tmp, f)
         assert f.stat().st_mtime_ns == mtime_ns
@@ -895,98 +902,64 @@ class TestMetadataEdgeCases:
 
 
 class TestWritePathsCorruptToml:
-    def test_metadata_file_write_locked_readonly(self, tmp_path: Path) -> None:
-        """rebrew-functions.toml is left 0444 after every tool write — hand
-        edits fail with Permission denied; the sanctioned CLI path chmods
-        writable, updates, re-locks."""
-        from rebrew.metadata.functions import (
-            METADATA_FILENAME,
-            get_entry,
-            update_field,
-            update_source_status,
-        )
-
-        update_field(tmp_path, 0x1000, "size", 42, "SERVER")
+    @pytest.mark.parametrize("operation", ["field", "status", "remove", "save"])
+    def test_corrupt_store_is_never_replaced(self, tmp_path: Path, operation: str) -> None:
         path = tmp_path / METADATA_FILENAME
-        assert path.exists()
-        assert (path.stat().st_mode & 0o777) == 0o444
-        # The sanctioned path keeps working through the lock.
-        update_source_status(tmp_path, "EXACT", "SERVER", 0x1000)
-        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "EXACT"
-        assert (path.stat().st_mode & 0o777) == 0o444
-
-    def test_update_field_recovers_from_corrupt(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import METADATA_FILENAME, get_entry, update_field
-
-        (tmp_path / METADATA_FILENAME).write_text("{broken", encoding="utf-8")
-        update_field(tmp_path, 0x1000, "size", 42, "SERVER")
-        entry = get_entry(tmp_path, 0x1000, "SERVER")
-        assert entry.get("size") == 42
-
-    def test_update_source_status_recovers_from_corrupt(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import METADATA_FILENAME, get_entry, update_source_status
-
-        (tmp_path / METADATA_FILENAME).write_text("{broken", encoding="utf-8")
-        update_source_status(tmp_path, "EXACT", "SERVER", 0x1000)
-        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "EXACT"
-
-    def test_corrupt_file_is_preserved_not_clobbered(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import METADATA_FILENAME, update_field
-
         original = '{broken\n[SERVER.0x2000]\nstatus = "EXACT"\n'
-        (tmp_path / METADATA_FILENAME).write_text(original, encoding="utf-8")
-        update_field(tmp_path, 0x1000, "size", 42, "SERVER")
-        backup = tmp_path / (METADATA_FILENAME + ".corrupt")
-        assert backup.read_text(encoding="utf-8") == original
-
-    def test_remove_field_recovers_from_corrupt(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import METADATA_FILENAME, remove_field
-
-        (tmp_path / METADATA_FILENAME).write_text("{broken", encoding="utf-8")
-        # Corrupt file → returns False without crashing.
-        assert remove_field(tmp_path, 0x1000, "size", "SERVER") is False
+        path.write_text(original)
+        with pytest.raises(ValueError, match="refusing to overwrite"):
+            if operation == "field":
+                update_field(tmp_path, 0x1000, "size", 42, "SERVER")
+            elif operation == "status":
+                update_source_status(tmp_path, "EXACT", "SERVER", 0x1000)
+            elif operation == "remove":
+                remove_field(tmp_path, 0x1000, "size", "SERVER")
+            else:
+                save_metadata(tmp_path, {("SERVER", 0x1000): {"size": 42}})
+        assert path.read_text() == original
+        assert not (tmp_path / (METADATA_FILENAME + ".corrupt")).exists()
 
 
 class TestMergeAnnotationEdges:
     def test_blocker_delta_non_numeric_sets_none(self, tmp_path: Path) -> None:
-        from rebrew.metadata.annotation import Annotation
-        from rebrew.metadata.functions import merge_into_annotation, update_field
+        from rebrew.metadata.bindings import SourceBinding
+        from rebrew.metadata.functions import merge_into_binding, update_field
 
         update_field(tmp_path, 0x1000, "blocker_delta", "abc", "SERVER")
-        ann = Annotation(va=0x1000, module="SERVER", name="f")
-        merge_into_annotation(ann, tmp_path)
+        ann = SourceBinding(va=0x1000, module="SERVER", name="f")
+        merge_into_binding(ann, tmp_path)
         assert ann.blocker_delta is None
 
     def test_size_non_integral_float_left_unset(self, tmp_path: Path) -> None:
         """Hand-edited ``size = 12.9`` must not truncate to 12 on merge."""
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
         from rebrew.metadata.functions import METADATA_FILENAME, apply_metadata_entry
 
         (tmp_path / METADATA_FILENAME).write_text(
-            '["SERVER.0x00001000"]\nsize = 12.9\n',
+            'format = 2\n["SERVER.0x00001000"]\nsize = 12.9\n',
             encoding="utf-8",
         )
-        ann = Annotation(va=0x1000, module="SERVER", name="f", size=99)
+        ann = SourceBinding(va=0x1000, module="SERVER", name="f", size=99)
         apply_metadata_entry(ann, {"size": 12.9})
         assert ann.size == 99
 
     def test_size_inf_does_not_crash_merge(self, tmp_path: Path) -> None:
         """``size = inf`` used to raise OverflowError out of apply_metadata_entry."""
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
         from rebrew.metadata.functions import apply_metadata_entry
 
-        ann = Annotation(va=0x1000, module="SERVER", name="f", size=99)
+        ann = SourceBinding(va=0x1000, module="SERVER", name="f", size=99)
         apply_metadata_entry(ann, {"size": float("inf")})
         assert ann.size == 99
 
     def test_skip_overlays_onto_annotation(self, tmp_path: Path) -> None:
         """``skip`` is a canonical metadata field, so the overlay carries it."""
-        from rebrew.metadata.annotation import Annotation
-        from rebrew.metadata.functions import METADATA_FILENAME, merge_into_annotation, update_field
+        from rebrew.metadata.bindings import SourceBinding
+        from rebrew.metadata.functions import METADATA_FILENAME, merge_into_binding, update_field
 
         update_field(tmp_path, 0x1000, "skip", "parked for the archived path", "SERVER")
-        ann = Annotation(va=0x1000, module="SERVER", name="f")
-        merge_into_annotation(ann, tmp_path)
+        ann = SourceBinding(va=0x1000, module="SERVER", name="f")
+        merge_into_binding(ann, tmp_path)
         assert ann.skip == "parked for the archived path"
 
         # A bool/int spelling round-trips as its str form; the SKIP check
@@ -994,37 +967,37 @@ class TestMergeAnnotationEdges:
         bool_dir = tmp_path / "bool"
         bool_dir.mkdir()
         (bool_dir / METADATA_FILENAME).write_text(
-            '["SERVER.0x00001000"]\nskip = false\n', encoding="utf-8"
+            'format = 2\n["SERVER.0x00001000"]\nskip = false\n', encoding="utf-8"
         )
-        ann2 = Annotation(va=0x1000, module="SERVER", name="f")
-        merge_into_annotation(ann2, bool_dir)
+        ann2 = SourceBinding(va=0x1000, module="SERVER", name="f")
+        merge_into_binding(ann2, bool_dir)
         assert ann2.skip.lower() in ("", "0", "false", "no")
 
     def test_analysis_fills_empty_note(self, tmp_path: Path) -> None:
-        from rebrew.metadata.annotation import Annotation
-        from rebrew.metadata.functions import merge_into_annotation, update_field
+        from rebrew.metadata.bindings import SourceBinding
+        from rebrew.metadata.functions import merge_into_binding, update_field
 
         update_field(tmp_path, 0x1000, "analysis", "structural note", "SERVER")
-        ann = Annotation(va=0x1000, module="SERVER", name="f")
-        merge_into_annotation(ann, tmp_path)
+        ann = SourceBinding(va=0x1000, module="SERVER", name="f")
+        merge_into_binding(ann, tmp_path)
         assert ann.note == "structural note"
 
     def test_analysis_does_not_override_note(self, tmp_path: Path) -> None:
-        from rebrew.metadata.annotation import Annotation
-        from rebrew.metadata.functions import merge_into_annotation, update_field
+        from rebrew.metadata.bindings import SourceBinding
+        from rebrew.metadata.functions import merge_into_binding, update_field
 
         update_field(tmp_path, 0x1000, "analysis", "structural note", "SERVER")
-        ann = Annotation(va=0x1000, module="SERVER", name="f", note="manual note")
-        merge_into_annotation(ann, tmp_path)
+        ann = SourceBinding(va=0x1000, module="SERVER", name="f", note="manual note")
+        merge_into_binding(ann, tmp_path)
         assert ann.note == "manual note"
 
     def test_globals_list_merged(self, tmp_path: Path) -> None:
-        from rebrew.metadata.annotation import Annotation
-        from rebrew.metadata.functions import merge_into_annotation, update_field
+        from rebrew.metadata.bindings import SourceBinding
+        from rebrew.metadata.functions import merge_into_binding, update_field
 
         update_field(tmp_path, 0x1000, "globals", ["g_a", "g_b"], "SERVER")
-        ann = Annotation(va=0x1000, module="SERVER", name="f")
-        merge_into_annotation(ann, tmp_path)
+        ann = SourceBinding(va=0x1000, module="SERVER", name="f")
+        merge_into_binding(ann, tmp_path)
         assert ann.globals_list == ["g_a", "g_b"]
 
 
@@ -1274,19 +1247,19 @@ class TestStatusCasePolicy:
         assert status[qualified_key("NP", 0x1000)]["status"] == "NEAR_MATCHING"
 
     def test_merge_normalizes_near_match_alias(self, tmp_path: Path) -> None:
-        from rebrew.metadata.annotation import Annotation
-        from rebrew.metadata.functions import merge_into_annotation, save_metadata
+        from rebrew.metadata.bindings import SourceBinding
+        from rebrew.metadata.functions import merge_into_binding, save_metadata
 
         save_metadata(tmp_path, {("T", 0x1000): {"status": "NEAR_MATCH"}})
-        ann = Annotation(va=0x1000, size=10, module="T")
-        merge_into_annotation(ann, tmp_path)
+        ann = SourceBinding(va=0x1000, size=10, module="T")
+        merge_into_binding(ann, tmp_path)
         assert ann.status == "NEAR_MATCHING"
-        from rebrew.metadata.annotation import Annotation
-        from rebrew.metadata.functions import merge_into_annotation, save_metadata
+        from rebrew.metadata.bindings import SourceBinding
+        from rebrew.metadata.functions import merge_into_binding, save_metadata
 
         save_metadata(tmp_path, {("T", 0x1000): {"status": "near_matching"}})
-        ann = Annotation(va=0x1000, size=10, module="T")
-        merge_into_annotation(ann, tmp_path)
+        ann = SourceBinding(va=0x1000, size=10, module="T")
+        merge_into_binding(ann, tmp_path)
         assert ann.status == "NEAR_MATCHING"
 
 
@@ -1618,21 +1591,20 @@ class TestFormatStamp:
     """Each store carries a format stamp its writers add and never rewrite."""
 
     def test_a_write_stamps_the_format_version(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import FORMAT_KEY, FORMAT_VERSION, update_field
+        from rebrew.metadata.document import FORMAT_KEY, FORMAT_VERSION
+        from rebrew.metadata.functions import update_field
 
         update_field(tmp_path, 0x1000, "note", "x", "SERVER", updated_by="lint")
         text = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
         assert f"{FORMAT_KEY} = {FORMAT_VERSION}" in text
 
     def test_a_foreign_stamp_is_preserved(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import FORMAT_KEY, update_field
-
-        (tmp_path / "rebrew-functions.toml").write_text(
-            f'{FORMAT_KEY} = 99\n\n["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
-        )
-        update_field(tmp_path, 0x1000, "note", "x", "SERVER", updated_by="lint")
-        text = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
-        assert f"{FORMAT_KEY} = 99" in text
+        path = tmp_path / METADATA_FILENAME
+        original = 'format = 99\n["SERVER.0x1000"]\nstatus = "STUB"\n'
+        path.write_text(original)
+        with pytest.raises(ValueError, match="format = 2"):
+            update_field(tmp_path, 0x1000, "note", "x", "SERVER")
+        assert path.read_text() == original
 
     def test_the_tag_vocabulary_is_closed(self) -> None:
         from rebrew.metadata.functions import PROVENANCE_TAGS
@@ -1653,7 +1625,7 @@ class TestIdentityFileValidator:
     def test_identity_name_replacement_is_explicit(self, tmp_path: Path) -> None:
         from rebrew.metadata.functions import record_function_identity
 
-        fields = {"module": "SERVER", "va": 0x1000, "file": "src/f.c", "marker_type": "FUNCTION"}
+        fields = {"module": "SERVER", "va": 0x1000, "file": "src/f.c", "kind": "FUNCTION"}
         record_function_identity(tmp_path, **fields, name="original", symbol="_original")
         update_field(tmp_path, 0x1000, "note", "preserve this evidence", "SERVER")
         record_function_identity(tmp_path, **fields, name="replacement", symbol="_replacement")
@@ -1673,10 +1645,10 @@ class TestIdentityFileValidator:
                 validate_identity_file(bad)
 
     def test_migrate_markers_refuses_an_escaping_path(self, tmp_path: Path) -> None:
-        from rebrew.metadata.functions import record_migrated_markers
+        from rebrew.metadata.functions import record_function_rows
 
         with pytest.raises(ValueError, match="escape the project"):
-            record_migrated_markers(
+            record_function_rows(
                 tmp_path,
                 [{"module": "SERVER", "va": 0x1000, "identity": {"file": "../x.c"}}],
             )

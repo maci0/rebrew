@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import write_source
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
 from rebrew.compiler.compile import CompareResult
@@ -367,13 +368,13 @@ class TestRebrewTestBatchJson:
         exit EXIT_MISMATCH on failures, EXIT_ERROR on compile errors."""
         import typer
 
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
 
         def _fake_entries(*a: Any, **k: Any) -> Any:
             return (
-                [Annotation(va=0x1000, name="a", status="STUB", size=10, filepath="a.c")],
+                [SourceBinding(va=0x1000, name="a", status="STUB", size=10, filepath="a.c")],
                 0,
                 1,
                 [(object(), "1B diff")],
@@ -405,13 +406,13 @@ class TestRebrewTestBatchJson:
     def test_compile_error_batch_raises_error_exit(self, monkeypatch: Any, tmp_path: Path) -> None:
         import typer
 
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
 
         def _fake_entries(*a: Any, **k: Any) -> Any:
             return (
-                [Annotation(va=0x1000, name="a", status="STUB", size=10, filepath="a.c")],
+                [SourceBinding(va=0x1000, name="a", status="STUB", size=10, filepath="a.c")],
                 0,
                 1,
                 [(object(), "syntax error")],
@@ -584,7 +585,7 @@ class TestRebrewTestBatchDir:
     def test_batch_dir_filters_reversed_dir_relative(
         self, monkeypatch: Any, tmp_path: Path, capsys: Any
     ) -> None:
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
         from rebrew.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
@@ -594,10 +595,10 @@ class TestRebrewTestBatchDir:
         def _fake_entries(*a: Any, **k: Any) -> Any:
             return (
                 [
-                    Annotation(
+                    SourceBinding(
                         va=0x1000, name="a", status="STUB", size=10, filepath="Units/mem/a.c"
                     ),
-                    Annotation(va=0x2000, name="b", status="STUB", size=10, filepath="Game/b.c"),
+                    SourceBinding(va=0x2000, name="b", status="STUB", size=10, filepath="Game/b.c"),
                 ],
                 0,
                 0,
@@ -637,7 +638,7 @@ class TestRebrewTestBatchDir:
     ) -> None:
         """`Units` must not match the sibling `Units_extra` (a raw string
         prefix did)."""
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
         from rebrew.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
@@ -647,10 +648,10 @@ class TestRebrewTestBatchDir:
         def _fake_entries(*a: Any, **k: Any) -> Any:
             return (
                 [
-                    Annotation(
+                    SourceBinding(
                         va=0x1000, name="a", status="STUB", size=10, filepath="Units/mem/a.c"
                     ),
-                    Annotation(
+                    SourceBinding(
                         va=0x2000, name="b", status="STUB", size=10, filepath="Units_extra/b.c"
                     ),
                 ],
@@ -686,7 +687,7 @@ class TestRebrewTestBatchDir:
         self, monkeypatch: Any, tmp_path: Path, capsys: Any
     ) -> None:
         """A `..`-bearing root still matches after resolution."""
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
         from rebrew.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
@@ -695,7 +696,7 @@ class TestRebrewTestBatchDir:
         def _fake_entries(*a: Any, **k: Any) -> Any:
             return (
                 [
-                    Annotation(
+                    SourceBinding(
                         va=0x1000, name="a", status="STUB", size=10, filepath="Units/mem/a.c"
                     ),
                 ],
@@ -887,7 +888,7 @@ class TestForceStatus:
         self, monkeypatch: Any, tmp_path: Path, result_status: str, seed: str = "PROVEN"
     ) -> SimpleNamespace:
         from rebrew.compiler.compile import CompareResult
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
         from rebrew.metadata.functions import update_source_status
 
         cfg = SimpleNamespace(
@@ -900,9 +901,12 @@ class TestForceStatus:
             default_jobs=1,
         )
         cfg.reversed_dir.mkdir(exist_ok=True)
-        (cfg.reversed_dir / "my_func.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint __cdecl my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "my_func.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint __cdecl my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
         update_source_status(cfg.metadata_dir, seed, "SERVER", 0x1000)
 
@@ -910,19 +914,19 @@ class TestForceStatus:
         monkeypatch.setattr("rebrew.test.require_source_arg", lambda cfg, s, **_kw: s)
         monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg: {})
         monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec")
-        ann = Annotation(
+        ann = SourceBinding(
             va=0x1000,
             name="my_func",
             symbol="_my_func",
             module="SERVER",
             status=seed,
             size=3,
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             filepath="my_func.c",
             cflags="",
         )
-        monkeypatch.setattr("rebrew.test.parse_c_file_multi", lambda *a, **k: [ann])
-        monkeypatch.setattr("rebrew.test.parse_source_metadata", lambda *a, **k: {})
+        monkeypatch.setattr("rebrew.test.read_source_bindings", lambda *a, **k: [ann])
+        monkeypatch.setattr("rebrew.test.read_function_fields", lambda *a, **k: {})
         cmp = CompareResult(
             matched=False,
             status=result_status,
@@ -1000,7 +1004,7 @@ class TestForceStatus:
         from pathlib import Path
 
         import rebrew.test as test_mod
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
         cfg = SimpleNamespace(
             target_binary=tmp_path / "x.dll",
@@ -1009,25 +1013,25 @@ class TestForceStatus:
             default_jobs=1,
         )
         anns = [
-            Annotation(
+            SourceBinding(
                 va=0x1000,
                 name="a",
                 symbol="_a",
                 module="SERVER",
                 status="STUB",
                 size=3,
-                marker_type="FUNCTION",
+                kind="FUNCTION",
                 filepath="multi.c",
                 cflags="",
             ),
-            Annotation(
+            SourceBinding(
                 va=0x2000,
                 name="b",
                 symbol="_b",
                 module="SERVER",
                 status="STUB",
                 size=3,
-                marker_type="FUNCTION",
+                kind="FUNCTION",
                 filepath="multi.c",
                 cflags="",
             ),
@@ -1073,12 +1077,18 @@ class TestSinglePathExitCodes:
         )
         (tmp_path / "x.bin").write_bytes(b"\x90" * 8)
         src = tmp_path / "f.c"
-        src.write_text("// FUNCTION: X 0x1000\nint f(void) { return 1; }\n", encoding="utf-8")
+        write_source(
+            src,
+            "/* ADDRESS: X 0x1000 */\nint f(void) { return 1; }\n",
+            encoding="utf-8",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
         monkeypatch.setattr("rebrew.test.require_config", lambda target=None, json_mode=False: cfg)
         monkeypatch.setattr("rebrew.test.require_source_arg", lambda cfg, s, **_kw: s)
         monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg: {"_f": 0x1000})
         monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
-        monkeypatch.setattr("rebrew.test.parse_source_metadata", lambda *a, **k: {})
+        monkeypatch.setattr("rebrew.test.read_function_fields", lambda *a, **k: {})
         monkeypatch.setattr(
             "rebrew.compiler.overrides.resolve_compile_overrides", lambda *a, **k: (None, "/O2")
         )
@@ -1138,7 +1148,7 @@ class TestSinglePathExitCodes:
         import typer
 
         import rebrew.test as testmod
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
         cfg = SimpleNamespace(
             target_binary=tmp_path / "x.bin",
@@ -1157,14 +1167,14 @@ class TestSinglePathExitCodes:
         monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
         monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
-        ann = Annotation(
+        ann = SourceBinding(
             va=0x1000,
             name="f",
             symbol="_f",
             module="X",
             status="STUB",
             size=8,
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             filepath="f.c",
             cflags="",
         )
@@ -1239,7 +1249,7 @@ class TestRebrewTestBatchDirShared:
     def test_batch_dir_scopes_shared_tree(
         self, monkeypatch: Any, tmp_path: Path, capsys: Any
     ) -> None:
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
         from rebrew.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
@@ -1249,8 +1259,10 @@ class TestRebrewTestBatchDirShared:
         def _fake_entries(*a: Any, **k: Any) -> Any:
             return (
                 [
-                    Annotation(va=0x1000, name="a", status="STUB", size=10, filepath="Units/a.c"),
-                    Annotation(
+                    SourceBinding(
+                        va=0x1000, name="a", status="STUB", size=10, filepath="Units/a.c"
+                    ),
+                    SourceBinding(
                         va=0x2000,
                         name="s",
                         status="STUB",

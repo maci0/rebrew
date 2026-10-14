@@ -128,12 +128,12 @@ trusting a stored comparison. The policy is part of the compiler-config digest.
 
 ## Target Marker (`marker`)
 
-The `marker` field is the module name in `MODULE.0xVA` keys, and in an unmigrated marker line the parser still reads.
+The `marker` field is the module name in `MODULE.0xVA` metadata keys and optional `ADDRESS: MODULE 0xVA` comments.
 
 ```toml
 ["SERVER.0x10008880"]
 file = "shared/MyFunc.c"
-marker_type = "FUNCTION"
+kind = "FUNCTION"
 ```
 
 When a project has multiple targets (e.g. `server.dll` and `client.exe`), the same `.c` file is named by one row per target. Tools use `marker` to select the active target's rows.
@@ -150,17 +150,17 @@ binary = "original/Client/client.exe"
 marker = "CLIENT"                        # override: "CLIENT" instead of default "CLIENT_EXE"
 ```
 
-An unmigrated multi-target file still looks like this, and the parser still reads it:
+A source definition can carry one optional address anchor per target:
 
 ```c
-// FUNCTION: SERVER 0x10008880
+/* ADDRESS: SERVER 0x10008880 */
 
-// FUNCTION: CLIENT 0x00401000
+/* ADDRESS: CLIENT 0x00401000 */
 
 void __cdecl MyFunc(void) { ... }
 ```
 
-The shared `rebrew-functions.toml` holds identity and metadata (file, marker_type, STATUS, SIZE, CFLAGS, …)
+The shared `rebrew-functions.toml` holds identity and metadata (file, kind, STATUS, SIZE, CFLAGS, …)
 under module-prefixed keys (`SERVER.0x…`, `CLIENT.0x…`) for the corresponding VA:
 one TOML per metadata root, not one per target.
 
@@ -667,7 +667,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `skeleton.py` | `reversed_dir` |
 | `extract.py` | `reversed_dir`, `target_binary` |
 | `asm.py` | `target_binary`, `capstone_arch`, `capstone_mode` |
-| `metadata/annotation.py` | Canonical source marker parser: used by verify, extract, sync, match |
+| `metadata/bindings.py` | Canonical source and metadata binding reader: used by verify, extract, sync, match |
 | `formats/binary_loader.py` | LIEF-based binary loading: used by extract, flirt |
 | `matcher/scoring.py` | none directly: takes `cs_arch` / `cs_mode` ints from the caller (`match`/`diff` pass `cfg.capstone_arch` / `capstone_mode`) |
 | `matcher/compiler.py` | `compiler_profile` (drives flag axes) |

@@ -127,7 +127,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
 
 
 #: ``id(entry)`` -> ``(weakref, fingerprint, mtime_ns, size, ino, path)``.
-#: Annotation is unhashable (it defines equality), so this cannot be a
+#: SourceBinding is unhashable (it defines equality), so this cannot be a
 #: WeakKeyDictionary.  The weakref drops the row when the entry is collected
 #: and rejects an id that a new object reused.
 _FRESH_FINGERPRINTS: dict[
@@ -491,13 +491,13 @@ def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     Marker symbols use the per-target ``// FUNCTION:`` name. The key is
     the C name, so ``__foo`` stays ``_foo`` and ``hook@@12`` is ``hook``.
     """
-    from rebrew.metadata.annotation import iter_annotations
+    from rebrew.metadata.bindings import iter_source_bindings
     from rebrew.rename_ops import c_name_from_symbol
     from rebrew.sources import iter_sources, target_marker
 
     marker = target_marker(cfg)
     out: dict[str, int] = {}
-    for path, annos in iter_annotations(
+    for path, annos in iter_source_bindings(
         iter_sources(cfg.reversed_dir, cfg), target=marker, metadata_dir=cfg.metadata_dir
     ):
         for ann in annos:

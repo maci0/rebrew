@@ -7,6 +7,8 @@ vs src/server.dll/network/init.c).
 
 from pathlib import Path
 
+from source_util import SourceFixture, write_source
+
 from rebrew.config import ProjectConfig
 from rebrew.data_scan import scan_data_annotations, scan_globals
 from rebrew.lint import lint_file
@@ -19,37 +21,23 @@ from rebrew.utils import rel_display_path
 # Helpers
 # ---------------------------------------------------------------------------
 
-STUB_TEMPLATE = """\
- // FUNCTION: SERVER 0x{va:08X}
-// SIZE: {size}
-// CFLAGS: /O2 /Gd
-void __cdecl {symbol_bare}(void)
-{{
-    return;
-}}
-"""
+STUB_TEMPLATE = SourceFixture(
+    " /* ADDRESS: SERVER 0x{va:08X} */\n\n\nvoid __cdecl {symbol_bare}(void)\n{{\n    return;\n}}\n",
+    {"SERVER.0x{va:08X}": {"kind": "FUNCTION", "cflags": "/O2 /Gd"}},
+)
 
-DATA_TEMPLATE = """\
-// DATA: SERVER 0x{va:08X}
-// STATUS: STUB
-// ORIGIN: GAME
-// SIZE: {size}
+DATA_TEMPLATE = SourceFixture(
+    "/* ADDRESS: SERVER 0x{va:08X} */\n\n\n\nextern int {name};\n",
+    {"SERVER.0x{va:08X}": {"kind": "DATA"}},
+)
 
-extern int {name};
-"""
-
-GLOBAL_TEMPLATE = """\
-// FUNCTION: SERVER 0x{va:08X}
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 64
-// CFLAGS: /O2 /Gd
-
-// GLOBAL: SERVER 0x{global_va:08X}
-extern int {name};
-
-int __cdecl {func}(void) {{ return 0; }}
-"""
+GLOBAL_TEMPLATE = SourceFixture(
+    "\n\n\n\n\n/* ADDRESS: SERVER 0x{global_va:08X} */\nextern int {name};\n\n/* ADDRESS: SERVER 0x{va:08X} */\nint __cdecl {func}(void) {{ return 0; }}\n",
+    {
+        "SERVER.0x{va:08X}": {"kind": "FUNCTION", "size": 64, "cflags": "/O2 /Gd"},
+        "SERVER.0x{global_va:08X}": {"kind": "GLOBAL"},
+    },
+)
 
 
 def _make_c(
@@ -64,32 +52,20 @@ def _make_c(
     blocker: str = "",
 ) -> Path:
     """Create a .c file with annotations in a (possibly nested) directory."""
-    from rebrew.metadata.functions import load_metadata, save_metadata
-
     filepath = directory / filename
     filepath.parent.mkdir(parents=True, exist_ok=True)
     sym = symbol or f"_func_{va:08x}"
-    sym_bare = sym.lstrip("_")
-    filepath.write_text(
-        STUB_TEMPLATE.format(
-            va=va,
-            status=status,
-            origin=origin,
-            size=size,
-            symbol=sym,
-            symbol_bare=sym_bare,
-        ),
-        encoding="utf-8",
-    )
-    # Volatile STATUS/BLOCKER live in rebrew-functions.toml — the metadata
-    # root here is the file's own parent (per-directory metadata).
-    meta_dir = filepath.parent
-    data = dict(load_metadata(meta_dir))
-    entry: dict[str, object] = {"status": status}
+    from rebrew.rename_ops import c_name_from_symbol
+
+    fields = {"status": status, "size": size, "cflags": "/O2 /Gd", "symbol": sym}
     if blocker:
-        entry["blocker"] = blocker
-    data[("SERVER", va)] = entry
-    save_metadata(meta_dir, data)
+        fields["blocker"] = blocker
+    write_source(
+        filepath,
+        f"/* ADDRESS: SERVER 0x{va:08x} */\nvoid __cdecl {c_name_from_symbol(sym)}(void) {{ return; }}\n",
+        metadata_dir=filepath.parent,
+        metadata_fields={f"SERVER.0x{va:08x}": fields},
+    )
     return filepath
 
 

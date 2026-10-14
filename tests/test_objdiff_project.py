@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import write_source
 from typer.testing import CliRunner
 
 import rebrew.objdiff_project as objdiff_project
@@ -15,16 +16,16 @@ runner = CliRunner()
 
 
 def _fake_ann(va: int, size: int, name: str, symbol: str = "", marker: str = "FUNCTION") -> Any:
-    from rebrew.metadata.annotation import Annotation
+    from rebrew.metadata.bindings import SourceBinding
 
-    return Annotation(
+    return SourceBinding(
         va=va,
         size=size,
         name=name,
         symbol=symbol,
         module="T",
         status="STUB",
-        marker_type=marker,
+        kind=marker,
         filepath="a.c",
     )
 
@@ -121,14 +122,19 @@ class TestObjdiffProject:
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
         src_file = cfg.reversed_dir / "funcs" / "a.c"
-        src_file.write_text("// FUNCTION: T 0x1000\nint a(void){return 0;}\n", encoding="utf-8")
+        write_source(
+            src_file,
+            "/* ADDRESS: T 0x1000 */\nint a(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"T.0x1000": {"kind": "FUNCTION"}},
+        )
 
         monkeypatch.setattr(
             objdiff_project, "require_config", lambda target=None, json_mode=False: cfg
         )
         monkeypatch.setattr(
             objdiff_project,
-            "iter_annotations",
+            "iter_source_bindings",
             lambda sources, target=None, metadata_dir=None: [
                 (src_file, [_fake_ann(0x1000, 5, "a", "_a")])
             ],
@@ -164,11 +170,16 @@ class TestObjdiffProject:
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
         src_file = cfg.reversed_dir / "funcs" / "a.c"
-        src_file.write_text("// FUNCTION: T 0x1000\nint a(void){return 0;}\n", encoding="utf-8")
+        write_source(
+            src_file,
+            "/* ADDRESS: T 0x1000 */\nint a(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"T.0x1000": {"kind": "FUNCTION"}},
+        )
 
         monkeypatch.setattr(
             objdiff_project,
-            "iter_annotations",
+            "iter_source_bindings",
             lambda sources, target=None, metadata_dir=None: [
                 (
                     src_file,
@@ -301,10 +312,18 @@ class TestObjdiffProject:
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
         src_file = cfg.reversed_dir / "funcs" / "a.c"
-        src_file.write_text(
-            "// FUNCTION: T 0x1000\n// SIZE: 5\n// TOOLCHAIN: msvc-5.0\n// CFLAGS: /O1\n"
-            "int a(void){return 0;}\n",
+        write_source(
+            src_file,
+            "/* ADDRESS: T 0x1000 */\n\n\n\nint a(void){return 0;}\n",
             encoding="utf-8",
+            metadata_fields={
+                "T.0x1000": {
+                    "kind": "FUNCTION",
+                    "size": 5,
+                    "toolchain": "msvc-5.0",
+                    "cflags": "/O1",
+                }
+            },
         )
         monkeypatch.setattr(
             objdiff_project, "require_config", lambda target=None, json_mode=False: cfg
@@ -339,13 +358,18 @@ class TestObjdiffProject:
         cfg.reversed_dir.mkdir(exist_ok=True)
         (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
         src_file = cfg.reversed_dir / "funcs" / "a.c"
-        src_file.write_text("// FUNCTION: T 0x1000\nint a(void){return 0;}\n", encoding="utf-8")
+        write_source(
+            src_file,
+            "/* ADDRESS: T 0x1000 */\nint a(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"T.0x1000": {"kind": "FUNCTION"}},
+        )
         monkeypatch.setattr(
             objdiff_project, "require_config", lambda target=None, json_mode=False: cfg
         )
         monkeypatch.setattr(
             objdiff_project,
-            "iter_annotations",
+            "iter_source_bindings",
             lambda sources, target=None, metadata_dir=None: [
                 (src_file, [_fake_ann(0x1000, 5, "a", "_a")])
             ],
@@ -378,10 +402,15 @@ class TestSynthesizeOrdering(TestObjdiffProject):
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
         src_file = cfg.reversed_dir / "funcs" / "a.c"
-        src_file.write_text("// FUNCTION: T 0x2000\nint b(void){return 0;}\n", encoding="utf-8")
+        write_source(
+            src_file,
+            "/* ADDRESS: T 0x2000 */\nint b(void){return 0;}\n",
+            encoding="utf-8",
+            metadata_fields={"T.0x2000": {"kind": "FUNCTION"}},
+        )
         monkeypatch.setattr(
             objdiff_project,
-            "iter_annotations",
+            "iter_source_bindings",
             lambda sources, target=None, metadata_dir=None: [
                 (
                     src_file,

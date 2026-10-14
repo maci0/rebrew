@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -119,7 +120,7 @@ class TestWriteCandidates:
         header = cfg.reversed_dir / "library_zlib.h"
         assert header.read_text(encoding="utf-8") == _LIBRARY_BANNER
         entry = get_entry(cfg.metadata_dir, 0x2000, "ZLIB")
-        assert entry["marker_type"] == "LIBRARY"
+        assert entry["kind"] == "LIBRARY"
         assert entry["symbol"] == "DeflateInit"
         assert entry["name"] == "DeflateInit"
         assert entry["file"] == "src/library_zlib.h"
@@ -177,7 +178,7 @@ class TestWriteCandidates:
         (cfg.reversed_dir).mkdir()
         calls: list[object] = []
         monkeypatch.setattr(
-            "rebrew.metadata.annotation.update_annotation_key",
+            "rebrew.metadata.bindings.set_binding_field",
             lambda *a, **k: calls.append((a, k)),
         )
         cands = [
@@ -204,7 +205,7 @@ class TestWriteCandidates:
         assert calls == []
         malloc = get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")
         assert malloc["source"] == "crt/malloc.c"
-        assert malloc["marker_type"] == "LIBRARY"
+        assert malloc["kind"] == "LIBRARY"
         assert malloc["symbol"] == "_malloc"
         assert malloc["name"] == "malloc"
         free = get_entry(cfg.metadata_dir, 0x2000, "MSVCRT")
@@ -216,7 +217,7 @@ class TestWriteCandidates:
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir).mkdir()
         monkeypatch.setattr(
-            "rebrew.metadata.annotation.update_annotation_key",
+            "rebrew.metadata.bindings.set_binding_field",
             lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not write")),
         )
         cands = [
@@ -233,7 +234,7 @@ class TestWriteCandidates:
         assert write_candidates(cfg, cands, existing=set()) == 1
         assert (cfg.reversed_dir / "library_msvcrt.h").is_file()
         entry = get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")
-        assert entry["marker_type"] == "LIBRARY"
+        assert entry["kind"] == "LIBRARY"
         assert "source" not in entry
 
     def test_parsed_definition_still_writes_source(self, tmp_path: Path, monkeypatch) -> None:
@@ -241,7 +242,7 @@ class TestWriteCandidates:
         (cfg.reversed_dir).mkdir()
         calls: list[object] = []
         monkeypatch.setattr(
-            "rebrew.metadata.annotation.update_annotation_key",
+            "rebrew.metadata.bindings.set_binding_field",
             lambda *a, **k: calls.append((a, k)),
         )
         cands = [
@@ -274,9 +275,11 @@ class TestExistingVas:
         cfg = _cfg(tmp_path)
         cfg.source_ext = ".c"
         cfg.reversed_dir.mkdir(parents=True)
-        (cfg.reversed_dir / "foo.c").write_text(
-            "// FUNCTION: SERVER 0x401000\n// SIZE: 8\nint f(void){return 0;}\n",
+        write_source(
+            cfg.reversed_dir / "foo.c",
+            "/* ADDRESS: SERVER 0x401000 */\n\nint f(void){return 0;}\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION", "size": 8}},
         )
         assert 0x401000 in il._existing_vas(cfg)
 
@@ -418,7 +421,7 @@ timeout = 60
         assert header.exists()
         assert header.read_text(encoding="utf-8") == _LIBRARY_BANNER
         entry = get_entry(tmp_path, 0x1000, "MSVCRT")
-        assert entry["marker_type"] == "LIBRARY"
+        assert entry["kind"] == "LIBRARY"
         assert entry["symbol"] == "_malloc"
         assert entry["name"] == "malloc"
 
@@ -701,7 +704,7 @@ class TestAppendEntryInjection:
         assert text == _LIBRARY_BANNER
         token = pe_name_token("CreateFile\nvoid planted(void) { }\n/* rest")
         entry = get_entry(cfg.metadata_dir, 0x1000, "EVIL")
-        assert entry["marker_type"] == "LIBRARY"
+        assert entry["kind"] == "LIBRARY"
         assert entry["symbol"] == token
         assert entry["name"] == token.lstrip("_")
         stored = (cfg.metadata_dir / "rebrew-functions.toml").read_text(encoding="utf-8")
@@ -727,7 +730,7 @@ class TestAppendEntryInjection:
         assert text == _LIBRARY_BANNER
         assert "#include" not in text
         entry = get_entry(cfg.metadata_dir, 0x1000, pe_name_token(raw_module))
-        assert entry["marker_type"] == "LIBRARY"
+        assert entry["kind"] == "LIBRARY"
         assert entry["symbol"] == "_malloc"
         assert entry["name"] == "malloc"
         stored = (cfg.metadata_dir / "rebrew-functions.toml").read_text(encoding="utf-8")
@@ -750,7 +753,7 @@ class TestAppendEntryNewline:
         # A markerless header is not rewritten, so the missing newline stays.
         assert header.read_bytes() == original
         entry = get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")
-        assert entry["marker_type"] == "LIBRARY"
+        assert entry["kind"] == "LIBRARY"
         assert entry["symbol"] == "_malloc"
         assert entry["name"] == "malloc"
         assert entry["file"] == "src/library_msvcrt.h"
@@ -767,7 +770,7 @@ class TestAppendEntryNewline:
         assert write_candidates(cfg, cands, existing=set()) == 1
         assert header.read_bytes() == original
         entry = get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")
-        assert entry["marker_type"] == "LIBRARY"
+        assert entry["kind"] == "LIBRARY"
         assert entry["symbol"] == "_malloc"
         assert entry["name"] == "malloc"
 
@@ -785,6 +788,6 @@ class TestAppendEntryNewline:
         assert write_candidates(cfg, cands, existing=set()) == 1
         assert header.read_bytes() == original
         entry = get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")
-        assert entry["marker_type"] == "LIBRARY"
+        assert entry["kind"] == "LIBRARY"
         assert entry["symbol"] == "_malloc"
         assert entry["name"] == "malloc"

@@ -156,7 +156,7 @@ def default_target(config: dict[str, Any]) -> str | None:
 
 
 def target_marker(name: str, entry: dict[str, Any]) -> str:
-    """Annotation marker for *name*: its ``marker``, else the name sanitized.
+    """SourceBinding marker for *name*: its ``marker``, else the name sanitized.
 
     An explicit marker is normalized to NFC, matching
     :func:`rebrew.config.module_marker`: the marker is the ``MODULE`` half of

@@ -26,7 +26,7 @@ import typer
 
 from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import module_marker
-from rebrew.metadata.annotation import FUNCTION_MARKERS, parse_c_file_multi
+from rebrew.metadata.bindings import FUNCTION_KINDS, read_source_bindings
 from rebrew.sources import iter_sources, source_exts
 from rebrew.utils import atomic_write_text, preset_module_key
 
@@ -60,10 +60,12 @@ def file_va(
     carries one VA per target in unrelated address spaces, so the minimum
     across all markers can order the file at another target's address.
     """
+    if not path.is_file():
+        return None
     matches = [
         (ann.module, ann.va)
-        for ann in parse_c_file_multi(path, metadata_dir=metadata_dir)
-        if ann.marker_type in FUNCTION_MARKERS
+        for ann in read_source_bindings(path, metadata_dir=metadata_dir)
+        if ann.kind in FUNCTION_KINDS
     ]
     if marker is None:
         vas = [va for _, va in matches]

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from source_util import write_store_fixture
 
 from rebrew.metadata.functions import METADATA_FIELDS
 from rebrew.metadata.model import FIELD_TO_ATTR, MetadataEntry, MetadataValidationError
@@ -18,7 +19,7 @@ def test_field_to_attr_covers_exactly_the_routing_table() -> None:
 
     ``METADATA_FIELDS`` and ``FIELD_TO_ATTR`` are maintained by hand on either
     side of the merge. A field added to one and not the other is written to
-    ``rebrew-functions.toml`` and then never overlays an Annotation, which is
+    ``rebrew-functions.toml`` and then never overlays an SourceBinding, which is
     silent: the value persists and nothing reads it.
     """
     assert set(FIELD_TO_ATTR) == {f.lower() for f in METADATA_FIELDS}
@@ -49,7 +50,7 @@ def test_problems_name_a_hand_edited_out_of_range_value(tmp_path: Path) -> None:
     from rebrew.metadata.functions import metadata_path
 
     metadata_path(tmp_path).write_text(
-        '["MAIN.0x00001000"]\nstatus = "FINISHED"\nsize = -4\nblocker_delta = -1\n',
+        'format = 2\n["MAIN.0x00001000"]\nstatus = "FINISHED"\nsize = -4\nblocker_delta = -1\n',
         encoding="utf-8",
     )
     e = _entry(tmp_path)
@@ -275,9 +276,8 @@ def test_extra_fields_preserved(tmp_path: Path) -> None:
     from rebrew.metadata.functions import _set_field
 
     _set_field(tmp_path, 0x1000, "future_field", "x", module="MAIN")
-    loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
-    assert loaded.extra.get("future_field") == "x"
-    assert loaded.size == 8
+    with pytest.raises(ValueError, match="unknown metadata fields"):
+        MetadataEntry.load(tmp_path, 0x1000, "MAIN")
 
 
 def test_multiple_entries_isolated(tmp_path: Path) -> None:
@@ -432,8 +432,10 @@ class TestCoercionRejectsWrongTypes:
         `.upper()`; it must surface as a load problem instead."""
         from rebrew.metadata.model import MetadataEntry
 
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = 5\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = 5\n',
+            encoding="utf-8",
         )
         entry = MetadataEntry.load(tmp_path, 0x1000, "SERVER")
         assert entry.status is None

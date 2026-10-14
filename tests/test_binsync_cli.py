@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -25,7 +26,10 @@ pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not ins
 pytest.importorskip("declib")
 
 _BINARY = b"MZ\x90\x00" + bytes(range(64))
-_FOO = "// FUNCTION: A 0x401000\n// STATUS: EXACT\n// SIZE: 11\nint foo(void) { return 1; }\n"
+_FOO = SourceFixture(
+    "/* ADDRESS: A 0x401000 */\n\n\nint foo(void) { return 1; }\n",
+    {"A.0x401000": {"kind": "FUNCTION", "size": 11}},
+)
 
 
 def _git(state: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -48,7 +52,7 @@ def _make_project(tmp_path: Path) -> Path:
     src = tmp_path / "src" / "a"
     src.mkdir(parents=True)
     (tmp_path / "a.exe").write_bytes(_BINARY)
-    (src / "foo.c").write_text(_FOO, encoding="utf-8")
+    write_source(src / "foo.c", _FOO, encoding="utf-8")
     import json as _json
 
     (src / "function_structure.json").write_text(
@@ -299,9 +303,14 @@ class TestPrototypePull:
     def _pushed(self, tmp_path: Path, monkeypatch: Any) -> tuple[Path, Path]:
         _make_project(tmp_path)
         source = tmp_path / "src" / "a" / "foo.c"
-        source.write_text("// FUNCTION: A 0x401000\n// SIZE: 11\n" + _INIT, encoding="utf-8")
+        write_source(
+            source,
+            _INIT.replace("int __cdecl Init", "/* ADDRESS: A 0x401000 */\nint __cdecl Init"),
+            metadata_fields={"A.0x401000": {"size": 11}},
+            metadata_dir=tmp_path,
+        )
         monkeypatch.chdir(tmp_path)
-        migrated = runner.invoke(app, ["source", "migrate-markers"], catch_exceptions=False)
+        migrated = runner.invoke(app, ["source", "register"], catch_exceptions=False)
         assert migrated.exit_code == 0, migrated.output
         state = tmp_path / "state"
         assert _invoke(tmp_path, monkeypatch, "init", str(state), "--user", "tester").exit_code == 0
@@ -349,7 +358,9 @@ class TestPrototypePull:
             lambda s: _set_function(s, 0x401000, prototype="int __cdecl Init(char * param)"),
         )
         assert self._pull(tmp_path, monkeypatch, state)["applied_prototypes"] == 1
-        assert source.read_text(encoding="utf-8") == _INIT.replace("LPVOID param", "char * param")
+        assert source.read_text(encoding="utf-8") == _INIT.replace(
+            "int __cdecl Init", "/* ADDRESS: A 0x401000 */\nint __cdecl Init"
+        ).replace("LPVOID param", "char * param")
         again = self._pull(tmp_path, monkeypatch, state)
         assert again["applied_prototypes"] == 0
 
@@ -398,10 +409,13 @@ def _set_global(state: Path, va: int, name: str) -> None:
     serial.dump_many(path, "global_variable", gvars)
 
 
-_GLOBALS = (
-    "// GLOBAL: A 0x403000\nint g_count;\n"
-    "// GLOBAL: A 0x403004\nint g_other;\n"
-    "// FUNCTION: A 0x401000\n// SIZE: 11\nint foo(void) { return g_count + g_other; }\n"
+_GLOBALS = SourceFixture(
+    "/* ADDRESS: A 0x403000 */\nint g_count;\n/* ADDRESS: A 0x403004 */\nint g_other;\n/* ADDRESS: A 0x401000 */\n\nint foo(void) { return g_count + g_other; }\n",
+    {
+        "A.0x403000": {"kind": "GLOBAL"},
+        "A.0x403004": {"kind": "GLOBAL"},
+        "A.0x401000": {"kind": "FUNCTION", "size": 11},
+    },
 )
 
 
@@ -410,10 +424,10 @@ class TestGlobalPull:
 
     def _pushed(self, tmp_path: Path, monkeypatch: Any) -> Path:
         _make_project(tmp_path)
-        (tmp_path / "src" / "a" / "foo.c").write_text(_GLOBALS, encoding="utf-8")
+        write_source(tmp_path / "src" / "a" / "foo.c", _GLOBALS, encoding="utf-8")
         monkeypatch.chdir(tmp_path)
         for argv in (
-            ["source", "migrate-markers"],
+            ["source", "register"],
             ["data", "set", "--link-symbol", "0x403000=_g_count"],
             ["data", "set", "--type", "0x403000=int", "--type", "0x403004=int"],
         ):
@@ -461,10 +475,9 @@ def _rename_member(state: Path, struct: str, offset: int, name: str) -> None:
 
 
 _TOWN_H = "typedef struct TOWN_REC {\n    int a04;\n    int pop;\n} TOWN_REC;\n"
-_TOWN_C = (
-    '#include "town.h"\n'
-    "// FUNCTION: A 0x401000\n// SIZE: 11\n"
-    "int foo(TOWN_REC *t)\n{\n    return t->a04 + t->pop;\n}\n"
+_TOWN_C = SourceFixture(
+    '#include "town.h"\n/* ADDRESS: A 0x401000 */\n\nint foo(TOWN_REC *t)\n{\n    return t->a04 + t->pop;\n}\n',
+    {"A.0x401000": {"kind": "FUNCTION", "size": 11}},
 )
 
 
@@ -474,8 +487,8 @@ class TestStructMemberPull:
     def _pushed(self, tmp_path: Path, monkeypatch: Any) -> Path:
         _make_project(tmp_path)
         src = tmp_path / "src" / "a"
-        (src / "town.h").write_text(_TOWN_H, encoding="utf-8")
-        (src / "foo.c").write_text(_TOWN_C, encoding="utf-8")
+        write_source(src / "town.h", _TOWN_H, encoding="utf-8")
+        write_source(src / "foo.c", _TOWN_C, encoding="utf-8")
         state = tmp_path / "state"
         assert _invoke(tmp_path, monkeypatch, "init", str(state), "--user", "tester").exit_code == 0
         pushed = _invoke(tmp_path, monkeypatch, "push", str(state), "--json")

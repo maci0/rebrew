@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from source_util import SourceFixture, write_source, write_store_fixture
+
 from rebrew.data_annotate import annotate_globals
 
 
@@ -26,10 +28,9 @@ def test_annotate_binds_nondecimal_array(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x10027000"]\nname = "g_hex"\nsection = ".data"\n'
-        '["SERVER.0x10027010"]\nname = "g_expr"\nsection = ".data"\n'
-        '["SERVER.0x10027020"]\nname = "g_2d"\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_hex"\nsection = ".data"\n["SERVER.0x10027010"]\nname = "g_expr"\nsection = ".data"\n["SERVER.0x10027020"]\nname = "g_2d"\nsection = ".data"\n',
         encoding="utf-8",
     )
     per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
@@ -49,9 +50,9 @@ def test_annotate_binds_nested_bracket_bound(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x10027000"]\nname = "g_wide"\nsection = ".data"\n'
-        '["SERVER.0x10027010"]\nname = "g_ints"\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_wide"\nsection = ".data"\n["SERVER.0x10027010"]\nname = "g_ints"\nsection = ".data"\n',
         encoding="utf-8",
     )
     per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
@@ -72,9 +73,9 @@ def test_annotate_binds_pointer_to_array(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x10027000"]\nname = "g_row"\nsection = ".data"\n'
-        '["SERVER.0x10027004"]\nname = "g_ptrs"\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_row"\nsection = ".data"\n["SERVER.0x10027004"]\nname = "g_ptrs"\nsection = ".data"\n',
         encoding="utf-8",
     )
     per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
@@ -96,10 +97,9 @@ def test_annotate_binds_pointer_array(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x10027000"]\nname = "table"\nsection = ".data"\n'
-        '["SERVER.0x10027010"]\nname = "rows"\nsection = ".data"\n'
-        '["SERVER.0x10027020"]\nname = "counts"\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "table"\nsection = ".data"\n["SERVER.0x10027010"]\nname = "rows"\nsection = ".data"\n["SERVER.0x10027020"]\nname = "counts"\nsection = ".data"\n',
         encoding="utf-8",
     )
     per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
@@ -125,12 +125,9 @@ def test_annotate_binds_cdecl_pointer_array(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x10027000"]\nname = "table"\nsection = ".data"\n'
-        '["SERVER.0x10027010"]\nname = "rows"\nsection = ".data"\n'
-        '["SERVER.0x10027014"]\nname = "g_row"\nsection = ".data"\n'
-        '["SERVER.0x10027020"]\nname = "cbs"\nsection = ".data"\n'
-        '["SERVER.0x10027030"]\nname = "plain"\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "table"\nsection = ".data"\n["SERVER.0x10027010"]\nname = "rows"\nsection = ".data"\n["SERVER.0x10027014"]\nname = "g_row"\nsection = ".data"\n["SERVER.0x10027020"]\nname = "cbs"\nsection = ".data"\n["SERVER.0x10027030"]\nname = "plain"\nsection = ".data"\n',
         encoding="utf-8",
     )
     per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
@@ -143,47 +140,53 @@ def test_annotate_inserts_markers(tmp_path: Path) -> None:
     src.mkdir()
     _mk(src)
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n'
-        '["SERVER.0x10027004"]\nname = "g_b"\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n["SERVER.0x10027004"]\nname = "g_b"\nsection = ".data"\n',
         encoding="utf-8",
     )
     per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
     assert per_file == {"mod.c": 2}
     assert skipped == 0
     text = (src / "mod.c").read_text()
-    assert "// GLOBAL: SERVER 0x10027000" not in text  # dry-run: not written
+    assert (
+        SourceFixture("/* ADDRESS: SERVER 0x10027000 */", {"SERVER.0x10027000": {"kind": "GLOBAL"}})
+        not in text
+    )  # dry-run: not written
 
 
 def test_annotate_writes_and_skips_existing(tmp_path: Path) -> None:
     src = tmp_path / "src"
     src.mkdir()
-    (src / "mod.c").write_text(
-        "// GLOBAL: SERVER 0x10027000\nint g_a;\nint g_b;\n", encoding="utf-8"
+    write_source(
+        src / "mod.c",
+        "/* ADDRESS: SERVER 0x10027000 */\nint g_a;\nint g_b;\n",
+        encoding="utf-8",
+        metadata_fields={"SERVER.0x10027000": {"kind": "GLOBAL"}},
     )
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n'
-        '["SERVER.0x10027004"]\nname = "g_b"\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n["SERVER.0x10027004"]\nname = "g_b"\nsection = ".data"\n',
         encoding="utf-8",
     )
     per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=False)
     text = (src / "mod.c").read_text()
     # The existing GLOBAL line is migrated off the source. g_b had no marker,
     # so this pass binds its file and does not insert a line.
-    assert per_file == {"mod.c": 1}
+    assert per_file == {"mod.c": 2}
     assert skipped == 0
     assert "// GLOBAL:" not in text
-    assert text == "int g_a;\nint g_b;\n"
+    assert text == "/* ADDRESS: SERVER 0x10027000 */\nint g_a;\nint g_b;\n"
     from rebrew.metadata.data import get_data_entry
 
     migrated = get_data_entry(tmp_path, 0x10027000, "SERVER")
     assert migrated["name"] == "g_a"
-    assert migrated["marker_type"] == "GLOBAL"
+    assert migrated["kind"] == "GLOBAL"
     assert migrated["file"] == "src/mod.c"
     bound = get_data_entry(tmp_path, 0x10027004, "SERVER")
     assert bound["name"] == "g_b"
-    assert bound["marker_type"] == "GLOBAL"
+    assert bound["kind"] == "GLOBAL"
     assert bound["file"] == "src/mod.c"
 
     # Rerun must be completely idempotent (0 files modified, text unchanged)
@@ -196,20 +199,26 @@ def test_annotate_writes_and_skips_existing(tmp_path: Path) -> None:
 def test_annotate_skips_block_comment_markers(tmp_path: Path) -> None:
     src = tmp_path / "src"
     src.mkdir()
-    (src / "mod.c").write_text("/* GLOBAL: SERVER 0x10027000 */\nint g_a;\n", encoding="utf-8")
+    write_source(
+        src / "mod.c",
+        "/* ADDRESS: SERVER 0x10027000 */\nint g_a;\n",
+        encoding="utf-8",
+        metadata_fields={"SERVER.0x10027000": {"kind": "GLOBAL"}},
+    )
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n',
         encoding="utf-8",
     )
     per_file, _ = annotate_globals(src, meta, "SERVER", dry_run=False)
-    assert per_file == {}
-    assert (src / "mod.c").read_text() == "int g_a;\n"
+    assert per_file == {"mod.c": 1}
+    assert (src / "mod.c").read_text() == "/* ADDRESS: SERVER 0x10027000 */\nint g_a;\n"
     from rebrew.metadata.data import get_data_entry
 
     entry = get_data_entry(tmp_path, 0x10027000, "SERVER")
     assert entry["name"] == "g_a"
-    assert entry["marker_type"] == "GLOBAL"
+    assert entry["kind"] == "GLOBAL"
     assert entry["file"] == "src/mod.c"
 
 
@@ -221,10 +230,9 @@ def test_annotate_reports_skipped_unnamed(tmp_path: Path) -> None:
     src.mkdir()
     (src / "mod.c").write_text("int g_a;\n", encoding="utf-8")
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n'
-        '["SERVER.0x10027004"]\nsize = 4\nsection = ".bss"\n'
-        '["SERVER.0x10027008"]\nsize = 8\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n["SERVER.0x10027004"]\nsize = 4\nsection = ".bss"\n["SERVER.0x10027008"]\nsize = 8\nsection = ".data"\n',
         encoding="utf-8",
     )
     per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
@@ -241,7 +249,9 @@ def test_annotate_uses_configured_source_ext(tmp_path: Path) -> None:
     src.mkdir()
     (src / "mod.cpp").write_text("int g_a;\n", encoding="utf-8")
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text('["SERVER.0x1000"]\nname = "g_a"\nsection = ".data"\n', encoding="utf-8")
+    write_store_fixture(
+        meta, 'format = 2\n["SERVER.0x1000"]\nname = "g_a"\nsection = ".data"\n', encoding="utf-8"
+    )
     cfg = SimpleNamespace(source_ext=".c,.cpp", reversed_dir=src, shared_dir=None)
     per_file, _ = annotate_globals(src, meta, "SERVER", dry_run=True, cfg=cfg)
     assert per_file == {"mod.cpp": 1}
@@ -255,9 +265,9 @@ def test_annotate_duplicate_names_are_not_reported_unnamed(tmp_path: Path) -> No
     src.mkdir()
     (src / "mod.c").write_text("int g_a;\n", encoding="utf-8")
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x1000"]\nname = "g_a"\nsection = ".data"\n'
-        '["SERVER.0x1004"]\nname = "g_a"\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x1000"]\nname = "g_a"\nsection = ".data"\n["SERVER.0x1004"]\nname = "g_a"\nsection = ".data"\n',
         encoding="utf-8",
     )
     per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
@@ -290,9 +300,12 @@ def test_gen_header_skips_non_c_identifiers(tmp_path) -> None:
         marker="SERVER",
         source_ext=".c",
     )
-    (src / "imports.c").write_text(
-        "// DATA: SERVER 0x1000\n// AUTO-GENERATED, no declaration follows\n",
+    write_source(
+        src / "imports.c",
+        "// AUTO-GENERATED, no declaration follows\n",
         encoding="utf-8",
+        metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
+        metadata_dir=tmp_path,
     )
     set_data_field(cfg.metadata_dir, 0x1000, "name", "__imp__GetLocalTime@4", "SERVER")
     set_data_field(cfg.metadata_dir, 0x1000, "type", "void*", "SERVER")
@@ -326,9 +339,12 @@ def test_gen_header_drops_type_that_ends_the_declaration(tmp_path) -> None:
         marker="SERVER",
         source_ext=".c",
     )
-    (src / "globals.c").write_text(
-        "// DATA: SERVER 0x2000\n// AUTO-GENERATED, no declaration follows\n",
+    write_source(
+        src / "globals.c",
+        "// AUTO-GENERATED, no declaration follows\n",
         encoding="utf-8",
+        metadata_fields={"SERVER.0x2000": {"kind": "DATA"}},
+        metadata_dir=tmp_path,
     )
     set_data_field(cfg.metadata_dir, 0x2000, "name", "g_table", "SERVER")
     set_data_field(cfg.metadata_dir, 0x2000, "type", "int; void pwn(void){", "SERVER")

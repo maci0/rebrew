@@ -71,7 +71,7 @@ CAT_MISSING_ANNOTATION = "missing-annotation"
 CAT_IDENTIFY_LIBRARY = "identify-library"
 CAT_RUN_PROVER = "run-prover"
 CAT_DOCUMENTED = "documented"
-# Byte-exact via a generated naked skeleton (`// SOURCE: naked`) — reproduced,
+# Byte-exact via a generated naked skeleton (`source = "naked"`) — reproduced,
 # NOT decompiled: it stays on the list until the real C body matches.
 CAT_NAKED = "naked-reconstruction"
 # Data symbol whose built bytes differ from the reference (`verify --data`
@@ -324,7 +324,7 @@ def _collect_active_functions(
         status = effective_status(status, v_status)
 
         # Skip finished functions — except naked reconstructions: byte-exact
-        # via a generated skeleton (`// SOURCE: naked`) is reproduced, not
+        # via a generated skeleton (`source = "naked"`) is reproduced, not
         # decompiled, so it stays actionable until the real C body matches
         # (ct-recomp's NAKED_REQUIRED vs PURE_C_EXACT distinction).
         if status in MATCHED_STATUSES:
@@ -1267,7 +1267,7 @@ def _collect_missing_bindings(
 ) -> list[TodoItem]:
     """Keep missing managed definitions visible without claiming source coverage."""
     from rebrew.c_parser import function_signatures
-    from rebrew.metadata.annotation import derive_c_symbol
+    from rebrew.metadata.bindings import derive_c_symbol
     from rebrew.metadata.functions import load_metadata
     from rebrew.sources import target_marker
     from rebrew.utils import preset_module_key, read_source_text, rel_display_path
@@ -1279,7 +1279,7 @@ def _collect_missing_bindings(
         if (
             va in existing
             or preset_module_key(module) != marker
-            or row.get("marker_type") not in {"FUNCTION", "STUB"}
+            or row.get("kind") not in {"FUNCTION", "STUB"}
             or row.get("status") == "SKIP"
             or Path(stored).suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"}
         ):

@@ -837,7 +837,7 @@ def load_layout(
     dict[int, str], dict[int, str], dict[int, str], dict[int, tuple[str, str]], dict[int, int]
 ]:
     """Return ``(va_to_file, va_to_name, va_to_flags, va_to_flagsets, va_to_size)``."""
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
     from rebrew.sources import iter_sources, target_marker
     from rebrew.utils import rel_display_path
 
@@ -848,7 +848,7 @@ def load_layout(
     sizes: dict[int, int] = {}
     for cfile in iter_sources(cfg.reversed_dir, cfg):
         rel = rel_display_path(cfile, cfg.reversed_dir)
-        for entry in parse_c_file_multi(
+        for entry in read_source_bindings(
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
         ):
             if entry.is_data or not entry.va:
@@ -953,8 +953,7 @@ def _collect_hygiene(
         recs.extend(recommend_stale_markers(stale))
 
     with _lane("shared-twins"):
-        from rebrew.merge import block_metadata, normalize_body
-        from rebrew.metadata.annotation import split_annotation_sections
+        from rebrew.c_parser import function_definition_spans
         from rebrew.sources import iter_sources
         from rebrew.utils import read_source_text
 
@@ -964,13 +963,12 @@ def _collect_hygiene(
                 text, _ = read_source_text(cfile)
             except OSError:
                 continue
-            _, blocks = split_annotation_sections(text)
-            if len(blocks) != 1:
+            definitions = function_definition_spans(text)
+            if len(definitions) != 1:
                 continue
-            meta = block_metadata(blocks[0])
-            if meta is None:
-                continue
-            bodies.setdefault(normalize_body(blocks[0]), []).append(str(cfile))
+            _name, start_byte, end_byte = definitions[0]
+            body = text.encode("utf-8")[start_byte:end_byte].decode("utf-8")
+            bodies.setdefault(body.strip(), []).append(str(cfile))
         twins = [sorted(v) for v in bodies.values() if len(v) > 1]
         recs.extend(recommend_shared_twins(twins))
 

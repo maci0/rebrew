@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 import typer
 from cache_util import cache_text
+from source_util import write_source
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -540,27 +541,43 @@ class TestResolveSourceArg:
 
     def test_direct_path_that_exists(self, tmp_path: Path) -> None:
         src = tmp_path / "foo.c"
-        src.write_text("// FUNCTION: GAME 0x1000\nint foo(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            src,
+            "/* ADDRESS: GAME 0x1000 */\nint foo(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}},
+        )
         assert resolve_source_arg(self._cfg(tmp_path), str(src)) == src
 
     def test_symbol_search_finds_stem_match(self, tmp_path: Path) -> None:
         src = tmp_path / "my_func.c"
-        src.write_text(
-            "// FUNCTION: GAME 0x1000\nint my_func(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            src,
+            "/* ADDRESS: GAME 0x1000 */\nint my_func(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}},
         )
         assert resolve_source_arg(self._cfg(tmp_path), "my_func") == src
 
     def test_symbol_search_strips_leading_underscore(self, tmp_path: Path) -> None:
         src = tmp_path / "my_func.c"
-        src.write_text(
-            "// FUNCTION: GAME 0x1000\nint my_func(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            src,
+            "/* ADDRESS: GAME 0x1000 */\nint my_func(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}},
         )
         assert resolve_source_arg(self._cfg(tmp_path), "_my_func") == src
 
     def test_symbol_search_unicode_normalization_nfc_nfd(self, tmp_path: Path) -> None:
         # File on disk is NFC (precomposed é)
         src = tmp_path / "func_\u00e9.c"
-        src.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            src,
+            "/* ADDRESS: GAME 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}},
+        )
         # Search with NFD decomposed form (e + combining acute)
         nfd_arg = "func_\u0065\u0301"
         assert resolve_source_arg(self._cfg(tmp_path), nfd_arg) == src
@@ -570,12 +587,22 @@ class TestResolveSourceArg:
 
     def test_va_lookup_finds_annotation(self, tmp_path: Path) -> None:
         src = tmp_path / "target_func.c"
-        src.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            src,
+            "/* ADDRESS: GAME 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}},
+        )
         assert resolve_source_arg(self._cfg(tmp_path), "0x1000") == src
 
     def test_va_lookup_with_no_match_returns_argument(self, tmp_path: Path) -> None:
         src = tmp_path / "target_func.c"
-        src.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        write_source(
+            src,
+            "/* ADDRESS: GAME 0x1000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}},
+        )
         # No function at this VA — argument passes through unchanged.
         assert resolve_source_arg(self._cfg(tmp_path), "0x2000") == Path("0x2000")
 
@@ -595,10 +622,14 @@ class TestSelectAnnotation:
 
     def _write_two(self, tmp_path: Path) -> Path:
         src = tmp_path / "pair.c"
-        src.write_text(
-            "// FUNCTION: GAME 0x1000\nint a(void) { return 0; }\n\n"
-            "// FUNCTION: GAME 0x2000\nint b(void) { return 1; }\n",
+        write_source(
+            src,
+            "/* ADDRESS: GAME 0x1000 */\nint a(void) { return 0; }\n\n/* ADDRESS: GAME 0x2000 */\nint b(void) { return 1; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "GAME.0x1000": {"kind": "FUNCTION"},
+                "GAME.0x2000": {"kind": "FUNCTION"},
+            },
         )
         return src
 
@@ -645,13 +676,13 @@ class TestSelectAnnotation:
     def test_managed_va_uses_the_active_target_and_its_compile_fields(
         self, tmp_path: Path, module: str, symbol: str, size: int
     ) -> None:
-        from rebrew.metadata.functions import record_migrated_markers
+        from rebrew.metadata.functions import record_function_rows
 
         src = tmp_path / "pair.c"
         src.write_text(
             "int a(void) { return 0; }\nint b(void) { return 1; }\nint c(void) { return 2; }\n"
         )
-        record_migrated_markers(
+        record_function_rows(
             tmp_path,
             [
                 {
@@ -661,7 +692,7 @@ class TestSelectAnnotation:
                         "file": "pair.c",
                         "name": name,
                         "symbol": f"_{name}",
-                        "marker_type": "FUNCTION",
+                        "kind": "FUNCTION",
                     },
                     "fields": {"size": extent, "cflags": "/O1" if name == "b" else "/Od"},
                 }
@@ -718,21 +749,28 @@ class TestSelectAnnotation:
         hook`` rather than the earlier ``other``.
         """
         hook = tmp_path / "hook.c"
-        hook.write_text(
-            "// FUNCTION: GAME 0x1000\nint other(void) { return 1; }\n\n"
-            "// FUNCTION: GAME 0x2000\n"
-            "int __vectorcall hook(int a, int b, int c) { return 0; }\n",
+        write_source(
+            hook,
+            "/* ADDRESS: GAME 0x1000 */\nint other(void) { return 1; }\n\n/* ADDRESS: GAME 0x2000 */\nint __vectorcall hook(int a, int b, int c) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "GAME.0x1000": {"kind": "FUNCTION"},
+                "GAME.0x2000": {"kind": "FUNCTION"},
+            },
         )
         _path, anno, va_int = select_annotation(self._cfg(tmp_path), "hook", None)
         assert anno.va == 0x2000
         assert va_int == 0x2000
 
         under = tmp_path / "_foo.c"
-        under.write_text(
-            "// FUNCTION: GAME 0x3000\nint _foo(void) { return 0; }\n\n"
-            "// FUNCTION: GAME 0x4000\nint foo(void) { return 1; }\n",
+        write_source(
+            under,
+            "/* ADDRESS: GAME 0x3000 */\nint _foo(void) { return 0; }\n\n/* ADDRESS: GAME 0x4000 */\nint foo(void) { return 1; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "GAME.0x3000": {"kind": "FUNCTION"},
+                "GAME.0x4000": {"kind": "FUNCTION"},
+            },
         )
         _path, asked_foo, _va = select_annotation(self._cfg(tmp_path), "foo", None)
         assert asked_foo.va == 0x4000
@@ -867,7 +905,11 @@ class TestResolveSourceArgUnderscore:
         monkeypatch.chdir(tmp_path)
         src = tmp_path / "src"
         src.mkdir()
-        (src / "_foo.c").write_text("// FUNCTION: SERVER 0x1000\nint _foo(void){return 0;}\n")
+        write_source(
+            src / "_foo.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint _foo(void){return 0;}\n",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+        )
         cfg = self._cfg(tmp_path, src)
         # Symbol form without the MSVC leading underscore must still resolve.
         assert resolve_source_arg(cfg, "foo") == src / "_foo.c"

@@ -38,7 +38,7 @@ from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_OK, console, error_exit, json_print
 from rebrew.config import ConfigError, validate_target_name
-from rebrew.metadata.annotation import derive_c_symbol, iter_annotations
+from rebrew.metadata.bindings import derive_c_symbol, iter_source_bindings
 from rebrew.sources import iter_sources
 from rebrew.utils import (
     SOURCE_CHECKOUT,
@@ -194,7 +194,7 @@ def classify_all(
         METADATA_FILENAME,
         identity_file,
         load_metadata,
-        record_migrated_markers,
+        record_function_rows,
         set_fields_batch,
         update_statuses_batch,
     )
@@ -213,7 +213,7 @@ def classify_all(
     # intake writes the canonical file again.
     existing_vas = {
         ann["va"]
-        for _, annotations in iter_annotations(
+        for _, annotations in iter_source_bindings(
             iter_sources(src_dir), target=marker, metadata_dir=meta_base
         )
         for ann in annotations
@@ -231,7 +231,7 @@ def classify_all(
         # Pure C. The comment does not match the legacy marker grammar, so
         # the row in rebrew-functions.toml is what names the function.
         stub = (
-            f"/* rebrew-stub {marker} {va:08x} */\n"
+            f"/* ADDRESS: {marker} 0x{va:08x} */\n\n"
             f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
         )
         out = src_dir / f"fcn_{va:08x}.c"
@@ -264,7 +264,7 @@ def classify_all(
                         "file": identity_file(out, meta_base),
                         "symbol": derive_c_symbol(c_name, ""),
                         "name": c_name,
-                        "marker_type": "STUB",
+                        "kind": "STUB",
                     },
                     "fields": {},
                 }
@@ -294,7 +294,7 @@ def classify_all(
             }
         )
         documented += 1
-    record_migrated_markers(meta_base, identity_rows)
+    record_function_rows(meta_base, identity_rows)
     set_fields_batch(meta_base, field_updates)
     update_statuses_batch(meta_base, status_updates)
     return documented
@@ -305,14 +305,7 @@ def classify_all(
 #: user has written into (a filled-in body, extra lines, a trailing newline of
 #: their own) no longer matches, so the prune cannot delete real work.
 _AUTO_STUB_RE = re.compile(
-    r"\A(?://|/\*) STUB: ([A-Za-z0-9_]+) 0x([0-9a-fA-F]{8})(?: \*/)?\n\n"
-    r"void fcn_\2\(void\)\n\{\n    /\*.*?\*/\n\}\n?\Z",
-    re.DOTALL,
-)
-# Current writer. Named groups cannot be repeated across an alternation, so
-# this is a second pattern with the same group numbers: module, then hex VA.
-_AUTO_STUB_PURE_RE = re.compile(
-    r"\A/\* rebrew-stub ([A-Za-z0-9_]+) ([0-9a-fA-F]{8}) \*/\n"
+    r"\A/\* ADDRESS: ([A-Za-z0-9_]+) 0x([0-9a-fA-F]{8}) \*/\n\n"
     r"void fcn_\2\(void\)\n\{\n    /\*.*?\*/\n\}\n?\Z",
     re.DOTALL,
 )
@@ -384,7 +377,7 @@ def prune_stale_stubs(
             # which leaves a partial prune with no report.
             logger.warning("skipping unreadable stub %s during prune: %s", path, exc)
             continue
-        m = _AUTO_STUB_RE.match(text) or _AUTO_STUB_PURE_RE.match(text)
+        m = _AUTO_STUB_RE.match(text)
         if m is None or m.group(1) != marker:
             continue
         va = int(m.group(2), 16)

@@ -55,7 +55,8 @@ class TestMarkerKeyRoundTrip:
         # qualified_key("") emits a bare ``0xVA`` table; parse_metadata_key only
         # accepts ``MODULE.0xVA``, so such a write is silently unreadable.
         # The store writers reject it (see below) rather than losing the data.
-        assert parse_metadata_key(qualified_key("", 0x1000)) is None
+        with pytest.raises(ValueError, match="non-empty target module"):
+            qualified_key("", 0x1000)
 
     def test_function_store_rejects_an_empty_module(self, tmp_path: object) -> None:
         from rebrew.metadata.functions import update_field

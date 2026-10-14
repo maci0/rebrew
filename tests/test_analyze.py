@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
 from rebrew.analyze import build_dossier
@@ -173,10 +174,9 @@ class TestBuildDossier:
 
     def test_near_match_section(self, tmp_path: Path) -> None:
         """The dossier's near_match section carries blockers + mutations."""
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["T.0x10002000"]\n'
-            'status = "NEAR_MATCHING"\n'
-            'blocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["T.0x10002000"]\nstatus = "NEAR_MATCHING"\nblocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
             encoding="utf-8",
         )
         cfg = SimpleNamespace(
@@ -191,8 +191,9 @@ class TestBuildDossier:
 
     def test_near_match_alias_reaches_dossier(self, tmp_path: Path) -> None:
         """Legacy NEAR_MATCH spelling must still populate the near_match section."""
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["T.0x10002000"]\nstatus = "NEAR_MATCH"\nblocker = "legacy alias"\n',
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["T.0x10002000"]\nstatus = "NEAR_MATCH"\nblocker = "legacy alias"\n',
             encoding="utf-8",
         )
         cfg = SimpleNamespace(
@@ -391,9 +392,12 @@ class TestDispatchTablesShape:
 
         src = tmp_path / "src"
         src.mkdir()
-        (src / "f.c").write_text(
-            "// FUNCTION: SERVER 0x401000\n// SIZE: 8\nint f1(void) { return 0; }\n",
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: SERVER 0x401000 */\n\nint f1(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION", "size": 8}},
+            metadata_dir=None,
         )
         seen: dict[str, object] = {}
 

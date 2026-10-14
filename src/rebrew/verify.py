@@ -65,9 +65,14 @@ from rebrew.compiler.overrides import resolve_compile_overrides_cached
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.linked_exact import linked_image_current
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
-from rebrew.metadata.annotation import Annotation, min_valid_va_for
+from rebrew.metadata.bindings import SourceBinding, min_valid_va_for
 from rebrew.metadata.document import canonical_va_key
-from rebrew.metadata.functions import should_promote_status
+from rebrew.metadata.functions import (
+    identity_file,
+    load_metadata,
+    should_promote_status,
+    stored_file_matches,
+)
 from rebrew.sources import contained_path, source_roots
 from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import (
@@ -171,7 +176,7 @@ def _entry_symbol(entry: Any) -> str:
     name = str(entry.name or "")
     proto = str(getattr(entry, "prototype", "") or "")
     if name and proto:
-        from rebrew.metadata.annotation import derive_c_symbol
+        from rebrew.metadata.bindings import derive_c_symbol
 
         derived = derive_c_symbol(name, proto)
         # ``derive_c_symbol`` adds one cdecl ``_``. That would turn a legacy
@@ -184,7 +189,7 @@ def _entry_symbol(entry: Any) -> str:
 
 
 def verify_entry(
-    entry: Annotation,
+    entry: SourceBinding,
     cfg: ProjectConfig,
     cache: "CacheBackend | None" = None,
     *,
@@ -1417,13 +1422,13 @@ def _promote_linked(
 class BatchResult:
     """Verdict bundle from the shared batch pipeline (no display, no files)."""
 
-    entries: list[Annotation]
+    entries: list[SourceBinding]
     total: int
     passed: int
     failed: int
-    fail_details: list[tuple[Annotation, str]]
+    fail_details: list[tuple[SourceBinding, str]]
     results: list[dict[str, Any]]
-    deferred: list[tuple[Annotation, str, int]]
+    deferred: list[tuple[SourceBinding, str, int]]
     size_divergences: list[dict[str, Any]]
     missing_sizes: list[dict[str, Any]]
     duplicate_vas: list[dict[str, str]]
@@ -2091,8 +2096,8 @@ def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
 
 
 def scope_entries(
-    unique_entries: list[Annotation],
-    cached: tuple[int, int, list[tuple[Annotation, str]], list[dict[str, Any]], int],
+    unique_entries: list[SourceBinding],
+    cached: tuple[int, int, list[tuple[SourceBinding, str]], list[dict[str, Any]], int],
     size_audits: tuple[list[dict[str, Any]], list[dict[str, Any]]],
     *,
     nolib: bool = False,
@@ -2102,11 +2107,11 @@ def scope_entries(
     cfg: Any,
     json_output: bool = False,
 ) -> tuple[
-    list[Annotation],
+    list[SourceBinding],
     int,
     int,
     int,
-    list[tuple[Annotation, str]],
+    list[tuple[SourceBinding, str]],
     list[dict[str, Any]],
     int,
     list[dict[str, Any]],
@@ -2122,7 +2127,7 @@ def scope_entries(
     also matched sibling directories).  *origin_filter* matches the
     annotation's module — ORIGIN is derivable from the FUNCTION-marker
     module, which is also what test's old ``origin`` attribute check meant
-    (it matched nothing since Annotation has no such field).
+    (it matched nothing since SourceBinding has no such field).
 
     Returns ``(entries, total, passed, failed, fail_details, results,
     cached_count, size_divergences, missing_sizes, library_excluded,
@@ -2264,7 +2269,7 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     workers racing on the same key both parse but only one entry survives.
     """
     from rebrew.function_providers import compiled_library_annotations
-    from rebrew.metadata.annotation import library_annotations_from_metadata, parse_library_header
+    from rebrew.metadata.bindings import library_bindings_for_file, library_inventory_bindings
     from rebrew.metadata.functions import METADATA_FILENAME
     from rebrew.sources import iter_library_headers
 
@@ -2288,26 +2293,26 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
         return cached
     rows: dict[int, dict[str, str]] = {}
     for header in headers:
-        for e in parse_library_header(header, metadata_dir=metadata_dir):
+        for e in library_bindings_for_file(header, metadata_dir=metadata_dir):
             if preset_module_key(e.module or "") in ("", marker):
                 rows[e.va] = {
-                    "marker_type": e.marker_type or "LIBRARY",
+                    "kind": e.kind or "LIBRARY",
                     "module": e.module or "",
                     "name": e.name,
                     "symbol": e.symbol,
                 }
     if metadata_dir is not None:
-        for e in library_annotations_from_metadata(metadata_dir, cfg.reversed_dir):
+        for e in library_inventory_bindings(metadata_dir, cfg.reversed_dir):
             if e.va not in rows and preset_module_key(e.module or "") in ("", marker):
                 rows[e.va] = {
-                    "marker_type": "LIBRARY",
+                    "kind": "LIBRARY",
                     "module": e.module or "",
                     "name": e.name,
                     "symbol": e.symbol,
                 }
     for entry in compiled_library_annotations(cfg):
         rows[entry.va] = {
-            "marker_type": "LIBRARY",
+            "kind": "LIBRARY",
             "module": entry.module,
             "name": entry.name,
             "symbol": entry.symbol,
@@ -2338,7 +2343,7 @@ def _stat_identity(path: Path) -> tuple[int, int, int]:
     return (st.st_mtime_ns, st.st_size, st.st_ino)
 
 
-def _library_vas(cfg: Any, entries: list[Annotation]) -> set[int]:
+def _library_vas(cfg: Any, entries: list[SourceBinding]) -> set[int]:
     """VAs of this target that are library code, by `rebrew status`'s rule.
 
     A compiled FUNCTION entry is library code when a ``library_*.h`` header of
@@ -2350,7 +2355,7 @@ def _library_vas(cfg: Any, entries: list[Annotation]) -> set[int]:
 
     rows = {
         e.va: {
-            "marker_type": getattr(e, "marker_type", "") or "",
+            "kind": getattr(e, "kind", "") or "",
             "module": getattr(e, "module", "") or "",
         }
         for e in entries
@@ -2365,10 +2370,10 @@ def prepare_entries(
     json_output: bool,
     context: "CompileContext | None" = None,
 ) -> tuple[
-    list[Annotation],
+    list[SourceBinding],
     int,
     int,
-    list[tuple[Annotation, str]],
+    list[tuple[SourceBinding, str]],
     list[dict[str, Any]],
     int,
     list[dict[str, Any]],
@@ -2385,7 +2390,8 @@ def prepare_entries(
     by the discovery inventory (0 when the file is missing/corrupt) — the
     report summary's denominator for not-yet-reversed functions.
     ``duplicate_vas`` names the dropped sources: ``{"va", "kept", "dropped"}``
-    per duplicate-VA annotation (first source wins, the rest never compile).
+    per duplicate-VA annotation. A managed source binding wins; otherwise
+    the first compilable source wins. Dropped definitions never compile.
     ``name_to_va`` is the symbol catalog built from the same scan (plus
     globals/metadata) so ``run_verification`` does not re-parse the tree.
 
@@ -2399,14 +2405,6 @@ def prepare_entries(
 
     console.print(f"Scanning {untrusted_ident(reversed_dir)}...")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
-    # Build the reloc-validation catalog from this scan — avoids a second
-    # full parse_c_file_multi walk inside run_verification.
-    from rebrew.coff_reloc import CatalogScanError, build_name_to_va
-
-    try:
-        name_to_va = build_name_to_va(cfg, annotations=entries)
-    except CatalogScanError as exc:
-        error_exit(str(exc), json_mode=json_output)
     funcs = cached_function_list(cfg)
     registry = build_function_registry(funcs, cfg, ghidra_json_path, cfg.target_binary)
 
@@ -2423,30 +2421,66 @@ def prepare_entries(
         error_exit(f"{cfg.target_binary} not found", json_mode=json_output)
 
     # Filter out non-compilable annotations and deduplicate by VA
-    va_to_kept: dict[int, Annotation] = {}
-    unique_entries: list[Annotation] = []
+    va_to_kept: dict[int, SourceBinding] = {}
+    unique_entries: list[SourceBinding] = []
     data_count = 0
     library_header_count = 0
     duplicate_vas: list[tuple[int, str, str]] = []
-    for entry in sorted(entries, key=lambda x: x.va):
+    metadata_dir = getattr(cfg, "metadata_dir", None)
+    managed = {
+        (preset_module_key(module), va): row
+        for (module, va), row in (
+            load_metadata(metadata_dir, deepcopy=False) if metadata_dir else {}
+        ).items()
+    }
+
+    def managed_source_rank(entry: SourceBinding) -> tuple[int, bool, bool, bool, bool]:
+        """Prefer the bound definition without changing unbound ordering."""
+        row = managed.get((preset_module_key(entry.module or module_marker(cfg)), entry.va), {})
+        path = contained_path(source_roots(cfg), entry.filepath)
+        bound = bool(
+            metadata_dir
+            and path
+            and stored_file_matches(str(row.get("file", "")), identity_file(path, metadata_dir))
+        )
+        return (
+            entry.va,
+            not bound,
+            bound and entry.kind != row.get("kind", entry.kind),
+            bound and bool(row.get("symbol")) and entry.symbol != row["symbol"],
+            entry.filepath.endswith(".h"),
+        )
+
+    for entry in sorted(entries, key=managed_source_rank):
         if getattr(entry, "is_data", False):
             data_count += 1
             continue
         fp = getattr(entry, "filepath", "")
-        if fp and fp.endswith(".h"):
-            library_header_count += 1
-            continue
         kept = va_to_kept.get(entry.va)
         if kept is None:
             va_to_kept[entry.va] = entry
-            unique_entries.append(entry)
+            if fp and fp.endswith(".h"):
+                library_header_count += 1
+            else:
+                unique_entries.append(entry)
         else:
-            # Duplicate VA: the first source wins and the rest are DROPPED
-            # from this run (they are never compiled).  Say so loudly — a
-            # silent keep-first hides a stale annotation in CI.
+            # Keep the managed provider, including a declaration-only library
+            # header. A stale body must not earn its bound identity's verdict.
             duplicate_vas.append(
                 (entry.va, getattr(kept, "filepath", ""), getattr(entry, "filepath", ""))
             )
+    # Only selected identities enter the call catalog. Stale duplicates must
+    # not introduce additional names or count a managed library as game code.
+    from rebrew.coff_reloc import CatalogScanError, build_name_to_va
+
+    try:
+        name_to_va = build_name_to_va(
+            cfg,
+            annotations=[e for e in entries if getattr(e, "is_data", False)]
+            + list(va_to_kept.values()),
+        )
+    except CatalogScanError as exc:
+        error_exit(str(exc), json_mode=json_output)
     if duplicate_vas:
         for va, kept_fp, dropped_fp in duplicate_vas:
             msg = (
@@ -2468,7 +2502,7 @@ def prepare_entries(
 
     passed = 0
     failed = 0
-    fail_details: list[tuple[Annotation, str]] = []
+    fail_details: list[tuple[SourceBinding, str]] = []
     results: list[dict[str, Any]] = []
 
     cache_path = cache_path_for(cfg)
@@ -2630,7 +2664,7 @@ def prepare_entries(
 
 
 def run_verification(
-    entries_to_verify: list[Annotation],
+    entries_to_verify: list[SourceBinding],
     cfg: Any,
     jobs: int,
     total: int,
@@ -2639,7 +2673,11 @@ def run_verification(
     context: "CompileContext | None" = None,
     name_to_va: dict[str, int] | None = None,
 ) -> tuple[
-    int, int, list[tuple[Annotation, str]], list[dict[str, Any]], list[tuple[Annotation, str, int]]
+    int,
+    int,
+    list[tuple[SourceBinding, str]],
+    list[dict[str, Any]],
+    list[tuple[SourceBinding, str, int]],
 ]:
     """Run parallel verification and classify results.
 
@@ -2652,9 +2690,9 @@ def run_verification(
     passed = 0
     failed = 0
     internal_errors = 0
-    fail_details: list[tuple[Annotation, str]] = []
+    fail_details: list[tuple[SourceBinding, str]] = []
     results: list[dict[str, Any]] = []
-    deferred_fixes: list[tuple[Annotation, str, int]] = []
+    deferred_fixes: list[tuple[SourceBinding, str, int]] = []
 
     fresh_count = len(entries_to_verify)
     # The CLI --jobs flag bypasses config's _positive_int validation — clamp
@@ -2680,8 +2718,8 @@ def run_verification(
             error_exit(str(exc), json_mode=json_output)
 
     def _verify(
-        e: Annotation,
-    ) -> tuple[Annotation, "CompareResult"]:
+        e: SourceBinding,
+    ) -> tuple[SourceBinding, "CompareResult"]:
         precompiled = _batch_objs.get(id(e)) if _batch_objs else None
         return (
             e,
@@ -2749,7 +2787,7 @@ def run_verification(
                 # deliberately changed away from (matcher/compiler.py, flag_sweep).  Submit
                 # effective_jobs at a time and refill as each completes, so
                 # memory stays proportional to the worker count, not the corpus.
-                futures: dict[concurrent.futures.Future[Any], Annotation] = {}
+                futures: dict[concurrent.futures.Future[Any], SourceBinding] = {}
                 entry_iter = iter(entries_to_verify)
                 for _ in range(effective_jobs):
                     with contextlib.suppress(StopIteration):
@@ -2880,7 +2918,7 @@ def run_verification(
 
 
 def _apply_or_preview_status(
-    deferred_fixes: list[tuple[Annotation, str, int]], cfg: Any, dry_run: bool
+    deferred_fixes: list[tuple[SourceBinding, str, int]], cfg: Any, dry_run: bool
 ) -> None:
     """Apply STATUS metadata updates, or preview them for ``--dry-run`` / ``--no-promote``."""
     if not deferred_fixes:
@@ -2937,7 +2975,7 @@ def _warn_unwritten_statuses(
 
 
 def apply_status_updates(
-    deferred_fixes: list[tuple[Annotation, str, int]],
+    deferred_fixes: list[tuple[SourceBinding, str, int]],
     cfg: Any,
 ) -> None:
     """Promote/demote STATUS metadata to match verification results.
@@ -3124,7 +3162,7 @@ def _looks_like_inventory_merge(
 
 def _print_results(
     results: list[dict[str, Any]],
-    fail_details: list[tuple[Annotation, str]],
+    fail_details: list[tuple[SourceBinding, str]],
     diff_result: dict[str, Any] | None,
     diff_warning: str | None,
     diff_mode: bool,
@@ -3211,7 +3249,7 @@ def _print_results(
         res_by_va = {int(r["va"], 16): r for r in results}
 
         # Sort failures: lowest match_percent first, then by VA
-        def _fail_sort_key(item: tuple[Annotation, str]) -> tuple[float, int]:
+        def _fail_sort_key(item: tuple[SourceBinding, str]) -> tuple[float, int]:
             entry, _ = item
             return (_row_match_pct(res_by_va.get(entry.va)), entry.va)
 

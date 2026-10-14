@@ -170,7 +170,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew build round-trip` | `round_trip.py` | Splice matched functions back into the target PE and verify byte equality |
 | `rebrew skills` | `skills.py` | Discover and display agent skills (`list`, `show`); community skills merge via `REBREW_SKILLS_DIR` (drop directories by hand; no install/remove commands) |
 | `rebrew blocker` | `blocker.py` | Manage `BLOCKER` / `BLOCKER_DELTA` through `rebrew blocker set`, `rebrew blocker clear`, and `rebrew blocker show`; writes use locked metadata APIs |
-| `rebrew source migrate-markers` | `migrate_markers.py` | ADR 023: move inline function markers into `rebrew-functions.toml` and data markers into `rebrew-data.toml`, strip `.c` to pure C (per-file, flag-free reader fallback) |
+| `rebrew source register` | `source_register.py` | Register address-bound declarations or support file purposes in current metadata |
 | `rebrew orphans` | `orphans.py` | Inspect missing-source identities with `rebrew orphans list`; preview removal with `rebrew orphans prune --dry-run` or `rebrew orphans drop 0xVA --dry-run` |
 | `rebrew types check` | `types_cli.py` | Check declared struct layouts against decompiler evidence; `rebrew types apply` rewrites signature types |
 | `rebrew binary analyze` | `analyze.py` | One-shot binary dossier (toolchain, strings, imports, dispatch, vtordisp thunks, float-constant pool, FLIRT, blockers) |
@@ -722,7 +722,7 @@ graph TD
 | `--built PATH` | Built binary for `--data` / `--text` / `--whole-binary` comparison (default `build/<target>`) |
 | `--raw-link` | Ack that `--built` is the raw link, not a postlinked deliverable. Without it (or configured `raw_link`), `--data` reports comparisons but suppresses all stored data verdict/evidence writes, and `--text` reports linked-identical functions but promotes none; existing verdicts remain unchanged |
 | `--link-map PATH` | MSVC link map of `--built` (default: the built image's `.map` beside it). `--data` places data symbols from it; `--text` promotes only functions it places at their reference VA |
-| `--text` | Check built `.text` function placement against each function's annotated VA (the `MODULE.0xVA` row, or an unmigrated `// FUNCTION:` line) via `text-audit`; exit 1 on any misplaced function. Then compare each RELOC function placed at its VA: when the built image's bytes `[va, va+size)` equal the reference's with no masking, and the raw link is acknowledged, STATUS becomes EXACT (linked EXACT, see below) |
+| `--text` | Check built `.text` function placement against each function's annotated VA (the `MODULE.0xVA` row or a declaration-bound ADDRESS anchor) via `text-audit`; exit 1 on any misplaced function. Then compare each RELOC function placed at its VA: when the built image's bytes `[va, va+size)` equal the reference's with no masking, and the raw link is acknowledged, STATUS becomes EXACT (linked EXACT, see below) |
 | `--whole-binary` | Compare built binary against the reference: whole-file raw bytes, section sizes, exports, imports, PE base relocations, `.rsrc` bytes, headers, plus layout-freshness check |
 | `--context FILE` | Compile every source with these declarations merged ahead of it under `#line` directives (see `rebrew test --context`); each result and the report carry `context_hash`. Each entry records the context digest it was earned under, so a cached verdict is served only to a run pinned to the exact same context (a changed or absent digest re-verifies); context runs write back like bare runs |
 | `--dir TEXT` | Restrict to this subdirectory: project-relative first (`src/shared` scopes the shared tree), then relative to reversed_dir |
@@ -887,7 +887,7 @@ automatic maps or archives leave attribution unknown; the scan never downloads
 libraries. Map addresses can differ from reference VAs, so match symbol names.
 DLL import slots, uncertain aliases, and unselected archive members are excluded.
 
-Metadata changes use `data set`: choose exactly one field (`--type`, `--name`, `--size`, `--section`, `--file`, `--storage-kind`, `--backing`, `--link-symbol`, `--marker-type`, or `--note`) and repeat `0xVA=VALUE` for multiple records. A size change clears stored verification. `data move 0xOLD 0xNEW` re-addresses one row. No operation treats a declaration, alias, or interior view as another storage allocation.
+Metadata changes use `data set`: choose exactly one field (`--type`, `--name`, `--size`, `--section`, `--file`, `--storage-kind`, `--backing`, `--link-symbol`, `--kind`, or `--note`) and repeat `0xVA=VALUE` for multiple records. A size change clears stored verification. `data move 0xOLD 0xNEW` re-addresses one row. No operation treats a declaration, alias, or interior view as another storage allocation.
 
 `data header --output/-o FILE` generates declarations; physical section grouping does not establish game/CRT ownership. Preview and reconcile the generated header with canonical subsystem and CRT headers. `data layout` separates audit, fill, own, fix-ownership, and converge. Establish full extents and provenance before emitting storage. Convergence measures the existing build; it does not re-link between rounds.
 
@@ -926,7 +926,7 @@ Use `rebrew data <operation> --help` for exact arguments and examples.
 
 | Flag | Description |
 |------|-------------|
-| `--fix` | Migrate leftover inline metadata into `rebrew-functions.toml` / `rebrew-data.toml`, strip redundant inline lines (retired `SYMBOL`/`PROTOTYPE`, legacy `ORIGIN`, repeated `// CFLAGS:`, copies already in metadata), backfill missing W016 `SECTION` from the target binary, and drop W029-redundant per-function `cflags` and matching `cflags_presets` |
+| `--fix` | Backfill missing data sections from the target binary and drop redundant per-function flags/presets. Invalid source metadata tags are errors; no legacy parser or migration is available. |
 | `--dry-run` | Preview changes without writing |
 | `--quiet` | Suppress warnings, show errors only |
 | `--pedantic` | Warn on functions with default names (fcn, fn, fun, etc.) |
@@ -1256,40 +1256,17 @@ so a CMake build compiles exactly the reversed tree without hand-listing
 files. Pairs with `rebrew build cmake-flags` (per-file CFLAGS) and
 `rebrew build cmake-toolchain` (toolchain file).
 
-### `rebrew source migrate-markers`
+### `rebrew source register`
 
-`rebrew source migrate-markers [--dry-run] [--json] [--target NAME]`
+`rebrew source register [SOURCE] [--support REASON] [--dry-run] [--json] [--target NAME]`
 
-ADR 023: move inline markers into the metadata stores and strip them
-from the `.c` sources; the result is pure C. Each function's identity
-(`file`, `symbol`, `name`, `marker_type`), compile-contract fields
-(`SIZE`, `CFLAGS`, `TOOLCHAIN`, and a non-naked `SOURCE`), and the scalar
-metadata on that block (`BLOCKER`, `BLOCKER_DELTA`, `NOTE`, `GHIDRA`,
-`SKIP`, `GLOBALS`) are copied into `rebrew-functions.toml`. A value already
-in the store wins. Each `GLOBAL` / `DATA` / `VTABLE` / `STRING` marker's
-`file`, `marker_type`, and (when the row lacks them) name, type, size,
-section, and note are copied into `rebrew-data.toml`. `// SOURCE: naked`,
-`// STRUCT:`, and `// CALLERS:` stay in the file. The marker line and the
-other attached `// KEY:` comments are removed only after both writes. A
-marker-less file with one function still reports a `// SOURCE: naked` fence
-on that function. Per-file,
-flag-free: `parse_c_file_multi` synthesizes Annotations from both stores
-for any marker-less file, and `rebrew data` binds a data row when the source
-has no data-marker line. A project migrates file-by-file and every consumer
-keeps working. Idempotent: a second run finds nothing to strip. The strip
-is one-shot and nothing puts
-a removed line back, so each file's pre-migration bytes are copied to
-`.rebrew/source-backups/<name>.pre-migration.<pid>.orig` first and the
-path is printed (and carried in the JSON row) as it is written; those
-copies are kept after a clean run, unlike the in-flight copies the sweeps
-make. See
-[adr/023-markers-toml-single-source.md](adr/023-markers-toml-single-source.md).
-
-| Flag | Description |
-|------|-------------|
-| `--dry-run` | Preview changes without writing |
-| `--json` | Output results as JSON |
-| `--target NAME` | Select a target from `rebrew-project.toml` |
+Register optional `ADDRESS: MODULE 0xVA` comments immediately above the next C
+function definition, variable or constant in format-2 metadata. Stacked targets
+bind one declaration. Without SOURCE, scan configured sources and headers.
+Validate the full selection before writing; preserve existing fields and verdicts.
+With one SOURCE, `--support REASON` records a target-scoped file purpose in
+`rebrew-source.toml`. Old source blocks and older store formats are rejected.
+See [source addresses](ANNOTATIONS.md).
 
 ### `rebrew build check-data-placement`
 
@@ -1317,7 +1294,7 @@ the culprit while the symbol rows show the victims. Terminal mode prints a
 
 Post-edit check: walk the link's object files (objdump, link order), compute
 each function's current `.text` VA, and compare against the annotated VA
-(the `MODULE.0xVA` row, or an unmigrated `// FUNCTION:` line). Per-function OK/MISPLACED/MISSING with address
+(the `MODULE.0xVA` row or a declaration-bound ADDRESS anchor). Per-function OK/MISPLACED/MISSING with address
 deltas; exits 1 on any misplaced function. When no build objects are found,
 actual VAs fall back to exported-symbol lookup on the built binary. The
 position-alignment gate `postlink` assumes but never checks.
@@ -1504,7 +1481,7 @@ loader does not classify sections (PE, Mach-O) the scan stays on `.text`.
 | Flag | Description |
 |------|-----------|
 | `VA` | Virtual address to match (positional, optional) |
-| `--fix-source` | Auto-write `// SOURCE:` markers for matches |
+| `--fix-source` | Record source provenance in function metadata for matches |
 | `--dry-run` | Preview `--fix-source` updates without writing |
 | `--index` | Show the CRT source index (files and functions) |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
@@ -1665,7 +1642,7 @@ On success, updates `STATUS` from `NEAR_MATCHING`/`SIZE_MISMATCH` → `PROVEN`. 
 
 `rebrew source merge <file1> <file2> ... --output FILE [--dry-run] [--force] [--delete] [--consolidate] [--shared] [--json]`
 
-Merge multiple single-function `.c` files into one multi-function file. Preamble lines (`#include`, `extern`, `#define`) are deduplicated. An unmigrated file contributes its marker blocks, sorted by virtual address. A migrated file has no marker block. The command copies each C definition and its file-scope objects, puts storage before functions, and retargets every function or data row that names an input. A non-static function needs a matching row. A static helper moves with the file. A file-level `// SOURCE: naked` is not copied onto a second function. `--dry-run` writes nothing. A non-interactive run passes `--force` before rows move. Inputs that mix marker blocks and migrated files are refused.
+Merge multiple single-function `.c` files into one multi-function file. Preamble lines (`#include`, `extern`, `#define`) are deduplicated. An unmigrated file contributes its marker blocks, sorted by virtual address. A migrated file has no marker block. The command copies each C definition and its file-scope objects, puts storage before functions, and retargets every function or data row that names an input. A non-static function needs a matching row. A static helper moves with the file. A file-level `source = "naked"` in function metadata is not copied onto a second function. `--dry-run` writes nothing. A non-interactive run passes `--force` before rows move. Inputs that mix marker blocks and migrated files are refused.
 
 | Flag | Effect |
 |------|--------|
@@ -1843,7 +1820,7 @@ for functions without a C implementation: the target bytes are emitted
 verbatim (`__asm _emit 0xNN` on MSVC, `__asm__(".byte ...")` on GCC;
 no assembler-encoding risk, unlike assembler mnemonics) behind the
 `REBREW_ALLOW_NAKED` fence, with a plain-C fallback for the comparison
-build.  The file carries `// FUNCTION` + `// SIZE` + a `// SOURCE: naked`
+build.  The file carries `// FUNCTION` + `// SIZE` + a `source = "naked"` in function metadata
 marker + a symbol from its C definition, so it is self-contained for
 `rebrew test func.c --cflags /DREBREW_ALLOW_NAKED`: iterate one function
 at a time through the normal compile→compare loop, then replace the
@@ -2147,11 +2124,11 @@ Functions marked `LIBRARY` or assigned to a configured external module are exclu
 from those reversing denominators and shown as `library_identified`; their bytes
 still contribute to accounted `.text`. Vendored library code tracked as `FUNCTION`
 remains in the function counts; exclusion depends on attribution, not code origin.
-For confirmed vendored library functions, set that row's `marker_type` to
+For confirmed vendored library functions, set that row's `kind` to
 `LIBRARY` (an unmigrated file may still say `// LIBRARY: SERVER 0x10003960`). Sourced
 library functions remain compilable; status and todo exclude them from the function
 denominators and include them in the separate `Library functions` count. For migrated
-sources, update the stored `marker_type` through `rebrew.metadata.functions`, not by hand.
+sources, update the stored `kind` through `rebrew.metadata.functions`, not by hand.
 The terminal leads with the linked-file percentage, then the code account
 (`byte_coverage_pct` of virtual `.text`). Those are different measures, so the
 file line is labeled `Linked file` and the code line is labeled `Code account`.
@@ -2165,7 +2142,7 @@ and does not add a per-status percentage. Without per-status bytes the table
 falls back to `Count %`. The data byte percentage covers initialized `.data`
 and `.rdata`. The symbol table beside it is a count, including `.bss`, and
 does not print a second percentage while the byte percentage is shown.
-`decompiled_pct` excludes matched `// SOURCE: naked` assembly reconstructions.
+`decompiled_pct` excludes matched `source = "naked"` in function metadata assembly reconstructions.
 PROVEN is semantic evidence and earns no byte-match credit.
 
 Executable accounting reconciles as:
@@ -2325,11 +2302,11 @@ For the "keep the same `.c` for multiple target versions" workflow (binary versi
   ```toml
   ["V1.0x401000"]
   file = "shared/common.c"
-  marker_type = "FUNCTION"
+  kind = "FUNCTION"
 
   ["V2.0x501000"]
   file = "shared/common.c"
-  marker_type = "FUNCTION"
+  kind = "FUNCTION"
   ```
   ```c
   int common(void) { ... }
@@ -2940,7 +2917,7 @@ Run it inside a project (`rebrew init` or `rebrew intake` first); a missing
 | `segments[].start/vram/subsegments` | `layout/<target>/rebrew-layout.toml` = `image_base` + `sections` (`name`/`va`/`vs`/`raw`/`ptr`/`chars`), the same shape `rebrew build layout` writes, so `rebrew data list` and `rebrew build calibrate-bss` read it unchanged |
 | `symbol_addrs_path` rows typed `func` in a code segment | pure-C stub via `generate_skeleton`; identity, `SIZE`, `STATUS`, and `BLOCKER` in `rebrew-functions.toml` |
 | a row whose `//` comment says `import from <DLL>` in a code segment | `LIBRARY` row whose `file` is `library_<dll>.h` (the header is a banner) |
-| rows typed `u8`/`u16`/`u32`/`s32`/`f32` in a data segment | the C declaration, with `file`, `marker_type`, `size`, and `section` in `rebrew-data.toml` |
+| rows typed `u8`/`u16`/`u32`/`s32`/`f32` in a data segment | the C declaration, with `file`, `kind`, `size`, and `section` in `rebrew-data.toml` |
 | `undefined_funcs_auto`/`undefined_syms_auto` | read with the same symbol reader: an address inside the image becomes a `LIBRARY` row with the module inferred from the name (the CRT/zlib tables `rebrew library identify` uses); one outside it is **reported**, not annotated (splat records no bytes for it; link it with `rebrew build symbol-stubs` instead) |
 
 The dry run prints every planned annotation as the declaration, or a comment that is not the legacy marker grammar (`/* FUNCTION MODULE 0xVA */`), plus the layout sections and the target metadata it would set.
@@ -3458,7 +3435,7 @@ rebrew source graph --cu-map --json | jq '.clusters | length'  # count clusters
 # CRT source matching
 rebrew library crt-match 0x10006c00                     # match a single VA against CRT source
 rebrew library crt-match --all                           # match all library-marker functions
-rebrew library crt-match --fix-source --all              # auto-write // SOURCE: markers
+rebrew library crt-match --fix-source --all              # record source provenance in metadata
 rebrew library crt-match --index                         # show CRT source index
 
 # Sync to/from Ghidra (BinSync state dir relay)
@@ -3573,7 +3550,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 
 | Module | Purpose |
 |--------|---------|
-| `metadata/annotation.py` | Canonical annotation parser (`parse_c_file_multi`, `parse_c_file_text`) |
+| `metadata/bindings.py` | Canonical source bindings (`read_source_bindings`, `source_bindings`) |
 | `lint.py` | Source marker linter (10 E-codes, 28 W-codes); `--fix` migrates leftover inline metadata and drops W029-redundant cflags; W005 points to `rebrew blocker set` for STUB BLOCKERs |
 | `blocker.py` | Programmatic BLOCKER writer: `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata.functions` (never hand-edit `rebrew-functions.toml`) |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
@@ -3689,7 +3666,7 @@ Organize C sources, update markers through metadata writers, import related sour
 | Operation | Purpose |
 | --- | --- |
 | `rebrew source rename` | Rename a function, global, type or struct member and update every reference. |
-| `rebrew source migrate-markers` | Move inline function and data markers into the metadata stores (ADR 023: pure-C sources). |
+| `rebrew source register` | Register address-bound identities or support file purposes in current metadata. |
 | `rebrew source fix` | Make raw decompiler output compilable (DecBench-style fixup). |
 | `rebrew source inline-strings` | Inline string-literal globals (s_<hint>_<ADDR>) from the reference binary. |
 | `rebrew source document-unmatched` | Document unmatched functions as STUB skeletons + blockers. |
@@ -3996,14 +3973,14 @@ Set one metadata field through the locked data writers.
 | `--size` | Set a global's positive byte size: 0xVA=BYTES (decimal or hex, repeatable); clears its stored verification verdict |
 | `--section` | Set a global's PE section in rebrew-data.toml: 0xVA=.data (repeatable) |
 | `--file` | Set the source file that defines a global: 0xVA=PATH (repeatable) |
-| `--marker-type` | Set a global's marker word: 0xVA=GLOBAL\|DATA\|VTABLE\|STRING (repeatable) |
+| `--kind` | Set a global's marker word: 0xVA=GLOBAL\|DATA\|VTABLE\|STRING (repeatable) |
 | `--note` | Set a global's free-text note: 0xVA=TEXT (repeatable); keeps its verdict |
 | `--dry-run` | Preview changes without writing |
 | `--json` | Output results as JSON |
 | `--target` / `-t` | Target name from rebrew-project.toml (default: project default target). |
 
-One setter per call. A row `data set` creates has no `marker_type` and reads
-as `DATA` until `--marker-type` records one. `--note` and `--marker-type` take
+One setter per call. A row `data set` creates has no `kind` and reads
+as `DATA` until `--kind` records one. `--note` and `--kind` take
 a non-empty value and leave the stored verdict in place.
 
 ```bash
@@ -4021,7 +3998,7 @@ compared the reference bytes at the old address, and the next
 `rebrew verify --data` measures the new one. The row is stamped
 `updated_by = "data"`. Refused, with nothing written: equal addresses, no row
 at `OLD_VA`, a row already at `NEW_VA`, and a row whose `file` still carries an
-inline marker for `OLD_VA` (run `rebrew source migrate-markers` first). The
+ADDRESS anchor for `OLD_VA` (update or remove that anchor first). The
 move checks addresses only: `rebrew lint` W038 reports an extent that now
 overlaps another row. JSON: `{dry_run, moved: {module, from, to, name, status_was}}`.
 

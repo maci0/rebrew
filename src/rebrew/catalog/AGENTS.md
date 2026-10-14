@@ -13,7 +13,7 @@ Merges function sources (discovery inventory, Ghidra JSON, binary exports) into 
 | `pipeline.py` | `build_catalog_data` (scan/registry/grid dict; no disk writes) |
 | `cli.py` | `run_catalog` + Typer entry |
 
-Externals (the only packages this one may import): `cli`, `config`, `function_providers`, `metadata.annotation`, `metadata.data`, `metadata.functions`, `present`, `sections`, `sources`, `status`, `utils`, `workspace`, `formats.binary_loader` (lazy, inside functions), and `formats.binary_model` (`BinaryInfo`). PE section helpers live in `rebrew.sections`; `preset_module_key` / `atomic_write_text` in `rebrew.utils`.
+Externals (the only packages this one may import): `cli`, `config`, `function_providers`, `metadata.bindings`, `metadata.document`, `metadata.data`, `metadata.functions`, `present`, `sections`, `sources`, `status`, `utils`, `workspace`, `formats.binary_loader` (lazy, inside functions), and `formats.binary_model` (`BinaryInfo`). PE section helpers live in `rebrew.sections`; `preset_module_key` / `atomic_write_text` in `rebrew.utils`.
 
 ## Data flow
 
@@ -30,7 +30,7 @@ Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery
 
 - **Lazy binary parse**: `build_coverage_data` parses once (`_bin_info`) per run; other tools call `load_binary()` themselves.
 - **Multi-function files**: a marker-less `.c` lists every function row whose `file` names it. An unmigrated file lists each `// FUNCTION:` block, and a file that still has a FUNCTION or LIBRARY marker is not merged with stored function rows.
-- **Library headers**: `parse_library_header` returns every `// LIBRARY:` row. When the header has none, and `metadata_dir` is set, it reads LIBRARY rows from `rebrew-functions.toml`. A header that still has a LIBRARY line is not merged with the store. The module is the row's module, not the filename. Do not add a filter there. `scan_reversed_dir` then keeps a row only when its module is empty or this target's marker (`preset_module_key(module_marker(cfg))`): a shared header has no path affinity, and another target's rows must not enter this registry. Inline KV is a legacy read; do not add volatile metadata to source files.
+- **Library headers**: `library_bindings_for_file` returns every `// LIBRARY:` row. When the header has none, and `metadata_dir` is set, it reads LIBRARY rows from `rebrew-functions.toml`. A header that still has a LIBRARY line is not merged with the store. The module is the row's module, not the filename. Do not add a filter there. `scan_reversed_dir` then keeps a row only when its module is empty or this target's marker (`preset_module_key(module_marker(cfg))`): a shared header has no path affinity, and another target's rows must not enter this registry. Inline KV is a legacy read; do not add volatile metadata to source files.
 - **Ghidra labels**: only `thunk_*` → "thunk"; everything else → "data". `GhidraDataLabel.from_dict` coerces a non-string `label`/`state` to its default, since export JSON is untrusted and `_classify_ghidra_label` calls `.lower()` on the label.
 - **Inventory cache**: `loaders.py` has a bounded, path-keyed process cache invalidated by stat fingerprint (mtime/size/inode). The decoded-JSON cache is bounded by retained characters, not entry count (one inventory is multi-MB); the entry caches keep an entry cap. Preserve its lock around lookup, eviction, and replacement.
 

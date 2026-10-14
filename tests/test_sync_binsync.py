@@ -41,10 +41,10 @@ class TestBuilders:
         # Entries are to_dict()-shaped annotations: data markers ride along
         # as is_data (the builder does not re-spell the marker sets).
         entries = [
-            {"va": 0x1000, "status": "EXACT", "marker_type": "FUNCTION", "is_data": False},
-            {"va": 0x2000, "status": "STUB", "marker_type": "FUNCTION", "is_data": False},
-            {"va": 0x3000, "status": "EXACT", "marker_type": "DATA", "is_data": True},  # excluded
-            {"va": 0x4000, "status": "", "marker_type": "FUNCTION", "is_data": False},  # no status
+            {"va": 0x1000, "status": "EXACT", "kind": "FUNCTION", "is_data": False},
+            {"va": 0x2000, "status": "STUB", "kind": "FUNCTION", "is_data": False},
+            {"va": 0x3000, "status": "EXACT", "kind": "DATA", "is_data": True},  # excluded
+            {"va": 0x4000, "status": "", "kind": "FUNCTION", "is_data": False},  # no status
         ]
         ops = build_bookmark_commands(entries, "/x.dll")
         assert len(ops) == 2
@@ -80,7 +80,7 @@ class TestBuilders:
 
     def test_bookmark_at_va_zero(self) -> None:
         """16-bit targets place functions at VA 0; dropping it loses the bookmark."""
-        entries = [{"va": 0, "status": "EXACT", "marker_type": "FUNCTION"}]
+        entries = [{"va": 0, "status": "EXACT", "kind": "FUNCTION"}]
         ops = build_bookmark_commands(entries, "/x.dll")
         assert len(ops) == 1
         assert ops[0]["args"]["addressOrSymbol"] == "0x00000000"
@@ -368,7 +368,7 @@ class TestSyncCli:
         monkeypatch.setattr(sync_cli, "_probe_program_path", _must_not_probe)
         monkeypatch.setattr(
             "rebrew.catalog.scan_reversed_dir",
-            lambda *_a, **_k: [{"va": 0x1000, "status": "EXACT", "marker_type": "FUNCTION"}],
+            lambda *_a, **_k: [{"va": 0x1000, "status": "EXACT", "kind": "FUNCTION"}],
         )
         applied: list[dict] = []
 

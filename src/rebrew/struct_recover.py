@@ -644,7 +644,7 @@ def _collect_functions(
     Raises ``ValueError`` for an unparseable VA or an empty selection; the
     CLI turns either into ``error_exit``.
     """
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
     from rebrew.sources import iter_sources, target_marker
 
     if functions:
@@ -664,9 +664,9 @@ def _collect_functions(
     seen: set[int] = set()
     out = []
     for src in iter_sources(cfg.reversed_dir, cfg):
-        annos = parse_c_file_multi(src, target_name=marker, metadata_dir=cfg.metadata_dir)
+        annos = read_source_bindings(src, target_name=marker, metadata_dir=cfg.metadata_dir)
         for a in annos:
-            if a.marker_type not in ("FUNCTION", "STUB", "LIBRARY"):
+            if a.kind not in ("FUNCTION", "STUB", "LIBRARY"):
                 continue
             if filter_substr and fold_ident(filter_substr) not in fold_ident(a.name or ""):
                 continue

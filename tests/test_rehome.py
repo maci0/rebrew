@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import write_store_fixture
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -18,8 +19,9 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 def _cfg(tmp_path: Path) -> SimpleNamespace:
     (tmp_path / "src").mkdir(exist_ok=True)
-    (tmp_path / "rebrew-functions.toml").write_text(
-        '["SERVER.0x1000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a.c"\nmarker_type = "FUNCTION"\n',
+    write_store_fixture(
+        tmp_path / "rebrew-functions.toml",
+        'format = 2\n["SERVER.0x1000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a.c"\nkind = "FUNCTION"\n',
         encoding="utf-8",
     )
     return SimpleNamespace(
@@ -55,9 +57,9 @@ def test_binds_row_to_named_definition(tmp_path: Path) -> None:
     """``PATH:NAME`` joins an existing definition: file, name and decorated symbol change."""
     cfg = _cfg(tmp_path)
     meta = tmp_path / "rebrew-functions.toml"
-    meta.write_text(
-        '["SERVER.0x1000"]\nname = "fcn_00001000"\nsymbol = "_fcn_00001000@8"\n'
-        'file = "src/a.c"\nmarker_type = "FUNCTION"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x1000"]\nname = "fcn_00001000"\nsymbol = "_fcn_00001000@8"\nfile = "src/a.c"\nkind = "FUNCTION"\n',
         encoding="utf-8",
     )
     (tmp_path / "src" / "shared.c").write_text(
@@ -99,36 +101,9 @@ command = "i686-w64-mingw32-gcc"
 cflags = "-O2"
 """
 
-_FUNCTIONS_TOML = """\
-["SERVER.0x1000"]
-name = "f"
-symbol = "_f"
-file = "src/a/x.c"
-marker_type = "FUNCTION"
-status = "EXACT"
+_FUNCTIONS_TOML = 'format = 2\n["SERVER.0x1000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a/x.c"\nkind = "FUNCTION"\nstatus = "EXACT"\n\n["CLIENT.0x5000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a/x.c"\nkind = "FUNCTION"\n\n["SERVER.0x2000"]\nname = "other"\nsymbol = "_other"\nfile = "src/a/z.c"\nkind = "FUNCTION"\n'
 
-["CLIENT.0x5000"]
-name = "f"
-symbol = "_f"
-file = "src/a/x.c"
-marker_type = "FUNCTION"
-
-["SERVER.0x2000"]
-name = "other"
-symbol = "_other"
-file = "src/a/z.c"
-marker_type = "FUNCTION"
-"""
-
-_DATA_TOML = """\
-["SERVER.0x3000"]
-name = "g_count"
-file = "src/a/x.c"
-
-["SERVER.0x4000"]
-name = "g_other"
-file = "src/a/z.c"
-"""
+_DATA_TOML = 'format = 2\n["SERVER.0x3000"]\nname = "g_count"\nfile = "src/a/x.c"\n\n["SERVER.0x4000"]\nname = "g_other"\nfile = "src/a/z.c"\n'
 
 
 class TestRetargetFile:
@@ -140,8 +115,8 @@ class TestRetargetFile:
         (root / "src" / "b").mkdir(parents=True)
         shutil.copy(FIXTURES / "mini_pe.exe", root / "original" / "mini_pe.exe")
         (root / "rebrew-project.toml").write_text(_PROJECT_TOML, encoding="utf-8")
-        (root / "rebrew-functions.toml").write_text(_FUNCTIONS_TOML, encoding="utf-8")
-        (root / "rebrew-data.toml").write_text(_DATA_TOML, encoding="utf-8")
+        write_store_fixture(root / "rebrew-functions.toml", _FUNCTIONS_TOML, encoding="utf-8")
+        write_store_fixture(root / "rebrew-data.toml", _DATA_TOML, encoding="utf-8")
         (root / "src" / "b" / "y.c").write_text(body, encoding="utf-8")
         monkeypatch.chdir(root)
         return root

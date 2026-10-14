@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from source_util import write_source, write_store_fixture
 
 from rebrew.data_layout import (
     c_type_size,
@@ -22,10 +23,9 @@ from rebrew.data_layout import (
 
 def test_data_symbols(tmp_path: Path) -> None:
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n'
-        '["SERVER.0x10027004"]\nname = "g_b"\nsection = ".bss"\n'
-        '["SERVER.0x10027010"]\nname = "g_c"\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n["SERVER.0x10027004"]\nname = "g_b"\nsection = ".bss"\n["SERVER.0x10027010"]\nname = "g_c"\nsection = ".data"\n',
         encoding="utf-8",
     )
     assert data_symbols(meta) == {"g_a": 0x10027000, "g_c": 0x10027010}
@@ -542,9 +542,9 @@ def test_own_data_globals_skips_nan_float_and_materializes_finite(tmp_path: Path
         "extern float g_ok;\nextern FLOAT g_nan;\n", encoding="utf-8"
     )
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        f'["SERVER.0x{data_base:x}"]\nname = "g_ok"\nsection = ".data"\ntype = "float"\n'
-        f'["SERVER.0x{data_base + 4:x}"]\nname = "g_nan"\nsection = ".data"\ntype = "FLOAT"\n',
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_ok"\nsection = ".data"\ntype = "float"\n["SERVER.0x{data_base + 4:x}"]\nname = "g_nan"\nsection = ".data"\ntype = "FLOAT"\n',
         encoding="utf-8",
     )
     stub = tmp_path / "src" / "link_stubs.c"
@@ -585,9 +585,9 @@ def test_own_data_globals_scalar_and_string(tmp_path: Path) -> None:
     raw = b"\x2a\x00\x00\x00" + b"hello\x00" + b"\x00" * 20  # g_count=42, g_msg="hello"
     binp = _own_fixture(tmp_path, raw, data_base)
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        f'["SERVER.0x{data_base:x}"]\nname = "g_count"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 4:x}"]\nname = "g_msg"\nsection = ".data"\ntype = "char"\n',
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_count"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4:x}"]\nname = "g_msg"\nsection = ".data"\ntype = "char"\n',
         encoding="utf-8",
     )
     stub = tmp_path / "src" / "link_stubs.c"
@@ -612,9 +612,9 @@ def test_own_data_globals_skips_bss_and_unmapped(tmp_path: Path) -> None:
     raw = b"\x2a\x00\x00\x00"
     binp = _own_fixture(tmp_path, raw, data_base)
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        f'["SERVER.0x{data_base:x}"]\nname = "g_count"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x10035000"]\nname = "g_bss_thing"\nsection = ".data"\ntype = "int"\n',
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_count"\nsection = ".data"\ntype = "int"\n["SERVER.0x10035000"]\nname = "g_bss_thing"\nsection = ".data"\ntype = "int"\n',
         encoding="utf-8",
     )
     stub = tmp_path / "src" / "link_stubs.c"
@@ -670,10 +670,9 @@ def test_fix_ownership_partitions_across_tus(tmp_path: Path) -> None:
     (src / "a.c").write_text("int g_a = 1;\nint g_ab = 2;\n", encoding="utf-8")
     (src / "b.c").write_text("int g_b = 3;\n", encoding="utf-8")
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 4:x}"]\nname = "g_ab"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 0x1000:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4:x}"]\nname = "g_ab"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4096:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
         encoding="utf-8",
     )
     result = fix_ownership(tmp_path, meta, binp, src, dry_run=True)
@@ -709,10 +708,9 @@ def test_fix_ownership_sees_array_of_pointers_to_array(tmp_path: Path) -> None:
     )
     (src / "b.c").write_text("int g_b = 3;\n", encoding="utf-8")
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 0x1000:x}"]\nname = "table"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 0x1004:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4096:x}"]\nname = "table"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4100:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
         encoding="utf-8",
     )
     fix_ownership(tmp_path, meta, binp, src, dry_run=False)
@@ -748,10 +746,9 @@ def test_fix_ownership_keeps_pointer_array_extern(tmp_path: Path) -> None:
     )
     (src / "b.c").write_text("int g_b = 3;\n", encoding="utf-8")
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 0x1000:x}"]\nname = "table"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 0x1004:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4096:x}"]\nname = "table"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4100:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
         encoding="utf-8",
     )
     fix_ownership(tmp_path, meta, binp, src, dry_run=False)
@@ -783,10 +780,9 @@ def test_fix_ownership_keeps_const_pointer_array_extern(tmp_path: Path) -> None:
     )
     (src / "b.c").write_text("int g_b = 3;\n", encoding="utf-8")
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 0x1000:x}"]\nname = "table"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 0x1004:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4096:x}"]\nname = "table"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4100:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
         encoding="utf-8",
     )
     fix_ownership(tmp_path, meta, binp, src, dry_run=False)
@@ -826,8 +822,9 @@ def test_converge_layout_single_tu(tmp_path: Path) -> None:
     src.mkdir()
     (src / "a.c").write_text("int g_a = 1;\n", encoding="utf-8")
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n',
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n',
         encoding="utf-8",
     )
     # expected (0x10027000) == current (build data_va + offset) — no pad needed.
@@ -881,8 +878,9 @@ def test_converge_layout_resolves_target_from_config(tmp_path: Path) -> None:
     src.mkdir()
     (src / "a.c").write_text("int g_a = 1;\n", encoding="utf-8")
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n',
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n',
         encoding="utf-8",
     )
     result = converge_layout(tmp_path, meta, tmp_path / "original" / "x.dll", src, dry_run=True)
@@ -900,7 +898,7 @@ def test_converge_layout_missing_output_names_target(tmp_path: Path) -> None:
     binp = tmp_path / "original" / "x.dll"
     binp.write_bytes(_make_pe(b"\x00" * 16))
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text("", encoding="utf-8")
+    write_store_fixture(meta, "format = 2\n", encoding="utf-8")
     src = tmp_path / "src"
     src.mkdir()
     with pytest.raises(FileNotFoundError, match="build/game.dll"):
@@ -929,7 +927,7 @@ def test_audit_layout_records_objdump_error(tmp_path: Path) -> None:
     bad.write_text("not an object\n", encoding="utf-8")
     _write_rsp(tmp_path, [bad])
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text("", encoding="utf-8")
+    write_store_fixture(meta, "format = 2\n", encoding="utf-8")
     report = audit_layout(tmp_path, meta)
     assert report["violations"] == 1
     (row,) = report["rows"]
@@ -1456,9 +1454,9 @@ class TestAuditLayoutSection:
         from rebrew.data_layout import audit_layout
 
         meta = tmp_path / "rebrew-data.toml"
-        meta.write_text(
-            '["SERVER.0x1000"]\nname = "g_c"\nsize = 4\nsection = ".rdata"\n'
-            '["SERVER.0x2000"]\nname = "g_d"\nsize = 4\nsection = ".data"\n',
+        write_store_fixture(
+            meta,
+            'format = 2\n["SERVER.0x1000"]\nname = "g_c"\nsize = 4\nsection = ".rdata"\n["SERVER.0x2000"]\nname = "g_d"\nsize = 4\nsection = ".data"\n',
             encoding="utf-8",
         )
 
@@ -1588,9 +1586,9 @@ def test_data_symbols_includes_bss_when_asked(tmp_path: Path) -> None:
     """`.bss` globals carry section=".bss"; a `.data`-only read drops them, so
     `--fill-data` never emitted BSS pads."""
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["T.0x1000"]\nname = "g_init"\nsection = ".data"\n'
-        '["T.0x2000"]\nname = "g_zero"\nsection = ".bss"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["T.0x1000"]\nname = "g_init"\nsection = ".data"\n["T.0x2000"]\nname = "g_zero"\nsection = ".bss"\n',
         encoding="utf-8",
     )
     assert data_symbols(meta) == {"g_init": 0x1000}
@@ -1616,8 +1614,9 @@ def test_fill_data_emits_bss_pads(tmp_path: Path) -> None:
     meta = tmp_path / "rebrew-data.toml"
     # One `.bss` symbol PAST the raw end (raw_end = base + 0x1000) and well
     # before the section end: the gap to section_end becomes the zero-init pad.
-    meta.write_text(
-        f'["SERVER.0x{data_base + 0x1500:x}"]\nname = "g_zero"\nsection = ".bss"\ntype = "int"\n',
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base + 5376:x}"]\nname = "g_zero"\nsection = ".bss"\ntype = "int"\n',
         encoding="utf-8",
     )
     result = fill_data(tmp_path, meta, tmp_path / "original" / "x.dll", src)
@@ -1670,7 +1669,9 @@ class TestDataModeTarget:
 
         monkeypatch.setattr(dl, "layout_geometry", _probe)
         meta = tmp_path / "rebrew-data.toml"
-        meta.write_text('["A.0x1000"]\nname = "g"\nsection = ".data"\n', encoding="utf-8")
+        write_store_fixture(
+            meta, 'format = 2\n["A.0x1000"]\nname = "g"\nsection = ".data"\n', encoding="utf-8"
+        )
         stub = tmp_path / "link_stubs.c"
         stub.write_text("int g;\n", encoding="utf-8")
         src = tmp_path / "src"
@@ -1727,8 +1728,9 @@ class TestSharedScans:
         # The fixture's mod.c also declares it — remove so ownership is shared-only.
         (tmp_path / "src" / "mod.c").write_text("int unrelated;\n", encoding="utf-8")
         meta = tmp_path / "rebrew-data.toml"
-        meta.write_text(
-            f'["SERVER.0x{data_base:x}"]\nname = "g_count"\nsection = ".data"\ntype = "int"\n',
+        write_store_fixture(
+            meta,
+            f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_count"\nsection = ".data"\ntype = "int"\n',
             encoding="utf-8",
         )
         stub = tmp_path / "src" / "link_stubs.c"
@@ -1772,7 +1774,12 @@ def test_converge_layout_rerun_updates_existing_pad_idempotent(
     src = tmp_path / "src"
     src.mkdir()
     f = src / "a.c"
-    f.write_text("// Header\n// FUNCTION: SERVER 0x10027000\nint g_a = 1;\n", encoding="utf-8")
+    write_source(
+        f,
+        "// Header\n/* ADDRESS: SERVER 0x10027000 */\nint g_a = 1;\n",
+        encoding="utf-8",
+        metadata_fields={"SERVER.0x10027000": {"kind": "FUNCTION"}},
+    )
 
     build = tmp_path / "build"
     build.mkdir()
@@ -1941,10 +1948,9 @@ def test_fix_ownership_rolls_back_when_a_write_fails(
     for name, text in before.items():
         (src / name).write_text(text, encoding="utf-8")
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 4:x}"]\nname = "g_ab"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 0x1000:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4:x}"]\nname = "g_ab"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4096:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
         encoding="utf-8",
     )
 
@@ -1994,10 +2000,9 @@ def test_fix_ownership_rollback_survives_a_non_oserror_restore_failure(
     for name, text in before.items():
         (src / name).write_text(text, encoding="utf-8")
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 4:x}"]\nname = "g_ab"\nsection = ".data"\ntype = "int"\n'
-        f'["SERVER.0x{data_base + 0x1000:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4:x}"]\nname = "g_ab"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 4096:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
         encoding="utf-8",
     )
 

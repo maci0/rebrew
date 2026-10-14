@@ -56,7 +56,7 @@ from rebrew.coverage_db import (
     resolve_db_dir,
 )
 from rebrew.errors import RebrewError
-from rebrew.metadata.annotation import FUNCTION_MARKERS, VALID_MARKERS
+from rebrew.metadata.bindings import FUNCTION_KINDS, SYMBOL_KINDS
 from rebrew.metadata.functions import canonical_status
 from rebrew.utils import atomic_write_text, clip_span, file_lock, floor_pct, toml_safe
 from rebrew.workspace import WorkspaceConfigError, db_dir
@@ -382,7 +382,7 @@ def _function_rows(target_name: str, data: dict[str, Any]) -> list[tuple[Any, ..
         elif isinstance(blocker_delta, int) and blocker_delta < 0:
             blocker_delta = 0
         fn_marker = str(fn.get("markerType") or "FUNCTION")
-        if fn_marker not in VALID_MARKERS:
+        if fn_marker not in SYMBOL_KINDS:
             fn_marker = "FUNCTION"
         fn_status = canonical_status(str(fn.get("status") or "UNKNOWN"))
         if fn_status not in FUNCTION_DB_STATUSES:
@@ -1251,7 +1251,7 @@ def _derive_function_stats(
     """The ``function_stats`` dict, computed from the stored function rows.
 
     This is the aggregate the removed ``build_db.function_stats`` used to run
-    over a throwaway table, with its cursor gone: the same ``FUNCTION_MARKERS``
+    over a throwaway table, with its cursor gone: the same ``FUNCTION_KINDS``
     code-row filter, the same ``clip_span`` cut at the next function start, the
     same ``MATCHED_STATUSES`` split between identified bytes (every function,
     STUB placeholders included) and matched bytes (EXACT/RELOC, the headline
@@ -1264,7 +1264,7 @@ def _derive_function_stats(
     sorted, so a rebuild that writes the same rows in a different order cannot
     change the value.
     """
-    rows = [f for f in functions if f.markerType in FUNCTION_MARKERS]
+    rows = [f for f in functions if f.markerType in FUNCTION_KINDS]
     starts = sorted(f.va for f in rows)
     by_status: dict[str, int] = {}
     by_module_counts: dict[str, int] = {}

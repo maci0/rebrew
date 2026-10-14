@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.merge_sweep import (
@@ -27,7 +28,7 @@ from rebrew.merge_sweep import (
     app,
     search_partitions,
 )
-from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.bindings import SourceBinding
 
 runner = CliRunner()
 
@@ -38,48 +39,48 @@ def test_member_symbol_keeps_a_decorated_convention() -> None:
     The fallback was ``_name``, and a name that already started with ``_``
     was dropped, so that member was never extracted.
     """
-    hook = Annotation(
+    hook = SourceBinding(
         va=0x1000,
         name="hook",
         symbol="",
         prototype="void __vectorcall hook(int a)",
         module="SERVER",
-        marker_type="FUNCTION",
+        kind="FUNCTION",
     )
     assert _member_symbol(hook) == "hook@@4"
-    keeps = Annotation(
+    keeps = SourceBinding(
         va=0x2000,
         name="keeps",
         symbol="",
         prototype="void __fastcall keeps(int a)",
         module="SERVER",
-        marker_type="FUNCTION",
+        kind="FUNCTION",
     )
     assert _member_symbol(keeps) == "@keeps@4"
-    underlined = Annotation(
+    underlined = SourceBinding(
         va=0x3000,
         name="_foo",
         symbol="",
         prototype="int _foo(void)",
         module="SERVER",
-        marker_type="FUNCTION",
+        kind="FUNCTION",
     )
     assert _member_symbol(underlined) == "_foo"
-    stdcall = Annotation(
+    stdcall = SourceBinding(
         va=0x4000,
         name="bar",
         symbol="",
         prototype="int __stdcall bar(int a)",
         module="SERVER",
-        marker_type="FUNCTION",
+        kind="FUNCTION",
     )
     assert _member_symbol(stdcall) == "_bar@4"
-    stored = Annotation(
+    stored = SourceBinding(
         va=0x5000,
         name="hook",
         symbol="hook@@12",
         module="SERVER",
-        marker_type="FUNCTION",
+        kind="FUNCTION",
     )
     assert _member_symbol(stored) == "hook@@12"
 
@@ -302,13 +303,11 @@ def _make_cfg(tmp_path: Path) -> Any:
 
 def _write_source(path: Path, va: int, symbol: str) -> None:
     name = symbol.lstrip("_")
-    path.write_text(
-        f"// FUNCTION: SERVER 0x{va:08x}\n"
-        f"// SYMBOL: {symbol}\n"
-        f"// SIZE: 10\n"
-        "\n"
-        f"int {name}(void) {{ return 0; }}\n",
+    write_source(
+        path,
+        f"/* ADDRESS: SERVER 0x{va:08x} */\n{symbol}\n\n\nint {name}(void) {{ return 0; }}\n",
         encoding="utf-8",
+        metadata_fields={f"SERVER.0x{va:08x}": {"kind": "FUNCTION", "size": 10}},
     )
 
 

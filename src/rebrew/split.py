@@ -18,12 +18,11 @@ import shutil
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 import typer
 
 from rebrew.c_parser import (
-    extract_function_name_from_line,
     find_function_name_in_node,
     find_variable_roles,
     node_text,
@@ -37,25 +36,18 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.metadata.annotation import (
-    FUNCTION_MARKERS,
-    NEW_FUNC_CAPTURE_RE,
-    NEW_KV_RE,
-    block_markers,
-    parse_c_file_multi,
-    split_annotation_sections,
+from rebrew.metadata.bindings import (
+    FUNCTION_KINDS,
 )
 from rebrew.metadata.functions import (
     identity_file,
     load_metadata,
-    record_migrated_markers,
+    record_function_rows,
     stored_file_matches,
     validate_identity_file,
 )
 from rebrew.sources import (
-    iter_sources,
     source_exts,
-    target_marker,
 )
 from rebrew.utils import (
     atomic_write_text,
@@ -63,8 +55,6 @@ from rebrew.utils import (
     read_source_text,
     rel_display_path,
     source_newline,
-    split_source_lines,
-    strip_comment_blocks,
 )
 
 app = typer.Typer(
@@ -81,60 +71,6 @@ app = typer.Typer(
         "With --va, the function is extracted and removed from the original source.[/dim]"
     ),
 )
-
-
-class _BlockMeta(TypedDict):
-    """Metadata extracted from a single ``// FUNCTION:`` annotation block."""
-
-    module: str
-    va: int
-    symbol: str
-
-
-def _block_metadata(block: str) -> _BlockMeta | None:
-    """Extract marker metadata and first annotation key-values for one block.
-
-    Returns ``None`` when the block contains no recognisable
-    ``// FUNCTION: <MODULE> 0x<VA>`` marker.
-    """
-    lines = split_source_lines(block)
-    marker_idx: int | None = None
-    marker_match = None
-    for idx, line in enumerate(lines):
-        m = NEW_FUNC_CAPTURE_RE.match(line.strip())
-        if m:
-            marker_idx = idx
-            marker_match = m
-            break
-
-    if marker_idx is None or marker_match is None:
-        return None
-
-    kv: dict[str, str] = {}
-    c_func_name = ""
-    for line in lines[marker_idx + 1 :]:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        kv_match = NEW_KV_RE.match(stripped)
-        if kv_match:
-            kv[kv_match.group("key").upper()] = kv_match.group("value").strip()
-            continue
-        if stripped.startswith("//"):
-            continue
-        # Try to extract function name from C definition (same regex as metadata/annotation.py).
-        # Skip forward declarations (ending with ';').
-        if not c_func_name and not stripped.rstrip().endswith(";"):
-            func_result = extract_function_name_from_line(stripped)
-            if func_result:
-                c_func_name = func_result[0]
-        break
-
-    return _BlockMeta(
-        module=marker_match.group("module"),
-        va=int(marker_match.group("va"), 16),
-        symbol=c_func_name,
-    )
 
 
 def _build_output_name(symbol: str, va: int, ext: str) -> str:
@@ -344,7 +280,7 @@ def _contains_code(node: Any, raw: bytes) -> bool:
 def _function_span(node: Any, raw: bytes, *, inside_pp: bool) -> SourceSpan | None:
     declarator = node.child_by_field_name("declarator")
     name = find_function_name_in_node(declarator, raw) if declarator is not None else None
-    if not name or node.has_error:
+    if not name:
         return None
     compound = next((child for child in node.children if child.type == "compound_statement"), None)
     proto = ""
@@ -447,7 +383,7 @@ def _mask_for_parse(raw: bytes) -> bytes:
     return bytes(out)
 
 
-def _source_spans(text: str) -> tuple[bytes, list[SourceSpan]]:
+def source_layout(text: str) -> tuple[bytes, list[SourceSpan]]:
     raw = text.encode("utf-8", errors="surrogateescape")
     tree, _ = parse_c_source(_mask_for_parse(raw))
     spans: list[SourceSpan] = []
@@ -473,7 +409,7 @@ def _source_spans(text: str) -> tuple[bytes, list[SourceSpan]]:
     return raw, spans
 
 
-def _extent(raw: bytes, span: SourceSpan, spans: list[SourceSpan]) -> tuple[int, int]:
+def span_extent(raw: bytes, span: SourceSpan, spans: list[SourceSpan]) -> tuple[int, int]:
     start = span.start
     for index in span.attached:
         start = min(start, spans[index].start)
@@ -514,33 +450,15 @@ def _uses_at(text: str, line: int) -> tuple[set[str], set[str]]:
     return combined - initializers, combined & initializers
 
 
-def _file_borne(line: str) -> bool:
-    body = line.strip()
-    if body.startswith("//"):
-        body = body[2:].strip()
-    elif body.startswith("/*") and body.endswith("*/"):
-        body = body[2:-2].strip()
-    else:
-        return False
-    key, _, value = body.partition(":")
-    key = key.strip().upper()
-    if key in {"STRUCT", "CALLERS"}:
-        return True
-    return key == "SOURCE" and value.strip().upper() == "NAKED"
-
-
 def _overlaps(start: int, end: int, extents: list[tuple[int, int]]) -> bool:
     return any(start < ext_end and end > ext_start for ext_start, ext_end in extents)
 
 
-def _preamble_text(
-    raw: bytes, spans: list[SourceSpan], extents: list[tuple[int, int]], *, sole: bool
-) -> str:
+def shared_preamble(raw: bytes, spans: list[SourceSpan], extents: list[tuple[int, int]]) -> str:
     """Shared includes, macros, typedefs, and externs, in source order.
 
     Comments attached to a function or object stay with that owner.  A
-    file-level naked, struct, or callers fence is copied only when the file
-    has one function, so a second function does not inherit it.
+    Optional addresses move with the declaration they precede.
     """
     attached = {index for span in spans for index in span.attached}
     copyable = [
@@ -560,33 +478,7 @@ def _preamble_text(
             continue
         pieces.append(_decode(raw, span.start, end))
     text = "".join(pieces)
-    if sole:
-        return text
-    return "".join(line for line in text.splitlines(keepends=True) if not _file_borne(line))
-
-
-def source_layout(text: str) -> tuple[bytes, list[SourceSpan]]:
-    """Top-level spans of *text*, in source order.
-
-    Span offsets are into the UTF-8 encoding of *text* (surrogateescape).
-    """
-    return _source_spans(text)
-
-
-def span_extent(raw: bytes, span: SourceSpan, spans: list[SourceSpan]) -> tuple[int, int]:
-    """Byte range of *span*, including a comment attached above it and one trailing newline."""
-    return _extent(raw, span, spans)
-
-
-def shared_preamble(
-    raw: bytes,
-    spans: list[SourceSpan],
-    extents: list[tuple[int, int]],
-    *,
-    sole: bool,
-) -> str:
-    """Includes, macros, typedefs, and externs that are not part of *extents*."""
-    return _preamble_text(raw, spans, extents, sole=sole)
+    return text
 
 
 def _matching_rows(
@@ -596,8 +488,8 @@ def _matching_rows(
 ) -> list[tuple[str, int, dict[str, Any]]]:
     rows: list[tuple[str, int, dict[str, Any]]] = []
     for (module, va), entry in entries.items():
-        marker = str(entry.get("marker_type") or "FUNCTION")
-        if marker not in FUNCTION_MARKERS:
+        marker = str(entry.get("kind") or "FUNCTION")
+        if marker not in FUNCTION_KINDS:
             continue
         if not stored_file_matches(str(entry.get("file") or ""), rel):
             continue
@@ -607,7 +499,7 @@ def _matching_rows(
     return rows
 
 
-def _split_markerless(
+def _split_definitions(
     *,
     cfg: Any,
     source_path: Path,
@@ -626,7 +518,7 @@ def _split_markerless(
         error_exit("No metadata directory configured", json_mode=json_output)
     rel = os.path.relpath(source_path, meta).replace(os.sep, "/")
     try:
-        raw, spans = _source_spans(text)
+        raw, spans = source_layout(text)
     except ImportError as exc:
         error_exit(str(exc), json_mode=json_output)
     functions = [span for span in spans if span.kind == "function"]
@@ -648,7 +540,7 @@ def _split_markerless(
             for (module, row_va), entry in entries.items()
             if row_va == target_va
             and (not marker or preset_module_key(module) == marker)
-            and str(entry.get("marker_type") or "FUNCTION") in FUNCTION_MARKERS
+            and str(entry.get("kind") or "FUNCTION") in FUNCTION_KINDS
         ]
         if not matched:
             error_exit(
@@ -693,14 +585,14 @@ def _split_markerless(
                 grouped.append(span)
         if len(grouped) < 2:
             error_exit(
-                "Input must contain at least two // FUNCTION: blocks to split, "
+                "Input must contain at least two function definitions to split, "
                 "or two function rows for this file. "
                 "Use --va to extract a single function instead.",
                 json_mode=json_output,
             )
         selected = grouped
 
-    extents = {id(span): _extent(raw, span, spans) for span in selected}
+    extents = {id(span): span_extent(raw, span, spans) for span in selected}
     problems: list[str] = []
     for span in selected:
         if span.inside_pp or not span.proto:
@@ -786,8 +678,7 @@ def _split_markerless(
             json_mode=json_output,
         )
 
-    sole = len(functions) == 1
-    preamble = _preamble_text(raw, spans, list(extents.values()), sole=sole)
+    preamble = shared_preamble(raw, spans, list(extents.values()))
     rendered: list[tuple[dict[str, Any], str]] = []
     for plan in plans:
         span = plan["span"]
@@ -880,7 +771,7 @@ def _split_markerless(
                 for plan, _content in rendered
                 for module, row_va, _entry in plan["rows"]
             ]
-            record_migrated_markers(meta, identity_rows)
+            record_function_rows(meta, identity_rows)
         except Exception as exc:
             if bak_created:
                 bak_path.unlink(missing_ok=True)
@@ -950,271 +841,26 @@ def main(
             json_mode=json_output,
         )
 
-    out_dir = Path(output_dir).resolve() if output_dir else source_path.parent.resolve()
-    # One extension for the output name: ``cfg.source_ext`` may be a
-    # comma-separated list (".c,.cpp"), and the split piece belongs to the same
-    # language as its source file, so the input's own suffix is kept.
     exts = source_exts(cfg) or [".c"]
-    out_ext = source_path.suffix or exts[0]
-
     try:
         text, encoding = read_source_text(source_path)
-    except OSError as exc:
-        error_exit(f"Failed to read source: {exc}", json_mode=json_output)
+        from rebrew.metadata.bindings import source_bindings
 
-    preamble, blocks = split_annotation_sections(text)
-    if not blocks:
-        _split_markerless(
-            cfg=cfg,
-            source_path=source_path,
-            text=text,
-            encoding=encoding,
-            va=va,
-            output_dir=output_dir,
-            dry_run=dry_run,
-            force=force,
-            json_output=json_output,
-            out_ext=out_ext,
-        )
-        return
-
-    # --va mode: extract a single function block
-    if va is not None:
-        va_cleaned = va.removeprefix("0x").removeprefix("0X")
-        try:
-            target_va = int(va_cleaned, 16)
-        except ValueError:
-            error_exit(f"Invalid VA (must be hex): {va}", json_mode=json_output)
-
-        matched_block: str | None = None
-        matched_meta: _BlockMeta | None = None
-        matched_idx: int | None = None
-        for idx, block in enumerate(blocks):
-            meta = _block_metadata(block)
-            if meta is None:
-                continue
-            # A stacked shared block carries one marker per target: match
-            # when ANY marker names this target at the requested VA (the
-            # first marker is whichever was stacked last, not this target).
-            markers = block_markers(block) or [(meta["module"], meta["va"])]
-            hit = any(
-                (not cfg.marker or preset_module_key(mod) == preset_module_key(cfg.marker))
-                and va == target_va
-                for mod, va in markers
-            )
-            if not hit:
-                continue
-            matched_block = block
-            matched_meta = meta
-            matched_idx = idx
-            break
-
-        if matched_block is None or matched_meta is None or matched_idx is None:
-            error_exit(
-                f"No function block found for VA 0x{target_va:08x} in {source_path.name}",
-                json_mode=json_output,
-            )
-
-        symbol = matched_meta["symbol"]
-        out_name = _build_output_name(symbol, target_va, out_ext)
-        # Default to a subdirectory named after the source file: sim.c -> sim_c/
-        if output_dir is None:
-            stem = source_path.stem + source_path.suffix.replace(".", "_")
-            va_out_dir = source_path.parent / stem
-        else:
-            va_out_dir = Path(output_dir)
-        out_path = va_out_dir / out_name
-
-        if not force and out_path.exists():
-            error_exit(f"Output file already exists: {out_path}", json_mode=json_output)
-
-        result_info = {
-            "source": rel_display_path(source_path, cfg.reversed_dir),
-            "va": f"0x{target_va:08x}",
-            "symbol": symbol,
-            "output": rel_display_path(out_path, va_out_dir),
-        }
-
-        if not dry_run and not force:
-            if json_output:
-                error_exit(
-                    "--va removes the extracted block from the source file. "
-                    "Pass --force to apply it in --json mode, or use --dry-run to preview.",
-                    json_mode=True,
-                )
-            confirm_abort(
-                f"Extract will remove 0x{target_va:08x} from {source_path.name}. Continue?"
-            )
-
-        if not dry_run:
-            va_out_dir.mkdir(parents=True, exist_ok=True)
-            out_preamble = strip_comment_blocks(preamble)
-            # strip_comment_blocks removes the trailing newline; re-add a
-            # separator so the marker is not glued onto the last preamble line,
-            # in the source's own line ending (a hardcoded "\n" left a CRLF
-            # source with mixed endings).
-            eol = source_newline(preamble + matched_block)
-            out_content = out_preamble + eol + matched_block if out_preamble else matched_block
-            atomic_write_text(out_path, out_content, encoding=encoding)
-            try:
-                # Remove the extracted block from the source file (by index,
-                # not identity)
-                remaining = [b for i, b in enumerate(blocks) if i != matched_idx]
-                if remaining:
-                    atomic_write_text(source_path, preamble + "".join(remaining), encoding=encoding)
-                else:
-                    # Back up the original before removing (recoverable via .bak).
-                    # Only when absent: a retry after a partial failure, or a
-                    # later extract that again empties the source, must not
-                    # overwrite the first-run stub/source backup (same rule as
-                    # match_batch.update_stub_to_matched).
-                    bak_path = source_path.with_suffix(source_path.suffix + ".bak")
-                    if not bak_path.exists():
-                        shutil.copy2(source_path, bak_path)
-                    source_path.unlink()
-                    if not json_output:
-                        console.print(
-                            f"  [dim]Backed up {source_path.name} → {bak_path.name} "
-                            f"(no remaining functions)[/dim]"
-                        )
-            except Exception:
-                # The output file was already written; roll it back so a
-                # failed split leaves no half-applied artifact behind and a
-                # re-run starts clean (the source still holds the block).
-                import contextlib
-
-                with contextlib.suppress(OSError):
-                    out_path.unlink()
-                raise
-
-        if json_output:
-            json_print(
-                {
-                    "source": str(source_path),
-                    "output_dir": str(va_out_dir),
-                    "count": 1,
-                    "dry_run": dry_run,
-                    "files": [result_info],
-                }
-            )
-        else:
-            action = "Would extract" if dry_run else "Extracted"
-            console.print(
-                f"[bold green]{action}[/] 0x{target_va:08x} ({symbol or 'unnamed'}) → {out_path.name}"
-            )
-        return
-
-    # Full split mode: split ALL functions into individual files
-    if len(blocks) < 2:
-        error_exit(
-            "Input must contain at least two // FUNCTION: blocks to split. "
-            "Use --va to extract a single function instead.",
-            json_mode=json_output,
-        )
-
-    entries = parse_c_file_multi(
-        source_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+        source_bindings(text, source_path, None, None, cfg.metadata_dir)
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), json_mode=json_output)
+    _split_definitions(
+        cfg=cfg,
+        source_path=source_path,
+        text=text,
+        encoding=encoding,
+        va=va,
+        output_dir=output_dir,
+        dry_run=dry_run,
+        force=force,
+        json_output=json_output,
+        out_ext=source_path.suffix or exts[0],
     )
-    if len(entries) < 2:
-        error_exit(
-            f"No splittable blocks found for target '{cfg.marker}'",
-            json_mode=json_output,
-        )
-
-    existing_sources = set(iter_sources(out_dir, cfg)) if out_dir.exists() else set()
-    planned: list[dict[str, str]] = []
-    # (block_text, out_path) for phase 2 — only blocks that passed the
-    # module filter and are not pre-existing.
-    to_write: list[tuple[str, Path]] = []
-    split_count = 0
-    # Phase 1 — validate EVERY output path before writing ANY file.  The old
-    # interleaved check-then-write aborted mid-batch on the first existing
-    # output, leaving blocks 1..N-1 written — and every re-run then failed on
-    # block 1's now-existing file, so the split could never complete without
-    # --force (renaming/overwriting).  Two-phase: report every conflict up
-    # front, write nothing on any conflict (rename.py's pattern).
-    conflicts: list[Path] = []
-    planned_paths: dict[Path, int] = {}
-    for block in blocks:
-        meta = _block_metadata(block)
-        if meta is None:
-            continue
-        if cfg.marker and preset_module_key(meta["module"]) != preset_module_key(cfg.marker):
-            continue
-
-        block_va = meta["va"]
-        symbol = meta["symbol"]
-        out_name = _build_output_name(symbol, block_va, out_ext)
-        out_path = out_dir / out_name
-
-        # Two blocks can sanitize to the same filename (same C name after
-        # sanitization); writing both would silently destroy the first.
-        prior_va = planned_paths.get(out_path)
-        if prior_va is not None:
-            error_exit(
-                f"Duplicate output filename '{out_name}': VAs 0x{prior_va:08x} and "
-                f"0x{block_va:08x} both map to it — nothing was written. Fix the "
-                "duplicate annotation first (lint E013) or extract one block via --va.",
-                json_mode=json_output,
-            )
-        planned_paths[out_path] = block_va
-
-        if not force and (out_path.exists() or out_path in existing_sources):
-            conflicts.append(out_path)
-            continue
-
-        planned.append(
-            {
-                "source": rel_display_path(source_path, cfg.reversed_dir),
-                "va": f"0x{block_va:08x}",
-                "symbol": symbol,
-                "output": rel_display_path(out_path, out_dir),
-            }
-        )
-        to_write.append((block, out_path))
-        split_count += 1
-
-    if conflicts:
-        error_exit(
-            f"Output file already exists: {conflicts[0]} "
-            f"({len(conflicts)} conflict(s) total — nothing was written; "
-            f"re-run with --force to overwrite)",
-            json_mode=json_output,
-        )
-
-    if split_count < 2:
-        error_exit(
-            f"Need at least two matching blocks for target '{cfg.marker}' to split",
-            json_mode=json_output,
-        )
-
-    # Phase 2 — all paths validated: write every block.
-    if not dry_run and to_write:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_preamble = strip_comment_blocks(preamble)
-        eol = source_newline(preamble)
-        for block, out_path in to_write:
-            out_content = out_preamble + eol + block if out_preamble else block
-            atomic_write_text(out_path, out_content, encoding=encoding)
-
-    if json_output:
-        json_print(
-            {
-                "source": str(source_path),
-                "output_dir": str(out_dir),
-                "count": split_count,
-                "dry_run": dry_run,
-                "files": planned,
-            }
-        )
-        return
-
-    action = "Would split" if dry_run else "Split"
-    console.print(
-        f"{action} [bold]{split_count}[/] functions from {source_path.name} into {split_count} files"
-    )
-    for item in planned:
-        console.print(f"  {item['output']} ← [cyan]{item['va']}[/]")
 
 
 def main_entry() -> None:

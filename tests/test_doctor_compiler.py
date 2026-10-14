@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_store_fixture
 
 from rebrew.doctor import _FAIL, _OK, _WARN, check_compiler, check_runner
 
@@ -301,8 +302,8 @@ class TestCheckMetadataFiles:
     def test_present_metadata_passes(self, tmp_path: Path) -> None:
         from rebrew.doctor import _OK, check_metadata_files
 
-        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
-        (tmp_path / "rebrew-data.toml").write_text("", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-data.toml", "", encoding="utf-8")
         cfg = SimpleNamespace(metadata_dir=tmp_path)
         result = check_metadata_files(cfg)  # type: ignore[arg-type]
         assert result.status == _OK

@@ -1,6 +1,75 @@
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-14
+
+### Changed
+- **Breaking:** Source bindings use address-only `ADDRESS: MODULE 0xVA` comments.
+  `rebrew.metadata.annotation` is replaced by `rebrew.metadata.bindings`, with
+  `SourceBinding` and source-binding readers/writers. The old block parsers,
+  inline state writers, `rebrew source migrate-markers`, and
+  `rebrew.metadata.marker_migration` are removed without compatibility readers.
+- **Breaking:** Function, data and source metadata require format 2. The identity
+  field is `kind`, replacing `marker_type`; `rebrew data set --kind` replaces
+  `--marker-type`. Shared format constants and `stamp_format` now belong to
+  `rebrew.metadata.document`; row writers are `record_function_rows` and
+  `record_data_rows`. `STRUCT`, `CALLERS`, reconstruction source and support
+  purposes live only in dedicated metadata. The former parsing helpers in
+  `lint`, `cross_import`, `split`, `merge`, and `match_batch` no longer interpret
+  old source blocks; the native declaration AST and current stores own bindings.
+
+- **Breaking:** `Annotation` becomes `SourceBinding`; `DATA_MARKERS`,
+  `FUNCTION_MARKERS`, and `VALID_MARKERS` become `DATA_KINDS`, `FUNCTION_KINDS`,
+  and `VALID_KINDS`. `parse_c_file_multi`, `parse_c_file_text`, `parse_library_header`,
+  `iter_annotations`, `split_annotation_sections`, and `marker_for_module` are
+  replaced by source-binding readers, `split_address_sections`, and `kind_for_module`.
+  `merge_into_annotation` / `merge_into_data_annotation` become
+  `merge_into_binding` / `merge_into_data_binding`; `update_annotation_key`
+  becomes `set_binding_field`, and `set_data_marker_types` becomes `set_data_kinds`.
+  The old `rebrew.migrate_markers` module is removed.
+- **Breaking:** Inline-parser constants `ALL_KNOWN_KEYS`, `METADATA_KEYS`,
+  `NEW_FUNC_CAPTURE_RE`, `NEW_FUNC_RE`, `NEW_KV_RE`, `FUNC_NAME_HINT_RE`, and
+  `MARKER_IDENTITY_FIELDS` are removed. `DATA_METADATA_FIELD_TYPES` remains
+  private to its owner. Inline-only helpers `block_markers`, `count_migratable_files`,
+  `inline_equals_store`, `inline_metadata_warning`, `overridable`,
+  `parse_source_metadata`, `stack_marker_on_block`, and `support_declaration`
+  are removed. Use current identity registration and source-purpose metadata.
+  `record_migrated_markers` and `record_migrated_data_markers` become
+  `record_function_rows` and `record_data_rows`. `shared_preamble` no longer
+  accepts the obsolete `sole` argument. `save_metadata` adds an optional
+  reviewed-input SHA-256 guard through `expected_hash`.
+
+- **Breaking:** Binding consumers now accept or return `SourceBinding`:
+  `scan_reversed_dir`, `build_coverage_data`, `count_statuses`, `covered_bytes`,
+  `select_annotation`, `bind_library_source`, `compiled_library_annotations`,
+  `resolve_library_providers`, `apply_metadata_entry`, `record_function_identity`,
+  `apply_status_updates`, `prepare_entries`, `run_verification`, `save_verify_cache`,
+  `scope_entries`, `verify_entry`, and `print_test_summary`.
+  `library_annotations_from_metadata` becomes `library_inventory_bindings`;
+  `collect_library_annotations` uses canonical library bindings.
+  `execute_data` / `set_data` use `kind`. `DOMAIN_COMPONENTS` registers
+  `source register` in place of marker migration.
+- **Breaking:** Removed incidental helper reexports: import `TargetOption`,
+  `console`, `error_exit`, `json_print`, `require_config`, and `main_entry` from
+  their owning CLI modules; import `read_source_text`, `split_source_lines`,
+  `strip_comment_blocks`, `preset_module_key`, `iter_sources`, and `target_marker`
+  from their utility/source owners. `type_from_declaration`, `cflags_key`,
+  `is_table_field`, `parse_metadata_key`, and `load_toml_for_write` also use
+  their defining modules. The retired migration `main` and the
+  `Annotation.display_path` surface are removed with the old modules/model.
+
+- **Breaking:** `generate_annotation_block` is removed; use `generate_skeleton`
+  with `todo_text=None` for a compact definition. Forced append replaces the
+  existing definition for that identity, preserving its C name and a source backup.
+
+### Added
+- `rebrew source register` records address-bound function/data identities, or
+  a support file purpose, without importing state from source comments.
+
+
 ### Fixed
+- Batch verification prefers managed source, symbol and kind bindings over
+  duplicate candidates, including declaration-only library headers; discarded
+  candidates do not enter the call-binding catalog.
 - Decompiler-body rejection diagnostics identify the seed size budget as a
   possible cause rather than implying valid large Kuna output is malformed.
 - Rizin decompilation saves and reopens a project database file rather than a

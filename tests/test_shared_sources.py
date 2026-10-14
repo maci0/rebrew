@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import write_source
 
 from rebrew.config import ProjectConfig
 
@@ -190,9 +191,14 @@ class TestMultiMarkerScan:
     def test_shared_file_scans_per_target(self, tmp_path: Path) -> None:
         cfg_v1 = _cfg(tmp_path, "V1")
         cfg_v2 = _cfg(tmp_path, "V2")
-        (cfg_v1.shared_dir / "common.c").write_text(
-            "// FUNCTION: V1 0x401000\n// FUNCTION: V2 0x501000\nint common(void){ return 1; }\n",
+        write_source(
+            cfg_v1.shared_dir / "common.c",
+            "/* ADDRESS: V1 0x401000 */\n/* ADDRESS: V2 0x501000 */\nint common(void){ return 1; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "V1.0x401000": {"kind": "FUNCTION"},
+                "V2.0x501000": {"kind": "FUNCTION"},
+            },
         )
 
         from rebrew.catalog.loaders import scan_reversed_dir
@@ -209,11 +215,17 @@ class TestMultiMarkerScan:
 
     def test_local_and_shared_coexist(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "local.c").write_text(
-            "// FUNCTION: V2 0x502000\nint local(void){ return 1; }\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "local.c",
+            "/* ADDRESS: V2 0x502000 */\nint local(void){ return 1; }\n",
+            encoding="utf-8",
+            metadata_fields={"V2.0x502000": {"kind": "FUNCTION"}},
         )
-        (cfg.shared_dir / "common.c").write_text(
-            "// FUNCTION: V2 0x501000\nint common(void){ return 1; }\n", encoding="utf-8"
+        write_source(
+            cfg.shared_dir / "common.c",
+            "/* ADDRESS: V2 0x501000 */\nint common(void){ return 1; }\n",
+            encoding="utf-8",
+            metadata_fields={"V2.0x501000": {"kind": "FUNCTION"}},
         )
 
         from rebrew.catalog.loaders import scan_reversed_dir
@@ -228,11 +240,14 @@ class TestMultiMarkerScan:
         target's verify can extract the object symbol."""
         cfg_v1 = _cfg(tmp_path, "V1")
         cfg_v2 = _cfg(tmp_path, "V2")
-        (cfg_v1.shared_dir / "common.c").write_text(
-            "// FUNCTION: V1 0x401000\n// SIZE: 11\n"
-            "// FUNCTION: V2 0x501000\n// SIZE: 11\n"
-            "int common(void){ return 1; }\n",
+        write_source(
+            cfg_v1.shared_dir / "common.c",
+            "/* ADDRESS: V1 0x401000 */\n\n/* ADDRESS: V2 0x501000 */\n\nint common(void){ return 1; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "V1.0x401000": {"kind": "FUNCTION", "size": 11},
+                "V2.0x501000": {"kind": "FUNCTION", "size": 11},
+            },
         )
 
         from rebrew.catalog.loaders import scan_reversed_dir
@@ -246,10 +261,14 @@ class TestMultiMarkerScan:
         """A file with genuinely different functions keeps per-block names —
         the one-name fallback does not fire."""
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "two.c").write_text(
-            "// FUNCTION: V2 0x502000\nint alpha(void){ return 1; }\n"
-            "// FUNCTION: V2 0x502010\nint beta(void){ return 2; }\n",
+        write_source(
+            cfg.reversed_dir / "two.c",
+            "/* ADDRESS: V2 0x502000 */\nint alpha(void){ return 1; }\n/* ADDRESS: V2 0x502010 */\nint beta(void){ return 2; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "V2.0x502000": {"kind": "FUNCTION"},
+                "V2.0x502010": {"kind": "FUNCTION"},
+            },
         )
 
         from rebrew.catalog.loaders import scan_reversed_dir
@@ -261,9 +280,14 @@ class TestMultiMarkerScan:
         """The stacked-marker name fallback must not leak the file's function
         name onto a bodyless LIBRARY/STUB entry (a CRT import has no C body)."""
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "mixed.c").write_text(
-            "// FUNCTION: V2 0x502000\nint real(void){ return 1; }\n// LIBRARY: V2 0x502100\n",
+        write_source(
+            cfg.reversed_dir / "mixed.c",
+            "/* ADDRESS: V2 0x502000 */\nint real(void){ return 1; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "V2.0x502000": {"kind": "FUNCTION"},
+                "V2.0x502100": {"kind": "LIBRARY"},
+            },
         )
 
         from rebrew.catalog.loaders import scan_reversed_dir
@@ -276,8 +300,11 @@ class TestMultiMarkerScan:
         """A library_*.h in the shared root contributes LIBRARY markers to
         every target's scan."""
         cfg = _cfg(tmp_path)
-        (cfg.shared_dir / "library_foo.h").write_text(
-            "// LIBRARY: V2 0x503000\n_foo_init\n", encoding="utf-8"
+        write_source(
+            cfg.shared_dir / "library_foo.h",
+            "_foo_init\n",
+            encoding="utf-8",
+            metadata_fields={"V2.0x503000": {"kind": "LIBRARY"}},
         )
 
         from rebrew.catalog.loaders import scan_reversed_dir
@@ -521,9 +548,11 @@ class TestVerifySharedFile:
         )
         (cfg.reversed_dir).mkdir(parents=True, exist_ok=True)
         cfg.shared_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.shared_dir / "f.c").write_text(
-            "// FUNCTION: V2 0x401000\n// SIZE: 11\nint f(void){ return 1; }\n",
+        write_source(
+            cfg.shared_dir / "f.c",
+            "/* ADDRESS: V2 0x401000 */\n\nint f(void){ return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"V2.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
 
         from rebrew.catalog.loaders import scan_reversed_dir
@@ -551,9 +580,19 @@ class TestSharedLibraryHeaderCoverage:
 
         cfg = _cfg(tmp_path)
         shared_hdr = cfg.shared_dir / "library_foo.h"
-        shared_hdr.write_text("// LIBRARY: V2 0x503000\n_foo_init\n", encoding="utf-8")
+        write_source(
+            shared_hdr,
+            "_foo_init\n",
+            encoding="utf-8",
+            metadata_fields={"V2.0x503000": {"kind": "LIBRARY"}},
+        )
         own_hdr = cfg.reversed_dir / "library_bar.h"
-        own_hdr.write_text("// LIBRARY: V2 0x504000\n_bar_init\n", encoding="utf-8")
+        write_source(
+            own_hdr,
+            "_bar_init\n",
+            encoding="utf-8",
+            metadata_fields={"V2.0x504000": {"kind": "LIBRARY"}},
+        )
         # Both, when the directory IS the target's reversed_dir...
         assert set(iter_library_headers(cfg.reversed_dir, cfg)) == {shared_hdr, own_hdr}
         # ...and only the directory's own headers otherwise.
@@ -567,11 +606,19 @@ class TestSharedLibraryHeaderCoverage:
 
         cfg = _cfg(tmp_path)
         own_hdr = cfg.reversed_dir / "library_bar.h"
-        own_hdr.write_text("// LIBRARY: V2 0x504000\n_bar_init\n", encoding="utf-8")
+        write_source(
+            own_hdr,
+            "_bar_init\n",
+            encoding="utf-8",
+            metadata_fields={"V2.0x504000": {"kind": "LIBRARY"}},
+        )
         junk_dir = cfg.reversed_dir / "build"
         junk_dir.mkdir()
-        (junk_dir / "library_copied.h").write_text(
-            "// LIBRARY: V2 0x505000\n_x\n", encoding="utf-8"
+        write_source(
+            junk_dir / "library_copied.h",
+            "_x\n",
+            encoding="utf-8",
+            metadata_fields={"V2.0x505000": {"kind": "LIBRARY"}},
         )
 
         assert iter_library_headers(cfg.reversed_dir) == [own_hdr]
@@ -582,12 +629,15 @@ class TestSharedLibraryHeaderCoverage:
         from rebrew.naming import load_data
 
         cfg = _cfg(tmp_path)
-        (cfg.shared_dir / "library_foo.h").write_text(
-            "// LIBRARY: V2 0x503000\n// STATUS: EXACT\n_foo_init\n", encoding="utf-8"
+        write_source(
+            cfg.shared_dir / "library_foo.h",
+            "\n_foo_init\n",
+            encoding="utf-8",
+            metadata_fields={"V2.0x503000": {"kind": "LIBRARY"}},
         )
         _ghidra, existing, covered = load_data(cfg)
         assert 0x503000 in existing
-        assert existing[0x503000]["status"] == "EXACT"
+        assert existing[0x503000]["status"] == "STUB"
         # The marker file is not an append target (find_neighbor_file's rule).
         assert covered[0x503000] == "library_foo.h"
 
@@ -603,19 +653,28 @@ class TestSharedLibraryHeaderCoverage:
 
         cfg = _cfg(tmp_path)
         cfg.external_libs = {"LIBX": "libx.lib"}
-        (cfg.reversed_dir / "own.c").write_text(
-            "// FUNCTION: V2 0x503000\nint own(void) { return 0; }\n", encoding="utf-8"
-        )
-        (cfg.shared_dir / "library_other.h").write_text(
-            "// LIBRARY: V1 0x503000\n_other\n\n// LIBRARY: OTHERLIB 0x504000\n_o\n"
-            "\n// LIBRARY: LIBX 0x505000\n_x\n\n// LIBRARY: V2 0x506000\n_v2\n",
+        write_source(
+            cfg.reversed_dir / "own.c",
+            "/* ADDRESS: V2 0x503000 */\nint own(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"V2.0x503000": {"kind": "FUNCTION"}},
+        )
+        write_source(
+            cfg.shared_dir / "library_other.h",
+            "_other\n\n_o\n\n_x\n\n_v2\n",
+            encoding="utf-8",
+            metadata_fields={
+                "V1.0x503000": {"kind": "LIBRARY"},
+                "OTHERLIB.0x504000": {"kind": "LIBRARY"},
+                "LIBX.0x505000": {"kind": "LIBRARY"},
+                "V2.0x506000": {"kind": "LIBRARY"},
+            },
         )
         _ghidra, existing, _covered = load_data(cfg)
-        assert existing[0x503000]["marker_type"] == "FUNCTION"
+        assert existing[0x503000]["kind"] == "FUNCTION"
         assert 0x504000 not in existing
-        assert existing[0x505000]["marker_type"] == "LIBRARY"
-        assert existing[0x506000]["marker_type"] == "LIBRARY"
+        assert existing[0x505000]["kind"] == "LIBRARY"
+        assert existing[0x506000]["kind"] == "LIBRARY"
 
     def test_matcher_raw_path_adds_shared_root(self, tmp_path: Path, monkeypatch) -> None:
         """Parity with the docker path: the raw subprocess compile must also

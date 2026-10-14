@@ -14,25 +14,21 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import SourceFixture, write_source
 
 import rebrew.qual_sweep
 from rebrew.qual_sweep import main
 from rebrew.utils import SOURCE_BACKUP_DIRNAME
 
-SOURCE = """// FUNCTION: DEMO 0x10001000
-int demo(int arg)
-{
-	int a;
-	int b;
-	a = arg;
-	return a + b;
-}
-"""
+SOURCE = SourceFixture(
+    "/* ADDRESS: DEMO 0x10001000 */\nint demo(int arg)\n{\n\tint a;\n\tint b;\n\ta = arg;\n\treturn a + b;\n}\n",
+    {"DEMO.0x10001000": {"kind": "FUNCTION"}},
+)
 
 
 def _prepare(monkeypatch: object, tmp_path: Path, score: object) -> Path:
     src = tmp_path / "demo.c"
-    src.write_text(SOURCE, encoding="utf-8")
+    write_source(src, SOURCE, encoding="utf-8")
     cfg = SimpleNamespace(root=tmp_path)
     sel = SimpleNamespace(symbol="_demo@4", size=12)
     monkeypatch.setattr(rebrew.qual_sweep, "require_config", lambda **k: cfg)  # type: ignore[attr-defined]
@@ -60,7 +56,7 @@ class TestStatementCandidates:
     def test_preview_only_lists_local_declarations(self, monkeypatch, tmp_path, capsys) -> None:
         src = _prepare(monkeypatch, tmp_path, None)
         original = SOURCE.replace("return a + b;", "return a;")
-        src.write_text(original, encoding="utf-8")
+        write_source(src, original, encoding="utf-8")
 
         main(
             source=str(src),
@@ -222,7 +218,7 @@ def test_candidates_preserve_original_header_directory(tmp_path, monkeypatch):
     source_dir.mkdir(parents=True)
     source = source_dir / "demo.c"
     original = '#include "local.h"\n#include "../shared.h"\n' + SOURCE
-    source.write_text(original)
+    write_source(source, original)
     (source_dir / "local.h").write_text("#define LOCAL 1\n")
     (source_dir.parent / "shared.h").write_text("#define SHARED 2\n")
     cfg = SimpleNamespace(root=tmp_path, target_binary="unused")

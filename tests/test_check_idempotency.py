@@ -118,7 +118,7 @@ class TestWriteIdempotency:
             monkeypatch,
             'if [ -f note.c ]; then rm -f note.c; fi; echo "// once" > note.c',
         )
-        assert check_write_idempotency("migrate-markers", project) == (True, "")
+        assert check_write_idempotency("register", project) == (True, "")
 
     def test_appending_command_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from tools.check_idempotency import check_write_idempotency

@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 import tomlkit
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -27,11 +28,11 @@ reversed_dir = "src"
 
 
 def _make_project(tmp_path: Path, files: dict[str, str]) -> Path:
-    (tmp_path / "rebrew-project.toml").write_text(_TOML_CFG, encoding="utf-8")
+    write_source(tmp_path / "rebrew-project.toml", _TOML_CFG, encoding="utf-8")
     src = tmp_path / "src"
     src.mkdir()
     for name, content in files.items():
-        (src / name).write_text(content, encoding="utf-8")
+        write_source(src / name, content, encoding="utf-8")
     return tmp_path
 
 
@@ -180,7 +181,10 @@ class TestBinsyncImportDryRun:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo(void){return 1;}\n"
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         state = _make_state(tmp_path, funcs={0x10001000: "_NewName"})
@@ -199,7 +203,10 @@ class TestBinsyncImportDryRun:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo(void){return 1;}\n"
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         state = _make_state(tmp_path, funcs={0x10001000: "_Other"})
@@ -216,7 +223,10 @@ class TestBinsyncImportConflicts:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo(void){return 1;}\n"
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         state = _make_state(tmp_path, funcs={0x10001000: "_OtherName"})
@@ -229,7 +239,10 @@ class TestBinsyncImportConflicts:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo(void){return 1;}\n"
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         state = _make_state(tmp_path, funcs={0x10001000: "_Renamed"})
@@ -238,8 +251,10 @@ class TestBinsyncImportConflicts:
         data = json.loads(result.stdout)
         assert data["applied_names"] == 1
         assert _src_files(tmp_path) == {
-            "Renamed.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\n"
-            "int Renamed(void){return 1;}\n"
+            "Renamed.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\n\n\nint Renamed(void){return 1;}\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+            )
         }
 
     def test_mutually_exclusive_accept(
@@ -248,7 +263,10 @@ class TestBinsyncImportConflicts:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo(void){return 1;}\n"
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         state = _make_state(tmp_path, funcs={0x10001000: "_X"})
@@ -265,8 +283,14 @@ class TestBinsyncImportConflicts:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo(void){return 1;}\n",
-                "other.c": "// FUNCTION: OTHER 0x10002000\n// STATUS: EXACT\n// SIZE: 4\nint bar(void){return 2;}\n",
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                ),
+                "other.c": SourceFixture(
+                    "/* ADDRESS: OTHER 0x10002000 */\n\n\nint bar(void){return 2;}\n",
+                    {"OTHER.0x10002000": {"kind": "FUNCTION", "size": 4}},
+                ),
             },
         )
         state = _make_state(tmp_path, funcs={0x10001000: "_NewFoo", 0x10002000: "_NewBar"})
@@ -289,8 +313,14 @@ class TestBinsyncImportConflicts:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo(void){return 1;}\n",
-                "other.c": "// FUNCTION: OTHER 0x10002000\n// STATUS: EXACT\n// SIZE: 4\nint bar(void){return 2;}\n",
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                ),
+                "other.c": SourceFixture(
+                    "/* ADDRESS: OTHER 0x10002000 */\n\n\nint bar(void){return 2;}\n",
+                    {"OTHER.0x10002000": {"kind": "FUNCTION", "size": 4}},
+                ),
             },
         )
         state = _make_state(tmp_path, funcs={0x10001000: "_NewFoo", 0x10002000: "_NewBar"})
@@ -308,7 +338,10 @@ class TestBinsyncImportConflicts:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo(void){return 1;}\n"
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         result = _invoke_import(tmp_path, tmp_path / "nope", monkeypatch, "--json")
@@ -319,7 +352,10 @@ class TestBinsyncImportConflicts:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo(void){return 1;}\n"
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                )
             },
         )
         empty = tmp_path / "empty_state"
@@ -338,7 +374,10 @@ class TestBinsyncRoundTrip:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 8\nint foo(void){return 1;}\n",
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 8}},
+                ),
             },
         )
         # Export
@@ -371,7 +410,10 @@ class TestBinsyncRoundTrip:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 8\nint foo(void){return 1;}\n"
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 8}},
+                )
             },
         )
         monkeypatch.chdir(tmp_path)
@@ -404,8 +446,14 @@ class TestBinsyncRoundTrip:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo(void){return 1;}\n",
-                "data.c": "// GLOBAL: SERVER 0x01008000\n// SIZE: 4\nint g_x;\n",
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 4}},
+                ),
+                "data.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x01008000 */\n\nint g_x;\n",
+                    {"SERVER.0x01008000": {"kind": "GLOBAL", "size": 4}},
+                ),
             },
         )
         monkeypatch.chdir(tmp_path)
@@ -439,12 +487,14 @@ default_target = "server"
 binary = "server.dll"
 reversed_dir = "src/server"
 """
-        (tmp_path / "rebrew-project.toml").write_text(_TOML, encoding="utf-8")
+        write_source(tmp_path / "rebrew-project.toml", _TOML, encoding="utf-8")
         src = tmp_path / "src" / "server"
         src.mkdir(parents=True)
-        src.joinpath("foo.c").write_text(
-            "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 10\nint foo(void){return 1;}\n",
+        write_source(
+            src.joinpath("foo.c"),
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION", "size": 10}},
         )
         import json as _json
 
@@ -479,12 +529,14 @@ default_target = "server"
 binary = "server.dll"
 reversed_dir = "src/server"
 """
-        (tmp_path / "rebrew-project.toml").write_text(_TOML, encoding="utf-8")
+        write_source(tmp_path / "rebrew-project.toml", _TOML, encoding="utf-8")
         src = tmp_path / "src" / "server"
         src.mkdir(parents=True)
-        src.joinpath("foo.c").write_text(
-            "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 10\nint foo(void){return 1;}\n",
+        write_source(
+            src.joinpath("foo.c"),
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION", "size": 10}},
         )
         import json as _json
 
@@ -514,7 +566,15 @@ reversed_dir = "src/server"
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A BinSync prototype carrying code or a directive falls back to a void stub."""
-        _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+                    {"SERVER.0x1000": {"kind": "FUNCTION"}},
+                )
+            },
+        )
         src = tmp_path / "src"
         src.joinpath("function_structure.json").write_text(
             json.dumps([{"va": 0x1000, "size": 10, "name": "foo"}, {"va": 0x2000, "size": 16}]),
@@ -541,12 +601,14 @@ default_target = "server"
 binary = "server.dll"
 reversed_dir = "src/server"
 """
-        (tmp_path / "rebrew-project.toml").write_text(_TOML, encoding="utf-8")
+        write_source(tmp_path / "rebrew-project.toml", _TOML, encoding="utf-8")
         src = tmp_path / "src" / "server"
         src.mkdir(parents=True)
-        src.joinpath("foo.c").write_text(
-            "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 10\nint foo(void){return 1;}\n",
+        write_source(
+            src.joinpath("foo.c"),
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo(void){return 1;}\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION", "size": 10}},
         )
         import json as _json
 
@@ -590,7 +652,7 @@ reversed_dir = "src/server"
             assert entry["size"] == size
             assert entry["note"] == f"imported from BinSync as {name}"
             c_name = name.lstrip("_")
-            assert entry["marker_type"] == "FUNCTION"
+            assert entry["kind"] == "FUNCTION"
             assert entry["name"] == c_name
             assert entry["symbol"] == f"_{c_name}"
             assert entry["file"] == f"src/server/{c_name}.c"
@@ -606,7 +668,7 @@ reversed_dir = "src/server"
         """
         import json as _json
 
-        from rebrew.metadata.functions import get_entry, record_migrated_markers
+        from rebrew.metadata.functions import get_entry, record_function_rows
 
         _make_project(tmp_path, {})
         src = tmp_path / "src"
@@ -617,8 +679,8 @@ reversed_dir = "src/server"
         # Identity was recorded and the process died before STATUS. The file
         # is the pure-C stub, which is what the repair compares against.
         stub = "void FromBinSync(void) {}\n"
-        (src / "FromBinSync.c").write_text(stub, encoding="utf-8")
-        record_migrated_markers(
+        write_source(src / "FromBinSync.c", stub, encoding="utf-8")
+        record_function_rows(
             tmp_path,
             [
                 {
@@ -628,7 +690,7 @@ reversed_dir = "src/server"
                         "file": "src/FromBinSync.c",
                         "symbol": "_FromBinSync",
                         "name": "FromBinSync",
-                        "marker_type": "FUNCTION",
+                        "kind": "FUNCTION",
                     },
                     "fields": {},
                 }
@@ -643,7 +705,7 @@ reversed_dir = "src/server"
         assert entry["status"] == "STUB"
         assert entry["size"] == 16
         assert entry["note"] == "imported from BinSync as _FromBinSync"
-        assert entry["marker_type"] == "FUNCTION"
+        assert entry["kind"] == "FUNCTION"
         assert entry["name"] == "FromBinSync"
         assert entry["symbol"] == "_FromBinSync"
         assert entry["file"] == "src/FromBinSync.c"
@@ -658,7 +720,10 @@ class TestGlobalTypeSizeImport:
         _make_project(
             tmp_path,
             {
-                "data.c": "// GLOBAL: SERVER 0x01008000\n// SIZE: 4\nint g_x;\n",
+                "data.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x01008000 */\n\nint g_x;\n",
+                    {"SERVER.0x01008000": {"kind": "GLOBAL", "size": 4}},
+                ),
             },
         )
         state = tmp_path / "state"
@@ -682,7 +747,15 @@ class TestStructImport:
     def test_unknown_struct_written_to_header(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+                    {"SERVER.0x1000": {"kind": "FUNCTION"}},
+                )
+            },
+        )
         state = tmp_path / "state"
         (state / "functions").mkdir(parents=True, exist_ok=True)
         structs = state / "structs"
@@ -707,7 +780,15 @@ class TestStructImport:
 
         Concrete bytes: existing header starts with ``/* Caf\\xe9 */`` (CP1252).
         """
-        _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+                    {"SERVER.0x1000": {"kind": "FUNCTION"}},
+                )
+            },
+        )
         header = tmp_path / "src" / "binsync_types.h"
         prefix = b"/* Caf\xe9 */\n"
         header.write_bytes(prefix)
@@ -731,7 +812,10 @@ class TestStructImport:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n",
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+                    {"SERVER.0x1000": {"kind": "FUNCTION"}},
+                ),
                 "types.h": "typedef struct Player_s {\n\tint x;\n} Player;\n",
             },
         )
@@ -775,7 +859,15 @@ class TestNoteImport:
     def test_note_applied(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.metadata.functions import get_entry
 
-        _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+                    {"SERVER.0x1000": {"kind": "FUNCTION"}},
+                )
+            },
+        )
         state = tmp_path / "state"
         self._write_state_with_note(state, "needs RE structs")
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
@@ -787,7 +879,15 @@ class TestNoteImport:
     def test_same_note_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.metadata.functions import update_field
 
-        _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x1000 */\nint foo(void){return 0;}\n",
+                    {"SERVER.0x1000": {"kind": "FUNCTION"}},
+                )
+            },
+        )
         update_field(tmp_path, 0x1000, "note", "needs RE structs", "SERVER")
         state = tmp_path / "state"
         self._write_state_with_note(state, "needs RE structs")
@@ -900,7 +1000,12 @@ class TestEnumTypedefImport:
     ) -> None:
         _make_project(
             tmp_path,
-            {"foo.c": "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n"},
+            {
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x1000 */\n\nint foo(void){return 0;}\n",
+                    {"SERVER.0x1000": {"kind": "FUNCTION"}},
+                )
+            },
         )
         state = self._state_with(
             tmp_path,
@@ -922,7 +1027,10 @@ class TestEnumTypedefImport:
         _make_project(
             tmp_path,
             {
-                "foo.c": "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n",
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x1000 */\n\nint foo(void){return 0;}\n",
+                    {"SERVER.0x1000": {"kind": "FUNCTION"}},
+                ),
                 "types.h": "typedef enum { X } E;\n",
             },
         )
@@ -940,7 +1048,12 @@ class TestEnumTypedefImport:
         (typedefs); import must synthesize real declarations."""
         _make_project(
             tmp_path,
-            {"foo.c": "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n"},
+            {
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x1000 */\n\nint foo(void){return 0;}\n",
+                    {"SERVER.0x1000": {"kind": "FUNCTION"}},
+                )
+            },
         )
         state = self._state_with(
             tmp_path,
@@ -969,7 +1082,12 @@ class TestLocalsCommentsImport:
 
         _make_project(
             tmp_path,
-            {"foo.c": "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n"},
+            {
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x1000 */\n\nint foo(void){return 0;}\n",
+                    {"SERVER.0x1000": {"kind": "FUNCTION"}},
+                )
+            },
         )
         state = _make_state(tmp_path, funcs={0x1000: "_foo"})
         func_path = state / "functions" / "00001000.toml"
@@ -996,7 +1114,10 @@ class TestLocalsCommentsImport:
 
 
 class TestAnalysisMarkers:
-    _SRC = "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n"
+    _SRC = SourceFixture(
+        "/* ADDRESS: SERVER 0x1000 */\n\nint foo(void){return 0;}\n",
+        {"SERVER.0x1000": {"kind": "FUNCTION"}},
+    )
 
     def _project_with_size(self, tmp_path: Path) -> None:
         from rebrew.metadata.functions import update_field
@@ -1152,9 +1273,11 @@ marker = "V1"
         (tmp_path / "src" / "V1").mkdir(parents=True)
         (tmp_path / "src" / "shared").mkdir(parents=True)
         (tmp_path / "v1.exe").write_bytes(b"MZ")
-        (tmp_path / "src" / "shared" / "f.c").write_text(
-            "// FUNCTION: V1 0x401000\n// SIZE: 11\nint foo(void){return 1;}\n",
+        write_source(
+            tmp_path / "src" / "shared" / "f.c",
+            "/* ADDRESS: V1 0x401000 */\n\nint foo(void){return 1;}\n",
             encoding="utf-8",
+            metadata_fields={"V1.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
 
     def test_inside_project_covers_shared(self, tmp_path: Path) -> None:

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from bin_util import make_coff_obj, make_lib_archive, make_pe
+from source_util import write_source
 from typer.testing import CliRunner
 
 CODE = bytes(range(1, 41))  # 40 distinct bytes; same in lib and target
@@ -135,9 +136,11 @@ def _write_project(tmp_path: Path) -> tuple[Path, Path, int]:
 
     src = tmp_path / "reversed"
     src.mkdir(exist_ok=True)
-    (src / "foo.c").write_text(
-        f"// FUNCTION: SERVER 0x{va:x}\nint foo(void) {{ return 0; }}\n",
+    write_source(
+        src / "foo.c",
+        f"/* ADDRESS: SERVER 0x{va:x} */\nint foo(void) {{ return 0; }}\n",
         encoding="utf-8",
+        metadata_fields={f"SERVER.0x{va:x}": {"kind": "FUNCTION"}},
     )
     return pe_path, lib_path, va
 
@@ -373,9 +376,11 @@ class TestLibMatch:
         src = tmp_path / "reversed"
         src.mkdir(exist_ok=True)
         va = image_base + text_va
-        (src / "foo.c").write_text(
-            f"// FUNCTION: SERVER 0x{va:x}\nint foo(void) {{ return 0; }}\n",
+        write_source(
+            src / "foo.c",
+            f"/* ADDRESS: SERVER 0x{va:x} */\nint foo(void) {{ return 0; }}\n",
             encoding="utf-8",
+            metadata_fields={f"SERVER.0x{va:x}": {"kind": "FUNCTION"}},
         )
         _mock_cfg(tmp_path, pe, monkeypatch)
         res = CliRunner().invoke(app, ["--lib", str(lib)])

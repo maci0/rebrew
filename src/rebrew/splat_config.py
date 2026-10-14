@@ -90,7 +90,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.layout_meta import SectionMeta
-from rebrew.metadata.annotation import iter_annotations
+from rebrew.metadata.bindings import iter_source_bindings
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import atomic_write_text, library_header_name, parse_int_literal, untrusted_ident
 from rebrew.workspace.config import config_path
@@ -829,7 +829,7 @@ def load_symbols(cfg_splat: SplatConfig) -> SymbolSet:
 
 
 @dataclass(frozen=True)
-class Annotation:
+class SourceBinding:
     """One annotation the import would add.
 
     ``kind`` is ``FUNCTION``, ``LIBRARY``, or ``DATA``. *path* is relative to
@@ -871,7 +871,7 @@ class ImportPlan:
     arch: str
     image_base: int
     sections: list[SectionMeta]
-    annotations: list[Annotation]
+    annotations: list[SourceBinding]
     conflicts: list[str]
     unresolvable: list[str]
     skipped: list[tuple[str, str]]
@@ -1079,23 +1079,23 @@ def _layout_sections(
 def _existing_annotations(cfg: Any) -> dict[int, tuple[str, str]]:
     """``va -> ("MARKER name", path)`` for every annotation already in the project.
 
-    Sources come through :func:`rebrew.metadata.annotation.iter_annotations` (the shared batch
+    Sources come through :func:`rebrew.metadata.bindings.iter_source_bindings` (the shared batch
     reader) and ``library_*.h`` headers through
-    :func:`rebrew.metadata.annotation.parse_library_header`, so the import sees every
+    :func:`rebrew.metadata.bindings.library_bindings_for_file`, so the import sees every
     way an address can already be claimed.  Paths are relative to
     ``reversed_dir`` so they compare against a planned file directly.
     """
-    from rebrew.metadata.annotation import parse_library_header
+    from rebrew.metadata.bindings import library_bindings_for_file
 
     existing: dict[int, tuple[str, str]] = {}
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     marker = target_marker(cfg)
-    for path, annos in iter_annotations(sources, target=marker, metadata_dir=cfg.metadata_dir):
+    for path, annos in iter_source_bindings(sources, target=marker, metadata_dir=cfg.metadata_dir):
         for ann in annos:
             name = ann.symbol or ann.name or ""
-            existing.setdefault(ann.va, (f"{ann.marker_type} {name}".strip(), path.name))
+            existing.setdefault(ann.va, (f"{ann.kind} {name}".strip(), path.name))
     for header in sorted(cfg.reversed_dir.glob("library_*.h")):
-        for ann in parse_library_header(header, metadata_dir=cfg.metadata_dir):
+        for ann in library_bindings_for_file(header, metadata_dir=cfg.metadata_dir):
             name = ann.symbol or ann.name or ""
             existing.setdefault(ann.va, (f"LIBRARY {name}".strip(), header.name))
     return existing
@@ -1108,7 +1108,7 @@ def _plan_annotations(
     image_base: int,
     symbols: SymbolSet,
     existing: dict[int, tuple[str, str]],
-) -> tuple[list[Annotation], list[str], list[str], list[tuple[str, str]], list[str]]:
+) -> tuple[list[SourceBinding], list[str], list[str], list[tuple[str, str]], list[str]]:
     """Classify every symbol row into a planned annotation, a skip, or a conflict.
 
     The symbol's splat ``type:`` picks the marker (``func`` -> FUNCTION, a
@@ -1123,7 +1123,7 @@ def _plan_annotations(
     """
     from rebrew.naming import make_filename, sanitize_name
 
-    planned: list[Annotation] = []
+    planned: list[SourceBinding] = []
     conflicts: list[str] = []
     unresolvable: list[str] = []
     notes: list[str] = []
@@ -1206,7 +1206,7 @@ def _plan_annotations(
         elif message:
             notes.append(message)
         planned.append(
-            Annotation(
+            SourceBinding(
                 kind=kind,
                 module=module,
                 va=row.va,
@@ -1215,7 +1215,7 @@ def _plan_annotations(
                 section=section,
                 detail=row.detail or (f"from {source}" if source else ""),
                 path=rel,
-                marker=_marker_line(kind, module, row.va, declaration),
+                marker=_source_declaration(kind, module, row.va, declaration),
                 state=state,
                 overridable=overridable,
             )
@@ -1274,10 +1274,10 @@ def _annotation_state(
 
 def _file_annotates(path: Path, va: int) -> bool:
     """True when *path* holds an annotation block for *va*."""
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
 
     try:
-        return any(a.va == va for a in parse_c_file_multi(path))
+        return any(a.va == va for a in read_source_bindings(path))
     except (OSError, ValueError):
         return False
 
@@ -1292,7 +1292,7 @@ def _plan_library_annotations(
     unresolvable: list[str],
     notes: list[str],
     skipped: list[tuple[str, str]],
-) -> list[Annotation]:
+) -> list[SourceBinding]:
     """Plan ``LIBRARY`` rows from the two ``undefined_*`` lists.
 
     Splat writes those files for symbols referenced but *not defined* in the
@@ -1307,7 +1307,7 @@ def _plan_library_annotations(
     from rebrew.identify_library import infer_module
     from rebrew.naming import sanitize_name
 
-    planned: list[Annotation] = []
+    planned: list[SourceBinding] = []
     for row in symbols.undefined:
         if row.va is None:
             skipped.append((row.name, "undefined symbol has no address"))
@@ -1339,7 +1339,7 @@ def _plan_library_annotations(
         elif message:
             notes.append(message)
         planned.append(
-            Annotation(
+            SourceBinding(
                 kind="LIBRARY",
                 module=module,
                 va=row.va,
@@ -1348,7 +1348,7 @@ def _plan_library_annotations(
                 section="",
                 detail=f"undefined in {cfg_splat.path.name}",
                 path=rel,
-                marker=_marker_line("LIBRARY", module, row.va, ""),
+                marker=_source_declaration("LIBRARY", module, row.va, ""),
                 state=state,
                 overridable=overridable,
             )
@@ -1386,22 +1386,22 @@ def _locate(cfg_splat: SplatConfig, va: int) -> tuple[str, str] | None:
     return None
 
 
-def _marker_line(kind: str, module: str, va: int, declaration: str) -> str:
-    """The text a plan entry would write.
+def _source_declaration(kind: str, module: str, va: int, declaration: str) -> str:
+    """Emit a declaration-bound address, or no text for an inventory-only identity."""
+    from rebrew.c_parser import find_c_function_definitions, find_extern_variables
+    from rebrew.metadata.anchors import add_address_anchor
 
-    Data rows write the declaration only. A function with no declaration
-    gets a comment that is not the legacy marker grammar (no colon after
-    the kind). Identity is recorded in the metadata stores.
-    """
-    from rebrew.metadata.annotation import DATA_MARKERS
-
-    if kind in DATA_MARKERS:
-        text = declaration
-    else:
-        text = declaration or f"/* {kind} {module} 0x{va:08x} */"
-    if text and not text.endswith("\n"):
-        text += "\n"
-    return text
+    if not declaration:
+        return ""
+    functions = find_c_function_definitions(declaration)
+    names = (
+        [name for name, _line in functions]
+        if functions
+        else [v.name for v in find_extern_variables(declaration, include_definitions=True)]
+    )
+    if len(names) != 1:
+        raise ValueError("one source declaration is required for an address anchor")
+    return add_address_anchor(declaration.rstrip() + "\n", module, va, names[0])
 
 
 def _same_name(existing: str, name: str) -> bool:
@@ -1463,7 +1463,7 @@ def apply_plan(plan: ImportPlan, force: bool = False, dry_run: bool = False) -> 
     # (arch, marker, reversed_dir), all of which this import just set.
     cfg = load_config(root=root, target=plan.target)
 
-    by_kind: dict[str, list[Annotation]] = {}
+    by_kind: dict[str, list[SourceBinding]] = {}
     unchanged = 0
     for ann in plan.annotations:
         if ann.state == "unchanged":
@@ -1541,16 +1541,16 @@ def _write_target_metadata(plan: ImportPlan, root: Path) -> bool:
     return changed
 
 
-def _write_functions(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[str]:
+def _write_functions(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -> list[str]:
     """Write one pure-C skeleton per planned function.
 
     The body comes from :func:`rebrew.skeleton.generate_skeleton`. Identity,
     ``SIZE``/``BLOCKER``, and ``STATUS`` go to ``rebrew-functions.toml``.
     """
-    from rebrew.metadata.annotation import derive_c_symbol
+    from rebrew.metadata.bindings import derive_c_symbol
     from rebrew.metadata.functions import (
         identity_file,
-        record_migrated_markers,
+        record_function_rows,
         set_fields_batch,
         update_statuses_batch,
     )
@@ -1580,7 +1580,7 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> l
                     "file": identity_file(target_path, cfg.metadata_dir),
                     "symbol": derive_c_symbol(ann.name, ""),
                     "name": ann.name,
-                    "marker_type": "FUNCTION",
+                    "kind": "FUNCTION",
                 },
                 "fields": {},
             }
@@ -1598,15 +1598,15 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> l
                 "updated_by": "import-splat",
             }
         )
-    record_migrated_markers(cfg.metadata_dir, identity_rows)
+    record_function_rows(cfg.metadata_dir, identity_rows)
     set_fields_batch(cfg.metadata_dir, field_updates)
     update_statuses_batch(cfg.metadata_dir, status_updates)
     return written
 
 
-def _write_data(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[str]:
+def _write_data(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -> list[str]:
     """Write data declarations and their ``rebrew-data.toml`` identity."""
-    from rebrew.metadata.data import record_migrated_data_markers, set_data_fields_batch
+    from rebrew.metadata.data import record_data_rows, set_data_fields_batch
     from rebrew.metadata.functions import identity_file
 
     written: list[str] = []
@@ -1625,7 +1625,7 @@ def _write_data(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[s
                 "va": ann.va,
                 "identity": {
                     "file": identity_file(target_path, cfg.metadata_dir),
-                    "marker_type": "DATA",
+                    "kind": "DATA",
                     "name": ann.name,
                 },
                 "fill": {"size": ann.size, "section": ann.section},
@@ -1637,13 +1637,13 @@ def _write_data(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[s
         updates.append(
             {"module": plan.marker, "va": ann.va, "fields": fields, "updated_by": "intake"}
         )
-    record_migrated_data_markers(cfg.metadata_dir, identity_rows)
+    record_data_rows(cfg.metadata_dir, identity_rows)
     # One rebrew-data.toml rewrite for the whole import, not three per symbol.
     set_data_fields_batch(cfg.metadata_dir, updates)
     return written
 
 
-def _write_libraries(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[str]:
+def _write_libraries(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -> list[str]:
     """Record LIBRARY rows through ``identify_library.write_candidates``."""
     from rebrew.identify_library import LibCandidate, write_candidates
     from rebrew.naming import sanitize_name

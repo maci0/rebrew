@@ -49,7 +49,7 @@ from rebrew.config import (
     load_config,
     parse_env_log_level,
 )
-from rebrew.metadata.annotation import Annotation, parse_c_file_multi
+from rebrew.metadata.bindings import SourceBinding, read_source_bindings
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import (
     console,
@@ -805,7 +805,7 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     if va_int is not None:
         tm = target_marker(cfg)
         from rebrew.function_providers import bind_library_source
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
         from rebrew.metadata.functions import load_metadata
         from rebrew.utils import preset_module_key
 
@@ -815,16 +815,16 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
             if (
                 address == va_int
                 and preset_module_key(module) == preset_module_key(tm or "")
-                and identity.get("marker_type") == "LIBRARY"
+                and identity.get("kind") == "LIBRARY"
                 and identity.get("file")
             ):
-                bound = bind_library_source(cfg, Annotation(va=address, module=module), identity)
+                bound = bind_library_source(cfg, SourceBinding(va=address, module=module), identity)
                 candidate = (Path(src_dir) / bound.filepath).resolve()
                 if candidate.is_file():
                     return candidate
         for src in sources:
             try:
-                annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
+                annos = read_source_bindings(src, target_name=tm, metadata_dir=cfg.metadata_dir)
             except Exception:  # per-file parse noise in a scan
                 logging.debug("Skipping %s during source resolution", src, exc_info=True)
                 continue
@@ -918,7 +918,7 @@ def require_non_negative(value: int, flag: str, *, json_mode: bool = False) -> i
 
 def select_annotation(
     cfg: ProjectConfig, source_arg: str, va: str | None, *, json_mode: bool = False
-) -> tuple[Path, Annotation, int | None]:
+) -> tuple[Path, SourceBinding, int | None]:
     """Resolve *source_arg* and pick its annotation, exiting when either is missing.
 
     Returns ``(path, annotation, va)``. An explicit ``--va`` or positional
@@ -927,7 +927,9 @@ def select_annotation(
     """
     path = require_source_arg(cfg, source_arg, json_mode=json_mode)
 
-    annos = parse_c_file_multi(path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir)
+    annos = read_source_bindings(
+        path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+    )
     if not annos:
         error_exit("No // FUNCTION annotation found in the source", json_mode=json_mode)
     requested_va = va

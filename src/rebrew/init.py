@@ -1372,10 +1372,13 @@ def main(
     # src/<target>/function_structure.json — no functions.txt scaffold.
 
     # 5. Create metadata TOML files one level above src/, at the project root.
-    func_toml = cwd / "rebrew-functions.toml"
-    func_toml.touch(exist_ok=True)
-    data_toml = cwd / "rebrew-data.toml"
-    data_toml.touch(exist_ok=True)
+    from rebrew.metadata.data import save_data_metadata
+    from rebrew.metadata.functions import save_metadata
+
+    if not (cwd / "rebrew-functions.toml").exists():
+        save_metadata(cwd, {})
+    if not (cwd / "rebrew-data.toml").exists():
+        save_data_metadata(cwd, {}, expected_hash=None)
     console.print("[green]Created rebrew-functions.toml[/]")
     console.print("[green]Created rebrew-data.toml[/]")
 

@@ -4,6 +4,7 @@ from io import StringIO
 from pathlib import Path
 
 from rich.console import Console
+from source_util import write_source
 
 from rebrew.c_parser import find_variable_roles
 from rebrew.data_render import render_globals
@@ -11,9 +12,10 @@ from rebrew.data_scan import scan_globals
 
 
 def test_function_pointer_type_keeps_calling_convention_in_inventory(tmp_path: Path) -> None:
-    (tmp_path / "runtime.h").write_text(
-        "// GLOBAL: SERVER 0x1000\n"
-        "extern int (__stdcall *g_handler)(void *, unsigned int, void *);\n"
+    write_source(
+        tmp_path / "runtime.h",
+        "/* ADDRESS: SERVER 0x1000 */\nextern int (__stdcall *g_handler)(void *, unsigned int, void *);\n",
+        metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
     )
     scan = scan_globals(tmp_path)
     entry = scan.globals["g_handler"]
@@ -26,8 +28,16 @@ def test_function_pointer_type_keeps_calling_convention_in_inventory(tmp_path: P
 
 
 def test_owner_and_users_are_independent_of_markers(tmp_path: Path) -> None:
-    (tmp_path / "owner.c").write_text("// DATA: SERVER 0x1000\nint g;\n")
-    (tmp_path / "global.h").write_text("// GLOBAL: SERVER 0x1000\nextern int g;\n")
+    write_source(
+        tmp_path / "owner.c",
+        "/* ADDRESS: SERVER 0x1000 */\nint g;\n",
+        metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
+    )
+    write_source(
+        tmp_path / "global.h",
+        "/* ADDRESS: SERVER 0x1000 */\nextern int g;\n",
+        metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
+    )
     (tmp_path / "declaration.c").write_text("extern int g;\n")
     (tmp_path / "user.c").write_text("extern int g;\nint read(void) { return g; }\n")
     (tmp_path / "include_user.c").write_text('#include "global.h"\nint read2(void) { return g; }\n')
@@ -42,7 +52,11 @@ def test_owner_and_users_are_independent_of_markers(tmp_path: Path) -> None:
 
 
 def test_extern_only_inventory_has_no_source_owner(tmp_path: Path) -> None:
-    (tmp_path / "runtime.h").write_text("// GLOBAL: SERVER 0x1000\nextern int __argc;\n")
+    write_source(
+        tmp_path / "runtime.h",
+        "/* ADDRESS: SERVER 0x1000 */\nextern int __argc;\n",
+        metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
+    )
     scan = scan_globals(tmp_path)
     entry = scan.globals["__argc"]
     assert entry.defined_in == []
@@ -55,7 +69,11 @@ def test_extern_only_inventory_has_no_source_owner(tmp_path: Path) -> None:
 
 def test_duplicate_tentative_definitions_are_owners(tmp_path: Path) -> None:
     for name in ("a.c", "b.c"):
-        (tmp_path / name).write_text("// GLOBAL: SERVER 0x1000\nint g;\n")
+        write_source(
+            tmp_path / name,
+            "/* ADDRESS: SERVER 0x1000 */\nint g;\n",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
+        )
     scan = scan_globals(tmp_path)
     assert scan.globals["g"].defined_in == ["a.c", "b.c"]
     assert scan.to_dict()["summary"]["multiple_definitions"] == 1
@@ -67,8 +85,18 @@ def test_first_field_alias_does_not_reclassify_its_backing_definition(tmp_path: 
     from rebrew.data_ownership import resolve_backing_owners
     from rebrew.metadata.data import set_data_fields_batch
 
-    (tmp_path / "owner.c").write_text("// GLOBAL: SERVER 0x1000\nint storage[8];\n")
-    (tmp_path / "field.h").write_text("// GLOBAL: SERVER 0x1000\nextern int first;\n")
+    write_source(
+        tmp_path / "owner.c",
+        "/* ADDRESS: SERVER 0x1000 */\nint storage[8];\n",
+        metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
+        metadata_dir=tmp_path,
+    )
+    write_source(
+        tmp_path / "field.h",
+        "/* ADDRESS: SERVER 0x1000 */\nextern int first;\n",
+        metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
+        metadata_dir=tmp_path,
+    )
     set_data_fields_batch(
         tmp_path,
         [
@@ -133,9 +161,11 @@ def test_for_scope_does_not_shadow_a_global_after_the_loop() -> None:
 def test_multiline_marker_declaration_keeps_foreign_target_scoping(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    (tmp_path / "globals.h").write_text(
-        "// GLOBAL: SERVER 0x1000\nextern void\n (*hook)(void);\n"
-        "// GLOBAL: GOLD 0x2000\nextern unsigned\n int foreign[4];\n"
+    write_source(
+        tmp_path / "globals.h",
+        "/* ADDRESS: SERVER 0x1000 */\nextern void\n (*hook)(void);\n/* ADDRESS: GOLD 0x2000 */\nextern unsigned\n int foreign[4];\n",
+        metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}, "GOLD.0x2000": {"kind": "GLOBAL"}},
+        metadata_dir=tmp_path,
     )
     cfg = SimpleNamespace(marker="SERVER", all_markers={"SERVER", "GOLD"}, metadata_dir=tmp_path)
     scan = scan_globals(tmp_path, cfg)
@@ -147,7 +177,11 @@ def test_multiline_marker_declaration_keeps_foreign_target_scoping(tmp_path: Pat
 def test_coverage_includes_header_data_and_separates_owner_from_declarers(tmp_path: Path) -> None:
     from rebrew.sections import get_globals
 
-    (tmp_path / "globals.h").write_text("// DATA: SERVER 0x1000\nextern int object[4];\n")
+    write_source(
+        tmp_path / "globals.h",
+        "/* ADDRESS: SERVER 0x1000 */\nextern int object[4];\n",
+        metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
+    )
     (tmp_path / "owner.c").write_text("int object[4];\n")
     (tmp_path / "use.c").write_text("int read(void) { return object[0]; }\n")
     row = get_globals(tmp_path)[0x1000]
@@ -160,10 +194,14 @@ def test_coverage_includes_header_data_and_separates_owner_from_declarers(tmp_pa
 def test_foreign_function_bodies_do_not_contribute_users(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    (tmp_path / "mixed.c").write_text(
-        "int server_value; int foreign_value;\n"
-        "// FUNCTION: SERVER 0x1000\nint server_fn(void) { return server_value; }\n"
-        "// FUNCTION: GOLD 0x2000\nint gold_fn(void) { return foreign_value; }\n"
+    write_source(
+        tmp_path / "mixed.c",
+        "int server_value; int foreign_value;\n/* ADDRESS: SERVER 0x1000 */\nint server_fn(void) { return server_value; }\n/* ADDRESS: GOLD 0x2000 */\nint gold_fn(void) { return foreign_value; }\n",
+        metadata_fields={
+            "SERVER.0x1000": {"kind": "FUNCTION"},
+            "GOLD.0x2000": {"kind": "FUNCTION"},
+        },
+        metadata_dir=tmp_path,
     )
     cfg = SimpleNamespace(marker="SERVER", all_markers={"SERVER", "GOLD"}, metadata_dir=tmp_path)
     scan = scan_globals(tmp_path, cfg)
@@ -174,9 +212,14 @@ def test_foreign_function_bodies_do_not_contribute_users(tmp_path: Path) -> None
 def test_stacked_identity_markers_keep_shared_function_users(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    (tmp_path / "shared.c").write_text(
-        "int value;\n// FUNCTION: SERVER 0x1000\n// FUNCTION: GOLD 0x2000\n"
-        "int shared(void) { return value; }\n"
+    write_source(
+        tmp_path / "shared.c",
+        "int value;\n/* ADDRESS: SERVER 0x1000 */\n/* ADDRESS: GOLD 0x2000 */\nint shared(void) { return value; }\n",
+        metadata_fields={
+            "SERVER.0x1000": {"kind": "FUNCTION"},
+            "GOLD.0x2000": {"kind": "FUNCTION"},
+        },
+        metadata_dir=tmp_path,
     )
     cfg = SimpleNamespace(marker="SERVER", all_markers={"SERVER", "GOLD"}, metadata_dir=tmp_path)
     assert scan_globals(tmp_path, cfg).globals["value"].referenced_in == ["shared.c"]

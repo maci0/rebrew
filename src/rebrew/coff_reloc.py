@@ -302,20 +302,20 @@ def build_name_to_va(
                 # and were seen swapped (`_fclose` vs `__fflush_lk` at
                 # guild-rebrew), so validating a call against them
                 # false-fails the compare.
-                if getattr(ann, "marker_type", "") == "LIBRARY":
+                if getattr(ann, "kind", "") == "LIBRARY":
                     continue
                 ann_name = getattr(ann, "name", None)
                 ann_va = getattr(ann, "va", None)
                 if isinstance(ann_name, str) and ann_name and isinstance(ann_va, int) and ann_va:
                     name_to_va[ann_name] = ann_va
         else:
-            from rebrew.metadata.annotation import parse_c_file_multi
+            from rebrew.metadata.bindings import read_source_bindings
 
             for path in iter_sources(cfg.reversed_dir, cfg):
-                for ann in parse_c_file_multi(
+                for ann in read_source_bindings(
                     path, target_name=active_marker, metadata_dir=cfg.metadata_dir
                 ):
-                    if getattr(ann, "marker_type", "") == "LIBRARY":
+                    if getattr(ann, "kind", "") == "LIBRARY":
                         continue
                     if ann.name and ann.va:
                         name_to_va[ann.name] = ann.va

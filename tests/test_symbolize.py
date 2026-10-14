@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import lief
 import pytest
+from source_util import write_store_fixture
 from typer.testing import CliRunner
 
 import rebrew.symbolize as symbolize
@@ -63,49 +64,9 @@ _MAP = """\
  0003:00000010       _g_gap_10003010            10003010     bss.c.obj
 """
 
-_FUNCTIONS = """\
-["SERVER.0x401000"]
-symbol = "_f"
-size = 32
-file = "src/net.c"
-marker_type = "FUNCTION"
+_FUNCTIONS = 'format = 2\n["SERVER.0x401000"]\nsymbol = "_f"\nsize = 32\nfile = "src/net.c"\nkind = "FUNCTION"\n\n["SERVER.0x401020"]\nsymbol = "_g"\nsize = 16\nfile = "src/net.c"\nkind = "FUNCTION"\n\n["SERVER.0x401030"]\nsymbol = "_k"\nsize = 16\nfile = "src/net.c"\nkind = "FUNCTION"\n'
 
-["SERVER.0x401020"]
-symbol = "_g"
-size = 16
-file = "src/net.c"
-marker_type = "FUNCTION"
-
-["SERVER.0x401030"]
-symbol = "_k"
-size = 16
-file = "src/net.c"
-marker_type = "FUNCTION"
-"""
-
-_DATA = """\
-["SERVER.0x10003000"]
-name = "g_table"
-size = 16
-section = ".data"
-
-["SERVER.0x10003010"]
-name = "g_gap_10003010"
-size = 4
-section = ".bss"
-storage_kind = "span"
-
-["SERVER.0x10003020"]
-name = "lbl_10003020"
-link_symbol = "_g_real"
-size = 4
-section = ".data"
-
-["SERVER.0x10003030"]
-name = "g_unlinked"
-size = 4
-section = ".data"
-"""
+_DATA = 'format = 2\n["SERVER.0x10003000"]\nname = "g_table"\nsize = 16\nsection = ".data"\n\n["SERVER.0x10003010"]\nname = "g_gap_10003010"\nsize = 4\nsection = ".bss"\nstorage_kind = "span"\n\n["SERVER.0x10003020"]\nname = "lbl_10003020"\nlink_symbol = "_g_real"\nsize = 4\nsection = ".data"\n\n["SERVER.0x10003030"]\nname = "g_unlinked"\nsize = 4\nsection = ".data"\n'
 
 
 def _pe(path: Path, code: bytes, sites: list[int]) -> Path:
@@ -127,8 +88,8 @@ def _pe(path: Path, code: bytes, sites: list[int]) -> Path:
 def _project(tmp_path: Path, source: str = _SOURCE) -> SimpleNamespace:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "net.c").write_text(source, encoding="utf-8")
-    (tmp_path / "rebrew-functions.toml").write_text(_FUNCTIONS, encoding="utf-8")
-    (tmp_path / "rebrew-data.toml").write_text(_DATA, encoding="utf-8")
+    write_store_fixture(tmp_path / "rebrew-functions.toml", _FUNCTIONS, encoding="utf-8")
+    write_store_fixture(tmp_path / "rebrew-data.toml", _DATA, encoding="utf-8")
     (tmp_path / "build").mkdir()
     built = _pe(tmp_path / "build" / "server.dll", b"\x90" * _SHIFT + _CODE, _BUILT_SITES)
     (tmp_path / "build" / "server.map").write_text(_MAP, encoding="utf-8")

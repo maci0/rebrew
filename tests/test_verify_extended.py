@@ -10,10 +10,11 @@ from typing import Any
 
 import pytest
 import tomlkit
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_MISMATCH
-from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.bindings import SourceBinding
 
 
 def _ann(
@@ -23,8 +24,8 @@ def _ann(
     filepath: str = "f.c",
     status: str = "STUB",
     blocker: str | None = None,
-) -> Annotation:
-    return Annotation(
+) -> SourceBinding:
+    return SourceBinding(
         va=va,
         name="my_func",
         symbol="_my_func",
@@ -32,7 +33,7 @@ def _ann(
         status=status,
         size=size,
         cflags="/O2",
-        marker_type="FUNCTION",
+        kind="FUNCTION",
         filepath=filepath,
         blocker=blocker,
     )
@@ -842,9 +843,11 @@ class TestVerifyCli:
         data[0x100:0x102] = b"NE"
         ne.write_bytes(bytes(data))
         cfg = _cfg(tmp_path, target_binary=ne, compiler_profile=profile)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\n// SIZE: 8\nint my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x1000 */\n\n\nint my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "size": 8}},
         )
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         reached: list[int] = []
@@ -902,7 +905,7 @@ class TestVerifyCli:
 
         cfg = _cfg(tmp_path)
         lib_ann = _ann(0x1000)
-        lib_ann.marker_type = "LIBRARY"
+        lib_ann.kind = "LIBRARY"
         fn_ann = _ann(0x2000)
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
@@ -948,7 +951,7 @@ class TestVerifyCli:
 
         cfg = _cfg(tmp_path)
         lib_ann = _ann(0x1000)
-        lib_ann.marker_type = "LIBRARY"
+        lib_ann.kind = "LIBRARY"
         fn_ann = _ann(0x2000)
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
@@ -999,7 +1002,7 @@ class TestVerifyCli:
 
         cfg = _cfg(tmp_path)
         lib_ann = _ann(0x1000)
-        lib_ann.marker_type = "LIBRARY"
+        lib_ann.kind = "LIBRARY"
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
@@ -1213,9 +1216,11 @@ class TestApplyStatusUpdates:
         from rebrew.verify import apply_status_updates
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         entry = _ann(0x1000)
         apply_status_updates([(entry, "EXACT", 0)], cfg)
@@ -1229,11 +1234,17 @@ class TestApplyStatusUpdates:
         from rebrew.verify import apply_status_updates
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nvoid a(void) { __asm { nop } }\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nvoid a(void) { __asm { nop } }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
-        (cfg.reversed_dir / "b.c").write_text(
-            "// FUNCTION: SERVER 0x2000\nint b(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "b.c",
+            "/* ADDRESS: SERVER 0x2000 */\nint b(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION"}},
         )
         for va in (0x1000, 0x2000):
             update_field(cfg.metadata_dir, va, "blocker", "why", "SERVER")
@@ -1248,9 +1259,11 @@ class TestApplyStatusUpdates:
         from rebrew.verify import apply_status_updates
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         update_source_status(cfg.metadata_dir, "PROVEN", "SERVER", 0x1000)
         entry = _ann(0x1000, status="PROVEN")
@@ -1294,8 +1307,11 @@ class TestApplyStatusUpdates:
 
         cfg = _cfg(tmp_path)
         src = cfg.reversed_dir / "a.c"
-        src.write_text(
-            "// FUNCTION: SERVER 0x1000\nvoid a(void) { __asm { nop } }\n", encoding="utf-8"
+        write_source(
+            src,
+            "/* ADDRESS: SERVER 0x1000 */\nvoid a(void) { __asm { nop } }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         update_field(cfg.metadata_dir, 0x1000, "blocker", "kept asm", "SERVER")
         real_read = Path.read_bytes
@@ -1388,7 +1404,7 @@ class TestSaveVerifyCacheBranches:
             }
         ]
         # Entry with empty filepath → no file info → result not cached.
-        empty_fp = Annotation(va=0x1000, name="x", filepath="")
+        empty_fp = SourceBinding(va=0x1000, name="x", filepath="")
         save_verify_cache(tmp_path / ".rebrew" / "verify_cache.toml", cfg, results, [empty_fp])
         cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         assert cache_path.exists()
@@ -1823,9 +1839,9 @@ class TestRunVerification:
         function's real status must survive)."""
         from rebrew.verify import run_verification
 
-        calls: list[Annotation] = []
+        calls: list[SourceBinding] = []
 
-        def _boom(e: Annotation, cfg: object, **kwargs: object) -> None:
+        def _boom(e: SourceBinding, cfg: object, **kwargs: object) -> None:
             calls.append(e)
             raise RuntimeError("crash")
 
@@ -1853,9 +1869,11 @@ class TestRunVerification:
         from rebrew.verify import apply_status_updates
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// STUB: SERVER 0x1000\nint my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "STUB"}},
         )
         update_source_status(cfg.metadata_dir, "STUB", "SERVER", 0x1000)
         entry = _ann(0x1000, status="STUB")
@@ -1868,9 +1886,11 @@ class TestRunVerification:
         from rebrew.verify import apply_status_updates
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nint my_func(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint my_func(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
         update_source_status(cfg.metadata_dir, "EXACT", "SERVER", 0x1000)
         entry = _ann(0x1000, status="EXACT")
@@ -2349,40 +2369,40 @@ class TestVerifySymbolField:
         """
         import rebrew.verify as verify_mod
 
-        hook = Annotation(
+        hook = SourceBinding(
             va=0x1000,
             name="hook",
             symbol="",
             prototype="void __vectorcall hook(int a)",
             module="SERVER",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
         )
         assert verify_mod._entry_symbol(hook) == "hook@@4"
-        keeps = Annotation(
+        keeps = SourceBinding(
             va=0x2000,
             name="keeps",
             symbol="",
             prototype="void __fastcall keeps(int a)",
             module="SERVER",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
         )
         assert verify_mod._entry_symbol(keeps) == "@keeps@4"
-        underlined = Annotation(
+        underlined = SourceBinding(
             va=0x3000,
             name="_foo",
             symbol="",
             prototype="int _foo(void)",
             module="SERVER",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
         )
         assert verify_mod._entry_symbol(underlined) == "_foo"
-        stdcall = Annotation(
+        stdcall = SourceBinding(
             va=0x4000,
             name="bar",
             symbol="",
             prototype="int __stdcall bar(int a)",
             module="SERVER",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
         )
         assert verify_mod._entry_symbol(stdcall) == "_bar@4"
 

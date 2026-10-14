@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_source
 
 from rebrew.data_scan import DispatchEntry, DispatchTable
 from rebrew.depgraph import (
@@ -22,9 +23,7 @@ class TestExtractCallees:
     def test_basic_extern(self, tmp_path) -> None:
         c = tmp_path / "test.c"
         c.write_text(
-            "// FUNCTION: SERVER 0x10001000\n"
-            "extern int __cdecl FooBar(int x);\n"
-            "extern void __cdecl BazQux(void);\n",
+            "extern int __cdecl FooBar(int x);\nextern void __cdecl BazQux(void);\n",
             encoding="utf-8",
         )
         callees = _extract_callees(c)
@@ -63,22 +62,25 @@ class TestBuildGraph:
 
     def _make_c_file(self, d, name, va, status, origin, externs=None) -> None:
         """Helper to create a minimal .c file with annotations."""
-        from rebrew.metadata.functions import load_metadata, save_metadata
-
-        lines = [
-            f"// FUNCTION: SERVER 0x{va:08x}",
-            "// SIZE: 100",
-            "// CFLAGS: /O2 /Gd",
-            f"// SYMBOL: _{name}",
-            "",
-        ]
-        for ext in externs or []:
-            lines.append(f"extern int __cdecl {ext}(void);")
-        lines.append(f"int __cdecl {name}(void) {{ return 0; }}")
-        (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
-        data = dict(load_metadata(d))
-        data[("SERVER", va)] = {"status": status}
-        save_metadata(d, data)
+        lines = [f"extern int __cdecl {ext}(void);" for ext in externs or []]
+        lines.extend(
+            [
+                f"/* ADDRESS: SERVER 0x{va:08x} */",
+                f"int __cdecl {name}(void) {{ {' '.join(ext + '();' for ext in externs or [])} return 0; }}",
+            ]
+        )
+        write_source(
+            d / f"{name}.c",
+            "\n".join(lines),
+            metadata_fields={
+                f"SERVER.0x{va:08x}": {
+                    "size": 100,
+                    "cflags": "/O2 /Gd",
+                    "symbol": f"_{name}",
+                    "status": status,
+                }
+            },
+        )
 
     def _va_key(self, va: int) -> str:
         return f"va:0x{va:08x}"
@@ -115,33 +117,12 @@ class TestBuildGraph:
     def test_merged_tu_externs_stay_with_their_block(self, tmp_path) -> None:
         """Each annotation block contributes only its own externs: no false
         FuncA -> Helper edge from FuncB's block in a merged TU."""
-        merged = "\n".join(
-            [
-                "// FUNCTION: SERVER 0x10001000",
-                "// SIZE: 100",
-                "// CFLAGS: /O2 /Gd",
-                "// SYMBOL: _FuncA",
-                "",
-                "extern int __cdecl Other(void);",
-                "int __cdecl FuncA(void) { return Other(); }",
-                "",
-                "// FUNCTION: SERVER 0x10002000",
-                "// SIZE: 100",
-                "// CFLAGS: /O2 /Gd",
-                "// SYMBOL: _FuncB",
-                "",
-                "extern int __cdecl Helper(void);",
-                "int __cdecl FuncB(void) { return Helper(); }",
-            ]
-        )
-        (tmp_path / "merged.c").write_text(merged, encoding="utf-8")
-        from rebrew.metadata.functions import save_metadata
-
-        save_metadata(
-            tmp_path,
-            {
-                ("SERVER", 0x10001000): {"status": "RELOC"},
-                ("SERVER", 0x10002000): {"status": "STUB"},
+        write_source(
+            tmp_path / "merged.c",
+            "extern int __cdecl Other(void);\nextern int __cdecl Helper(void);\n/* ADDRESS: SERVER 0x10001000 */\nint __cdecl FuncA(void) { return Other(); }\n/* ADDRESS: SERVER 0x10002000 */\nint __cdecl FuncB(void) { return Helper(); }\n",
+            metadata_fields={
+                "SERVER.0x10001000": {"status": "RELOC"},
+                "SERVER.0x10002000": {"status": "STUB"},
             },
         )
         _, edges, _ = build_graph(tmp_path, cfg=self._cfg(tmp_path))
@@ -159,37 +140,17 @@ class TestBuildGraph:
         """build_graph should capture ALL annotations from multi-function files.
 
         Regression test: previously used parse_c_file (single) instead of
-        parse_c_file_multi, so only the first annotation was processed.
+        read_source_bindings, so only the first annotation was processed.
         """
         # Write a single .c file containing two function annotations
-        multi_content = "\n".join(
-            [
-                "// FUNCTION: SERVER 0x10001000",
-                "// SIZE: 100",
-                "// CFLAGS: /O2 /Gd",
-                "// SYMBOL: _FirstFunc",
-                "",
-                "int __cdecl FirstFunc(void) { return 0; }",
-                "",
-                "// FUNCTION: SERVER 0x10002000",
-                "// SIZE: 200",
-                "// CFLAGS: /O2 /Gd",
-                "// SYMBOL: _SecondFunc",
-                "",
-                "int __cdecl SecondFunc(void) { return 0; }",
-            ]
-        )
-        (tmp_path / "multi.c").write_text(multi_content, encoding="utf-8")
-        from rebrew.metadata.functions import save_metadata
-
-        save_metadata(
-            tmp_path,
-            {
-                ("SERVER", 0x10001000): {"status": "RELOC"},
-                ("SERVER", 0x10002000): {"status": "STUB"},
+        write_source(
+            tmp_path / "multi.c",
+            "/* ADDRESS: SERVER 0x10001000 */\nint __cdecl FirstFunc(void) { return 0; }\n/* ADDRESS: SERVER 0x10002000 */\nint __cdecl SecondFunc(void) { return 0; }\n",
+            metadata_fields={
+                "SERVER.0x10001000": {"status": "RELOC"},
+                "SERVER.0x10002000": {"status": "STUB"},
             },
         )
-
         nodes, _, _ = build_graph(tmp_path, cfg=self._cfg(tmp_path))
         assert self._va_key(0x10001000) in nodes, (
             "First annotation in multi-function file should be captured"

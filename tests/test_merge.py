@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.merge import app
@@ -14,13 +15,13 @@ runner = CliRunner()
 
 def _make_cfg(tmp_path: Path, marker: str = "SERVER") -> Any:
     return SimpleNamespace(
-        marker=marker, source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path.parent
+        marker=marker, source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
     )
 
 
 def _write(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    write_source(path, content, encoding="utf-8")
     return path
 
 
@@ -37,17 +38,20 @@ def _single(
     module: str = "SERVER",
 ) -> str:
     name = symbol.lstrip("_")
-    return (
-        f"{preamble}"
-        f"// FUNCTION: {module} 0x{va:08x}\n"
-        f"// STATUS: {status}\n"
-        f"// ORIGIN: {origin}\n"
-        f"// SIZE: {size}\n"
-        f"// CFLAGS: {cflags}\n"
-        f"// SYMBOL: {symbol}\n"
-        f"{extra}"
-        "\n"
-        f"int {name}(void) {{ return {va & 1}; }}\n"
+    return SourceFixture(
+        preamble
+        + extra
+        + f"/* ADDRESS: {module} 0x{va:08x} */\n"
+        + f"int {name}(void) {{ return {va & 1}; }}\n",
+        {
+            f"{module}.0x{va:08x}": {
+                "kind": "FUNCTION",
+                "status": status,
+                "size": size,
+                "cflags": cflags,
+                "symbol": symbol,
+            }
+        },
     )
 
 
@@ -66,31 +70,39 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_func_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_func_b"))
 
-        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
-        assert "_func_a" in text
-        assert "_func_b" in text
+        assert "func_a" in text
+        assert "func_b" in text
 
     def test_stacked_block_keeps_body_when_target_marker_is_not_first(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
         """A shared body stacks GOLD above SERVER; the SERVER merge must keep it."""
-        stacked = (
-            "// FUNCTION: GOLD 0x00421ed0\n"
-            "// FUNCTION: SERVER 0x10003140\n"
-            "\n"
-            "int stacked_body(void) { return 7; }\n"
+        stacked = SourceFixture(
+            "/* ADDRESS: GOLD 0x00421ed0 */\n/* ADDRESS: SERVER 0x10003140 */\n\nint stacked_body(void) { return 7; }\n",
+            {"GOLD.0x00421ed0": {"kind": "FUNCTION"}, "SERVER.0x10003140": {"kind": "FUNCTION"}},
         )
         a = _write(tmp_path / "a.c", stacked)
         b = _write(tmp_path / "b.c", _single(0x10004000, "_func_b"))
 
-        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
         assert result.exit_code == 0, result.output
         text = out.read_text(encoding="utf-8")
         assert "int stacked_body(void) { return 7; }" in text
-        assert "// FUNCTION: SERVER 0x10003140" in text
-        assert "// FUNCTION: GOLD 0x00421ed0" in text
+        assert (
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10003140 */", {"SERVER.0x10003140": {"kind": "FUNCTION"}}
+            )
+            in text
+        )
+        assert (
+            SourceFixture(
+                "/* ADDRESS: GOLD 0x00421ed0 */", {"GOLD.0x00421ed0": {"kind": "FUNCTION"}}
+            )
+            in text
+        )
 
     def test_duplicate_va_across_inputs_errors(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Merging files that both annotate the same VA would create duplicate
@@ -98,9 +110,9 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_func_a"))
         b = _write(tmp_path / "b.c", _single(0x10001000, "_func_b"))  # same VA
 
-        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
         assert result.exit_code != 0
-        assert "Duplicate VA" in result.output
+        assert "Nothing was written" in result.output
         assert not out.exists()
 
     def test_deduplicates_include_lines(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -108,7 +120,7 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a", preamble=include))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b", preamble=include))
 
-        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
         assert text.count("#include <stdio.h>") == 1
@@ -118,7 +130,7 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a", preamble=ext))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b", preamble=ext))
 
-        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
         assert text.count("extern int g_value;") == 1
@@ -127,7 +139,7 @@ class TestMergeBasic:
         high = _write(tmp_path / "high.c", _single(0x10003000, "_high"))
         low = _write(tmp_path / "low.c", _single(0x10001000, "_low"))
 
-        result, out = _invoke(tmp_path, monkeypatch, str(high), str(low))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", str(high), str(low))
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
         assert text.find("0x10001000") < text.find("0x10003000")
@@ -144,16 +156,20 @@ class TestMergeBasic:
             _single(0x10002000, "_b", extra="#include <stdio.h>\nextern int helper(char*);\n"),
         )
 
-        result, out = _invoke(tmp_path, monkeypatch, "--consolidate", str(a), str(b))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", "--consolidate", str(a), str(b))
         assert result.exit_code == 0, result.output
         text = out.read_text(encoding="utf-8")
         # hoisted once, above the first function marker
-        assert text.index("#include <stdio.h>") < text.index("// FUNCTION: SERVER 0x10001000")
+        assert text.index("#include <stdio.h>") < text.index(
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */", {"SERVER.0x10001000": {"kind": "FUNCTION"}}
+            )
+        )
         assert text.count("#include <stdio.h>") == 1
         assert text.count("extern int helper") == 1
         assert "typedef int HANDLE;" in text
         # and the bodies keep their markers
-        assert text.count("// FUNCTION: SERVER") == 2
+        assert text.count("ADDRESS: SERVER") == 2
         # conflicting externs are warned on stderr with the kept spelling
         assert "conflicting externs for helper" in result.output
 
@@ -166,7 +182,7 @@ class TestMergeBasic:
             tmp_path / "b.c",
             _single(0x10002000, "_b", extra="#pragma intrinsic(memset)\n"),
         )
-        result, out = _invoke(tmp_path, monkeypatch, "--consolidate", str(a), str(b))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", "--consolidate", str(a), str(b))
         assert result.exit_code == 0, result.output
         text = out.read_text(encoding="utf-8")
         assert "#pragma intrinsic(memcpy, memset)" in text
@@ -197,7 +213,9 @@ class TestMergeBasic:
         )
         payloads: list[dict[str, Any]] = []
         monkeypatch.setattr("rebrew.merge.json_print", lambda data: payloads.append(data))
-        result, _out = _invoke(tmp_path, monkeypatch, "--consolidate", "--json", str(a), str(b))
+        result, _out = _invoke(
+            tmp_path, monkeypatch, "--force", "--consolidate", "--json", str(a), str(b)
+        )
         assert result.exit_code == 0
         assert "helper" in payloads[0]["extern_conflicts"]
 
@@ -271,7 +289,7 @@ class TestMergeBasic:
     def test_errors_with_fewer_than_two_files(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
 
-        result, out = _invoke(tmp_path, monkeypatch, str(a))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", str(a))
         assert result.exit_code != 0
         assert "at least two source files" in result.output
 
@@ -302,7 +320,7 @@ class TestMergeBasic:
         payloads: list[dict[str, Any]] = []
         monkeypatch.setattr("rebrew.merge.json_print", lambda data: payloads.append(data))
 
-        result, out = _invoke(tmp_path, monkeypatch, "--json", str(a), str(b))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", "--json", str(a), str(b))
         assert result.exit_code == 0
         assert len(payloads) == 1
         payload = payloads[0]
@@ -323,42 +341,38 @@ class TestMergeBasic:
         assert not out.exists()
 
     def test_preserves_all_annotation_keys(self, tmp_path: Path, monkeypatch: Any) -> None:
-        extra = (
-            "// BLOCKER: manual\n"
-            "// BLOCKER_DELTA: 5\n"
-            "// SOURCE: CRT.C:10\n"
-            "// NOTE: note text\n"
-            "// GHIDRA: yes\n"
-            "// STRUCT: Foo\n"
-            "// CALLERS: _caller\n"
-            "// GLOBALS: g1, g2\n"
-        )
-        a = _write(tmp_path / "a.c", _single(0x10001000, "_a", extra=extra, status="NEAR_MATCHING"))
+        from rebrew.metadata.functions import get_entry, set_fields
+
+        a = _write(tmp_path / "a.c", _single(0x10001000, "_a", status="NEAR_MATCHING"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b", status="EXACT"))
+        fields = {
+            "blocker": "manual",
+            "blocker_delta": 5,
+            "source": "CRT.C:10",
+            "note": "note text",
+            "ghidra": "yes",
+            "struct": "Foo",
+            "callers": "_caller",
+            "globals": ["g1", "g2"],
+        }
+        set_fields(tmp_path, 0x10001000, fields, module="SERVER")
+        result, out = _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
+        assert result.exit_code == 0, result.output
+        row = get_entry(tmp_path, 0x10001000, "SERVER")
+        assert all(row[key] == value for key, value in fields.items())
+        assert row["status"] == "NEAR_MATCHING"
+        assert row["file"] == "merged.c"
+        assert "STATUS:" not in out.read_text()
 
-        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
-        assert result.exit_code == 0
-        text = out.read_text(encoding="utf-8")
-        assert "// STATUS: NEAR_MATCHING" in text
-        assert "// ORIGIN: GAME" in text
-        assert "// SIZE: 10" in text
-        assert "// CFLAGS: /O2" in text
-        assert "// SYMBOL: _a" in text
-        assert "// BLOCKER: manual" in text
-        assert "// BLOCKER_DELTA: 5" in text
-        assert "// SOURCE: CRT.C:10" in text
-        assert "// NOTE: note text" in text
-        assert "// GHIDRA: yes" in text
-        assert "// STRUCT: Foo" in text
-        assert "// CALLERS: _caller" in text
-        assert "// GLOBALS: g1, g2" in text
-
-
-class TestMergeHelpers:
     def test_block_metadata_extracts_marker(self) -> None:
         from rebrew.merge import block_metadata
 
-        meta = block_metadata("// FUNCTION: SERVER 0x10001000\nint f(void) {}\n")
+        meta = block_metadata(
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint f(void) {}\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            )
+        )
         assert meta == {"module": "SERVER", "va": 0x10001000}
 
     def test_block_metadata_no_marker_returns_none(self) -> None:
@@ -472,7 +486,7 @@ class TestMergeInputScanning:
         sub.mkdir(parents=True)
         _write(sub / "a.c", _single(0x1000, "_fn_a"))
         _write(sub / "b.c", _single(0x2000, "_fn_b"))
-        result, out = _invoke(tmp_path, monkeypatch, str(sub))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", str(sub))
         assert result.exit_code == 0
         assert out.exists()
         text = out.read_text(encoding="utf-8")
@@ -484,6 +498,7 @@ class TestMergeInputScanning:
         result, out = _invoke(
             tmp_path,
             monkeypatch,
+            "--force",
             str(tmp_path / "nope.c"),
             str(tmp_path / "a.c"),
             str(tmp_path / "b.c"),
@@ -493,8 +508,8 @@ class TestMergeInputScanning:
         # Each source contributes its SYMBOL header and its definition, so a
         # skipped input would show up as a doubled name, not just a present
         # one.
-        assert text.count("fn_a") == 2
-        assert text.count("fn_b") == 2
+        assert text.count("fn_a") == 1
+        assert text.count("fn_b") == 1
 
     def test_wrong_extension_skipped(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "a.txt", _single(0x1000, "_fn_a"))
@@ -503,6 +518,7 @@ class TestMergeInputScanning:
         result, out = _invoke(
             tmp_path,
             monkeypatch,
+            "--force",
             str(tmp_path / "a.txt"),
             str(tmp_path / "a.c"),
             str(tmp_path / "b.c"),
@@ -511,8 +527,8 @@ class TestMergeInputScanning:
         text = out.read_text(encoding="utf-8")
         # a.txt and a.c both define fn_a; only the .c one is read, so the
         # name appears once. Merging both would double it.
-        assert text.count("fn_a") == 2
-        assert text.count("fn_b") == 2
+        assert text.count("fn_a") == 1
+        assert text.count("fn_b") == 1
 
     def test_duplicate_input_deduplicated(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "a.c", _single(0x1000, "_fn_a"))
@@ -520,13 +536,14 @@ class TestMergeInputScanning:
         result, out = _invoke(
             tmp_path,
             monkeypatch,
+            "--force",
             str(tmp_path / "a.c"),
             str(tmp_path / "a.c"),
             str(tmp_path / "b.c"),
         )
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
-        assert text.count("fn_a") == 2  # once in the marker, once in the body
+        assert text.count("fn_a") == 1  # once in the marker, once in the body
 
     def test_delete_skips_output_itself(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "a.c", _single(0x1000, "_fn_a"))
@@ -564,31 +581,27 @@ class TestMergeInputScanning:
         monkeypatch.setattr(
             "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
         )
-        first = runner.invoke(app, ["--output", str(out), str(sub)])
+        first = runner.invoke(app, ["--output", str(out), "--force", str(sub)])
         assert first.exit_code == 0, first.output
         second = runner.invoke(app, ["--output", str(out), "--force", str(sub)])
         assert second.exit_code == 0, second.output
         assert out.exists()
 
-    def test_skipped_legacy_file_does_not_force_its_encoding(
+    def test_foreign_file_preserves_encoding_in_merged_output(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        """A skipped legacy-encoded input must not set the output encoding: it
-        made an otherwise all-UTF-8 merge fail to encode (or report a false
-        'conflicting source encodings' abort)."""
-        # Contributes no blocks (CLIENT module, marker is SERVER) and is cp1252.
-        skipped = tmp_path / "a.c"
-        skipped.write_bytes(
-            _single(0x1000, "_fn_a", module="CLIENT").replace("GAME", "caf\xe9").encode("cp1252")
+        a = _write(
+            tmp_path / "a.c", _single(0x1000, "_fn_a", module="CLIENT", preamble="// café\n")
         )
-        # Included, UTF-8, and carries a character cp1252 cannot encode.
-        _write(tmp_path / "b.c", _single(0x2000, "_fn_b", extra="// arrow: \u2192\n"))
+        a.write_bytes(a.read_text().encode("cp1252"))
+        _write(tmp_path / "b.c", _single(0x2000, "_fn_b"))
         _write(tmp_path / "c.c", _single(0x3000, "_fn_c"))
         result, out = _invoke(
-            tmp_path, monkeypatch, str(skipped), str(tmp_path / "b.c"), str(tmp_path / "c.c")
+            tmp_path, monkeypatch, "--force", str(a), str(tmp_path / "b.c"), str(tmp_path / "c.c")
         )
         assert result.exit_code == 0, result.output
-        assert "fn_b" in out.read_text(encoding="utf-8")
+        text = out.read_bytes().decode("cp1252")
+        assert "café" in text and "fn_a" in text and "fn_b" in text
 
 
 class TestMergeCommentPreamble:
@@ -600,7 +613,7 @@ class TestMergeCommentPreamble:
         decomp = "/* Ghidra decompilation reference:\n * Symbol: _a\n */\n#include <stdio.h>\n"
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a", preamble=decomp))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b", preamble=decomp))
-        _invoke(tmp_path, monkeypatch, str(a), str(b))
+        _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
         out = tmp_path / "merged.c"
         text = out.read_text(encoding="utf-8")
         assert "#include <stdio.h>" in text
@@ -619,9 +632,11 @@ class TestMergeEncodings:
         a = tmp_path / "a.c"
         b = tmp_path / "b.c"
         # 0xA9 alone decodes as shift_jis; 0x81 + a space forces the cp1252 path.
-        a.write_bytes(b"// \xa9 note\n// FUNCTION: SERVER 0x1000\nint a(void){return 0;}\n")
-        b.write_bytes(b"// \x81 note\n// FUNCTION: SERVER 0x2000\nint b(void){return 0;}\n")
-        result, _out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        a.write_bytes(b"// \xa9 note\n/* ADDRESS: SERVER 0x1000 */\nint a(void){return 0;}\n")
+        b.write_bytes(b"// \x81 note\n/* ADDRESS: SERVER 0x2000 */\nint b(void){return 0;}\n")
+        _seed(tmp_path, [("SERVER", 0x1000, "_a")], file="a.c")
+        _seed(tmp_path, [("SERVER", 0x2000, "_b")], file="b.c")
+        result, _out = _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
         assert result.exit_code != 0
         assert "conflicting source encodings" in result.output
 
@@ -630,8 +645,11 @@ class TestMergeShared:
     """--shared collapses twin copies into one stacked block (ADR-022)."""
 
     def _twin(self, module: str, va: int, body: str, size_line: str = "") -> str:
-        size = "// SIZE: 14\n" if size_line else ""
-        return f"// FUNCTION: {module} 0x{va:08x}\n{size}{body}\n"
+        size = ""
+        return SourceFixture(
+            f"/* ADDRESS: {module} 0x{va:08x} */\n{size}{body}\n",
+            {f"{module}.0x{va:08x}": {"kind": "FUNCTION", "size": 14 if size_line else 0}},
+        )
 
     def test_identical_twins_stack(self, tmp_path: Path, monkeypatch: Any) -> None:
         body = "int __cdecl cm_MarkAndReturn(int cmd, char* result)\n{\n\treturn 0;\n}\n"
@@ -643,13 +661,31 @@ class TestMergeShared:
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         result = runner.invoke(
-            app, ["--output", str(out), "--shared", str(tmp_path / "a.c"), str(tmp_path / "b.c")]
+            app,
+            [
+                "--output",
+                str(out),
+                "--force",
+                "--shared",
+                str(tmp_path / "a.c"),
+                str(tmp_path / "b.c"),
+            ],
         )
         assert result.exit_code == 0, result.output
         text = out.read_text(encoding="utf-8")
         assert text.count("cm_MarkAndReturn") == 1
-        assert "// FUNCTION: SERVER 0x1000d330" in text
-        assert "// FUNCTION: GOLDTL 0x004c75e0" in text
+        assert (
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x1000d330 */", {"SERVER.0x1000d330": {"kind": "FUNCTION"}}
+            )
+            in text
+        )
+        assert (
+            SourceFixture(
+                "/* ADDRESS: GOLDTL 0x004c75e0 */", {"GOLDTL.0x004c75e0": {"kind": "FUNCTION"}}
+            )
+            in text
+        )
 
     def test_divergent_twins_refused(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(
@@ -668,7 +704,15 @@ class TestMergeShared:
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         result = runner.invoke(
-            app, ["--output", str(out), "--shared", str(tmp_path / "c.c"), str(tmp_path / "d.c")]
+            app,
+            [
+                "--output",
+                str(out),
+                "--force",
+                "--shared",
+                str(tmp_path / "c.c"),
+                str(tmp_path / "d.c"),
+            ],
         )
         assert result.exit_code != 0
         assert "cm_Other" in result.output
@@ -677,8 +721,14 @@ class TestMergeShared:
     def test_normalize_body_ignores_markers_and_size(self) -> None:
         from rebrew.merge import normalize_body
 
-        a = "// FUNCTION: SERVER 0x1000\n// SIZE: 11\nint f(void){return 1;}\n"
-        b = "// FUNCTION: GOLDTL 0x2000\nint f(void){return 1;}\n"
+        a = SourceFixture(
+            "/* ADDRESS: SERVER 0x1000 */\n\nint f(void){return 1;}\n",
+            {"SERVER.0x1000": {"kind": "FUNCTION", "size": 11}},
+        )
+        b = SourceFixture(
+            "/* ADDRESS: GOLDTL 0x2000 */\nint f(void){return 1;}\n",
+            {"GOLDTL.0x2000": {"kind": "FUNCTION"}},
+        )
         assert normalize_body(a) == normalize_body(b)
 
 
@@ -690,11 +740,17 @@ class TestMergeSameVaAcrossModules:
         body = "int twin(void){return 1;}\n"
         _write(
             tmp_path / "a.c",
-            f"// FUNCTION: V1 0x00401000\n// SIZE: 11\n{body}",
+            SourceFixture(
+                f"/* ADDRESS: V1 0x00401000 */\n\n{body}",
+                {"V1.0x00401000": {"kind": "FUNCTION", "size": 11}},
+            ),
         )
         _write(
             tmp_path / "b.c",
-            f"// FUNCTION: V2 0x00401000\n// SIZE: 11\n{body}",
+            SourceFixture(
+                f"/* ADDRESS: V2 0x00401000 */\n\n{body}",
+                {"V2.0x00401000": {"kind": "FUNCTION", "size": 11}},
+            ),
         )
         out = tmp_path / "shared.c"
         monkeypatch.setattr(
@@ -702,12 +758,26 @@ class TestMergeSameVaAcrossModules:
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         result = runner.invoke(
-            app, ["--output", str(out), "--shared", str(tmp_path / "a.c"), str(tmp_path / "b.c")]
+            app,
+            [
+                "--output",
+                str(out),
+                "--force",
+                "--shared",
+                str(tmp_path / "a.c"),
+                str(tmp_path / "b.c"),
+            ],
         )
         assert result.exit_code == 0, result.output
         text = out.read_text(encoding="utf-8")
-        assert "// FUNCTION: V1 0x00401000" in text
-        assert "// FUNCTION: V2 0x00401000" in text
+        assert (
+            SourceFixture("/* ADDRESS: V1 0x00401000 */", {"V1.0x00401000": {"kind": "FUNCTION"}})
+            in text
+        )
+        assert (
+            SourceFixture("/* ADDRESS: V2 0x00401000 */", {"V2.0x00401000": {"kind": "FUNCTION"}})
+            in text
+        )
         assert text.count("int twin") == 1
 
 
@@ -719,11 +789,18 @@ class TestMergeDataFirst:
 
         from rebrew.merge import app
 
-        (tmp_path / "a.c").write_text(
-            "// FUNCTION: V1 0x401000\n// SIZE: 11\nint f(void){return s[0];}\n",
+        write_source(
+            tmp_path / "a.c",
+            "/* ADDRESS: V1 0x401000 */\n\nint f(void){return s[0];}\n",
             encoding="utf-8",
+            metadata_fields={"V1.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
-        (tmp_path / "b.c").write_text('// DATA: V1 0x1002d990\nchar s[] = "x";\n', encoding="utf-8")
+        write_source(
+            tmp_path / "b.c",
+            '/* ADDRESS: V1 0x1002d990 */\nchar s[] = "x";\n',
+            encoding="utf-8",
+            metadata_fields={"V1.0x1002d990": {"kind": "DATA"}},
+        )
         out = tmp_path / "m.c"
         monkeypatch.setattr(
             "rebrew.merge.require_config",
@@ -744,7 +821,7 @@ class TestMergeDataFirst:
         )
         assert result.exit_code == 0, result.output
         text = out.read_text(encoding="utf-8")
-        assert text.index("// DATA:") < text.index("// FUNCTION:")
+        assert text.index("char s[]") < text.index("int f(void)")
 
     def test_vtable_and_string_blocks_lead(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Every data marker sorts ahead of code, not just DATA/GLOBAL."""
@@ -752,15 +829,23 @@ class TestMergeDataFirst:
 
         from rebrew.merge import app
 
-        (tmp_path / "a.c").write_text(
-            "// FUNCTION: V1 0x401000\n// SIZE: 11\nint f(void){return s[0];}\n",
+        write_source(
+            tmp_path / "a.c",
+            "/* ADDRESS: V1 0x401000 */\n\nint f(void){return s[0];}\n",
             encoding="utf-8",
+            metadata_fields={"V1.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
-        (tmp_path / "b.c").write_text(
-            '// VTABLE: V1 0x1002d990\nchar s[] = "x";\n', encoding="utf-8"
+        write_source(
+            tmp_path / "b.c",
+            '/* ADDRESS: V1 0x1002d990 */\nchar s[] = "x";\n',
+            encoding="utf-8",
+            metadata_fields={"V1.0x1002d990": {"kind": "VTABLE"}},
         )
-        (tmp_path / "c.c").write_text(
-            '// STRING: V1 0x1002e000\nchar t[] = "y";\n', encoding="utf-8"
+        write_source(
+            tmp_path / "c.c",
+            '/* ADDRESS: V1 0x1002e000 */\nchar t[] = "y";\n',
+            encoding="utf-8",
+            metadata_fields={"V1.0x1002e000": {"kind": "STRING"}},
         )
         out = tmp_path / "m.c"
         monkeypatch.setattr(
@@ -781,8 +866,8 @@ class TestMergeDataFirst:
         )
         assert result.exit_code == 0, result.output
         text = out.read_text(encoding="utf-8")
-        assert text.index("// VTABLE:") < text.index("// FUNCTION:")
-        assert text.index("// STRING:") < text.index("// FUNCTION:")
+        assert text.index("char s[]") < text.index("int f(void)")
+        assert text.index("char t[]") < text.index("int f(void)")
 
 
 class TestMergeCrlfInputs:
@@ -791,6 +876,8 @@ class TestMergeCrlfInputs:
     def test_merged_output_has_no_bare_lf(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = tmp_path / "a.c"
         b = tmp_path / "b.c"
+        _write(a, _single(0x10001000, "_a", preamble="#include <stdio.h>\n"))
+        _write(b, _single(0x10002000, "_b"))
         a.write_bytes(
             _single(0x10001000, "_a", preamble="#include <stdio.h>\n")
             .encode()
@@ -798,7 +885,7 @@ class TestMergeCrlfInputs:
         )
         b.write_bytes(_single(0x10002000, "_b").encode().replace(b"\n", b"\r\n"))
 
-        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
         assert result.exit_code == 0
         raw = out.read_bytes()
         assert b"\r\n" in raw
@@ -808,7 +895,7 @@ class TestMergeCrlfInputs:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
 
-        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
         assert result.exit_code == 0
         assert b"\r" not in out.read_bytes()
 
@@ -828,7 +915,7 @@ def _seed(tmp_path: Path, rows: list[tuple[str, int, str]], *, file: str) -> Non
             module=module,
             va=va,
             file=file,
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             symbol=symbol,
             name=symbol[1:] if symbol.startswith("_") else symbol,
         )
@@ -895,7 +982,7 @@ class TestMarkerlessMerge:
     def test_legacy_markers_retarget_existing_managed_rows(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, delete: bool, dry_run: bool
     ) -> None:
-        from rebrew.metadata.data import load_data_metadata, record_migrated_data_markers
+        from rebrew.metadata.data import load_data_metadata, record_data_rows
         from rebrew.metadata.functions import load_metadata, update_source_status
 
         a = _write(tmp_path / "a.c", _single(0x401000, "_func_a", module="GOLD"))
@@ -913,13 +1000,13 @@ class TestMarkerlessMerge:
             updated_by="verify",
             verification={"status": "EXACT", "writer": "verify", "input_hash": "a" * 64},
         )
-        record_migrated_data_markers(
+        record_data_rows(
             tmp_path,
             [
                 {
                     "module": "GOLDTL",
                     "va": 0x601000,
-                    "identity": {"file": "a.c", "name": "view", "marker_type": "GLOBAL"},
+                    "identity": {"file": "a.c", "name": "view", "kind": "GLOBAL"},
                 }
             ],
         )
@@ -949,26 +1036,26 @@ class TestMarkerlessMerge:
             }
         assert current[("GOLD", 0x403000)] == old_functions[("GOLD", 0x403000)]
         assert load_data_metadata(tmp_path)[("GOLDTL", 0x601000)]["file"] == "merged.c"
-        assert "// FUNCTION: GOLD" in out.read_text()
+        assert "ADDRESS: GOLD" in out.read_text()
         assert a.exists() is not delete and b.exists() is not delete
 
     def test_legacy_merge_restores_output_and_inputs_if_data_retarget_fails(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from rebrew.metadata.data import record_migrated_data_markers
+        from rebrew.metadata.data import record_data_rows
         from rebrew.metadata.functions import load_metadata
 
         a = _write(tmp_path / "a.c", _single(0x401000, "_func_a", module="GOLD"))
         b = _write(tmp_path / "b.c", _single(0x402000, "_func_b", module="GOLD"))
         _seed(tmp_path, [("GOLD", 0x401000, "_func_a")], file="a.c")
         _seed(tmp_path, [("GOLD", 0x402000, "_func_b")], file="b.c")
-        record_migrated_data_markers(
+        record_data_rows(
             tmp_path,
             [
                 {
                     "module": "GOLD",
                     "va": 0x601000,
-                    "identity": {"file": "a.c", "name": "view", "marker_type": "GLOBAL"},
+                    "identity": {"file": "a.c", "name": "view", "kind": "GLOBAL"},
                 }
             ],
         )
@@ -978,7 +1065,7 @@ class TestMarkerlessMerge:
         def fail(*args: Any, **kwargs: Any) -> None:
             raise OSError("data writer unavailable")
 
-        monkeypatch.setattr("rebrew.merge.record_migrated_data_markers", fail)
+        monkeypatch.setattr("rebrew.merge.record_data_rows", fail)
         result, out = _invoke_meta(
             tmp_path, monkeypatch, "--force", "--shared", "--delete", str(a), str(b)
         )
@@ -1009,10 +1096,13 @@ class TestMarkerlessMerge:
         if dry_run:
             args.append("--dry-run")
         result, out = _invoke_meta(tmp_path, monkeypatch, *args, str(a), str(b))
-        assert result.exit_code != 0
-        assert "absent from merged output" in result.output
-        assert not out.exists()
-        assert (a.read_bytes(), b.read_bytes(), load_metadata(tmp_path)) == old
+        assert result.exit_code == 0, result.output
+        if dry_run:
+            assert not out.exists()
+            assert (a.read_bytes(), b.read_bytes(), load_metadata(tmp_path)) == old
+        else:
+            assert "int foreign(void)" in out.read_text()
+            assert load_metadata(tmp_path)[("GOLD", 0x401000)]["file"] == "merged.c"
 
     def test_files_sort_by_the_active_targets_va(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A shared body's lower client VA must not sort it ahead of earlier server code."""
@@ -1034,13 +1124,12 @@ class TestMarkerlessMerge:
         assert text.index("func_b") < text.index("func_a")
 
     def test_rows_move_with_the_definitions(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.metadata.data import load_data_metadata, record_migrated_data_markers
+        from rebrew.metadata.data import load_data_metadata, record_data_rows
         from rebrew.metadata.functions import load_metadata, update_field, update_source_status
 
         _write(
             tmp_path / "a.c",
             "#include <stdio.h>\n\n"
-            "// SOURCE: naked\n\n"
             "static int helper(void) { return 2; }\n\n"
             "static int g_local = 1;\n\n"
             "int g_table[4] = {1, 2, 3, 4};\n\n"
@@ -1065,13 +1154,13 @@ class TestMarkerlessMerge:
             verification={"status": "EXACT", "writer": "verify", "input_hash": "a" * 64},
         )
         update_field(tmp_path, 0x10001000, "note", "keep", "SERVER")
-        record_migrated_data_markers(
+        record_data_rows(
             tmp_path,
             [
                 {
                     "module": "SERVER",
                     "va": 0x10025000,
-                    "identity": {"file": "a.c", "marker_type": "DATA", "name": "g_table"},
+                    "identity": {"file": "a.c", "kind": "DATA", "name": "g_table"},
                 }
             ],
         )
@@ -1200,20 +1289,20 @@ class TestMarkerlessMerge:
         assert not out.exists()
 
     def test_failed_retarget_restores_the_output(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.metadata.data import record_migrated_data_markers
+        from rebrew.metadata.data import record_data_rows
         from rebrew.metadata.functions import load_metadata
 
         _write(tmp_path / "a.c", "int g_table = 1;\n\nint func_a(void) { return g_table; }\n")
         _write(tmp_path / "b.c", "int func_b(void) { return 1; }\n")
         _seed(tmp_path, [("SERVER", 0x10001000, "_func_a")], file="a.c")
         _seed(tmp_path, [("SERVER", 0x10002000, "_func_b")], file="b.c")
-        record_migrated_data_markers(
+        record_data_rows(
             tmp_path,
             [
                 {
                     "module": "SERVER",
                     "va": 0x10025000,
-                    "identity": {"file": "a.c", "marker_type": "DATA", "name": "g_table"},
+                    "identity": {"file": "a.c", "kind": "DATA", "name": "g_table"},
                 }
             ],
         )
@@ -1221,7 +1310,7 @@ class TestMarkerlessMerge:
         def _boom(*_args: Any, **_kwargs: Any) -> None:
             raise RuntimeError("disk full")
 
-        monkeypatch.setattr("rebrew.merge.record_migrated_data_markers", _boom)
+        monkeypatch.setattr("rebrew.merge.record_data_rows", _boom)
         result, out = _invoke_meta(
             tmp_path, monkeypatch, "--force", str(tmp_path / "a.c"), str(tmp_path / "b.c")
         )
@@ -1254,9 +1343,8 @@ class TestMarkerlessMerge:
         result, out = _invoke_meta(
             tmp_path, monkeypatch, "--force", str(marker), str(tmp_path / "b.c")
         )
-        assert result.exit_code != 0
-        assert "mix" in result.output
-        assert not out.exists()
+        assert result.exit_code == 0, result.output
+        assert "func_a" in out.read_text() and "func_b" in out.read_text()
         assert marker.read_bytes() == before
 
     def test_delete_removes_migrated_inputs(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -1316,19 +1404,19 @@ class TestMarkerlessMerge:
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
         """An extern declaration or compiler literal has a row but no definition to copy."""
-        from rebrew.metadata.data import load_data_metadata, record_migrated_data_markers
+        from rebrew.metadata.data import load_data_metadata, record_data_rows
 
         _write(tmp_path / "a.c", "int func_a(void) { return 0; }\n")
         _write(tmp_path / "b.c", "int func_b(void) { return 1; }\n")
         _seed(tmp_path, [("SERVER", 0x10001000, "_func_a")], file="a.c")
         _seed(tmp_path, [("SERVER", 0x10002000, "_func_b")], file="b.c")
-        record_migrated_data_markers(
+        record_data_rows(
             tmp_path,
             [
                 {
                     "module": "SERVER",
                     "va": 0x10025000,
-                    "identity": {"file": "a.c", "marker_type": "DATA", "name": "g_missing"},
+                    "identity": {"file": "a.c", "kind": "DATA", "name": "g_missing"},
                 }
             ],
         )
@@ -1355,7 +1443,7 @@ class TestMarkerlessMerge:
             module="SERVER",
             va=0x10001000,
             file="a.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             symbol="_func_a",
             name="func_b",
         )

@@ -10,6 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from source_util import SourceFixture, write_source
+
 from rebrew.diagnose import _warnings_for, diagnose_source
 
 
@@ -17,7 +19,7 @@ def _cfg(tmp_path: Path, **over: object) -> SimpleNamespace:
     """A minimal project config (SimpleNamespace — diagnose reads via getattr)."""
     base: dict[str, object] = {
         "root": tmp_path,
-        "metadata_dir": None,
+        "metadata_dir": tmp_path,
         "compiler_profile": "msvc-6.0",
         "cflags": "",
         "cflags_explicit": False,
@@ -30,18 +32,21 @@ def _cfg(tmp_path: Path, **over: object) -> SimpleNamespace:
 
 def _src(tmp_path: Path, name: str, body: str) -> Path:
     path = tmp_path / name
-    path.write_text(body, encoding="utf-8")
+    write_source(path, body, encoding="utf-8")
     return path
 
 
 def _lib(tmp_path: Path, body: str) -> Path:
     lib = tmp_path / "lib"
     lib.mkdir(exist_ok=True)
-    (lib / "rebrew-libraries.toml").write_text(body, encoding="utf-8")
+    write_source(lib / "rebrew-libraries.toml", body, encoding="utf-8")
     return lib
 
 
-_FN = "// FUNCTION: DEMO 0x01001000\nint f(int a) {{ return a + 1; }}\n"
+_FN = SourceFixture(
+    "/* ADDRESS: DEMO 0x01001000 */\nint f(int a) {{ return a + 1; }}\n",
+    {"DEMO.0x01001000": {"kind": "FUNCTION"}},
+)
 
 
 class TestDiagnoseSource:
@@ -58,7 +63,14 @@ class TestDiagnoseSource:
 
     def test_library_preset_chain(self, tmp_path: Path) -> None:
         lib = _lib(tmp_path, 'library = "watcom-runtime"\n')
-        src = _src(lib, "g.c", "// FUNCTION: DEMO 0x01002000\nint g(int a) { return a * 2; }\n")
+        src = _src(
+            lib,
+            "g.c",
+            SourceFixture(
+                "/* ADDRESS: DEMO 0x01002000 */\nint g(int a) { return a * 2; }\n",
+                {"DEMO.0x01002000": {"kind": "FUNCTION"}},
+            ),
+        )
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         lib_step = fn["steps"][1]
         assert lib_step["presets"] == ["watcom-runtime"]
@@ -69,8 +81,16 @@ class TestDiagnoseSource:
         src = _src(
             tmp_path,
             "f2.c",
-            "// FUNCTION: DEMO 0x01003000\n// TOOLCHAIN: msvc-6.0-sp6\n// CFLAGS: /O1\n"
-            "int f2(int a) { return a - 1; }\n",
+            SourceFixture(
+                "/* ADDRESS: DEMO 0x01003000 */\n\n\nint f2(int a) { return a - 1; }\n",
+                {
+                    "DEMO.0x01003000": {
+                        "kind": "FUNCTION",
+                        "toolchain": "msvc-6.0-sp6",
+                        "cflags": "/O1",
+                    }
+                },
+            ),
         )
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         assert fn["steps"][0] == {
@@ -104,14 +124,24 @@ class TestDeclaredResolutionValidation:
         src = _src(
             tmp_path,
             "bad.c",
-            "// FUNCTION: DEMO 0x01004000\n// TOOLCHAIN: msvc9\nint bad(int a) { return a; }\n",
+            SourceFixture(
+                "/* ADDRESS: DEMO 0x01004000 */\n\nint bad(int a) { return a; }\n",
+                {"DEMO.0x01004000": {"kind": "FUNCTION", "toolchain": "msvc9"}},
+            ),
         )
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         assert any("unknown toolchain 'msvc9'" in w for w in fn["warnings"])
 
     def test_unknown_library_toolchain_warning(self, tmp_path: Path) -> None:
         lib = _lib(tmp_path, 'toolchain = "msvc9"\n')
-        src = _src(lib, "g.c", "// FUNCTION: DEMO 0x01005000\nint g(int a) { return a; }\n")
+        src = _src(
+            lib,
+            "g.c",
+            SourceFixture(
+                "/* ADDRESS: DEMO 0x01005000 */\nint g(int a) { return a; }\n",
+                {"DEMO.0x01005000": {"kind": "FUNCTION"}},
+            ),
+        )
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         assert any("unknown toolchain 'msvc9'" in w for w in fn["warnings"])
 
@@ -120,7 +150,10 @@ class TestDeclaredResolutionValidation:
         src = _src(
             lib,
             "g.c",
-            "// FUNCTION: DEMO 0x01006000\n// TOOLCHAIN: msvc-6.0\nint g(int a) { return a; }\n",
+            SourceFixture(
+                "/* ADDRESS: DEMO 0x01006000 */\n\nint g(int a) { return a; }\n",
+                {"DEMO.0x01006000": {"kind": "FUNCTION", "toolchain": "msvc-6.0"}},
+            ),
         )
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         assert any("watcom-runtime" in w and "conflicting" in w for w in fn["warnings"])
@@ -130,14 +163,24 @@ class TestDeclaredResolutionValidation:
         src = _src(
             lib,
             "g.c",
-            "// FUNCTION: DEMO 0x01007000\n// TOOLCHAIN: msvc-6.0\nint g(int a) { return a; }\n",
+            SourceFixture(
+                "/* ADDRESS: DEMO 0x01007000 */\n\nint g(int a) { return a; }\n",
+                {"DEMO.0x01007000": {"kind": "FUNCTION", "toolchain": "msvc-6.0"}},
+            ),
         )
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         assert any("family msvc" in w and "family watcom" in w for w in fn["warnings"])
 
     def test_consistent_declarations_no_warnings(self, tmp_path: Path) -> None:
         lib = _lib(tmp_path, 'toolchain = "watcom-2.0-win32"\n')
-        src = _src(lib, "g.c", "// FUNCTION: DEMO 0x01008000\nint g(int a) { return a; }\n")
+        src = _src(
+            lib,
+            "g.c",
+            SourceFixture(
+                "/* ADDRESS: DEMO 0x01008000 */\nint g(int a) { return a; }\n",
+                {"DEMO.0x01008000": {"kind": "FUNCTION"}},
+            ),
+        )
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         assert fn["warnings"] == []
 

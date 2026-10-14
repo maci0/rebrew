@@ -14,6 +14,7 @@ import pytest
 from bin_util import make_pe
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import CliRunner
 
 import rebrew.pdb_export as pdb_export
@@ -36,20 +37,26 @@ NB10 = b"NB10" + struct.pack("<III", 0, NB10_SIGNATURE, 2) + b"D:\\rel\\old.pdb\
 CODE = b"\xc3" * 0x100
 
 _SOURCES = {
-    "foo.c": "// FUNCTION: SRV 0x401000\n// SIZE: 16\nint foo(void) { return 1; }\n",
-    "bar.c": "// FUNCTION: SRV 0x401020\nint bar(void) { return 2; }\n",
-    "far.c": "// FUNCTION: SRV 0x500000\nint far_away(void) { return 3; }\n",
+    "foo.c": SourceFixture(
+        "/* ADDRESS: SRV 0x401000 */\n\nint foo(void) { return 1; }\n",
+        {"SRV.0x401000": {"kind": "FUNCTION", "size": 16}},
+    ),
+    "bar.c": SourceFixture(
+        "/* ADDRESS: SRV 0x401020 */\nint bar(void) { return 2; }\n",
+        {"SRV.0x401020": {"kind": "FUNCTION"}},
+    ),
+    "far.c": SourceFixture(
+        "/* ADDRESS: SRV 0x500000 */\nint far_away(void) { return 3; }\n",
+        {"SRV.0x500000": {"kind": "FUNCTION"}},
+    ),
     "data.c": (
-        "// GLOBAL: SRV 0x401080\nint g_counter;\n\n// GLOBAL: SRV 0x401090\nchar g_name[16];\n"
+        SourceFixture(
+            "/* ADDRESS: SRV 0x401080 */\nint g_counter;\n\n/* ADDRESS: SRV 0x401090 */\nchar g_name[16];\n",
+            {"SRV.0x401080": {"kind": "GLOBAL"}, "SRV.0x401090": {"kind": "GLOBAL"}},
+        )
     ),
 }
-_DATA_TOML = """\
-["SRV.0x4010a0"]
-name = "g_table"
-type = "unsigned char[]"
-size = 8
-section = ".text"
-"""
+_DATA_TOML = 'format = 2\n["SRV.0x4010a0"]\nname = "g_table"\ntype = "unsigned char[]"\nsize = 8\nsection = ".text"\n'
 
 
 def _project(tmp_path: Path, codeview: bytes | None) -> Path:
@@ -63,8 +70,8 @@ def _project(tmp_path: Path, codeview: bytes | None) -> Path:
         encoding="utf-8",
     )
     for name, text in _SOURCES.items():
-        (tmp_path / "src" / name).write_text(text, encoding="utf-8")
-    (tmp_path / "rebrew-data.toml").write_text(_DATA_TOML, encoding="utf-8")
+        write_source(tmp_path / "src" / name, text, encoding="utf-8")
+    write_store_fixture(tmp_path / "rebrew-data.toml", _DATA_TOML, encoding="utf-8")
     return tmp_path
 
 

@@ -32,7 +32,7 @@ from rebrew.compiler.compile import compile_and_compare
 from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.drift import DerivedRegion, DriftWindow, derive_regions, drift_windows
 from rebrew.formats.binary_loader import extract_raw_bytes
-from rebrew.metadata.annotation import parse_c_file_multi, parse_source_metadata
+from rebrew.metadata.bindings import read_function_fields, read_source_bindings
 from rebrew.sources import target_marker
 
 # Module-form registration (empty ``attr`` in app/builtins.py) resolves BOTH a
@@ -123,8 +123,8 @@ def main(
     # `rebrew test` uses.  The symbol in particular must come from here rather
     # than from the filename: a __stdcall function decorates as ``_name@N``, so
     # a ``_`` + stem guess silently fails to extract and reports EXTRACT_ERROR.
-    meta = parse_source_metadata(str(src_path))
-    annos = parse_c_file_multi(
+    meta = read_function_fields(str(src_path))
+    annos = read_source_bindings(
         src_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
     selected = None
@@ -140,7 +140,7 @@ def main(
     va_int = selected.va if selected else (parse_va(va, json_mode=json_output) if va else None)
     if va_int is None:
         error_exit(
-            "no VA: pass --va or give the file a `// FUNCTION:` header",
+            "no VA: pass --va, register an ADDRESS anchor, or record a function identity",
             json_mode=json_output,
         )
 
@@ -167,8 +167,8 @@ def main(
     )
     if not symbol:
         error_exit(
-            f"no symbol for 0x{va_int:08x}: add a `// SYMBOL:` header or a "
-            "`// FUNCTION:` header above the definition",
+            f"no symbol for 0x{va_int:08x}: record its canonical symbol and "
+            "an ADDRESS anchor above the definition",
             json_mode=json_output,
         )
     if selected is not None:

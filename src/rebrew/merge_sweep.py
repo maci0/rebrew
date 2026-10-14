@@ -47,9 +47,8 @@ from rebrew.coff_reloc import build_name_to_va
 from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
-from rebrew.metadata.annotation import derive_c_symbol, parse_c_file_multi
+from rebrew.metadata.bindings import derive_c_symbol, read_source_bindings
 from rebrew.sources import contained_path, iter_sources, source_roots, target_marker
-from rebrew.utils import preset_module_key
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -424,13 +423,12 @@ class _PartitionScorer:
 
     def _cluster_text(self, cluster: list[int]) -> str | None:
         """Merged TU text for *cluster*, or None when no source covers it."""
-        from rebrew.merge import block_metadata, merge_preambles
-        from rebrew.metadata.annotation import split_annotation_sections
+        from rebrew.merge import merge_preambles
+        from rebrew.split import shared_preamble, source_layout, span_extent
         from rebrew.utils import read_compile_source
 
         preambles: list[str] = []
         blocks: list[tuple[int, str]] = []
-        marker = target_marker(self._cfg)
         seen_files: set[str] = set()
         for va in cluster:
             ann = self._annotations.get(va)
@@ -466,21 +464,36 @@ class _PartitionScorer:
                         "merge-sweep: skipping unreadable source %s: %s", path, exc
                     )
                     continue
-                preamble, file_blocks = split_annotation_sections(text)
-                preambles.append(preamble)
-                for block in file_blocks:
-                    meta = block_metadata(block)
-                    if meta is None:
-                        continue
-                    if marker and preset_module_key(str(meta["module"])) != preset_module_key(
-                        marker
-                    ):
-                        continue
-                    blocks.append((int(meta["va"]), block.strip("\n")))
+                raw, spans = source_layout(text)
+                selected_names = {
+                    str(self._annotations[v].name)
+                    for v in cluster
+                    if v in self._annotations
+                    and str(self._annotations[v].filepath) == str(ann.filepath)
+                }
+                selected = [
+                    span
+                    for span in spans
+                    if span.kind == "storage"
+                    or (span.kind == "function" and (span.static or span.name in selected_names))
+                ]
+                extents = [span_extent(raw, span, spans) for span in selected]
+                preambles.append(shared_preamble(raw, spans, extents))
+                for span, (start, end) in zip(selected, extents, strict=True):
+                    body = raw[start:end].decode("utf-8", errors="surrogateescape")
+                    bound = next(
+                        (
+                            v
+                            for v in cluster
+                            if v in self._annotations and self._annotations[v].name == span.name
+                        ),
+                        va,
+                    )
+                    blocks.append((bound, body.strip("\n")))
         if not blocks:
             return None
         wanted = set(cluster)
-        picked = sorted({va: block for va, block in blocks if va in wanted}.items())
+        picked = sorted({(va, block) for va, block in blocks if va in wanted})
         if not picked:
             return None
         return merge_preambles(preambles) + "\n\n".join(b for _, b in picked) + "\n"
@@ -600,11 +613,11 @@ class _PartitionScorer:
 
 def _load_annotations(cfg: ProjectConfig) -> dict[int, Any]:
     """VA to annotation over every reversed source for the active target."""
-    from rebrew.metadata.annotation import iter_annotations
+    from rebrew.metadata.bindings import iter_source_bindings
 
     marker = target_marker(cfg)
     out: dict[int, Any] = {}
-    for _path, anns in iter_annotations(
+    for _path, anns in iter_source_bindings(
         iter_sources(cfg.reversed_dir, cfg),
         target=marker,
         metadata_dir=cfg.metadata_dir,
@@ -633,7 +646,7 @@ def _parse_annotations_fallback(cfg: ProjectConfig) -> dict[int, Any]:
     out: dict[int, Any] = {}
     for src in iter_sources(cfg.reversed_dir, cfg):
         try:
-            anns = parse_c_file_multi(src, target_name=marker)
+            anns = read_source_bindings(src, target_name=marker, metadata_dir=cfg.metadata_dir)
         except (OSError, ValueError) as exc:
             # Every annotation in this file is then absent from the fallback
             # map, so its functions enter no partition and the sweep reports

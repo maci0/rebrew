@@ -76,10 +76,10 @@ class TestConfig:
 class TestExternalVas:
     def test_library_rows_and_flagged_modules(self) -> None:
         existing = {
-            0x1000: {"marker_type": "FUNCTION", "module": "GAME", "status": "EXACT"},
-            0x2000: {"marker_type": "LIBRARY", "module": "GAME", "status": "EXACT"},
-            0x3000: {"marker_type": "FUNCTION", "module": "D3DX8", "status": "RELOC"},
-            0x4000: {"marker_type": "FUNCTION", "module": "OTHER", "status": "STUB"},
+            0x1000: {"kind": "FUNCTION", "module": "GAME", "status": "EXACT"},
+            0x2000: {"kind": "LIBRARY", "module": "GAME", "status": "EXACT"},
+            0x3000: {"kind": "FUNCTION", "module": "D3DX8", "status": "RELOC"},
+            0x4000: {"kind": "FUNCTION", "module": "OTHER", "status": "STUB"},
         }
         got = external_vas(existing, {"KERNEL32": "KERNEL32.lib", "D3DX8": "x.lib"})
         assert got == {0x2000, 0x3000}

@@ -506,7 +506,7 @@ def _queue_stub_identity(
     proto: str,
 ) -> None:
     """Queue the identity row for a stub file. STATUS is queued separately."""
-    from rebrew.metadata.annotation import derive_c_symbol
+    from rebrew.metadata.bindings import derive_c_symbol
     from rebrew.metadata.functions import identity_file
 
     rows.append(
@@ -517,7 +517,7 @@ def _queue_stub_identity(
                 "file": identity_file(path, cfg.metadata_dir),
                 "symbol": derive_c_symbol(name, proto),
                 "name": name,
-                "marker_type": "FUNCTION",
+                "kind": "FUNCTION",
             },
             "fields": {},
         }
@@ -1046,10 +1046,10 @@ def import_state(
             console.print(f"  CONFLICT 0x{va:08x}: local={local_name!r} vs binsync={bs_name!r}")
 
     if stub_identities or stub_statuses:
-        from rebrew.metadata.functions import record_migrated_markers, update_statuses_batch
+        from rebrew.metadata.functions import record_function_rows, update_statuses_batch
 
         if stub_identities:
-            record_migrated_markers(cfg.metadata_dir, stub_identities)
+            record_function_rows(cfg.metadata_dir, stub_identities)
         if stub_statuses:
             for update, fields in zip(stub_statuses, stub_field_updates, strict=True):
                 update["fields"] = fields["fields"]

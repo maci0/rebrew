@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import pytest
+from source_util import write_source
 
 from rebrew.extract import cmd_list, detect_reversed_vas
 from rebrew.formats.binary_loader import extract_bytes_at_va
@@ -103,15 +104,18 @@ class TestDetectReversedVas:
     def test_finds_annotated_vas(self, tmp_path: Path) -> None:
         """Detects VAs from annotated .c files."""
         src = tmp_path / "func.c"
-        src.write_text(
-            "// FUNCTION: test.dll 0x10001000\n"
-            "// STATUS: STUB\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 32\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _my_func\n"
-            "void my_func(void) {}\n",
+        write_source(
+            src,
+            "/* ADDRESS: test.dll 0x10001000 */\n\n\n\n\n\nvoid my_func(void) {}\n",
             encoding="utf-8",
+            metadata_fields={
+                "test.dll.0x10001000": {
+                    "kind": "FUNCTION",
+                    "size": 32,
+                    "cflags": "/O2 /Gd",
+                    "symbol": "_my_func",
+                }
+            },
         )
         result = detect_reversed_vas(tmp_path)
         assert 0x10001000 in result
@@ -119,30 +123,31 @@ class TestDetectReversedVas:
     def test_skips_non_c_files(self, tmp_path: Path) -> None:
         """Non-.c files are ignored."""
         txt = tmp_path / "notes.txt"
-        txt.write_text("// FUNCTION: test.dll 0x10001000\n", encoding="utf-8")
+        txt.write_text("/* ADDRESS: test.dll 0x10001000 */\n", encoding="utf-8")
         result = detect_reversed_vas(tmp_path)
         assert result == set()
 
     def test_multiple_functions(self, tmp_path: Path) -> None:
         """Multiple functions in one file are all detected."""
         src = tmp_path / "multi.c"
-        src.write_text(
-            "// FUNCTION: test.dll 0x10001000\n"
-            "// STATUS: STUB\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 32\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _func_a\n"
-            "void func_a(void) {}\n"
-            "\n"
-            "// FUNCTION: test.dll 0x10002000\n"
-            "// STATUS: RELOC\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 64\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _func_b\n"
-            "void func_b(void) {}\n",
+        write_source(
+            src,
+            "/* ADDRESS: test.dll 0x10001000 */\n\n\n\n\n\nvoid func_a(void) {}\n\n/* ADDRESS: test.dll 0x10002000 */\n\n\n\n\n\nvoid func_b(void) {}\n",
             encoding="utf-8",
+            metadata_fields={
+                "test.dll.0x10001000": {
+                    "kind": "FUNCTION",
+                    "size": 32,
+                    "cflags": "/O2 /Gd",
+                    "symbol": "_func_a",
+                },
+                "test.dll.0x10002000": {
+                    "kind": "FUNCTION",
+                    "size": 64,
+                    "cflags": "/O2 /Gd",
+                    "symbol": "_func_b",
+                },
+            },
         )
         result = detect_reversed_vas(tmp_path)
         assert 0x10001000 in result
@@ -151,15 +156,16 @@ class TestDetectReversedVas:
     def test_skips_data_markers(self, tmp_path: Path) -> None:
         """DATA and GLOBAL markers are excluded from the result set."""
         src = tmp_path / "data.c"
-        src.write_text(
-            "// GLOBAL: test.dll 0x10005000\n"
-            "// STATUS: STUB\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 4\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _g_var\n"
-            "int g_var = 0;\n",
+        write_source(
+            src,
+            "/* ADDRESS: test.dll 0x10005000 */\n\n\n\n\n\nint g_var = 0;\n",
             encoding="utf-8",
+            metadata_fields={
+                "test.dll.0x10005000": {
+                    "kind": "GLOBAL",
+                    "size": 4,
+                }
+            },
         )
         result = detect_reversed_vas(tmp_path)
         assert 0x10005000 not in result
@@ -170,13 +176,11 @@ class TestDetectReversedVas:
         projects (win2k-*, test_*) reported zero extract candidates even
         though every function was an unreversed pre-skeleton."""
         src = tmp_path / "stub.c"
-        src.write_text(
-            "// STUB: test.dll 0x10001000\n"
-            "void fcn_0x10001000(void)\n"
-            "{\n"
-            "    /* pending per-function decompilation */\n"
-            "}\n",
+        write_source(
+            src,
+            "/* ADDRESS: test.dll 0x10001000 */\nvoid fcn_0x10001000(void)\n{\n    /* pending per-function decompilation */\n}\n",
             encoding="utf-8",
+            metadata_fields={"test.dll.0x10001000": {"kind": "STUB"}},
         )
         assert detect_reversed_vas(tmp_path) == set()
 
@@ -185,12 +189,11 @@ class TestDetectReversedVas:
         (incomplete) attempt and stays reversed — only the bare STUB marker
         form is a pre-skeleton."""
         src = tmp_path / "func.c"
-        src.write_text(
-            "// FUNCTION: test.dll 0x10001000\n"
-            "// STATUS: STUB\n"
-            "// SIZE: 32\n"
-            "void my_func(void) {}\n",
+        write_source(
+            src,
+            "/* ADDRESS: test.dll 0x10001000 */\n\n\nvoid my_func(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"test.dll.0x10001000": {"kind": "FUNCTION", "size": 32}},
         )
         assert 0x10001000 in detect_reversed_vas(tmp_path)
 

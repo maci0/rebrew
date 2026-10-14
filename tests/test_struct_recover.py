@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.struct_recover import (
@@ -23,8 +24,12 @@ def _project_cfg(tmp_path: Path) -> SimpleNamespace:
     """Minimal on-disk project for the recover-structs orchestrator."""
     src = tmp_path / "src" / "SERVER"
     src.mkdir(parents=True)
-    (src / "f.c").write_text(
-        "// FUNCTION: SERVER 0x401000\nint f(void) { return 0; }\n", encoding="utf-8"
+    write_source(
+        src / "f.c",
+        "/* ADDRESS: SERVER 0x401000 */\nint f(void) { return 0; }\n",
+        encoding="utf-8",
+        metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
+        metadata_dir=tmp_path,
     )
     return SimpleNamespace(
         target_name="SERVER",
@@ -339,8 +344,12 @@ class TestCli:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
-        (src / "f.c").write_text(
-            "// FUNCTION: SERVER 0x401000\nint f(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: SERVER 0x401000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(
             target_name="SERVER",
@@ -376,8 +385,12 @@ class TestCli:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
-        (src / "f.c").write_text(
-            "// FUNCTION: SERVER 0x401000\nint f(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: SERVER 0x401000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(
             target_name="SERVER",
@@ -434,8 +447,12 @@ class TestFailureEnvelope:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
-        (src / "f.c").write_text(
-            "// FUNCTION: SERVER 0x401000\nint f(void) { return 0; }\n", encoding="utf-8"
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: SERVER 0x401000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(
             target_name="SERVER",

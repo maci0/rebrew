@@ -35,8 +35,8 @@ flowchart LR
         META["rebrew-functions.toml<br/>STATUS/SIZE/CFLAGS/…"]
     end
 
-    C --> ANNOT["metadata/annotation.py<br/>parse_c_file_multi"]
-    META --> FACADE["metadata/functions.py + metadata/model.py<br/>store, typed facade, merge_into_annotation"]
+    C --> ANNOT["metadata/bindings.py<br/>read_source_bindings"]
+    META --> FACADE["metadata/functions.py + metadata/model.py<br/>store, typed facade, merge_into_binding"]
     TOML --> CFG["config.py<br/>ProjectConfig"]
 
     ANNOT --> MERGED["merged Annotation"]
@@ -78,7 +78,7 @@ flowchart LR
 | `rebrew/limits.py` | `NO_MAX_SIZE` / `NO_DELTA`, the "bound not measured" sentinels behind `--max-size` and `--max-delta`. A leaf so `match_run` can recognise an unset bound without importing the `skeleton` or `match_batch` command modules |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/workspace/` | Workspace-root discovery and the target list (`find_root`, `db_dir`, `default_target`, `config.py`'s resolved view, `status.py`, `va.py`). Stdlib-only leaf, so a tool needing just the project's directories and target names never pulls in LIEF, capstone, or tree-sitter. It resolves no coverage data: `db_dir` names the directory, `coverage_toml.py` reads it |
-| `rebrew/metadata/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata), `iter_annotations` batch loader |
+| `rebrew/metadata/bindings.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata), `iter_source_bindings` batch loader |
 | `rebrew/metadata/functions.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELD_TYPES`, `METADATA_FIELDS`, `SYNC_FIELD_RULES`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata/model.py` (`MetadataEntry`) |
 | `rebrew/decompiler.py` | Pluggable decompiler backends for pseudo-C (`r2`/`rz` ghidra and dec, Ghidra via the ReVa MCP bridge, m2c for MIPS/PPC/ARM/SH), registered through the `rebrew.decompiler_backends` entry-point group. `fetch_decompilation` is the one entry point `rebrew skeleton --decomp` calls; `"auto"` picks the first backend that answers |
 | `rebrew/llm_seed.py` | Optional LLM-assisted GA seeding for `rebrew match run --seed-llm`: asks the `[llm]` endpoint for alternative C, keeps only tree-sitter-valid single-function snippets, injects them as extra seeds. Off by default; with no endpoint the flag warns and the GA runs unchanged |
@@ -157,19 +157,12 @@ would be a second answer to that question. See
 
 ## The compile → compare → STATUS/BLOCKER loop
 
-1. `parse_c_file_multi()` reads the marker line plus inline keys still
-   used from the `.c`. A migrated, marker-less file (ADR 023) has no
-   block to read: `_annotations_from_metadata` synthesizes the same
-   Annotations from the TOML entries whose `file` field matches. Inline
-   keys still read on an unmigrated file: `SIZE`/`CFLAGS` (metadata-owned;
-   an equal inline copy is migration debt), `TOOLCHAIN`/`SOURCE` (until
-   migrated; metadata wins on merge), `// SOURCE: naked` (file-borne), and
-   structural `STRUCT`/`CALLERS` (`SECTION` on DATA/GLOBAL is
-   data-metadata-owned). Inline `STATUS` etc. are NOT parsed
-   (`_kv_to_annotation` hardcodes `STUB`).
-2. `merge_into_annotation()` overlays `rebrew-functions.toml` values (metadata
-   wins for owned fields, including STATUS, TOOLCHAIN, BLOCKER, NOTE, GHIDRA,
-   SIZE, and CFLAGS).
+1. `read_source_bindings()` joins optional ADDRESS anchors bound through the C
+   AST with canonical format-2 function/data identities. Metadata-only rows remain
+   valid. Legacy source blocks and older schemas are rejected.
+2. Canonical stores supply every field, including size, flags, status, provenance,
+   reconstruction source and structural information. Source purposes and assembly
+   evidence live in `rebrew-source.toml`.
 3. `compile_and_compare()` compiles the source in the pinned toolchain
    image (`compiler/toolchain.py`; docker-only for every shipped profile, including
    gcc/clang/mingw; images built from the `recompile-toolchains` checkout) and
@@ -210,7 +203,7 @@ Registry publication has its own [snapshot contract](DEVELOPMENT.md#registry-sna
 - Idempotent: every tool is safe to re-run.
 - One canonical name per function: no aliases/shims/legacy wrappers.
 - STATUS promotion only via `update_source_status` (never inline in `.c`); BLOCKER only via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers (`diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, `document-unmatched`).
-- Source discovery via `iter_sources`; batch annotations via `iter_annotations`.
+- Source discovery via `iter_sources`; batch annotations via `iter_source_bindings`.
 - Registries republish as a whole: one `refresh_*` call is one generation, and a
   reader that needs two tables takes one snapshot (`registry_snapshot()`,
   `detection_tables()`) or reads under the module's refresh lock.

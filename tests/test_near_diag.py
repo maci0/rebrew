@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Any
 
+from source_util import write_source
+
 import rebrew.near_analysis as nd
 
 # Hand-crafted 32-bit x86 encodings.
@@ -589,9 +591,12 @@ class TestFixBlocker:
         )
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
         src = tmp_path / "f.c"
-        src.write_text(
-            "// FUNCTION: S 0x1000\n// SIZE: 8\nint f(void) { return 0; }\n",
+        write_source(
+            src,
+            "/* ADDRESS: S 0x1000 */\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"S.0x1000": {"kind": "FUNCTION", "size": 8}},
+            metadata_dir=tmp_path,
         )
         calls: list[object] = []
         monkeypatch.setattr(
@@ -609,7 +614,7 @@ class TestFixBlocker:
             },
         )
         monkeypatch.setattr(
-            "rebrew.metadata.annotation.parse_c_file_multi",
+            "rebrew.metadata.bindings.read_source_bindings",
             lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr(
@@ -662,7 +667,7 @@ class TestAllBatch:
             "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
         )
         monkeypatch.setattr("rebrew.sources.iter_sources", lambda *a, **k: [tmp_path / "f.c"])
-        monkeypatch.setattr("rebrew.metadata.annotation.parse_c_file_multi", lambda *a, **k: annos)
+        monkeypatch.setattr("rebrew.metadata.bindings.read_source_bindings", lambda *a, **k: annos)
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.extract_raw_bytes",
             lambda *a, **k: b"\x55\x8b\xec\x5d\xc3",
@@ -862,12 +867,15 @@ class TestValidatedRelocMasking:
         )
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
         src = tmp_path / "f.c"
-        src.write_text(
-            "// FUNCTION: S 0x1000\n// SIZE: 10\nint f(void) { return 0; }\n",
+        write_source(
+            src,
+            "/* ADDRESS: S 0x1000 */\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"S.0x1000": {"kind": "FUNCTION", "size": 10}},
+            metadata_dir=tmp_path,
         )
         monkeypatch.setattr(
-            "rebrew.metadata.annotation.parse_c_file_multi",
+            "rebrew.metadata.bindings.read_source_bindings",
             lambda *a, **k: [NS(va=0x1000, size=10, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr(
@@ -947,9 +955,12 @@ class TestFixBlockerDryRun:
         )
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
         src = tmp_path / "f.c"
-        src.write_text(
-            "// FUNCTION: S 0x1000\n// SIZE: 8\nint f(void) { return 0; }\n",
+        write_source(
+            src,
+            "/* ADDRESS: S 0x1000 */\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"S.0x1000": {"kind": "FUNCTION", "size": 8}},
+            metadata_dir=tmp_path,
         )
         calls: list[object] = []
         monkeypatch.setattr(
@@ -965,7 +976,7 @@ class TestFixBlockerDryRun:
             },
         )
         monkeypatch.setattr(
-            "rebrew.metadata.annotation.parse_c_file_multi",
+            "rebrew.metadata.bindings.read_source_bindings",
             lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr(
@@ -1005,9 +1016,12 @@ class TestFixBlockerDryRun:
         )
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
         src = tmp_path / "f.c"
-        src.write_text(
-            "// FUNCTION: S 0x1000\n// SIZE: 8\nint f(void) { return 0; }\n",
+        write_source(
+            src,
+            "/* ADDRESS: S 0x1000 */\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"S.0x1000": {"kind": "FUNCTION", "size": 8}},
+            metadata_dir=tmp_path,
         )
         monkeypatch.setattr("rebrew.metadata.functions.update_field", lambda *a, **k: None)
         monkeypatch.setattr(
@@ -1020,7 +1034,7 @@ class TestFixBlockerDryRun:
             },
         )
         monkeypatch.setattr(
-            "rebrew.metadata.annotation.parse_c_file_multi",
+            "rebrew.metadata.bindings.read_source_bindings",
             lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr(
@@ -1063,9 +1077,12 @@ class TestFixBlockerDryRun:
         )
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
         src = tmp_path / "f.c"
-        src.write_text(
-            "// FUNCTION: S 0x1000\n// SIZE: 8\nint f(void) { return 0; }\n",
+        write_source(
+            src,
+            "/* ADDRESS: S 0x1000 */\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"S.0x1000": {"kind": "FUNCTION", "size": 8}},
+            metadata_dir=tmp_path,
         )
         writes: list[tuple] = []
         monkeypatch.setattr(
@@ -1081,7 +1098,7 @@ class TestFixBlockerDryRun:
             },
         )
         monkeypatch.setattr(
-            "rebrew.metadata.annotation.parse_c_file_multi",
+            "rebrew.metadata.bindings.read_source_bindings",
             lambda *a, **k: [
                 SimpleNamespace(va=0x1000, size=8, symbol="_f", module="S", cflags="")
             ],
@@ -1130,12 +1147,15 @@ class TestFixBlockerStatus:
         )
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
         src = tmp_path / "f.c"
-        src.write_text(
-            "// FUNCTION: S 0x1000\n// SIZE: 10\nint f(void) { return 0; }\n",
+        write_source(
+            src,
+            "/* ADDRESS: S 0x1000 */\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"S.0x1000": {"kind": "FUNCTION", "size": 10}},
+            metadata_dir=tmp_path,
         )
         monkeypatch.setattr(
-            "rebrew.metadata.annotation.parse_c_file_multi",
+            "rebrew.metadata.bindings.read_source_bindings",
             lambda *a, **k: [NS(va=0x1000, size=10, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr(
@@ -1160,7 +1180,7 @@ class TestFixBlockerStatus:
     def test_fix_blocker_dry_run_skips_status(self, monkeypatch, tmp_path: Path) -> None:
         self._invoke_fix(monkeypatch, tmp_path, "--dry-run")
         meta_path = tmp_path / "rebrew-functions.toml"
-        assert not meta_path.exists() or "status" not in meta_path.read_text(encoding="utf-8")
+        assert 'status = "STUB"' in meta_path.read_text(encoding="utf-8")
 
 
 class TestFixBlockerPreservesGaCeiling:
@@ -1189,9 +1209,12 @@ class TestFixBlockerPreservesGaCeiling:
         )
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
         src = tmp_path / "f.c"
-        src.write_text(
-            "// FUNCTION: S 0x1000\n// SIZE: 8\nint f(void) { return 0; }\n",
+        write_source(
+            src,
+            "/* ADDRESS: S 0x1000 */\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"S.0x1000": {"kind": "FUNCTION", "size": 8}},
+            metadata_dir=tmp_path,
         )
         writes: list[object] = []
         monkeypatch.setattr(
@@ -1211,7 +1234,7 @@ class TestFixBlockerPreservesGaCeiling:
             },
         )
         monkeypatch.setattr(
-            "rebrew.metadata.annotation.parse_c_file_multi",
+            "rebrew.metadata.bindings.read_source_bindings",
             lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
         )
         monkeypatch.setattr(
@@ -1256,16 +1279,25 @@ class TestDecoratedNameSelection:
         monkeypatch.setattr(
             "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
         )
-        (tmp_path / "_foo.c").write_text(
-            "// FUNCTION: GAME 0x3000\nint _foo(void) { return 0; }\n\n"
-            "// FUNCTION: GAME 0x4000\nint foo(void) { return 1; }\n",
+        write_source(
+            tmp_path / "_foo.c",
+            "/* ADDRESS: GAME 0x3000 */\nint _foo(void) { return 0; }\n\n/* ADDRESS: GAME 0x4000 */\nint foo(void) { return 1; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "GAME.0x3000": {"kind": "FUNCTION"},
+                "GAME.0x4000": {"kind": "FUNCTION"},
+            },
+            metadata_dir=tmp_path,
         )
-        (tmp_path / "hook.c").write_text(
-            "// FUNCTION: GAME 0x1000\nint other(void) { return 1; }\n\n"
-            "// FUNCTION: GAME 0x2000\n"
-            "int __vectorcall hook(int a, int b, int c) { return 0; }\n",
+        write_source(
+            tmp_path / "hook.c",
+            "/* ADDRESS: GAME 0x1000 */\nint other(void) { return 1; }\n\n/* ADDRESS: GAME 0x2000 */\nint __vectorcall hook(int a, int b, int c) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "GAME.0x1000": {"kind": "FUNCTION"},
+                "GAME.0x2000": {"kind": "FUNCTION"},
+            },
+            metadata_dir=tmp_path,
         )
         seen: dict[str, int] = {}
 

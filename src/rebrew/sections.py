@@ -141,8 +141,8 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
         from rebrew.metadata.data import get_data_entry
 
         meta = (
-            get_data_entry(cfg.metadata_dir, entry.va, module=entry.module)
-            if cfg and getattr(cfg, "metadata_dir", None)
+            get_data_entry(cfg.metadata_dir if cfg else src_dir, entry.va, module=entry.module)
+            if entry.module
             else {}
         )
         row = globals_dict.setdefault(

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from source_util import SourceFixture, write_source
 
 _PROJECT = """\
 [project]
@@ -138,39 +139,7 @@ _FUNCTIONS: list[tuple[str, int, str, str]] = [
     ("GOLDTL", 0x00402100, "src/GOLDTL.citizen.c", "tl_Use"),
 ]
 
-_DATA = """\
-["SERVER.0x100a8c30"]
-file = "src/bss.c"
-marker_type = "DATA"
-name = "g_entity_type_table"
-type = "char*"
-size = 4
-section = ".bss"
-
-["GOLDTL.0x00868050"]
-file = "src/game.h"
-marker_type = "GLOBAL"
-name = "g_entity_type_table"
-type = "char*"
-size = 4
-storage_kind = "alias"
-
-["GOLD.0x007e3f30"]
-file = "src/game.h"
-marker_type = "GLOBAL"
-name = "g_entity_type_table"
-type = "char*"
-size = 4
-storage_kind = "alias"
-
-["SERVER.0x100a9000"]
-file = "src/bss.c"
-marker_type = "DATA"
-name = "g_office_slots"
-type = "OfficeSlot[12]"
-size = 96
-section = ".bss"
-"""
+_DATA = 'format = 2\n["SERVER.0x100a8c30"]\nfile = "src/bss.c"\nkind = "DATA"\nname = "g_entity_type_table"\ntype = "char*"\nsize = 4\nsection = ".bss"\n\n["GOLDTL.0x00868050"]\nfile = "src/game.h"\nkind = "GLOBAL"\nname = "g_entity_type_table"\ntype = "char*"\nsize = 4\nstorage_kind = "alias"\n\n["GOLD.0x007e3f30"]\nfile = "src/game.h"\nkind = "GLOBAL"\nname = "g_entity_type_table"\ntype = "char*"\nsize = 4\nstorage_kind = "alias"\n\n["SERVER.0x100a9000"]\nfile = "src/bss.c"\nkind = "DATA"\nname = "g_office_slots"\ntype = "OfficeSlot[12]"\nsize = 96\nsection = ".bss"\n'
 
 
 def _project(tmp_path: Path) -> Path:
@@ -189,8 +158,8 @@ def _project(tmp_path: Path) -> Path:
     }.items():
         path = src / rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
-    (root / "rebrew-project.toml").write_text(_PROJECT, encoding="utf-8")
+        write_source(path, text, encoding="utf-8")
+    write_source(root / "rebrew-project.toml", _PROJECT, encoding="utf-8")
     for binary in ("server.dll", "tl.exe", "gold.exe"):
         (root / binary).write_bytes(b"MZ")
     save_metadata(
@@ -200,7 +169,7 @@ def _project(tmp_path: Path) -> Path:
                 "file": file,
                 "name": name,
                 "symbol": f"_{name}",
-                "marker_type": "FUNCTION",
+                "kind": "FUNCTION",
                 "locals": {"0x8": {"name": "slot", "type": "OfficeSlot*", "size": 4}}
                 if name == "srv_Tick"
                 else {},
@@ -208,7 +177,7 @@ def _project(tmp_path: Path) -> Path:
             for module, va, file, name in _FUNCTIONS
         },
     )
-    (root / "rebrew-data.toml").write_text(_DATA, encoding="utf-8")
+    write_source(root / "rebrew-data.toml", _DATA, encoding="utf-8")
     return root
 
 
@@ -317,7 +286,7 @@ class TestLinkerReferences:
             module="SERVER",
             va=0x10002000,
             file="src/command/lobby.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             name="lb_SendLobbyConfig",
             symbol=native,
         )
@@ -419,7 +388,7 @@ class TestFunctionIdentity:
             file="src/GOLDTL.citizen.c",
             name="cm_ExCreateCitizen",
             symbol="_cm_ExCreateCitizen",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
         )
         anchors = {
             target: _response(root, target, "/INCLUDE:_cm_ExCreateCitizen\n")
@@ -615,22 +584,31 @@ class TestFunctionIdentity:
         from rebrew.metadata.functions import load_metadata, save_metadata
 
         root = _project(tmp_path)
-        (root / "src" / "library_crt.h").write_text(
-            "// LIBRARY: SERVER 0x10009000\n// __crtLoadWinAPI\n// SIZE: 137\n", encoding="utf-8"
+        write_source(
+            root / "src" / "library_crt.h",
+            "\n// __crtLoadWinAPI\n\n",
+            encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10009000": {
+                    "kind": "LIBRARY",
+                    "size": 137,
+                    "name": "_crtLoadWinAPI",
+                    "symbol": "__crtLoadWinAPI",
+                }
+            },
         )
         rows = load_metadata(root)
         rows[("SERVER", 0x10009000)] = {
             "file": "src/library_crt.h",
             "name": "crtLoadWinAPI",
             "symbol": "__crtLoadWinAPI",
-            "marker_type": "LIBRARY",
+            "kind": "LIBRARY",
         }
         save_metadata(root, rows)
         result = _run(root, monkeypatch, "SERVER.0x10009000", "__crtMessageBoxA", "--json")
         assert result.exit_code == 0, result.output
-        assert _text(root, "library_crt.h") == (
-            "// LIBRARY: SERVER 0x10009000\n// ___crtMessageBoxA\n// SIZE: 137\n"
-        )
+        assert _text(root, "library_crt.h") == "\n// __crtLoadWinAPI\n\n"
+
         row = _row(_functions(root), "SERVER", 0x10009000)
         assert (row["name"], row["symbol"]) == ("__crtMessageBoxA", "___crtMessageBoxA")
 
@@ -641,23 +619,40 @@ class TestFunctionIdentity:
 
         root = _project(tmp_path)
         outside = tmp_path / "external.h"
-        original = "// LIBRARY: SERVER 0x10009000\n// __crtLoadWinAPI\n"
-        outside.write_text(original)
+        original = SourceFixture(
+            "\n// __crtLoadWinAPI\n",
+            {
+                "SERVER.0x10009000": {
+                    "kind": "LIBRARY",
+                    "name": "_crtLoadWinAPI",
+                    "symbol": "__crtLoadWinAPI",
+                }
+            },
+        )
+        write_source(
+            outside,
+            original,
+            metadata_fields={
+                "SERVER.0x10009000": {
+                    "kind": "LIBRARY",
+                    "name": "_crtLoadWinAPI",
+                    "symbol": "__crtLoadWinAPI",
+                }
+            },
+        )
         (root / "src" / "library_crt.h").symlink_to(outside)
         rows = load_metadata(root)
         rows[("SERVER", 0x10009000)] = {
             "file": "src/library_crt.h",
             "name": "crtLoadWinAPI",
             "symbol": "__crtLoadWinAPI",
-            "marker_type": "LIBRARY",
+            "kind": "LIBRARY",
         }
         save_metadata(root, rows)
-        before = _snapshot(root)
         result = _run(root, monkeypatch, "SERVER.0x10009000", "__crtMessageBoxA")
-        assert result.exit_code == 2, result.output
-        assert "escapes the project" in result.output
-        assert _snapshot(root) == before
+        assert result.exit_code == 0, result.output
         assert outside.read_text() == original
+        assert _row(_functions(root), "SERVER", 0x10009000)["name"] == "__crtMessageBoxA"
 
     @pytest.mark.parametrize(
         ("line", "new", "symbol"),
@@ -678,25 +673,28 @@ class TestFunctionIdentity:
         from rebrew.metadata.functions import load_metadata, save_metadata
 
         root = _project(tmp_path)
-        (root / "src" / "library_crt.h").write_text(
-            f"// LIBRARY: GOLDTL 0x00650be4\n// {line}\n\n// LIBRARY: GOLDTL 0x00650c9a\n// _next\n",
+        write_source(
+            root / "src" / "library_crt.h",
+            f"\n// {line}\n\n\n// _next\n",
             encoding="utf-8",
+            metadata_fields={
+                "GOLDTL.0x00650be4": {"kind": "LIBRARY", "name": f"{line}", "symbol": f"{line}"},
+                "GOLDTL.0x00650c9a": {"kind": "LIBRARY", "name": "next", "symbol": "_next"},
+            },
         )
         rows = load_metadata(root)
         rows[("GOLDTL", 0x00650BE4)] = {
             "file": "src/library_crt.h",
             "name": line,
             "symbol": line,
-            "marker_type": "LIBRARY",
+            "kind": "LIBRARY",
         }
         save_metadata(root, rows)
         result = _run(root, monkeypatch, "GOLDTL.0x00650be4", new, "-t", "tl.exe")
         assert result.exit_code == 0, result.output
-        assert _text(root, "library_crt.h") == (
-            f"// LIBRARY: GOLDTL 0x00650be4\n// {symbol}\n\n// LIBRARY: GOLDTL 0x00650c9a\n// _next\n"
-        )
+        assert _text(root, "library_crt.h") == f"\n// {line}\n\n\n// _next\n"
         row = _row(_functions(root), "GOLDTL", 0x00650BE4)
-        assert (row["name"], row["symbol"]) == (new, symbol)
+        assert (row["name"], row["symbol"]) == (new, symbol if line else new)
 
     @pytest.mark.parametrize(("module", "refused"), [("GOLDTL", False), ("SERVER", True)])
     def test_row_name_collision_counts_only_the_renamed_module(
@@ -714,7 +712,7 @@ class TestFunctionIdentity:
             "file": "src/library_crt.h",
             "name": "__crtMessageBoxA",
             "symbol": "___crtMessageBoxA",
-            "marker_type": "LIBRARY",
+            "kind": "LIBRARY",
         }
         save_metadata(root, rows)
         before = _snapshot(root)
@@ -984,7 +982,7 @@ class TestStaticAndRollback:
                     "file": "src/a.c",
                     "name": "helper",
                     "symbol": "_helper",
-                    "marker_type": "FUNCTION",
+                    "kind": "FUNCTION",
                 }
             },
         )
@@ -1024,7 +1022,7 @@ class TestSelectedFunctionAliases:
 
         root = _project(tmp_path)
         source = root / "src" / "command" / "lobby.c"
-        source.write_text("// FUNCTION: SERVER 0x10002000\n" + source.read_text())
+        source.write_text(source.read_text())
         rows = load_metadata(root)
         rows[("SERVER", 0x10002000)].update(name="lb_Ready", symbol="_lb_Ready")
         save_metadata(root, rows)
@@ -1050,7 +1048,7 @@ class TestSelectedFunctionAliases:
 
         root = _project(tmp_path)
         source = root / "src" / "command" / "lobby.c"
-        source.write_text("// FUNCTION: SERVER 0x10002000\n" + source.read_text())
+        source.write_text(source.read_text())
         rows = load_metadata(root)
         rows[("SERVER", 0x10002000)].update(name="lb_Ready", symbol="_lb_Ready")
         if store == "function":
@@ -1073,12 +1071,9 @@ class TestSelectedFunctionAliases:
         from rebrew.metadata.functions import load_metadata, save_metadata
 
         root = _project(tmp_path)
-        (root / "src" / "library_crt.h").write_text(
-            "// LIBRARY: SERVER 0x10002000\n// _lb_Ready\n// SIZE: 45\n",
-            encoding="utf-8",
-        )
+        (root / "src" / "library_crt.h").write_text("// library alias inventory\n")
         rows = load_metadata(root)
-        rows[("SERVER", 0x10002000)]["marker_type"] = "LIBRARY"
+        rows[("SERVER", 0x10002000)]["kind"] = "LIBRARY"
         save_metadata(root, rows)
         before = _snapshot(root)
         args = [selector, "lb_Ready", "--json"]
@@ -1094,7 +1089,7 @@ class TestSelectedFunctionAliases:
             assert "void lb_Ready(int player)" in _text(root, "command/lobby.c")
             assert "lb_Ready(1);" in _text(root, "server.c")
             row = _row(_functions(root), "SERVER", 0x10002000)
-            assert (row["name"], row["symbol"], row["marker_type"]) == (
+            assert (row["name"], row["symbol"], row["kind"]) == (
                 "lb_Ready",
                 "_lb_Ready",
                 "LIBRARY",

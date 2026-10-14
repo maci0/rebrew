@@ -23,7 +23,19 @@ from typing import Any
 import tomlkit
 from tomlkit import TOMLDocument
 
-from rebrew.utils import file_lock, load_tomllib
+from rebrew.utils import file_lock, load_toml_for_write_strict, load_tomllib
+
+FORMAT_KEY = "format"
+FORMAT_VERSION = 2
+
+
+def stamp_format(doc: Any) -> None:
+    """Stamp a new document; reject an existing document with another schema."""
+    version = doc.get(FORMAT_KEY, FORMAT_VERSION)
+    if not isinstance(version, int) or isinstance(version, bool) or version != FORMAT_VERSION:
+        raise ValueError(f"unsupported metadata format {version!r}; expected {FORMAT_VERSION}")
+    doc[FORMAT_KEY] = FORMAT_VERSION
+
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +165,7 @@ def load_metadata_doc(
 
     *path* is resolved for stable cache keys.  *cache* is the caller's
     stat-fingerprinted in-memory cache (invalidated by write helpers).  Returns an
-    empty dict when the file is missing or unparseable.  Pass *known_fields*
+    empty dict only when the file is missing. Invalid or unreadable stores raise.  Pass *known_fields*
     (the store's closed field set, upper case) to have a hand-edited key that
     no reader understands reported instead of dropped.
 
@@ -163,21 +175,14 @@ def load_metadata_doc(
     to avoid cloning the whole table once per source file.
     """
     path = path.resolve()
-    if not path.exists():
-        pop_metadata_doc_cache(cache, path)
-        return {}
-
-    # Stat before reading: a rewrite racing the parse leaves newer content
-    # under an older fingerprint, which the next stat replaces.
     try:
         st = path.stat()
-    except OSError as exc:
-        # A present-but-unreadable store is not an absent one: returning {}
-        # reports "no metadata at all", so every STATUS / size / blocker
-        # lookup reads as missing.
-        logger.warning("Cannot stat %s %s: %s", description, path, exc)
+    except FileNotFoundError:
         pop_metadata_doc_cache(cache, path)
         return {}
+    except OSError:
+        pop_metadata_doc_cache(cache, path)
+        raise
     current_fp: MetadataDocFingerprint = (st.st_mtime_ns, st.st_size, st.st_ino)
     with _METADATA_DOC_CACHE_LOCK:
         cached = cache.get(path)
@@ -186,11 +191,7 @@ def load_metadata_doc(
             # status promotion), and an aliased dict would corrupt the cache.
             return copy.deepcopy(cached[1]) if deepcopy else cached[1]
 
-    try:
-        doc = load_tomllib(path)
-    except Exception as exc:  # parser raises various types
-        logger.warning("Failed to parse %s %s: %s", description, path, exc)
-        return {}
+    doc = load_tomllib(path)
 
     result = parse_metadata_doc(doc, known_fields=known_fields, source=str(path))
     with _METADATA_DOC_CACHE_LOCK:
@@ -217,14 +218,12 @@ def qualified_key(module: str | None, va: int) -> str:
 
         >>> qualified_key("SERVER", 0x01006364)
         'SERVER.0x01006364'
-        >>> qualified_key(None, 0x01006364)
-        '0x01006364'
 
     """
     va_hex = f"0x{va:08x}"
     if module:
         return f"{unicodedata.normalize('NFC', module)}.{va_hex}"
-    return va_hex
+    raise ValueError("metadata identities require a non-empty target module")
 
 
 def parse_metadata_key(key: str) -> tuple[str, int] | None:
@@ -317,70 +316,32 @@ _UNKNOWN_KEY_REPORT_MAX = 5
 
 
 def parse_metadata_doc(
-    doc: dict[str, Any],
-    *,
-    known_fields: frozenset[str] | None = None,
-    source: str = "",
+    doc: dict[str, Any], *, known_fields: frozenset[str] | None = None, source: str = ""
 ) -> dict[tuple[str, int], dict[str, Any]]:
-    """Convert a parsed metadata TOML document into ``{(module, va): fields}``.
-
-    Accepts either a tomlkit ``TOMLDocument`` (writes) or a plain ``dict``
-    from ``tomllib`` (fast reads).  Entries whose key is not a qualified
-    ``MODULE.0xVA`` form, or whose value is not a table, are skipped.  Shared
-    by ``metadata/functions.py`` and ``metadata/data.py``.
-
-    Two keys that parse to the same ``(module, va)``, e.g. ``0x24000`` and
-    ``0x00024000``, are merged field by field (the later key wins a contested
-    field) and logged.  Whole-table replacement would silently drop the
-    earlier entry's fields, which is how a duplicated key turned a populated
-    entry into a status-only stub.
-
-    *known_fields* is the closed field set of the store, compared
-    case-insensitively.  A hand-edited key outside it (``CFLAGSS``,
-    ``TOOLCHIAN``) is dropped by every reader, so the function silently
-    compiles with the wrong flags; the store's writers reject such a key
-    already, and this makes a hand edit just as loud.  One warning per parse,
-    naming *source* and the offending keys.
-    """
-    result: dict[tuple[str, int], dict[str, Any]] = {}
-    first_key: dict[tuple[str, int], str] = {}
-    unknown: dict[str, list[str]] = {}
+    """Read exactly the current qualified-identity metadata schema."""
+    version = doc.get(FORMAT_KEY)
+    if not isinstance(version, int) or isinstance(version, bool) or version != FORMAT_VERSION:
+        raise ValueError(f"{source}: metadata requires format = {FORMAT_VERSION}")
+    result = {}
     for key, value in doc.items():
+        if key == FORMAT_KEY:
+            continue
         parsed = parse_metadata_key(key)
-        if parsed is None or not isinstance(value, dict):
-            continue
+        if parsed is None or not parsed[0] or not isinstance(value, dict):
+            raise ValueError(f"{source}: expected a MODULE.0xVA table, got {key!r}")
+        if parsed in result:
+            raise ValueError(f"{source}: duplicate metadata keys for {key!r}")
+        if "marker_type" in value:
+            raise ValueError(f"{source}: unsupported marker_type field; current metadata uses kind")
         if known_fields is not None:
-            bad = sorted(
-                str(f) for f in value if isinstance(f, str) and f.upper() not in known_fields
-            )
-            if bad:
-                unknown.setdefault(qualified_key(parsed[0], parsed[1]), []).extend(bad)
-        previous = result.get(parsed)
-        if previous is not None:
-            logger.warning(
-                "Duplicate metadata keys %r and %r both resolve to %s 0x%x; "
-                "merging their fields (later key wins). Collapse them to the "
-                "canonical key %r to stop the split.",
-                first_key[parsed],
-                key,
-                parsed[0],
-                parsed[1],
-                qualified_key(parsed[0], parsed[1]),
-            )
-            previous.update(copy.deepcopy(value))
-            continue
+            unknown = [
+                str(k)
+                for k in value
+                if str(k).upper() not in known_fields or str(k) != str(k).lower()
+            ]
+            if unknown:
+                raise ValueError(f"{source}: unknown metadata fields in {key}: {unknown}")
         result[parsed] = copy.deepcopy(value)
-        first_key[parsed] = key
-    if unknown:
-        shown = sorted(unknown.items())[:_UNKNOWN_KEY_REPORT_MAX]
-        detail = ", ".join(f"{entry}: {sorted(set(keys))}" for entry, keys in shown)
-        extra = f" (+{len(unknown) - len(shown)} more entries)" if len(unknown) > len(shown) else ""
-        logger.warning(
-            "%sunknown metadata field(s) ignored: %s%s — fix the key or rebrew never reads it",
-            f"{source}: " if source else "",
-            detail,
-            extra,
-        )
     return result
 
 
@@ -416,6 +377,7 @@ def build_metadata_doc(
     order.  Empty entries are dropped.
     """
     doc = tomlkit.document()
+    stamp_format(doc)
     for module, va_int in sorted(data):
         entry = data[(module, va_int)]
         if not entry:
@@ -428,4 +390,15 @@ def build_metadata_doc(
             if field not in canonical_order:
                 tbl[field] = val
         doc[qualified_key(module, va_int)] = tbl
+    return doc
+
+
+def load_metadata_for_write(
+    path: Path, description: str, *, known_fields: frozenset[str] | None = None
+) -> TOMLDocument:
+    """Open a current metadata document under the caller's write lock."""
+    doc = load_toml_for_write_strict(path, description)
+    if path.exists():
+        parse_metadata_doc(doc, known_fields=known_fields, source=str(path))
+    stamp_format(doc)
     return doc

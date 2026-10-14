@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from source_util import SourceFixture, write_source, write_store_fixture
 
 from rebrew.asm import build_function_lookup
 from rebrew.config import ProjectConfig
@@ -49,16 +50,19 @@ class TestBuildFunctionLookup:
             encoding="utf-8",
         )
         src = tmp_path / "game_func.c"
-        src.write_text(
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// SIZE: 64\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "void game_func(void) {}\n",
+        write_source(
+            src,
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\nvoid game_func(void) {}\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10001000": {"kind": "FUNCTION", "size": 64, "cflags": "/O2 /Gd"}
+            },
         )
         # STATUS lives in metadata, not inline.
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["SERVER.0x10001000"]\nstatus = "RELOC"\n', encoding="utf-8"
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["SERVER.0x10001000"]\nstatus = "RELOC"\n',
+            encoding="utf-8",
         )
         cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path / "src")
         (tmp_path / "src").mkdir()
@@ -73,16 +77,19 @@ class TestBuildFunctionLookup:
         ghidra_json = tmp_path / "function_structure.json"
         ghidra_json.write_text(json.dumps([]), encoding="utf-8")
         src = tmp_path / "stub_func.c"
-        src.write_text(
-            "// STUB: SERVER 0x10003000\n"
-            "// STATUS: STUB\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 32\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _stub_func\n"
-            "// BLOCKER: unknown\n"
-            "void stub_func(void) {}\n",
+        write_source(
+            src,
+            "/* ADDRESS: SERVER 0x10003000 */\n\n\n\n\n\n\nvoid stub_func(void) {}\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10003000": {
+                    "kind": "STUB",
+                    "size": 32,
+                    "cflags": "/O2 /Gd",
+                    "blocker": "unknown",
+                    "symbol": "_stub_func",
+                }
+            },
         )
         cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
@@ -93,15 +100,18 @@ class TestBuildFunctionLookup:
         ghidra_json = tmp_path / "function_structure.json"
         ghidra_json.write_text(json.dumps([]), encoding="utf-8")
         src = tmp_path / "my_func.c"
-        src.write_text(
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 16\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _my_func\n"
-            "void my_func(void) {}\n",
+        write_source(
+            src,
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\nvoid my_func(void) {}\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10001000": {
+                    "kind": "FUNCTION",
+                    "size": 16,
+                    "cflags": "/O2 /Gd",
+                    "symbol": "_my_func",
+                }
+            },
         )
         cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
@@ -120,29 +130,38 @@ class TestBuildFunctionLookup:
         (tmp_path / "function_structure.json").write_text("[]", encoding="utf-8")
         sources = {
             "hook.c": (
-                "// FUNCTION: SERVER 0x10001000\n"
-                "// SIZE: 16\n"
-                "int __vectorcall hook(int a, int b, int c) { return 0; }\n"
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\nint __vectorcall hook(int a, int b, int c) { return 0; }\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 16}},
+                )
             ),
             "keeps.c": (
-                "// FUNCTION: SERVER 0x10002000\n"
-                "// SIZE: 16\n"
-                "int __fastcall keeps(int a) { return a; }\n"
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10002000 */\n\nint __fastcall keeps(int a) { return a; }\n",
+                    {"SERVER.0x10002000": {"kind": "FUNCTION", "size": 16}},
+                )
             ),
             "sleepish.c": (
-                "// FUNCTION: SERVER 0x10003000\n"
-                "// SIZE: 16\n"
-                "int __stdcall sleepish(int a) { return a; }\n"
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10003000 */\n\nint __stdcall sleepish(int a) { return a; }\n",
+                    {"SERVER.0x10003000": {"kind": "FUNCTION", "size": 16}},
+                )
             ),
             "under.c": (
-                "// FUNCTION: SERVER 0x10004000\n// SIZE: 16\nint _foo(void) { return 0; }\n"
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10004000 */\n\nint _foo(void) { return 0; }\n",
+                    {"SERVER.0x10004000": {"kind": "FUNCTION", "size": 16}},
+                )
             ),
             "plain.c": (
-                "// FUNCTION: SERVER 0x10005000\n// SIZE: 16\nint foo(void) { return 0; }\n"
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10005000 */\n\nint foo(void) { return 0; }\n",
+                    {"SERVER.0x10005000": {"kind": "FUNCTION", "size": 16}},
+                )
             ),
         }
         for filename, text in sources.items():
-            (tmp_path / filename).write_text(text, encoding="utf-8")
+            write_source(tmp_path / filename, text, encoding="utf-8")
         cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
         assert result[0x10001000][0] == "hook"
@@ -199,15 +218,13 @@ class TestBuildFunctionLookup:
         ghidra_json.write_text(json.dumps([]), encoding="utf-8")
         for i, va in enumerate([0x10001000, 0x10002000, 0x10003000]):
             src = tmp_path / f"func_{i}.c"
-            src.write_text(
-                f"// FUNCTION: SERVER 0x{va:08x}\n"
-                f"// STATUS: RELOC\n"
-                f"// ORIGIN: GAME\n"
-                f"// SIZE: 32\n"
-                f"// CFLAGS: /O2 /Gd\n"
-                f"// SYMBOL: _func_{i}\n"
-                f"void func_{i}(void) {{}}\n",
+            write_source(
+                src,
+                f"/* ADDRESS: SERVER 0x{va:08x} */\n\nvoid func_{i}(void) {{}}\n",
                 encoding="utf-8",
+                metadata_fields={
+                    f"SERVER.0x{va:08x}": {"kind": "FUNCTION", "size": 32, "cflags": "/O2 /Gd"}
+                },
             )
         cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path)
         result = build_function_lookup(cfg)

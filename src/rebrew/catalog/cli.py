@@ -34,7 +34,7 @@ from rebrew.cli import (
     run_standalone,
 )
 from rebrew.config import ProjectConfig
-from rebrew.metadata.annotation import Annotation, parse_c_file_multi
+from rebrew.metadata.bindings import SourceBinding, read_source_bindings
 from rebrew.utils import floor_pct, untrusted_ident
 
 log = logging.getLogger(__name__)
@@ -103,7 +103,7 @@ def run_catalog(
     both_count = bundle["counts"]["both"]
     thunk_count = bundle["counts"]["thunks"]
 
-    by_va: dict[int, list[Annotation]] = {}
+    by_va: dict[int, list[SourceBinding]] = {}
     if summary or json_output:
         for e in entries:
             by_va.setdefault(e["va"], []).append(e)
@@ -207,7 +207,7 @@ def run_catalog(
             )
 
     if fix_sizes:
-        from rebrew.metadata.annotation import update_size_annotation
+        from rebrew.metadata.bindings import grow_function_extent
         from rebrew.sources import iter_sources, target_marker
         from rebrew.utils import rel_display_path
 
@@ -227,7 +227,7 @@ def run_catalog(
         for cfile in iter_sources(reversed_dir, cfg):
             if rel_display_path(cfile, reversed_dir) not in stale:
                 continue
-            parsed = parse_c_file_multi(
+            parsed = read_source_bindings(
                 cfile,
                 target_name=target_marker(cfg),
                 metadata_dir=cfg.metadata_dir,
@@ -240,7 +240,7 @@ def run_catalog(
                 if canonical <= 0 or canonical <= ann.size:
                     continue
                 reason = registry[va].get("size_reason", "")
-                if update_size_annotation(
+                if grow_function_extent(
                     cfile,
                     canonical,
                     target_va=va,

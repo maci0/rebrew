@@ -57,7 +57,7 @@ def target_marker(cfg: ProjectConfig | None) -> str | None:
     """Return the target marker name from *cfg*, or ``None`` if unavailable.
 
     Shorthand for the ``cfg.marker if cfg else None`` pattern that appears
-    at every ``parse_c_file_multi`` / ``parse_library_header`` call site.
+    at every ``read_source_bindings`` / ``library_bindings_for_file`` call site.
     """
     return cfg.marker if cfg is not None else None
 

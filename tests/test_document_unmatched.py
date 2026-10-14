@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -63,17 +64,21 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (root / "src" / "SERVER").mkdir(parents=True)
     (root / "bin" / "SERVER").mkdir(parents=True)
     shutil.copy(FIXTURES / "mini_pe.exe", root / "original" / "mini_pe.exe")
-    (root / "rebrew-project.toml").write_text(_PROJECT_TOML, encoding="utf-8")
+    write_source(root / "rebrew-project.toml", _PROJECT_TOML, encoding="utf-8")
     (root / "src" / "SERVER" / "function_structure.json").write_text(
         json.dumps(_FUNCTIONS), encoding="utf-8"
     )
-    (root / "src" / "SERVER" / "func1.c").write_text(
-        "// FUNCTION: SERVER 0x00401000\nint __cdecl _func1(void) { return 0; }\n",
+    write_source(
+        root / "src" / "SERVER" / "func1.c",
+        "/* ADDRESS: SERVER 0x00401000 */\nint __cdecl _func1(void) { return 0; }\n",
         encoding="utf-8",
+        metadata_fields={"SERVER.0x00401000": {"kind": "FUNCTION"}},
     )
-    (root / "src" / "SERVER" / "fcn_00401010.c").write_text(
-        "// STUB: SERVER 0x00401010\nvoid fcn_00401010(void) {}\n",
+    write_source(
+        root / "src" / "SERVER" / "fcn_00401010.c",
+        "/* ADDRESS: SERVER 0x00401010 */\nvoid fcn_00401010(void) {}\n",
         encoding="utf-8",
+        metadata_fields={"SERVER.0x00401010": {"kind": "STUB"}},
     )
     monkeypatch.chdir(root)
     return root
@@ -86,21 +91,24 @@ class TestDocumentUnmatched:
         assert result.exit_code == 0, result.output
         stub = project / "src" / "SERVER" / "fcn_00401020.c"
         assert stub.exists(), "undocumented function must get a stub file"
-        from rebrew.metadata.annotation import parse_c_file_multi
+        from rebrew.metadata.bindings import read_source_bindings
 
         text = stub.read_text(encoding="utf-8")
         assert "// STUB:" not in text
-        annotations = parse_c_file_multi(stub, metadata_dir=project)
+        annotations = read_source_bindings(stub, metadata_dir=project)
         assert len(annotations) == 1
         assert annotations[0].va == 0x00401020
         assert annotations[0].module == "SERVER"
-        assert annotations[0].marker_type == "STUB"
+        assert annotations[0].kind == "STUB"
         assert annotations[0].name == "fcn_00401020"
         # func1/func2 must NOT be re-documented
         assert not (project / "src" / "SERVER" / "fcn_00401000.c").exists()
         assert (project / "src" / "SERVER" / "fcn_00401010.c").read_text(
             encoding="utf-8"
-        ) == "// STUB: SERVER 0x00401010\nvoid fcn_00401010(void) {}\n"
+        ) == SourceFixture(
+            "/* ADDRESS: SERVER 0x00401010 */\nvoid fcn_00401010(void) {}\n",
+            {"SERVER.0x00401010": {"kind": "STUB"}},
+        )
         # blocker metadata written for the new function (metadata root = project root)
         meta = project / "rebrew-functions.toml"
         assert "0x00401020" in meta.read_text(encoding="utf-8")
@@ -125,7 +133,7 @@ class TestDocumentUnmatched:
         assert payload["unmatched"] == 1
         assert payload["dry_run"] is True
         assert not (project / "src" / "SERVER" / "fcn_00401020.c").exists()
-        assert not (project / "rebrew-functions.toml").exists()
+        assert (project / "rebrew-functions.toml").is_file()
 
     def test_json_purity(self, project: Path) -> None:
         """stdout is exactly one JSON document."""
@@ -173,9 +181,11 @@ class TestDocumentUnmatched:
         from rebrew.metadata.functions import get_entry, update_field, update_source_status
 
         # A stub with an inline SIZE but no metadata size yet.
-        (project / "src" / "SERVER" / "fcn_00401020.c").write_text(
-            "// STUB: SERVER 0x00401020\n// SIZE: 8\nvoid fcn_00401020(void) {}\n",
+        write_source(
+            project / "src" / "SERVER" / "fcn_00401020.c",
+            "/* ADDRESS: SERVER 0x00401020 */\n\nvoid fcn_00401020(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x00401020": {"kind": "STUB", "size": 8}},
         )
         update_source_status(project / "src", "STUB", "SERVER", 0x401020)
         # 0x401000 is already documented as non-target — must stay untouched
@@ -189,7 +199,7 @@ class TestDocumentUnmatched:
         # 0x401010 (no blocker) + 0x401020 (no blocker) both backfilled
         assert payload["backfilled_blockers"] == 2
         # only 0x401020 had an annotation size to record
-        assert payload["sizes_written"] == 1
+        assert payload["sizes_written"] == 0
         assert get_entry(project / "src", 0x401020, "SERVER").get("size") == 8
 
     def test_backfill_dry_run(self, project: Path) -> None:
@@ -217,9 +227,11 @@ class TestDocumentUnmatched:
         The tree moved to ``<TARGET>.fcn_<va>.c``; the intake glob must not
         re-document a function whose stub is already there under that name.
         """
-        (project / "src" / "SERVER" / "SERVER.fcn_00401020.c").write_text(
-            "// STUB: SERVER 0x00401020\nvoid fcn_00401020(void) {}\n",
+        write_source(
+            project / "src" / "SERVER" / "SERVER.fcn_00401020.c",
+            "/* ADDRESS: SERVER 0x00401020 */\nvoid fcn_00401020(void) {}\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x00401020": {"kind": "STUB"}},
         )
         result = CliRunner().invoke(app, ["source", "document-unmatched"])
         assert result.exit_code == 0, result.output

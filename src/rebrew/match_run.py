@@ -48,7 +48,7 @@ from rebrew.match_sweep import (
 )
 from rebrew.matcher import GACheckpoint, SolutionEntry, iter_ga_runs, load_ga_runs
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
-from rebrew.metadata.annotation import parse_c_file_multi
+from rebrew.metadata.bindings import read_source_bindings
 from rebrew.metadata.document import metadata_write_lock
 from rebrew.utils import (
     atomic_write_text,
@@ -297,7 +297,7 @@ def run_single_ga(
         # warm build cache, so run before ga.close()).
         if best_src is not None and best_score >= EXACT_SCORE_THRESHOLD:
             try:
-                annos = parse_c_file_multi(p.seed_c, metadata_dir=p.cfg.metadata_dir)
+                annos = read_source_bindings(p.seed_c, metadata_dir=p.cfg.metadata_dir)
             except Exception as exc:
                 log.debug("ceiling annotation parse failed for %s: %s", p.seed_c, exc)
                 annos = []

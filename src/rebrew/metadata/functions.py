@@ -1,98 +1,9 @@
-"""metadata/functions.py — Per-directory function metadata store (``rebrew-functions.toml``).
+"""Locked format-2 function identity, state, provenance and verification store.
 
-Volatile annotation fields (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
-are stored in a single ``rebrew-functions.toml`` metadata file at the
-``metadata_dir`` root (``cfg.metadata_dir``; one level above the source
-tree, or the directory that already holds the TOML),
-rather than as comment annotations inside ``.c`` source files.
-
-Location
---------
-The metadata file lives **only** at ``cfg.metadata_dir``.  There is no walk-up
-discovery — callers must pass the correct root directory.  Subdirectories
-under ``metadata_dir`` do **not** have their own metadata files.
-
-Key format
-----------
-The metadata is keyed by *qualified module+VA string*::
-
-    ["SERVER.0x01006364"]
-    status = "EXACT"
-    size   = 42
-
-This allows a single ``rebrew-functions.toml`` to hold metadata for **multiple
-targets** (e.g. ``SERVER`` and ``CLIENT``) that share a directory or ``.c``
-file — the full key is unambiguous even if two targets happen to have a
-function at the same VA.  The format mirrors the ``// FUNCTION: SERVER
-0x01006364`` marker.
-
-Tools write :func:`rebrew.metadata.document.qualified_key`'s zero-padded spelling.  Reads
-key on the parsed ``(module, va)``, so a file carrying another hex padding
-(``SERVER.0x1000`` beside ``SERVER.0x00001000``) resolves to one entry, and
-writes update the spelling the file already uses instead of appending a twin.
-
-Owned fields per entry::
-
-    size, cflags, toolchain, status, blocker, blocker_delta, note, ghidra,
-    analysis, skip, source, globals, locals, comments, prove_constraints,
-    updated_by, updated_at
-
-The full canonical set is :data:`METADATA_FIELDS` (upper-case marker names).
-``SECTION`` is intentionally *not* owned here — it lives in
-``rebrew-data.toml`` (see :mod:`rebrew.metadata.data`) for DATA/GLOBAL
-annotations.
-
-Identity is ``file`` plus ``marker_type`` on the ``MODULE.0xVA`` row.
-``rebrew source migrate-markers`` moves an old inline marker into that row
-and leaves the ``.c`` as pure C.  A file that still has a marker line is
-read from the line.
-
-Status promotion
-----------------
-Use :func:`update_source_status` — the single canonical writer — to promote
-a function's STATUS.  ``rebrew test`` calls it directly; the bulk tool
-``rebrew verify`` goes through :func:`update_statuses_batch`, which enforces
-the same promotion rules.  Neither ever touches the ``.c`` file.
-
-BLOCKER writes
---------------
-``BLOCKER`` / ``BLOCKER_DELTA`` are equally programmatic — use
-``rebrew blocker set/clear`` (or ``rebrew diff --fix-blocker`` /
-``rebrew diagnose near --fix-blocker`` / ``rebrew source document-unmatched`` for
-auto-classified cases).  The Python gate is :func:`update_field` /
-:func:`remove_field` with *key* ``"blocker"`` / ``"blocker_delta"``.
-No hand-edits to ``rebrew-functions.toml`` — every write goes through the
-lock + ``atomic_write_locked`` (chmod writable → atomic replace → mode 0444).
-
-Merge semantics
----------------
-``parse_c_file_multi()`` already overlays *metadata* values on every
-annotation it returns (``apply_metadata_entry``, one TOML load per file
-rather than per function).  ``merge_into_annotation(ann, directory)`` is the
-single-annotation form, for a caller that already holds one ``Annotation``
-and knows its ``cfg.metadata_dir``.  Metadata wins for the fields it owns,
-except where a stored value is malformed: an unparsable ``size``,
-``globals``, ``locals``, ``comments``, or ``prove_constraints`` is dropped and
-the annotation's own value survives.  ``blocker_delta`` is the exception: a
-non-numeric value clears it to ``None`` rather than keeping the annotation's
-own, so a corrupt delta cannot keep steering a stuck function.
-The legacy ``analysis`` field is mapped to ``note`` when the annotation has
-no explicit note.
-
-Atomicity
----------
-Writes use ``tomlkit`` for round-trip-safe serialisation and
-``atomic_write_locked`` (``.tmp`` + ``os.replace``, then re-lock to 0444).
-
-Thread safety
--------------
-Writes to the metadata file are serialised by
-:func:`rebrew.metadata.document.metadata_write_lock` (a per-filename re-entrant
-lock plus a ``flock`` sidecar,
-so a second *process* — ``rebrew verify --watch`` against ``rebrew test`` —
-waits too) because ``rebrew verify --jobs > 1`` and the GA batch promote
-STATUS from worker threads.  Each write is atomic (rename), but
-read-modify-write cycles from different writers would otherwise race.
+All fields belong in rebrew-functions.toml at cfg.metadata_dir. Source accepts
+only optional declaration-bound addresses. Granular writes validate the current
+schema under the document lock; comparison writers alone earn STATUS. Full
+replacement is explicit and preserves the supplied canonical evidence.
 """
 
 from __future__ import annotations
@@ -123,13 +34,14 @@ from rebrew.metadata.document import (
     build_metadata_key_index,
     clear_metadata_doc_cache,
     load_metadata_doc,
+    load_metadata_for_write,
     metadata_write_lock,
     pop_metadata_doc_cache,
     resolve_metadata_key,
+    stamp_format,
 )
 from rebrew.utils import (
     atomic_write_locked,
-    load_toml_for_write,
     load_toml_for_write_strict,
     read_toml_text,
     resolved_path,
@@ -142,7 +54,7 @@ from rebrew.workspace.status import MATCHED_STATUSES as MATCHED_STATUSES
 from rebrew.workspace.status import STUB_PLACEHOLDER_STATUSES
 
 if TYPE_CHECKING:
-    from rebrew.metadata.annotation import Annotation
+    from rebrew.metadata.bindings import SourceBinding
 
 logger = logging.getLogger(__name__)
 
@@ -197,8 +109,6 @@ METADATA_FIELDS: frozenset[str]
 
 
 __all__ = [
-    "FORMAT_KEY",
-    "FORMAT_VERSION",
     "GA_CEILING_PREFIX",
     "KNOWN_STATUSES",
     "PROVENANCE_TAGS",
@@ -206,7 +116,7 @@ __all__ = [
     "LIBRARY_PRESET_ENTRY_POINT_GROUP",
     "LibraryOverride",
     "LibraryOverrideError",
-    "MARKER_IDENTITY_FIELDS",
+    "FUNCTION_IDENTITY_FIELDS",
     "MATCHED_STATUSES",
     "METADATA_FIELDS",
     "METADATA_FIELD_TYPES",
@@ -233,13 +143,13 @@ __all__ = [
     "library_presets_generation",
     "is_table_field",
     "load_metadata",
-    "merge_into_annotation",
+    "merge_into_binding",
     "metadata_path",
     "nearest_library_metadata_path",
     "parse_library_metadata",
     "identity_file",
     "record_function_identity",
-    "record_migrated_markers",
+    "record_function_rows",
     "refresh_library_presets",
     "remove_field",
     "remove_fields_batch",
@@ -248,7 +158,6 @@ __all__ = [
     "set_fields",
     "set_fields_batch",
     "should_promote_status",
-    "stamp_format",
     "stamp_provenance",
     "validate_metadata_field",
     "validate_identity_file",
@@ -391,6 +300,8 @@ def load_metadata(
 def save_metadata(
     directory: Path | str | Any,
     data: dict[tuple[str, int], dict[str, Any]],
+    *,
+    expected_hash: str | None = "",
 ) -> None:
     """Atomically write *data* to ``rebrew-functions.toml`` in *directory*.
 
@@ -402,6 +313,7 @@ def save_metadata(
     Args:
         directory: The directory to write into (Path, str, or ProjectConfig).
         data: Mapping of ``{(module, va_int): {field: value}}``.
+        expected_hash: Require this prior SHA-256 (None means missing); empty skips the check.
 
     Raises:
         ValueError: The existing store cannot be parsed; it is left untouched.
@@ -412,8 +324,12 @@ def save_metadata(
     safe = {key: {f: toml_safe(v) for f, v in entry.items()} for key, entry in data.items()}
     doc = build_metadata_doc(safe, _CANONICAL_ORDER)
     with metadata_write_lock(dir_path, METADATA_FILENAME):
-        # load_metadata reads an unparseable store as empty, so a caller's
-        # load-modify-save would otherwise replace every entry it never saw.
+        if expected_hash != "":
+            import hashlib
+
+            current = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+            if current != expected_hash:
+                raise ValueError(f"{path} changed since its rows were reviewed")
         load_toml_for_write_strict(path, "metadata")
         stamp_format(doc)
         atomic_write_locked(path, tomlkit.dumps(doc))
@@ -470,6 +386,8 @@ METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "locals": dict,
     "comments": dict,
     "source": str,
+    "struct": str,
+    "callers": str,
     "prove_constraints": dict,
     "updated_by": str,
     "updated_at": str,
@@ -650,7 +568,7 @@ def _set_field(
     path = (dir_path / METADATA_FILENAME).resolve()
 
     with metadata_write_lock(dir_path, METADATA_FILENAME):
-        doc = load_toml_for_write(path, "metadata")
+        doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
         doc_dict = typing.cast(dict[str, Any], doc)
         _, entry = _ensure_entry_table(doc_dict, module, va)
 
@@ -699,24 +617,6 @@ PROVENANCE_TAGS: frozenset[str] = frozenset(
     }
 )
 
-#: Top-level key carrying the metadata store's format version, and its current
-#: value.  A writer stamps it when the file has none and never rewrites an
-#: existing value, including a foreign one: silently upgrading the stamp would
-#: hide the mismatch it exists to report.  Adding a field older readers ignore
-#: needs no bump; a change that would make an old file mean something else does.
-FORMAT_KEY = "format"
-FORMAT_VERSION = 1
-
-
-def stamp_format(doc: Any) -> None:
-    """Write the format version into *doc* when the file carries none.
-
-    Called before every dump in both stores, so an existing file gains the
-    stamp on its first write.  An existing value, including a foreign one, is
-    left alone.
-    """
-    doc.setdefault(FORMAT_KEY, FORMAT_VERSION)
-
 
 def validate_identity_file(value: str) -> str:
     """Return *value* when it is a project-relative source path.
@@ -727,7 +627,7 @@ def validate_identity_file(value: str) -> str:
     the file's author chose (``docs/THREAT_MODEL.md`` records the exposure).
     Rejecting it at the one write gate keeps a cloned project's metadata from
     naming a path outside the clone.  An empty value stays empty: a row
-    without identity is legal, and ``record_migrated_markers`` skips it.
+    without identity is legal, and ``record_function_rows`` skips it.
     """
     text = str(value).strip()
     if not text:
@@ -784,7 +684,7 @@ def set_fields(
     path = (dir_path / METADATA_FILENAME).resolve()
 
     with metadata_write_lock(dir_path, METADATA_FILENAME):
-        doc = load_toml_for_write(path, "metadata")
+        doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
         doc_dict = typing.cast(dict[str, Any], doc)
         _, entry = _ensure_entry_table(doc_dict, module, va)
 
@@ -840,7 +740,7 @@ def set_fields_batch(
     path = (metadata_dir / METADATA_FILENAME).resolve()
     changed_entries = 0
     with metadata_write_lock(metadata_dir, METADATA_FILENAME):
-        doc = load_toml_for_write(path, "metadata")
+        doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
         doc_dict = typing.cast(dict[str, Any], doc)
         key_index = build_metadata_key_index(doc_dict)
         for u in updates:
@@ -882,32 +782,30 @@ def set_fields_batch(
     return changed_entries
 
 
-#: ADR 023 identity keys that ``rebrew source migrate-markers`` moves out of ``.c``
-#: markers.  Deliberately outside :data:`METADATA_FIELDS`: inline KV routing
-#: and the typed writers never touch them; only :func:`record_migrated_markers`
-#: writes them.
-MARKER_IDENTITY_FIELDS: tuple[str, ...] = ("file", "symbol", "name", "marker_type")
+#: Canonical function identity keys, registered from explicit rows or address anchors.
+#: Kept outside :data:`METADATA_FIELDS`; explicit identity writers own them.
+FUNCTION_IDENTITY_FIELDS: tuple[str, ...] = ("file", "symbol", "name", "kind")
 
 #: Every key a hand-written ``rebrew-functions.toml`` entry may carry, upper
 #: case.  The reader reports anything else as unread rather than dropping it
 #: (see :func:`rebrew.metadata.document.parse_metadata_doc`): a typo'd ``CFLAGSS`` would
 #: otherwise compile the function with flags nobody declared.
 _KNOWN_METADATA_FIELDS: frozenset[str] = METADATA_FIELDS | {
-    f.upper() for f in MARKER_IDENTITY_FIELDS
+    f.upper() for f in FUNCTION_IDENTITY_FIELDS
 }
 
 
-def record_migrated_markers(
+def record_function_rows(
     metadata_dir: Path | str | Any,
     rows: list[dict[str, Any]],
     *,
     overwrite_name: bool = False,
     updated_by: str = "",
 ) -> None:
-    """Write ``migrate-markers`` rows into ``rebrew-functions.toml`` in one edit.
+    """Write canonical identity and field rows into ``rebrew-functions.toml`` in one edit.
 
     Each row carries ``module``, ``va``, ``identity`` (keys from
-    :data:`MARKER_IDENTITY_FIELDS`; empty values are skipped and ``name`` is
+    :data:`FUNCTION_IDENTITY_FIELDS`; empty values are skipped and ``name`` is
     only set when absent unless an explicit rename sets ``overwrite_name``)
     and ``fields`` (metadata fields validated like
     :func:`set_fields`; STATUS is rejected).  The document is edited in place,
@@ -925,7 +823,7 @@ def record_migrated_markers(
     dir_path = resolve_metadata_dir(metadata_dir)
     path = (dir_path / METADATA_FILENAME).resolve()
     with metadata_write_lock(dir_path, METADATA_FILENAME):
-        doc = load_toml_for_write_strict(path, "metadata")
+        doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
         doc_dict = typing.cast(dict[str, Any], doc)
         key_index = build_metadata_key_index(doc_dict)
         changed = False
@@ -941,8 +839,8 @@ def record_migrated_markers(
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
                 updates[key] = toml_safe(validate_metadata_field(key, value))
             for key, value in (row.get("identity") or {}).items():
-                if key not in MARKER_IDENTITY_FIELDS:
-                    raise ValueError(f"unknown marker identity field {key!r}")
+                if key not in FUNCTION_IDENTITY_FIELDS:
+                    raise ValueError(f"unknown function identity field {key!r}")
                 if value and not (key == "name" and entry.get("name") and not overwrite_name):
                     stored = validate_identity_file(str(value)) if key == "file" else str(value)
                     if stored:
@@ -985,7 +883,7 @@ def record_function_identity(
     module: str,
     va: int,
     file: str,
-    marker_type: str,
+    kind: str,
     name: str = "",
     symbol: str = "",
     size: int = 0,
@@ -997,18 +895,18 @@ def record_function_identity(
     """Record one function's identity in ``rebrew-functions.toml``.
 
     ``size``, ``cflags``, and ``source`` are written only when set.  A
-    ``source`` of ``naked`` stays in the ``.c`` and is not stored.  STATUS
+    ``source`` of ``naked`` records an assembly reconstruction.  STATUS
     is not written. ``overwrite_name`` replaces an existing name only for
-    an explicit, verified identity replacement; marker migration keeps it.
+    an explicit identity replacement; registration preserves it.
     """
     fields: dict[str, Any] = {}
     if size:
         fields["size"] = int(size)
     if cflags:
         fields["cflags"] = cflags
-    if source and source.strip().lower() != "naked":
+    if source:
         fields["source"] = source
-    record_migrated_markers(
+    record_function_rows(
         metadata_dir,
         [
             {
@@ -1018,7 +916,7 @@ def record_function_identity(
                     "file": file,
                     "symbol": symbol,
                     "name": name,
-                    "marker_type": marker_type,
+                    "kind": kind,
                 },
                 "fields": fields,
             }
@@ -1036,7 +934,7 @@ def clear_identity_fields(
 ) -> bool:
     """Remove identity keys from the ``MODULE.0xVA`` row.
 
-    Only :data:`MARKER_IDENTITY_FIELDS` are accepted.  ``remove_field`` does
+    Only :data:`FUNCTION_IDENTITY_FIELDS` are accepted.  ``remove_field`` does
     not clear them.  Other metadata on the row, including a provenance stamp,
     stays.  An entry that has nothing left is removed.  Missing keys are a
     no-op.  Returns True when the store changed.
@@ -1045,9 +943,9 @@ def clear_identity_fields(
         return False
     wanted: list[str] = []
     for key in keys:
-        if key not in MARKER_IDENTITY_FIELDS:
+        if key not in FUNCTION_IDENTITY_FIELDS:
             raise ValueError(
-                f"unknown marker identity field {key!r} (expected one of {MARKER_IDENTITY_FIELDS})"
+                f"unknown function identity field {key!r} (expected one of {FUNCTION_IDENTITY_FIELDS})"
             )
         wanted.append(key)
 
@@ -1082,7 +980,7 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
         return 0
     changed_entries = 0
     with metadata_write_lock(dir_path, METADATA_FILENAME):
-        doc = load_toml_for_write(path, "metadata")
+        doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
         doc_dict = typing.cast(dict[str, Any], doc)
         key_index = build_metadata_key_index(doc_dict)
         for u in updates:
@@ -1136,7 +1034,7 @@ def delete_entries_batch(metadata_dir: Path | str | Any, targets: list[tuple[str
         return 0
     removed = 0
     with metadata_write_lock(dir_path, METADATA_FILENAME):
-        doc = load_toml_for_write(path, "metadata")
+        doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
         doc_dict = typing.cast(dict[str, Any], doc)
         key_index = build_metadata_key_index(doc_dict)
         for module, va in targets:
@@ -1175,7 +1073,7 @@ def _mutate_entry_doc(
     _require_module(module)
 
     with metadata_write_lock(dir_path, METADATA_FILENAME):
-        doc = load_toml_for_write(path, "metadata")
+        doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
         if not doc:
             return False
 
@@ -1500,7 +1398,7 @@ def update_statuses_batch(
     changed = 0
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         # Single read for the whole batch
-        doc = load_toml_for_write(path, "metadata")
+        doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
         doc_dict = typing.cast(dict[str, Any], doc)
         key_index = build_metadata_key_index(doc_dict)
 
@@ -1580,11 +1478,11 @@ def update_statuses_batch(
 
 
 # ---------------------------------------------------------------------------
-# Annotation merge
+# SourceBinding merge
 # ---------------------------------------------------------------------------
 
 
-def merge_into_annotation(ann: Annotation, directory: Path | str | Any) -> Annotation:
+def merge_into_binding(ann: SourceBinding, directory: Path | str | Any) -> SourceBinding:
     """Overlay metadata values onto *ann*, returning the same object mutated.
 
     The metadata wins for every field it defines.
@@ -1594,7 +1492,7 @@ def merge_into_annotation(ann: Annotation, directory: Path | str | Any) -> Annot
     receive their own metadata entry and are merged in isolation.
 
     Args:
-        ann: The ``Annotation`` object to mutate.
+        ann: The ``SourceBinding`` object to mutate.
         directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
 
     Returns:
@@ -1611,13 +1509,13 @@ def merge_into_annotation(ann: Annotation, directory: Path | str | Any) -> Annot
     return ann
 
 
-def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
+def apply_metadata_entry(ann: SourceBinding, entry: dict[str, Any]) -> None:
     """Overlay one ``{field: value}`` metadata *entry* onto *ann* in place.
 
-    Shared by :func:`merge_into_annotation` (one annotation against a
+    Shared by :func:`merge_into_binding` (one annotation against a
     freshly loaded entry) and the parse paths in
-    :mod:`rebrew.metadata.annotation` (``_finalize_entries``,
-    ``_annotations_from_metadata``, ``parse_library_header``), which load
+    :mod:`rebrew.metadata.bindings` (``_finalize_entries``,
+    ``_annotations_from_metadata``, ``library_bindings_for_file``), which load
     the metadata once per file and apply it per function instead of
     re-loading the TOML for every annotation — the per-function hot path.
     """
@@ -1702,8 +1600,9 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
         if isinstance(raw_comments, dict):
             ann.comments = {str(k): v for k, v in raw_comments.items()}
 
-    if "source" in entry:
-        ann.source = str(entry["source"])
+    for field in ("source", "struct", "callers"):
+        if field in entry:
+            setattr(ann, field, str(entry[field]))
 
     if "prove_constraints" in entry:
         raw_pc = entry["prove_constraints"]
@@ -2065,7 +1964,7 @@ def nearest_library_metadata_path(
 
 
 #: ``(start spelling, root spelling)`` -> watched directory stats, the
-#: caller's own lstat, and the fingerprint.  Annotation is not the key:
+#: caller's own lstat, and the fingerprint.  SourceBinding is not the key:
 #: every function under one directory asks the same question, and the walk
 #: is pathlib resolution.  A hit re-stats those directories and the file.
 #: A new ``rebrew-libraries.toml`` bumps a parent directory; an in-place

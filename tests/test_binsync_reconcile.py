@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 import tomlkit
+from source_util import write_source
 
 from rebrew.binsync.export import export_state, print_export_result
 from rebrew.binsync.importer import import_state
@@ -24,7 +25,11 @@ def _project(root: Path) -> Any:
         '[targets.server]\nbinary="server.dll"\nreversed_dir="src"\n'
     )
     (root / "src").mkdir()
-    (root / "src/foo.c").write_text("// FUNCTION: SERVER 0x1000\nint foo(void) { return 1; }\n")
+    write_source(
+        root / "src/foo.c",
+        "/* ADDRESS: SERVER 0x1000 */\nint foo(void) { return 1; }\n",
+        metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+    )
     update_source_status(root, "EXACT", "SERVER", 0x1000, updated_by="verify")
     return load_config(root=root)
 
@@ -138,6 +143,13 @@ class TestThreeWaySync:
         export_state(cfg, state, dry_run=False)
         source = cfg.reversed_dir / "foo.c"
         source.write_text(source.read_text().replace("foo", "Local"))
+        from rebrew.metadata.functions import record_function_rows
+
+        record_function_rows(
+            cfg.metadata_dir,
+            [{"module": "SERVER", "va": 0x1000, "identity": {"name": "Local", "symbol": "_Local"}}],
+            overwrite_name=True,
+        )
         _remote_name(state, "_Remote")
         baseline = sync_baseline_path(cfg, state).read_bytes()
         result = _pull(cfg, state)
@@ -181,7 +193,11 @@ class TestThreeWaySync:
             "typedef enum { RED = 1, BLUE = 2 } Color;\n"
             "typedef unsigned int Count;\n"
         )
-        (cfg.reversed_dir / "g.c").write_text("// GLOBAL: SERVER 0x2000\nint g;\n")
+        write_source(
+            cfg.reversed_dir / "g.c",
+            "/* ADDRESS: SERVER 0x2000 */\nint g;\n",
+            metadata_fields={"SERVER.0x2000": {"kind": "GLOBAL"}},
+        )
         state = tmp_path / "state"
         export_state(cfg, state, dry_run=False)
         path = state / artifact
@@ -240,12 +256,12 @@ class TestDurableEvidence:
         self, tmp_path: Path, monkeypatch: Any, change: str
     ) -> None:
         from rebrew.compiler.compile import CompareResult
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
         from rebrew.verify import run_verification, verify_entry
 
         cfg = _project(tmp_path)
         source = cfg.reversed_dir / "foo.c"
-        entry = Annotation(va=0x1000, module="SERVER", symbol="foo", filepath="foo.c", size=1)
+        entry = SourceBinding(va=0x1000, module="SERVER", symbol="foo", filepath="foo.c", size=1)
         monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a: b"\xc3")
 
         def compare(*args: Any, **kwargs: Any) -> Any:
@@ -318,7 +334,11 @@ class TestDurableEvidence:
 
     def test_invalid_global_size_cannot_partially_import_name(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
-        (cfg.reversed_dir / "g.c").write_text("// GLOBAL: SERVER 0x2000\nint g;\n")
+        write_source(
+            cfg.reversed_dir / "g.c",
+            "/* ADDRESS: SERVER 0x2000 */\nint g;\n",
+            metadata_fields={"SERVER.0x2000": {"kind": "GLOBAL"}},
+        )
         set_data_fields_batch(
             cfg.metadata_dir,
             [

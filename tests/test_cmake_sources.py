@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.cmake_sources import app, collect
@@ -44,11 +45,11 @@ profile = "msvc-6.0"
 
 
 def _project(tmp_path: Path, sources: dict[str, str]) -> ProjectConfig:
-    (tmp_path / "rebrew-project.toml").write_text(TOML, encoding="utf-8")
+    write_source(tmp_path / "rebrew-project.toml", TOML, encoding="utf-8")
     (tmp_path / "src/server_dll").mkdir(parents=True, exist_ok=True)
     (tmp_path / "src/shared").mkdir(parents=True, exist_ok=True)
     for name, body in sources.items():
-        (tmp_path / name).write_text(body, encoding="utf-8")
+        write_source(tmp_path / name, body, encoding="utf-8")
     return load_config(root=tmp_path, target="server_dll")
 
 
@@ -58,9 +59,13 @@ def test_stacked_file_belongs_to_both_targets(tmp_path: Path) -> None:
         tmp_path,
         {
             "src/shared/common.c": (
-                "// FUNCTION: SERVER 0x10001000\n// SIZE: 8\n"
-                "// FUNCTION: CLIENT 0x20001000\n// SIZE: 8\n"
-                "int common(void){return 0;}\n"
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\n/* ADDRESS: CLIENT 0x20001000 */\n\nint common(void){return 0;}\n",
+                    {
+                        "SERVER.0x10001000": {"kind": "FUNCTION", "size": 8},
+                        "CLIENT.0x20001000": {"kind": "FUNCTION", "size": 8},
+                    },
+                )
             ),
         },
     )
@@ -78,10 +83,16 @@ def test_foreign_only_file_excluded(tmp_path: Path) -> None:
         tmp_path,
         {
             "src/shared/only_client.c": (
-                "// FUNCTION: CLIENT 0x20002000\n// SIZE: 8\nint oc(void){return 1;}\n"
+                SourceFixture(
+                    "/* ADDRESS: CLIENT 0x20002000 */\n\nint oc(void){return 1;}\n",
+                    {"CLIENT.0x20002000": {"kind": "FUNCTION", "size": 8}},
+                )
             ),
             "src/shared/common.c": (
-                "// FUNCTION: SERVER 0x10001000\n// SIZE: 8\nint s(void){return 0;}\n"
+                SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\n\nint s(void){return 0;}\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 8}},
+                )
             ),
         },
     )
@@ -108,7 +119,10 @@ def test_emitted_include_sets_variable(tmp_path: Path, monkeypatch: pytest.Monke
     _project(
         tmp_path,
         {
-            "src/shared/a.c": "// FUNCTION: SERVER 0x10001000\nint a(void){return 0;}\n",
+            "src/shared/a.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint a(void){return 0;}\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            ),
         },
     )
     monkeypatch.chdir(tmp_path)
@@ -124,7 +138,10 @@ def test_json_reports_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         tmp_path,
         {
             "src/shared/only_client.c": (
-                "// FUNCTION: CLIENT 0x20002000\nint oc(void){return 1;}\n"
+                SourceFixture(
+                    "/* ADDRESS: CLIENT 0x20002000 */\nint oc(void){return 1;}\n",
+                    {"CLIENT.0x20002000": {"kind": "FUNCTION"}},
+                )
             ),
         },
     )
@@ -195,7 +212,7 @@ def test_migrated_library_sources_keep_target_scope(tmp_path: Path, metadata_in_
             module=module,
             va=va,
             file=f"src/shared/{name}.c",
-            marker_type="LIBRARY",
+            kind="LIBRARY",
             name=name,
             symbol="_" + name,
         )

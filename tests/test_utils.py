@@ -1228,7 +1228,11 @@ class TestTomlWriteRecovery:
             monkeypatch.setattr(os, "replace", _replace)
 
         writer = update_field if store == "functions" else set_data_field
-        with pytest.raises(OSError, match=f"{failure} denied"):
+        expected = ValueError if failure == "backup" else OSError
+        message = (
+            "refusing to overwrite unparseable" if failure == "backup" else f"{failure} denied"
+        )
+        with pytest.raises(expected, match=message):
             writer(tmp_path, 0x1000, "size", 42, "SERVER")
 
         assert path.read_bytes() == original

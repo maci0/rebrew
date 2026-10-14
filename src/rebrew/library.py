@@ -63,8 +63,8 @@ def bind_source_cmd(
 ) -> None:
     """Bind an identified library function to a source file we compile ourselves."""
     from rebrew.config import module_marker
-    from rebrew.metadata.annotation import parse_library_header
-    from rebrew.metadata.functions import get_entry, record_migrated_markers
+    from rebrew.metadata.bindings import library_bindings_for_file
+    from rebrew.metadata.functions import get_entry, record_function_rows
     from rebrew.sources import iter_library_headers
     from rebrew.utils import preset_module_key
 
@@ -74,10 +74,10 @@ def bind_source_cmd(
     known = any(
         entry.va == address and preset_module_key(entry.module or "") == marker
         for header in iter_library_headers(cfg.reversed_dir, cfg)
-        for entry in parse_library_header(header, metadata_dir=cfg.metadata_dir)
+        for entry in library_bindings_for_file(header, metadata_dir=cfg.metadata_dir)
     )
     existing = get_entry(cfg.metadata_dir, address, module_marker(cfg))
-    known = known or existing.get("marker_type") == "LIBRARY"
+    known = known or existing.get("kind") == "LIBRARY"
     if not known:
         error_exit(
             f"No library declaration for {va} in target {cfg.target_name}", json_mode=json_output
@@ -94,10 +94,10 @@ def bind_source_cmd(
     identity = {
         "file": candidate.relative_to(cfg.root.resolve()).as_posix(),
         "symbol": symbol,
-        "marker_type": "LIBRARY",
+        "kind": "LIBRARY",
     }
     if not dry_run:
-        record_migrated_markers(
+        record_function_rows(
             cfg.metadata_dir,
             [{"module": module_marker(cfg), "va": address, "identity": identity}],
         )

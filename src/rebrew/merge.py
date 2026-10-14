@@ -32,27 +32,21 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
-from rebrew.metadata.annotation import (
-    DATA_MARKERS,
-    FUNCTION_MARKERS,
-    NEW_FUNC_CAPTURE_RE,
-    NEW_KV_RE,
-    block_markers,
-    parse_c_file_text,
-    split_annotation_sections,
+from rebrew.metadata.anchors import add_address_anchor, parse_address_anchors
+from rebrew.metadata.bindings import (
+    FUNCTION_KINDS,
 )
-from rebrew.metadata.data import load_data_metadata, record_migrated_data_markers
+from rebrew.metadata.data import load_data_metadata, record_data_rows
 from rebrew.metadata.functions import (
     identity_file,
     load_metadata,
-    record_migrated_markers,
+    record_function_rows,
     stored_file_matches,
     validate_identity_file,
 )
 from rebrew.sources import (
     iter_sources,
     source_exts,
-    target_marker,
 )
 from rebrew.split import (
     SourceSpan,
@@ -81,8 +75,8 @@ app = typer.Typer(
         "  rebrew source merge src/game/ --output merged.c --delete · · · · · · · · Merge and delete originals\n\n"
         "  rebrew source merge src/game/ --output merged.c --consolidate · · · · · · Hoist declarations to the top\n\n"
         "[dim]Shared preambles (includes, typedefs) are deduplicated. "
-        "An unmigrated file keeps its // FUNCTION: markers. "
-        "A migrated file is copied from its function rows.[/dim]"
+        "Optional address anchors follow their declarations. "
+        "Definitions are selected through canonical metadata.[/dim]"
     ),
 )
 
@@ -94,7 +88,6 @@ _INCLUDE_RE = re.compile(r"^\s*#\s*include\s+")
 _EXTERN_RE = re.compile(r"^\s*extern\s+")
 _TYPEDEF_RE = re.compile(r"^\s*typedef\s+")
 _PRAGMA_INTRINSIC_RE = re.compile(r"^\s*#\s*pragma\s+intrinsic\s*\(")
-_GLOBAL_COMMENT_RE = re.compile(r"^\s*(?://|/\*)\s*GLOBAL:")
 
 
 def _extract_extern_name(decl: str) -> str | None:
@@ -205,7 +198,11 @@ def consolidate_declarations(text: str) -> tuple[str, ExternReport]:
     externs: list[str] = []
     typedefs: list[str] = []
     pragmas: list[str] = []
-    global_comments: dict[int, str] = {}
+    from rebrew.metadata.anchors import parse_address_anchors
+
+    address_bound_lines = {
+        a.definition_line - 1 for a in parse_address_anchors(text) if a.kind == "DATA"
+    }
     lines_to_remove: set[int] = set()
 
     i = 0
@@ -216,11 +213,9 @@ def consolidate_declarations(text: str) -> tuple[str, ExternReport]:
         elif _INCLUDE_RE.match(stripped):
             includes.append(stripped)
             lines_to_remove.add(i)
-        elif _GLOBAL_COMMENT_RE.match(stripped):
-            global_comments[i] = stripped
         elif _EXTERN_RE.match(stripped):
-            # a GLOBAL: comment above an extern documents the global — keep it
-            if i > 0 and _GLOBAL_COMMENT_RE.match(lines[i - 1].strip()):
+            # Keep declaration-bound data addresses attached to their declaration.
+            if i in address_bound_lines:
                 i += 1
                 continue
             # An extern can span lines (`extern int f(int a,` / `int b);`).
@@ -300,131 +295,14 @@ def consolidate_declarations(text: str) -> tuple[str, ExternReport]:
 
 
 def normalize_body(block: str) -> str:
-    """The block minus identity lines: markers and their SIZE lines.
-
-    Two per-target copies of one function differ exactly here (module, VA,
-    and the destination's canonical SIZE); the C body must be identical.
-    Everything else — code, comments, other KV lines — compares exactly.
-    """
-    kept: list[str] = []
-    for line in block.splitlines():
-        stripped = line.strip()
-        if NEW_FUNC_CAPTURE_RE.match(stripped):
-            continue
-        kv = NEW_KV_RE.match(stripped) if stripped.startswith(("//", "/*")) else None
-        if kv and kv.group("key").upper() == "SIZE":
-            continue
-        kept.append(line.rstrip())
-    return "\n".join(kept).strip()
+    """The same C body across targets, excluding only its address anchors."""
+    removed = {a.line for a in parse_address_anchors(block)}
+    return "\n".join(
+        line.rstrip() for i, line in enumerate(block.splitlines(), 1) if i not in removed
+    ).strip()
 
 
-def _stack_twin_blocks(blocks: list[str]) -> str:
-    """One stacked block from twin blocks sharing a normalized body.
-
-    Each input's marker (+ its SIZE line when present) is preserved above
-    the single shared body, so per-target VA/SIZE survive the collapse.
-    """
-    marker_lines: list[str] = []
-    body_lines: list[str] | None = None
-    for block in blocks:
-        head: list[str] = []
-        rest: list[str] = []
-        seen_code = False
-        for line in block.splitlines():
-            stripped = line.strip()
-            if not seen_code and (
-                NEW_FUNC_CAPTURE_RE.match(stripped)
-                or (
-                    stripped.startswith(("//", "/*"))
-                    and (kv := NEW_KV_RE.match(stripped))
-                    and kv.group("key").upper() == "SIZE"
-                )
-            ):
-                head.append(line.rstrip())
-                continue
-            seen_code = True
-            rest.append(line.rstrip())
-        marker_lines.extend(head)
-        if body_lines is None:
-            body_lines = rest
-    while body_lines and not body_lines[0].strip():
-        body_lines.pop(0)
-    while body_lines and not body_lines[-1].strip():
-        body_lines.pop()
-    return "\n".join(marker_lines + ["", *(body_lines or [])]) + "\n"
-
-
-def _collapse_twins(
-    blocks_with_va: list[tuple[int, str]], json_output: bool
-) -> list[tuple[int, str]]:
-    """Collapse same-body blocks into one stacked block per body.
-
-    Groups by normalized body (:func:`normalize_body`).  A group whose
-    blocks name ≥2 distinct modules is one function in several targets:
-    emit a single stacked block (markers + SIZE lines preserved, one shared
-    body).  A group with one distinct module passes through unchanged.
-
-    Two blocks with the same function NAME but different bodies are NOT
-    twins — they diverged between targets and no single body serves both.
-    Merging them would silently ship one target's bytes to the other, so
-    refuse with the names instead.
-    """
-    from rebrew.c_parser import extract_function_name_from_line
-
-    groups: dict[str, list[tuple[int, str]]] = {}
-    order: list[str] = []
-    for va, block in blocks_with_va:
-        key = normalize_body(block)
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append((va, block))
-
-    out: list[tuple[int, str]] = []
-    for key in order:
-        group = groups[key]
-        modules = {mod for _, b in group for mod, _ in block_markers(b)}
-        if len(modules) < 2:
-            out.extend(group)
-            continue
-        stacked = _stack_twin_blocks([b for _, b in group])
-        out.append((min(va for va, _ in group), stacked))
-
-    # Divergent twins: same C symbol, different bodies.  Find them by name
-    # across groups (a name appearing in ≥2 groups with different bodies).
-    # Candidate lines must look like definitions: block-comment continuations
-    # (`* ...`) fool the extractor into prose symbols (`adjacent`), masking
-    # the real divergence (guild ls_LoadSavegameHeader merged two full TUs).
-    names: dict[str, set[str]] = {}
-    for key in order:
-        for _, block in groups[key]:
-            sym = ""
-            for line in block.splitlines():
-                stripped = line.strip()
-                if not stripped or stripped.startswith(("//", "/*", "#", "*")):
-                    continue
-                if stripped.rstrip().endswith(";") or "(" not in stripped:
-                    continue
-                got = extract_function_name_from_line(stripped)
-                if got:
-                    sym = got[0]
-                    break
-            if sym:
-                names.setdefault(sym, set()).add(key)
-    divergent = sorted(sym for sym, keys in names.items() if len(keys) > 1)
-    if divergent:
-        from rebrew.cli import error_exit as _exit
-
-        _exit(
-            "Refusing shared merge: these functions differ between targets "
-            f"({', '.join(divergent)}) — one body cannot serve both. Merge "
-            "only the identical twins, or keep per-target files.",
-            json_mode=json_output,
-        )
-    return out
-
-
-_QUOTED_INCLUDE_RE = re.compile(r'^(\s*#\s*include\s*")(\.[^"]*)(")', re.M)
+_QUOTED_INCLUDE_RE = re.compile(r'^([ \t]*#[ \t]*include[ \t]*")([.][^"]*)(")', re.M)
 
 
 def rebase_includes(text: str, source_dir: Path, output_dir: Path) -> str:
@@ -448,15 +326,9 @@ def rebase_includes(text: str, source_dir: Path, output_dir: Path) -> str:
 
 
 def block_metadata(block: str) -> dict[str, Any] | None:
-    """Extract marker module/VA from a function block."""
-    for line in block.splitlines():
-        marker = NEW_FUNC_CAPTURE_RE.match(line.strip())
-        if marker:
-            return {
-                "module": marker.group("module"),
-                "va": int(marker.group("va"), 16),
-            }
-    return None
+    """The first address group in a declaration-bound block."""
+    anchors = parse_address_anchors(block)
+    return {"module": anchors[0].module, "va": anchors[0].va} if anchors else None
 
 
 def merge_preambles(preambles: list[str]) -> str:
@@ -550,25 +422,6 @@ def _collect_input_files(
 _NO_VA = 2**63
 
 
-def _file_borne_line(line: str) -> bool:
-    body = line.strip()
-    if body.startswith("//"):
-        body = body[2:].strip()
-    elif body.startswith("/*") and body.endswith("*/"):
-        body = body[2:-2].strip()
-    else:
-        return False
-    key, _, value = body.partition(":")
-    key = key.strip().upper()
-    if key in {"STRUCT", "CALLERS"}:
-        return True
-    return key == "SOURCE" and value.strip().upper() == "NAKED"
-
-
-def _drop_file_borne(text: str) -> str:
-    return "".join(line for line in text.splitlines(keepends=True) if not _file_borne_line(line))
-
-
 def _norm_c(text: str) -> str:
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = [line.rstrip() for line in normalized.split("\n")]
@@ -647,11 +500,11 @@ def _make_piece(
 ) -> _Piece:
     """Definition text for *span*, with a file-level fence removed."""
     start, end = span_extent(raw, span, spans)
-    body = _drop_file_borne(raw[start:end].decode("utf-8", errors="surrogateescape"))
+    body = raw[start:end].decode("utf-8", errors="surrogateescape")
     return _Piece(
         name=span.name,
         text=body,
-        norm=_norm_c(body),
+        norm=_norm_c(raw[span.start : span.end].decode("utf-8", errors="surrogateescape")),
         rows=rows,
         va=min((row_va for _module, row_va, _old in rows), default=_NO_VA),
     )
@@ -726,7 +579,7 @@ def _function_rows(
     return [
         (module, va, entry)
         for (module, va), entry in entries.items()
-        if str(entry.get("marker_type") or "FUNCTION") in FUNCTION_MARKERS
+        if str(entry.get("kind") or "FUNCTION") in FUNCTION_KINDS
         and stored_file_matches(str(entry.get("file") or ""), rel)
     ]
 
@@ -751,6 +604,7 @@ def _layout_one(
     claimed: dict[tuple[str, int], str],
     claimed_data: dict[tuple[str, int], str],
     output_dir: Path,
+    prior_output: str,
 ) -> tuple[_InputLayout, list[str]]:
     """Preamble, storage, and functions from one migrated input."""
     rel = identity_file(file_path, meta)
@@ -758,6 +612,20 @@ def _layout_one(
     stores = [span for span in spans if span.kind == "storage"]
     file_rows = _function_rows(entries, rel)
     file_data = _data_rows(data_entries, rel)
+    # A force rerun may retain its old inputs after rows moved to the output.
+    names = {span.name for span in functions}
+    data_names = {name for span in stores for name in span.names}
+    file_rows.extend(
+        row
+        for row in _function_rows(entries, prior_output)
+        if row_labels(row[2]) & names and row not in file_rows
+    )
+    file_data.extend(
+        row
+        for row in _data_rows(data_entries, prior_output)
+        if row_labels(row[2]) & data_names and row not in file_data
+    )
+
     problems: list[str] = []
     func_pieces: list[_Piece] = []
     seen_funcs: set[tuple[str, int]] = set()
@@ -787,9 +655,7 @@ def _layout_one(
     ]
     layout = _InputLayout(
         rel=rel,
-        preamble=rebase_includes(
-            shared_preamble(raw, spans, [], sole=False), file_path.parent, output_dir
-        ),
+        preamble=rebase_includes(shared_preamble(raw, spans, []), file_path.parent, output_dir),
         va=min((piece.va for piece in func_pieces), default=_NO_VA),
         stores=store_pieces,
         functions=func_pieces,
@@ -812,6 +678,7 @@ def _read_layouts(
     data_entries: dict[tuple[str, int], dict[str, Any]],
     output_dir: Path,
     json_output: bool,
+    prior_output: str,
 ) -> tuple[list[_InputLayout], list[str], str, str]:
     """Read every input.  The last legacy encoding wins, as on the marker path."""
     layouts: list[_InputLayout] = []
@@ -829,11 +696,23 @@ def _read_layouts(
         out_encoding = _note_encoding(enc, out_encoding, legacy_encodings)
         input_eol = source_newline(text)
         try:
+            from rebrew.metadata.bindings import source_bindings
+
+            source_bindings(text, file_path, None, None, meta)
             raw, spans = source_layout(text)
-        except ImportError as exc:
+        except (ImportError, ValueError) as exc:
             error_exit(str(exc), json_mode=json_output)
         layout, layout_problems = _layout_one(
-            file_path, raw, spans, meta, entries, data_entries, claimed, claimed_data, output_dir
+            file_path,
+            raw,
+            spans,
+            meta,
+            entries,
+            data_entries,
+            claimed,
+            claimed_data,
+            output_dir,
+            prior_output,
         )
         layouts.append(layout)
         problems.extend(layout_problems)
@@ -951,7 +830,7 @@ def _assemble_pieces(
     return store_out, func_out
 
 
-def _compose_markerless(
+def _compose_definitions(
     layouts: list[_InputLayout],
     store_out: list[_Piece],
     func_out: list[_Piece],
@@ -962,12 +841,12 @@ def _compose_markerless(
     preamble = merge_preambles([layout.preamble for layout in layouts])
     if preamble.strip():
         parts.append(preamble.strip("\r\n"))
-    for piece in store_out:
-        if piece.text.strip():
-            parts.append(piece.text.strip("\r\n"))
-    for piece in func_out:
-        if piece.text.strip():
-            parts.append(piece.text.strip("\r\n"))
+    for piece in [*store_out, *func_out]:
+        text = piece.text
+        for module, va, _ in piece.rows:
+            text = add_address_anchor(text, module, va, piece.name)
+        if text.strip():
+            parts.append(text.strip("\r\n"))
     merged_text = "\n\n".join(parts) + "\n"
     if input_eol == "\r\n":
         merged_text = re.sub(r"\r\n|\r|\n", input_eol, merged_text)
@@ -990,7 +869,7 @@ def _warn_externs(report: ExternReport) -> None:
         )
 
 
-def _markerless_payload(
+def _merge_payload(
     *,
     output_path: Path,
     func_out: list[_Piece],
@@ -1076,7 +955,7 @@ def _retarget_rows(
     ]
     if not payload:
         return
-    record_migrated_markers(meta, payload)
+    record_function_rows(meta, payload)
 
 
 def _retarget_data_rows(
@@ -1096,7 +975,7 @@ def _retarget_data_rows(
     ]
     if not payload:
         return
-    record_migrated_data_markers(meta, payload)
+    record_data_rows(meta, payload)
 
 
 def _undo_retarget(
@@ -1126,7 +1005,7 @@ def _undo_retarget(
     )
 
 
-def _commit_markerless(
+def _commit_definitions(
     *,
     meta: Any,
     new_file: str,
@@ -1178,7 +1057,7 @@ def _delete_inputs(input_files: list[Path], output_path: Path) -> None:
         file_path.unlink(missing_ok=True)
 
 
-def _report_markerless(
+def _report_merge(
     *,
     json_output: bool,
     payload: dict[str, Any],
@@ -1213,7 +1092,7 @@ def _destination(cfg: Any, output_path: Path, json_output: bool) -> tuple[Any, s
     return meta, new_file
 
 
-def _merge_markerless(
+def _merge_definitions(
     *,
     cfg: Any,
     input_files: list[Path],
@@ -1230,19 +1109,25 @@ def _merge_markerless(
     entries = load_metadata(meta)
     data_entries = load_data_metadata(meta)
     layouts, problems, out_encoding, input_eol = _read_layouts(
-        meta, input_files, entries, data_entries, output_path.parent, json_output
+        meta,
+        input_files,
+        entries,
+        data_entries,
+        output_path.parent,
+        json_output,
+        new_file if force and output_path.exists() else "",
     )
     if problems:
         error_exit(f"{problems[0]}. Nothing was written.", json_mode=json_output)
     store_out, func_out = _assemble_pieces(
         layouts, shared=shared, marker=str(cfg.marker), json_output=json_output
     )
-    merged_text = _compose_markerless(layouts, store_out, func_out, input_eol=input_eol)
+    merged_text = _compose_definitions(layouts, store_out, func_out, input_eol=input_eol)
     extern_report: ExternReport | None = None
     if consolidate:
         merged_text, extern_report = consolidate_declarations(merged_text)
         _warn_externs(extern_report)
-    payload = _markerless_payload(
+    payload = _merge_payload(
         output_path=output_path,
         func_out=func_out,
         store_out=store_out,
@@ -1264,7 +1149,7 @@ def _merge_markerless(
         payload=payload,
     ):
         return
-    _commit_markerless(
+    _commit_definitions(
         meta=meta,
         new_file=new_file,
         output_path=output_path,
@@ -1277,7 +1162,7 @@ def _merge_markerless(
     )
     if delete:
         _delete_inputs(input_files, output_path)
-    _report_markerless(
+    _report_merge(
         json_output=json_output,
         payload=payload,
         func_out=func_out,
@@ -1310,7 +1195,7 @@ def main(
         False,
         "--shared",
         help="Collapse twin files (same body, different target markers) into "
-        "one stacked block per body (one // FUNCTION: marker per target). "
+        "one stacked block per body (one address anchor per target). "
         "A migrated file keeps one C definition and retargets every row "
         "that names an input. Bodies that differ are refused, never merged",
     ),
@@ -1334,250 +1219,17 @@ def main(
     if output_path.exists() and not force:
         error_exit(f"Output file already exists: {output_path}", json_mode=json_output)
 
-    marked = False
-    plain = False
-    for file_path in input_files:
-        try:
-            preview, _preview_enc = read_source_text(file_path)
-        except OSError as exc:
-            error_exit(f"Failed to read {file_path}: {exc}", json_mode=json_output)
-        _preview_preamble, preview_blocks = split_annotation_sections(preview)
-        if preview_blocks:
-            marked = True
-        else:
-            plain = True
-    if marked and plain:
-        error_exit(
-            "Merge inputs mix marker blocks and migrated files. "
-            "Migrate every file, or merge the marker files on their own.",
-            json_mode=json_output,
-        )
-    if plain:
-        _merge_markerless(
-            cfg=cfg,
-            input_files=input_files,
-            output_path=output_path,
-            dry_run=dry_run is True,
-            force=force is True,
-            delete=delete is True,
-            consolidate=consolidate is True,
-            shared=shared,
-            json_output=json_output is True,
-        )
-        return
-
-    preambles: list[str] = []
-    blocks_with_va: list[tuple[int, str]] = []
-    included_inputs: list[Path] = []
-    # Keyed (module, va) like lint E013: two targets sharing one VA (DLLs
-    # at the same base) are distinct functions, not duplicates.
-    seen_vas: set[tuple[str, int]] = set()
-
-    # Output is a new file; if any input is a legacy encoding (cp1252/
-    # shift_jis), write the merged result in that encoding so non-ASCII
-    # comment bytes round-trip instead of being U+FFFD-corrupted.
-    out_encoding = "utf-8"
-    legacy_encodings: set[str] = set()
-    # Line ending the inputs use (the last one read wins; mixed-ending inputs
-    # are already inconsistent), so the output is not a mix of the CRLF
-    # inside each block and the LF of the joins between them.
-    input_eol = "\n"
-
-    for file_path in input_files:
-        # One read serves both the annotation parse and the section split —
-        # parse_c_file_multi would re-read and re-decode the same file.
-        try:
-            text, enc = read_source_text(file_path)
-        except OSError as exc:
-            error_exit(f"Failed to read {file_path}: {exc}", json_mode=json_output)
-
-        text = rebase_includes(text, file_path.parent, output_path.parent)
-        annotations = parse_c_file_text(
-            text, file_path, None if shared else target_marker(cfg), None, cfg.metadata_dir
-        )
-        if not annotations:
-            continue
-
-        # Recorded AFTER the target/annotation filter: a file that contributes
-        # nothing must not dictate the output encoding (it caused a false
-        # "conflicting source encodings" abort and spurious encode failures).
-        if enc not in ("utf-8", "utf-8-sig"):
-            out_encoding = enc
-            legacy_encodings.add(enc)
-
-        preamble, blocks = split_annotation_sections(text)
-        preambles.append(preamble)
-        input_eol = source_newline(text)
-        included_inputs.append(file_path)
-
-        for block in blocks:
-            markers = block_markers(block)
-            if not markers:
-                continue
-            # A shared source stacks one marker per target above one body, so
-            # the target's marker may sit below another target's.  Only a block
-            # with no marker for this target is skipped.
-            if not shared and cfg.marker:
-                mine = [
-                    m for m in markers if preset_module_key(m[0]) == preset_module_key(cfg.marker)
-                ]
-                if not mine:
-                    continue
-                va = mine[0][1]
-            else:
-                va = markers[0][1]
-            for module, marker_va in markers:
-                key = (preset_module_key(module), marker_va)
-                if key in seen_vas:
-                    error_exit(
-                        f"Duplicate VA 0x{marker_va:08x} across input files — merge would "
-                        "create duplicate FUNCTION markers (lint E013). Fix the "
-                        "duplicate annotation first.",
-                        json_mode=json_output,
-                    )
-                seen_vas.add(key)
-            blocks_with_va.append((va, block.strip("\n")))
-
-    if shared:
-        blocks_with_va = _collapse_twins(blocks_with_va, json_output)
-
-    if len(blocks_with_va) < 2 and not shared:
-        error_exit(
-            f"Need at least two matching function blocks for target '{cfg.marker}'",
-            json_mode=json_output,
-        )
-    if shared and not blocks_with_va:
-        error_exit("No function blocks found in input files", json_mode=json_output)
-
-    if len(legacy_encodings) > 1:
-        # One output has one encoding; two legacy inputs cannot both round-trip.
-        error_exit(
-            "input files use conflicting source encodings "
-            f"({', '.join(sorted(legacy_encodings))}); merge writes a single encoding — "
-            "convert the inputs to UTF-8 first",
-            json_mode=json_output,
-        )
-
-    extern_report: ExternReport | None = None
-    merged_preamble = merge_preambles(preambles)
-
-    # Data definition blocks (every marker in ``DATA_MARKERS``: GLOBAL, DATA,
-    # VTABLE, STRING) sort before code blocks: C89 needs declarations before
-    # use, and VA order alone can place a string table after its function (a
-    # GOLDTL 0x40xxxx function sorts before SERVER 0x1002xxxx data it
-    # references).  Within each class, VA ascending.
-    def _block_rank(block: str) -> int:
-        for line in block.splitlines():
-            m = NEW_FUNC_CAPTURE_RE.match(line.strip())
-            if m:
-                return 0 if m.group("type") in DATA_MARKERS else 1
-        return 1
-
-    ranked = sorted(blocks_with_va, key=lambda x: (_block_rank(x[1]), x[0]))
-    sorted_blocks = [block for _, block in ranked]
-    merged_text = merged_preamble + "\n\n".join(sorted_blocks) + "\n"
-    if input_eol == "\r\n":
-        # Blocks carry their own CRLF, the joins above an LF, and the \r that
-        # strip("\n") left at each block's tail; normalise all three.
-        merged_text = re.sub(r"\r\n|\r|\n", input_eol, merged_text)
-    if consolidate:
-        merged_text, extern_report = consolidate_declarations(merged_text)
-        for dropped in extern_report.dropped:
-            console.print(f"[yellow]merge: dropped unparseable extern {dropped!r}[/yellow]")
-        # resolved is scanned once per conflict name below; index it instead.
-        resolved_by_name: dict[str, str] = {}
-        for decl in extern_report.resolved:
-            decl_name = _extract_extern_name(decl)
-            if decl_name is not None:
-                resolved_by_name.setdefault(decl_name, decl)
-        for name, variants in extern_report.conflicts.items():
-            kept = resolved_by_name.get(name, "")
-            console.print(
-                f"[yellow]merge: conflicting externs for {name}: "
-                f"kept {kept!r} over {[v for v in variants if v != kept]!r}[/yellow]"
-            )
-
-    if delete and not dry_run and not force:
-        if json_output:
-            error_exit(
-                "--delete removes input files after merge. "
-                "Pass --force to apply it in --json mode, or omit --delete.",
-                json_mode=True,
-            )
-        confirm_abort(f"Delete {len(included_inputs)} input file(s) after merge?")
-
-    # Legacy markers can coexist with managed identities; those rows must move
-    # before --delete removes the files they still name.
-    meta, new_file = _destination(cfg, output_path, json_output)
-    entries = load_metadata(meta)
-    data_entries = load_data_metadata(meta)
-    function_rows: list[tuple[str, int, str]] = []
-    data_rows: list[tuple[str, int, str]] = []
-    from rebrew.c_parser import find_c_function_definitions
-
-    defined = {name for name, _span in find_c_function_definitions(merged_text)}
-    for file_path in included_inputs:
-        rel = identity_file(file_path, meta)
-        for module, va, entry in _function_rows(entries, rel):
-            if not row_labels(entry) & defined:
-                error_exit(
-                    f"Managed function {module}.0x{va:08x} is absent from merged output. "
-                    "Nothing was written; use --shared to retain other targets' definitions.",
-                    json_mode=json_output,
-                )
-        function_rows.extend(
-            (module, va, str(entry["file"])) for module, va, entry in _function_rows(entries, rel)
-        )
-        data_rows.extend(
-            (module, va, str(entry["file"])) for module, va, entry in _data_rows(data_entries, rel)
-        )
-    if not dry_run:
-        _commit_markerless(
-            meta=meta,
-            new_file=new_file,
-            output_path=output_path,
-            merged_text=merged_text,
-            out_encoding=out_encoding,
-            function_rows=function_rows,
-            data_rows=data_rows,
-            json_output=json_output,
-        )
-        if delete:
-            for file_path in included_inputs:
-                if file_path.resolve() == output_path.resolve():
-                    continue
-                file_path.unlink(missing_ok=True)
-
-    payload = {
-        "output": str(output_path),
-        "count": len(sorted_blocks),
-        "input_count": len(included_inputs),
-        "dry_run": dry_run,
-        "deleted": bool(delete and not dry_run),
-        "consolidated": consolidate,
-        "inputs": [rel_display_path(p, cfg.reversed_dir) for p in included_inputs],
-        "vas": [f"0x{va:08x}" for va, _ in sorted(blocks_with_va, key=lambda x: x[0])],
-        "extern_dropped": extern_report.dropped if extern_report else [],
-        "extern_conflicts": dict(extern_report.conflicts) if extern_report else {},
-        "retargeted": [f"{module}.0x{va:08x}" for module, va, _old in function_rows],
-        "data_retargeted": [f"{module}.0x{va:08x}" for module, va, _old in data_rows],
-    }
-    if json_output:
-        json_print(payload)
-        return
-
-    action = "Would merge" if dry_run else "Merged"
-    console.print(
-        f"{action} [bold]{len(sorted_blocks)}[/] functions from {len(included_inputs)} files "
-        f"into {output_path.name}"
+    _merge_definitions(
+        cfg=cfg,
+        input_files=input_files,
+        output_path=output_path,
+        dry_run=dry_run is True,
+        force=force is True,
+        delete=delete is True,
+        consolidate=consolidate is True,
+        shared=shared,
+        json_output=json_output is True,
     )
-    if delete and not dry_run:
-        console.print("Deleted original input files after merge")
-    elif shared and not dry_run and not delete:
-        console.print(
-            "[dim]Twins are now stacked in the output — re-run with --delete "
-            "to remove the redundant copies.[/dim]"
-        )
 
 
 def main_entry() -> None:

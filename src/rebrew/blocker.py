@@ -28,7 +28,7 @@ import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.config import module_marker
-from rebrew.metadata.annotation import min_valid_va_for
+from rebrew.metadata.bindings import min_valid_va_for
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -61,7 +61,7 @@ def resolve_function(
     disambiguation via --va instead of silently picking the first annotation.
     """
     from rebrew.cli import resolve_source_arg
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
     from rebrew.sources import target_marker
 
     va_from_flag = va_override is not None
@@ -97,7 +97,7 @@ def resolve_function(
             json_mode=json_mode,
         )
 
-    annos = parse_c_file_multi(
+    annos = read_source_bindings(
         source_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
     if not annos:

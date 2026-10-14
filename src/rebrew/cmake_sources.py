@@ -31,14 +31,12 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.function_providers import bind_library_source
-from rebrew.metadata.annotation import Annotation, parse_c_file_multi
+from rebrew.metadata.bindings import SourceBinding, read_source_bindings
 from rebrew.metadata.functions import load_metadata
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import (
     atomic_write_text,
     preset_module_key,
-    read_source_text,
-    split_source_lines,
 )
 
 #: The module docstring is design notes, not help: it is RST, and Rich would
@@ -85,45 +83,39 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[list[Path], list[Path]]:
     holds annotated files with no block for *marker* (reported so the
     caller can confirm the exclusion).
     """
-    from rebrew.lint import support_declaration
+    from rebrew.metadata.source_provenance import load_source_files
 
     own: list[Path] = []
     foreign: list[Path] = []
     # Explicit compiled-library bindings are project-root relative. The pure-C
     # parser uses metadata-relative paths, so retain every module's bindings
     # before deciding a body is an unannotated helper shared by all targets.
-    library_entries: dict[Path, list[Annotation]] = {}
+    library_entries: dict[Path, list[SourceBinding]] = {}
     for (module, va), row in load_metadata(cfg.metadata_dir, deepcopy=False).items():
         stored = str(row.get("file", ""))
         if (
             not va
-            or row.get("marker_type") != "LIBRARY"
+            or row.get("kind") != "LIBRARY"
             or Path(stored).suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"}
         ):
             continue
-        bound = bind_library_source(
-            cfg, Annotation(module=module, va=va, marker_type="LIBRARY"), row
-        )
+        bound = bind_library_source(cfg, SourceBinding(module=module, va=va, kind="LIBRARY"), row)
         source = (cfg.reversed_dir / bound.filepath).resolve()
         library_entries.setdefault(source, []).append(bound)
     for src in iter_sources(cfg.reversed_dir, cfg):
-        anns = [a for a in parse_c_file_multi(src, metadata_dir=cfg.metadata_dir) if a.va]
+        anns = [a for a in read_source_bindings(src, metadata_dir=cfg.metadata_dir) if a.va]
         anns.extend(library_entries.get(src.resolve(), []))
         if not anns:
-            try:
-                # read_source_text, not Path.read_text: the latter decodes
-                # with the locale encoding, so under LANG=C a cp1252 or
-                # Shift-JIS TU loses its SUPPORT line to U+FFFD and the file
-                # silently lands in the wrong target's source list.
-                support = support_declaration(split_source_lines(read_source_text(src)[0]))
-            except OSError:
-                support = None
-            if support is not None and preset_module_key(support[1]) == preset_module_key(marker):
+            relative = src.resolve().relative_to(cfg.metadata_dir.resolve()).as_posix()
+            modules = {
+                record.module
+                for record in load_source_files(cfg.metadata_dir)
+                if record.file == relative
+            }
+            if not modules or preset_module_key(marker) in modules:
                 own.append(src.resolve())
-            elif support is not None:
-                foreign.append(src.resolve())
             else:
-                own.append(src.resolve())
+                foreign.append(src.resolve())
             continue
         if any(preset_module_key(a.module) == preset_module_key(marker) for a in anns):
             own.append(src.resolve())

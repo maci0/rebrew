@@ -1,19 +1,12 @@
-"""Tests for ADR 023: markers as TOML single source.
-
-- parse_c_file_multi synthesizes Annotations for marker-less (pure C)
-  files from rebrew-functions.toml `file`-tagged entries.
-- Files that still carry markers parse exactly as before.
-- VTABLE/STRING markers are legal (parser + VALID_MARKERS).
-- match_semantics: the shared effective-match classifier.
-- migrate_markers: marker-block stripping state machine.
-"""
+"""Current canonical metadata bindings, optional address anchors and match accounting."""
 
 from pathlib import Path
 from typing import Any
 
+from source_util import write_source
+
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
-from rebrew.metadata.annotation import parse_c_file_multi, parse_c_file_text
-from rebrew.metadata.marker_migration import strip_marker_blocks
+from rebrew.metadata.bindings import read_source_bindings, source_bindings
 
 
 def _write_metadata(metadata_dir: Path, entries: dict[tuple[str, int], dict[str, Any]]) -> None:
@@ -37,14 +30,14 @@ class TestTomlSynthesis:
                     "file": "src/func.c",
                     "symbol": "myFunc",
                     "name": "myFunc",
-                    "marker_type": "FUNCTION",
+                    "kind": "FUNCTION",
                     "size": 12,
                     "cflags": "/O2 /Gz",
                     "status": "EXACT",
                 }
             },
         )
-        annos = parse_c_file_multi(src / "func.c", metadata_dir=tmp_path)
+        annos = read_source_bindings(src / "func.c", metadata_dir=tmp_path)
         assert len(annos) == 1
         ann = annos[0]
         assert ann.va == 0x401000
@@ -53,7 +46,7 @@ class TestTomlSynthesis:
         assert ann.size == 12
         assert ann.cflags == "/O2 /Gz"
         assert ann.status == "EXACT"
-        assert ann.marker_type == "FUNCTION"
+        assert ann.kind == "FUNCTION"
 
     def test_bare_filename_entry_matches(self, tmp_path: Path) -> None:
         src = tmp_path / "reversed"
@@ -63,33 +56,39 @@ class TestTomlSynthesis:
             tmp_path,
             {("S", 0x1000): {"file": "f.c", "symbol": "x"}},
         )
-        (annos,) = parse_c_file_multi(src / "f.c", metadata_dir=tmp_path)
+        (annos,) = read_source_bindings(src / "f.c", metadata_dir=tmp_path)
         assert annos.va == 0x1000
 
     def test_inline_markers_still_win(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
-        (src / "g.c").write_text(
-            "// FUNCTION: S 0x2000\n// SIZE: 7\nint g(void) { return 1; }\n",
+        write_source(
+            src / "g.c",
+            "/* ADDRESS: S 0x2000 */\n\nint g(void) { return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"S.0x2000": {"kind": "FUNCTION", "size": 7}},
+            metadata_dir=tmp_path,
         )
         _write_metadata(
             tmp_path,
             {("S", 0x3000): {"file": "src/g.c", "symbol": "other"}},  # ignored
         )
-        annos = parse_c_file_multi(src / "g.c", metadata_dir=tmp_path)
-        assert [a.va for a in annos] == [0x2000]
+        annos = read_source_bindings(src / "g.c", metadata_dir=tmp_path)
+        assert sorted(a.va for a in annos) == [0x2000, 0x3000]
 
     def test_migrated_function_coexists_with_data_marker(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
-        (src / "g.c").write_text(
-            "// DATA: S 0x5000\nint value;\nint g(void) { return value; }\n",
+        write_source(
+            src / "g.c",
+            "/* ADDRESS: S 0x5000 */\nint value;\nint g(void) { return value; }\n",
             encoding="utf-8",
+            metadata_fields={"S.0x5000": {"kind": "DATA"}},
+            metadata_dir=tmp_path,
         )
         _write_metadata(tmp_path, {("S", 0x2000): {"file": "src/g.c", "symbol": "g"}})
-        annos = parse_c_file_multi(src / "g.c", metadata_dir=tmp_path)
-        assert [(a.marker_type, a.va) for a in annos] == [
+        annos = read_source_bindings(src / "g.c", metadata_dir=tmp_path)
+        assert [(a.kind, a.va) for a in annos] == [
             ("DATA", 0x5000),
             ("FUNCTION", 0x2000),
         ]
@@ -97,26 +96,29 @@ class TestTomlSynthesis:
     def test_other_target_marker_does_not_hide_migrated_function(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
-        (src / "g.c").write_text(
-            "// FUNCTION: OTHER 0x6000\nint g(void) { return 1; }\n",
+        write_source(
+            src / "g.c",
+            "/* ADDRESS: OTHER 0x6000 */\nint g(void) { return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"OTHER.0x6000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
         )
         _write_metadata(tmp_path, {("S", 0x2000): {"file": "src/g.c", "symbol": "g"}})
-        annos = parse_c_file_multi(src / "g.c", target_name="S", metadata_dir=tmp_path)
+        annos = read_source_bindings(src / "g.c", target_name="S", metadata_dir=tmp_path)
         assert [(a.module, a.va) for a in annos] == [("S", 0x2000)]
 
     def test_no_metadata_no_crash(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
         (src / "h.c").write_text("int h(void) { return 2; }\n", encoding="utf-8")
-        assert parse_c_file_multi(src / "h.c", metadata_dir=tmp_path) == []
+        assert read_source_bindings(src / "h.c", metadata_dir=tmp_path) == []
 
     def test_parse_c_file_text_fallback(self, tmp_path: Path) -> None:
         _write_metadata(
             tmp_path,
             {("S", 0x4000): {"file": "pure.c", "symbol": "pure", "name": "pure"}},
         )
-        annos = parse_c_file_text(
+        annos = source_bindings(
             "int pure(void) { return 3; }\n",
             tmp_path / "pure.c",
             None,
@@ -137,38 +139,8 @@ class TestTomlSynthesis:
                 ("MINE", 0x6000): {"file": "src/t.c", "symbol": "t"},
             },
         )
-        annos = parse_c_file_multi(src / "t.c", target_name="MINE", metadata_dir=tmp_path)
+        annos = read_source_bindings(src / "t.c", target_name="MINE", metadata_dir=tmp_path)
         assert [a.module for a in annos] == ["MINE"]
-
-
-class TestVtableStringMarkers:
-    def test_vtable_marker_parses(self, tmp_path: Path) -> None:
-        src = tmp_path / "v.c"
-        src.write_text("// VTABLE: S 0x410000\n// SIZE: 0x10\n", encoding="utf-8")
-        annos = parse_c_file_multi(src, metadata_dir=tmp_path)
-        assert [a.marker_type for a in annos] == ["VTABLE"]
-        assert annos[0].va == 0x410000
-
-    def test_string_marker_parses(self, tmp_path: Path) -> None:
-        src = tmp_path / "s.c"
-        src.write_text('// STRING: S 0x420000\nchar hello[] = "hi";\n', encoding="utf-8")
-        annos = parse_c_file_multi(src, metadata_dir=tmp_path)
-        assert [a.marker_type for a in annos] == ["STRING"]
-
-    def test_validation_accepts_new_markers(self, tmp_path: Path) -> None:
-        from rebrew.metadata.annotation import Annotation
-
-        ann = Annotation(va=0x1000, marker_type="VTABLE")
-        errors, _ = ann.validate()
-        assert not any("marker type" in e for e in errors)
-        assert ann.is_data
-        assert not ann.is_function
-
-        str_ann = Annotation(va=0x2000, marker_type="STRING")
-        errors, _ = str_ann.validate()
-        assert not any("marker type" in e for e in errors)
-        assert str_ann.is_data
-        assert not str_ann.is_function
 
 
 class TestEffectiveMatchClassifier:
@@ -187,58 +159,3 @@ class TestEffectiveMatchClassifier:
     def test_shared_note_text(self) -> None:
         assert "reccmp counts this as 100%" in EFFECTIVE_MATCH_NOTE
         assert "'rebrew prove'" in EFFECTIVE_MATCH_NOTE
-
-
-class TestStripMarkerBlocks:
-    def test_strips_marker_and_attached_kv(self) -> None:
-        src = [
-            "// FUNCTION: S 0x1000\n",
-            "// SIZE: 12\n",
-            "// CFLAGS: /O2\n",
-            "int f(void) { return 0; }\n",
-            "// not an annotation: this is a plain comment\n",
-            "int g(void) { return 1; }\n",
-        ]
-        out = list(strip_marker_blocks(src))
-        assert "".join(out) == "int f(void) { return 0; }\n" + "".join(src[4:])
-
-    def test_keeps_code_after_marker_block(self) -> None:
-        src = [
-            "// FUNCTION: S 0x1000\n",
-            "int f(void) { return 0; }\n",
-            "// STATUS: EXACT\n",  # after code — plain comment, kept
-        ]
-        assert "".join(strip_marker_blocks(src)) == "".join(src[1:])
-
-    def test_block_comment_form(self) -> None:
-        src = ["/* FUNCTION: S 0x1000 */\n", "/* SIZE: 8 */\n", "int f(void) { return 0; }\n"]
-        assert "".join(strip_marker_blocks(src)) == src[2]
-
-    def test_vtable_marker_stripped(self) -> None:
-        src = ["// VTABLE: S 0x1000\n", "void* v[4];\n"]
-        assert "".join(strip_marker_blocks(src)) == src[1]
-
-    def test_idempotent_on_pure_c(self) -> None:
-        src = ["int f(void) { return 0; }\n"]
-        assert list(strip_marker_blocks(src)) == src
-
-    def test_keeps_file_borne_comments(self) -> None:
-        src = [
-            "// FUNCTION: S 0x1000\n",
-            "// SOURCE: naked\n",
-            "// SOURCE: deflate.c\n",
-            "// STRUCT: Foo\n",
-            "// CALLERS: _send\n",
-            "int f(void) { return 0; }\n",
-        ]
-        assert "".join(strip_marker_blocks(src)) == (
-            "// SOURCE: naked\n// STRUCT: Foo\n// CALLERS: _send\nint f(void) { return 0; }\n"
-        )
-
-
-class TestMigrateCommandRegistered:
-    def test_cli_component_registered(self) -> None:
-        from rebrew.app.builtins import DOMAIN_COMPONENTS
-
-        names = {c.name for c in DOMAIN_COMPONENTS["source"]}
-        assert "migrate-markers" in names

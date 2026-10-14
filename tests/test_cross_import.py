@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import errno
 import os
-import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from bin_util import make_pe
+from source_util import SourceFixture, write_source, write_store_fixture
 
 import rebrew.cross_import as ci
 from rebrew.compiler.toolchain import TOOLCHAINS, image_present
@@ -131,121 +131,75 @@ class TestTwoPEFixture:
         assert out == {B_F1: (A_F1, 100.0), B_F2: (A_F2, 100.0)}
 
 
-class TestMarkerRewrite:
-    """``_rewrite_marker`` strips marker lines. It does not retag or insert SIZE."""
+class TestAddressRewrite:
+    def test_copy_replaces_stacked_targets(self) -> None:
+        from rebrew.metadata.anchors import parse_address_anchors
 
-    def test_line_style_strips_marker_and_size(self) -> None:
-        src = "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
-        out = ci._rewrite_marker(src, "DST", 0x401040, 13)
-        assert out == "int f1(void){ return 1; }\n"
-        assert "FUNCTION:" not in out
-        assert "SIZE:" not in out
-
-    def test_block_comment_marker_is_stripped(self) -> None:
-        src = "/* FUNCTION: SRC 0x401000 */\nint f1(void){ return 1; }\n"
-        out = ci._rewrite_marker(src, "DST", 0x401040, 13)
-        assert out == "int f1(void){ return 1; }\n"
-        assert "FUNCTION:" not in out
-        assert "SIZE:" not in out
-
-    def test_missing_size_is_not_inserted(self) -> None:
-        src = "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
-        out = ci._rewrite_marker(src, "DST", 0x401040, 13)
-        assert out == "int f1(void){ return 1; }\n"
-        assert "SIZE:" not in out
-
-    def test_no_marker_raises(self) -> None:
-        with pytest.raises(ValueError, match="no FUNCTION/LIBRARY/STUB marker found in source"):
-            ci._rewrite_marker("int f1(void){return 1;}\n", "DST", 1, 1)
-
-    def test_stacked_markers_are_stripped(self) -> None:
-        """A shared multi-version source stacks one marker per target. The
-        imported copy carries none of them. Identity is a metadata row."""
-        src = (
-            "// FUNCTION: V1 0x401000\n// SIZE: 11\n"
-            "// FUNCTION: V2 0x501000\n// SIZE: 11\n"
-            "int common(void){ return 1; }\n"
+        source = (
+            "/* ADDRESS: A 0x401000 */\n/* ADDRESS: B 0x501000 */\nint common(void) { return 1; }\n"
         )
-        out = ci._rewrite_marker(src, "V3", 0x601000, 13)
-        assert out == "int common(void){ return 1; }\n"
-        assert "FUNCTION:" not in out
-        assert "SIZE:" not in out
+        copied = ci._rewrite_address(source, "DST", 0x601000, name="common")
+        assert [(a.module, a.va, a.name) for a in parse_address_anchors(copied)] == [
+            ("DST", 0x601000, "common")
+        ]
+        assert copied.endswith("int common(void) { return 1; }\n")
+        assert ci._rewrite_address(copied, "DST", 0x601000, name="common") == copied
 
-    def test_multi_function_bodies_kept(self) -> None:
-        """Every marker line goes. Each function body stays."""
-        src = (
-            "// FUNCTION: DST 0x601000\nint f1(void){ return 1; }\n"
-            "// FUNCTION: DST 0x601010\nint f2(void){ return 2; }\n"
+    def test_copy_adds_address_to_metadata_only_definition(self) -> None:
+        source = "int f(void) { return 1; }\n"
+        assert ci._rewrite_address(source, "DST", 0x1234, name="f") == (
+            "/* ADDRESS: DST 0x00001234 */\n" + source
         )
-        out = ci._rewrite_marker(src, "DST", 0x601000, 11)
-        assert out == ("int f1(void){ return 1; }\nint f2(void){ return 2; }\n")
-        assert "FUNCTION:" not in out
 
-    def test_foreign_target_marker_dropped(self) -> None:
-        """A later marker for ANOTHER target goes, with its key-value block.
+    def test_ambiguous_definitions_are_rejected(self) -> None:
+        with pytest.raises(ValueError, match="no declaration"):
+            ci._rewrite_address("int a(void) {}\nint b(void) {}\n", "D", 1, name="missing")
 
-        Keeping it left the copy carrying a module the destination target does
-        not own, which lint rejects (E012) and which names a VA this target has
-        never matched.  Data markers count: `// DATA: SERVER 0x...` is the same
-        error as a foreign FUNCTION marker.
-        """
-        src = (
-            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
-            "// DATA: SRC 0x401008\n\n"
-            "// FUNCTION: SRC 0x401010\n// SIZE: 8\nint f2(void){ return 2; }\n"
-        )
-        out = ci._rewrite_marker(src, "DST", 0x601000, 11)
-        assert "SRC" not in out
-        assert "// SIZE: 8" not in out
-        assert "int f2(void){ return 2; }" in out  # the body stays
-
-    def test_strip_keeps_both_bodies(self) -> None:
-        """Stripping one function's marker must not eat the next function's body.
-        SIZE lines go with their markers. Nothing is inserted."""
-        src = (
-            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
-            "// FUNCTION: DST 0x601010\n// SIZE: 8\nint f2(void){ return 2; }\n"
-        )
-        out = ci._rewrite_marker(src, "DST", 0x601000, 11)
-        assert out == ("int f1(void){ return 1; }\nint f2(void){ return 2; }\n")
-        assert "FUNCTION:" not in out
-        assert "SIZE:" not in out
+    def test_copy_preserves_crlf(self) -> None:
+        source = "/* ADDRESS: A 0x401000 */\r\nint f(void) {}\r\n"
+        copied = ci._rewrite_address(source, "D", 2, name="f")
+        assert copied == "/* ADDRESS: D 0x00000002 */\r\nint f(void) {}\r\n"
 
 
 class TestExtractSingleFunction:
     def test_single_function_source_unchanged(self) -> None:
-        src = "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
-        assert ci._extract_function_text(src, 0x401000) == src
+        src = SourceFixture(
+            "/* ADDRESS: SRC 0x401000 */\nint f1(void){ return 1; }\n",
+            {"SRC.0x401000": {"kind": "FUNCTION"}},
+        )
+        assert ci._extract_function_text(src, "f1") == src
 
     def test_multi_function_keeps_only_matched_block(self) -> None:
         """Copying a whole multi-function SERVER file into GOLDTL leaked every
         co-resident marker (lint E012) and duplicated the other functions.
         The matched function must import alone with its preamble."""
-        src = (
-            '#include "h.h"\n'
-            "// FUNCTION: SERVER 0x401000\nint f1(void){ return 1; }\n"
-            "// FUNCTION: SERVER 0x401010\nint f2(void){ return 2; }\n"
+        src = SourceFixture(
+            '#include "h.h"\n/* ADDRESS: SERVER 0x401000 */\nint f1(void){ return 1; }\n/* ADDRESS: SERVER 0x401010 */\nint f2(void){ return 2; }\n',
+            {"SERVER.0x401000": {"kind": "FUNCTION"}, "SERVER.0x401010": {"kind": "FUNCTION"}},
         )
-        out = ci._extract_function_text(src, 0x401000)
+        out = ci._extract_function_text(src, "f1")
         assert out is not None
         assert "f1" in out
         assert "f2" not in out
-        assert out.count("FUNCTION:") == 1
+        assert out.count("ADDRESS:") == 1
         assert out.startswith('#include "h.h"')
 
     def test_multi_function_second_block(self) -> None:
-        src = (
-            "// FUNCTION: SERVER 0x401000\nint f1(void){ return 1; }\n"
-            "// FUNCTION: SERVER 0x401010\nint f2(void){ return 2; }\n"
+        src = SourceFixture(
+            "/* ADDRESS: SERVER 0x401000 */\nint f1(void){ return 1; }\n/* ADDRESS: SERVER 0x401010 */\nint f2(void){ return 2; }\n",
+            {"SERVER.0x401000": {"kind": "FUNCTION"}, "SERVER.0x401010": {"kind": "FUNCTION"}},
         )
-        out = ci._extract_function_text(src, 0x401010)
+        out = ci._extract_function_text(src, "f2")
         assert out is not None
         assert "f2" in out and "f1" not in out
-        assert out.count("FUNCTION:") == 1
+        assert out.count("ADDRESS:") == 1
 
     def test_unknown_va_returns_none(self) -> None:
-        src = "// FUNCTION: SERVER 0x401000\nint f1(void){ return 1; }\n"
-        assert ci._extract_function_text(src, 0x999999) is None
+        src = SourceFixture(
+            "/* ADDRESS: SERVER 0x401000 */\nint f1(void){ return 1; }\n",
+            {"SERVER.0x401000": {"kind": "FUNCTION"}},
+        )
+        assert ci._extract_function_text(src, "absent") is None
 
     def test_import_emits_only_matched_function(self, tmp_path: Path, monkeypatch) -> None:
         """End-to-end: a SERVER multi-function file imports ONLY f1 into GOLDTL
@@ -279,10 +233,14 @@ class TestExtractSingleFunction:
             marker="DST",
             posix_style=False,
         )
-        (rev_src / "shared.c").write_text(
-            '#include "shared.h"\n'
-            "// FUNCTION: SERVER 0x401000\nint f1(void){ return 1; }\n"
-            "// FUNCTION: SERVER 0x401010\nint f2(void){ return 2; }\n"
+        write_source(
+            rev_src / "shared.c",
+            '#include "shared.h"\n/* ADDRESS: SERVER 0x401000 */\nint f1(void){ return 1; }\n/* ADDRESS: SERVER 0x401010 */\nint f2(void){ return 2; }\n',
+            metadata_fields={
+                "SERVER.0x401000": {"kind": "FUNCTION"},
+                "SERVER.0x401010": {"kind": "FUNCTION"},
+            },
+            metadata_dir=tmp_path,
         )
 
         from rebrew.compiler.compile import CompareResult
@@ -314,7 +272,7 @@ class TestExtractSingleFunction:
         assert "int f2" not in text
         assert "FUNCTION:" not in text
         assert "SIZE:" not in text
-        assert seen["row"]["marker_type"] == "FUNCTION"
+        assert seen["row"]["kind"] == "FUNCTION"
         assert seen["row"]["name"] == "f1"
         assert seen["row"]["symbol"] == "_f1"
         assert seen["row"]["size"] == 11
@@ -456,11 +414,14 @@ class TestImportMechanics:
         cross-import reports an empty source set.
         """
         cfg = self._cfg(tmp_path, "fixture.dll", tmp_path / "a.exe", marker="FIXT")
-        (cfg.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: FIXT 0x00401040\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        write_source(
+            cfg.reversed_dir / "f1.c",
+            "/* ADDRESS: FIXT 0x00401040 */\n\nint f1(void){ return 1; }\n",
+            metadata_fields={"FIXT.0x00401040": {"kind": "FUNCTION", "size": 11}},
         )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["FIXT.0x00401040"]\nstatus = "EXACT"\nsize = 11\n'
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 2\n["FIXT.0x00401040"]\nstatus = "EXACT"\nsize = 11\n',
         )
         assert ci.annotations_by_va(cfg) == {0x401040: ("EXACT", "f1.c")}
 
@@ -472,20 +433,15 @@ class TestImportMechanics:
         ``EXTRACT_ERROR: Symbol '_LogMessageInternal' not found in .obj`` and
         the import landed with no usable status.
         """
-        text = (
-            "// FUNCTION: SRC 0x401000\n"
-            "void __cdecl LogMessageInternal(char*, unsigned int, char*, int);\n"
-            "extern int g_counter;\n"
-            "int __cdecl f1(int value)\n"
-            "{\n"
-            "    return value + g_counter;\n"
-            "}\n"
+        text = SourceFixture(
+            "\nvoid __cdecl LogMessageInternal(char*, unsigned int, char*, int);\nextern int g_counter;\n/* ADDRESS: SRC 0x401000 */\nint __cdecl f1(int value)\n{\n    return value + g_counter;\n}\n",
+            {"SRC.0x401000": {"kind": "FUNCTION"}},
         )
         assert ci._symbol_for_va(text, "SRC", 0x401000, "stem") == ("f1", "_f1")
 
     def test_source_name_falls_back_to_the_stem(self) -> None:
         """No definition under the marker: the fallback names the import."""
-        text = "// FUNCTION: SRC 0x401000\n// no code here\n"
+        text = SourceFixture("// no code here\n", {"SRC.0x401000": {"kind": "FUNCTION"}})
         assert ci._symbol_for_va(text, "SRC", 0x401000, "f2") == ("f2", "_f2")
 
     def test_import_mirrors_the_source_path_and_records_flags(
@@ -502,9 +458,11 @@ class TestImportMechanics:
         cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
         sub = cfg_src.reversed_dir / "Units" / "vfs"
         sub.mkdir(parents=True)
-        (sub / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// CFLAGS: /O1 /Gd\nint f1(void){ return 1; }\n",
+        write_source(
+            sub / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "cflags": "/O1 /Gd"}},
         )
 
         from rebrew.compiler.compile import CompareResult
@@ -535,13 +493,17 @@ class TestImportMechanics:
     def test_import_writes_file_and_verifies(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
         cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
-        (cfg_src.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n",
+        write_source(
+            cfg_src.reversed_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
-        (cfg_dst.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: DST 0x401040\n// SIZE: 0\nint f1(void){ return 0; }\n",
+        write_source(
+            cfg_dst.reversed_dir / "f1.c",
+            "/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"DST.0x401040": {"kind": "FUNCTION", "size": 0}},
         )
 
         from rebrew.compiler.compile import CompareResult
@@ -573,12 +535,12 @@ class TestImportMechanics:
         assert res["action"] == "imported"
         assert res["status"] == "EXACT"
         text = (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8")
-        assert text == "int f1(void){ return 1; }\n"
+        assert text.splitlines()[-1] == "int f1(void){ return 1; }"
         assert "FUNCTION:" not in text
         assert "SIZE:" not in text
         assert seen["entry"].va == B_F1
         assert seen["entry"].size == 11
-        assert seen["row"]["marker_type"] == "FUNCTION"
+        assert seen["row"]["kind"] == "FUNCTION"
         assert seen["row"]["name"] == "f1"
         assert seen["row"]["symbol"] == "_f1"
         assert seen["row"]["size"] == 11
@@ -592,9 +554,11 @@ class TestImportMechanics:
         reads NEAR_MATCHING (guild-rebrew: 518 GOLD twins of GOLDTL bodies)."""
         cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
         cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
-        (cfg_src.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n",
+        write_source(
+            cfg_src.reversed_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
         from rebrew.compiler.compile import CompareResult
 
@@ -624,7 +588,7 @@ class TestImportMechanics:
         as UTF-8."""
         cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
         cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
-        body = b"// FUNCTION: SRC 0x401000\n// SIZE: 11\n// caf\xe9\nint f1(void){ return 1; }\n"
+        body = b"/* ADDRESS: SRC 0x401000 */\n// caf\xe9\nint f1(void){ return 1; }\n"
         (cfg_src.reversed_dir / "f1.c").write_bytes(body)
 
         from rebrew.compiler.compile import CompareResult
@@ -650,8 +614,11 @@ class TestImportMechanics:
     def test_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
         cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
-        (cfg_src.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n", encoding="utf-8"
+        write_source(
+            cfg_src.reversed_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\nint f1(void){ return 1; }\n",
+            encoding="utf-8",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION"}},
         )
         before = (
             (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8")
@@ -683,19 +650,28 @@ class TestImportMechanics:
         refuse — silently overwriting would delete another function's source."""
         cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
         cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
-        (cfg_src.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n", encoding="utf-8"
+        write_source(
+            cfg_src.reversed_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\nint f1(void){ return 1; }\n",
+            encoding="utf-8",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION"}},
         )
         # The destination has an UNRELATED f1.c for a different VA.
-        (cfg_dst.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: DST 0x999000\nint other(void){ return 9; }\n", encoding="utf-8"
+        write_source(
+            cfg_dst.reversed_dir / "f1.c",
+            "/* ADDRESS: DST 0x999000 */\nint other(void){ return 9; }\n",
+            encoding="utf-8",
+            metadata_fields={"DST.0x999000": {"kind": "FUNCTION"}},
         )
 
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
         assert res["status"] == "TARGET_CONFLICT"
         # The destination file is untouched.
         text = (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8")
-        assert "// FUNCTION: DST 0x999000" in text
+        assert (
+            SourceFixture("/* ADDRESS: DST 0x999000 */", {"DST.0x999000": {"kind": "FUNCTION"}})
+            in text
+        )
         assert "other" in text
 
     def test_destination_own_file_overwritten(self, tmp_path: Path, monkeypatch) -> None:
@@ -703,11 +679,17 @@ class TestImportMechanics:
         intended — that is the normal import target."""
         cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
         cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
-        (cfg_src.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n", encoding="utf-8"
+        write_source(
+            cfg_src.reversed_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\nint f1(void){ return 1; }\n",
+            encoding="utf-8",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION"}},
         )
-        (cfg_dst.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: DST 0x401040\nint f1(void){ return 0; }\n", encoding="utf-8"
+        write_source(
+            cfg_dst.reversed_dir / "f1.c",
+            "/* ADDRESS: DST 0x401040 */\nint f1(void){ return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"DST.0x401040": {"kind": "FUNCTION"}},
         )
 
         from rebrew.compiler.compile import CompareResult
@@ -729,13 +711,13 @@ class TestImportMechanics:
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="f1.c")
         assert res["action"] == "imported"
         text = (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8")
-        assert text == "int f1(void){ return 1; }\n"
+        assert text.splitlines()[-1] == "int f1(void){ return 1; }"
         assert "FUNCTION:" not in text
         assert "return 0" not in text
         from rebrew.metadata.functions import get_entry
 
         row = get_entry(tmp_path, B_F1, "DST")
-        assert row["marker_type"] == "FUNCTION"
+        assert row["kind"] == "FUNCTION"
         assert row["size"] == 11
         assert row["file"] == "src_DST/f1.c"
 
@@ -746,9 +728,11 @@ class TestImportMechanics:
         """
         cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
         cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
-        (cfg_src.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n",
+        write_source(
+            cfg_src.reversed_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
         from rebrew.compiler.compile import CompareResult
         from rebrew.metadata.functions import get_entry
@@ -756,7 +740,7 @@ class TestImportMechanics:
         applied: list[Any] = []
 
         def fake_verify(entry, cfg, cache=None, **kw):
-            assert get_entry(tmp_path, B_F1, "DST")["marker_type"] == "FUNCTION"
+            assert get_entry(tmp_path, B_F1, "DST")["kind"] == "FUNCTION"
             return CompareResult(
                 matched=False,
                 status="NEAR_MATCHING",
@@ -777,7 +761,7 @@ class TestImportMechanics:
         assert res["status"] == "NEAR_MATCHING"
         assert applied and applied[0][0][1] == "NEAR_MATCHING"
         text = (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8")
-        assert text == "int f1(void){ return 1; }\n"
+        assert text.splitlines()[-1] == "int f1(void){ return 1; }"
         assert "SIZE:" not in text
 
     def test_markerless_single_function_is_copied_whole(self, tmp_path: Path, monkeypatch) -> None:
@@ -786,7 +770,7 @@ class TestImportMechanics:
         cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
         body = "int f1(void){ return 1; }\n"
         src_path = cfg_src.reversed_dir / "f1.c"
-        src_path.write_text(body, encoding="utf-8")
+        write_source(src_path, body, encoding="utf-8")
         from rebrew.compiler.compile import CompareResult
         from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
 
@@ -795,7 +779,7 @@ class TestImportMechanics:
             module="SRC",
             va=A_F1,
             file=identity_file(src_path, tmp_path),
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             name="f1",
             symbol="_f1",
             size=11,
@@ -815,9 +799,9 @@ class TestImportMechanics:
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 13)
         assert res["action"] == "imported"
-        assert (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8") == body
+        assert (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8").endswith(body)
         row = get_entry(tmp_path, B_F1, "DST")
-        assert row["marker_type"] == "FUNCTION"
+        assert row["kind"] == "FUNCTION"
         assert row["name"] == "f1"
         assert row["symbol"] == "_f1"
         assert row["size"] == 13
@@ -828,8 +812,8 @@ class TestImportMechanics:
         (cfg_src.reversed_dir / "f1.c").write_text("int f1(void){ return 1; }\n", encoding="utf-8")
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
         assert res["action"] == "error"
-        assert res["status"] == "NO_MARKER"
-        assert res["message"] == "source f1.c has no function row for 0x401000"
+        assert res["status"] == "NO_DEFINITION"
+        assert res["message"] == "source f1.c has no definition for 0x401000"
         assert not (cfg_dst.reversed_dir / "f1.c").exists()
 
 
@@ -1189,13 +1173,17 @@ class TestMingwEndToEnd:
         from rebrew.metadata.functions import update_source_status
 
         update_source_status(cfg_src.metadata_dir, "EXACT", "SRC", A_F1)
-        (cfg_src.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n",
+        write_source(
+            cfg_src.reversed_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
-        (cfg_dst.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: DST 0x401040\n// SIZE: 0\nint f1(void){ return 0; }\n",
+        write_source(
+            cfg_dst.reversed_dir / "f1.c",
+            "/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"DST.0x401040": {"kind": "FUNCTION", "size": 0}},
         )
 
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", len(F1), dst_file="f1.c")
@@ -1215,32 +1203,9 @@ class TestMingwEndToEnd:
         from rebrew.metadata.functions import get_entry
 
         row = get_entry(cfg_dst.metadata_dir, B_F1, "DST")
-        assert row["marker_type"] == "FUNCTION"
+        assert row["kind"] == "FUNCTION"
         assert row["name"] == "f1"
         assert row["size"] == len(F1)
-
-
-class TestRewriteMarkerSizeAndLineEndings:
-    def test_block_comment_size_is_stripped(self) -> None:
-        """The parser accepts `/* SIZE: N */`. The copy drops that line with
-        the marker. SIZE is not rewritten inline."""
-        import rebrew.cross_import as ci
-
-        src = "/* FUNCTION: SRC 0x401000 */\n/* SIZE: 11 */\nint f(void) { return 0; }\n"
-        out = ci._rewrite_marker(src, "DST", 0x601000, 13)
-        assert out == "int f(void) { return 0; }\n"
-        assert "FUNCTION:" not in out
-        assert "SIZE:" not in out
-
-    def test_crlf_body_survives_the_strip(self) -> None:
-        """The marker line does not remain. The C body's CRLF does."""
-        import rebrew.cross_import as ci
-
-        src = "// FUNCTION: SRC 0x401000\r\n// SIZE: 11\r\nint f(void) { return 0; }\r\n"
-        out = ci._rewrite_marker(src, "DST", 0x601000, 13)
-        assert out == "int f(void) { return 0; }\r\n"
-        assert "FUNCTION:" not in out
-        assert "SIZE:" not in out
 
 
 class TestSharedImport:
@@ -1249,34 +1214,16 @@ class TestSharedImport:
     ``_stack_marker`` does not insert a marker line.
     """
 
-    def test_stack_marker_leaves_text_unchanged(self) -> None:
-        src = "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
-        assert ci._stack_marker(src, "DST", 0x601000, 13) == src
-
-    def test_stack_marker_idempotent(self) -> None:
-        src = "// FUNCTION: DST 0x601000\n// SIZE: 13\nint f1(void){ return 1; }\n"
-        assert ci._stack_marker(src, "DST", 0x601000, 13) == src
-
-    def test_stack_marker_idempotent_under_nfd_module(self) -> None:
-        """An NFD marker in the file is the same module as the NFC argument.
-
-        The module half comes from config (NFC, via load_config) while the
-        file's half comes out of source text. Byte equality let one module name
-        stack a second block for a marker the file already carried.
-        """
-        nfc = "café"
-        nfd = unicodedata.normalize("NFD", nfc)
-        assert nfc != nfd
-        src = f"// FUNCTION: {nfd} 0x601000\n// SIZE: 13\nint f1(void){{ return 1; }}\n"
-        assert ci._stack_marker(src, nfc, 0x601000, 13) == src
-
     def test_shared_import_records_destination_row(self, tmp_path: Path, monkeypatch) -> None:
         rev = tmp_path / "src_shared"
         rev.mkdir(parents=True)
         src_file = rev / "f1.c"
-        src_file.write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n",
+        write_source(
+            src_file,
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
+            metadata_dir=tmp_path,
         )
         cfg_src = SimpleNamespace(
             root=tmp_path,
@@ -1313,19 +1260,19 @@ class TestSharedImport:
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
         assert res["action"] == "imported-shared"
         text = src_file.read_text(encoding="utf-8")
-        assert text == "int f1(void){ return 1; }\n"
+        assert text.splitlines()[-1] == "int f1(void){ return 1; }"
         assert "FUNCTION:" not in text
         assert not (dst_rev / "f1.c").exists()  # no copy: one file serves both
         from rebrew.metadata.functions import get_entry
 
         row = get_entry(tmp_path, B_F1, "DST")
-        assert row["marker_type"] == "FUNCTION"
+        assert row["kind"] == "FUNCTION"
         assert row["name"] == "f1"
         assert row["symbol"] == "_f1"
         assert row["size"] == 11
         assert row["file"] == "src_shared/f1.c"
         src_row = get_entry(tmp_path, A_F1, "SRC")
-        assert src_row["marker_type"] == "FUNCTION"
+        assert src_row["kind"] == "FUNCTION"
         assert src_row["file"] == "src_shared/f1.c"
 
 
@@ -1347,7 +1294,11 @@ class TestPromoteToShared:
         cfg = self._cfg(tmp_path)
         sub = cfg.reversed_dir / "Units" / "vfs"
         sub.mkdir(parents=True)
-        (sub / "f1.c").write_text("// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n")
+        write_source(
+            sub / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION"}},
+        )
         res = ci.promote_to_shared(cfg, "Units/vfs/f1.c")
         assert res["action"] == "promoted"
         assert (cfg.shared_dir / "Units" / "vfs" / "f1.c").is_file()
@@ -1359,7 +1310,7 @@ class TestPromoteToShared:
         cfg.metadata_dir = tmp_path
         src = cfg.reversed_dir / "f1.c"
         src.write_text("int f1(void){ return 1; }\n", encoding="utf-8")
-        from rebrew.metadata.data import load_data_metadata, record_migrated_data_markers
+        from rebrew.metadata.data import load_data_metadata, record_data_rows
         from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
 
         record_function_identity(
@@ -1367,11 +1318,11 @@ class TestPromoteToShared:
             module="SRC",
             va=0x401000,
             file=identity_file(src, tmp_path),
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             name="f1",
             symbol="_f1",
         )
-        record_migrated_data_markers(
+        record_data_rows(
             tmp_path,
             [
                 {
@@ -1379,7 +1330,7 @@ class TestPromoteToShared:
                     "va": 0x402000,
                     "identity": {
                         "file": identity_file(src, tmp_path),
-                        "marker_type": "DATA",
+                        "kind": "DATA",
                         "name": "g_gap",
                     },
                 }
@@ -1393,7 +1344,7 @@ class TestPromoteToShared:
         new_file = identity_file(moved, tmp_path)
         row = get_entry(tmp_path, 0x401000, "SRC")
         assert row["file"] == new_file
-        assert row["marker_type"] == "FUNCTION"
+        assert row["kind"] == "FUNCTION"
         data = load_data_metadata(tmp_path)[("SRC", 0x402000)]
         assert data["file"] == new_file
 
@@ -1443,8 +1394,11 @@ class TestPromoteToShared:
         rev.mkdir(parents=True)
         shared = tmp_path / "src" / "shared"
         shared.mkdir(parents=True)
-        (rev / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        write_source(
+            rev / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
+            metadata_dir=tmp_path,
         )
         cfg_src = SimpleNamespace(
             root=tmp_path,
@@ -1497,8 +1451,10 @@ class TestPromoteToShared:
         (tmp_path / "src" / "SRC").mkdir(parents=True)
         (tmp_path / "src" / "DST").mkdir(parents=True)
         (tmp_path / "src" / "shared").mkdir(parents=True)
-        (tmp_path / "src" / "SRC" / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        write_source(
+            tmp_path / "src" / "SRC" / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1})
@@ -1586,11 +1542,15 @@ class TestSharedSupersede:
 
     def test_matched_shared_import_deletes_stub(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src, cfg_dst = self._cfgs(tmp_path)
-        (cfg_src.shared_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        write_source(
+            cfg_src.shared_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
-        (cfg_dst.reversed_dir / "stub.c").write_text(
-            "// FUNCTION: DST 0x401040\n// SIZE: 0\nint f1(void){ return 0; }\n"
+        write_source(
+            cfg_dst.reversed_dir / "stub.c",
+            "/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
+            metadata_fields={"DST.0x401040": {"kind": "FUNCTION", "size": 0}},
         )
         self._ok_verify(monkeypatch)
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
@@ -1602,11 +1562,15 @@ class TestSharedSupersede:
         from rebrew.compiler.compile import CompareResult
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
-        (cfg_src.shared_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        write_source(
+            cfg_src.shared_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
-        (cfg_dst.reversed_dir / "stub.c").write_text(
-            "// FUNCTION: DST 0x401040\n// SIZE: 0\nint f1(void){ return 0; }\n"
+        write_source(
+            cfg_dst.reversed_dir / "stub.c",
+            "/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
+            metadata_fields={"DST.0x401040": {"kind": "FUNCTION", "size": 0}},
         )
         monkeypatch.setattr(
             "rebrew.verify.verify_entry",
@@ -1652,18 +1616,24 @@ class TestSharedSupersede:
     def test_shared_import_preserves_other_stub_owners(
         self, tmp_path: Path, monkeypatch, owner: str
     ) -> None:
-        from rebrew.metadata.data import load_data_metadata, record_migrated_data_markers
+        from rebrew.metadata.data import load_data_metadata, record_data_rows
         from rebrew.metadata.functions import load_metadata, record_function_identity, update_field
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
-        (cfg_src.shared_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+        write_source(
+            cfg_src.shared_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION"}},
         )
         stub = cfg_dst.reversed_dir / "stub.c"
-        text = "// FUNCTION: DST 0x401040\n// SIZE: 11\n"
+        text = SourceFixture(
+            "/* ADDRESS: DST 0x401040 */\n\n", {"DST.0x401040": {"kind": "FUNCTION", "size": 11}}
+        )
         if owner in {"other_target", "managed_target", "inline_target"}:
             if owner != "managed_target":
-                text += "// FUNCTION: OTHER 0x501040\n"
+                text += SourceFixture(
+                    "/* ADDRESS: OTHER 0x501040 */\n", {"OTHER.0x501040": {"kind": "FUNCTION"}}
+                )
             module, va, symbol = "OTHER", 0x501040, "_f1"
             if owner == "inline_target":
                 module = ""
@@ -1678,22 +1648,28 @@ class TestSharedSupersede:
             text += "int counter = 3;\n"
         if owner == "data_declaration":
             text += "extern int counter;\n"
-        text += "/*\n// FUNCTION: DST 0x401040\n*/\n"
-        stub.write_text(text)
+        text += SourceFixture(
+            "/* Example: ADDRESS: DST 0x401040\n*/\n", {"DST.0x401040": {"kind": "FUNCTION"}}
+        )
+        write_source(
+            stub,
+            text,
+            metadata_fields={"DST.0x401040": {"kind": "FUNCTION", "size": 11}},
+        )
         if module:
             record_function_identity(
                 tmp_path,
                 module=module,
                 va=va,
                 file="src_DST/stub.c",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
                 name=symbol[1:],
                 symbol=symbol,
                 size=11,
             )
             update_field(tmp_path, va, "note", "preserve this owner", module)
         if owner in {"data", "data_declaration"}:
-            record_migrated_data_markers(
+            record_data_rows(
                 tmp_path,
                 [
                     {
@@ -1702,7 +1678,7 @@ class TestSharedSupersede:
                         "identity": {
                             "file": "src_DST/stub.c",
                             "name": "counter",
-                            "marker_type": "DATA",
+                            "kind": "DATA",
                         },
                         "fields": {"size": 4, "type": "int"},
                     }
@@ -1719,12 +1695,18 @@ class TestSharedSupersede:
         kept = stub.read_text()
         assert len(kept.splitlines()) == len(text.splitlines())
         assert "int f1(void){ return __LINE__; }" in kept
-        assert "/*\n// FUNCTION: DST 0x401040\n*/" in kept
+        assert "/* Example: ADDRESS: DST 0x401040\n*/" in kept
         assert not kept.startswith("// FUNCTION: DST")
         if owner in {"other_target", "inline_target"}:
-            assert "// FUNCTION: OTHER 0x501040" in kept and "// SIZE: 11" in kept
+            assert (
+                SourceFixture(
+                    "/* ADDRESS: OTHER 0x501040 */", {"OTHER.0x501040": {"kind": "FUNCTION"}}
+                )
+                in kept
+            )
         for identity, row in before_functions.items():
-            assert load_metadata(tmp_path)[identity] == row
+            if identity != ("DST", B_F1):
+                assert load_metadata(tmp_path)[identity] == row
         assert load_data_metadata(tmp_path) == before_data
 
     @pytest.mark.parametrize("ending", [b"\n", b"\r\n"])
@@ -1732,13 +1714,15 @@ class TestSharedSupersede:
         self, tmp_path: Path, monkeypatch, ending: bytes
     ) -> None:
         src, dst = self._cfgs(tmp_path)
-        (src.shared_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+        write_source(
+            src.shared_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION"}},
         )
         stub = dst.reversed_dir / "stub.c"
         lines = [
-            b"// FUNCTION: DST 0x401040",
-            b"// FUNCTION: OTHER 0x501040",
+            b"/* ADDRESS: DST 0x401040 */",
+            b"/* ADDRESS: OTHER 0x501040 */",
             b"/* caf\xe9 */",
             b"int old(void){ return __LINE__; }",
         ]
@@ -1755,12 +1739,19 @@ class TestSharedSupersede:
         from rebrew.metadata.functions import get_entry, record_function_identity
 
         src, dst = self._cfgs(tmp_path)
-        (src.shared_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+        write_source(
+            src.shared_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION"}},
         )
         stub = dst.reversed_dir / "stub.c"
-        stub.write_text(
-            "// FUNCTION: DST 0x401040\n// FUNCTION: OTHER 0x501040\nint old(void){ return 0; }\n"
+        write_source(
+            stub,
+            "/* ADDRESS: DST 0x401040 */\n/* ADDRESS: OTHER 0x501040 */\nint old(void){ return 0; }\n",
+            metadata_fields={
+                "DST.0x401040": {"kind": "FUNCTION"},
+                "OTHER.0x501040": {"kind": "FUNCTION"},
+            },
         )
         for module, va in [("DST", B_F1), ("OTHER", 0x501040)]:
             record_function_identity(
@@ -1768,7 +1759,7 @@ class TestSharedSupersede:
                 module=module,
                 va=va,
                 file="src_DST/stub.c",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
                 name="old",
                 symbol="_old",
                 size=11,
@@ -1781,38 +1772,6 @@ class TestSharedSupersede:
         assert last["action"] == "imported-shared" and not stub.exists()
         for module, va in [("DST", B_F1), ("OTHER", 0x501040)]:
             assert get_entry(tmp_path, va, module)["file"] == "src/shared/f1.c"
-
-    @pytest.mark.parametrize(
-        "comment, keep",
-        [
-            ("// SOURCE: naked", True),
-            ("/* SOURCE: NAKED */", True),
-            ("// STRUCT: Entity", True),
-            ("// CALLERS: 0x401080", True),
-            ("// SOURCE: imported", False),
-            ("// NOTE: obsolete identity", False),
-        ],
-    )
-    def test_retired_claim_keeps_only_file_borne_metadata(
-        self, tmp_path: Path, monkeypatch, comment: str, keep: bool
-    ) -> None:
-        src, dst = self._cfgs(tmp_path)
-        (src.shared_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
-        )
-        stub = dst.reversed_dir / "stub.c"
-        original = (
-            "// FUNCTION: DST 0x401040\n"
-            + comment
-            + "\nint old(void){ return __LINE__; }\nint retained_storage;\n"
-        )
-        stub.write_text(original)
-        self._ok_verify(monkeypatch)
-        result = ci.import_shared_function(dst, src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
-        assert result["action"] == "imported-shared" and stub.exists()
-        kept = stub.read_text()
-        assert (comment in kept) == keep
-        assert len(kept.splitlines()) == len(original.splitlines())
 
     def test_unverified_rollback_restores_cflags_and_status(
         self, tmp_path: Path, monkeypatch
@@ -1829,11 +1788,15 @@ class TestSharedSupersede:
         )
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
-        (cfg_src.shared_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        write_source(
+            cfg_src.shared_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
-        (cfg_dst.reversed_dir / "stub.c").write_text(
-            "// FUNCTION: DST 0x401040\n// SIZE: 0\nint f1(void){ return 0; }\n"
+        write_source(
+            cfg_dst.reversed_dir / "stub.c",
+            "/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
+            metadata_fields={"DST.0x401040": {"kind": "FUNCTION", "size": 0}},
         )
         update_field(tmp_path, 0x401040, "cflags", "/G5", "DST")
         update_source_status(tmp_path, "EXACT", "DST", 0x401040)
@@ -1868,11 +1831,15 @@ class TestSharedSupersede:
         from rebrew.metadata.functions import get_entry
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
-        (cfg_src.shared_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        write_source(
+            cfg_src.shared_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
-        (cfg_dst.reversed_dir / "stub.c").write_text(
-            "// FUNCTION: DST 0x401040\n// SIZE: 0\nint f1(void){ return 0; }\n"
+        write_source(
+            cfg_dst.reversed_dir / "stub.c",
+            "/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
+            metadata_fields={"DST.0x401040": {"kind": "FUNCTION", "size": 0}},
         )
         monkeypatch.setattr(
             "rebrew.verify.verify_entry",
@@ -1893,8 +1860,8 @@ class TestSharedSupersede:
         assert res["message"].endswith(
             "(destination already annotates this VA; claim not recorded)"
         )
-        assert get_entry(tmp_path, 0x401040, "DST") == {}
-        assert not (tmp_path / "rebrew-functions.toml").exists()
+        assert "cflags" not in get_entry(tmp_path, 0x401040, "DST")
+        assert (tmp_path / "rebrew-functions.toml").is_file()
 
     def test_failed_reverify_of_stacked_claim_applies_status(
         self, tmp_path: Path, monkeypatch
@@ -1908,12 +1875,22 @@ class TestSharedSupersede:
         from rebrew.metadata.functions import get_entry, update_field
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
-        original = (
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\n"
-            "// FUNCTION: DST 0x401040\n// SIZE: 11\n"
-            "int f1(void){ return 1; }\n"
+        original = SourceFixture(
+            "/* ADDRESS: SRC 0x401000 */\n\n/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 1; }\n",
+            {
+                "SRC.0x401000": {"kind": "FUNCTION", "size": 11},
+                "DST.0x401040": {"kind": "FUNCTION", "size": 11},
+            },
         )
-        (cfg_src.shared_dir / "f1.c").write_text(original, encoding="utf-8")
+        write_source(
+            cfg_src.shared_dir / "f1.c",
+            original,
+            encoding="utf-8",
+            metadata_fields={
+                "SRC.0x401000": {"kind": "FUNCTION", "size": 11},
+                "DST.0x401040": {"kind": "FUNCTION", "size": 11},
+            },
+        )
         update_field(tmp_path, B_F1, "cflags", "/G5", "DST")
         applied: list[Any] = []
         monkeypatch.setattr(
@@ -1959,14 +1936,22 @@ class TestSharedSupersede:
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
         path = cfg_src.shared_dir / "f1.c"
-        original = "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
-        path.write_text(original, encoding="utf-8")
+        original = SourceFixture(
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
+            {"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
+        )
+        write_source(
+            path,
+            original,
+            encoding="utf-8",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
+        )
         record_function_identity(
             tmp_path,
             module="DST",
             va=B_F1,
             file=identity_file(path, tmp_path),
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             name="f1",
             symbol="_f1",
             size=11,
@@ -1999,8 +1984,10 @@ class TestSharedSupersede:
 
     def test_same_file_stub_never_deleted(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src, cfg_dst = self._cfgs(tmp_path)
-        (cfg_src.shared_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        write_source(
+            cfg_src.shared_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
         self._ok_verify(monkeypatch)
         res = ci.import_shared_function(
@@ -2025,8 +2012,11 @@ class TestSharedCflagsPortable:
         rev.mkdir(parents=True)
         sub = rev / "Units" / "vfs"
         sub.mkdir(parents=True)
-        (sub / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// CFLAGS: /O1 /Gd\nint f1(void){ return 1; }\n"
+        write_source(
+            sub / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "cflags": "/O1 /Gd"}},
+            metadata_dir=tmp_path,
         )
         shared = tmp_path / "src" / "shared"
         shared.mkdir(parents=True)
@@ -2077,8 +2067,11 @@ class TestSharedDryRunPath:
         rev.mkdir(parents=True)
         shared = tmp_path / "src" / "shared"
         shared.mkdir(parents=True)
-        (shared / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        write_source(
+            shared / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
+            metadata_dir=tmp_path,
         )
         cfg_src = SimpleNamespace(
             root=tmp_path,
@@ -2101,7 +2094,7 @@ class TestSharedDryRunPath:
         assert res["filepath"] == "../shared/f1.c"
         assert str(tmp_path) not in res["filepath"]
         assert res["message"] == "would record DST 0x401040"
-        assert not (tmp_path / "rebrew-functions.toml").exists()
+        assert (tmp_path / "rebrew-functions.toml").is_file()
 
 
 class TestUnifiedTreeMarkerMove:
@@ -2114,14 +2107,12 @@ class TestUnifiedTreeMarkerMove:
     insert a marker, and it does not drop a claim from the text.
     """
 
-    SRC_FILE = (
-        "// FUNCTION: SRC 0x401000\n"
-        "// SIZE: 11\n"
-        "int f1(void){ return 1; }\n"
-        "\n"
-        "// FUNCTION: SRC 0x401010\n"
-        "// SIZE: 11\n"
-        "int f2(void){ return 2; }\n"
+    SRC_FILE = SourceFixture(
+        "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n\n/* ADDRESS: SRC 0x401010 */\n\nint f2(void){ return 2; }\n",
+        {
+            "SRC.0x401000": {"kind": "FUNCTION", "size": 11},
+            "SRC.0x401010": {"kind": "FUNCTION", "size": 11},
+        },
     )
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
@@ -2145,33 +2136,6 @@ class TestUnifiedTreeMarkerMove:
         dst = SimpleNamespace(**{**vars(src), "target_name": "DST", "marker": "DST"})
         return src, dst
 
-    def test_stack_marker_on_block_leaves_named_block(self) -> None:
-        """The named source block is present, so the text comes back unchanged.
-        The caller records the destination row. Nothing is inserted."""
-        text = (
-            "#include <stdio.h>\n"
-            "// FUNCTION: SRC 0x401000\n"
-            "// SIZE: 11\n"
-            "int f1(void){ return 1; }\n"
-            "\n"
-            "// FUNCTION: SRC 0x401010\n"
-            "// SIZE: 11\n"
-            "int f2(void){ return 2; }\n"
-        )
-        out = ci.stack_marker_on_block(text, "DST", 0x401040, 11, "SRC", 0x401010)
-        assert out == text
-
-    def test_stack_marker_on_block_keeps_superseded_claim(self) -> None:
-        """A drop argument does not remove the other claim or its body."""
-        text = (
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
-            "\n// FUNCTION: DST 0x401040\n// SIZE: 3\nint f1(void){ return 0; }\n"
-        )
-        out = ci.stack_marker_on_block(
-            text, "DST", 0x401040, 11, "SRC", 0x401000, drop=("DST", 0x401040)
-        )
-        assert out == text
-
     def test_place_shared_marker_leaves_text_unchanged(self) -> None:
         """A destination VA not yet claimed stays out of the file text.
 
@@ -2179,33 +2143,16 @@ class TestUnifiedTreeMarkerMove:
         first function while the import verified the source function. The row
         is recorded by the caller. The text is not edited.
         """
-        text = (
-            "// FUNCTION: DST 0x4bcb80\n// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
-            "\n// FUNCTION: SRC 0x401010\nint f2(void){ return 2; }\n"
+        text = SourceFixture(
+            "/* ADDRESS: DST 0x4bcb80 */\n/* ADDRESS: SRC 0x401000 */\nint f1(void){ return 1; }\n\n/* ADDRESS: SRC 0x401010 */\nint f2(void){ return 2; }\n",
+            {
+                "DST.0x4bcb80": {"kind": "FUNCTION"},
+                "SRC.0x401000": {"kind": "FUNCTION"},
+                "SRC.0x401010": {"kind": "FUNCTION"},
+            },
         )
         out = ci._place_shared_marker(text, "DST", 0x4BCBD0, 11, "SRC", 0x401010, superseded=False)
         assert out == text
-
-    def test_superseded_claim_stays_in_the_text(self) -> None:
-        """A superseded destination claim is not dropped from the file.
-
-        Regression: the whole block went, and guild-rebrew server4.c lost a
-        SERVER function body (372 lines) to a GOLDTL re-claim. The text keeps
-        every marker and body. The caller records the row.
-        """
-        text = (
-            "// FUNCTION: DST 0x4bcb80\n// SIZE: 80\n// FUNCTION: SRC 0x401000\n// SIZE: 11\n"
-            "int f1(void){ return 1; }\n"
-            "\n// FUNCTION: SRC 0x401010\n// SIZE: 11\nint f2(void){ return 2; }\n"
-        )
-        out = ci.stack_marker_on_block(
-            text, "DST", 0x4BCB80, 11, "SRC", 0x401010, drop=("DST", 0x4BCB80)
-        )
-        assert out == text
-
-    def test_stack_marker_on_block_absent_source(self) -> None:
-        text = "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
-        assert ci.stack_marker_on_block(text, "DST", 0x401040, 11, "SRC", 0x409999) is None
 
     def test_copy_refuses_when_source_body_is_in_destination_file(self, tmp_path: Path) -> None:
         src, dst = self._cfgs(tmp_path)
@@ -2234,20 +2181,22 @@ class TestUnifiedTreeMarkerMove:
         (src.reversed_dir / "f1.c").write_text(self.SRC_FILE, encoding="utf-8")
         res = ci.import_function(dst, src, 0x401040, 0x409999, "f1.c", 11, dry_run=True)
         assert res["action"] == "error"
-        assert res["status"] == "NO_MARKER"
-        assert res["message"] == (
-            "source f1.c has more than one function and no marker to split at 0x409999"
-        )
+        assert res["status"] == "NO_DEFINITION"
+        assert res["message"] == ("source f1.c has no definition for 0x409999")
 
     def test_shared_import_records_retarget_on_same_file(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.compiler.compile import CompareResult
 
         src, dst = self._cfgs(tmp_path)
         path = src.reversed_dir / "f1.c"
-        path.write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
-            "\n// FUNCTION: DST 0x401040\n// SIZE: 3\nint f1(void){ return 0; }\n",
+        write_source(
+            path,
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n\n/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "SRC.0x401000": {"kind": "FUNCTION", "size": 11},
+                "DST.0x401040": {"kind": "FUNCTION", "size": 3},
+            },
         )
         monkeypatch.setattr(
             "rebrew.verify.verify_entry",
@@ -2274,34 +2223,49 @@ class TestUnifiedTreeMarkerMove:
         from rebrew.metadata.functions import get_entry
 
         row = get_entry(tmp_path, 0x401040, "DST")
-        assert row["marker_type"] == "FUNCTION"
+        assert row["kind"] == "FUNCTION"
         assert row["name"] == "f1"
         assert row["size"] == 11
 
     def test_shared_import_dry_run_announces_the_retarget(self, tmp_path: Path) -> None:
         src, dst = self._cfgs(tmp_path)
-        (src.reversed_dir / "f1.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
-            "\n// FUNCTION: DST 0x401040\n// SIZE: 3\nint f1(void){ return 0; }\n",
+        write_source(
+            src.reversed_dir / "f1.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n\n/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
             encoding="utf-8",
+            metadata_fields={
+                "SRC.0x401000": {"kind": "FUNCTION", "size": 11},
+                "DST.0x401040": {"kind": "FUNCTION", "size": 3},
+            },
         )
         before = (src.reversed_dir / "f1.c").read_text(encoding="utf-8")
         res = ci.import_shared_function(dst, src, 0x401040, 0x401000, "f1.c", 11, dry_run=True)
         assert res["action"] == "would-import-shared"
         assert res["message"] == "would retarget DST 0x401040 onto the 0x401000 body"
         assert (src.reversed_dir / "f1.c").read_text(encoding="utf-8") == before
-        assert not (tmp_path / "rebrew-functions.toml").exists()
+        assert (tmp_path / "rebrew-functions.toml").is_file()
 
     def test_failed_move_is_reverted(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.compiler.compile import CompareResult
 
         src, dst = self._cfgs(tmp_path)
         path = src.reversed_dir / "f1.c"
-        original = (
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
-            "\n// FUNCTION: DST 0x401040\n// SIZE: 3\nint f1(void){ return 0; }\n"
+        original = SourceFixture(
+            "/* ADDRESS: SRC 0x401000 */\n\nint f1(void){ return 1; }\n\n/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
+            {
+                "SRC.0x401000": {"kind": "FUNCTION", "size": 11},
+                "DST.0x401040": {"kind": "FUNCTION", "size": 3},
+            },
         )
-        path.write_text(original, encoding="utf-8")
+        write_source(
+            path,
+            original,
+            encoding="utf-8",
+            metadata_fields={
+                "SRC.0x401000": {"kind": "FUNCTION", "size": 11},
+                "DST.0x401040": {"kind": "FUNCTION", "size": 3},
+            },
+        )
         monkeypatch.setattr(
             "rebrew.verify.verify_entry",
             lambda *a, **k: CompareResult(
@@ -2458,14 +2422,12 @@ class TestVerifiedSymbolFollowsTheBlock:
     verify).
     """
 
-    MULTI = (
-        "// FUNCTION: SRC 0x401000\n"
-        "// SIZE: 11\n"
-        "int first(void){ return 1; }\n"
-        "\n"
-        "// FUNCTION: SRC 0x401010\n"
-        "// SIZE: 13\n"
-        "int second(void){ return 2; }\n"
+    MULTI = SourceFixture(
+        "/* ADDRESS: SRC 0x401000 */\n\nint first(void){ return 1; }\n\n/* ADDRESS: SRC 0x401010 */\n\nint second(void){ return 2; }\n",
+        {
+            "SRC.0x401000": {"kind": "FUNCTION", "size": 11},
+            "SRC.0x401010": {"kind": "FUNCTION", "size": 13},
+        },
     )
 
     def test_name_for_va_picks_the_blocks_definition(self) -> None:
@@ -2478,9 +2440,12 @@ class TestVerifiedSymbolFollowsTheBlock:
 
     def test_name_for_va_marker_only_block_borrows_below(self) -> None:
         """A marker prepended above another block owns no body of its own."""
-        text = (
-            "// FUNCTION: DST 0x401040\n// SIZE: 13\n"
-            "// FUNCTION: SRC 0x401010\n// SIZE: 13\nint second(void){ return 2; }\n"
+        text = SourceFixture(
+            "/* ADDRESS: DST 0x401040 */\n\n/* ADDRESS: SRC 0x401010 */\n\nint second(void){ return 2; }\n",
+            {
+                "DST.0x401040": {"kind": "FUNCTION", "size": 13},
+                "SRC.0x401010": {"kind": "FUNCTION", "size": 13},
+            },
         )
         assert ci._symbol_for_va(text, "DST", 0x401040, "f") == ("second", "_second")
 
@@ -2502,7 +2467,7 @@ class TestVerifiedSymbolFollowsTheBlock:
         )
         cfg_dst = SimpleNamespace(**{**vars(cfg_src), "target_name": "DST", "marker": "DST"})
         (rev / "f.c").write_text(
-            self.MULTI + "\n// FUNCTION: DST 0x401040\n// SIZE: 3\nint second(void){ return 0; }\n",
+            self.MULTI + "\n/* ADDRESS: DST 0x401040 */\nint old_second(void){ return 0; }\n",
             encoding="utf-8",
         )
         seen: dict[str, Any] = {}
@@ -2656,8 +2621,11 @@ class TestVerifiedSymbolShapes:
     ) -> None:
         cfg_src, _cfg_dst = self._cfgs(tmp_path)
         cfg_dst = SimpleNamespace(**{**vars(_cfg_dst), "reversed_dir": cfg_src.reversed_dir})
-        (cfg_src.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\n" + body, encoding="utf-8"
+        write_source(
+            cfg_src.reversed_dir / "f.c",
+            body,
+            metadata_dir=tmp_path,
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11, "symbol": symbol}},
         )
         seen = self._capture_verify(monkeypatch)
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f.c", 11)
@@ -2669,8 +2637,11 @@ class TestVerifiedSymbolShapes:
         self, tmp_path: Path, monkeypatch, body: str, symbol: str
     ) -> None:
         cfg_src, cfg_dst = self._cfgs(tmp_path)
-        (cfg_src.reversed_dir / "f.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 11\n" + body, encoding="utf-8"
+        write_source(
+            cfg_src.reversed_dir / "f.c",
+            body,
+            metadata_dir=tmp_path,
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11, "symbol": symbol}},
         )
         seen = self._capture_verify(monkeypatch)
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f.c", 11)
@@ -2721,9 +2692,12 @@ class TestMergedInventoryEntry:
         cfg_dst = SimpleNamespace(
             **{**vars(cfg_src), "target_name": "DST", "marker": "DST", "target_binary": dst_bin}
         )
-        (rev / "f.c").write_text(
-            "// FUNCTION: SRC 0x401000\n// SIZE: 62\nint f(void){ return 1; }\n",
+        write_source(
+            rev / "f.c",
+            "/* ADDRESS: SRC 0x401000 */\n\nint f(void){ return 1; }\n",
             encoding="utf-8",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 62}},
+            metadata_dir=tmp_path,
         )
         return cfg_src, cfg_dst
 
@@ -2767,7 +2741,7 @@ class TestMergedInventoryEntry:
         return sizes
 
     def _dst_sizes(self, cfg_dst: SimpleNamespace, path: Path) -> tuple[int, Any]:
-        from rebrew.metadata.annotation import parse_c_file_multi
+        from rebrew.metadata.bindings import read_source_bindings
         from rebrew.metadata.functions import get_entry
 
         text = path.read_text(encoding="utf-8")
@@ -2775,7 +2749,9 @@ class TestMergedInventoryEntry:
         assert "SIZE:" not in text
         seen = [
             a.size
-            for a in parse_c_file_multi(path, target_name="DST", metadata_dir=cfg_dst.metadata_dir)
+            for a in read_source_bindings(
+                path, target_name="DST", metadata_dir=cfg_dst.metadata_dir
+            )
             if a.va == _MERGED_VA
         ]
         recorded = get_entry(cfg_dst.metadata_dir, _MERGED_VA, "DST").get("size")
@@ -2864,8 +2840,10 @@ class TestMergedInventoryEntry:
         if not shared:
             dst.reversed_dir = tmp_path / "destination"
             dst.reversed_dir.mkdir()
-            (dst.reversed_dir / "f.c").write_text(
-                "// FUNCTION: DST 0x401000\nint other(void){return 0;}\n"
+            write_source(
+                dst.reversed_dir / "f.c",
+                "/* ADDRESS: DST 0x401000 */\nint other(void){return 0;}\n",
+                metadata_fields={"DST.0x401000": {"kind": "FUNCTION"}},
             )
             identity_file = "destination/f.c"
         record_function_identity(
@@ -2873,7 +2851,7 @@ class TestMergedInventoryEntry:
             module="DST",
             va=_MERGED_VA,
             file=identity_file,
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             name="other",
             symbol="_other",
             size=_MERGED_ENTRY,
@@ -2903,7 +2881,7 @@ class TestMergedInventoryEntry:
                 module=module,
                 va=va,
                 file="src/f.c",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
                 name=name,
                 symbol="_" + name,
                 size=62,
@@ -2936,7 +2914,7 @@ class TestMergedInventoryEntry:
     ) -> None:
         import rebrew.verify as verify
         from rebrew.compiler.compile import CompareResult
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
         _src, dst = self._cfgs(tmp_path, _merged_pe())
         self._verify(monkeypatch)
@@ -2957,13 +2935,13 @@ class TestMergedInventoryEntry:
             return first_verify(entry, cfg, **kw)
 
         monkeypatch.setattr(verify, "verify_entry", measured)
-        entry = Annotation(
+        entry = SourceBinding(
             va=_MERGED_VA,
             name="f",
             symbol="_f",
             size=_MERGED_ENTRY,
             filepath="f.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             module="DST",
         )
         result, body = ci._verify_import(entry, dst, cache=None, name_to_va=None)
@@ -2980,7 +2958,7 @@ class TestMergedInventoryEntry:
             module="DST",
             va=_MERGED_VA,
             file="src/f.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             name="other",
             symbol="_other",
             size=_MERGED_ENTRY,
@@ -3005,7 +2983,7 @@ class TestMergedInventoryEntry:
             module="DST",
             va=_MERGED_VA,
             file="src/f.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             name="f",
             symbol="_f",
             size=_MERGED_ENTRY,
@@ -3036,7 +3014,7 @@ class TestMergedInventoryEntry:
             module="DST",
             va=_MERGED_VA,
             file="src/f.c",
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             name="other",
             symbol="_other",
             size=_MERGED_ENTRY,
@@ -3121,7 +3099,11 @@ class TestSourceVA:
         source = load_config(tmp_path, target="SRC").reversed_dir
         source.mkdir(parents=True, exist_ok=True)
         for name, va in [("f1.c", A_F1), ("f2.c", A_F2)]:
-            (source / name).write_text(f"// FUNCTION: SRC 0x{va:x}\nint f(void) {{ return 0; }}\n")
+            write_source(
+                source / name,
+                f"/* ADDRESS: SRC 0x{va:x} */\nint f(void) {{ return 0; }}\n",
+                metadata_fields={f"SRC.0x{va:x}": {"kind": "FUNCTION"}},
+            )
         monkeypatch.setattr(ci, "matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F1})
         monkeypatch.setattr(ci, "unmatched_dest_bytes", lambda cfg, only_va=None: {B_F1: F1})
         monkeypatch.setattr(ci, "registry", lambda cfg: {})

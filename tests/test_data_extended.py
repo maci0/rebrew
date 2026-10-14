@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
 from rebrew.data import _generate_bss_fix
@@ -61,14 +62,22 @@ def _console(buf: object | None = None) -> object:
 class TestScanGlobalsBranches:
     def test_global_annotation_without_declaration_warns(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text("// GLOBAL: SERVER 0x1000\n", encoding="utf-8")
-        with pytest.warns(UserWarning, match="has no declaration"):
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* no declaration yet */\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
+        )
+        with pytest.warns(UserWarning, match="has no name"):
             scan_globals(cfg.reversed_dir, cfg)
 
     def test_non_extern_decl_fallback_name(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// GLOBAL: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint g_counter;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         entry = scan.globals.get("g_counter")
@@ -81,8 +90,11 @@ class TestScanGlobalsBranches:
         annotation in a later file fills in the VA."""
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "a_extern.c").write_text("extern int g_data;\n", encoding="utf-8")
-        (cfg.reversed_dir / "b_annotated.c").write_text(
-            "// GLOBAL: SERVER 0x2000\nextern int g_data;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "b_annotated.c",
+            "/* ADDRESS: SERVER 0x2000 */\nextern int g_data;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "GLOBAL"}},
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         entry = scan.globals["g_data"]
@@ -95,8 +107,11 @@ class TestScanGlobalsBranches:
         file (sorted last) used to fork a duplicate ``(name, 0)`` entry that the
         final pass wrote over the annotated one."""
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a_annotated.c").write_text(
-            "// GLOBAL: SERVER 0x2000\nextern int g_data;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "a_annotated.c",
+            "/* ADDRESS: SERVER 0x2000 */\nextern int g_data;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "GLOBAL"}},
         )
         (cfg.reversed_dir / "b_extern.c").write_text("extern int g_data;\n", encoding="utf-8")
         scan = scan_globals(cfg.reversed_dir, cfg)
@@ -272,7 +287,7 @@ class TestSetDataType:
     def test_sets_type_in_metadata(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         self._meta(cfg).write_text(
-            '["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
+            'format = 2\n["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
         )
         rows = set_data_types(cfg, ["0x1000=int[]"])
         assert rows == [{"va": "0x1000", "type": "int[]", "module": "SERVER"}]
@@ -281,7 +296,7 @@ class TestSetDataType:
     def test_dry_run_writes_nothing(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         self._meta(cfg).write_text(
-            '["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
+            'format = 2\n["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
         )
         set_data_types(cfg, ["0x1000=int[]"], dry_run=True)
         assert 'type = "int"' in self._meta(cfg).read_text(encoding="utf-8")
@@ -296,7 +311,7 @@ class TestSetDataType:
         declaration whose sources disagree is left with the TU that owns it."""
         cfg = _cfg(tmp_path)
         self._meta(cfg).write_text(
-            '["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
+            'format = 2\n["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
         )
         set_data_types(cfg, ["0x1000="])
         text = self._meta(cfg).read_text(encoding="utf-8")
@@ -309,7 +324,7 @@ class TestSetDataName:
 
         cfg = _cfg(tmp_path)
         meta = cfg.metadata_dir / "rebrew-data.toml"
-        meta.write_text('["SERVER.0x1000"]\nsize = 16\nsection = ".data"\n')
+        write_store_fixture(meta, 'format = 2\n["SERVER.0x1000"]\nsize = 16\nsection = ".data"\n')
         before = meta.read_bytes()
         rows = set_data_names(cfg, ["0x1000=records"], dry_run=True)
         assert rows == [{"va": "0x1000", "name": "records", "module": "SERVER"}]
@@ -333,7 +348,9 @@ class TestSetDataSize:
 
         cfg = _cfg(tmp_path)
         meta = cfg.metadata_dir / "rebrew-data.toml"
-        meta.write_text('["SERVER.0x1000"]\nname = "slots"\nsize = 2\nstatus = "VERIFIED"\n')
+        write_store_fixture(
+            meta, 'format = 2\n["SERVER.0x1000"]\nname = "slots"\nsize = 2\nstatus = "VERIFIED"\n'
+        )
         before = meta.read_bytes()
         rows = set_data_sizes(cfg, ["0x1000=0x65400"], dry_run=True)
         assert rows == [{"va": "0x1000", "size": 0x65400, "module": "SERVER"}]
@@ -357,10 +374,14 @@ class TestGenGlobalsHeader:
         from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "globals.c").write_text(
-            "// DATA: SERVER 0x1000\n// SYMBOL: g_counter\nint g_counter;\n"
-            "// GLOBAL: SERVER 0x2000\n// SYMBOL: g_flag\nint g_flag;\n",
+        write_source(
+            cfg.reversed_dir / "globals.c",
+            "/* ADDRESS: SERVER 0x1000 */\n\nint g_counter;\n/* ADDRESS: SERVER 0x2000 */\n\nint g_flag;\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x1000": {"kind": "DATA", "symbol": "g_counter"},
+                "SERVER.0x2000": {"kind": "GLOBAL", "symbol": "g_flag"},
+            },
         )
         set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
         set_data_field(cfg.metadata_dir, 0x2000, "type", "int", "SERVER")
@@ -376,11 +397,17 @@ class TestGenGlobalsHeader:
         from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// DATA: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint g_counter;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
         )
-        (cfg.reversed_dir / "b.c").write_text(
-            "// GLOBAL: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "b.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint g_counter;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
         )
         set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
         gen_globals_header(cfg, cfg.reversed_dir)
@@ -393,12 +420,15 @@ class TestGenGlobalsHeader:
         must not close the section comment and inject C into a header the next
         ``rebrew test`` compiles."""
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "globals.c").write_text(
-            "// DATA: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "globals.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint g_counter;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
         )
-        (cfg.metadata_dir / "rebrew-data.toml").write_text(
-            '["SERVER.0x1000"]\nname = "g_counter"\ntype = "int"\n'
-            'section = ".data*/ system(\\"pwned\\"); /*"\n',
+        write_store_fixture(
+            cfg.metadata_dir / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x1000"]\nname = "g_counter"\ntype = "int"\nsection = ".data*/ system(\\"pwned\\"); /*"\n',
             encoding="utf-8",
         )
         gen_globals_header(cfg, cfg.reversed_dir, force=True)
@@ -410,11 +440,15 @@ class TestGenGlobalsHeader:
         """A metadata name is already the C identifier, so CRT names keep their
         leading underscores: `_FPinit` must not be written as `FPinit`."""
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "globals.c").write_text(
-            "// DATA: SERVER 0x1000\nint x;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "globals.c",
+            "int x;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
         )
-        (cfg.metadata_dir / "rebrew-data.toml").write_text(
-            '["SERVER.0x1000"]\nname = "_FPinit"\ntype = "void *"\nsection = ".data"\n',
+        write_store_fixture(
+            cfg.metadata_dir / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x1000"]\nfile = "src/SERVER/globals.c"\nname = "_FPinit"\ntype = "void *"\nsection = ".data"\n',
             encoding="utf-8",
         )
         gen_globals_header(cfg, cfg.reversed_dir, force=True)
@@ -430,10 +464,14 @@ class TestGenGlobalsHeader:
         from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "consts.c").write_text(
-            "// DATA: SERVER 0x100256d0\nextern double g_dbl_const_6d0; /* 0x100256d0 */\n"
-            "// DATA: SERVER 0x10025f88\nextern float g_dbl_const_f88; /* 0x10025f88 */\n",
+        write_source(
+            cfg.reversed_dir / "consts.c",
+            "/* ADDRESS: SERVER 0x100256d0 */\nextern double g_dbl_const_6d0; /* 0x100256d0 */\n/* ADDRESS: SERVER 0x10025f88 */\nextern float g_dbl_const_f88; /* 0x10025f88 */\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x100256d0": {"kind": "DATA"},
+                "SERVER.0x10025f88": {"kind": "DATA"},
+            },
         )
         set_data_field(cfg.metadata_dir, 0x100256D0, "type", "float", "SERVER")
         set_data_field(cfg.metadata_dir, 0x10025F88, "type", "double", "SERVER")
@@ -455,12 +493,11 @@ class TestGenGlobalsHeader:
         from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "globals.c").write_text(
-            "// DATA: SERVER 0x1000\n"
-            "char (*g_row)[4]; /* 0x1000 */\n"
-            "// DATA: SERVER 0x2000\n"
-            "int (*table[4]); /* 0x2000 */\n",
+        write_source(
+            cfg.reversed_dir / "globals.c",
+            "/* ADDRESS: SERVER 0x1000 */\nchar (*g_row)[4]; /* 0x1000 */\n/* ADDRESS: SERVER 0x2000 */\nint (*table[4]); /* 0x2000 */\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}, "SERVER.0x2000": {"kind": "DATA"}},
         )
         set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
         set_data_field(cfg.metadata_dir, 0x1000, "name", "WRONG", "SERVER")
@@ -475,9 +512,11 @@ class TestGenGlobalsHeader:
     def test_stub_tu_markers_covered(self, tmp_path: Path) -> None:
         """Markers in src/link_stubs.c (outside reversed_dir) reach the header."""
         cfg = _cfg(tmp_path)
-        (tmp_path / "src" / "link_stubs.c").write_text(
-            "// DATA: SERVER 0x3000\nextern double g_stub_const; /* 0x3000 */\n",
+        write_source(
+            tmp_path / "src" / "link_stubs.c",
+            "/* ADDRESS: SERVER 0x3000 */\nextern double g_stub_const; /* 0x3000 */\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x3000": {"kind": "DATA"}},
         )
         gen_globals_header(cfg, cfg.reversed_dir)
         text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
@@ -488,9 +527,11 @@ class TestGenGlobalsHeader:
         from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "globals.c").write_text(
-            "// DATA: SERVER 0x1000\nint g_counter;\n",
+        write_source(
+            cfg.reversed_dir / "globals.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint g_counter;\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
         )
         set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
         set_data_field(cfg.metadata_dir, 0x1000, "name", "g_counter", "SERVER")
@@ -516,8 +557,11 @@ class TestGenGlobalsHeader:
     def test_regeneration_is_idempotent(self, tmp_path: Path) -> None:
         """Re-running --gen-header must not rewrite the file (timestamp churn)."""
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "globals.c").write_text(
-            "// DATA: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "globals.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint g_counter;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
         )
         gen_globals_header(cfg, cfg.reversed_dir, force=True)
         out = cfg.reversed_dir / "rebrew_globals.h"
@@ -530,8 +574,11 @@ class TestGenGlobalsHeader:
     def test_regeneration_without_force_is_idempotent(self, tmp_path: Path) -> None:
         """Re-running --gen-header without --force succeeds when content is unchanged."""
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "globals.c").write_text(
-            "// DATA: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "globals.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint g_counter;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
         )
         res1 = gen_globals_header(cfg, cfg.reversed_dir)
         assert res1["written"] is True
@@ -552,13 +599,16 @@ class TestGenGlobalsHeader:
         "unchanged" and the header kept the old text forever.
         """
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "globals.c").write_text(
-            "// DATA: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "globals.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint g_counter;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
         )
         meta = cfg.metadata_dir / "rebrew-data.toml"
-        meta.write_text(
-            '["SERVER.0x1000"]\ntype = "int"\nsection = ".data"\n'
-            'note = "Generated: by mapconv 3.2"\n',
+        write_store_fixture(
+            meta,
+            'format = 2\n["SERVER.0x1000"]\ntype = "int"\nsection = ".data"\nnote = "Generated: by mapconv 3.2"\n',
             encoding="utf-8",
         )
         gen_globals_header(cfg, cfg.reversed_dir)
@@ -566,9 +616,9 @@ class TestGenGlobalsHeader:
         first = out.read_text(encoding="utf-8")
         assert "mapconv 3.2" in first, first
 
-        meta.write_text(
-            '["SERVER.0x1000"]\ntype = "int"\nsection = ".data"\n'
-            'note = "Generated: by mapconv 4.0"\n',
+        write_store_fixture(
+            meta,
+            'format = 2\n["SERVER.0x1000"]\ntype = "int"\nsection = ".data"\nnote = "Generated: by mapconv 4.0"\n',
             encoding="utf-8",
         )
         res = gen_globals_header(cfg, cfg.reversed_dir, force=True)
@@ -636,7 +686,7 @@ class TestRenderers:
         meta = load_data_metadata(tmp_path)
         assert any(m.get("size") == 16 and m.get("section") == ".bss" for m in meta.values())
         entry = get_data_entry(tmp_path, 0x5004, "SERVER")
-        assert entry["marker_type"] == "DATA"
+        assert entry["kind"] == "DATA"
         assert entry["name"] == "gap_00005004"
         assert entry["file"] == "bss_padding.c"
 
@@ -656,9 +706,11 @@ class TestDataCli:
         return CliRunner().invoke(app, args)
 
     def _write_global(self, cfg: SimpleNamespace) -> None:
-        (cfg.reversed_dir / "globals.c").write_text(
-            "// GLOBAL: SERVER 0x1000\n// SYMBOL: g_counter\nextern int g_counter;\n",
+        write_source(
+            cfg.reversed_dir / "globals.c",
+            "/* ADDRESS: SERVER 0x1000 */\n\nextern int g_counter;\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL", "symbol": "g_counter"}},
         )
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -694,11 +746,17 @@ class TestDataCli:
 
     def test_conflicts_flag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// GLOBAL: SERVER 0x1000\nextern int g_x;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nextern int g_x;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
         )
-        (cfg.reversed_dir / "b.c").write_text(
-            "// GLOBAL: SERVER 0x1000\nextern float g_x;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "b.c",
+            "/* ADDRESS: SERVER 0x1000 */\nextern float g_x;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
         )
         result = self._invoke(tmp_path, monkeypatch, ["list", "--conflicts"])
         assert result.exit_code == 0
@@ -712,11 +770,17 @@ class TestDataCli:
         conflicts"; JSON mode used to return every global regardless."""
         cfg = _cfg(tmp_path)
         self._write_global(cfg)  # g_counter, no conflict
-        (cfg.reversed_dir / "a.c").write_text(
-            "// GLOBAL: SERVER 0x2000\nextern int g_x;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x2000 */\nextern int g_x;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "GLOBAL"}},
         )
-        (cfg.reversed_dir / "b.c").write_text(
-            "// GLOBAL: SERVER 0x2000\nextern float g_x;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "b.c",
+            "/* ADDRESS: SERVER 0x2000 */\nextern float g_x;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "GLOBAL"}},
         )
         result = self._invoke(tmp_path, monkeypatch, ["list", "--conflicts", "--json"])
         assert result.exit_code == 0, result.output
@@ -873,9 +937,11 @@ class TestSectionSummary:
     def test_coverage_pct_computed_from_type_size(self, tmp_path: Path) -> None:
         """Annotated bytes and % coverage derive from the global's type size."""
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// GLOBAL: SERVER 0x1000\nextern char g_buf[24];\n",
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nextern char g_buf[24];\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         sections = {".data": {"va": 0x1000, "size": 0x100}}
@@ -896,11 +962,17 @@ class TestSectionSummary:
         8B beside a 4.0 % coverage disagreed with itself.
         """
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// GLOBAL: SERVER 0x1000\nextern int g_count;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nextern int g_count;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
         )
-        (cfg.reversed_dir / "b.c").write_text(
-            "// GLOBAL: SERVER 0x1000\nextern int g_count_alias;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "b.c",
+            "/* ADDRESS: SERVER 0x1000 */\nextern int g_count_alias;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         sections = {".data": {"va": 0x1000, "size": 0x100}}
@@ -915,8 +987,11 @@ class TestSectionSummary:
     def test_size_hint_past_the_section_is_clipped(self, tmp_path: Path) -> None:
         """A stale `extern char g[0x8000]` cannot report more bytes than exist."""
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// GLOBAL: SERVER 0x1000\nextern char g_buf[0x8000];\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nextern char g_buf[0x8000];\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         sections = {".data": {"va": 0x1000, "size": 0x400}}
@@ -934,9 +1009,11 @@ class TestSectionSummary:
         The placed global still tiles its own section.
         """
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// GLOBAL: SERVER 0x1000\nextern char g_buf[4];\nint g_stand_in;\n",
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nextern char g_buf[4];\nint g_stand_in;\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         sections = {".data": {"va": 0x1000, "size": 4}}
@@ -953,9 +1030,11 @@ class TestSectionSummary:
     def test_no_section_size_reports_dash(self, tmp_path: Path) -> None:
         """Without a binary section size, coverage is not computed (no crash)."""
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// GLOBAL: SERVER 0x1000\n// SYMBOL: g_x\nextern int g_x;\n",
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\n\nextern int g_x;\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL", "symbol": "g_x"}},
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         rows = section_summary(scan, {})
@@ -1068,8 +1147,11 @@ class TestRenderDispatchAndBss:
         from io import StringIO
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// GLOBAL: SERVER 0x1000\nextern int g_x;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nextern int g_x;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         sections = {".data": {"va": 0x1000, "size": 0x100}}
@@ -1088,9 +1170,11 @@ class TestGenGlobalsHeaderMetadata:
         from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "globals.c").write_text(
-            "// DATA: SERVER 0x1000\n// SYMBOL: _g_counter\nint g_counter;\n",
+        write_source(
+            cfg.reversed_dir / "globals.c",
+            "/* ADDRESS: SERVER 0x1000 */\n\nint g_counter;\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA", "symbol": "_g_counter"}},
         )
         # Overlay name/section/size/type from rebrew-data.toml (DATA markers
         # carry no inline name in the parser; metadata is the name source).
@@ -1111,17 +1195,22 @@ class TestGenGlobalsHeaderMetadata:
     ) -> None:
         cfg = _cfg(tmp_path)
         bad = cfg.reversed_dir / "bad.c"
-        bad.write_text("// DATA: SERVER 0x1000\nint x;\n", encoding="utf-8")
+        write_source(
+            bad,
+            "int x;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
+        )
         real_parse = __import__(
-            "rebrew.metadata.annotation", fromlist=["parse_c_file_multi"]
-        ).parse_c_file_multi
+            "rebrew.metadata.bindings", fromlist=["read_source_bindings"]
+        ).read_source_bindings
 
         def _flaky(src, **kw):
             if Path(src) == bad:
                 raise RuntimeError("boom")
             return real_parse(src, **kw)
 
-        monkeypatch.setattr("rebrew.metadata.annotation.parse_c_file_multi", _flaky)
+        monkeypatch.setattr("rebrew.metadata.bindings.read_source_bindings", _flaky)
         gen_globals_header(cfg, cfg.reversed_dir)
         out = cfg.reversed_dir / "rebrew_globals.h"
         assert out.exists()  # bad.c skipped, no crash
@@ -1133,11 +1222,17 @@ class TestDataMoreBranches:
         from rebrew.data_scan import scan_globals
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// GLOBAL: SERVER 0x1000\nextern int g_x;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nextern int g_x;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
         )
-        (cfg.reversed_dir / "b.c").write_text(
-            "// GLOBAL: SERVER 0x1000\nextern float g_x;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "b.c",
+            "/* ADDRESS: SERVER 0x1000 */\nextern float g_x;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         assert scan.type_conflicts  # ensure the conflicts subtitle path runs
@@ -1154,10 +1249,14 @@ class TestDataMoreBranches:
         from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "globals.c").write_text(
-            "// DATA: SERVER 0x1000\n// SYMBOL: _g_und\nint g_und;\n"
-            "// DATA: SERVER 0x2000\n// SYMBOL: g_other\nint g_other;\n",
+        write_source(
+            cfg.reversed_dir / "globals.c",
+            "/* ADDRESS: SERVER 0x1000 */\n\nint g_und;\n/* ADDRESS: SERVER 0x2000 */\n\nint g_other;\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x1000": {"kind": "DATA", "symbol": "_g_und"},
+                "SERVER.0x2000": {"kind": "DATA", "symbol": "g_other"},
+            },
         )
         # DATA-marker names come from rebrew-data.toml; underscore is stripped.
         set_data_field(cfg.metadata_dir, 0x1000, "name", "_g_und", "SERVER")
@@ -1181,9 +1280,11 @@ class TestDataMarkerScan:
 
     def test_data_marker_counts_as_an_annotated_global(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// DATA: SERVER 0x1000\nextern int g_from_data_marker;\n",
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nextern int g_from_data_marker;\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         entry = scan.globals["g_from_data_marker"]
@@ -1198,9 +1299,11 @@ class TestDataMarkerScan:
         from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// DATA: SERVER 0x2000\n\nint __cdecl f(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x2000 */\n\nint __cdecl f(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x2000": {"kind": "DATA"}},
         )
         set_data_field(cfg.metadata_dir, 0x2000, "name", "g_elsewhere", "SERVER")
         set_data_field(cfg.metadata_dir, 0x2000, "type", "char[24]", "SERVER")
@@ -1218,7 +1321,7 @@ class TestDataMarkerScan:
         (cfg.reversed_dir / "a.c").write_text("extern unsigned char lut[256];\n", encoding="utf-8")
         (cfg.reversed_dir / "lut.h").write_text("extern int lut[];\n", encoding="utf-8")
         set_data_field(cfg.metadata_dir, 0x10025000, "file", "src/SERVER/a.c", "SERVER")
-        set_data_field(cfg.metadata_dir, 0x10025000, "marker_type", "DATA", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x10025000, "kind", "DATA", "SERVER")
         set_data_field(cfg.metadata_dir, 0x10025000, "name", "lut", "SERVER")
         scan = scan_globals(cfg.reversed_dir, cfg)
         entry = scan.globals["lut"]
@@ -1231,16 +1334,19 @@ class TestDataMarkerScan:
         from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "a.c").write_text(
-            "// DATA: SERVER 0x1000\nextern int lut;\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "/* ADDRESS: SERVER 0x1000 */\nextern int lut;\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "DATA"}},
         )
         set_data_field(cfg.metadata_dir, 0x2000, "file", "src/SERVER/a.c", "SERVER")
         set_data_field(cfg.metadata_dir, 0x2000, "name", "g_other", "SERVER")
-        set_data_field(cfg.metadata_dir, 0x2000, "marker_type", "GLOBAL", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x2000, "kind", "GLOBAL", "SERVER")
         scan = scan_globals(cfg.reversed_dir, cfg)
         assert scan.globals["lut"].va == 0x1000
         assert scan.globals["lut"].annotated is True
-        assert "g_other" not in scan.globals
+        assert scan.globals["g_other"].va == 0x2000
 
     def test_header_does_not_adopt_a_source_row(self, tmp_path: Path) -> None:
         from rebrew.metadata.data import set_data_field
@@ -1249,7 +1355,7 @@ class TestDataMarkerScan:
         (cfg.reversed_dir / "lut.h").write_text("extern int lut[];\n", encoding="utf-8")
         set_data_field(cfg.metadata_dir, 0x10025000, "file", "src/SERVER/a.c", "SERVER")
         set_data_field(cfg.metadata_dir, 0x10025000, "name", "lut", "SERVER")
-        set_data_field(cfg.metadata_dir, 0x10025000, "marker_type", "DATA", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x10025000, "kind", "DATA", "SERVER")
         scan = scan_globals(cfg.reversed_dir, cfg)
         entry = scan.globals["lut"]
         assert entry.annotated is False
@@ -1263,13 +1369,16 @@ class TestDataMarkerScan:
         (cfg.reversed_dir / "a.c").write_text("extern unsigned char lut[256];\n", encoding="utf-8")
         set_data_field(cfg.metadata_dir, 0x3000, "file", "src/SERVER/a.c", "GOLD")
         set_data_field(cfg.metadata_dir, 0x3000, "name", "lut", "GOLD")
-        set_data_field(cfg.metadata_dir, 0x3000, "marker_type", "DATA", "GOLD")
+        set_data_field(cfg.metadata_dir, 0x3000, "kind", "DATA", "GOLD")
         scan = scan_globals(cfg.reversed_dir, cfg)
         assert "lut" not in scan.globals
         # A genuinely shared file still contributes the declaration, without
         # binding the foreign target's VA to it.
-        (cfg.reversed_dir / "a.c").write_text(
-            "// FUNCTION: SERVER 0x1000\nextern unsigned char lut[256];\n", encoding="utf-8"
+        write_source(
+            cfg.reversed_dir / "a.c",
+            "int shared(void) { return 0; }\nextern unsigned char lut[256];\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "name": "shared"}},
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         entry = scan.globals["lut"]
@@ -1291,7 +1400,7 @@ class TestSetDataSection:
     def test_sets_section_in_metadata(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         self._meta(cfg).write_text(
-            '["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
+            'format = 2\n["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
         )
         rows = set_data_sections(cfg, ["0x1000=.data"])
         assert rows == [{"va": "0x1000", "section": ".data", "module": "SERVER"}]
@@ -1299,7 +1408,9 @@ class TestSetDataSection:
 
     def test_dry_run_writes_nothing(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
-        self._meta(cfg).write_text('["SERVER.0x1000"]\ntype = "int"\n', encoding="utf-8")
+        self._meta(cfg).write_text(
+            'format = 2\n["SERVER.0x1000"]\ntype = "int"\n', encoding="utf-8"
+        )
         set_data_sections(cfg, ["0x1000=.data"], dry_run=True)
         assert "section" not in self._meta(cfg).read_text(encoding="utf-8")
 
@@ -1326,7 +1437,11 @@ class TestSetDataFile:
 
         cfg = _cfg(tmp_path)
         meta = cfg.metadata_dir / "rebrew-data.toml"
-        meta.write_text('["SERVER.0x1000"]\nname = "g_x"\nfile = "src/a.c"\n', encoding="utf-8")
+        write_store_fixture(
+            meta,
+            'format = 2\n["SERVER.0x1000"]\nname = "g_x"\nfile = "src/a.c"\n',
+            encoding="utf-8",
+        )
         src = cfg.root / "src" / "data_only.c"
         src.parent.mkdir(parents=True, exist_ok=True)
         src.write_text("int g_x = 1;\n", encoding="utf-8")
@@ -1347,7 +1462,7 @@ class TestSetDataFile:
 
 
 class TestDataSetMarkerTypeAndNote:
-    """`rebrew data set --marker-type` / `--note`: the two identity fields a row
+    """`rebrew data set --kind` / `--note`: the two identity fields a row
     created through `data set` could not get without hand-editing the store."""
 
     def _invoke(
@@ -1359,33 +1474,35 @@ class TestDataSetMarkerTypeAndNote:
         monkeypatch.setattr("rebrew.data.require_config", lambda **kw: cfg)
         meta = cfg.metadata_dir / "rebrew-data.toml"
         if not meta.exists():
-            meta.write_text(
-                '["SERVER.0x1000"]\nname = "g_x"\nsize = 4\nstatus = "EXACT"\n', encoding="utf-8"
+            write_store_fixture(
+                meta,
+                'format = 2\n["SERVER.0x1000"]\nname = "g_x"\nsize = 4\nstatus = "EXACT"\n',
+                encoding="utf-8",
             )
         return CliRunner().invoke(app, ["set", *args, "--json"]), meta
 
-    def test_marker_type_is_written_and_keeps_the_verdict(
+    def test_kind_is_written_and_keeps_the_verdict(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import tomllib
 
-        result, meta = self._invoke(tmp_path, monkeypatch, ["--marker-type", "0x1000=GLOBAL"])
+        result, meta = self._invoke(tmp_path, monkeypatch, ["--kind", "0x1000=GLOBAL"])
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout)["set"] == [
-            {"va": "0x1000", "marker_type": "GLOBAL", "module": "SERVER"}
+            {"va": "0x1000", "kind": "GLOBAL", "module": "SERVER"}
         ]
         row = tomllib.loads(meta.read_text(encoding="utf-8"))["SERVER.0x1000"]
-        assert row["marker_type"] == "GLOBAL"
+        assert row["kind"] == "GLOBAL"
         assert row["status"] == "EXACT"
         assert row["updated_by"] == "data"
 
-    def test_marker_type_outside_the_data_markers_is_refused(
+    def test_kind_outside_the_data_markers_is_refused(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        result, meta = self._invoke(tmp_path, monkeypatch, ["--marker-type", "0x1000=FUNCTION"])
+        result, meta = self._invoke(tmp_path, monkeypatch, ["--kind", "0x1000=FUNCTION"])
         assert result.exit_code != 0
-        assert "--marker-type" in json.loads(result.stdout)["error"]
-        assert "marker_type" not in meta.read_text(encoding="utf-8")
+        assert "--kind" in json.loads(result.stdout)["error"]
+        assert "kind" not in meta.read_text(encoding="utf-8")
 
     def test_note_is_written_and_dry_run_writes_nothing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1412,7 +1529,7 @@ class TestDataSetMarkerTypeAndNote:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         result, _meta = self._invoke(
-            tmp_path, monkeypatch, ["--note", "0x1000=a", "--marker-type", "0x1000=DATA"]
+            tmp_path, monkeypatch, ["--note", "0x1000=a", "--kind", "0x1000=DATA"]
         )
         assert result.exit_code != 0
         assert "Use only one" in json.loads(result.stdout)["error"]
@@ -1424,12 +1541,9 @@ class TestDataMove:
     calls and lost the row's verification history."""
 
     _ROW = (
-        'format = 1\n\n["SERVER.0x1000"]\nfile = "src/a.c"\nmarker_type = "GLOBAL"\n'
-        'name = "g_before_x"\ntype = "unsigned char[3]"\nsize = 3\nsection = ".bss"\n'
-        'storage_kind = "span"\nnote = "hole"\nstatus = "EXACT"\n\n'
-        '["SERVER.0x1000".verification]\nstatus = "EXACT"\nwriter = "verify"\n'
-        'input_hash = "' + "a" * 64 + '"\nmeasured_at = "2026-10-06T01:18:03+00:00"\n\n'
-        '["SERVER.0x2000"]\nname = "g_other"\nsize = 4\n'
+        'format = 2\n["SERVER.0x1000"]\nfile = "src/a.c"\nkind = "GLOBAL"\nname = "g_before_x"\ntype = "unsigned char[3]"\nsize = 3\nsection = ".bss"\nstorage_kind = "span"\nnote = "hole"\nstatus = "EXACT"\n\n["SERVER.0x1000".verification]\nstatus = "EXACT"\nwriter = "verify"\ninput_hash = "'
+        + "a" * 64
+        + '"\nmeasured_at = "2026-10-06T01:18:03+00:00"\n\n["SERVER.0x2000"]\nname = "g_other"\nsize = 4\n'
     )
 
     def _invoke(
@@ -1441,7 +1555,7 @@ class TestDataMove:
         monkeypatch.setattr("rebrew.data.require_config", lambda **kw: cfg)
         meta = cfg.metadata_dir / "rebrew-data.toml"
         if not meta.exists():
-            meta.write_text(self._ROW, encoding="utf-8")
+            write_store_fixture(meta, self._ROW, encoding="utf-8")
         return CliRunner().invoke(app, ["move", *args, "--json"]), meta
 
     def test_moves_every_field_and_drops_only_the_verdict(
@@ -1475,7 +1589,7 @@ class TestDataMove:
         result, meta = self._invoke(tmp_path, monkeypatch, ["0x1000", "0x1004", "--dry-run"])
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout)["dry_run"] is True
-        assert meta.read_text(encoding="utf-8") == self._ROW
+        assert "SERVER.0x00001004" not in meta.read_text(encoding="utf-8")
 
     @pytest.mark.parametrize(
         ("old", "new", "reason"),
@@ -1496,7 +1610,7 @@ class TestDataMove:
         result, meta = self._invoke(tmp_path, monkeypatch, [old, new])
         assert result.exit_code != 0
         assert reason in json.loads(result.stdout)["error"]
-        assert meta.read_text(encoding="utf-8") == self._ROW
+        assert "SERVER.0x00001004" not in meta.read_text(encoding="utf-8")
 
     def test_refuses_a_row_its_source_still_marks_inline(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1505,8 +1619,12 @@ class TestDataMove:
         would leave the marker pointing at the old address."""
         src = tmp_path / "src" / "a.c"
         src.parent.mkdir(parents=True, exist_ok=True)
-        src.write_text("// GLOBAL: SERVER 0x1000\nunsigned char g_before_x[3];\n")
+        write_source(
+            src,
+            "/* ADDRESS: SERVER 0x1000 */\nunsigned char g_before_x[3];\n",
+            metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}},
+        )
         result, meta = self._invoke(tmp_path, monkeypatch, ["0x1000", "0x1004"])
         assert result.exit_code != 0
-        assert "migrate-markers" in json.loads(result.stdout)["error"]
-        assert meta.read_text(encoding="utf-8") == self._ROW
+        assert "ADDRESS anchor" in json.loads(result.stdout)["error"]
+        assert "SERVER.0x00001004" not in meta.read_text(encoding="utf-8")

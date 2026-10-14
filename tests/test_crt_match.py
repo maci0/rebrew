@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from source_util import write_source
 
 from rebrew.config import ProjectConfig, load_config
 from rebrew.crt_match import (
@@ -363,14 +364,16 @@ class TestCollectLibraryAnnotations:
         from rebrew.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
-        (cfg.reversed_dir / "lib.c").write_text(
-            "// LIBRARY: SERVER 0x10001000\n// SYMBOL: _malloc\nint malloc(int n) { return n; }\n",
+        write_source(
+            cfg.reversed_dir / "lib.c",
+            "/* ADDRESS: SERVER 0x10001000 */\n\nint malloc(int n) { return n; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "LIBRARY", "symbol": "_malloc"}},
         )
         pairs = collect_library_annotations(cfg)
         assert len(pairs) == 1
         _, ann = pairs[0]
-        assert ann.marker_type == "LIBRARY"
+        assert ann.kind == "LIBRARY"
         assert ann.va == 0x10001000
 
     def test_library_marker_cross_module_collected(self, tmp_path: Path) -> None:
@@ -379,9 +382,11 @@ class TestCollectLibraryAnnotations:
         from rebrew.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
-        (cfg.reversed_dir / "lib.c").write_text(
-            "// LIBRARY: MSVCRT 0x10002000\n// SYMBOL: _fflush\nint fflush(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "lib.c",
+            "/* ADDRESS: MSVCRT 0x10002000 */\n\nint fflush(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"MSVCRT.0x10002000": {"kind": "LIBRARY", "symbol": "_fflush"}},
         )
         pairs = collect_library_annotations(cfg)
         assert len(pairs) == 1
@@ -392,9 +397,11 @@ class TestCollectLibraryAnnotations:
 
         cfg = self._cfg(tmp_path)
         cfg.library_modules = ["ZLIB"]
-        (cfg.reversed_dir / "zlib.c").write_text(
-            "// FUNCTION: ZLIB 0x10003000\n// SYMBOL: _inflate\nint inflate(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "zlib.c",
+            "/* ADDRESS: ZLIB 0x10003000 */\n\nint inflate(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"ZLIB.0x10003000": {"kind": "FUNCTION", "symbol": "_inflate"}},
         )
         pairs = collect_library_annotations(cfg)
         assert len(pairs) == 1
@@ -405,9 +412,11 @@ class TestCollectLibraryAnnotations:
         from rebrew.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
-        (cfg.reversed_dir / "own.c").write_text(
-            "// FUNCTION: SERVER 0x10004000\nint own(void) { return 0; }\n",
+        write_source(
+            cfg.reversed_dir / "own.c",
+            "/* ADDRESS: SERVER 0x10004000 */\nint own(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10004000": {"kind": "FUNCTION"}},
         )
         assert collect_library_annotations(cfg) == []
 
@@ -417,13 +426,17 @@ class TestCollectLibraryAnnotations:
 
         cfg = self._cfg(tmp_path)
         cfg.library_modules = ["MSVCRT"]
-        (cfg.reversed_dir / "data.c").write_text(
-            "// GLOBAL: MSVCRT 0x10005000\n// SYMBOL: g_buf\nchar g_buf[16];\n",
+        write_source(
+            cfg.reversed_dir / "data.c",
+            "/* ADDRESS: MSVCRT 0x10005000 */\n\nchar g_buf[16];\n",
             encoding="utf-8",
+            metadata_fields={"MSVCRT.0x10005000": {"kind": "GLOBAL", "symbol": "g_buf"}},
         )
-        (cfg.reversed_dir / "data2.c").write_text(
-            "// DATA: MSVCRT 0x10005100\n// SYMBOL: g_tbl\nint g_tbl[4];\n",
+        write_source(
+            cfg.reversed_dir / "data2.c",
+            "/* ADDRESS: MSVCRT 0x10005100 */\n\nint g_tbl[4];\n",
             encoding="utf-8",
+            metadata_fields={"MSVCRT.0x10005100": {"kind": "DATA", "symbol": "g_tbl"}},
         )
         assert collect_library_annotations(cfg) == []
 
@@ -464,9 +477,12 @@ class TestMatchAll:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "lib.c").write_text(
-            "// LIBRARY: MSVCRT 0x10001000\n// SYMBOL: _malloc\nint malloc(int n) { return n; }\n",
+        write_source(
+            src / "lib.c",
+            "/* ADDRESS: MSVCRT 0x10001000 */\n\nint malloc(int n) { return n; }\n",
             encoding="utf-8",
+            metadata_fields={"MSVCRT.0x10001000": {"kind": "LIBRARY", "symbol": "_malloc"}},
+            metadata_dir=tmp_path,
         )
         crt = tmp_path / "crt"
         crt.mkdir()
@@ -500,9 +516,12 @@ class TestMatchAll:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "lib.c").write_text(
-            "// LIBRARY: ZLIB 0x10001000\n// SYMBOL: _inflate\nint inflate(void) { return 0; }\n",
+        write_source(
+            src / "lib.c",
+            "/* ADDRESS: ZLIB 0x10001000 */\n\nint inflate(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"ZLIB.0x10001000": {"kind": "LIBRARY", "symbol": "_inflate"}},
+            metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(
             reversed_dir=src,
@@ -596,9 +615,11 @@ class TestCrtMatchCli:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "lib.c").write_text(
-            "// LIBRARY: MSVCRT 0x10001000\n// SYMBOL: _malloc\nint malloc(int n) { return n; }\n",
+        write_source(
+            src / "lib.c",
+            "/* ADDRESS: MSVCRT 0x10001000 */\n\nint malloc(int n) { return n; }\n",
             encoding="utf-8",
+            metadata_fields={"MSVCRT.0x10001000": {"kind": "LIBRARY", "symbol": "_malloc"}},
         )
         crt = tmp_path / "crt"
         crt.mkdir()
@@ -623,9 +644,11 @@ class TestCrtMatchCli:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "lib.c").write_text(
-            "// LIBRARY: MSVCRT 0x10001000\n// SYMBOL: _malloc\nint malloc(int n) { return n; }\n",
+        write_source(
+            src / "lib.c",
+            "/* ADDRESS: MSVCRT 0x10001000 */\n\nint malloc(int n) { return n; }\n",
             encoding="utf-8",
+            metadata_fields={"MSVCRT.0x10001000": {"kind": "LIBRARY", "symbol": "_malloc"}},
         )
         crt = tmp_path / "crt"
         crt.mkdir()
@@ -648,9 +671,11 @@ class TestCrtMatchCli:
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
         lib_c = src / "lib.c"
-        lib_c.write_text(
-            "// LIBRARY: MSVCRT 0x10001000\n// SYMBOL: _malloc\nint malloc(int n) { return n; }\n",
+        write_source(
+            lib_c,
+            "/* ADDRESS: MSVCRT 0x10001000 */\n\nint malloc(int n) { return n; }\n",
             encoding="utf-8",
+            metadata_fields={"MSVCRT.0x10001000": {"kind": "LIBRARY", "symbol": "_malloc"}},
         )
         crt = tmp_path / "crt"
         crt.mkdir()
@@ -672,9 +697,11 @@ class TestCrtMatchCli:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "lib.c").write_text(
-            "// LIBRARY: MSVCRT 0x10001000\n// SYMBOL: _nope\nint nope(void) { return 0; }\n",
+        write_source(
+            src / "lib.c",
+            "/* ADDRESS: MSVCRT 0x10001000 */\n\nint nope(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"MSVCRT.0x10001000": {"kind": "LIBRARY", "symbol": "_nope"}},
         )
         crt = tmp_path / "crt"
         crt.mkdir()
@@ -744,7 +771,13 @@ class TestCrtMatchCliBranches:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "anon.c").write_text("// LIBRARY: MSVCRT 0x10001000\n", encoding="utf-8")
+        write_source(
+            src / "anon.c",
+            "/* library inventory */\n",
+            encoding="utf-8",
+            metadata_fields={"MSVCRT.0x10001000": {"kind": "LIBRARY"}},
+            metadata_dir=tmp_path,
+        )
         crt = tmp_path / "crt"
         crt.mkdir()
         cfg = SimpleNamespace(
@@ -774,9 +807,12 @@ class TestCrtMatchCliBranches:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "zlib.c").write_text(
-            "// LIBRARY: ZLIB 0x10001000\n// SYMBOL: _inflate\nint inflate(void) { return 0; }\n",
+        write_source(
+            src / "zlib.c",
+            "/* ADDRESS: ZLIB 0x10001000 */\n\nint inflate(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"ZLIB.0x10001000": {"kind": "LIBRARY", "symbol": "_inflate"}},
+            metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(
             reversed_dir=src,
@@ -802,9 +838,12 @@ class TestCrtMatchCliBranches:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "lib.c").write_text(
-            "// LIBRARY: MSVCRT 0x10001000\n// SYMBOL: _malloc\nint malloc(int n) { return n; }\n",
+        write_source(
+            src / "lib.c",
+            "/* ADDRESS: MSVCRT 0x10001000 */\n\nint malloc(int n) { return n; }\n",
             encoding="utf-8",
+            metadata_fields={"MSVCRT.0x10001000": {"kind": "LIBRARY", "symbol": "_malloc"}},
+            metadata_dir=tmp_path,
         )
         crt = tmp_path / "crt"
         crt.mkdir()
@@ -834,9 +873,12 @@ class TestCrtMatchCliBranches:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "lib.c").write_text(
-            "// LIBRARY: MSVCRT 0x10001000\n// SYMBOL: _malloc\nint malloc(int n) { return n; }\n",
+        write_source(
+            src / "lib.c",
+            "/* ADDRESS: MSVCRT 0x10001000 */\n\nint malloc(int n) { return n; }\n",
             encoding="utf-8",
+            metadata_fields={"MSVCRT.0x10001000": {"kind": "LIBRARY", "symbol": "_malloc"}},
+            metadata_dir=tmp_path,
         )
         crt = tmp_path / "crt"
         crt.mkdir()
@@ -863,9 +905,12 @@ class TestCrtMatchCliBranches:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "lib.c").write_text(
-            "// LIBRARY: SERVER 0x10001000\n// SYMBOL: _free\nint free(void *p) { return 0; }\n",
+        write_source(
+            src / "lib.c",
+            "/* ADDRESS: SERVER 0x10001000 */\n\nint free(void *p) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "LIBRARY", "symbol": "_free"}},
+            metadata_dir=tmp_path,
         )
         crt = tmp_path / "crt"
         crt.mkdir()
@@ -897,14 +942,22 @@ class TestFixSourceDryRun:
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
         header = src / "library_msvc.h"
-        header.write_text("// LIBRARY: MSVCRT 0x1000\n// _malloc\n", encoding="utf-8")
+        write_source(
+            header,
+            "\n// _malloc\n",
+            encoding="utf-8",
+            metadata_fields={
+                "MSVCRT.0x1000": {"kind": "LIBRARY", "name": "malloc", "symbol": "_malloc"}
+            },
+            metadata_dir=tmp_path,
+        )
         (tmp_path / "md").mkdir(exist_ok=True)
         crt = tmp_path / "crt"
         crt.mkdir()
         (crt / "MALLOC.C").write_text("int malloc(int n) { return n; }\n", encoding="utf-8")
         cfg = SimpleNamespace(
             reversed_dir=src,
-            metadata_dir=tmp_path / "md",
+            metadata_dir=tmp_path,
             marker="SERVER",
             source_ext=".c",
             root=tmp_path,
@@ -924,7 +977,7 @@ class TestFixSourceDryRun:
         assert "Would update SOURCE annotations: 1" in result.output
         from rebrew.metadata.functions import get_entry
 
-        assert get_entry(cfg.metadata_dir, 0x1000, "MSVCRT") == {}  # nothing written
+        assert "source" not in get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")
 
 
 class TestSourceAutoWritable:
@@ -977,9 +1030,12 @@ class TestSourceAutoWritable:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "lib.c").write_text(
-            "// LIBRARY: MSVCRT 0x10001000\n// SYMBOL: _qsort\nint qsort(void) { return 0; }\n",
+        write_source(
+            src / "lib.c",
+            "/* ADDRESS: MSVCRT 0x10001000 */\n\nint qsort(void) { return 0; }\n",
             encoding="utf-8",
+            metadata_fields={"MSVCRT.0x10001000": {"kind": "LIBRARY", "symbol": "_qsort"}},
+            metadata_dir=tmp_path,
         )
         crt = tmp_path / "crt"
         crt.mkdir()
@@ -1030,9 +1086,11 @@ class TestSingleVaModuleFallback:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "lib.c").write_text(
-            "// LIBRARY: SERVER 0x10001000\n// SYMBOL: _malloc\nint malloc(int n) { return n; }\n",
+        write_source(
+            src / "lib.c",
+            "/* ADDRESS: SERVER 0x10001000 */\n\nint malloc(int n) { return n; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "LIBRARY", "symbol": "_malloc"}},
         )
         crt = tmp_path / "crt"
         crt.mkdir()
@@ -1054,9 +1112,11 @@ class TestSingleVaModuleFallback:
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "lib.c").write_text(
-            "// LIBRARY: SERVER 0x10001000\n// SYMBOL: _malloc\nint malloc(int n) { return n; }\n",
+        write_source(
+            src / "lib.c",
+            "/* ADDRESS: SERVER 0x10001000 */\n\nint malloc(int n) { return n; }\n",
             encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "LIBRARY", "symbol": "_malloc"}},
         )
         cfg = self._cfg(tmp_path, crt_sources={})
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)

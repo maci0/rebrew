@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from source_util import write_source
 
 from rebrew.config import ProjectConfig
 from rebrew.formats.binary_loader import detect_source_language
@@ -305,27 +306,33 @@ def test_load_existing_vas_with_cfg(tmp_path: Path) -> None:
 
     # Create a .cpp file with annotation
     cpp_file = tmp_path / "my_func.cpp"
-    cpp_file.write_text(
-        "// FUNCTION: SERVER 0x10001000\n"
-        "// STATUS: STUB\n"
-        "// ORIGIN: GAME\n"
-        "// SIZE: 100\n"
-        "// CFLAGS: /O2\n"
-        "// SYMBOL: _my_func\n"
-        "int my_func(void) { return 0; }\n",
+    write_source(
+        cpp_file,
+        "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\nint my_func(void) { return 0; }\n",
         encoding="utf-8",
+        metadata_fields={
+            "SERVER.0x10001000": {
+                "kind": "FUNCTION",
+                "size": 100,
+                "cflags": "/O2",
+                "symbol": "_my_func",
+            }
+        },
     )
     # Also create a .c file that should NOT be found with .cpp config
     c_file = tmp_path / "other.c"
-    c_file.write_text(
-        "// FUNCTION: SERVER 0x10002000\n"
-        "// STATUS: STUB\n"
-        "// ORIGIN: GAME\n"
-        "// SIZE: 50\n"
-        "// CFLAGS: /O2\n"
-        "// SYMBOL: _other\n"
-        "int other(void) { return 0; }\n",
+    write_source(
+        c_file,
+        "/* ADDRESS: SERVER 0x10002000 */\n\n\n\n\n\nint other(void) { return 0; }\n",
         encoding="utf-8",
+        metadata_fields={
+            "SERVER.0x10002000": {
+                "kind": "FUNCTION",
+                "size": 50,
+                "cflags": "/O2",
+                "symbol": "_other",
+            }
+        },
     )
 
     cfg_cpp = ProjectConfig(root=Path("/tmp"), source_ext=".cpp")

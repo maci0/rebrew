@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -31,9 +32,11 @@ def _project(tmp_path: Path, body: str) -> None:
     src.mkdir(parents=True)
     (tmp_path / "src" / "shared").mkdir()
     shutil.copy(_FIXTURES / "mini_pe.exe", tmp_path / "a.exe")
-    (src / "fn.c").write_text(
-        f"// FUNCTION: A 0x{_VA:08x}\n{body}\n",
+    write_source(
+        src / "fn.c",
+        f"/* ADDRESS: A 0x{_VA:08x} */\n{body}\n",
         encoding="utf-8",
+        metadata_fields={f"A.0x{_VA:08x}": {"kind": "FUNCTION"}},
     )
 
 

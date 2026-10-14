@@ -10,14 +10,16 @@ Source annotations and the locked metadata stores: every read and write of `rebr
 | `data.py` | `rebrew-data.toml` store for DATA/GLOBAL rows |
 | `document.py` | Qualified-key algebra, document cache and write lock shared by both stores |
 | `model.py` | `MetadataEntry`: typed view and validation of a function entry |
-| `annotation.py` | `Annotation` and the parser that merges source markers with stored fields |
-| `marker_migration.py` | Move inline markers into the stores (`rebrew source migrate-markers`) |
-| `source_provenance.py` | Target-scoped original-assembly evidence for definitions without a VA |
+| `anchors.py` | Optional ADDRESS comments bound to the next C declaration through the AST |
+| `bindings.py` | `SourceBinding`, joining current addresses with canonical metadata |
+| `source_provenance.py` | Original-assembly evidence and target-scoped support file purposes |
 
 Externals (the only packages this one may import): `c_parser`, `compiler.toolchain`, `config`, `errors`, `registry`, `utils`, `workspace`. `compiler.toolchain` is a lazy read of the toolchain table for `TOOLCHAIN` validation. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
 ## Contracts
 
 - **Writers lock and write 0444.** Store writes go through `utils.atomic_write_locked` under `document.metadata_write_lock`; a new writer reuses them instead of opening the TOML itself.
-- **Commands live outside.** `rebrew source migrate-markers` (`migrate_markers.py`), `rebrew blocker` and the other commands that edit metadata stay at the package root.
+- **Commands live outside.** `rebrew source register` (`source_register.py`), `rebrew blocker` and the other commands that edit metadata stay at the package root.
 - **`type_metadata.py` stays outside.** The type store compiles probes and hashes headers, so it imports the compile path this package must not.
+
+- **Current format only.** Format 2 is mandatory. No inline metadata block parser or migration reader. All state, including reconstruction source, STRUCT/CALLERS and support purposes, belongs in the stores.

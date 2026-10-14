@@ -4,12 +4,13 @@ import json
 from pathlib import Path
 
 import pytest
+from source_util import write_source
 
 from rebrew.catalog.loaders import scan_reversed_dir
 from rebrew.config import ProjectConfig
 from rebrew.function_providers import bind_library_source, resolve_library_providers
-from rebrew.metadata.annotation import Annotation
-from rebrew.metadata.functions import record_migrated_markers
+from rebrew.metadata.bindings import SourceBinding
+from rebrew.metadata.functions import record_function_rows
 
 
 def _project(tmp_path: Path) -> ProjectConfig:
@@ -25,10 +26,19 @@ class TestCompiledSources:
         cfg = _project(tmp_path)
         source = tmp_path / "vendor.c"
         source.write_text("int checksum(void) { return 7; }\n")
-        (cfg.reversed_dir / "library_vendor.h").write_text(
-            "// LIBRARY: GAME 0x10001000\n// _checksum\n// SIZE: 7\n"
+        write_source(
+            cfg.reversed_dir / "library_vendor.h",
+            "\n// _checksum\n\n",
+            metadata_fields={
+                "GAME.0x10001000": {
+                    "kind": "LIBRARY",
+                    "size": 7,
+                    "name": "checksum",
+                    "symbol": "_checksum",
+                }
+            },
         )
-        record_migrated_markers(
+        record_function_rows(
             cfg.metadata_dir,
             [
                 {
@@ -38,7 +48,7 @@ class TestCompiledSources:
                         "file": "vendor.c",
                         "symbol": "_checksum",
                         "name": "checksum",
-                        "marker_type": "LIBRARY",
+                        "kind": "LIBRARY",
                     },
                     "fields": {"size": 7},
                 }
@@ -60,8 +70,17 @@ class TestCompiledSources:
         cfg = _project(tmp_path)
         source = tmp_path / "vendor.c"
         source.write_text("int checksum(void) { return 7; }\n")
-        (cfg.reversed_dir / "library_vendor.h").write_text(
-            "// LIBRARY: GAME 0x10001000\n// checksum\n// SIZE: 7\n"
+        write_source(
+            cfg.reversed_dir / "library_vendor.h",
+            "\n// checksum\n\n",
+            metadata_fields={
+                "GAME.0x10001000": {
+                    "kind": "LIBRARY",
+                    "size": 7,
+                    "name": "checksum",
+                    "symbol": "checksum",
+                }
+            },
         )
         monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
         args = ["bind-source", "0x10001000", str(source), "--symbol", "_checksum", "--json"]
@@ -72,11 +91,11 @@ class TestCompiledSources:
         assert json.loads(result.stdout)["provider"] == "compiled"
         metadata = load_metadata(cfg.metadata_dir)
         if dry_run:
-            assert metadata == {}
+            assert metadata[("GAME", 0x10001000)]["file"] == "src/library_vendor.h"
         else:
-            assert metadata[("GAME", 0x10001000)]["marker_type"] == "LIBRARY"
+            assert metadata[("GAME", 0x10001000)]["kind"] == "LIBRARY"
             assert metadata[("GAME", 0x10001000)]["file"] == "vendor.c"
-            assert "status" not in metadata[("GAME", 0x10001000)]
+            assert metadata[("GAME", 0x10001000)]["status"] == "STUB"
 
     def test_header_binding_includes_reference_source_without_an_inline_marker(
         self, tmp_path: Path
@@ -85,11 +104,26 @@ class TestCompiledSources:
         source = tmp_path / "references" / "vendor.c"
         source.parent.mkdir()
         source.write_text("int checksum(void) { return 7; }\n")
-        (cfg.reversed_dir / "library_vendor.h").write_text(
-            "// LIBRARY: GAME 0x10001000\n// readable_checksum\n// SIZE: 7\n"
-            "// LIBRARY: OTHER 0x10002000\n// other\n// SIZE: 5\n"
+        write_source(
+            cfg.reversed_dir / "library_vendor.h",
+            "\n// readable_checksum\n\n\n// other\n\n",
+            metadata_fields={
+                "GAME.0x10001000": {
+                    "kind": "LIBRARY",
+                    "size": 7,
+                    "name": "readable_checksum",
+                    "symbol": "readable_checksum",
+                },
+                "OTHER.0x10002000": {
+                    "kind": "LIBRARY",
+                    "size": 5,
+                    "name": "other",
+                    "symbol": "other",
+                },
+            },
+            metadata_dir=cfg.metadata_dir,
         )
-        record_migrated_markers(
+        record_function_rows(
             cfg.metadata_dir,
             [
                 {
@@ -98,7 +132,7 @@ class TestCompiledSources:
                     "identity": {
                         "file": "references/vendor.c",
                         "symbol": "_checksum",
-                        "marker_type": "LIBRARY",
+                        "kind": "LIBRARY",
                     },
                 }
             ],
@@ -108,17 +142,20 @@ class TestCompiledSources:
         entry = entries[0]
         assert entry.filepath == "../references/vendor.c"
         assert entry.symbol == "_checksum"
-        assert entry.marker_type == "LIBRARY"
+        assert entry.kind == "LIBRARY"
         assert entry.status == "STUB"  # identification is not source verification
 
         from rebrew.cli import resolve_source_arg
-        from rebrew.metadata.annotation import parse_c_file_multi
+        from rebrew.metadata.bindings import read_source_bindings
 
         assert resolve_source_arg(cfg, "0x10001000") == source
-        source.write_text(
-            "// DATA: GAME 0x10003000\nint seed = 7;\nint checksum(void) { return seed; }\n"
+        write_source(
+            source,
+            "/* ADDRESS: GAME 0x10003000 */\nint seed = 7;\nint checksum(void) { return seed; }\n",
+            metadata_fields={"GAME.0x10003000": {"kind": "DATA"}},
+            metadata_dir=cfg.metadata_dir,
         )
-        parsed = parse_c_file_multi(source, target_name="GAME", metadata_dir=cfg.metadata_dir)
+        parsed = read_source_bindings(source, target_name="GAME", metadata_dir=cfg.metadata_dir)
         assert {row.va for row in parsed} == {0x10001000, 0x10003000}
 
     def test_load_data_counts_compiled_library_outside_the_reversed_tree(
@@ -133,7 +170,7 @@ class TestCompiledSources:
         source = tmp_path / "references" / "zlib" / "adler32.c"
         source.parent.mkdir(parents=True)
         source.write_text("unsigned adler32(void) { return 1; }\n", encoding="utf-8")
-        record_migrated_markers(
+        record_function_rows(
             cfg.metadata_dir,
             [
                 {
@@ -143,7 +180,7 @@ class TestCompiledSources:
                         "file": "references/zlib/adler32.c",
                         "symbol": "_adler32",
                         "name": "adler32",
-                        "marker_type": "LIBRARY",
+                        "kind": "LIBRARY",
                     },
                 },
                 {
@@ -152,7 +189,7 @@ class TestCompiledSources:
                     "identity": {
                         "file": "references/zlib/adler32.c",
                         "symbol": "_other",
-                        "marker_type": "LIBRARY",
+                        "kind": "LIBRARY",
                     },
                 },
             ],
@@ -161,7 +198,7 @@ class TestCompiledSources:
         assert 0x10001000 in existing
         assert 0x10002000 not in existing
         row = existing[0x10001000]
-        assert row["marker_type"] == "LIBRARY"
+        assert row["kind"] == "LIBRARY"
         assert row["symbol"] == "_adler32"
         assert row["filename"] == "../references/zlib/adler32.c"
         assert covered[0x10001000] == row["filename"]
@@ -179,7 +216,7 @@ class TestCompiledSources:
         source.write_text("int checksum(void) { return 7; }\n")
         header = cfg.reversed_dir / "library_vendor.h"
         header.write_text("int checksum(void);\n")
-        record_migrated_markers(
+        record_function_rows(
             cfg.metadata_dir,
             [
                 {
@@ -189,7 +226,7 @@ class TestCompiledSources:
                         "file": "library_vendor.h",
                         "symbol": "_checksum",
                         "name": "checksum",
-                        "marker_type": "LIBRARY",
+                        "kind": "LIBRARY",
                     },
                     "fields": {"size": 7},
                 }
@@ -207,10 +244,10 @@ class TestCompiledSources:
         entry = entries[0]
         assert entry.module == "GAME" and entry.va == 0x10001000
         assert entry.filepath == "../vendor.c" and entry.symbol == "_checksum"
-        assert entry.marker_type == "LIBRARY" and entry.size == 7
+        assert entry.kind == "LIBRARY" and entry.size == 7
         assert _library_header_rows(cfg)[entry.va]["symbol"] == "_checksum"
 
-        record_migrated_markers(
+        record_function_rows(
             cfg.metadata_dir,
             [{"module": "GAME", "va": entry.va, "identity": {"symbol": "_changed"}}],
         )
@@ -220,7 +257,7 @@ class TestCompiledSources:
         cfg = _project(tmp_path)
         entry = bind_library_source(
             cfg,
-            Annotation(va=0x10001000, filepath="library_vendor.h", marker_type="LIBRARY"),
+            SourceBinding(va=0x10001000, filepath="library_vendor.h", kind="LIBRARY"),
             {"file": "references/missing.c", "symbol": "_missing"},
         )
         from rebrew.verify import verify_entry
@@ -231,14 +268,14 @@ class TestCompiledSources:
     def test_binding_rejects_escaping_identities(self, tmp_path: Path, stored: str) -> None:
         cfg = _project(tmp_path)
         with pytest.raises(ValueError):
-            bind_library_source(cfg, Annotation(), {"file": stored})
+            bind_library_source(cfg, SourceBinding(), {"file": stored})
 
     def test_binding_rejects_a_symlink_outside_the_project(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
         source = tmp_path / "vendor.c"
         source.symlink_to(tmp_path.parent / "outside.c")
         with pytest.raises(ValueError):
-            bind_library_source(cfg, Annotation(), {"file": "vendor.c"})
+            bind_library_source(cfg, SourceBinding(), {"file": "vendor.c"})
 
 
 class TestProviderEvidence:
@@ -266,7 +303,7 @@ class TestProviderEvidence:
             0x10003000: {"name": "local", "symbol": "_local"},
         }
         entries = [
-            Annotation(
+            SourceBinding(
                 va=0x10001000, name="vendor", symbol="_vendor", filepath="../references/vendor.c"
             )
         ]

@@ -32,7 +32,7 @@ from rebrew.cli import (
     require_non_negative,
 )
 from rebrew.config import ProjectConfig
-from rebrew.metadata.annotation import parse_c_file_multi
+from rebrew.metadata.bindings import read_source_bindings
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.sources import (
     iter_sources,
@@ -150,27 +150,19 @@ def _func_label(entry: Any, fallback: str) -> str:
 
 
 def _block_va(block: str) -> int | None:
-    """VA from the first marker line in *block*, or None."""
-    from rebrew.metadata.annotation import NEW_FUNC_CAPTURE_RE
+    """Address of the first declaration-bound anchor, if present."""
+    from rebrew.metadata.anchors import parse_address_anchors
 
-    for line in block.splitlines():
-        m = NEW_FUNC_CAPTURE_RE.match(line.strip())
-        if m:
-            with contextlib.suppress(ValueError):
-                return int(m.group("va"), 16)
-    return None
+    anchors = parse_address_anchors(block)
+    return anchors[0].va if anchors else None
 
 
 def _split_entry_blocks(text: str) -> list[str]:
-    """Split *text* into per-annotation blocks at marker lines."""
-    from rebrew.metadata.annotation import NEW_FUNC_CAPTURE_RE
+    """Split at complete address groups, keeping shared targets together."""
+    from rebrew.metadata.bindings import split_address_sections
 
-    lines = text.splitlines(keepends=True)
-    starts = [idx for idx, line in enumerate(lines) if NEW_FUNC_CAPTURE_RE.match(line.strip())]
-    if not starts:
-        return [text]
-    ends = [*starts[1:], len(lines)]
-    return ["".join(lines[a:b]) for a, b in zip(starts, ends, strict=True)]
+    _preamble, blocks = split_address_sections(text)
+    return blocks or [text]
 
 
 def _register_spellings(name_lookup: dict[str, str], label: str, key: str) -> None:
@@ -303,7 +295,7 @@ def build_graph(
     file_callers: list[tuple[Path, str, str, str]] = []
 
     # Single pass: collect all reversed functions and cache file text.
-    # Uses parse_c_file_multi to capture every annotation in multi-function files.
+    # Uses read_source_bindings to capture every annotation in multi-function files.
     from rebrew.utils import rel_display_path
 
     # Cache file text so _extract_callees doesn't re-read from disk
@@ -321,15 +313,11 @@ def build_graph(
                 log.warning("skipping unreadable source %s: %s", cfile, exc)
                 continue
         text = _file_text_cache[cfile]
-        # VA -> block, built once per file: the per-entry lookup below would
-        # otherwise re-run _block_va's marker regex over every block for every
-        # entry, which is quadratic in the functions of a merged TU.
-        blocks_by_va: dict[int, str] = {}
-        for b in _split_entry_blocks(text):
-            bva = _block_va(b)
-            if bva is not None:
-                blocks_by_va.setdefault(bva, b)
-        for entry in parse_c_file_multi(
+        from rebrew.c_parser import find_c_function_definitions, find_variable_roles
+
+        lines_by_name = dict(find_c_function_definitions(text))
+        externs = _extract_callees(cfile, text)
+        for entry in read_source_bindings(
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
         ):
             if entry.is_data:
@@ -346,27 +334,35 @@ def build_graph(
             }
             # Every spelling of the symbol resolves to this node
             _register_spellings(name_lookup, label, key)
-            # The entry's own annotation block carries its externs — a
-            # merged TU's union of externs no longer leaks across functions.
-            own_va = int(getattr(entry, "va", 0) or 0)
-            own = blocks_by_va.get(own_va, text)
+            line = lines_by_name.get(entry.name)
+            if line is not None:
+
+                def selected_function(number: int, wanted: int = line) -> bool:
+                    return number == wanted
+
+                _, _, uses = find_variable_roles(text, function_filter=selected_function)
+                own = "\n".join(f"extern int {name}(void);" for name in externs if name in uses)
+            else:
+                own = text
             file_callers.append((cfile, key, label, own))
 
     # library_*.h entries (identify-library / crt-match --fix-source) are
     # counted by the summary and now listed in the function table, so the graph
-    # must show them too.  The minimal marker format needs parse_library_header
-    # (parse_c_file_multi does not read it) and headers carry no bodies, so only
+    # must show them too.  The minimal marker format needs library_bindings_for_file
+    # (read_source_bindings does not read it) and headers carry no bodies, so only
     # nodes are added.
-    from rebrew.metadata.annotation import (
-        library_annotations_from_metadata,
+    from rebrew.metadata.bindings import (
+        library_bindings_for_file,
+        library_inventory_bindings,
         min_valid_va_for,
-        parse_library_header,
     )
     from rebrew.sources import iter_library_headers
 
     for header in iter_library_headers(reversed_dir, cfg):
         header_rel = rel_display_path(header, reversed_dir)
-        for entry in parse_library_header(header, metadata_dir=cfg.metadata_dir if cfg else None):
+        for entry in library_bindings_for_file(
+            header, metadata_dir=cfg.metadata_dir if cfg else None
+        ):
             if entry.va < min_valid_va_for(cfg):
                 continue
             key = _func_key(entry, header.stem)
@@ -381,7 +377,7 @@ def build_graph(
             _register_spellings(name_lookup, label, key)
 
     if cfg is not None and getattr(cfg, "metadata_dir", None) is not None:
-        for entry in library_annotations_from_metadata(cfg.metadata_dir, reversed_dir):
+        for entry in library_inventory_bindings(cfg.metadata_dir, reversed_dir):
             if entry.va < min_valid_va_for(cfg):
                 continue
             key = _func_key(entry, Path(entry.filepath).stem or "library")

@@ -7,7 +7,7 @@ extraction from C source, and known ASM-only function detection.
 Usage:
     rebrew library crt-match 0x10006c00              Match a single VA
     rebrew library crt-match --all                   Match all LIBRARY-marker functions
-    rebrew library crt-match --fix-source --all      Auto-write // SOURCE: annotations
+    rebrew library crt-match --fix-source --all      Record library source provenance in metadata
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.metadata.annotation import Annotation, parse_c_file_multi, update_annotation_key
+from rebrew.metadata.bindings import SourceBinding, read_source_bindings, set_binding_field
 from rebrew.naming import normalize_name
 from rebrew.sources import (
     iter_library_headers,
@@ -311,7 +311,7 @@ def match_function(
 
 def collect_library_annotations(
     cfg: ProjectConfig,
-) -> list[tuple[Path, Annotation]]:
+) -> list[tuple[Path, SourceBinding]]:
     """Collect LIBRARY-marker annotations from source files.
 
     ``reversed_dir`` is per-target (``src/<marker>``), so the module filter
@@ -321,7 +321,7 @@ def collect_library_annotations(
     convention); only FUNCTION/LIBRARY markers are collected, so GLOBAL/DATA
     annotations never match against the CRT index.
     """
-    annotations: list[tuple[Path, Annotation]] = []
+    annotations: list[tuple[Path, SourceBinding]] = []
     library_modules = {preset_module_key(m) for m in getattr(cfg, "library_modules", [])}
 
     # Library functions live in `library_*.h` headers as well as .c files;
@@ -329,11 +329,13 @@ def collect_library_annotations(
     for source_path in iter_sources(cfg.reversed_dir, cfg) + iter_library_headers(
         cfg.reversed_dir, cfg
     ):
-        for ann in parse_c_file_multi(source_path, target_name=None, metadata_dir=cfg.metadata_dir):
+        for ann in read_source_bindings(
+            source_path, target_name=None, metadata_dir=cfg.metadata_dir
+        ):
             module_key = preset_module_key(ann.module or "")
-            if ann.marker_type not in ("FUNCTION", "LIBRARY"):
+            if ann.kind not in ("FUNCTION", "LIBRARY"):
                 continue
-            if ann.marker_type != "LIBRARY" and module_key not in library_modules:
+            if ann.kind != "LIBRARY" and module_key not in library_modules:
                 continue
             annotations.append((source_path, ann))
 
@@ -525,7 +527,7 @@ _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew library crt-match 0x10006c00 · · · · · Match a single VA\n\n"
     "  rebrew library crt-match --all · · · · · · · · Match all LIBRARY-marker functions\n\n"
-    "  rebrew library crt-match --fix-source --all · · Auto-write // SOURCE: annotations\n\n"
+    "  rebrew library crt-match --fix-source --all · · Record library source provenance in metadata\n\n"
     "  rebrew library crt-match --index · · · · · · · Show CRT source index\n\n"
     "  rebrew library crt-match --json · · · · · · · · JSON output"
 )
@@ -544,7 +546,7 @@ def main(
     fix_source: bool = typer.Option(
         False,
         "--fix-source",
-        help="Auto-write // SOURCE: annotations",
+        help="Record library source provenance in metadata",
     ),
     index_only: bool = typer.Option(
         False, "--index", help="Show CRT source index without matching"
@@ -651,7 +653,7 @@ def main(
                 continue
             source_path, ann = pair
             # SOURCE is metadata-routed: without an explicit metadata_dir,
-            # update_annotation_key falls back to filepath.parent and would
+            # set_binding_field falls back to filepath.parent and would
             # create a stray rebrew-functions.toml next to the library header.
             if dry_run:
                 from rebrew.metadata.functions import get_entry
@@ -660,7 +662,7 @@ def main(
                 if current != source_ref(match.source):
                     updates += 1
                 continue
-            if update_annotation_key(
+            if set_binding_field(
                 source_path,
                 match.va,
                 "SOURCE",

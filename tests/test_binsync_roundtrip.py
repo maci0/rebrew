@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -72,14 +73,13 @@ _TYPES_H = (
     "typedef struct { int id; char tag; } PADDED;\n"
 )
 
-_SERVER_C = (
-    '#include "types.h"\n'
-    "// GLOBAL: SERVER 0x10003000\nint g_count;\n"
-    "// FUNCTION: SERVER 0x10001000\n// SIZE: 32\n"
-    f"// NOTE: {_LONG_NOTE}\n"
-    "int __cdecl Init(LPVOID param)\n{\n    return g_count;\n}\n"
-    "// FUNCTION: SERVER 0x10001020\n// SIZE: 32\n"
-    "int __cdecl CountTowns(TOWN_REC *town)\n{\n    return town->a04 + g_count;\n}\n"
+_SERVER_C = SourceFixture(
+    '#include "types.h"\n/* ADDRESS: SERVER 0x10003000 */\nint g_count;\n/* ADDRESS: SERVER 0x10001000 */\n\n\nint __cdecl Init(LPVOID param)\n{\n    return g_count;\n}\n/* ADDRESS: SERVER 0x10001020 */\n\nint __cdecl CountTowns(TOWN_REC *town)\n{\n    return town->a04 + g_count;\n}\n',
+    {
+        "SERVER.0x10003000": {"kind": "GLOBAL"},
+        "SERVER.0x10001000": {"kind": "FUNCTION", "size": 32, "note": f"{_LONG_NOTE}"},
+        "SERVER.0x10001020": {"kind": "FUNCTION", "size": 32},
+    },
 )
 
 _EDITS = {
@@ -135,9 +135,9 @@ def _project(root: Path) -> None:
     (root / "server.dll").write_bytes(_BINARY)
     src = root / "src"
     src.mkdir()
-    (src / "types.h").write_text(_TYPES_H, encoding="utf-8")
-    (src / "server.c").write_text(_SERVER_C, encoding="utf-8")
-    _rebrew("source", "migrate-markers")
+    write_source(src / "types.h", _TYPES_H, encoding="utf-8")
+    write_source(src / "server.c", _SERVER_C, encoding="utf-8")
+    _rebrew("source", "register")
     _rebrew("data", "set", "--link-symbol", "0x10003000=_g_count")
     _rebrew("data", "set", "--type", "0x10003000=int")
 

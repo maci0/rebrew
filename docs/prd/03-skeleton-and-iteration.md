@@ -151,12 +151,12 @@ you what to attack next.
 - `--summary` prints a STATUS/origin breakdown table.
 - `--quiet` errors-only, `--json` machine-readable.
 
-### `rebrew source migrate-markers`
+### `rebrew source register`
 
-- Moves inline markers into `rebrew-functions.toml` and strips `.c` files
-  to pure C (ADR-023).
-- Idempotent; `--dry-run` previews without modifying files.
-- Operates per-file across the project source tree.
+- Registers current ADDRESS anchors bound to the next C declaration.
+- Preserves stored fields and verdicts; `--dry-run` previews the validated plan.
+- `--support REASON` records a target-scoped support file purpose.
+- Rejects old inline blocks and old store formats; no migration reader exists.
 
 ### `rebrew source split` / `rebrew source merge` / `rebrew source rename`
 
@@ -302,7 +302,7 @@ rebrew lint [FILES...]
   -t, --target TEXT
       --all-targets
 
-rebrew source migrate-markers
+rebrew source register
       --dry-run
       --json
   -t, --target TEXT

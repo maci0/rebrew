@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from rebrew.catalog.grid import build_coverage_data
-from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.bindings import SourceBinding
 from rebrew.utils import floor_pct
 
 TEXT_VA = 0x1000
@@ -61,9 +61,9 @@ def _ann(
     name: str,
     status: str,
     size: int,
-    marker_type: str = "FUNCTION",
-) -> Annotation:
-    return Annotation(
+    kind: str = "FUNCTION",
+) -> SourceBinding:
+    return SourceBinding(
         va=va,
         name=name,
         symbol=f"_{name}",
@@ -71,7 +71,7 @@ def _ann(
         status=status,
         size=size,
         cflags="/O2",
-        marker_type=marker_type,
+        kind=kind,
         filepath=f"src/SERVER/{name}.c",
     )
 
@@ -135,7 +135,7 @@ def _patch_binary(
 
 
 class TestGenerateDataJsonGrid:
-    def _entries(self) -> list[Annotation]:
+    def _entries(self) -> list[SourceBinding]:
         return [
             _ann(0x1000, "fn_a", "EXACT", 0x40),
             _ann(0x1060, "fn_b", "RELOC", 0x20),
@@ -144,7 +144,7 @@ class TestGenerateDataJsonGrid:
             _ann(0x1500, "fn_o", "STUB", 0x20),
             _ann(0x1540, "fn_e", "STUB", 0x20),
             _ann(0x1700, "fn_z", "STUB", 0),  # zero size → skipped
-            _ann(0x2000, "g_global", "EXACT", 0, marker_type="GLOBAL"),
+            _ann(0x2000, "g_global", "EXACT", 0, kind="GLOBAL"),
             _ann(0x9999, "fn_out", "STUB", 0x20),  # outside all sections
         ]
 

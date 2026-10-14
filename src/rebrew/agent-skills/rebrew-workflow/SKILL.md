@@ -75,7 +75,7 @@ function source counts do not measure matched bytes.
 
 - `documented`: audit-only, hidden from the default list.
 - `extract-error`: symbol missing from `.obj`; fix the row or the definition before GA.
-- `naked-reconstruction` (`// SOURCE: naked`): byte-exact asm, stays listed until real C matches.
+- `naked-reconstruction` (`source = "naked"` in function metadata): byte-exact asm, stays listed until real C matches.
 - `exact-only` (RELOC) and `postlink-mangled`: the work a build that comes straight out of the toolchain clears (EXACT instead of masked, raw-link bytes instead of postlink-rewritten ones). Once the raw link is byte-identical, `rebrew verify --text --raw-link` clears `exact-only` by recording linked EXACT.
 - Any other `--category` value errors. BLOCKER text is the item's `blocker` field; there is no `blocked` category.
 
@@ -148,10 +148,10 @@ Rebrew filters annotations by the active `--target`. Several targets may share o
 > TOOLCHAIN, BLOCKER/BLOCKER_DELTA, NOTE, GHIDRA, ANALYSIS, SOURCE, SKIP, GLOBALS,
 > LOCALS, COMMENTS, PROVE_CONSTRAINTS, ORIGINS, VERIFICATION, UPDATED_BY/UPDATED_AT (SECTION lives in
 > `rebrew-data.toml`). STATUS via `rebrew test`/`verify` only; use `rebrew blocker
-> set/clear`, `rebrew lint --fix` for migrations. Files are mode 0444
+> set/clear`, the locked owner APIs for metadata changes. Files are mode 0444
 > (`atomic_write_locked`). SIZE and CFLAGS are metadata-owned;
-> `// SOURCE: naked` is a source-owned reconstruction marker.
-> `rebrew source migrate-markers` moves function and data identity into the TOML stores and leaves pure C. Do not restore those markers. See `references/annotation-format.md`.
+> Reconstruction source, STRUCT/CALLERS and support purposes are metadata-only.
+> `rebrew source register` records address-bound identities. All state belongs in format-2 stores; no old source blocks or schemas are read. See `references/annotation-format.md`.
 
 `ORIGINS` records the external source of each imported field; `VERIFICATION`
 records comparison evidence independently of ordinary edits. Note edits preserve
@@ -227,7 +227,7 @@ Splitting/merging source files and reading the call graph:
 
 `rebrew doctor` for health, `rebrew verify --compare` as the CI regression gate
 against `.rebrew/verify_baseline.toml`, `rebrew lint --json` (with `--fix` to
-migrate leftover inline metadata). Full flag set, `orphans`/`types`/`text-audit`,
+reject forbidden inline metadata). Full flag set, `orphans`/`types`/`text-audit`,
 `catalog` / `build-db` refresh, and decomp.me: `references/verify-and-progress.md`.
 `rebrew coverage serve` serves the same coverage data read-only at
 http://127.0.0.1:8000 (`--port` rebinds); start it only when the user asks for
@@ -243,7 +243,7 @@ rebrew build round-trip --dry-run             # preview without writing <binary>
 ```
 
 Round-trip needs canonical SIZE in `rebrew-functions.toml`: backfill it with
-`rebrew coverage catalog --fix-sizes`, or `rebrew source migrate-markers` on an unmigrated `.c`.
+`rebrew coverage catalog --fix-sizes`.
 PROVEN is skipped. Full fallback/drift rules: `references/round-trip.md`.
 
 Shipped profiles compile only in Docker; no host wine/wibo fallback.

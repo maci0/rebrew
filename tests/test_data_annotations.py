@@ -11,78 +11,10 @@ from rebrew.data_scan import (
     ScanResult,
     verify_bss_layout,
 )
-from rebrew.metadata.annotation import (
-    VALID_MARKERS,
-    Annotation,
-    parse_new_format,
-)
 
 # ---------------------------------------------------------------------------
 # Idea #15: DATA annotation marker
 # ---------------------------------------------------------------------------
-
-
-class TestDataAnnotationMarker:
-    """Test that // DATA: marker is recognized by the annotation system."""
-
-    def test_data_in_valid_markers(self) -> None:
-        """DATA should be in the valid markers set."""
-        assert "DATA" in VALID_MARKERS
-
-    def test_parse_data_annotation(self) -> None:
-        """Parse a // DATA: annotation from source lines."""
-        lines = [
-            "// DATA: SERVER 0x10025000",
-            "// SIZE: 256",
-            "// SECTION: .rdata",
-        ]
-        ann = parse_new_format(lines)
-        assert ann is not None
-        assert ann.marker_type == "DATA"
-        assert ann.va == 0x10025000
-        assert ann.size == 256
-        assert ann.section == ".rdata"
-        # NOTE lives in rebrew-functions.toml now, not inline.
-        assert ann.note == ""
-        # DATA annotations have no C function def, so symbol is empty
-        assert ann.symbol == ""
-
-    def test_parse_data_annotation_minimal(self) -> None:
-        """Parse a minimal DATA annotation."""
-        lines = [
-            "// DATA: SERVER 0x10031000",
-            "// SIZE: 4",
-            "// SECTION: .bss",
-        ]
-        ann = parse_new_format(lines)
-        assert ann is not None
-        assert ann.marker_type == "DATA"
-        assert ann.va == 0x10031000
-        assert ann.section == ".bss"
-
-    def test_data_annotation_to_dict(self) -> None:
-        """DATA annotation should include section in dict output."""
-        ann = Annotation(
-            va=0x10025000,
-            size=256,
-            name="g_sprite_lut",
-            marker_type="DATA",
-            section=".rdata",
-        )
-        d = ann.to_dict()
-        assert d["section"] == ".rdata"
-        assert d["marker_type"] == "DATA"
-
-    def test_function_annotation_no_section(self) -> None:
-        """FUNCTION annotations without section should NOT have section in dict."""
-        ann = Annotation(
-            va=0x10001000,
-            size=100,
-            name="func_a",
-            marker_type="FUNCTION",
-        )
-        d = ann.to_dict()
-        assert "section" not in d
 
 
 # Idea #14: BSS layout verification

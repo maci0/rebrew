@@ -37,7 +37,7 @@ marker = "CLIENT"
                 file=str(path.relative_to(tmp_path)),
                 symbol=f"_{name}@4",
                 name=name,
-                marker_type=kind,
+                kind=kind,
             )
         data = source / "constants.c"
         data.write_text(

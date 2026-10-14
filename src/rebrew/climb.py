@@ -56,7 +56,7 @@ from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
 from rebrew.config import ProjectConfig, module_marker
 from rebrew.formats.binary_loader import extract_raw_bytes
-from rebrew.metadata.annotation import parse_c_file_multi
+from rebrew.metadata.bindings import read_source_bindings
 from rebrew.sources import target_marker
 from rebrew.utils import (
     SOURCE_BACKUP_DIRNAME,
@@ -582,7 +582,7 @@ def main(
         )
     scorer: Callable[..., tuple[float, int]] = _score
 
-    anns = parse_c_file_multi(path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir)
+    anns = read_source_bindings(path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir)
     if not anns and not (va and symbol and size is not None):
         error_exit(
             "No function annotation found; provide --va, --symbol and --size for scratch C",

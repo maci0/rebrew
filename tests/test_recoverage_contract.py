@@ -33,6 +33,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -83,12 +84,17 @@ def _build_fixture_project(tmp_path: Path, monkeypatch) -> Path:
         ),
         encoding="utf-8",
     )
-    (root / "src" / "SERVER" / "fcn.c").write_text(
-        "// FUNCTION: SERVER 0x00401000\nint __cdecl _func1(void) { return 0; }\n",
+    write_source(
+        root / "src" / "SERVER" / "fcn.c",
+        "/* ADDRESS: SERVER 0x00401000 */\nint __cdecl _func1(void) { return 0; }\n",
         encoding="utf-8",
+        metadata_fields={"SERVER.0x00401000": {"kind": "FUNCTION"}},
     )
-    (root / "src" / "SERVER" / "globals.c").write_text(
-        "// GLOBAL: SERVER 0x00404000\nint g_flag;\n", encoding="utf-8"
+    write_source(
+        root / "src" / "SERVER" / "globals.c",
+        "/* ADDRESS: SERVER 0x00404000 */\nint g_flag;\n",
+        encoding="utf-8",
+        metadata_fields={"SERVER.0x00404000": {"kind": "GLOBAL"}},
     )
     monkeypatch.chdir(root)
     return root
@@ -194,7 +200,7 @@ class TestRecoverageContract:
         """The dashboard's verify rows come from .rebrew/verify_cache.toml."""
         import rebrew.verify_cache as vc
         from rebrew.config import load_config
-        from rebrew.metadata.annotation import Annotation
+        from rebrew.metadata.bindings import SourceBinding
 
         root = _build_fixture_project(tmp_path, monkeypatch)
         cache_path = root / ".rebrew" / "verify_cache.toml"
@@ -208,7 +214,7 @@ class TestRecoverageContract:
         cfg = load_config(root, target="SERVER")
 
         entries = [
-            Annotation(
+            SourceBinding(
                 va=0x00401000,
                 name="_func1",
                 symbol="_func1",

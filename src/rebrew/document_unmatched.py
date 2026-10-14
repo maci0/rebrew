@@ -34,7 +34,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.intake import classify_all
-from rebrew.metadata.annotation import iter_annotations
+from rebrew.metadata.bindings import iter_source_bindings
 from rebrew.sources import (
     iter_sources,
     target_marker,
@@ -61,7 +61,7 @@ _PROFILE_FAMILY: dict[str, str] = {
 def _documented_vas(src_dir: Path, cfg: Any) -> set[int]:
     """VAs already covered by a stub file or a FUNCTION/STUB marker."""
     documented: set[int] = set()
-    for _path, anns in iter_annotations(
+    for _path, anns in iter_source_bindings(
         iter_sources(src_dir, cfg),
         target=target_marker(cfg),
         metadata_dir=cfg.metadata_dir,

@@ -210,7 +210,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     status NEAR_MATCHING and a known size.  Per-function failures are recorded
     in the results list instead of aborting the batch.
     """
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
     from rebrew.sources import iter_sources, target_marker
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
@@ -220,7 +220,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     skipped_files: list[str] = []
     for src in sources:
         try:
-            annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
+            annos = read_source_bindings(src, target_name=tm, metadata_dir=cfg.metadata_dir)
         except Exception as exc:  # one bad file must not kill the batch
             skipped_files.append(f"{src.name}: {exc}")
             continue
@@ -381,7 +381,7 @@ def main(
             print(catalog_markdown(), end="")
         return
 
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
     from rebrew.sources import target_marker
 
     cfg = require_config(target=target, json_mode=json_output)
@@ -410,7 +410,7 @@ def main(
     source = str(require_source_arg(cfg, source, json_mode=json_output))
     source_path = Path(source).resolve()
 
-    annos = parse_c_file_multi(
+    annos = read_source_bindings(
         source_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
     if not annos:

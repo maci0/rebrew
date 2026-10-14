@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from rebrew.config import ProjectConfig
-    from rebrew.metadata.annotation import Annotation
+    from rebrew.metadata.bindings import SourceBinding
 
 #: Current cache schema version (flat rows).  The container changed with the
 #: rest of the stores (JSON to TOML); the row schema did not, so the version
@@ -1122,7 +1122,7 @@ def save_verify_cache(
     cache_path: Path,
     cfg: ProjectConfig,
     results: list[dict[str, Any]],
-    entries: list[Annotation],
+    entries: list[SourceBinding],
     preserve_keys: set[str] | None = None,
 ) -> None:
     """Rewrite *cache_path* from this run's *results*.

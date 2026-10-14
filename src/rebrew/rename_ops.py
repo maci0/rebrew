@@ -56,13 +56,10 @@ from rebrew.c_rename import (
 from rebrew.config import ProjectConfig
 from rebrew.errors import RebrewError
 from rebrew.function_providers import bind_library_source
-from rebrew.metadata.annotation import (
-    FUNC_NAME_HINT_RE,
-    FUNCTION_MARKERS,
-    NEW_FUNC_CAPTURE_RE,
-    NEW_KV_RE,
-    Annotation,
-    parse_c_file_multi,
+from rebrew.metadata.bindings import (
+    FUNCTION_KINDS,
+    SourceBinding,
+    read_source_bindings,
 )
 from rebrew.sources import iter_sources_and_headers
 from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
@@ -292,9 +289,9 @@ class _Project:
         if getattr(cfg, "root", None) is not None:
             # Include every target's providers so an independent vendor twin still collides.
             for (module, va), row in load_metadata(self.metadata_dir, deepcopy=False).items():
-                if row.get("marker_type") == "LIBRARY":
+                if row.get("kind") == "LIBRARY":
                     entry = bind_library_source(
-                        cfg, Annotation(module=module, va=va, marker_type="LIBRARY"), row
+                        cfg, SourceBinding(module=module, va=va, kind="LIBRARY"), row
                     )
                     if entry.filepath:
                         library_sources.append((Path(cfg.reversed_dir) / entry.filepath).resolve())
@@ -323,7 +320,7 @@ class _Project:
                 files=unreadable,
             )
         self._parsed: dict[Path, ParsedSource] = {}
-        self._annotations: dict[Path, list[Annotation]] = {}
+        self._annotations: dict[Path, list[SourceBinding]] = {}
         self._data_rows: dict[tuple[str, int], dict[str, Any]] | None = None
 
     @property
@@ -339,7 +336,7 @@ class _Project:
             self._parsed[path] = ParsedSource.parse(self.texts[path][0])
         return self._parsed[path]
 
-    def annotations(self, path: Path) -> list[Annotation]:
+    def annotations(self, path: Path) -> list[SourceBinding]:
         if path not in self._annotations:
             self._annotations[path] = _rename_annotations(self.cfg, path)
         return self._annotations[path]
@@ -384,16 +381,16 @@ class _Project:
         return frozenset(mods) or None
 
 
-def _rename_annotations(cfg: ProjectConfig, path: Path) -> list[Annotation]:
+def _rename_annotations(cfg: ProjectConfig, path: Path) -> list[SourceBinding]:
     """Read every target's identities, including mixed migrated/inline files."""
     from rebrew.metadata.functions import load_metadata
 
     metadata_dir = getattr(cfg, "metadata_dir", path.parent)
-    parsed = parse_c_file_multi(path, metadata_dir=metadata_dir)
-    by_identity = {(e.module, e.va, e.marker_type): e for e in parsed}
+    parsed = read_source_bindings(path, metadata_dir=metadata_dir)
+    by_identity = {(e.module, e.va, e.kind): e for e in parsed}
     for module in {m for m, _va in load_metadata(metadata_dir, deepcopy=False)}:
-        for e in parse_c_file_multi(path, target_name=module, metadata_dir=metadata_dir):
-            by_identity[(e.module, e.va, e.marker_type)] = e
+        for e in read_source_bindings(path, target_name=module, metadata_dir=metadata_dir):
+            by_identity[(e.module, e.va, e.kind)] = e
     return list(by_identity.values())
 
 
@@ -578,7 +575,7 @@ def plan_function_reference_binding(
     The explicit destination identity asserts that the placeholder's references
     mean this function. Its definition, identity and verification are unchanged.
     """
-    from rebrew.metadata.annotation import parse_library_header
+    from rebrew.metadata.bindings import library_bindings_for_file
     from rebrew.metadata.functions import get_entry
 
     if selected.store != KIND_FUNCTION or not is_valid_new_name(old_name):
@@ -592,12 +589,12 @@ def plan_function_reference_binding(
     defs = {p: definitions(project.parsed(p), new_name) for p in project.containing(new_name)}
     found_defs = [(p, d.kind, d.static) for p, found in defs.items() for d in found]
     library_identity = (
-        row.get("marker_type") == "LIBRARY"
+        row.get("kind") == "LIBRARY"
         and destination.suffix.lower() == ".h"
         and destination.is_file()
         and any(
             e.module == selected.module and e.va == selected.va and e.symbol == row.get("symbol")
-            for e in parse_library_header(destination, metadata_dir=project.metadata_dir)
+            for e in library_bindings_for_file(destination, metadata_dir=project.metadata_dir)
         )
     )
     if not (library_identity and not found_defs) and found_defs != [
@@ -614,7 +611,7 @@ def plan_function_reference_binding(
         for path in hits
         for e in [
             *project.annotations(path),
-            *parse_library_header(path, metadata_dir=project.metadata_dir),
+            *library_bindings_for_file(path, metadata_dir=project.metadata_dir),
         ]
     ):
         raise RenameError("binding source already has a function identity", files=hits)
@@ -844,10 +841,22 @@ def _plan_symbol_rows(
     bound: set[tuple[str, int]] = set()
     for path in sorted(chosen, key=str):
         for entry in project.annotations(path):
-            if entry.marker_type not in FUNCTION_MARKERS:
+            if entry.kind not in FUNCTION_KINDS:
                 continue
             if entry.name != old and c_name_from_symbol(entry.symbol or "") != old:
-                continue
+                # A metadata rename can precede the C edit. The sole definition
+                # in its owning file identifies the row without a comment hint.
+                source_defs = definitions(project.parsed(path), old)
+                canonical_is_new = (
+                    entry.name == new or c_name_from_symbol(entry.symbol or "") == new
+                )
+                from rebrew.c_parser import find_c_function_definitions
+
+                names = find_c_function_definitions(project.texts[path][0])
+                if not (
+                    canonical_is_new and source_defs and len(names) == 1 and names[0][0] == old
+                ):
+                    continue
             bound.add((entry.module, entry.va))
             stored = function_rows.get((entry.module, entry.va), {})
             if not stored.get("file"):
@@ -913,98 +922,47 @@ def _data_row_names(
     return old_fields, new_fields
 
 
-_HINT_LINE_RE = re.compile(r"^(?P<lead>\s*//[ \t]?)(?P<text>[^\r\n]*?)[ \t]*(?P<eol>\r?\n?)$")
-
-
 def is_decorated_symbol(name: str) -> bool:
-    """An MSVC-decorated linker name (``?f@@YAXXZ``, ``_f@8``) a header line may carry."""
-    match = FUNC_NAME_HINT_RE.match(f"// {name}")
-    return match is not None and not is_valid_new_name(name)
+    """An MSVC linker identifier rather than a C source identifier."""
+    return re.fullmatch(r"[$?A-Za-z_][$?A-Za-z0-9_@]*", name) is not None and not is_valid_new_name(
+        name
+    )
 
 
 def plan_header_row_rename(
     cfg: ProjectConfig, module: str, va: int, new_name: str
 ) -> RenamePlan | None:
-    """Rename a function row that only a header marker names (a library identification).
-
-    Such a row has no C definition: its name is the line under its
-    ``// LIBRARY: MODULE 0xVA`` marker. That line and the row are rewritten,
-    whatever the line held before (a symbol, prose, or nothing). A C name
-    keeps the old symbol's decoration (cdecl ``_`` when the old line was no
-    symbol); a decorated *new_name* is both the row's name and its symbol, as
-    other C++ library rows store it. Returns None for a row whose file has no
-    such marker.
-    """
+    """Rename a metadata-only library identity; inventory comments are never state."""
     from rebrew.metadata.functions import load_metadata
 
-    if not (is_valid_new_name(new_name) or is_decorated_symbol(new_name)):
-        raise ValueError(f"target name {new_name!r} is neither a C identifier nor a symbol")
-    rows = load_metadata(Path(getattr(cfg, "metadata_dir", None) or cfg.reversed_dir))
+    rows = load_metadata(cfg.metadata_dir)
     stored = rows.get((module, va))
-    if not stored or stored.get("marker_type") != "LIBRARY" or not stored.get("file"):
+    if not stored or stored.get("kind") != "LIBRARY":
         return None
-    path = Path(cfg.root) / str(stored["file"])
-    if not path.resolve().is_relative_to(Path(cfg.root).resolve()):
-        raise RenameError("library header escapes the project", files=[path])
-    if path.suffix.lower() not in {".h", ".hpp"} or not path.is_file():
+    if stored.get("file") and Path(str(stored["file"])).suffix.lower() != ".h":
         return None
-    text, encoding = read_source_text(path)
-    lines = text.splitlines(keepends=True)
-    for index, line in enumerate(lines[:-1]):
-        marker = NEW_FUNC_CAPTURE_RE.search(line)
-        if marker is None or marker["module"] != module or int(marker["va"], 16) != va:
-            continue
-        hint = _HINT_LINE_RE.match(lines[index + 1])
-        if hint is None or NEW_FUNC_CAPTURE_RE.search(lines[index + 1]):
-            return None
-        if NEW_KV_RE.match(lines[index + 1].strip()):
-            return None  # the marker has no name line, only KEY: value lines
-        old_text = hint["text"]
-        if is_decorated_symbol(new_name):
-            new_symbol = new_name
-        elif FUNC_NAME_HINT_RE.match(f"// {old_text}"):
-            new_symbol = redecorated_symbol(old_text, new_name)
-        else:
-            new_symbol = f"_{new_name}"
-        taken = [
-            f"{m}.0x{v:08x}"
-            for (m, v), row in rows.items()
-            if m == module
-            and v != va
-            and (row.get("name") == new_name or row.get("symbol") == new_symbol)
-        ]
-        if taken:
-            raise RenameError(
-                f"cannot rename {module}.0x{va:08x} to {new_name}: rows already use it "
-                f"({', '.join(taken[:_COLLISION_SITE_LIMIT])}); renaming would create a "
-                "duplicate symbol; no files were changed",
-                files=[],
-            )
-        lines[index + 1] = f"{hint['lead'].rstrip()} {new_symbol}{hint['eol']}"
-        name = new_symbol if is_decorated_symbol(new_name) else new_name
-        plan = RenamePlan(
-            kind=KIND_FUNCTION, old_name=old_text or str(stored.get("name") or ""), new_name=name
+    if not (is_valid_new_name(new_name) or is_decorated_symbol(new_name)):
+        raise ValueError(f"invalid C or linker identifier {new_name!r}")
+    old_symbol = str(stored.get("symbol") or "")
+    symbol = new_name if is_decorated_symbol(new_name) else redecorated_symbol(old_symbol, new_name)
+    collisions = [
+        f"{m}.0x{v:08x}"
+        for (m, v), row in rows.items()
+        if m == module and v != va and (row.get("name") == new_name or row.get("symbol") == symbol)
+    ]
+    if collisions:
+        raise RenameError(f"cannot create duplicate symbol {new_name}: {collisions}", files=[])
+    plan = RenamePlan(kind=KIND_FUNCTION, old_name=str(stored.get("name") or ""), new_name=new_name)
+    plan.rows.append(
+        RowChange(
+            "function",
+            module,
+            va,
+            {"name": str(stored.get("name") or ""), "symbol": old_symbol},
+            {"name": new_name, "symbol": symbol},
         )
-        plan.files.append(
-            FileChange(
-                path=path,
-                old_text=text,
-                new_text="".join(lines),
-                encoding=encoding,
-                edits=[SourceEdit(index + 2, len(hint["lead"].rstrip()) + 2, ROLE_COMMENT)],
-            )
-        )
-        plan.rows.append(
-            RowChange(
-                "function",
-                module,
-                va,
-                {"name": str(stored.get("name") or ""), "symbol": str(stored.get("symbol") or "")},
-                {"name": name, "symbol": new_symbol},
-            )
-        )
-        return plan
-    return None
+    )
+    return plan
 
 
 def _check_acknowledged(
@@ -1041,7 +999,7 @@ def _plan_file_move(
     cfg = project.cfg
     metadata_dir = project.metadata_dir
     try:
-        multi = len(parse_c_file_multi(filepath, metadata_dir=metadata_dir)) > 1
+        multi = len(read_source_bindings(filepath, metadata_dir=metadata_dir)) > 1
     except Exception as exc:  # a preview must fail where the write would
         raise ValueError(f"cannot rename {filepath}: annotation parse failed: {exc}") from exc
     if multi and not new_filename:
@@ -1386,11 +1344,9 @@ def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
         if r.store == "data"
     ]
     if function_rows:
-        from rebrew.metadata.functions import record_migrated_markers
+        from rebrew.metadata.functions import record_function_rows
 
-        record_migrated_markers(
-            metadata_dir, function_rows, overwrite_name=True, updated_by="rename"
-        )
+        record_function_rows(metadata_dir, function_rows, overwrite_name=True, updated_by="rename")
     if data_rows:
         from rebrew.metadata.data import set_data_fields_batch
 

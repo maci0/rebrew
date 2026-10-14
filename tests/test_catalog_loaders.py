@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from source_util import write_source
 
 from rebrew.catalog.loaders import (
     _classify_ghidra_label,
@@ -222,12 +223,18 @@ class TestScanReversedDirLibraryHeaders:
 
         src = tmp_path / "src"
         src.mkdir()
-        (src / "library_msvc.h").write_text(
-            "// LIBRARY: SERVER 0x1000\n// _fflush\n", encoding="utf-8"
+        write_source(
+            src / "library_msvc.h",
+            "\n// _fflush\n",
+            encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x1000": {"kind": "LIBRARY", "name": "fflush", "symbol": "_fflush"}
+            },
+            metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(metadata_dir=tmp_path, marker="SERVER", source_ext=".c")
         entries = scan_reversed_dir(src, cfg=cfg)
-        assert any(e.va == 0x1000 and e.marker_type == "LIBRARY" for e in entries)
+        assert any(e.va == 0x1000 and e.kind == "LIBRARY" for e in entries)
 
     def test_library_rows_load_without_header(self, tmp_path: Path) -> None:
         """A migrated library row names a header that no longer exists."""
@@ -244,7 +251,7 @@ class TestScanReversedDirLibraryHeaders:
                 ("SERVER", 0x1000): {
                     "file": "library_msvc.h",
                     "symbol": "_fflush",
-                    "marker_type": "LIBRARY",
+                    "kind": "LIBRARY",
                     "name": "fflush",
                 }
             },
@@ -255,7 +262,7 @@ class TestScanReversedDirLibraryHeaders:
         entries = scan_reversed_dir(src, cfg=cfg)
         got = [e for e in entries if e.va == 0x1000]
         assert len(got) == 1
-        assert got[0].marker_type == "LIBRARY"
+        assert got[0].kind == "LIBRARY"
         assert got[0].symbol == "_fflush"
 
     def test_library_header_merges_metadata_status(self, tmp_path: Path) -> None:
@@ -263,17 +270,22 @@ class TestScanReversedDirLibraryHeaders:
         from types import SimpleNamespace
 
         from rebrew.catalog.loaders import scan_reversed_dir
-        from rebrew.metadata.functions import save_metadata
 
         src = tmp_path / "src"
         src.mkdir()
-        (src / "library_msvc.h").write_text(
-            "// LIBRARY: SERVER 0x1000\n// _fflush\n", encoding="utf-8"
+        write_source(
+            src / "library_msvc.h",
+            "\n// _fflush\n",
+            encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x1000": {"kind": "LIBRARY", "name": "fflush", "symbol": "_fflush"}
+            },
+            metadata_dir=tmp_path,
         )
-        save_metadata(
-            tmp_path,
-            {("SERVER", 0x1000): {"status": "NEAR_MATCHING", "blocker": "1B diff"}},
-        )
+        from rebrew.metadata.functions import set_fields, update_source_status
+
+        update_source_status(tmp_path, "NEAR_MATCHING", "SERVER", 0x1000, force=True)
+        set_fields(tmp_path, 0x1000, {"blocker": "1B diff"}, module="SERVER")
         cfg = SimpleNamespace(metadata_dir=tmp_path, marker="SERVER", source_ext=".c")
         entries = scan_reversed_dir(src, cfg=cfg)
         lib = next(e for e in entries if e.va == 0x1000)

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from source_util import write_source
 
 from rebrew.catalog import (
     build_coverage_data,
@@ -12,7 +13,7 @@ from rebrew.catalog import (
     scan_reversed_dir,
 )
 from rebrew.config import ProjectConfig
-from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.bindings import SourceBinding
 
 # -------------------------------------------------------------------------
 # Helper factories
@@ -157,7 +158,7 @@ class TestGenerateDataJson:
 
     def test_basic(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         entries = [
-            Annotation(
+            SourceBinding(
                 va=0x10001000,
                 name="func_a",
                 status="EXACT",
@@ -165,7 +166,7 @@ class TestGenerateDataJson:
                 symbol="_func_a",
                 filepath="/src/func_a.c",
                 cflags="/O2",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
             ),
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
@@ -192,7 +193,7 @@ class TestGenerateDataJson:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         entries = [
-            Annotation(
+            SourceBinding(
                 va=0x10001000,
                 name="func_a",
                 status="NEAR_MATCHING",
@@ -200,7 +201,7 @@ class TestGenerateDataJson:
                 symbol="_func_a",
                 filepath="/src/func_a.c",
                 cflags="/O2",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
             ),
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
@@ -214,7 +215,7 @@ class TestGenerateDataJson:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         entries = [
-            Annotation(
+            SourceBinding(
                 va=0x10001000,
                 name="func_a",
                 status="PROVEN",
@@ -222,7 +223,7 @@ class TestGenerateDataJson:
                 symbol="_func_a",
                 filepath="/src/func_a.c",
                 cflags="/O2",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
             ),
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
@@ -242,7 +243,7 @@ class TestGenerateDataJson:
         """Without a binary layout nothing emits, so every bucket is 0:
         counters tally emitted functions only, never the raw annotations."""
         entries = [
-            Annotation(
+            SourceBinding(
                 va=0x10001000,
                 name="func_a",
                 status="EXACT",
@@ -250,7 +251,7 @@ class TestGenerateDataJson:
                 symbol="_func_a",
                 filepath="/src/func_a.c",
                 cflags="/O2",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
             ),
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
@@ -275,32 +276,32 @@ class TestGenerateDataJson:
         from types import SimpleNamespace
 
         entries = [
-            Annotation(
+            SourceBinding(
                 va=0x10001000,
                 name="ok_fn",
                 status="EXACT",
                 size=64,
                 symbol="_ok_fn",
                 filepath="/src/ok.c",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
             ),
-            Annotation(
+            SourceBinding(
                 va=0x10002000,
                 name="broken_fn",
                 status="COMPILE_ERROR",
                 size=64,
                 symbol="_broken_fn",
                 filepath="/src/broken.c",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
             ),
-            Annotation(
+            SourceBinding(
                 va=0x10003000,
                 name="stub_fn",
                 status="STUB",
                 size=64,
                 symbol="_stub_fn",
                 filepath="/src/stub.c",
-                marker_type="FUNCTION",
+                kind="FUNCTION",
             ),
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_ok_fn"}]
@@ -359,15 +360,18 @@ class TestCatalogFunctional:
         from rebrew.catalog import scan_reversed_dir
 
         c_file = tmp_path / "game_func.c"
-        c_file.write_text(
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: STUB\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 64\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _my_func\n"
-            "void __cdecl _my_func(void) {}\n",
+        write_source(
+            c_file,
+            "/* ADDRESS: SERVER 0x10001000 */\n\n\n\n\n\nvoid __cdecl _my_func(void) {}\n",
             encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x10001000": {
+                    "kind": "FUNCTION",
+                    "size": 64,
+                    "cflags": "/O2 /Gd",
+                    "symbol": "_my_func",
+                }
+            },
         )
         (tmp_path / "readme.txt").write_text("ignore me", encoding="utf-8")
         entries = scan_reversed_dir(tmp_path)
@@ -378,7 +382,7 @@ class TestCatalogFunctional:
         assert e.module == "SERVER"
         assert e.size == 64
         assert e.cflags == "/O2 /Gd"
-        assert e.marker_type == "FUNCTION"
+        assert e.kind == "FUNCTION"
 
     def test_r2_bogus_vas_via_config(self, tmp_path: Path) -> None:
         from pathlib import Path

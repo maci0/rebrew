@@ -7,14 +7,14 @@ from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from rebrew.config import ProjectConfig
-from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.bindings import SourceBinding
 from rebrew.metadata.functions import validate_identity_file
 from rebrew.utils import rel_display_path
 
 
 def bind_library_source(
-    cfg: ProjectConfig, entry: Annotation, metadata: dict[str, Any]
-) -> Annotation:
+    cfg: ProjectConfig, entry: SourceBinding, metadata: dict[str, Any]
+) -> SourceBinding:
     """Resolve an explicit library source identity, retaining its library origin.
 
     Header annotations name reference functions; a managed ``file``/``symbol``
@@ -41,7 +41,7 @@ def compiled_library_annotations(
     cfg: ProjectConfig,
     *,
     metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
-) -> list[Annotation]:
+) -> list[SourceBinding]:
     """Read target-scoped compiled library identities independently of headers.
 
     Binding replaces a migrated header's file identity with its compiled source.
@@ -57,21 +57,21 @@ def compiled_library_annotations(
             return []
         metadata = load_metadata(metadata_dir, deepcopy=False)
     marker = preset_module_key(module_marker(cfg))
-    results: list[Annotation] = []
+    results: list[SourceBinding] = []
     for (module, va), entry in metadata.items():
         stored = str(entry.get("file", ""))
         if (
             preset_module_key(module) != marker
-            or entry.get("marker_type") != "LIBRARY"
+            or entry.get("kind") != "LIBRARY"
             or Path(stored).suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"}
         ):
             continue
-        annotation = Annotation(
+        annotation = SourceBinding(
             module=module,
             va=va,
             name=str(entry.get("name") or ""),
             symbol=str(entry.get("symbol") or ""),
-            marker_type="LIBRARY",
+            kind="LIBRARY",
         )
         apply_metadata_entry(annotation, entry)
         results.append(bind_library_source(cfg, annotation, entry))
@@ -80,7 +80,7 @@ def compiled_library_annotations(
 
 def resolve_library_providers(
     cfg: ProjectConfig,
-    entries: list[Annotation],
+    entries: list[SourceBinding],
     headers: dict[int, dict[str, str]],
     library_vas: frozenset[int],
 ) -> list[dict[str, Any]]:

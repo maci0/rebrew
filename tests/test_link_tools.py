@@ -7,6 +7,7 @@ import struct
 from pathlib import Path
 
 import pytest
+from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import Result
 
 from rebrew.calibrate_bss import find_link_cmd, read_data_vs
@@ -23,8 +24,11 @@ def _mk_src(tmp_path: Path, name: str, va: int | None) -> Path:
     p = tmp_path / name
     content = "int x;\n"
     if va is not None:
-        content += f"// FUNCTION: server.dll 0x{va:x}\nvoid f(void) {{}}\n"
-    p.write_text(content)
+        content += SourceFixture(
+            f"/* ADDRESS: server.dll 0x{va:x} */\nvoid f(void) {{}}\n",
+            {f"server.dll.0x{va:x}": {"kind": "FUNCTION"}},
+        )
+    write_source(p, content)
     return p
 
 
@@ -75,10 +79,9 @@ def test_order_sources_exclude_matches_basename(tmp_path: Path) -> None:
 
 def test_load_data_symbols(tmp_path: Path) -> None:
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
-        '["SERVER.0x10027004"]\nname = "g_b"\nsection = ".bss"\n'
-        '["SERVER.0x10027010"]\nname = "g_c"\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n["SERVER.0x10027004"]\nname = "g_b"\nsection = ".bss"\n["SERVER.0x10027010"]\nname = "g_c"\nsection = ".data"\n',
         encoding="utf-8",
     )
     syms = load_data_symbols(meta)
@@ -90,7 +93,11 @@ def test_load_data_symbols(tmp_path: Path) -> None:
 
 def test_gen_link_stubs(tmp_path: Path) -> None:
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text('["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n', encoding="utf-8")
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
     text = gen_link_stubs(meta)
     assert "char g_a[1] = {0};" in text
     assert "g_bss_tail[0x400000]" in text
@@ -108,7 +115,11 @@ def test_gen_link_stubs_json_still_writes(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.chdir(tmp_path)
     meta = tmp_path / "src" / "rebrew-data.toml"
     meta.parent.mkdir(parents=True)
-    meta.write_text('["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n', encoding="utf-8")
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
     out = tmp_path / "src" / "link_stubs.c"
     result = CliRunner().invoke(app, ["--data-metadata", str(meta), "--output", str(out), "--json"])
     assert result.exit_code == 0, result.output
@@ -136,7 +147,11 @@ def test_gen_link_stubs_keeps_calibrated_tail(
     monkeypatch.chdir(tmp_path)
     meta = tmp_path / "src" / "rebrew-data.toml"
     meta.parent.mkdir(parents=True)
-    meta.write_text('["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n', encoding="utf-8")
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
     out = tmp_path / "src" / "link_stubs.c"
     runner = CliRunner()
     args = ["--data-metadata", str(meta), "--output", str(out), "--json"]
@@ -170,9 +185,9 @@ def test_read_calibrated_tail_ignores_hand_written_stub(tmp_path: Path) -> None:
 def test_gen_link_stubs_dedups_repeated_names(tmp_path: Path) -> None:
     """Two addresses with one name would emit the definition twice."""
     meta = tmp_path / "rebrew-data.toml"
-    meta.write_text(
-        '["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n'
-        '["SERVER.0x10027010"]\nname = "g_a"\nsection = ".data"\n',
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n["SERVER.0x10027010"]\nname = "g_a"\nsection = ".data"\n',
         encoding="utf-8",
     )
     text = gen_link_stubs(meta)
@@ -220,7 +235,7 @@ def _mk_pe_with_data(data_size: int = 0x100) -> bytes:
 def test_gen_data_restore() -> None:
     pe = _mk_pe_with_data(0x100)
     text = gen_data_restore(pe, "TEST", 0x40)
-    assert "/* data gap TEST 3040 */" in text
+    assert "/* ADDRESS: TEST 0x00003040 */" in text
     assert "// DATA:" not in text
     assert "g_data_restore_gap[0x1c0]" in text
     assert "0x40,0x41" in text  # bytes [0x40:0x100] of the .data raw

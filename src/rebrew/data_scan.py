@@ -8,10 +8,8 @@ without pulling in the ``rebrew data list`` Typer app (``rebrew.data``).
 """
 
 import logging
-import re
 import struct
 import warnings
-from bisect import bisect_right
 from collections import defaultdict
 from dataclasses import dataclass, field
 from itertools import combinations
@@ -28,10 +26,6 @@ from rebrew.metadata.data import module_visible_to_target
 from rebrew.utils import floor_pct, merged_span_bytes, read_source_text
 
 log = logging.getLogger(__name__)
-
-#: Latches after the first failed rebrew-data.toml lookup so one unreadable
-#: store does not emit a warning per global.  See :func:`_data_meta`.
-_data_meta_unreadable = False
 
 #: struct code per pointer width, for the dispatch-table scan.
 _PTR_FMT = {2: "H", 4: "I", 8: "Q"}
@@ -65,19 +59,11 @@ def _target_pointer_size(info: Any) -> int:
 # reccmp-compatible GLOBAL annotation:  // GLOBAL: SERVER 0x10031ae8
 #
 # `DATA:` is the same marker for this scan's purpose.  `VTABLE:` / `STRING:`
-# are data markers too (annotation.DATA_MARKERS) but name layout rather than a
+# are data markers too (annotation.DATA_KINDS) but name layout rather than a
 # plain global, and _ANY_MARKER_RE below is what recognises them.
-_GLOBAL_RE = re.compile(
-    r"(?://|/\*)\s*(?:GLOBAL|DATA):\s*(?P<module>[A-Z0-9_]+)\s+(?P<va>0x[0-9a-fA-F]+)"
-)
 # Any annotation marker, so a file that only carries another target's
 # FUNCTION/STUB lines is that target's source even when its externs have
 # no GLOBAL line of their own.
-_ANY_MARKER_RE = re.compile(
-    r"(?://|/\*)\s*(?P<kind>FUNCTION|STUB|LIBRARY|DATA|GLOBAL|VTABLE|STRING):\s*"
-    r"(?P<module>[A-Z0-9_]+)\s+0x[0-9a-fA-F]+"
-)
-_INLINE_DATA_KINDS = frozenset({"GLOBAL", "DATA", "VTABLE", "STRING"})
 
 # extern data declarations are parsed by c_parser.find_extern_variables()
 # via tree-sitter AST walking — see scan_globals().
@@ -88,39 +74,6 @@ _INLINE_DATA_KINDS = frozenset({"GLOBAL", "DATA", "VTABLE", "STRING"})
 # reversed source spells a global it actually defines.  Array extents may
 # repeat (`char g_t[4][8]`), and the initialiser may open a brace on the same
 # line or run to a `;`.
-_DECL_IDENT_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[[^\]]*\]\s*)*\s*(?:=|;)")
-
-
-def _data_meta(cfg: ProjectConfig | None, module: str, va: int) -> dict[str, Any]:
-    """`rebrew-data.toml` fields for *(module, va)*, or `{}`.
-
-    Tolerant by design: the scan must still report the annotation when there is
-    no metadata root, no entry, or an unreadable file.
-    """
-    if cfg is None or not module:
-        return {}
-    from rebrew.metadata.data import get_data_entry
-
-    try:
-        return get_data_entry(cfg.metadata_dir, va, module=module)
-    except (OSError, ValueError, KeyError) as exc:
-        global _data_meta_unreadable
-        # A per-symbol miss and a store that exists but cannot be read both
-        # return {}, which reports every global with no type/size/section and
-        # no reason why.  Warn once so the message names the cause, not the
-        # first global that happened to hit it.
-        if not _data_meta_unreadable:
-            _data_meta_unreadable = True
-            log.warning(
-                "rebrew-data.toml entry lookup failed (%s); global fields are reported empty",
-                exc,
-            )
-        return {}
-
-
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -281,46 +234,19 @@ def classify_section(va: int, sections: dict[str, dict[str, Any]]) -> str:
 def _source_visible_to_target(
     lines: list[str], cfg: ProjectConfig | None, stored_modules: tuple[str, ...] = ()
 ) -> bool:
-    """Whether *lines* may contribute unannotated externs to the active target.
+    """Target visibility follows stored identities and address-only source bindings."""
+    from rebrew.metadata.anchors import parse_address_anchors
 
-    No inline or stored identity means a shared file. An identity for this target, or for a
-    library module, means the file is in scope. A file whose markers are
-    all another target's is that binary's source (guild-rebrew
-    ``GOLD.fcn_*.c`` externs were listed on the server).
-    """
-    if cfg is None:
-        return True
-    saw_marker = bool(stored_modules)
-    if any(module_visible_to_target(module, cfg) for module in stored_modules):
-        return True
-    for line in lines:
-        match = _ANY_MARKER_RE.search(line)
-        if match is None:
-            continue
-        saw_marker = True
-        if module_visible_to_target(match.group("module"), cfg):
-            return True
-    return not saw_marker
-
-
-def _has_inline_data_marker(lines: list[str]) -> bool:
-    """Whether *lines* still carry a GLOBAL/DATA/VTABLE/STRING marker.
-
-    One such line means the file has not migrated its data identity.  The
-    marker walk is the source of truth, and stored ``file`` rows are not
-    merged on top of it.
-    """
-    for line in lines:
-        match = _ANY_MARKER_RE.search(line)
-        if match is not None and match.group("kind") in _INLINE_DATA_KINDS:
-            return True
-    return False
+    modules = {*stored_modules, *(a.module for a in parse_address_anchors("\n".join(lines)))}
+    return cfg is None or not modules or any(module_visible_to_target(m, cfg) for m in modules)
 
 
 def _bind_stored_data_rows(
     *,
-    cfg: ProjectConfig,
+    cfg: ProjectConfig | None,
     cfile: Path,
+    bindings: list[Any],
+    data_entries: dict[tuple[str, int], dict[str, Any]],
     fname: str,
     is_header: bool,
     extern_vars: dict[str, Any],
@@ -338,21 +264,18 @@ def _bind_stored_data_rows(
     ``(name, 0)`` entry is adopted.  A header does not take a ``.c`` row,
     and it does not become the reference type.
     """
-    from rebrew.metadata.data import data_rows_for_path
-
-    try:
-        rows = data_rows_for_path(cfg.metadata_dir, cfile)
-    except (OSError, ValueError) as exc:
-        log.warning("rebrew-data.toml file lookup failed for %s: %s", cfile, exc)
-        return
-    for module, va, entry in rows:
-        if not module_visible_to_target(module, cfg):
+    for binding in bindings:
+        if not binding.is_data:
             continue
-        stored_name = Path(str(entry.get("file") or "").replace("\\", "/")).name
-        if is_header and stored_name != cfile.name:
+        module, va = binding.module, binding.va
+        if cfg is not None and not module_visible_to_target(module, cfg):
             continue
+        entry = {**data_entries.get((module, va), {}), "name": binding.name}
         name = str(entry.get("name") or "")
         declared = extern_vars.get(name) if name else None
+        if data_entries.get((module, va), {}).get("name") not in {None, "", name}:
+            entry.pop("size", None)
+            entry["type"] = declared.type_str if declared is not None else ""
         type_str = str(entry.get("type") or "")
         if not type_str and declared is not None and declared.type_str:
             type_str = declared.type_str
@@ -425,7 +348,7 @@ def scan_globals(
     name map only reads names and VAs, so it passes False and skips that walk.
     """
     from rebrew.c_parser import array_type_shape, find_extern_variables, find_variable_roles
-    from rebrew.metadata.annotation import function_rows_for_file
+    from rebrew.metadata.bindings import function_rows_for_file
     from rebrew.metadata.data import data_rows_for_path
     from rebrew.metadata.functions import load_metadata
     from rebrew.sources import iter_sources_and_headers
@@ -467,7 +390,10 @@ def scan_globals(
 
     header_files: set[str] = set()
     file_roles: dict[str, tuple[set[str], set[str], set[str]]] = {}
-    metadata_dir = getattr(cfg, "metadata_dir", None)
+    metadata_dir = getattr(cfg, "metadata_dir", None) or src_dir
+    from rebrew.metadata.data import load_data_metadata
+
+    data_entries = load_data_metadata(metadata_dir)
     function_entries = load_metadata(metadata_dir, deepcopy=False) if metadata_dir else {}
     for cfile in iter_sources_and_headers(src_dir, cfg):
         is_header = cfile.suffix.lower() == ".h"
@@ -501,53 +427,40 @@ def scan_globals(
         if not _source_visible_to_target(lines, cfg, stored_modules):
             continue
 
-        # A shared file annotates one global per target, each marker followed
-        # by its own declaration. Skipping the marker is not enough: the
-        # declaration is still an extern, and the last target's name was
-        # listed on every target (guild-rebrew `g_6624a0` under GOLD and
-        # GOLDTL showed up on the server with no VA). Blank those lines for
-        # the extern pass only; the marker walk below still sees them.
-        # Stacked identity markers describe one shared function. Skip bodies
-        # belonging solely to other targets, while retaining unmarked helpers.
-        scope_starts: list[int] = []
-        scope_visible: list[bool] = []
-        pending_modules: list[str] = []
-        for number, line in enumerate(lines, 1):
-            marker_match = _ANY_MARKER_RE.search(line)
-            if marker_match and marker_match.group("kind") in {"FUNCTION", "STUB", "LIBRARY"}:
-                pending_modules.append(marker_match.group("module"))
-            elif (
-                pending_modules and line.strip() and not line.lstrip().startswith(("//", "/*", "*"))
-            ):
-                scope_starts.append(number)
-                scope_visible.append(
-                    any(module_visible_to_target(module, cfg) for module in pending_modules)
-                )
-                pending_modules.clear()
+        from rebrew.c_parser import find_c_function_definitions
+        from rebrew.metadata.bindings import source_bindings
+
+        bindings = source_bindings(text, cfile, None, None, metadata_dir)
+        function_modules: dict[str, set[str]] = defaultdict(set)
+        data_modules: dict[str, set[str]] = defaultdict(set)
+        for binding in bindings:
+            if binding.is_data:
+                if binding.line:
+                    data_modules[binding.name].add(binding.module)
+            else:
+                function_modules[binding.name].add(binding.module)
+        by_line = {line: name for name, line in find_c_function_definitions(text)}
 
         def function_visible(
             line: int,
-            starts: tuple[int, ...] = tuple(scope_starts),
-            visible: tuple[bool, ...] = tuple(scope_visible),
+            *,
+            names: dict[int, str] = by_line,
+            modules_by_name: dict[str, set[str]] = function_modules,
         ) -> bool:
-            index = bisect_right(starts, line) - 1
-            return index < 0 or visible[index]
+            modules = modules_by_name.get(names.get(line, ""), set())
+            return (
+                cfg is None or not modules or any(module_visible_to_target(m, cfg) for m in modules)
+            )
 
         parsed_vars = find_extern_variables(
             text, include_definitions=True, function_filter=function_visible
         )
         foreign_decl_lines: set[int] = set()
         if cfg is not None:
-            for i, line in enumerate(lines):
-                gm = _GLOBAL_RE.search(line)
-                if (
-                    gm
-                    and not module_visible_to_target(gm.group("module"), cfg)
-                    and i + 1 < len(lines)
-                ):
-                    following = next((v for v in parsed_vars if v.end_line > i + 1), None)
-                    if following is not None:
-                        foreign_decl_lines.update(range(following.line - 1, following.end_line))
+            for variable in parsed_vars:
+                modules = data_modules.get(variable.name, set())
+                if modules and not any(module_visible_to_target(m, cfg) for m in modules):
+                    foreign_decl_lines.update(range(variable.line - 1, variable.end_line))
         extern_text = text
         if foreign_decl_lines:
             extern_text = "\n".join(
@@ -574,125 +487,20 @@ def scan_globals(
         # Track which names are already handled via GLOBAL annotation
         annotated_names: set[str] = set()
 
-        for i, line in enumerate(lines):
-            # 1. Check for // GLOBAL: annotation
-            gm = _GLOBAL_RE.search(line)
-            if gm:
-                # Marker-scope the scan when the module is another TARGET's
-                # marker: the same global name sits at a different VA in each
-                # binary, and an unscoped scan let the last marker win the
-                # name in every target's VA map (guild-rebrew round 1292:
-                # GOLDTL's log tables resolved to the SERVER VAs, failing
-                # DIR32 validation on bytes that are correct for the client).
-                # Library-module markers (MSVCRT, ZLIB, ...) are kept: they
-                # are not targets and carry no competing VA.
-                if cfg is not None and not module_visible_to_target(gm.group("module"), cfg):
-                    continue
-                va = int(gm.group("va"), 16)
-                # Read the complete following declaration, including definitions
-                # and function pointers, from the shared AST scan.
-                following = next((v for v in parsed_vars if v.end_line > i + 1), None)
-                next_marker = next(
-                    (j for j in range(i + 1, len(lines)) if _ANY_MARKER_RE.search(lines[j])),
-                    len(lines),
-                )
-                if following is not None and following.line - 1 < next_marker:
-                    decl = following.declaration
-                    decl_vars = [following]
-                else:
-                    decl = lines[i + 1].strip() if i + 1 < len(lines) else ""
-                    decl_vars = []
-                name = "unknown"
-                type_str = ""
-
-                # Try to parse declaration via tree-sitter (single line)
-                if decl_vars:
-                    ev = decl_vars[0]
-                    name = ev.name
-                    type_str = ev.type_str
-                else:
-                    # Fallback: try to grab the last identifier before ;
-                    # (handles non-extern declarations after GLOBAL annotations)
-                    id_match = _DECL_IDENT_RE.search(decl)
-                    if id_match:
-                        name = id_match.group(1)
-
-                # Last resort: the metadata.  A marker may legitimately have no
-                # declaration under it -- it annotates a global defined in
-                # another TU, or one the source only reaches through a pointer
-                # -- and rebrew-data.toml is where that global's name/type/
-                # section already live.  Without this the entry lands as
-                # "unknown" with no section, which is what made 53 of
-                # guild-rebrew's 118 markers unattributable.
-                meta = _data_meta(cfg, gm.group("module"), va)
-                if meta:
-                    if name == "unknown" and meta.get("name"):
-                        name = str(meta["name"])
-                    if not type_str and meta.get("type"):
-                        type_str = str(meta["type"])
-
-                # Warn only when nothing could name it -- neither the source
-                # nor the metadata.  Warning on "no declaration on the next
-                # line" alone cried wolf on every marker that the metadata
-                # resolves perfectly well.
-                if name == "unknown":
-                    warnings.warn(
-                        f"{fname}:{i + 1}: data annotation at 0x{va:08x} has no "
-                        f"declaration on the following line and no name in the "
-                        f"data metadata",
-                        stacklevel=2,
-                    )
-
-                key = (name, va)
-                annotated_names.add(name)
-
-                entry = by_key.get(key)
-                if entry is None:
-                    # An extern-only (name, 0) entry from an earlier file is
-                    # the same global awaiting its VA — adopt it rather than
-                    # forking a duplicate.
-                    entry = by_key.pop((name, 0), None)
-                    if entry is not None:
-                        entry.va = va
-                        entry.annotated = True
-                        _remember(entry, key)
-                    else:
-                        entry = GlobalEntry(name=name, va=va, type_str=type_str, annotated=True)
-                        _remember(entry, key)
-                else:
-                    entry.annotated = True
-
-                entry.declare(fname)
-                entry.module = gm.group("module")
-                entry.size = meta.get("size")
-                entry.storage_kind = str(meta.get("storage_kind") or "object")
-                entry.backing = str(meta.get("backing") or "")
-                entry.link_symbol = str(meta.get("link_symbol") or "")
-                if decl_vars:
-                    entry.declaration = decl
-
-                if type_str:
-                    type_by_name[name][type_str].append(fname)
-                    # A .c marker is the definition's reference type. A header
-                    # marker is a redeclaration, so it never contributes one.
-                    if not is_header:
-                        _mark(name, type_str)
-
-                continue
-
-        if cfg is not None and not _has_inline_data_marker(lines):
-            _bind_stored_data_rows(
-                cfg=cfg,
-                cfile=cfile,
-                fname=fname,
-                is_header=is_header,
-                extern_vars=extern_vars,
-                annotated_names=annotated_names,
-                by_key=by_key,
-                remember=_remember,
-                type_by_name=type_by_name,
-                mark=_mark,
-            )
+        _bind_stored_data_rows(
+            cfg=cfg,
+            cfile=cfile,
+            bindings=bindings,
+            data_entries=data_entries,
+            fname=fname,
+            is_header=is_header,
+            extern_vars=extern_vars,
+            annotated_names=annotated_names,
+            by_key=by_key,
+            remember=_remember,
+            type_by_name=type_by_name,
+            mark=_mark,
+        )
 
         # 2. Add unannotated extern variables from tree-sitter
         for ev_name, ev in extern_vars.items():
@@ -712,9 +520,9 @@ def scan_globals(
                     if not c_known:
                         type_by_name[ev_name][ev.type_str].append(fname)
                         _mark(ev_name, ev.type_str)
-                        for entry in entries_by_name.get(ev_name, ()):
-                            if not entry.type_str:
-                                entry.type_str = ev.type_str
+                        for typed_entry in entries_by_name.get(ev_name, ()):
+                            if not typed_entry.type_str:
+                                typed_entry.type_str = ev.type_str
                 continue
 
             key = (ev_name, 0)
@@ -834,8 +642,8 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     SIZE/SECTION/NOTE are overlaid from ``rebrew-data.toml`` metadata if present.
     Returns a list of dicts with: va, name, size, section, note, filepath.
     """
-    from rebrew.metadata.annotation import parse_c_file_multi
-    from rebrew.metadata.data import merge_into_data_annotation
+    from rebrew.metadata.bindings import read_source_bindings
+    from rebrew.metadata.data import merge_into_data_binding
     from rebrew.sources import iter_sources_and_headers, target_marker
     from rebrew.utils import rel_display_path
 
@@ -845,13 +653,13 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
 
     for cfile in iter_sources_and_headers(src_dir, cfg):
         rel_name = rel_display_path(cfile, src_dir)
-        for ann in parse_c_file_multi(
-            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
+        for ann in read_source_bindings(
+            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else src_dir
         ):
             if ann.is_data:
                 # Metadata root is cfg.metadata_dir; cfile.parent would
                 # silently no-op the overlay when the two dirs differ.
-                merge_into_data_annotation(ann, cfg.metadata_dir if cfg else cfile.parent)
+                merge_into_data_binding(ann, cfg.metadata_dir if cfg else src_dir)
                 entries.append(
                     {
                         "va": f"0x{ann.va:08x}",
@@ -883,13 +691,13 @@ def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int,
     A source with no name falls back to its path relative to *src_dir*, so
     every annotation is named even before the catalog fills the gaps.
     """
-    from rebrew.metadata.annotation import parse_c_file_multi
+    from rebrew.metadata.bindings import read_source_bindings
     from rebrew.sources import iter_sources, target_marker
     from rebrew.utils import rel_display_path
 
     known_functions: dict[int, dict[str, str]] = {}
     for cfile in iter_sources(src_dir, cfg):
-        for entry in parse_c_file_multi(
+        for entry in read_source_bindings(
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
         ):
             if entry.va:

@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from source_util import write_source
 
 from rebrew.compiler.cache import CompileCache
 from rebrew.compiler.compile import (
@@ -188,7 +189,11 @@ class TestContextNeverTouchesTheResultCache:
         )
         src = tmp_path / "src" / "x"
         src.mkdir(parents=True)
-        (src / "f.c").write_text("// FUNCTION: X 0x1000\nint f(void) { return 1; }\n")
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: X 0x1000 */\nint f(void) { return 1; }\n",
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+        )
 
     def _run(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]

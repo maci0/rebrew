@@ -7,10 +7,12 @@ Covers: parser consolidation, CFLAGS validation, safe file write-back,
 import re
 from pathlib import Path
 
-from rebrew.metadata.annotation import (
-    make_func_entry,
-    parse_c_file_multi,
-    parse_source_metadata,
+from source_util import SourceFixture, write_source
+
+from rebrew.metadata.bindings import (
+    make_function_binding,
+    read_function_fields,
+    read_source_bindings,
 )
 from rebrew.metadata.functions import get_entry, update_source_status
 from rebrew.naming import sanitize_name
@@ -20,37 +22,28 @@ from rebrew.test import smart_reloc_compare
 # Helpers
 # ---------------------------------------------------------------------------
 
-VALID_HEADER = """\
-// FUNCTION: SERVER 0x10008880
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 31
-// CFLAGS: /O2 /Gd
+VALID_HEADER = SourceFixture(
+    "/* ADDRESS: SERVER 0x10008880 */\n\n\n\n\n\nint __cdecl bit_reverse(int x)\n{\n    return x;\n}\n",
+    {"SERVER.0x10008880": {"kind": "FUNCTION", "size": 31, "cflags": "/O2 /Gd", "status": "STUB"}},
+)
 
-int __cdecl bit_reverse(int x)
-{
-    return x;
-}
-"""
-
-STUB_HEADER = """\
-// FUNCTION: SERVER 0x10008880
-// STATUS: STUB
-// BLOCKER: initial decompilation
-// ORIGIN: GAME
-// SIZE: 31
-// CFLAGS: /O2 /Gd
-
-int __cdecl bit_reverse(int x)
-{
-    return 0;
-}
-"""
+STUB_HEADER = SourceFixture(
+    "/* ADDRESS: SERVER 0x10008880 */\n\n\n\n\n\n\nint __cdecl bit_reverse(int x)\n{\n    return 0;\n}\n",
+    {
+        "SERVER.0x10008880": {
+            "kind": "FUNCTION",
+            "blocker": "initial decompilation",
+            "size": 31,
+            "cflags": "/O2 /Gd",
+            "status": "STUB",
+        }
+    },
+)
 
 
 def _write_c(tmp_path: Path, name: str, content: str) -> Path:
     p = tmp_path / name
-    p.write_text(content, encoding="utf-8")
+    write_source(p, content, encoding="utf-8")
     return p
 
 
@@ -60,44 +53,44 @@ def _write_c(tmp_path: Path, name: str, content: str) -> Path:
 
 
 class TestParserConsolidation:
-    """Verify parse_source_metadata delegates to parse_c_file_multi."""
+    """Verify read_function_fields delegates to read_source_bindings."""
 
     def test_status_matches(self, tmp_path: Path) -> None:
         # Volatile keys are metadata-owned: inline STATUS is ignored (STUB default).
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
-        meta = parse_source_metadata(str(p))
+        meta = read_function_fields(str(p), metadata_dir=tmp_path)
         assert meta["STATUS"] == "STUB"
 
     def test_cflags_matches(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
-        meta = parse_source_metadata(str(p))
+        meta = read_function_fields(str(p), metadata_dir=tmp_path)
         assert meta["CFLAGS"] == "/O2 /Gd"
 
     def test_symbol_not_in_meta(self, tmp_path: Path) -> None:
         """SYMBOL is no longer emitted — it's derived from C definitions."""
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
-        meta = parse_source_metadata(str(p))
+        meta = read_function_fields(str(p), metadata_dir=tmp_path)
         assert "SYMBOL" not in meta
 
     def test_size_is_string(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
-        meta = parse_source_metadata(str(p))
+        meta = read_function_fields(str(p), metadata_dir=tmp_path)
         assert meta["SIZE"] == "31"
 
     def test_empty_file_returns_empty(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "empty.c", "")
-        meta = parse_source_metadata(str(p))
+        meta = read_function_fields(str(p), metadata_dir=tmp_path)
         assert meta == {}
 
-    def test_marker_type_present(self, tmp_path: Path) -> None:
+    def test_kind_present(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
-        meta = parse_source_metadata(str(p))
+        meta = read_function_fields(str(p), metadata_dir=tmp_path)
         assert "FUNCTION" in meta
 
     def test_blocker_present(self, tmp_path: Path) -> None:
         # Legacy BLOCKER is co-read for migration; a stored value overrides it.
         p = _write_c(tmp_path, "stub.c", STUB_HEADER)
-        meta = parse_source_metadata(str(p))
+        meta = read_function_fields(str(p), metadata_dir=tmp_path)
         assert meta["BLOCKER"] == "initial decompilation"
 
 
@@ -107,12 +100,12 @@ class TestParserConsolidation:
 
 
 class TestCflagsValidation:
-    """Verify CFLAGS format checks in Annotation.validate()."""
+    """Verify CFLAGS format checks in SourceBinding.validate()."""
 
     def test_valid_cflags_no_warning(self) -> None:
-        a = make_func_entry(
+        a = make_function_binding(
             va=0x10001000,
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             status="STUB",
             size=32,
             cflags="/O2 /Gd",
@@ -126,9 +119,9 @@ class TestCflagsValidation:
         assert cflags_warnings == []
 
     def test_missing_slash_warns(self) -> None:
-        a = make_func_entry(
+        a = make_function_binding(
             va=0x10001000,
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             status="STUB",
             size=32,
             cflags="O2 Gd",
@@ -141,9 +134,9 @@ class TestCflagsValidation:
         assert any("doesn't start with '/'" in w for w in warnings)
 
     def test_glued_flags_warns(self) -> None:
-        a = make_func_entry(
+        a = make_function_binding(
             va=0x10001000,
-            marker_type="FUNCTION",
+            kind="FUNCTION",
             status="STUB",
             size=32,
             cflags="/O2/Gd",
@@ -168,7 +161,8 @@ class TestSafeWriteBack:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
         update_source_status(tmp_path, "RELOC", "SERVER", 0x10008880)
         # .c file must be untouched
-        assert "STATUS: EXACT" in p.read_text(encoding="utf-8")
+        assert "STATUS:" not in p.read_text(encoding="utf-8")
+        assert get_entry(tmp_path, 0x10008880, "SERVER")["status"] == "RELOC"
         # Metadata has new status
         entry = get_entry(tmp_path, 0x10008880, module="SERVER")
         assert entry["status"] == "RELOC"
@@ -184,7 +178,7 @@ class TestSafeWriteBack:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
         update_source_status(tmp_path, "RELOC", "SERVER", 0x10008880)
         # Read with metadata_dir to see new status
-        anns = parse_c_file_multi(p, metadata_dir=tmp_path)
+        anns = read_source_bindings(p, metadata_dir=tmp_path)
         assert anns
         assert anns[0].status == "RELOC"
 
@@ -199,18 +193,16 @@ class TestSafeWriteBack:
         entry = get_entry(tmp_path, 0x10008880, module="SERVER")
         assert not entry.get("blocker")
         # .c file still has the inline BLOCKER comment (not touched)
-        assert "BLOCKER" in p.read_text(encoding="utf-8")
+        assert "BLOCKER:" not in p.read_text(encoding="utf-8")
 
     def test_target_va_updates_only_matching_block(self, tmp_path: Path) -> None:
         """Multi-function file: target_va should only update that block's metadata entry."""
-        multi = (
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// SYMBOL: _func_a\n"
-            "void _func_a(void) {}\n"
-            "\n"
-            "// FUNCTION: SERVER 0x10002000\n"
-            "// SYMBOL: _func_b\n"
-            "void _func_b(void) {}\n"
+        multi = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\n\nvoid _func_a(void) {}\n\n/* ADDRESS: SERVER 0x10002000 */\n\nvoid _func_b(void) {}\n",
+            {
+                "SERVER.0x10001000": {"kind": "FUNCTION", "symbol": "_func_a"},
+                "SERVER.0x10002000": {"kind": "FUNCTION", "symbol": "_func_b"},
+            },
         )
         p = _write_c(tmp_path, "multi.c", multi)
         update_source_status(tmp_path, "RELOC", "SERVER", 0x10001000)
@@ -219,20 +211,18 @@ class TestSafeWriteBack:
         assert entry1["status"] == "RELOC"
         # Second VA NOT in metadata (untouched)
         entry2 = get_entry(tmp_path, 0x10002000, module="SERVER")
-        assert "status" not in entry2
+        assert entry2["status"] == "STUB"
         # .c file untouched
         assert p.read_text(encoding="utf-8") == multi
 
     def test_target_va_none_updates_all(self, tmp_path: Path) -> None:
         """Without target_va, the first annotation block's VA is used."""
-        multi = (
-            "// FUNCTION: SERVER 0x10001000\n"
-            "// SYMBOL: _func_a\n"
-            "void _func_a(void) {}\n"
-            "\n"
-            "// FUNCTION: SERVER 0x10002000\n"
-            "// SYMBOL: _func_b\n"
-            "void _func_b(void) {}\n"
+        multi = SourceFixture(
+            "/* ADDRESS: SERVER 0x10001000 */\n\nvoid _func_a(void) {}\n\n/* ADDRESS: SERVER 0x10002000 */\n\nvoid _func_b(void) {}\n",
+            {
+                "SERVER.0x10001000": {"kind": "FUNCTION", "symbol": "_func_a"},
+                "SERVER.0x10002000": {"kind": "FUNCTION", "symbol": "_func_b"},
+            },
         )
         _write_c(tmp_path, "multi.c", multi)
         update_source_status(tmp_path, "EXACT", "SERVER", 0x10001000)
@@ -347,7 +337,7 @@ class TestDuplicateVADetection:
     def test_duplicate_va_deduped(self, tmp_path: Path, capsys) -> None:
         # Create two STUB files with the same VA
         for name in ("func_a.c", "func_b.c"):
-            (tmp_path / name).write_text(STUB_HEADER, encoding="utf-8")
+            write_source(tmp_path / name, STUB_HEADER, encoding="utf-8")
 
         from rebrew.match_batch import find_all_stubs
 
@@ -362,8 +352,8 @@ class TestDuplicateVADetection:
         header_a = STUB_HEADER
         header_b = STUB_HEADER.replace("0x10008880", "0x10009990")
 
-        (tmp_path / "func_a.c").write_text(header_a, encoding="utf-8")
-        (tmp_path / "func_b.c").write_text(header_b, encoding="utf-8")
+        write_source(tmp_path / "func_a.c", header_a, encoding="utf-8")
+        write_source(tmp_path / "func_b.c", header_b, encoding="utf-8")
 
         from rebrew.match_batch import find_all_stubs
 

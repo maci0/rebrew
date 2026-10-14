@@ -21,7 +21,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from rebrew.catalog.grid import count_statuses
-from rebrew.metadata.annotation import Annotation
+from rebrew.metadata.bindings import SourceBinding
 from rebrew.metadata.functions import (
     canonical_status,
     is_status_parked,
@@ -43,19 +43,19 @@ _MARKERS = ["FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"]
 
 
 @st.composite
-def annotation_list(draw: st.DrawFn) -> list[Annotation]:
+def annotation_list(draw: st.DrawFn) -> list[SourceBinding]:
     """A random list of annotations (may include duplicates per VA)."""
     count = draw(st.integers(min_value=0, max_value=30))
-    out: list[Annotation] = []
+    out: list[SourceBinding] = []
     for _ in range(count):
         out.append(
-            Annotation(
+            SourceBinding(
                 va=draw(st.integers(min_value=0x1000, max_value=0x1000 + 200)),
                 name=draw(st.text(min_size=1, max_size=12)),
                 status=draw(st.sampled_from(_STATUSES)),
                 size=draw(st.integers(min_value=1, max_value=256)),
                 module=draw(st.sampled_from(["GAME", "SERVER", "MSVCRT", ""])),
-                marker_type=draw(st.sampled_from(_MARKERS)),
+                kind=draw(st.sampled_from(_MARKERS)),
             )
         )
     return out
@@ -63,18 +63,18 @@ def annotation_list(draw: st.DrawFn) -> list[Annotation]:
 
 class TestCountStatusesInvariants:
     @given(annotation_list())
-    def test_every_bucketed_va_counted_once(self, annos: list[Annotation]) -> None:
+    def test_every_bucketed_va_counted_once(self, annos: list[SourceBinding]) -> None:
         """Every function VA whose status intersects the five buckets is counted
         exactly once; statuses outside the buckets
         (SIZE_MISMATCH, "") legitimately fall through the breakdown (totals
         come from len(fn_vas))."""
-        by_va: dict[int, list[Annotation]] = {}
+        by_va: dict[int, list[SourceBinding]] = {}
         for a in annos:
             by_va.setdefault(a.va, []).append(a)
         bucketed_vas = {
             va
             for va, vas in by_va.items()
-            if any(e.get("marker_type") not in ("GLOBAL", "DATA") for e in vas)
+            if any(e.get("kind") not in ("GLOBAL", "DATA") for e in vas)
             and any(
                 e.get("status")
                 in ("EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "NEAR_MATCH", "STUB")
@@ -85,9 +85,9 @@ class TestCountStatusesInvariants:
         assert sum(counts.values()) == len(bucketed_vas)
 
     @given(annotation_list())
-    def test_no_phantom_counts(self, annos: list[Annotation]) -> None:
+    def test_no_phantom_counts(self, annos: list[SourceBinding]) -> None:
         """Only the five known buckets are ever returned, each non-negative."""
-        by_va: dict[int, list[Annotation]] = {}
+        by_va: dict[int, list[SourceBinding]] = {}
         for a in annos:
             by_va.setdefault(a.va, []).append(a)
         counts = count_statuses(by_va)
@@ -95,15 +95,15 @@ class TestCountStatusesInvariants:
         assert all(v >= 0 for v in counts.values())
 
     @given(annotation_list())
-    def test_global_data_markers_excluded(self, annos: list[Annotation]) -> None:
+    def test_global_data_markers_excluded(self, annos: list[SourceBinding]) -> None:
         """VAs whose ONLY markers are GLOBAL/DATA never count as functions."""
-        by_va: dict[int, list[Annotation]] = {}
+        by_va: dict[int, list[SourceBinding]] = {}
         for a in annos:
             by_va.setdefault(a.va, []).append(a)
         data_only = {
             va
             for va, vas in by_va.items()
-            if vas and all(e.get("marker_type") in ("GLOBAL", "DATA") for e in vas)
+            if vas and all(e.get("kind") in ("GLOBAL", "DATA") for e in vas)
         }
         counts = count_statuses(by_va)
         # Counted VAs can never include a data-only VA.
@@ -124,8 +124,8 @@ class TestCountStatusesInvariants:
         """A VA with both STUB and EXACT annotations counts once as EXACT."""
         by_va = {
             0x1000: [
-                Annotation(va=0x1000, name="f", status="STUB"),
-                Annotation(va=0x1000, name="f", status="EXACT"),
+                SourceBinding(va=0x1000, name="f", status="STUB"),
+                SourceBinding(va=0x1000, name="f", status="EXACT"),
             ]
         }
         counts = count_statuses(by_va)
