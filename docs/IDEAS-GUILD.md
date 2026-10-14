@@ -1108,3 +1108,26 @@ Replay `rebrew skeleton 0x571870 --target Europa1400Gold_TL.exe --name
 he_RunProduktion --decomp --decomp-body --decompiler kuna --dry-run --json`.
 Receipts: guild-rebrew `.scratch/goal23/production-callback/kuna-review.json`,
 `kuna-{reliable,aggressive}-seed.c` and `kuna-skeleton-preview.json`.
+
+## Audit C return contracts even when object bytes match
+
+The production callback at TL0x00571870 consumes EAX from packet wrappers
+0x004c51f0 and0x004c5250, storing their returned queue ID in its state.
+Existing shared C defines those wrappers as void and declares their queue
+callee0x004c4330 as void, although the actual queue definition returns int.
+MSVC preserves EAX across the wrapper epilogue, so their complete bodies can
+byte-match while the C return contract is wrong. Existing caller0x00573a80
+already declares the wrapper int and stores its result.
+
+Add a target-scoped audit comparing definition-owned prototypes with referring
+declarations, distinguishing opaque pointee views from return/value-width
+contradictions. Report concrete declaration/definition sites and caller return
+uses; byte-match status must not imply that the C contract is coherent. Do not
+automatically infer original parameter types from narrowed packet field stores.
+Existing source graph and types commands do not expose this contract audit.
+
+Evidence: guild-rebrew `.scratch/goal24/production/callee-interface.json`,
+`src/GOLDTL.fcn_004c4330.c`, `src/GOLDTL.fcn_004c51f0.c`,
+`src/GOLDTL.fcn_004c5250.c`, and native callback instructions
+0x005725c7..0x005725cf. Project repair must validate complete helper bodies,
+existing callers and typed operands independently of the byte-match totals.
