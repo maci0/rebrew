@@ -698,8 +698,10 @@ GCC_CONSTRAINTS = """- **C99/C11**: standard modern C
 - **ELF format**: use `objdump` / `readelf` for inspection"""
 
 DELPHI16_CONSTRAINTS = """- **Object Pascal**: Delphi 1.0 compiles Pascal, not C — there is no C source to write
-- **Matching not wired** (ADR-001): Delphi's Borland ABI has no byte-matching profile; document functions as blockers
-- **Research path**: `rebrew.compiler.delphi16.compile_ne` compiles NE executables headless (DCC.EXE inside the rebrew/delphi:1.0-win16 image / DOSBox)"""
+- **Whole-program build**: `rebrew build delphi PROGRAM.DPR` runs DCC inside the Docker image; no host DOSBox fallback
+- **Comparison scope**: `rebrew binary ne-compare` separates exact file/segment agreement from content overlap. Per-function C/COFF matching is not supported for Pascal
+- **Forms**: `rebrew binary forms` decodes supported Delphi 1 streams and verifies exact re-encoding; event names are evidence, not recovered bodies
+- **Public API**: `rebrew.compiler.delphi16.compile_ne` preserves source bytes, current sibling units, switches and a same-invocation map"""
 
 
 #: Compiler families each profile expects (for init's family-alignment

@@ -633,7 +633,7 @@ class TestBinaryCallEdges:
     """--binary edge extraction maps call sites inside function ranges."""
 
     def test_ne_binary_edges(self, tmp_path) -> None:
-        from test_ne_loader import _build_ne
+        from bin_util import make_ne
 
         from rebrew.depgraph import binary_call_edges
         from rebrew.formats.binary_loader import load_binary
@@ -645,7 +645,7 @@ class TestBinaryCallEdges:
             "90 90 90 90"  # padding
             "55 8b ec 33 c0 5d c3"  # fn2 @ marker+0x10: push bp; mov bp,sp; xor ax,ax; pop bp; ret
         )
-        raw = _build_ne(segments=[(b"\x01\x00" + code, 0x01)])
+        raw = make_ne(segments=[(b"\x01\x00" + code, 0x01)])
         p = tmp_path / "app.ne"
         p.write_bytes(raw)
         info = load_binary(p)
@@ -660,14 +660,14 @@ class TestBinaryCallEdges:
     def test_unsorted_ranges_resolve(self, tmp_path) -> None:
         """Range lookup sorts internally: shuffled input still maps call
         sites to the right function (the bisect path)."""
-        from test_ne_loader import _build_ne
+        from bin_util import make_ne
 
         from rebrew.depgraph import binary_call_edges
         from rebrew.formats.binary_loader import load_binary
         from rebrew.formats.ne_loader import enumerate_ne_functions
 
         code = bytes.fromhex("55 8b ec e8 0a 00 5d c390 90 90 9055 8b ec 33 c0 5d c3")
-        raw = _build_ne(segments=[(b"\x01\x00" + code, 0x01)])
+        raw = make_ne(segments=[(b"\x01\x00" + code, 0x01)])
         p = tmp_path / "app.ne"
         p.write_bytes(raw)
         info = load_binary(p)

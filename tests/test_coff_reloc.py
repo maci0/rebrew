@@ -193,6 +193,77 @@ def test_function_catalog_scan_is_marker_scoped(
 
 
 class TestStrictOperandProof:
+    def test_binding_evidence_distinguishes_unknown_masks_and_full_native_checks(self) -> None:
+        from rebrew.coff_reloc import CoffRelocRecord, relocation_binding_evidence
+
+        obj = bytes(12)
+        native = (0x1000).to_bytes(4, "little") + (0x2000).to_bytes(4, "little") + bytes(4)
+        records = [
+            CoffRelocRecord(0, 6, "_known"),
+            CoffRelocRecord(4, 6, "_unknown"),
+            CoffRelocRecord(8, 99, "_other"),
+        ]
+        evidence = relocation_binding_evidence(obj, native, records, {"_known": 0x1000})
+        assert [row["status"] for row in evidence] == ["VALIDATED", "UNRESOLVED", "UNSUPPORTED"]
+
+    def test_extended_binding_check_cannot_hide_a_conflict_beyond_the_old_size(self) -> None:
+        from rebrew.coff_reloc import (
+            CoffRelocRecord,
+            known_bindings_match,
+            relocation_binding_evidence,
+        )
+
+        obj = b"abcd" + bytes(4)
+        evidence = relocation_binding_evidence(
+            obj, b"abcd", [CoffRelocRecord(4, 6, "_known")], {"_known": 0x1000}
+        )
+        assert evidence[0]["status"] == "OUT_OF_EXTENT"
+        assert evidence[0]["expected_value"] == 0x1000
+        assert not known_bindings_match(evidence, b"abcd" + (0x2000).to_bytes(4, "little"))
+        assert known_bindings_match(evidence, b"abcd" + (0x1000).to_bytes(4, "little"))
+
+    @pytest.mark.parametrize("typed", [False, True])
+    def test_known_binding_policy_rejects_conflicts_but_keeps_unresolved(self, typed: bool) -> None:
+        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+
+        records = [CoffRelocRecord(0, 6, "_table")] if typed else {0: "_table"}
+        obj, native = (4).to_bytes(4, "little"), (0x1204).to_bytes(4, "little")
+        wrong = {"_table": 0x2200}
+        assert smart_reloc_compare(obj, native, records, wrong)[0]
+        result = smart_reloc_compare(obj, native, records, wrong, check_known_bindings=True)
+        assert not result[0]
+        assert result[4] == [0]
+        assert smart_reloc_compare(
+            obj, native, records, {"_table": 0x1200}, check_known_bindings=True
+        )[0]
+        assert smart_reloc_compare(
+            obj, native, records, {"_other": 0x9000}, check_known_bindings=True
+        )[0]
+
+    def test_known_binding_policy_preserves_explicit_iat_policy(self) -> None:
+        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+
+        result = smart_reloc_compare(
+            bytes(4),
+            (0x1200).to_bytes(4, "little"),
+            [CoffRelocRecord(0, 6, "_table")],
+            {"_table": 0x9000},
+            check_known_bindings=True,
+            iat_region=frozenset({0x1200}),
+        )
+        assert result[0]
+
+    def test_known_binding_configuration_is_target_scoped(self, tmp_path: Path) -> None:
+        text = PROJECT_TOML.replace(
+            'binary = "bin/game.exe"', 'check_known_bindings = true\nbinary = "bin/game.exe"'
+        )
+        text += '\n[targets.other]\nbinary = "bin/other.exe"\n'
+        (tmp_path / "rebrew-project.toml").write_text(text)
+        checked = load_config(tmp_path, target="game")
+        assert checked.check_known_bindings
+        assert checked.as_dict()["check_known_bindings"] is True
+        assert not load_config(tmp_path, target="other").check_known_bindings
+
     @pytest.mark.parametrize("typed", [False, True])
     @pytest.mark.parametrize(
         "bound,actual,expected", [(0x1200, 0x1204, True), (0x2200, 0x1204, False)]

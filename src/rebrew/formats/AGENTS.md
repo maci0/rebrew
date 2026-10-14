@@ -8,6 +8,8 @@ Executable, object and archive file parsers: the layer every analysis, compile a
 |--------|------|
 | `binary_loader.py` | `load_binary` and the `rebrew.binary_loaders` plugin group; PE/ELF/Mach-O through LIEF |
 | `binary_model.py` | `BinaryInfo`, `SectionInfo`: the format-agnostic model the loaders fill |
+| `dfm.py` | Bounded Delphi 1 form codec with lossless property order/wire types |
+| `ne_analysis.py` | Validated physical segments/fixups and content-window inventories |
 | `ne_loader.py` | 16-bit NE images (LIEF cannot parse NE) |
 | `pe_headers.py` / `pe_image.py` | Read and patch PE header fields in place; the image walk for MSVC link options |
 | `pe_symbols.py` | PE data directories as symbol records |

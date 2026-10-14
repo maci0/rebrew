@@ -59,6 +59,9 @@ max_line_length = 200
 # -----------------------------------------------------------------------------
 
 [targets.game]
+# Reject contradictory resolved DIR32 bindings; unresolved operands remain explicit.
+check_known_bindings = false
+
 # Path to original binary executable or library (relative to project root). (Required)
 binary = "original/game.exe"
 

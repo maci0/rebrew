@@ -25,6 +25,18 @@ from rebrew.cli import console
 DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     "source": (
         CliComponent(
+            name="units",
+            module="rebrew.source_units",
+            help="Inventory native source-path strings and direct instruction references.",
+            panel=Panel.ANALYSIS,
+        ),
+        CliComponent(
+            name="findings",
+            module="rebrew.findings",
+            help="Find prior documented findings mentioning a native address or range.",
+            panel=Panel.ANALYSIS,
+        ),
+        CliComponent(
             name="rename",
             module="rebrew.rename",
             help="Rename a function, global, type or struct member and update every reference.",
@@ -121,6 +133,18 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
     ),
     "build": (
+        CliComponent(
+            name="anchors",
+            module="rebrew.link_anchors",
+            help="Generate target-scoped native linker anchors in VA order.",
+            panel=Panel.DEVELOPMENT,
+        ),
+        CliComponent(
+            name="delphi",
+            module="rebrew.delphi_build",
+            help="Build a complete Delphi 1.0 program and map through the Docker toolchain.",
+            panel=Panel.DEVELOPMENT,
+        ),
         CliComponent(
             name="postlink",
             module="rebrew.postlink",
@@ -291,6 +315,18 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
     ),
     "binary": (
+        CliComponent(
+            name="ne-compare",
+            module="rebrew.ne_compare",
+            help="Compare NE file and segment bytes with separate content overlap.",
+            panel=Panel.ANALYSIS,
+        ),
+        CliComponent(
+            name="forms",
+            module="rebrew.forms",
+            help="Decode Delphi 1 forms and verify their exact stream round trip.",
+            panel=Panel.ANALYSIS,
+        ),
         CliComponent(
             name="asm",
             module="rebrew.asm",

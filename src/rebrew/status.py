@@ -319,8 +319,6 @@ class StatusReport:
 # Data collection
 # ---------------------------------------------------------------------------
 
-_IMAGE_SUFFIXES = {".dll", ".exe", ".so", ".dylib"}
-
 
 def compare_file_bytes(reference: bytes, built: bytes) -> tuple[int, int]:
     """Same-offset match count and span.
@@ -365,22 +363,14 @@ def find_built_image(root: Path, target_name: str, raw_link: Path | None = None)
     """The image status scores.
 
     A configured ``raw_link`` is that file only: a missing one does not fall
-    back to the postlinked ``build/<target>``. Without one, ``build/<target>``
-    wins, then the sole image sitting directly in ``build/``.
+    back to the postlinked ``build/<target>``. Without one, only
+    ``build/<target>`` is eligible; another target's image is never substituted.
     """
     if raw_link is not None:
         path = Path(raw_link)
         return path if path.is_file() else None
-    build = Path(root) / "build"
-    direct = build / target_name
-    if direct.is_file():
-        return direct
-    if not build.is_dir():
-        return None
-    images = [p for p in build.iterdir() if p.is_file() and p.suffix.lower() in _IMAGE_SUFFIXES]
-    if len(images) == 1:
-        return images[0]
-    return None
+    direct = Path(root) / "build" / target_name
+    return direct if direct.is_file() else None
 
 
 def _display_built(root: Path, path: Path) -> str:

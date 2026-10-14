@@ -513,6 +513,7 @@ class ProjectConfig:
     bin_dir: Path = field(default_factory=lambda: Path())
     marker: str = ""  # Prefix used in annotations, e.g. // FUNCTION: SERVER 0x... (default: target_name.upper())
     r2_bogus_vas: list[int] = field(default_factory=list)  # VAs with known-bad r2 size data
+    check_known_bindings: bool = False  # reject contradictory mapped native operands
 
     # --- project-level defaults ---
     project_name: str = ""
@@ -520,7 +521,7 @@ class ProjectConfig:
     db_dir: Path = field(default_factory=lambda: Path())
     output_dir: Path = field(default_factory=lambda: Path())
     # Image the linker wrote, before postlink copies reference bytes.
-    # None: status scores build/<target>, or the only image directly in build/.
+    # None: status scores only build/<target>.
     raw_link: Path | None = None
 
     # --- compiler ---
@@ -828,6 +829,7 @@ class ProjectConfig:
             "shared_dir": str(self.shared_dir) if self.shared_dir else None,
             "bin_dir": str(self.bin_dir),
             "marker": self.marker,
+            "check_known_bindings": self.check_known_bindings,
             "project_name": self.project_name,
             "default_jobs": self.default_jobs,
             "db_dir": str(self.db_dir),
@@ -2178,6 +2180,7 @@ KNOWN_TARGET_KEYS = {
     "bin_dir",
     "compiler",
     "defines",  # per-target compile-time defines (shared multi-version sources)
+    "check_known_bindings",
     "r2_bogus_vas",
     "iat_thunks",
     "dll_exports",
@@ -2575,6 +2578,9 @@ def load_config(
         # filters every function out of verify/todo/status.
         marker=markers_by_target[target],
         r2_bogus_vas=_parse_int_list(tgt.get("r2_bogus_vas", []), "r2_bogus_vas"),
+        check_known_bindings=_as_bool(
+            tgt.get("check_known_bindings"), False, f"targets.{target}.check_known_bindings"
+        ),
         # project-level defaults
         project_name=_as_str(project_raw.get("name"), "", "project.name"),
         default_jobs=_positive_int(

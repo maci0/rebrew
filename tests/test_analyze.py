@@ -452,13 +452,13 @@ class TestFarCalls:
     """_collect_far_calls catalogs distinct lcall targets for NE binaries."""
 
     def test_ne_far_call_catalog(self, tmp_path: Path) -> None:
-        from test_ne_loader import _build_ne
+        from bin_util import make_ne
 
         from rebrew.analyze import _collect_far_calls
 
         # Code: marker + push bp; mov bp,sp; lcall 1:2 twice; pop bp; ret
         code = bytes.fromhex("55 8b ec 9a 02 00 01 00 9a 02 00 01 00 5d c3")
-        raw = _build_ne(segments=[(b"\x01\x00" + code, 0x01)], autodata=1)
+        raw = make_ne(segments=[(b"\x01\x00" + code, 0x01)], autodata=1)
         p = tmp_path / "app.ne"
         p.write_bytes(raw)
         out = _collect_far_calls(p)

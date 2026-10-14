@@ -32,6 +32,54 @@ def _stub_parser(
 
 
 class TestExtractAndCompare:
+    @pytest.mark.parametrize("checked", [False, True])
+    def test_public_compare_applies_the_targets_binding_policy(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch, checked: bool
+    ) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.compiler.compile import CompareResult, compile_and_compare
+        from rebrew.test import build_result_dict_from_compare
+
+        obj = b"\x90" * 4 + (4).to_bytes(4, "little")
+        native = b"\x90" * 4 + (0x1204).to_bytes(4, "little")
+        object_path = tmp_path / "f.obj"
+        object_path.write_bytes(b"precompiled")
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.parse_obj_symbol_and_relocs",
+            _stub_parser(
+                obj,
+                typed=[CoffRelocRecord(4, 6, "_array")],
+            ),
+        )
+        monkeypatch.setattr("rebrew.compiler.compile.build_iat_region", lambda _cfg: frozenset())
+        cfg = SimpleNamespace(check_known_bindings=checked)
+        result = compile_and_compare(
+            cfg,
+            tmp_path / "f.c",
+            "_f",
+            native,
+            "",
+            name_to_va={"_array": 0x2200},
+            section_va=0x1000,
+            _precompiled_obj=str(object_path),
+        )
+        assert result.matched is not checked
+        if checked:
+            assert result.relocation_bindings is not None
+            assert result.relocation_bindings[0]["status"] == "CONFLICT"
+            assert result.relocation_bindings[0]["expected_value"] == 0x2204
+            assert result.relocation_bindings[0]["native_value"] == 0x1204
+            assert "_array" in result.message
+            assert (
+                CompareResult.from_dict(result.to_dict()).relocation_bindings
+                == result.relocation_bindings
+            )
+            payload = build_result_dict_from_compare("f.c", "_f", "0x1000", 8, result, native)
+            assert payload["relocation_bindings"] == result.relocation_bindings
+        else:
+            assert "relocation_bindings" not in result.to_dict()
+
     def test_exact_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
             "rebrew.compiler.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x55\x8b\xec")

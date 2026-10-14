@@ -351,7 +351,7 @@ class TestRunDoctor:
         report = run_doctor()
         assert "Delphi 1.0 toolchain" not in [c.name for c in report.checks]
 
-    def test_delphi_row_present_for_x86_16(
+    def test_delphi_uses_shared_compiler_checks(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _make_project(
@@ -361,7 +361,9 @@ class TestRunDoctor:
         )
         monkeypatch.chdir(tmp_path)
         report = run_doctor()
-        assert "Delphi 1.0 toolchain" in [c.name for c in report.checks]
+        names = [c.name for c in report.checks]
+        assert "Compiler" in names
+        assert "Delphi 1.0 toolchain" not in names
 
 
 class TestExtraBranches:

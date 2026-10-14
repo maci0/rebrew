@@ -572,6 +572,27 @@ def parse_exports(data: bytes, ne_offset: int, header: NeHeader) -> list[NeExpor
     return exports
 
 
+def read_ne_header(data: bytes) -> tuple[int, NeHeader]:
+    """Read a validated MZ/NE header from bytes, returning its offset and fields."""
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        raise NeParseError("NE image needs a complete MZ header")
+    ne_offset = _u32(data, 0x3C)
+    header = parse_ne_header(data, ne_offset)
+    if header.alignment_shift > 16:
+        raise NeParseError(f"corrupt NE alignment_shift {header.alignment_shift}")
+    return ne_offset, header
+
+
+def segment_file_ranges(data: bytes) -> list[tuple[int, int]]:
+    """Physical byte ranges of NE segments; unallocated virtual bytes have no range."""
+    offset, header = read_ne_header(data)
+    return [
+        (segment.file_offset, min(len(data), segment.file_offset + segment.length))
+        for segment in parse_segments(data, offset, header)
+        if segment.on_disk
+    ]
+
+
 def load_ne_binary(path: Path) -> BinaryInfo:
     """Parse a 16-bit NE executable into a rebrew ``BinaryInfo``.
 
@@ -582,16 +603,7 @@ def load_ne_binary(path: Path) -> BinaryInfo:
     """
     path = Path(path)
     data = path.read_bytes()
-    if len(data) < 0x40:
-        raise NeParseError(f"NE file too small: {path}")
-    try:
-        ne_offset = _u32(data, 0x3C)
-    except (struct.error, IndexError) as exc:
-        raise NeParseError(f"corrupt MZ e_lfanew in {path}") from exc
-    header = parse_ne_header(data, ne_offset)
-    # alignment_shift >= 16 makes sector_size overflow / enormous; refuse.
-    if header.alignment_shift > 16:
-        raise NeParseError(f"corrupt NE alignment_shift {header.alignment_shift}")
+    ne_offset, header = read_ne_header(data)
     segments = parse_segments(data, ne_offset, header)
 
     sections: dict[str, SectionInfo] = {}

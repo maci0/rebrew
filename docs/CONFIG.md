@@ -115,6 +115,17 @@ says otherwise (a little-endian ELF identity byte, for PlayStation MIPS).
 ARM stays little-endian unless that header is big-endian.  x86 never sets
 `CS_MODE_BIG_ENDIAN`: capstone rejects it.
 
+## Known operand bindings
+
+Set `check_known_bindings = true` in `[targets.<name>]` to reject contradictory
+resolved DIR32 symbol/addend bindings during test, verify and related import.
+The default remains false for tolerant source agreement. JSON results include
+`relocation_bindings` with offset, symbol, kind, bound VA, expected/native operand
+and status. Unresolved operands and explicit IAT policy remain separate; this
+is not complete strict operand proof or raw-link provider evidence. Checked
+verification reuses compiled objects but rechecks current bindings instead of
+trusting a stored comparison. The policy is part of the compiler-config digest.
+
 ## Target Marker (`marker`)
 
 The `marker` field is the module name in `MODULE.0xVA` keys, and in an unmigrated marker line the parser still reads.

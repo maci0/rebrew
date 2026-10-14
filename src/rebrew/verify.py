@@ -2472,7 +2472,12 @@ def prepare_entries(
     results: list[dict[str, Any]] = []
 
     cache_path = cache_path_for(cfg)
-    verify_cache_obj = None if full else load_verify_cache(cache_path, cfg)
+    # Recheck the current catalog for this policy; compiled objects still cache.
+    verify_cache_obj = (
+        None
+        if full or getattr(cfg, "check_known_bindings", False)
+        else load_verify_cache(cache_path, cfg)
+    )
     entries_cache: dict[str, VerifyCacheEntry] = (
         verify_cache_obj.entries if verify_cache_obj else {}
     )
@@ -2822,6 +2827,11 @@ def run_verification(
                                     "reg_delta": result.reg_delta,
                                     "effective_match": result.effective_match,
                                     "context_hash": result.context_hash,
+                                    **(
+                                        {"relocation_bindings": result.relocation_bindings}
+                                        if result.relocation_bindings is not None
+                                        else {}
+                                    ),
                                 }
                             )
                         )

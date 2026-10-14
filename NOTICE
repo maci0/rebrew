@@ -99,3 +99,10 @@ listed so a consumer reading ``dist/rebrew.cdx.json`` can trace that grant
 back to its origin. ``tests/test_packaging.py`` fails when the resolved
 environment holds a copyleft package missing from
 ``tools/generate_sbom._COPYLEFT_EXPRESSIONS``.
+
+tzdata 2026.5
+-------------
+The locked tzdata wheel declares Apache-2.0 (License field).
+The timezone data distribution is maintained by the Python Software Foundation;
+its declared grant and bundled license files accompany the upstream wheel.
+Project: https://github.com/python/tzdata

@@ -759,7 +759,7 @@ def vendor_cmd(
 
         # The delphi10 tarball keeps the RTL/VCL units in ``delphi-lib/`` while the
         # image's recipe renames them to DELPHI/LIB — the path DCC.CFG's /u option
-        # and ``find_dcc``'s units_dir both use.  Do the same rename, so a vendored
+        # and the Docker wrapper both use.  Do the same rename, so a vendored
         # host tree and the image it was built from hold the same files.
         if name == "delphi-1.0":
             loose_lib = extract_dir / "delphi-lib"

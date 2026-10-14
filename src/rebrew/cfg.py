@@ -111,7 +111,7 @@ def _llm_budget_parser(leaf: str, parts: list[str]) -> Any | None:
 #: someone just turned on ends up off.  Keep in step with the boolean fields
 #: in ``rebrew.config``; ``TestBoolConfigKeysStayInStepWithTheLoader`` fails
 #: when one is added there and missed here.
-_BOOL_CONFIG_KEYS = frozenset({"recompile_emit_assembly", "tsaware"})
+_BOOL_CONFIG_KEYS = frozenset({"recompile_emit_assembly", "tsaware", "check_known_bindings"})
 
 
 def _redact_secrets(obj: Any) -> Any:

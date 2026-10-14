@@ -84,7 +84,7 @@ class TestDiscoverFunctions:
         loader's linear sweep, not rizin — rizin emits garbage file-offset
         "functions" (the 233-function false enumeration that polluted the
         SkiFree intake before the fix)."""
-        from test_ne_loader import _build_ne
+        from bin_util import make_ne
 
         code = (
             b"\x01\x00"
@@ -93,7 +93,7 @@ class TestDiscoverFunctions:
             + bytes.fromhex("55 8b ec 5d c3")  # fn @ 0x10
             + b"\x00" * 8
         )
-        raw = _build_ne(segments=[(code, 0x01)])
+        raw = make_ne(segments=[(code, 0x01)])
         p = tmp_path / "app.ne"
         p.write_bytes(raw)
         # rizin must not even be invoked for NE targets.

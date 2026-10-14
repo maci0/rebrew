@@ -1,10 +1,46 @@
 ## [Unreleased]
 
+## [2.27.0] - 2026-10-14
+
+### Added
+- Target-scoped `check_known_bindings` checks known data operands, with relocation
+  diagnostics and binding validation before extent repairs.
+- `rebrew source rename --shared-definition` renames one shared definition while
+  preserving independent target twins.
+- `rebrew source units` reports native source-path evidence, `source findings`
+  searches prior address-keyed notes, and `build anchors` emits VA-ordered linker
+  anchors from native identities and explicit data definitions.
+- `rebrew build delphi` builds complete Delphi 1 programs and maps through Docker.
+  `binary forms` inspects lossless form streams, and `binary ne-compare` compares
+  physical NE segments, fixups and complete matching-window content spans.
+- PE JSON exposes the binary path and export timestamp separately from the COFF
+  timestamp.
+
+### Changed
+- **Breaking:** Expand `app.builtins.DOMAIN_COMPONENTS`,
+  `config.KNOWN_TARGET_KEYS` and `cfg.KNOWN_TARGET_KEYS` for the new operations and
+  known-binding policy. `init_profiles.DELPHI16_CONSTRAINTS` and
+  `init.DELPHI16_CONSTRAINTS` now describe whole-program Docker compilation.
+- **Breaking:** `compiler.delphi16.compile_ne` now runs the Docker toolchain in
+  a fresh directory, always rebuilds source units, accepts raw `dcc_cfg` bytes,
+  and optionally returns a fresh map from the same invocation. Host compiler
+  discovery and implicit host RTL/VCL lookup are removed.
+- **Breaking:** Remove `compiler.delphi16.find_dcc` and
+  `doctor.check_delphi16_toolchain`; use Docker image inventory and compiler checks.
+- Refresh scaffolds from the configured default target and compiler override,
+  generate Pascal guidance for Delphi projects, and preserve local project rules.
+- Align contributor/CI Resembl pins with the 3.2.0 lock/check-out and record the
+  updated SQLAlchemy, SQLModel and tzdata wheel grants.
+
 ### Fixed
+- Status only scores the active target's configured `raw_link` or
+  `build/<target>`. A sole image belonging to another target no longer produces
+  a misleading linked-file score or postlink todo items.
 - Statement-climb previews and qualifier sweeps retain the original source
   directory when compiling staged candidates, including local and parent-relative
   headers. `compile_and_compare` now forwards explicit `extra_include_dirs` to
-  the object compiler and its existing include-aware cache key.
+  the object compiler and its existing include-aware cache key. Statement climb
+  also accepts explicit target specifications.
 - Aligned statement-climb output labels its weighted instruction score as a
   score. JSON records the objective and uses `baseline_score`/`best_score`
   for aligned searches; positional searches keep the matched-byte fields.
@@ -13,6 +49,9 @@
   Cleanup continues to attempt remaining inverses and reports failed completion.
   Registration inspection preserves instance overrides without invoking custom
   descriptors; diagnostics omit bound arguments and callable representations.
+- Global scans preserve target scope after source-marker migration. Source
+  renames can reuse their own canonical identity rows and rename library aliases
+  of the selected identity without false collisions.
 
 ## [2.26.0] - 2026-10-13
 

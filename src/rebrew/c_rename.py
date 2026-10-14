@@ -319,9 +319,9 @@ def definitions(src: ParsedSource, name: str) -> list[Definition]:
                 )
         elif node.type == "declaration" and _at_file_scope(node):
             storage = _storage_classes(node, src)
-            if "extern" in storage:
-                continue
             for declarator in node.children_by_field_name("declarator"):
+                if "extern" in storage and declarator.type != "init_declarator":
+                    continue
                 if _declares_function(declarator):
                     continue
                 if declarator_name(declarator, src) == name:

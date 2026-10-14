@@ -328,6 +328,8 @@ def _pe_payload(pe: Any, path: Path, size: int, arch: str) -> dict[str, object]:
     known = _directories_known(pe)
     payload: dict[str, object] = {
         **_pe_identity(pe, size, arch),
+        "binary": str(path),
+        "export_timestamp": _to_int(getattr(export_table(pe), "timestamp", None)),
         "sections": _pe_sections(pe),
         "security_flags": security,
         "security": checklist,

@@ -602,58 +602,6 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
     )
 
 
-def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
-    """For 16-bit NE targets, report the Delphi 1.0 compile-path readiness.
-
-    The vendored DCC.EXE + RTM.EXE + dosbox can compile 16-bit NE
-    executables headless (``rebrew.compiler.delphi16.compile_ne``); Delphi's
-    Borland ABI has no matchable rebrew profile, so the toolchain is for
-    research (compile + NE parse), and Delphi functions are documented as
-    blockers.  Skipped for non-16-bit targets.  Warns (not fails) when the
-    configured profile isn't Delphi — the toolchain is optional research
-    scaffolding there, not the build path.
-    """
-    if getattr(cfg, "arch", "") != "x86_16":
-        return CheckResult(name="Delphi 1.0 toolchain", status=_SKIP, message="not a 16-bit target")
-
-    from rebrew.compiler.delphi16 import Delphi16Error, find_dcc
-
-    needs_delphi = getattr(cfg, "compiler_profile", "") == "delphi-1.0"
-    try:
-        dcc = find_dcc()
-    except Delphi16Error as exc:
-        return CheckResult(
-            name="Delphi 1.0 toolchain",
-            status=_FAIL if needs_delphi else _WARN,
-            message=str(exc),
-            fix="Restore the vendored toolchain (DCC.EXE + DELPHI.DSL + "
-            "DPMI16BI.OVL + RTM.EXE) under recompile-toolchains/delphi/1.0-win16/source.",
-        )
-
-    rtm = dcc.parent / "RTM.EXE"
-    if not rtm.exists():
-        return CheckResult(
-            name="Delphi 1.0 toolchain",
-            status=_WARN,
-            message=f"{dcc.name} found but RTM.EXE missing — DCC (a DPMI app) "
-            "silently fails without the DOS Runtime Manager",
-            fix="Copy RTM.EXE next to DCC.EXE (recompile-toolchains/delphi/1.0-win16/source).",
-        )
-    if shutil.which("dosbox") is None:
-        return CheckResult(
-            name="Delphi 1.0 toolchain",
-            status=_WARN,
-            message=f"{dcc.parent.name} toolchain found but dosbox not in PATH",
-            fix="Install dosbox (DCC is a DOS DPMI app and must run under DOSBox).",
-        )
-    return CheckResult(
-        name="Delphi 1.0 toolchain",
-        status=_OK,
-        message=f"{dcc.parent} + dosbox ready — 16-bit compile path works "
-        "(matching not yet wired, ADR-001)",
-    )
-
-
 def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
     """For docker-backed profiles, report the execution state: the docker
     image must be built (execution is docker-only — no host wine/dosbox
@@ -1140,10 +1088,6 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     # checks (e.g. redundant cflags) live in `rebrew lint` (W029).
     report.checks.append(check_crt_linkage(cfg))
     report.checks.append(check_opt_level(cfg))
-    if getattr(cfg, "arch", "") == "x86_16":
-        # Delphi 1.0 is a 16-bit-only path — don't show a noise row on
-        # 32-bit targets where it structurally cannot apply.
-        report.checks.append(check_delphi16_toolchain(cfg))
     report.checks.append(check_toolchain_backed(cfg))
     report.checks.append(check_compiler(cfg))
     report.checks.append(check_runner(cfg))

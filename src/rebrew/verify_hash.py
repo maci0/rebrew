@@ -343,6 +343,7 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
         # previous toolchain: cfg.compiler_command is just a command string
         # and defaults to an unrelated "wine CL.EXE".
         getattr(cfg, "compiler_profile", ""),
+        str(getattr(cfg, "check_known_bindings", False)),
         source_date_epoch() or "",
         # Local and remote backends must not reuse each other's measurements.
         # Remote objects are not stored in the compile cache; this hash still

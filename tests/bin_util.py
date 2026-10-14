@@ -918,3 +918,100 @@ def make_xref_probe(tmp_path: Path) -> tuple[Path, dict[str, int]]:
     path = tmp_path / "probe.exe"
     path.write_bytes(final)
     return path, {**syms, "iat_slot": slot}
+
+
+def make_ne(
+    *,
+    segments: list[tuple[bytes, int]] | None = None,
+    exports: list[tuple[str, int]] | None = None,
+    modules: list[str] | None = None,
+    autodata: int = 0,
+) -> bytes:
+    """Assemble a minimal NE file.
+
+    *segments*: list of (content, flags); each becomes a segment aligned to
+    the 16-byte logical sector.  *exports*: (name, ordinal) resident-name
+    entries.  *modules*: imported module names (module reference table +
+    imported names table).
+    """
+    sector_shift = 4  # 16-byte sectors
+    sector = 1 << sector_shift
+
+    segs = segments or []
+    seg_table = bytearray()
+    seg_blobs: list[bytes] = []
+    for content, flags in segs:
+        # pad content to sector alignment
+        padded = content + b"\x00" * ((-len(content)) % sector)
+        seg_blobs.append(padded)
+        encoded_length = 0 if len(content) == 0x10000 else len(content)
+        seg_table += struct.pack("<HHHH", 0, encoded_length, flags, encoded_length)
+
+    # Resident names (exports) and import tables are assembled first so their
+    # sizes are known; offsets are then laid out sequentially.
+    resnames = bytearray()
+    for name, ordinal in exports or []:
+        resnames += bytes([len(name)]) + name.encode("ascii")
+        resnames += struct.pack("<H", ordinal)
+
+    impnames_payload = bytearray()
+    for m in modules or []:
+        impnames_payload += bytes([len(m)]) + m.encode("ascii")
+    modtab = bytearray()
+    if modules:
+        for m in modules:
+            # The module ref table offset points AT the length byte of the
+            # module's Pascal name in the imported names table.
+            modtab += struct.pack("<H", impnames_payload.index(bytes([len(m)]) + m.encode()))
+
+    # Layout: header | segment table | resource (0) | entry (0) | resident
+    # names | module ref table | imported names table | segment data.
+    ne_off = 0x100
+    header_size = 0x40
+    segtab_off = header_size
+    restab_off = segtab_off + len(seg_table)
+    entry_off = restab_off  # empty entry table
+    resnames_off = entry_off
+    modtab_off = resnames_off + len(resnames)
+    impnames_off = modtab_off + len(modtab)
+    # Segment data must start on a sector boundary (offsets are in sectors
+    # relative to the file start), so pad the pre-data prefix.
+    prefix = ne_off + impnames_off + len(impnames_payload)
+    data_start = (prefix + sector - 1) // sector * sector
+
+    # Segment table sector offsets are relative to the START OF THE FILE;
+    # the first segment sits at data_start.
+    off = data_start // sector
+    for i in range(len(segs)):
+        struct.pack_into("<H", seg_table, i * 8, off)
+        off += len(seg_blobs[i]) // sector
+
+    # NE header
+    ne = bytearray(0x40)
+    ne[0:2] = b"NE"
+    ne[2] = 3  # linker version
+    ne[3] = 2
+    struct.pack_into("<H", ne, 0x04, entry_off)
+    struct.pack_into("<H", ne, 0x06, 0)  # entry table length
+    struct.pack_into("<H", ne, 0x0E, autodata)
+    struct.pack_into("<H", ne, 0x1C, len(segs))
+    struct.pack_into("<H", ne, 0x1E, len(modules or []))
+    struct.pack_into("<H", ne, 0x22, segtab_off)
+    struct.pack_into("<H", ne, 0x24, restab_off)
+    struct.pack_into("<H", ne, 0x26, resnames_off)
+    struct.pack_into("<H", ne, 0x28, modtab_off)
+    struct.pack_into("<H", ne, 0x2A, impnames_off)
+    struct.pack_into("<H", ne, 0x32, sector_shift)
+
+    # MZ stub
+    mz = bytearray(0x100)
+    mz[0:2] = b"MZ"
+    struct.pack_into("<I", mz, 0x3C, ne_off)
+
+    out = bytes(mz) + bytes(ne) + bytes(seg_table) + bytes(resnames) + bytes(modtab)
+    out += bytes(impnames_payload)
+    out += b"\x00" * (data_start - len(out))  # pad to the sector-aligned data start
+    for content, _flags in segs:
+        padded = content + b"\x00" * ((-len(content)) % sector)
+        out += padded
+    return out

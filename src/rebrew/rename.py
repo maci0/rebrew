@@ -70,6 +70,7 @@ app = typer.Typer(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew source rename old_func new_func · · · · · · · · · Rename function\n\n"
         "  rebrew source rename SERVER.0x10003da0 new_func · · · · Rename one identity\n\n"
+        "  rebrew source rename GOLD.0x405000 new_func --shared-definition · Bound shared rows\n\n"
         "  rebrew source rename gm_Init gm_Kill --all-modules · · · Shared definition\n\n"
         "  rebrew source rename g_old g_new --data · · · · · · · · Rename a global\n\n"
         "  rebrew source rename OldType NewType --type · · · · · · Rename a type\n\n"
@@ -145,6 +146,11 @@ def main(
             "definition of the name"
         ),
     ),
+    shared_definition: bool = typer.Option(
+        False,
+        "--shared-definition",
+        help="Rename every function row bound to the selected definition; preserve independent twins",
+    ),
     comments: bool = typer.Option(
         False, "--comments", help="Also rewrite whole-word occurrences inside comments"
     ),
@@ -154,6 +160,14 @@ def main(
 ) -> None:
     """Rename a function, global, type or struct member and update every reference."""
     cfg = require_config(target=target, json_mode=json_output)
+    if shared_definition and (
+        all_modules or data or type_rename or field_rename or _parse_identity(target_ident) is None
+    ):
+        error_exit(
+            "--shared-definition requires a function MODULE.0xVA and is exclusive with "
+            "--all-modules, --data, --type and --field",
+            json_mode=json_output,
+        )
     if sum((data, type_rename, field_rename)) > 1:
         error_exit("--data, --type and --field are exclusive", json_mode=json_output)
     if new_file is not None and (data or type_rename or field_rename):
@@ -163,7 +177,7 @@ def main(
             code=EXIT_ERROR,
         )
     binding = _parse_identity(new_name) if not (data or type_rename or field_rename) else None
-    if binding and (new_file is not None or all_modules):
+    if binding and (new_file is not None or all_modules or shared_definition):
         error_exit("reference binding does not rename files or identities", json_mode=json_output)
     identity = None if (data or type_rename or field_rename) else _parse_identity(target_ident)
     header_plan: RenamePlan | None = None
@@ -200,7 +214,15 @@ def main(
             )
         else:
             plan, extra = _plan_function(
-                cfg, target_ident, new_name, new_file, all_modules, comments, dry_run, json_output
+                cfg,
+                target_ident,
+                new_name,
+                new_file,
+                all_modules,
+                comments,
+                dry_run,
+                json_output,
+                shared_definition=shared_definition,
             )
     except (FileExistsError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
@@ -280,6 +302,8 @@ def _plan_function(
     comments: bool,
     dry_run: bool,
     json_output: bool,
+    *,
+    shared_definition: bool = False,
 ) -> tuple[RenamePlan, dict[str, Any]]:
     """Resolve the function identity, then plan its rename."""
     from rebrew.metadata.functions import get_entry
@@ -338,6 +362,7 @@ def _plan_function(
         definition_file=filepath,
         all_modules=all_modules,
         comments=comments,
+        require_ack=not shared_definition,
         rename_file=True,
         new_filename=new_file,
         dry_run=dry_run,

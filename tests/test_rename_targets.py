@@ -406,6 +406,65 @@ class TestLinkerReferences:
 
 
 class TestFunctionIdentity:
+    def test_shared_definition_preserves_independent_twin(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata.functions import record_function_identity
+
+        root = _project(tmp_path)
+        record_function_identity(
+            root,
+            module="GOLD",
+            va=0x502000,
+            file="src/GOLDTL.citizen.c",
+            name="cm_ExCreateCitizen",
+            symbol="_cm_ExCreateCitizen",
+            marker_type="FUNCTION",
+        )
+        anchors = {
+            target: _response(root, target, "/INCLUDE:_cm_ExCreateCitizen\n")
+            for target in ("server.dll", "tl.exe", "gold.exe")
+        }
+        before = _snapshot(root)
+        args = ("GOLDTL.0x00402000", "d3_AllocObjAnim", "--shared-definition", "--json")
+        preview = _run(root, monkeypatch, *args, "--dry-run")
+        assert preview.exit_code == 0, preview.output
+        plan = json.loads(preview.stdout)
+        assert {r["module"] for r in plan["rows"]} == {"GOLDTL", "GOLD"}
+        assert any("SERVER.0x10004000" in note for note in plan["notes"])
+        assert _snapshot(root) == before
+
+        result = _run(root, monkeypatch, *args)
+        assert result.exit_code == 0, result.output
+        assert "void d3_AllocObjAnim(void)" in _text(root, "GOLDTL.citizen.c")
+        assert "d3_AllocObjAnim();" in _text(root, "GOLDTL.citizen.c")
+        assert _text(root, "command.c") == _COMMAND_C
+        rows = _functions(root)
+        for module, va in (("GOLDTL", 0x402000), ("GOLD", 0x502000)):
+            assert _row(rows, module, va)["name"] == "d3_AllocObjAnim"
+        assert _row(rows, "SERVER", 0x10004000)["name"] == "cm_ExCreateCitizen"
+        assert anchors["server.dll"].read_text() == "/INCLUDE:_cm_ExCreateCitizen\n"
+        for target in ("tl.exe", "gold.exe"):
+            assert anchors[target].read_text() == "/INCLUDE:_d3_AllocObjAnim\n"
+
+    @pytest.mark.parametrize("extra", ["--all-modules", "--data", "--type", "--field"])
+    def test_shared_definition_rejects_other_scopes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra: str
+    ) -> None:
+        root = _project(tmp_path)
+        before = _snapshot(root)
+        result = _run(
+            root,
+            monkeypatch,
+            "GOLDTL.0x00402000",
+            "new_name",
+            "--shared-definition",
+            extra,
+        )
+        assert result.exit_code != 0
+        assert "--shared-definition" in result.output
+        assert _snapshot(root) == before
+
     def test_selected_identity_rewrites_definition_declarations_and_callers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

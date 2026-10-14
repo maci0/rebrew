@@ -68,14 +68,17 @@ def test_pe_info_mutated_fixture_payload_or_value_error(blob: bytes) -> None:
         return
     assert payload.keys() >= _IDENTITY_KEYS
     assert payload["size"] == len(blob)
-    encoded = json.dumps(payload, sort_keys=True)
     # Re-assert the parse succeeded before comparing: two `None` results
     # serialize to the same "null" and would satisfy the equality alone.
     repeat = _run(blob)
     assert repeat is not None, (
         "pe_info parsed on the first run and rejected the same bytes on the second"
     )
-    assert json.dumps(repeat, sort_keys=True) == encoded
+    if "binary" in payload:
+        assert Path(payload["binary"]).name == Path(repeat["binary"]).name == "target.bin"
+        payload.pop("binary")
+        repeat.pop("binary")
+    assert json.dumps(repeat, sort_keys=True) == json.dumps(payload, sort_keys=True)
 
 
 @settings(max_examples=100, deadline=None)

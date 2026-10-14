@@ -13,6 +13,7 @@ from contextlib import suppress
 from pathlib import Path
 
 import pytest
+from bin_util import make_ne
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -26,104 +27,6 @@ from rebrew.formats.ne_loader import (
     probe_is_code,
 )
 
-
-def _build_ne(
-    *,
-    segments: list[tuple[bytes, int]] | None = None,
-    exports: list[tuple[str, int]] | None = None,
-    modules: list[str] | None = None,
-    autodata: int = 0,
-) -> bytes:
-    """Assemble a minimal NE file.
-
-    *segments*: list of (content, flags); each becomes a segment aligned to
-    the 16-byte logical sector.  *exports*: (name, ordinal) resident-name
-    entries.  *modules*: imported module names (module reference table +
-    imported names table).
-    """
-    sector_shift = 4  # 16-byte sectors
-    sector = 1 << sector_shift
-
-    segs = segments or []
-    seg_table = bytearray()
-    seg_blobs: list[bytes] = []
-    for content, flags in segs:
-        # pad content to sector alignment
-        padded = content + b"\x00" * ((-len(content)) % sector)
-        seg_blobs.append(padded)
-        encoded_length = 0 if len(content) == 0x10000 else len(content)
-        seg_table += struct.pack("<HHHH", 0, encoded_length, flags, encoded_length)
-
-    # Resident names (exports) and import tables are assembled first so their
-    # sizes are known; offsets are then laid out sequentially.
-    resnames = bytearray()
-    for name, ordinal in exports or []:
-        resnames += bytes([len(name)]) + name.encode("ascii")
-        resnames += struct.pack("<H", ordinal)
-
-    impnames_payload = bytearray()
-    for m in modules or []:
-        impnames_payload += bytes([len(m)]) + m.encode("ascii")
-    modtab = bytearray()
-    if modules:
-        for m in modules:
-            # The module ref table offset points AT the length byte of the
-            # module's Pascal name in the imported names table.
-            modtab += struct.pack("<H", impnames_payload.index(bytes([len(m)]) + m.encode()))
-
-    # Layout: header | segment table | resource (0) | entry (0) | resident
-    # names | module ref table | imported names table | segment data.
-    ne_off = 0x100
-    header_size = 0x40
-    segtab_off = header_size
-    restab_off = segtab_off + len(seg_table)
-    entry_off = restab_off  # empty entry table
-    resnames_off = entry_off
-    modtab_off = resnames_off + len(resnames)
-    impnames_off = modtab_off + len(modtab)
-    # Segment data must start on a sector boundary (offsets are in sectors
-    # relative to the file start), so pad the pre-data prefix.
-    prefix = ne_off + impnames_off + len(impnames_payload)
-    data_start = (prefix + sector - 1) // sector * sector
-
-    # Segment table sector offsets are relative to the START OF THE FILE;
-    # the first segment sits at data_start.
-    off = data_start // sector
-    for i in range(len(segs)):
-        struct.pack_into("<H", seg_table, i * 8, off)
-        off += len(seg_blobs[i]) // sector
-
-    # NE header
-    ne = bytearray(0x40)
-    ne[0:2] = b"NE"
-    ne[2] = 3  # linker version
-    ne[3] = 2
-    struct.pack_into("<H", ne, 0x04, entry_off)
-    struct.pack_into("<H", ne, 0x06, 0)  # entry table length
-    struct.pack_into("<H", ne, 0x0E, autodata)
-    struct.pack_into("<H", ne, 0x1C, len(segs))
-    struct.pack_into("<H", ne, 0x1E, len(modules or []))
-    struct.pack_into("<H", ne, 0x22, segtab_off)
-    struct.pack_into("<H", ne, 0x24, restab_off)
-    struct.pack_into("<H", ne, 0x26, resnames_off)
-    struct.pack_into("<H", ne, 0x28, modtab_off)
-    struct.pack_into("<H", ne, 0x2A, impnames_off)
-    struct.pack_into("<H", ne, 0x32, sector_shift)
-
-    # MZ stub
-    mz = bytearray(0x100)
-    mz[0:2] = b"MZ"
-    struct.pack_into("<I", mz, 0x3C, ne_off)
-
-    out = bytes(mz) + bytes(ne) + bytes(seg_table) + bytes(resnames) + bytes(modtab)
-    out += bytes(impnames_payload)
-    out += b"\x00" * (data_start - len(out))  # pad to the sector-aligned data start
-    for content, _flags in segs:
-        padded = content + b"\x00" * ((-len(content)) % sector)
-        out += padded
-    return out
-
-
 _CODE = bytes.fromhex(
     "55 8b ec 83 ec 02 8b 46 04 30 e4 8b 5e 06 03 d8 89 5e fc 5d c3"  # push bp; mov bp,sp; ... ; pop bp; ret (9 insns)
 )
@@ -132,7 +35,7 @@ _DATA = b"\x0dHoliday Island\x00\x00\x00\x00"  # Pascal string + padding
 
 class TestParseNeHeader:
     def test_header_fields(self) -> None:
-        raw = _build_ne(segments=[(_CODE, 0x01)], exports=[("HOLIDAY", 0)])
+        raw = make_ne(segments=[(_CODE, 0x01)], exports=[("HOLIDAY", 0)])
         hdr = parse_ne_header(raw, 0x100)
         assert hdr.segment_count == 1
         assert hdr.sector_size == 16
@@ -155,14 +58,14 @@ class TestParseSegments:
     def test_iterated_flag_bit(self) -> None:
         """NE_SEGFLAGS_ITERATED is 0x0008 (0x0002 is ALLOCATED): the old 0x02
         constant marked allocated segments iterated and missed real ones."""
-        raw = _build_ne(segments=[(_CODE, 0x0002), (_DATA, 0x0008)])
+        raw = make_ne(segments=[(_CODE, 0x0002), (_DATA, 0x0008)])
         hdr = parse_ne_header(raw, 0x100)
         segs = parse_segments(raw, 0x100, hdr)
         assert segs[0].is_iterated is False
         assert segs[1].is_iterated is True
 
     def test_sector_offsets(self) -> None:
-        raw = _build_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)])
+        raw = make_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)])
         hdr = parse_ne_header(raw, 0x100)
         segs = parse_segments(raw, 0x100, hdr)
         assert len(segs) == 2
@@ -174,7 +77,7 @@ class TestParseSegments:
 
 class TestParseExports:
     def test_resident_names(self) -> None:
-        raw = _build_ne(segments=[(_CODE, 0x01)], exports=[("HOLIDAY", 0), ("InitApp", 7)])
+        raw = make_ne(segments=[(_CODE, 0x01)], exports=[("HOLIDAY", 0), ("InitApp", 7)])
         hdr = parse_ne_header(raw, 0x100)
         exps = parse_exports(raw, 0x100, hdr)
         assert [(e.name, e.ordinal) for e in exps] == [("HOLIDAY", 0), ("InitApp", 7)]
@@ -182,7 +85,7 @@ class TestParseExports:
 
 class TestParseImports:
     def test_module_names(self) -> None:
-        raw = _build_ne(segments=[(_CODE, 0x01)], modules=["KERNEL", "USER"])
+        raw = make_ne(segments=[(_CODE, 0x01)], modules=["KERNEL", "USER"])
         hdr = parse_ne_header(raw, 0x100)
         mods = parse_imports(raw, 0x100, hdr)
         assert [m.module for m in mods] == ["KERNEL", "USER"]
@@ -190,7 +93,7 @@ class TestParseImports:
     def test_forged_module_count_raises(self) -> None:
         """A module_reference_count past the remaining file bytes must raise
         NeParseError — same contract as the segment_count cap."""
-        raw = bytearray(_build_ne(segments=[(_CODE, 0x01)], modules=["KERNEL"]))
+        raw = bytearray(make_ne(segments=[(_CODE, 0x01)], modules=["KERNEL"]))
         # Forge module_reference_count to 0xFFFF at NE+0x1E.
         struct.pack_into("<H", raw, 0x100 + 0x1E, 0xFFFF)
         hdr = parse_ne_header(bytes(raw), 0x100)
@@ -202,7 +105,7 @@ class TestParseImports:
         the 1991 SkiFree put the non-resident name table where the classic
         import table should be) must not fabricate ordinal garbage — the
         parser degrades to module names only."""
-        raw = _build_ne(segments=[(_CODE, 0x01)], modules=["KERNEL"])
+        raw = make_ne(segments=[(_CODE, 0x01)], modules=["KERNEL"])
         hdr = parse_ne_header(raw, 0x100)
         # Give the entry table a nonzero length so the "import table" position
         # lands past the module ref + imported names tables, then overwrite it
@@ -223,7 +126,7 @@ class TestLoadNeBinary:
 
         content = _CODE + b"\x90" * (0x10000 - len(_CODE) - 1) + b"\xc3"
         path = tmp_path / "full.ne"
-        path.write_bytes(_build_ne(segments=[(content, 0)]))
+        path.write_bytes(make_ne(segments=[(content, 0)]))
         info = load_binary(path)
         assert info.sections["SEG1"].raw_size == 0x10000
         assert info.sections["SEG1"].size == 0x10000
@@ -236,7 +139,7 @@ class TestLoadNeBinary:
     ) -> None:
         from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 
-        raw = bytearray(_build_ne(segments=[(_DATA, 1)]))
+        raw = bytearray(make_ne(segments=[(_DATA, 1)]))
         struct.pack_into("<HHHH", raw, 0x140, 0, 0, 1, allocation)
         path = tmp_path / "bss.ne"
         path.write_bytes(raw)
@@ -250,7 +153,7 @@ class TestLoadNeBinary:
         from rebrew.formats.binary_loader import load_binary
         from rebrew.formats.binary_model import BinaryInfo
 
-        raw = _build_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)], modules=["KERNEL"])
+        raw = make_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)], modules=["KERNEL"])
         p = tmp_path / "app.ne"
         p.write_bytes(raw)
         info = load_binary(p)
@@ -298,7 +201,7 @@ class TestEnumerateFunctions:
                 "c8 10 00 00 33 c0 89 46 fc 5d c3"  # fn2: enter 0x10,0; ...; ret
             )
         )
-        raw = _build_ne(segments=[(code, 0x01)])
+        raw = make_ne(segments=[(code, 0x01)])
         p = tmp_path / "app.ne"
         p.write_bytes(raw)
         info = load_binary(p)
@@ -324,7 +227,7 @@ class TestEnumerateFunctions:
 
         entry = bytes.fromhex("1e 58 90 45 55 8b ec 83 ec 02 5d c3")  # entry + ret
         code = entry + bytes.fromhex("90 90 90 90") + _CODE
-        raw = _build_ne(segments=[(code, 0x01)])
+        raw = make_ne(segments=[(code, 0x01)])
         p = tmp_path / "app.ne"
         p.write_bytes(raw)
         info = load_binary(p)
@@ -337,7 +240,7 @@ class TestEnumerateFunctions:
         math downstream.  The loader must clamp to 0 instead."""
         from rebrew.formats.binary_loader import load_binary
 
-        raw = bytearray(_build_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)]))
+        raw = bytearray(make_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)]))
         # Point segment 1 at sector 0xFFFF (file offset 0xFFFF0 — past EOF).
         struct.pack_into("<H", raw, 0x100 + 0x40, 0xFFFF)
         p = tmp_path / "corrupt.ne"
@@ -355,7 +258,7 @@ class TestSegmentSectorZero:
         from rebrew.analysis import extract_bytes
         from rebrew.formats.binary_loader import load_binary
 
-        raw = bytearray(_build_ne(segments=[(_CODE, 0x01)]))
+        raw = bytearray(make_ne(segments=[(_CODE, 0x01)]))
         struct.pack_into("<H", raw, 0x100 + 0x40, 0)  # segment 1: sector offset 0
         p = tmp_path / "nores.ne"
         p.write_bytes(bytes(raw))
@@ -407,7 +310,7 @@ def test_ne_fixture_mutation_no_crash(noise: bytes) -> None:
     """Mutations of a well-formed synthetic NE must load or raise cleanly."""
     from rebrew.formats.binary_loader import load_binary
 
-    base = bytearray(_build_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)]))
+    base = bytearray(make_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)]))
     for i, b in enumerate(noise):
         base[(b + i * 13) % len(base)] ^= b or 1
 

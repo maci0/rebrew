@@ -439,6 +439,7 @@ def _validate_dir32(
     reloc_table: str = "coff-i386",
     *,
     strict: bool = False,
+    check_known_bindings: bool = False,
 ) -> bool:
     """Return True if the DIR32 slot is valid (or uncatalogued)."""
     target_va = _resolve_exact_then_stripped(name_to_va, symbol)
@@ -458,7 +459,7 @@ def _validate_dir32(
     expected = (target_va + addend) & 0xFFFFFFFF
     if actual == expected:
         return True
-    if strict:
+    if strict or check_known_bindings:
         return False
     # Wrong absolute symbol with the same addend?  The membership test is
     # algebraic: actual == (other + addend) & mask  ⟺  other == (actual -
@@ -524,6 +525,118 @@ def _catalog_va_set(name_to_va: dict[str, int] | None) -> set[int]:
     return result
 
 
+def relocation_binding_evidence(
+    obj_bytes: bytes,
+    target_bytes: bytes,
+    coff_relocs: RelocInput,
+    name_to_va: dict[str, int] | None,
+    *,
+    section_va: int | None = None,
+    iat_region: frozenset[int] | None = None,
+    reloc_table: str = "coff-i386",
+) -> list[dict[str, Any]]:
+    """Explain bound, conflicting and unresolved operands without promoting masks to proof."""
+    table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
+    if isinstance(coff_relocs, dict):
+        records = [(offset, "abs32", symbol, False) for offset, symbol in coff_relocs.items()]
+    else:
+        records = [
+            (rec.offset, table.get(rec.type, "unsupported"), rec.symbol, True)
+            if isinstance(rec, CoffRelocRecord)
+            else (rec, "mask", "", False)
+            for rec in coff_relocs or []
+        ]
+    evidence: list[dict[str, Any]] = []
+    for offset, kind, symbol, typed in records:
+        row: dict[str, Any] = {"offset": offset, "symbol": symbol, "kind": kind, "typed": typed}
+        if kind == "none":
+            row["status"] = "IGNORED"
+        elif not _slot_in_prefix(offset, len(obj_bytes)):
+            row["status"] = "OUT_OF_EXTENT"
+        elif kind not in {"abs32", "rel32"}:
+            row["status"] = "UNSUPPORTED"
+        else:
+            addend = struct.unpack_from(_reloc_fmt(reloc_table), obj_bytes, offset)[0]
+            bound = _resolve_exact_then_stripped(name_to_va or {}, symbol)
+            row.update(
+                {"addend": addend, "bound_va": bound, "byte_order": reloc_byte_order(reloc_table)}
+            )
+            if bound is not None and (kind == "abs32" or section_va is not None):
+                expected = (bound + addend) & 0xFFFFFFFF
+                if kind == "rel32" and section_va is not None:
+                    expected = (expected - section_va - offset - 4) & 0xFFFFFFFF
+                row["expected_value"] = expected
+            if not _slot_in_prefix(offset, len(target_bytes)):
+                row["status"] = "OUT_OF_EXTENT"
+                evidence.append(row)
+                continue
+            actual = struct.unpack_from(_reloc_fmt(reloc_table), target_bytes, offset)[0]
+            row["native_value"] = actual
+            if kind == "abs32" and iat_region and actual in iat_region:
+                row["status"] = "IAT_POLICY"
+            elif bound is None or (kind == "rel32" and section_va is None):
+                row["status"] = "UNRESOLVED"
+            else:
+                row["status"] = "VALIDATED" if actual == row["expected_value"] else "CONFLICT"
+        evidence.append(row)
+    return evidence
+
+
+def refresh_binding_evidence(
+    evidence: list[dict[str, Any]],
+    target_bytes: bytes,
+    *,
+    iat_region: frozenset[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Re-evaluate recorded operand expectations against a complete native window."""
+    refreshed = []
+    for original in evidence:
+        row = dict(original)
+        if "byte_order" in row:
+            offset = row["offset"]
+            row.pop("native_value", None)
+            if not _slot_in_prefix(offset, len(target_bytes)):
+                row["status"] = "OUT_OF_EXTENT"
+            else:
+                actual = struct.unpack_from(f"{row['byte_order']}I", target_bytes, offset)[0]
+                row["native_value"] = actual
+                if row["kind"] == "abs32" and iat_region and actual in iat_region:
+                    row["status"] = "IAT_POLICY"
+                elif "expected_value" not in row:
+                    row["status"] = "UNRESOLVED"
+                else:
+                    row["status"] = "VALIDATED" if actual == row["expected_value"] else "CONFLICT"
+        refreshed.append(row)
+    return refreshed
+
+
+def known_bindings_match(
+    evidence: list[dict[str, Any]],
+    target_bytes: bytes,
+    *,
+    iat_region: frozenset[int] | None = None,
+) -> bool:
+    """Recheck mapped operands in an extended comparison before writing a new SIZE."""
+    return all(
+        row["status"] in {"VALIDATED", "IAT_POLICY"}
+        for row in refresh_binding_evidence(evidence, target_bytes, iat_region=iat_region)
+        if "expected_value" in row
+    )
+
+
+def binding_summary(evidence: list[dict[str, Any]]) -> str:
+    """A short explanation of conflicts and unresolved operand masks."""
+    conflicts = [row for row in evidence if row["status"] == "CONFLICT"]
+    unresolved = sum(row["status"] == "UNRESOLVED" for row in evidence)
+    parts = []
+    if conflicts:
+        names = ", ".join(f"{row['symbol']} at +0x{row['offset']:x}" for row in conflicts[:8])
+        parts.append(f"{len(conflicts)} known binding conflict(s): {names}")
+    if unresolved:
+        parts.append(f"{unresolved} unresolved operand(s), masked without proof")
+    return "; ".join(parts)
+
+
 def smart_reloc_compare(
     obj_bytes: bytes,
     target_bytes: bytes,
@@ -534,6 +647,7 @@ def smart_reloc_compare(
     iat_region: frozenset[int] | None = None,
     reloc_table: str = "coff-i386",
     strict: bool = False,
+    check_known_bindings: bool = False,
 ) -> tuple[bool, int, int, list[int], list[int]]:
     """Compare bytes with relocation masking and target validation.
 
@@ -584,6 +698,9 @@ def smart_reloc_compare(
             masking is disabled. Explicit IAT-region policy still applies;
             bind compiler-local table labels to their actual VAs. The default
             retains tolerant source agreement.
+        check_known_bindings: Reject conflicting mapped DIR32 operands even
+            when the competing native address is not catalogued. Unbound
+            operands retain tolerant agreement; this is not a complete proof.
 
     Returns:
         (matched, match_count, total_bytes, valid_relocs, invalid_relocs)
@@ -648,6 +765,7 @@ def smart_reloc_compare(
                             iat_region,
                             reloc_table,
                             strict=strict,
+                            check_known_bindings=check_known_bindings,
                         )
                     elif kind == "rel32" and section_va is not None:
                         valid = _validate_rel32(
@@ -688,6 +806,7 @@ def smart_reloc_compare(
                         iat_region,
                         reloc_table,
                         strict=strict,
+                        check_known_bindings=check_known_bindings,
                     )
                 if valid:
                     valid_relocs.append(r)

@@ -467,6 +467,52 @@ def data_references(info: BinaryInfo, va: int, size: int) -> list[Xref]:
     return out
 
 
+def reachable_code(info: BinaryInfo, va: int, size: int) -> tuple[list[Insn], list[Xref]]:
+    """Decode reachable x86 instructions inside an independently established body.
+
+    Direct internal branches are followed; calls, external tail jumps and
+    indirect dispatch targets are not. Tables and padding skipped by control
+    flow are never decoded. This does not discover or extend a function body.
+    """
+    if info.arch not in {"x86_32", "x86_64"}:
+        raise ValueError("reachable code decoding requires x86_32 or x86_64")
+    raw = extract_bytes(info, va, size)
+    end = va + len(raw)
+    pending = [va]
+    decoded: dict[int, Insn] = {}
+    covered: set[int] = set()
+    refs: list[Xref] = []
+    md = capstone_for(info)
+    _, op_imm, _ = _op_constants()
+    while pending:
+        pc = pending.pop()
+        if pc in decoded or not va <= pc < end:
+            continue
+        if pc in covered:
+            raise ValueError(f"branch target 0x{pc:x} overlaps an instruction")
+        insn = next(md.disasm(raw[pc - va :], pc, count=1), None)
+        if insn is None or insn.mnemonic == "db":
+            raise ValueError(f"cannot decode reachable instruction at 0x{pc:x}")
+        occupied = set(range(pc, pc + insn.size))
+        if occupied & covered:
+            raise ValueError(f"instruction at 0x{pc:x} overlaps another instruction")
+        covered.update(occupied)
+        decoded[pc] = Insn(pc, insn.size, insn.mnemonic, insn.op_str, bytes(insn.bytes))
+        if (ref := _classify_insn(info, insn)) and is_inside(info, ref[2]):
+            refs.append(Xref(*ref))
+        if insn.group(capstone.CS_GRP_RET) or insn.group(capstone.CS_GRP_IRET):
+            continue
+        if insn.mnemonic in {"int3", "ud2", "hlt"}:
+            continue
+        if insn.group(capstone.CS_GRP_JUMP):
+            if len(insn.operands) == 1 and insn.operands[0].type == op_imm:
+                pending.append(int(insn.operands[0].imm))
+            if insn.mnemonic in {"jmp", "ljmp"}:
+                continue
+        pending.append(pc + insn.size)
+    return [decoded[pc] for pc in sorted(decoded)], sorted(refs, key=lambda r: r.from_va)
+
+
 def ne_code_segments(info: BinaryInfo) -> list[str]:
     """Section names of an NE binary's code segments (for scans)."""
     return [f"SEG{s.index}" for s in info.ne_segments if s.is_code]

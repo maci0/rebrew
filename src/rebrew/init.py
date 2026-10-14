@@ -58,7 +58,7 @@ app = typer.Typer(
         "  rebrew init --toolchain gcc-14.2.0 · · · · · Use GCC (ELF targets)\n\n"
         "[bold]What it creates:[/bold]\n\n"
         "  rebrew-project.toml · · · Project configuration (compiler, paths, targets)\n\n"
-        "  AGENTS.md · · · · · · · · AI agent instructions for the project\n\n"
+        "  AGENTS.md · · · · · · · · project instructions for the project\n\n"
         "  original/ · · · · · · · · Place your original binaries here\n\n"
         "  src/<target>/ · · · · · · Directory for reversed .c files\n\n"
         "  bin/<target>/ · · · · · · Directory for extracted .bin files\n\n"
@@ -401,7 +401,7 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
         )
 
     if written:
-        console.print("[green]Created .agents/skills/[/] (AI workflow instructions)")
+        console.print("[green]Created .agents/skills/[/] (workflow instructions)")
     if not written and refused:
         console.print(
             f"[yellow]warning:[/yellow] no agent-skills written ({refused} path(s) skipped)."
@@ -869,13 +869,22 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
     if not toml_path.exists():
         error_exit(f"no rebrew-project.toml in {cwd}", json_mode=json_output)
     data = tomllib.loads(toml_path.read_text(encoding="utf-8-sig"))
-    compiler_profile = str(data.get("compiler", {}).get("profile", "")).strip()
-    if not compiler_profile:
-        error_exit("rebrew-project.toml has no [compiler] profile", json_mode=json_output)
     targets = data.get("targets", {})
     if not targets:
         error_exit("rebrew-project.toml declares no [targets]", json_mode=json_output)
-    target_name, target_cfg = next(iter(targets.items()))
+    target_name = data.get("project", {}).get("default_target")
+    if target_name is None and len(targets) == 1:
+        target_name = next(iter(targets))
+    if not isinstance(target_name, str) or target_name not in targets:
+        error_exit(
+            "rebrew-project.toml [project].default_target must name a declared target",
+            json_mode=json_output,
+        )
+    target_cfg = targets[target_name]
+    compiler = {**data.get("compiler", {}), **target_cfg.get("compiler", {})}
+    compiler_profile = str(compiler.get("profile", "")).strip()
+    if not compiler_profile:
+        error_exit("rebrew-project.toml has no [compiler] profile", json_mode=json_output)
     profile = profile_defaults().get(compiler_profile)
     if profile is None:
         error_exit(
@@ -979,8 +988,28 @@ def _render_agents_md(
         constraints = MSVC7_CONSTRAINTS
     else:
         constraints = GCC_CONSTRAINTS
+    quick_start = (
+        "```sh\n"
+        f"rebrew build delphi src/{target_name}/PROGRAM.DPR --output build/PROGRAM.EXE --map build/PROGRAM.MAP\n"
+        "rebrew binary ne-compare build/PROGRAM.EXE --json\n"
+        "rebrew binary forms --json\n"
+        "```\n\n"
+        "Replace the program and output paths with this project's paths. Preserve configured DCC switches; "
+        "source units rebuild with -B and maps come from the same invocation. "
+        "Whole-program compilation and form round trips do not write function verdicts."
+        if compiler_profile == "delphi-1.0"
+        else "```\n"
+        "1. rebrew todo --json                          # get highest ROI action items\n"
+        "2. rebrew library match --lib <runtime>.LIB --va 0x<VA>   # is it already in a library?\n"
+        "3. rebrew skeleton 0x<VA>                      # only for an inventory VA without source\n"
+        f"4. rebrew test src/{target_name}/<func>.c --json  # compile + compare\n"
+        "5. # iterate code until STATUS: EXACT or RELOC\n"
+        "6. rebrew test --all --json                    # batch promote all ready functions\n"
+        "```"
+    )
     template = _AGENTS_MD_TEMPLATE.read_text(encoding="utf-8")
     return template.format(
+        quick_start=quick_start,
         project_name=project_name,
         target_name=target_name,
         binary_name=binary_name,
@@ -1085,7 +1114,7 @@ def main(
 ) -> None:
     """Initialize a new rebrew project in the current directory.
 
-    Creates a rebrew-project.toml configuration, an AGENTS.md for AI agents,
+    Creates a rebrew-project.toml configuration, an AGENTS.md for project workflows,
     and the necessary directory structure for decompilation.
     """
     cwd = Path.cwd()
@@ -1324,7 +1353,7 @@ def main(
         defaults=profile,
     )
     atomic_write_text(agents_path, agents_content, encoding="utf-8")
-    console.print(f"[green]Created {agents_path.name}[/] (AI agent instructions)")
+    console.print(f"[green]Created {agents_path.name}[/] (project instructions)")
 
     # 3. Create directories
     original_dir = cwd / "original"

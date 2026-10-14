@@ -2259,6 +2259,28 @@ class TestAccounting:
 
 
 class TestFileSimilarity:
+    @pytest.mark.parametrize(
+        "target", ["server.dll", "Europa1400Gold_TL.exe", "Europa1400Gold.exe"]
+    )
+    def test_only_the_targets_own_build_is_scored(self, tmp_path: Path, target: str) -> None:
+        ref = tmp_path / target
+        ref.write_bytes(b"ABCDEFGH")
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "server.dll").write_bytes(b"ABCDEFGH")
+        cfg = _make_cfg(tmp_path, target_name=target, target_binary=ref)
+
+        report = collect_status(cfg)  # type: ignore[arg-type]
+
+        if target == "server.dll":
+            assert report.file_built == "build/server.dll"
+            assert report.file_similarity_pct == 100.0
+            assert report.file_total_bytes == 8
+        else:
+            assert report.file_built == ""
+            assert report.file_total_bytes == 0
+            assert "file" not in report.to_dict()
+
     def test_shorter_tail_is_unmatched(self) -> None:
         matched, span = compare_file_bytes(b"abcdef", b"abXd")
         assert (matched, span) == (3, 6)

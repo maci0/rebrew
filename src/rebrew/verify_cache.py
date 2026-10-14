@@ -638,6 +638,7 @@ RESULT_FIELDS: tuple[str, ...] = (
     # report-only extras, carried so a cached row re-serves byte-identically
     "diff_lines",
     "context_hash",
+    "relocation_bindings",
 )
 
 
@@ -652,7 +653,11 @@ def order_result_row(row: dict[str, Any]) -> dict[str, Any]:
     on the first cache-served run even though nothing about the result had.
     Ordering both paths here keeps a second run byte-identical to the first.
     """
-    return {k: row[k] for k in RESULT_FIELDS if k in row}
+    return {
+        k: row[k]
+        for k in RESULT_FIELDS
+        if k in row and (k != "relocation_bindings" or row[k] is not None)
+    }
 
 
 @dataclass
@@ -680,6 +685,7 @@ class VerifyCacheEntry:
     effective_match: bool = False
     diff_lines: int | None = None
     context_hash: str | None = None
+    relocation_bindings: list[dict[str, Any]] | None = None
     source_hash: str = ""
     mtime_ns: int = 0
     cflags: str = ""

@@ -7,6 +7,39 @@ flags may be unshipped. Status `open` unless noted; observations describe the
 campaign at the time recorded. Use [CLI.md](CLI.md) for shipped behavior and
 promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
+## October 2026 consolidation audit
+
+The historical proposals below retain their campaign evidence. Current reusable
+operations and project migrations are tracked in [PROJECT_TOOLING.md](PROJECT_TOOLING.md).
+
+Implemented here: target-correct linked-image selection; configured
+`check_known_bindings` with resolved/conflicting/unresolved operand diagnostics;
+`source rename --shared-definition`; `source units` with authenticated body
+extents and explicit unattributed references; `source findings`; `build anchors`;
+and separate COFF/export timestamps in `binary pe`. These replace Guild's
+notebook lookup, game-anchor generator and timestamp parser.
+
+Existing supported replacements include `build residue` (measure an existing
+link and postlink it in memory), `diagnose gap`, `diagnose near`, `diagnose probe`
+(separate COMDAT/body rulers), qualifier/climb experiments, data verification,
+managed type bindings, scoped AST renames, source split/merge, library adoption
+and native-callee resolution. Their scopes are described in CLI.md; they do not
+implicitly relink candidate projects or prove complete operands/providers.
+
+Retain the following as evidence-dependent research, rather than default policy:
+slot-coloring sentinel generation; linked volatile sweeps and composition-band
+ranking; broad optimization-flag inference; allocator/use-site advice; whole-member
+text/data graph identity for tiny math dispatch wrappers; and linker reservation
+models derived from one MSVC campaign. Their current receipts establish a local
+case, not a cross-project algorithm. The math-member proposal still explicitly
+lacks complete data/provider verification. Existing public object/archive APIs
+remain appropriate for those proof experiments.
+
+Do not add an automatic commit helper, agent scheduler, live-sync loop, or
+external finding router for this consolidation. Explicit file ownership, named
+paths, existing metadata writers and project checks cover the demonstrated
+workflow failures without an additional authority or storage system.
+
 ## Measure truth, not proxies
 
 - [ ] **Link-residue as first-class metric (`rebrew build residue --json`).**
@@ -594,6 +627,10 @@ Evidence: guild-rebrew/.scratch/goal-tl-callee-identities/{resolver-binding-conf
   Feature: `rebrew binary relocs --reservation` reporting kept, discarded and
   import-thunk records per input against the reference's `12 * N`. Evidence:
   guild `.scratch/measure/dir32_count.py`, `discarded_dir32.py`.
+  Current evidence (2026-10-11): guild-rebrew/.scratch/goal21/server-header-fix/
+  current-input-census.json counts5,506 actual records vs5,535 reference-required;
+  all3,499 runtime sites/types match. Census archive hashes match the pinned
+  Docker libraries. Report this as discarded-input debt, not missing runtime fixups.
 
 ## Assembly provenance for definitions without a target VA (2026-10-09)
 
@@ -869,6 +906,21 @@ validator, attributed users and linker references.
 Evidence: guild-rebrew .scratch/goal20/sound-wrapper-rename-preview.json,
 sound-wrapper-rename-all-preview.json and sound-wrapper/rename-preview.json.
 
+## Native source-unit evidence for organization (2026-10-11)
+
+Pain: source graph --cu-map groups the TL inventory's6,335 functions into only
+three broad clusters; that does not establish original unit ownership for3,871
+loose root C files. A local read-only scan finds complete native source-path
+strings and direct instruction operands referring to them:37 functions across
+both clients, including TL420840 in Units/Msx/msx.c and GOLD438780 in
+Units/d3/d3_d3d.c. Expose this evidence through a source-unit inventory command:
+target, original path, string VA, function VA/extent, instruction VA, managed
+source and all shared bindings. Keep direct evidence separate from inferred
+caller/global clusters, refuse conflicts, and do not move or merge implicitly.
+Use verified body extents so a merged discovery range cannot attribute the next
+function's path. Evidence: guild-rebrew/.scratch/goal20/native-unit-map/
+{direct-path-evidence,root-candidates}.json and source-cu-map.json.
+
 ## Configured target defines in CMake (2026-10-11)
 
 Resolved: build cmake-flags now emits selected target defines as source
@@ -889,6 +941,45 @@ semicolons. Evidence: guild-rebrew .scratch/goal20/recursive-object-list-{asm,
 server-asm,gold-asm,diff}.json and tests/test_cmake_flags.py target-defines cases.
 
 
+### Known-global conflicts in normalized cross-imports
+
+A normalized DIR32 comparison deliberately permits a known symbol to resolve to an
+uncatalogued native address. This hid a real existing source pairing error: imported
+GOLD423b30 uses music-path buffer14611a0, but the existing g_14cc360 row names
+GOLDf8aae0 from an unrelated copier. The import reported RELOC; a strict native
+operand audit exposed the conflict. TL420760 belongs with GOLD4243d0, not GOLD478860.
+Offer a known-binding check for cross-import/test/verify that rejects disagreements
+for resolved names while permitting genuinely unresolved operands, and report the
+conflicting source/data identities so the canonical declarations can be repaired.
+This is hardening beyond the documented generous masking, not a change to its current
+agreement-only contract. Evidence: guild-rebrew/.scratch/goal20/msx-start-volume/
+start-GOLD-operand-audit.json and src/GOLD.fcn_00478860.c before the split.
+
+
+## Managed type identities and compiler/native extent evidence (2026-10-11)
+
+Pain: the character scene-node and dummy views live in C, but there is no local
+managed type identity linking their per-target compiler sizes and native evidence
+to the declaration. BinSync struct artifacts are synchronization interchange,
+not a target-scoped source binding. `types check` merges declarations by name
+and scans unpreprocessed source; it cannot establish complete heap allocation
+extents. W007 was retired because a file-level SIZE comment validates nothing.
+Requested repair: a supported locked type metadata writer/CLI with durable
+identity, target, C definition, partial/complete extent, compiler layout evidence
+and source/context fingerprints; stale claims must be surfaced, not silently
+trusted. Native construction/allocation evidence must remain separate from the
+size of an accessed C view. Human requests both metadata checks and full native
+character layout recovery. Source: guild-rebrew/src/Develop/DieGildeAddOn/game/character.c;
+prior proofs in .scratch/goal20/character-shared-pairs/; current work in
+.scratch/goal20/type-identity-layouts/. Preserve the existing idea notes.
+
+Implemented locally as main980a49b6: managed rebrew-types.toml, compiler-gated types bind, stale binding checks and conditional-layout parsing guard. Guild D3 native byte extents and target bindings are closed in .scratch/goal20/type-identity-layouts/scope-final.json. Unknown field semantics remain byte regions; no BinSync publication or client relink claimed.
+
+### Rename must preserve source-only assembly provenance (2026-10-11)
+
+Pain: source rename rewrites a reviewed definition and its callers, but leaves rebrew-source.toml under the old definition name with stale hashes in callers whose fill macros did not change. Guild allocator rename m_AllocTracked -> m_alloc affects three target identities and current m_PoolAlloc provenance. Proposed fix: move definition/file identities and refresh only provenance that was current before the mechanical rename; preserve stale evidence, target separation and locked/atomic writes. Evidence: guild-rebrew/.scratch/goal21/allocator-name/preview.json and rebrew rename_ops.apply_rename_plan.
+
+
 ## Resolve ambiguous stock-library wrappers through native callees
 
 Pain: full relocation-masked matching leaves fread/fwrite wrappers ambiguous. A legacy TL header called 0x64ed28 fread; its native callee at0x64ed57 uniquely matches __fwrite_lk. Naming it correctly currently needs an ignored project experiment using archive/COFF APIs, following the same pattern as the earlier sprintf/swprintf proof.
@@ -904,3 +995,51 @@ now pass the original parent through compile_and_compare extra_include_dirs,
 reusing the object compiler mounts and include-aware cache key. Evidence:
 guild-rebrew/.scratch/goal22/tooling/climb-{before,after}.json; four failing-before
 regressions cover both climb objectives, qualifier candidates and API forwarding.
+
+### Member-level matching for dispatch-backed math intrinsics
+
+Pain: TL64d4fa's __CIfmod entry appears as40 native bytes but COFF splits it
+into a10-byte thunk plus30-byte local fFMOD implementation. The thunk has only
+two fixed bytes, so the existing half-fixed-byte guard correctly rejects it.
+library match returns a miss even though all50 bytes of stock87fmod.obj's
+_fmod/__CIfmod/fFMOD text, all six operands and rejecting controls agree.
+Proposed feature: report whole-member text/data graph candidates, including
+local-label implementation blocks and dispatch-table references; retain the
+current tiny-wrapper guard and separate raw-link provider evidence.
+Evidence: guild-rebrew .scratch/goal22/reconstruction/solar-stock-fmod-text-proof.json
+and solar-stock-fmod-member-proof.json. Full80-byte dispatch data,16 pointers,
+458-byte support text and44-byte support data now match with rejecting controls;
+raw client link-map provider evidence remains pending.
+
+
+Additional initialization-component case (2026-10-14): the standalone
+__cinit45-byte entry has only17 fixed bytes after seven operands, so the
+half-fixed-byte guard correctly misses it even with --resolve-callees.
+Its two direct calls reach private STATIC __initterm26 in the same crt0dat.obj;
+that helper is not an archive external and must not become a game-callable
+extern. Both clients match the complete71-byte text component, all seven
+operands and six rejecting symbol controls each. This supports component
+matching with private callee edges while retaining the wrapper guard.
+Evidence: guild-rebrew/.scratch/goal22/reconstruction/crt-init-stock-native-proof.json.
+Actual selected client archive/link-map evidence remains unverified; compatible
+stock bytes do not choose between CRT archive variants.
+
+
+### Audit stale source names against managed function identities
+
+Pain: restored legacy C can keep an inline identity and old function name while
+its managed row names a canonical shared definition. Batch verification chooses
+the legacy body (and sometimes a separate target copy) and lint reports clean,
+so the canonical source reconstruction recorded in metadata is not exercised.
+
+Proposed: expose this drift in the existing lint/catalog report, distinguishing
+managed definition identity from the effective compiled source symbol. Account
+for intentional target macros, aliases and library providers before warning;
+show the conflicting file/symbol and the existing rename/rehome repair command.
+Do not silently rewrite identity, promote a status or accept only masked bytes.
+
+Evidence: guild-rebrew .scratch/goal23/pool-unification/reset-source-preview.json,
+full-corpus-final.json in goal22/spiel-unification (TL4737c0/Gold476c60), and
+upstream stale-row rename regression tests. Managed ResetDisplayCounters and
+CountDisplayCounters pointed at C still defining their old fcn names; separate
+Gold bodies masked the unexercised shared implementation.

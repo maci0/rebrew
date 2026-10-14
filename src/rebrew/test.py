@@ -41,8 +41,12 @@ from rebrew.cli import (
 )
 from rebrew.coff_reloc import (
     CatalogScanError,
+    binding_summary,
     build_iat_region,
     build_name_to_va,
+    known_bindings_match,
+    refresh_binding_evidence,
+    relocation_binding_evidence,
     smart_reloc_compare,
 )
 from rebrew.compiler.compile import (
@@ -668,7 +672,7 @@ def build_result_dict_from_compare(
     relocs = cmp.reloc_offsets or []
     obj_bytes = cmp.obj_bytes or b""
     obj_len, total, match_count = _resolve_total_and_match_count(cmp, target_bytes)
-    return _result_dict_body(
+    result = _result_dict_body(
         source,
         symbol,
         va_str,
@@ -685,6 +689,9 @@ def build_result_dict_from_compare(
         context_hash=cmp.context_hash,
         include_mismatches=include_mismatches,
     )
+    if cmp.relocation_bindings is not None:
+        result["relocation_bindings"] = cmp.relocation_bindings
+    return result
 
 
 def _result_dict_body(
@@ -742,6 +749,8 @@ def _fix_size_evidence_ok(
     obj_bytes: bytes,
     target_bytes: bytes,
     reloc_offsets: list[int],
+    *,
+    relocation_bindings: list[dict[str, Any]] | None = None,
 ) -> bool:
     """True when fixing the SIZE annotation to ``len(obj_bytes)`` is safe.
 
@@ -764,6 +773,14 @@ def _fix_size_evidence_ok(
     the compiled size is safe.  The walk is conservative: a premature stop
     (loop ``jmp`` read as a tail call) yields a smaller extent and refuses.
     """
+    if getattr(cfg, "check_known_bindings", False):
+        reference = extract_raw_bytes(cfg.target_binary, ann_va, len(obj_bytes))
+        if relocation_bindings is None or not known_bindings_match(
+            relocation_bindings,
+            reference,
+            iat_region=build_iat_region(cfg),
+        ):
+            return False
     if len(obj_bytes) > len(target_bytes):
         ext = extract_raw_bytes(cfg.target_binary, ann_va, len(obj_bytes))
         if len(ext) != len(obj_bytes):
@@ -1177,7 +1194,12 @@ def _run_test_impl(
         and cmp.full_obj_bytes is not None
         and section_va is not None
         and _fix_size_evidence_ok(
-            cfg, section_va, cmp.full_obj_bytes, target_bytes, cmp.reloc_offsets or []
+            cfg,
+            section_va,
+            cmp.full_obj_bytes,
+            target_bytes,
+            cmp.reloc_offsets or [],
+            relocation_bindings=cmp.relocation_bindings,
         )
     ):
         new_size = cmp.full_obj_size
@@ -1210,6 +1232,7 @@ def _run_test_impl(
         match_count = new_size
         size_val = new_size
         relocs = cmp.reloc_offsets or []
+        binding_evidence = cmp.relocation_bindings
         cmp = classify_compare_result(
             True,
             f"RELOC-NORM MATCH ({len(relocs)} relocs)" if relocs else "EXACT MATCH",
@@ -1220,6 +1243,7 @@ def _run_test_impl(
             full_obj_size=new_size,
             full_obj_bytes=cmp.full_obj_bytes,
         )
+        cmp.relocation_bindings = binding_evidence
         # The rebuilt result drops the context digest the verdict was earned
         # under; every reader downstream (the JSON payload, the verify-cache
         # patch) takes it from here, so re-attach it like the multi-function
@@ -1230,6 +1254,10 @@ def _run_test_impl(
         # self-consistent (a too-big annotation would otherwise report
         # total=old-size against the new size metadata).
         target_bytes = extract_raw_bytes(cfg.target_binary, section_va, new_size)
+        if cmp.relocation_bindings is not None:
+            cmp.relocation_bindings = refresh_binding_evidence(
+                cmp.relocation_bindings, target_bytes, iat_region=build_iat_region(cfg)
+            )
         if measured_inputs:
             measured_inputs["reference_hash"] = hashlib.sha256(target_bytes).hexdigest()
             measured_inputs["reference_size"] = str(len(target_bytes))
@@ -1708,6 +1736,7 @@ def _test_multi(
                     name_to_va=name_to_va,
                     section_va=ann.va,
                     iat_region=build_iat_region(cfg),
+                    check_known_bindings=getattr(cfg, "check_known_bindings", False),
                 )
             except Exception as exc:
                 # Post-compile object extraction/compare failure — the source
@@ -1744,7 +1773,25 @@ def _test_multi(
                 and fix_sizes
                 and total > 0
                 and total - match_count == 0
-                and _fix_size_evidence_ok(cfg, ann.va, obj_bytes, target_bytes, relocs)
+                and _fix_size_evidence_ok(
+                    cfg,
+                    ann.va,
+                    obj_bytes,
+                    target_bytes,
+                    relocs,
+                    relocation_bindings=(
+                        relocation_binding_evidence(
+                            obj_bytes,
+                            target_bytes,
+                            coff_relocs,
+                            name_to_va,
+                            section_va=ann.va,
+                            iat_region=build_iat_region(cfg),
+                        )
+                        if getattr(cfg, "check_known_bindings", False)
+                        else None
+                    ),
+                )
             ):
                 new_size = len(obj_bytes)
                 if not dry_run and not no_promote:
@@ -1817,6 +1864,18 @@ def _test_multi(
                 full_target_size=orig_tgt_len if size_mismatch else None,
             )
             cmp.context_hash = context.sha256 if context is not None else None
+            if getattr(cfg, "check_known_bindings", False):
+                cmp.relocation_bindings = relocation_binding_evidence(
+                    obj_bytes,
+                    target_bytes,
+                    coff_relocs,
+                    name_to_va,
+                    section_va=ann.va,
+                    iat_region=build_iat_region(cfg),
+                )
+                summary = binding_summary(cmp.relocation_bindings)
+                if summary:
+                    cmp.message = f"{cmp.message}; {summary}"
             matched = cmp.matched
             new_status = cmp.status
             # smart_reloc_compare's total is the common (truncated) length —

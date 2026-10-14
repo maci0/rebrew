@@ -78,9 +78,25 @@ def _fake_pe(**overrides: object) -> SimpleNamespace:
 
 
 class TestPayloadShape:
+    def test_export_timestamp_is_separate_from_the_file_timestamp(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.pe_info import _pe_payload
+
+        monkeypatch.setattr(
+            "rebrew.pe_info.export_table", lambda _pe: SimpleNamespace(timestamp=1234)
+        )
+        payload = _pe_payload(_fake_pe(), MINI_PE, MINI_PE.stat().st_size, "x86_32")
+        assert payload["export_timestamp"] == 1234
+        assert payload["binary"] == str(MINI_PE)
+        monkeypatch.setattr("rebrew.pe_info.export_table", lambda _pe: None)
+        assert _pe_payload(_fake_pe(), MINI_PE, 0, "x86_32")["export_timestamp"] is None
+
     def test_top_level_keys(self) -> None:
         info = pe_info(MINI_PE)
         assert set(info) == {
+            "binary",
+            "export_timestamp",
             "format",
             "arch",
             "bits",

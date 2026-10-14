@@ -1110,6 +1110,35 @@ class TestMultiFixSize:
 
 
 class TestFixSizeEvidence:
+    @pytest.mark.parametrize("native_address,expected", [(0x1000, True), (0x2000, False)])
+    def test_known_binding_checks_cover_the_extended_reference(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, native_address: int, expected: bool
+    ) -> None:
+        from rebrew.coff_reloc import CoffRelocRecord, relocation_binding_evidence
+        from rebrew.test import _fix_size_evidence_ok
+
+        cfg = self._cfg(tmp_path)
+        cfg.check_known_bindings = True
+        obj = b"abcd" + bytes(4)
+        target = b"abcd"
+        native = target + native_address.to_bytes(4, "little")
+        evidence = relocation_binding_evidence(
+            obj, target, [CoffRelocRecord(4, 6, "_known")], {"_known": 0x1000}
+        )
+        monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *_args: native)
+        monkeypatch.setattr("rebrew.test.build_iat_region", lambda _cfg: frozenset())
+        assert (
+            _fix_size_evidence_ok(
+                cfg,
+                0x1000,
+                obj,
+                target,
+                [4],
+                relocation_bindings=evidence,
+            )
+            is expected
+        )
+
     """--fix-sizes's evidence gate must refuse a fix when the region beyond
     the common prefix hides a mismatch — the false-fix hazard."""
 

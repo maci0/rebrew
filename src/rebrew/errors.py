@@ -73,6 +73,7 @@ if TYPE_CHECKING:
     from rebrew.doctor import LibIndexUnavailable as LibIndexUnavailable
     from rebrew.fingerprints import FingerprintError as FingerprintError
     from rebrew.formats.binary_loader import ExportParseError as ExportParseError
+    from rebrew.formats.dfm import DfmError as DfmError
     from rebrew.formats.lzexe import NotLzexeError as NotLzexeError
     from rebrew.formats.ne_loader import NeParseError as NeParseError
     from rebrew.formats.omf16 import Omf16Error as Omf16Error
@@ -234,6 +235,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "ConfigNotFoundError": ("rebrew.config", "ConfigNotFoundError"),
     "DecompmeError": ("rebrew.decompme", "DecompmeError"),
     "Delphi16Error": ("rebrew.compiler.delphi16", "Delphi16Error"),
+    "DfmError": ("rebrew.formats.dfm", "DfmError"),
     "DosboxError": ("rebrew.compiler.dosbox", "DosboxError"),
     "ExportParseError": ("rebrew.formats.binary_loader", "ExportParseError"),
     "FingerprintError": ("rebrew.fingerprints", "FingerprintError"),
@@ -332,6 +334,7 @@ __all__ = [
     "DecompmeError",
     "DecompmeErrorKind",
     "Delphi16Error",
+    "DfmError",
     "DosboxError",
     "ExportParseError",
     "FingerprintError",

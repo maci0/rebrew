@@ -239,8 +239,8 @@ across runs).
 containerized path**: the
 docker-only standardization is complete for the whole matrix; there is
 no host wine/dosbox execution path in the compile pipeline anymore (only
-the standalone `rebrew.compiler.msvc16`/`rebrew.compiler.tc16`/`rebrew.compiler.delphi16` research
-modules run their DOSBox sandbox directly).  `rebrew toolchain smoke`
+the standalone `rebrew.compiler.msvc16`/`rebrew.compiler.tc16` research
+modules retain legacy sandbox helpers; the Delphi whole-program API uses Docker only).  `rebrew toolchain smoke`
 gates byte-reproducibility for every image-backed profile with a
 golden object hash.
 
@@ -376,7 +376,7 @@ docker**: no host files:
   directory stripped.  `rebrew toolchain vendor <name>` reproduces that tree
   with no user-supplied media: it downloads the pin, and for delphi-1.0
   renames the tarball's `delphi-lib/` to `DELPHI/LIB`, the path DCC.CFG and
-  `find_dcc` use.
+  the Docker wrapper uses.
 - Extraction tolerates 7z's warning exits but **verifies the compiler
   binary exists**, so a bad extraction fails loudly.
 - All images carry **OCI provenance labels** (source/license/title).
@@ -427,7 +427,7 @@ byte-identical.  Two layout rules apply during assembly:
   `rebrew doctor` warns about the missing lib path, which is expected and
   harmless for `/c` object builds.
 - **The vendored tree backs the host-side 16-bit path**: outside the
-  docker flow, `rebrew.compiler.tc16`/`rebrew.compiler.msvc16`/`rebrew.compiler.delphi16` symlink
+  docker flow, `rebrew.compiler.tc16`/`rebrew.compiler.msvc16` symlink
   `source/BIN|INCLUDE|LIB` into a DOSBox sandbox (research/tests; the
   docker images build from the same tarball, byte-identical).
 
@@ -1182,3 +1182,14 @@ the later native LINK invocation supplies the COFF timestamp. Use separate
 build phases when the reference carries different stamps. This controls
 timestamps only; it does not establish data, import, relocation or header
 layout equality. Remote recompile services do not inherit this local clock.
+
+### Delphi whole-program API
+
+`rebrew build delphi` and `rebrew.compiler.delphi16.compile_ne` require
+`rebrew/delphi:1.0-win16`. Source bytes and safe 8.3 basenames are retained;
+long program basenames use SRC.DPR. Current sibling PAS/DCU/DFM/RES/INC files
+are staged with collision checks. Each invocation owns a fresh directory.
+`-B` rebuilds source units and an optional map adds `-GS` to the same invocation.
+An explicit units directory replaces the image's library tree; custom DCC.CFG
+and switches are preserved. `find_dcc` and the separate host-only doctor check
+are removed; use the image inventory and compiler checks.

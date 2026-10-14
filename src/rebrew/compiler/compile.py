@@ -65,7 +65,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Self, cast, get_args
 
-from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
+from rebrew.coff_reloc import (
+    binding_summary,
+    build_iat_region,
+    relocation_binding_evidence,
+    smart_reloc_compare,
+)
 
 #: ``toolchain.TOOLCHAINS`` is republished by ``refresh_toolchain_registry``
 #: and must be read through the module at call time; a module-level
@@ -271,6 +276,8 @@ class CompareResult:
     #: consumer could not tell "the compile service was unreachable" from
     #: "your C does not build" except by matching ``message`` substrings.
     error: RebrewError | None = None
+    #: Operand diagnostics when the target enables known-binding checks.
+    relocation_bindings: list[dict[str, Any]] | None = None
 
     def __post_init__(self) -> None:
         """Reject a ``matched`` flag that contradicts ``status``."""
@@ -308,6 +315,11 @@ class CompareResult:
             "effective_match": self.effective_match,
             "context_hash": self.context_hash,
             "error": self.error.to_dict() if self.error is not None else None,
+            **(
+                {"relocation_bindings": self.relocation_bindings}
+                if self.relocation_bindings is not None
+                else {}
+            ),
         }
 
     @classmethod
@@ -2518,6 +2530,7 @@ def _extract_and_compare(
     name_to_va: dict[str, int] | None = None,
     section_va: int | None = None,
     iat_region: frozenset[int] | None = None,
+    check_known_bindings: bool = False,
 ) -> CompareResult:
     """Extract *symbol* from a compiled .obj and compare against *target_bytes*.
 
@@ -2536,6 +2549,18 @@ def _extract_and_compare(
         )
 
     coff_relocs = full_relocs if full_relocs else reloc_dict
+    bindings = (
+        relocation_binding_evidence(
+            obj_bytes,
+            target_bytes,
+            coff_relocs,
+            name_to_va,
+            section_va=section_va,
+            iat_region=iat_region,
+        )
+        if check_known_bindings
+        else None
+    )
 
     size_mismatch = len(obj_bytes) != len(target_bytes)
     orig_obj_len = len(obj_bytes)
@@ -2556,13 +2581,14 @@ def _extract_and_compare(
         name_to_va=name_to_va,
         section_va=section_va,
         iat_region=iat_region,
+        check_known_bindings=check_known_bindings,
     )
     if size_mismatch:
         # Length differs even if the common prefix matches - never EXACT/RELOC.
         # The hint uses the VA when known (rebrew diff resolves VAs);
         # otherwise the generic source placeholder.
         va_hint = f"0x{section_va:08x}" if section_va is not None else "<source>"
-        return classify_compare_result(
+        result = classify_compare_result(
             False,
             (
                 f"SIZE_MISMATCH: Size {orig_obj_len}B vs {orig_tgt_len}B "
@@ -2579,6 +2605,8 @@ def _extract_and_compare(
             full_obj_bytes=orig_obj_bytes,
             full_target_size=orig_tgt_len,
         )
+        result.relocation_bindings = bindings
+        return result
     msg = (
         f"RELOC-NORM MATCH ({len(relocs)} relocs)"
         if (matched and relocs)
@@ -2586,7 +2614,9 @@ def _extract_and_compare(
             "EXACT MATCH" if matched else f"{UNCLASSIFIED_DIFF}: {_total - _match_count} byte diffs"
         )
     )
-    return classify_compare_result(matched, msg, target_bytes, obj_bytes, relocs, inv_relocs)
+    result = classify_compare_result(matched, msg, target_bytes, obj_bytes, relocs, inv_relocs)
+    result.relocation_bindings = bindings
+    return result
 
 
 def compile_and_compare(
@@ -2648,6 +2678,10 @@ def compile_and_compare(
 
     def _pin(result: CompareResult) -> CompareResult:
         result.context_hash = context_hash
+        if result.relocation_bindings is not None:
+            summary = binding_summary(result.relocation_bindings)
+            if summary:
+                result.message = f"{result.message}; {summary}"
         return result
 
     workdir: Path | None = None
@@ -2698,6 +2732,7 @@ def compile_and_compare(
                     target_bytes,
                     name_to_va=name_to_va,
                     section_va=section_va,
+                    check_known_bindings=getattr(cfg, "check_known_bindings", False),
                     iat_region=build_iat_region(cfg),
                 )
             )

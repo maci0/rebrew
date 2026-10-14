@@ -243,7 +243,7 @@ class TestNeDispatchTables:
     """find_dispatch_tables with an NE BinaryInfo finds far-pointer VMTs."""
 
     def test_ne_vmt_detected(self, tmp_path: Path) -> None:
-        from test_ne_loader import _build_ne
+        from bin_util import make_ne
 
         from rebrew.formats.binary_loader import load_binary
 
@@ -263,7 +263,7 @@ class TestNeDispatchTables:
         # 0x10002, 0x10010, 0x1001e, 0x10002.
         vmt = b"\x02\x00\x01\x00\x10\x00\x01\x00\x1e\x00\x01\x00\x02\x00\x01\x00"
         data = b"\x02\x00" + vmt + b"\x00" * 32
-        raw = _build_ne(segments=[(code, 0x01), (data, 0x00)], autodata=2)
+        raw = make_ne(segments=[(code, 0x01), (data, 0x00)], autodata=2)
         p = tmp_path / "app.ne"
         p.write_bytes(raw)
         info = load_binary(p)
@@ -282,7 +282,7 @@ class TestNeDispatchTables:
         """Regression: an MSVC-style NE data segment (no [index\x00]
         marker — e.g. the 1991 SkiFree) must be scanned from offset 0, not
         skip 2 bytes like Borland segments."""
-        from test_ne_loader import _build_ne
+        from bin_util import make_ne
 
         from rebrew.formats.binary_loader import load_binary
 
@@ -301,7 +301,7 @@ class TestNeDispatchTables:
         # unconditional skip would shift the scan and lose the table.
         vmt = b"\x00\x00\x02\x00\x10\x00\x01\x00\x1e\x00\x01\x00\x02\x00\x01\x00"
         data = vmt + b"\x00" * 32
-        raw = _build_ne(segments=[(code, 0x01), (data, 0x00)], autodata=2)
+        raw = make_ne(segments=[(code, 0x01), (data, 0x00)], autodata=2)
         p = tmp_path / "app.ne"
         p.write_bytes(raw)
         info = load_binary(p)

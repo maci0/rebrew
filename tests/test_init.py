@@ -214,6 +214,7 @@ class TestTemplateRendering:
             compiler_constraints=MSVC_CONSTRAINTS,
             cflags="/O2 /Gd",
             lang="C89",
+            quick_start="rebrew todo --json",
         )
         assert "myproject" in result
         assert "C89" in result
@@ -1362,7 +1363,9 @@ class TestInitDelphi16:
         )
         agents = (tmp_path / "AGENTS.md").read_text()
         assert "Object Pascal" in agents
-        assert "ADR-001" in agents
+        assert "rebrew build delphi" in agents
+        assert "rebrew binary ne-compare" in agents
+        assert "no host DOSBox fallback" in agents
         assert "ELF format" not in agents
 
 
@@ -1533,6 +1536,22 @@ class TestRegistryDerivedProfiles:
 
 
 class TestRefreshAgents:
+    def test_uses_default_targets_compiler_override(self, tmp_path: Path) -> None:
+        from rebrew.init import _refresh_agents
+
+        root = self._project(tmp_path, "msvc-6.0")
+        config = root / "rebrew-project.toml"
+        config.write_text(
+            config.read_text() + '\n[project]\ndefault_target = "other"\n'
+            '[targets.other]\nbinary = "original/other.exe"\narch = "x86_16"\nformat = "ne"\n'
+            '[targets.other.compiler]\nprofile = "delphi-1.0"\n'
+        )
+        _refresh_agents(root, config, json_output=False)
+        text = (root / "AGENTS.md").read_text()
+        assert "`other.exe` (ne, x86_16)" in text
+        assert "delphi-1.0" in text
+        assert "src/other/" in text
+
     """The generated AGENTS.md follows the packaged template and the project's
     own profile, so a renamed toolchain or a template change reaches projects
     already on disk without hand-editing a generated file."""

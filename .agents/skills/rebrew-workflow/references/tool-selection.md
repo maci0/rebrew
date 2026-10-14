@@ -8,6 +8,10 @@ and user-overridden skills.
 | Need | Use first |
 | --- | --- |
 | Progress, inventory, next action | `rebrew status --json`, `rebrew todo --json`, `rebrew coverage catalog --json`; regenerate served documents with `rebrew coverage build --json` |
+| Address-keyed notebooks | `rebrew source findings 0x<VA> --json` |
+| Native source-unit paths | `rebrew source units --json`; complete reference extents and direct operands, no automatic moves |
+| Native linker anchors | `rebrew build anchors --dry-run --json`; explicit data sources and native symbols |
+| Whole-program Delphi 1 | `rebrew build delphi`, `rebrew binary ne-compare`, `rebrew binary forms`; fresh Docker build/map, exact bytes separately from content overlap |
 | Disassembly or binary structure | `rebrew binary asm show`, `rebrew binary pe`; use the loaders for VA/raw-byte reads |
 | Static-library attribution and ownership | `rebrew library match`, `rebrew library inspect`; distinguish a masked template hit from a uniquely supported provider in the raw map |
 | Pristine source plus patches | `rebrew library vendor MANIFEST...`; check by default, explicit `--sync` to regenerate |
@@ -67,3 +71,26 @@ and `--compile-commands` for its compiled source libraries. Inspect
 `callee_resolution`: complete callee bodies reject contradictions; aliases,
 self-calls and unavailable evidence remain unresolved. This checks one level,
 not data relocations, an entire call graph or the actual linked provider.
+
+## Known operand bindings and shared definitions
+
+Enable `check_known_bindings = true` per target for test/verify/cross-import when
+resolved native DIR32 operands must agree. Read `relocation_bindings` conflicts
+and unresolved entries; the policy preserves unresolved/IAT handling and does
+not turn masked agreement into complete proof. Fix-sizes rechecks the extended
+native window before changing the managed extent.
+
+Use `rebrew source rename MODULE.0xVA NEW --shared-definition --dry-run --json`
+to rename all rows bound to one source definition while preserving independent
+twins. `--all-modules` deliberately has wider scope. Ambiguous users still need
+explicit binding.
+
+Delphi public mechanics are `compiler.delphi16.compile_ne`, `formats.dfm`, and
+`formats.ne_analysis.NeImage`. Form encoding preserves property order and wire
+types; unsupported candidates are errors. NE fixup inventories reject truncated
+blocks. Content-window overlap is an exploratory metric, never source recovery.
+
+For concurrent work, agree on explicit ownership of source/header/layout edits.
+Metadata locks protect store writes, not simultaneous C edits or links in one
+build directory. Give measurements separate build directories or one linker
+writer, and stage only named, reviewed paths.

@@ -60,51 +60,17 @@ class TestCheckCompiler:
         assert result.status == _FAIL
 
 
-class TestCheckDelphi16Toolchain:
-    def test_skipped_for_non_16bit(self) -> None:
-        from rebrew.doctor import _SKIP, check_delphi16_toolchain
-
-        result = check_delphi16_toolchain(_cfg(arch="x86_32"))
-        assert result.status == _SKIP
-
-    def test_missing_toolchain_fails(self, monkeypatch) -> None:
-        from rebrew.compiler.delphi16 import Delphi16Error
-        from rebrew.doctor import _FAIL, check_delphi16_toolchain
-
-        monkeypatch.setattr(
-            "rebrew.compiler.delphi16.find_dcc",
-            lambda: (_ for _ in ()).throw(Delphi16Error("not found")),
+class TestCompilerAvailability:
+    @pytest.mark.parametrize("present", [False, True])
+    def test_delphi_uses_the_image_check_without_host_dosbox(
+        self, monkeypatch: pytest.MonkeyPatch, present: bool
+    ) -> None:
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda _tag: present)
+        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda _exe: None)
+        result = check_compiler(
+            _cfg(arch="x86_16", compiler_profile="delphi-1.0", compiler_command="")
         )
-        result = check_delphi16_toolchain(_cfg(arch="x86_16", compiler_profile="delphi-1.0"))
-        assert result.status == _FAIL
-        assert "not found" in result.message
-
-    def test_missing_toolchain_warns_when_not_delphi_profile(self, monkeypatch) -> None:
-        """A 16-bit project on another profile (e.g. msvc-1.52) doesn't need
-        Delphi — missing media is a warning, not a failure."""
-        from rebrew.compiler.delphi16 import Delphi16Error
-        from rebrew.doctor import _WARN, check_delphi16_toolchain
-
-        monkeypatch.setattr(
-            "rebrew.compiler.delphi16.find_dcc",
-            lambda: (_ for _ in ()).throw(Delphi16Error("not found")),
-        )
-        result = check_delphi16_toolchain(_cfg(arch="x86_16", compiler_profile="msvc-1.52"))
-        assert result.status == _WARN
-        assert "not found" in result.message
-
-    def test_ready_passes(self, monkeypatch, tmp_path: Path) -> None:
-        from rebrew.doctor import _OK, check_delphi16_toolchain
-
-        dcc_dir = tmp_path / "tools" / "delphi-1.0-win16"
-        dcc_dir.mkdir(parents=True)
-        (dcc_dir / "DCC.EXE").write_bytes(b"MZ")
-        (dcc_dir / "RTM.EXE").write_bytes(b"MZ")
-        monkeypatch.setattr("rebrew.compiler.delphi16.find_dcc", lambda: dcc_dir / "DCC.EXE")
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda *a, **k: "/usr/bin/dosbox")
-        result = check_delphi16_toolchain(_cfg(arch="x86_16"))
-        assert result.status == _OK
-        assert "ready" in result.message
+        assert result.status == (_OK if present else _FAIL)
 
     def test_shlex_valueerror_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Unbalanced quotes → shlex.split raises → plain split fallback."""

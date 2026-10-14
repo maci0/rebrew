@@ -175,6 +175,12 @@ def _row(name: str, va: int) -> tuple[list[Any], list[dict[str, Any]]]:
 
 
 class TestCompilerConfigHash:
+    def test_comparison_policy_changes_verification_identity(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        before = compiler_config_hash(cfg)
+        cfg.check_known_bindings = True
+        assert compiler_config_hash(cfg) != before
+
     def test_changes_when_compiler_settings_change(self, tmp_path: Path) -> None:
         cfg_a = _make_cfg(tmp_path)
         cfg_b = _make_cfg(tmp_path)

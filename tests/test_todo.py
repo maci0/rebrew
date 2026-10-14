@@ -625,7 +625,7 @@ class TestCollectors:
         section = SimpleNamespace(va=0x1000, file_offset=0, size=16, raw_size=16)
         info = SimpleNamespace(sections={".text": section}, text_va=0x1000, text_raw_offset=0)
         monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda p: info)
-        cfg = _make_cfg(tmp_path, raw_link=tmp_path / "raw.dll")
+        cfg = _make_cfg(tmp_path, target_name="test.dll", raw_link=tmp_path / "raw.dll")
         existing = {0x1000: {"symbol": "f", "status": "RELOC", "size": 16}}
         items = _collect_postlink_rewritten(cfg, existing, {})
         assert [i.category for i in items] == [CAT_POSTLINK]

@@ -782,7 +782,14 @@ def _retarget_moved_identity(cfg: Any, old_path: Path, new_path: Path) -> None:
 
 
 def _import_result(
-    dst_va: int, src_va: int, *, action: str, status: str, filepath: str, message: str
+    dst_va: int,
+    src_va: int,
+    *,
+    action: str,
+    status: str,
+    filepath: str,
+    message: str,
+    relocation_bindings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Per-function import result row for the CLI/JSON report."""
     return {
@@ -793,6 +800,7 @@ def _import_result(
         "status": status,
         "filepath": filepath,
         "message": message,
+        **({"relocation_bindings": relocation_bindings} if relocation_bindings is not None else {}),
     }
 
 
@@ -1053,6 +1061,7 @@ def import_shared_function(
         status=result.status,
         filepath=rel_dst,
         message=message,
+        relocation_bindings=result.relocation_bindings,
     )
 
 
@@ -1320,6 +1329,7 @@ def import_function(
         status=result.status,
         filepath=rel_dst,
         message=message,
+        relocation_bindings=result.relocation_bindings,
     )
 
 

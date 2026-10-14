@@ -2131,7 +2131,9 @@ their inputs are available:
 
 Do not add these percentages or treat stored verdicts as a fresh build check.
 Whole-file agreement uses configured `raw_link` or `build/<target>`; a missing
-configured image is reported rather than silently substituted. `.bss` has no
+configured image is reported rather than silently substituted. Without a
+configured `raw_link`, a missing `build/<target>` omits the file score; other
+targets' images are never substituted. `.bss` has no
 file-backed bytes and appears as symbol counts/virtual-layout work.
 
 The overlap warning concerns stored byte verdicts, independently of the C type
@@ -4612,3 +4614,39 @@ Show recorded GA run history without compiling.
 ```bash
 rebrew match history --json
 ```
+
+## Project tooling promoted upstream
+
+- `rebrew source findings VA [END] --window N --context N --doc PATH --json` searches
+  address-keyed project findings. Default documents are `docs/**/*.md`.
+- `rebrew source units --target NAME --json` reports native source-path strings, direct
+  instruction references, bounded attribution, shared bindings and conflicts.
+  Unauthenticated jump prefixes and section-linear references cannot claim owners.
+- `rebrew source rename MODULE.0xVA NEW --shared-definition --dry-run --json` scopes
+  acknowledgement to rows sharing the selected source definition. Independent
+  twins remain separate; `--all-modules` retains its wider meaning.
+- `rebrew build anchors --data-source FILE --data-prefix _ --symbol NATIVE --output FILE`
+  emits game function symbols in target VA order, then external definitions from
+  explicitly selected data sources and extra native anchors. Library functions,
+  extern-only declarations and statics are excluded. Preview with `--dry-run`,
+  gate drift with `--check`. Data decoration is explicitly supplied.
+- `rebrew binary pe --json` includes the reference path, COFF `timestamp` and separate
+  `export_timestamp` (null when no export table exists).
+- `rebrew build delphi PROGRAM.DPR --output build/PROGRAM.EXE --map build/PROGRAM.MAP`
+  runs the shipped Delphi 1 Docker image, stages current sibling units/resources,
+  always rebuilds source units and requires fresh outputs. `--dcc-args`, `--cfg`
+  and `--units` preserve explicit switches/configuration. The map is produced
+  by the same invocation. JSON reports the actual compiler arguments.
+- `rebrew binary forms [IMAGE_OR_DFM] --json` decodes the supported Delphi 1 wire types
+  with bounded reads, preserves property order and verifies exact re-encoding.
+  Unsupported candidates are explicit errors (exit 2), not an omitted subset.
+- `rebrew binary ne-compare REBUILT --original REFERENCE --window N --json` separates
+  full-file equality, same-offset bytes, per-index physical segment equality and
+  matching-content byte spans. Omitting `--original` selects the configured
+  reference. Mismatch exits 1; malformed fixup blocks exit 2. Content windows
+  count overlapping bytes once and do not establish source recovery. Iterated
+  segments are compared as stored encodings; virtual expansion is not implied.
+
+Enable target `check_known_bindings` for operand diagnostics in test/verify/import;
+see [CONFIG.md](CONFIG.md#known-operand-bindings). Size repair checks every mapped
+operand across the extended native window before writing metadata.

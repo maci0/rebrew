@@ -99,3 +99,11 @@ or generating headers; use `rebrew-data-analysis` for consolidation.
 
 Scaffold done → `rebrew-intake` owns the binary from here (FLIRT scan,
 catalog, triage). The handoff is one line: the target name and profile.
+
+## Refresh after consolidation
+
+Before refresh, retain local rules below the project-rules marker documented in
+AGENTS.md. `--refresh-agents` uses the configured default target and its compiler
+override. Check editable dependency origins and canonical Rebrew/Recoverage
+checkout paths, then run `rebrew init --check`. Delphi scaffolds use whole-program
+Docker build, NE comparison and form inspection instead of the C function loop.

@@ -1,359 +1,184 @@
-"""Tests for rebrew.compiler.delphi16 — Delphi 1.0 (16-bit NE) compilation support."""
-
-from __future__ import annotations
+"""The Delphi build stages fresh inputs and runs only its Docker toolchain."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
+from bin_util import make_ne
 
 from rebrew.compiler.delphi16 import Delphi16Error, compile_ne
-from rebrew.compiler.toolchain_paths import toolchains_repo
-
-# compile_ne requires BOTH the vendored Delphi 1.0 toolchain
-# (recompile-toolchains/delphi/1.0-win16) and a dosbox binary on PATH
-# (CI: the tree is vendored into the recompile-toolchains checkout, not
-# committed; dosbox absent).
-_has_delphi_toolchain = (toolchains_repo() / "delphi" / "1.0-win16" / "source" / "DCC.EXE").exists()
+from rebrew.compiler.toolchain import RunResult, ToolchainError, image_present
 
 
-def _fake_compile(monkeypatch, sandbox: Path) -> None:
-    """Simulate a successful DOSBox run: write the compiler log + a compiled
-    NE executable (built with the shared NE test helper) into the sandbox."""
+def _fake_runner(
+    monkeypatch: pytest.MonkeyPatch, *, produce_map: bool = True
+) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
 
-    def _run(args, **kwargs):
-        from test_ne_loader import _build_ne
+    def run(spec: Any, args: list[str], *, workdir: Path, timeout: int) -> RunResult:
+        calls.append({"spec": spec, "args": args, "workdir": workdir, "timeout": timeout})
+        stem = Path(args[-1]).stem.upper()
+        code = b"\x01\x00\x55\x8b\xec\x5d\xc3" + b"\x90" * 8
+        (workdir / f"{stem}.EXE").write_bytes(make_ne(segments=[(code, 1)]))
+        (workdir / "DCCOUT.TXT").write_text("compiled fresh units\n")
+        if produce_map and "-GS" in args:
+            (workdir / f"{stem}.MAP").write_text("fresh map\n")
+        return RunResult(0, "", "", backend="docker")
 
-        code = b"\x01\x00" + bytes.fromhex("55 8b ec 5d c3") + b"\x00" * 8
-        (sandbox / "DCCOUT.TXT").write_text(
-            "Delphi Compiler  Version 8.0  Copyright (c) 1983,95 Borland International\n"
-            "HELLO.DPR(1)\n5 lines, 100 bytes code.\n",
-            encoding="utf-8",
-        )
-        (sandbox / "HELLO.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
-        return type("R", (), {"returncode": 0})()
-
-    monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run)
+    monkeypatch.setattr("rebrew.compiler.delphi16.run_toolchain", run)
+    return calls
 
 
-@pytest.mark.skipif(
-    not _has_delphi_toolchain,
-    reason="vendored Delphi 1.0 toolchain not present (recompile-toolchains/delphi/1.0-win16)",
-)
 class TestCompileNe:
-    def test_compiles_and_parses(self, tmp_path: Path, monkeypatch) -> None:
-        """A successful DOSBox compile yields a parsed NE with its functions
-        (DOSBox uppercases the output names — HELLO.EXE / DCCOUT.TXT)."""
-        src = tmp_path / "hello.dpr"
-        src.write_text("program Hello;\nbegin\nend.\n", encoding="utf-8")
-        workdir = tmp_path / "sandbox"
-        _fake_compile(monkeypatch, workdir)
-        r = compile_ne(src, workdir, units_dir=tmp_path / "units")
-        assert r.exe_path.name == "HELLO.EXE"
-        assert "5 lines" in r.log
-        assert len(r.funcs) >= 1
-        assert r.funcs[0].va == 0x10002
+    def test_docker_build_preserves_source_and_map_switches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = tmp_path / "HELLO.DPR"
+        source.write_bytes(b"program Hello; begin end.\r\n")
+        calls = _fake_runner(monkeypatch)
+        result = compile_ne(source, tmp_path / "work", extra_args=("-$S-",), map_file=True)
+        assert calls[0]["spec"].image == "rebrew/delphi:1.0-win16"
+        assert calls[0]["args"] == ["-B", "-$S-", "-GS", "HELLO.DPR"]
+        assert (result.exe_path.parent / "HELLO.DPR").read_bytes() == source.read_bytes()
+        assert result.map_path is not None and result.map_path.read_text() == "fresh map\n"
+        assert result.funcs[0].va == 0x10002
+        assert "compiled fresh" in result.log
 
-    def test_stages_toolchain_and_cfg(self, tmp_path: Path, monkeypatch) -> None:
-        """The sandbox gets the compiler trio + RTM.EXE + DCC.CFG (with the
-        staged units path)."""
-        src = tmp_path / "hello.dpr"
-        src.write_text("program Hello;\n", encoding="utf-8")
-        units = tmp_path / "units"
+    def test_stages_units_resources_and_custom_library(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = tmp_path / "HELLO.DPR"
+        source.write_text("program Hello; uses Mine; begin end.")
+        for name in ("MINE.PAS", "MINE.DFM", "HELLO.RES", "MINE.INC"):
+            (tmp_path / name).write_bytes(b"\xfflegacy bytes\r\n")
+        (tmp_path / "UNRELATED_PROGRAM.DPR").write_text("program Other; begin end.")
+        units = tmp_path / "lib"
         units.mkdir()
-        (units / "SYSUTILS.DCU").write_bytes(b"DCU1")
-        workdir = tmp_path / "sandbox"
-        _fake_compile(monkeypatch, workdir)
-        compile_ne(src, workdir, units_dir=units)
-        for f in ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE", "DCC.CFG"):
-            assert (workdir / f).exists(), f
-        assert (workdir / "DELPHI" / "LIB" / "SYSUTILS.DCU").exists()
-        cfg = (workdir / "DCC.CFG").read_text(encoding="utf-8")
-        assert "/uC:\\DELPHI\\LIB" in cfg
-
-    def test_no_executable_raises(self, tmp_path: Path, monkeypatch) -> None:
-        src = tmp_path / "hello.dpr"
-        src.write_text("program Hello;\n", encoding="utf-8")
-
-        def _run_no_output(args, **kwargs):
-            return type("R", (), {"returncode": 0})()
-
-        monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run_no_output)
-        with pytest.raises(Delphi16Error, match="no executable"):
-            compile_ne(src, tmp_path / "sandbox", units_dir=tmp_path / "u")
-
-    def test_missing_dosbox_raises(self, tmp_path: Path, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.compiler.delphi16.shutil.which", lambda *a, **k: None)
-        src = tmp_path / "hello.dpr"
-        src.write_text("program Hello;\n", encoding="utf-8")
-        with pytest.raises(Delphi16Error, match="dosbox"):
-            compile_ne(src, tmp_path / "sandbox", units_dir=tmp_path / "u")
-
-    def test_dosbox_timeout_raises(self, tmp_path: Path, monkeypatch) -> None:
-        import subprocess
-
-        def _run_timeout(args, **kwargs):
-            raise subprocess.TimeoutExpired("dosbox", 5)
-
-        monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run_timeout)
-        src = tmp_path / "hello.dpr"
-        src.write_text("program Hello;\n", encoding="utf-8")
-        with pytest.raises(Delphi16Error, match="DOSBox"):
-            compile_ne(src, tmp_path / "sandbox", units_dir=tmp_path / "u")
-
-
-@pytest.mark.skipif(
-    not _has_delphi_toolchain,
-    reason="vendored Delphi 1.0 toolchain not present (recompile-toolchains/delphi/1.0-win16)",
-)
-class TestLongSourceName:
-    def test_long_source_name_staged_short(self, tmp_path: Path, monkeypatch) -> None:
-        """DCC is a 16-bit DOS program — a long .dpr basename would be
-        8.3-truncated in DOSBox (Error 15: File not found).  compile_ne
-        must stage it under the short name SRC.DPR instead."""
-        src = tmp_path / "very_long_program_name.dpr"
-        src.write_text("program VeryLong;\nbegin\nend.\n", encoding="utf-8")
-        workdir = tmp_path / "sandbox"
-
-        calls: list[str] = []
-
-        def _run(args, **kwargs):
-            from test_ne_loader import _build_ne
-
-            code = b"\x01\x00" + bytes.fromhex("55 8b ec 5d c3") + b"\x00" * 8
-            (workdir / "DCCOUT.TXT").write_text(
-                "Delphi Compiler  Version 8.0\nSRC.DPR(1)\n2 lines, 8 bytes code.\n",
-                encoding="utf-8",
-            )
-            (workdir / "SRC.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
-            return type("R", (), {"returncode": 0})()
-
-        monkeypatch.setattr("rebrew.compiler.dosbox.run_process_group", _run)
-
-        # spy on the autoexec line DCC receives: must be the short name
-        real_run_dosbox = __import__("rebrew.compiler.dosbox", fromlist=["run_dosbox"]).run_dosbox
-
-        def _spy_run_dosbox(sandbox, autoexec, **kwargs):
-            calls.append(autoexec)
-            return real_run_dosbox(sandbox, autoexec, **kwargs)
-
-        monkeypatch.setattr("rebrew.compiler.dosbox.run_dosbox", _spy_run_dosbox)
-
-        r = compile_ne(src, workdir, units_dir=tmp_path / "units")
-        assert r.exe_path.name == "SRC.EXE"
-        # the staged source is the short name, not the long basename
-        staged = next(p for p in workdir.iterdir() if p.suffix.lower() == ".dpr")
-        assert staged.read_text(encoding="utf-8").startswith("program")
-        assert not (workdir / "very_long_program_name.dpr").exists()
-        assert calls and "C:\\DCC.EXE SRC.dpr" in calls[0][0]
-
-
-class TestStaleOutputIsNotSuccess:
-    def test_failed_compile_does_not_report_stale_exe(self, tmp_path: Path, monkeypatch) -> None:
-        """A reused caller-supplied workdir keeps the previous run's EXE, so a
-        failed compile still found "output" and the stale NE was parsed as this
-        run's result."""
-        from rebrew.compiler.delphi16 import Delphi16Error, compile_ne
-
-        tree = tmp_path / "dcc"
-        tree.mkdir()
-        for fname in ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE"):
-            (tree / fname).write_bytes(b"\x00")
-        monkeypatch.setattr("rebrew.compiler.delphi16.find_dcc", lambda: tree / "DCC.EXE")
-        monkeypatch.setattr("rebrew.compiler.dosbox.run_dosbox", lambda *a, **k: None)
-        workdir = tmp_path / "sandbox"
-        workdir.mkdir()
-        (workdir / "PROBE.EXE").write_bytes(b"stale")
-        with pytest.raises(Delphi16Error, match="no executable"):
-            compile_ne("program probe; begin end.", workdir=workdir)
-
-
-class TestWholeProgramStaging:
-    """A DPR is a whole-program unit: DCC resolves its `uses` clauses against
-    the units next to it, so compile_ne must stage them (and the project's
-    switches/search paths) or no multi-unit Delphi program can be built."""
-
-    def _stub_toolchain(self, tmp_path: Path, monkeypatch) -> Path:
-        tree = tmp_path / "dcc"
-        tree.mkdir()
-        for fname in ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE"):
-            (tree / fname).write_bytes(b"\x00")
-        monkeypatch.setattr("rebrew.compiler.delphi16.find_dcc", lambda: tree / "DCC.EXE")
-        return tree
-
-    def _no_op_dosbox(self, tmp_path: Path, monkeypatch) -> Path:
-        workdir = tmp_path / "sandbox"
-
-        def _run(sandbox, autoexec, **kwargs):
-            from test_ne_loader import _build_ne
-
-            code = b"\x01\x00" + bytes.fromhex("55 8b ec 5d c3") + b"\x00" * 8
-            (Path(sandbox) / "DCCOUT.TXT").write_text("HELLO.DPR(1)\n", encoding="utf-8")
-            (Path(sandbox) / "HELLO.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
-
-        monkeypatch.setattr("rebrew.compiler.dosbox.run_dosbox", _run)
-        return workdir
-
-    def test_stages_sibling_units(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compiler.delphi16 import compile_ne
-
-        self._stub_toolchain(tmp_path, monkeypatch)
-        workdir = self._no_op_dosbox(tmp_path, monkeypatch)
-        src = tmp_path / "hello.dpr"
-        src.write_text("program Hello;\nuses MyUnit;\nbegin end.\n", encoding="utf-8")
-        (tmp_path / "myunit.pas").write_text("unit MyUnit;\ninterface\nimplementation\nend.\n")
-        (tmp_path / "myunit.dfm").write_bytes(b"TPF0")
-        (tmp_path / "notes.txt").write_text("not a unit")
-
-        compile_ne(src, workdir)
-
-        assert (workdir / "myunit.pas").exists()
-        assert (workdir / "myunit.dfm").exists()
-        assert not (workdir / "notes.txt").exists()
-
-    def test_refuses_a_non_83_sibling_unit(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compiler.delphi16 import Delphi16Error, compile_ne
-
-        self._stub_toolchain(tmp_path, monkeypatch)
-        workdir = self._no_op_dosbox(tmp_path, monkeypatch)
-        src = tmp_path / "hello.dpr"
-        src.write_text("program Hello;\nbegin end.\n", encoding="utf-8")
-        (tmp_path / "a_very_long_unit_name.pas").write_text("unit X;\n")
-
-        with pytest.raises(Delphi16Error, match="8.3-truncate"):
-            compile_ne(src, workdir)
-
-    def test_ignores_sibling_programs(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compiler.delphi16 import compile_ne
-
-        self._stub_toolchain(tmp_path, monkeypatch)
-        workdir = self._no_op_dosbox(tmp_path, monkeypatch)
-        src = tmp_path / "hello.dpr"
-        src.write_text("program Hello;\nbegin end.\n", encoding="utf-8")
-        (tmp_path / "a_long_probe_program.dpr").write_text(
-            "program Probe;\nbegin end.\n", encoding="utf-8"
+        (units / "SYSUTILS.DCU").write_bytes(b"unit revision")
+        _fake_runner(monkeypatch)
+        result = compile_ne(
+            source,
+            tmp_path / "work",
+            units_dir=units,
+            dcc_cfg=b"/uC:\\DELPHI\\LIB\r\n;\xff legacy configuration\r\n",
         )
+        sandbox = result.exe_path.parent
+        assert (sandbox / "MINE.PAS").read_bytes() == b"\xfflegacy bytes\r\n"
+        assert (sandbox / "HELLO.RES").is_file()
+        assert not (sandbox / "UNRELATED_PROGRAM.DPR").exists()
+        assert (sandbox / "DELPHI/LIB/SYSUTILS.DCU").read_bytes() == b"unit revision"
+        assert (
+            sandbox / "DCC.CFG"
+        ).read_bytes() == b"/uC:\\DELPHI\\LIB\r\n;\xff legacy configuration\r\n"
+        assert not (sandbox / "DCC.EXE").exists()
 
-        compile_ne(src, workdir)
+    def test_each_call_has_fresh_inputs_and_outputs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = tmp_path / "HELLO.DPR"
+        source.write_text("program Hello; begin end.")
+        unit = tmp_path / "MINE.PAS"
+        unit.write_text("unit Mine; interface implementation end.")
+        _fake_runner(monkeypatch)
+        first = compile_ne(source, tmp_path / "work", map_file=True)
+        unit.unlink()
+        calls = _fake_runner(monkeypatch, produce_map=False)
+        with pytest.raises(Delphi16Error, match="no requested map"):
+            compile_ne(source, tmp_path / "work", map_file=True)
+        assert calls[0]["workdir"] != first.exe_path.parent
+        assert not (calls[0]["workdir"] / "MINE.PAS").exists()
+        assert first.map_path is not None and first.map_path.is_file()
 
-        assert not (workdir / "a_long_probe_program.dpr").exists()
-        assert (workdir / "hello.dpr").exists()
+    def test_stale_executable_cannot_satisfy_a_failed_build(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "PROBE.EXE").write_bytes(make_ne())
+        monkeypatch.setattr(
+            "rebrew.compiler.delphi16.run_toolchain",
+            lambda *_a, **_kw: RunResult(0, "failed to compile", "", backend="docker"),
+        )
+        with pytest.raises(Delphi16Error, match="no executable"):
+            compile_ne("program Probe; begin end.", tmp_path)
 
-    def test_extra_args_reach_the_command_line(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compiler.delphi16 import compile_ne
+    def test_missing_image_has_no_host_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def run(*_args: Any, **_kwargs: Any) -> RunResult:
+            raise ToolchainError(
+                "docker image missing; run rebrew toolchain build delphi-1.0", kind="missing"
+            )
 
-        self._stub_toolchain(tmp_path, monkeypatch)
-        workdir = self._no_op_dosbox(tmp_path, monkeypatch)
-        src = tmp_path / "hello.dpr"
-        src.write_text("program Hello;\nbegin end.\n", encoding="utf-8")
-        seen: list[str] = []
-        real = __import__("rebrew.compiler.dosbox", fromlist=["run_dosbox"]).run_dosbox
+        monkeypatch.setattr("rebrew.compiler.delphi16.run_toolchain", run)
+        monkeypatch.setattr(
+            "rebrew.compiler.dosbox.run_dosbox", lambda *_a, **_kw: pytest.fail("host fallback")
+        )
+        with pytest.raises(Delphi16Error, match="docker image missing"):
+            compile_ne("program Probe; begin end.", tmp_path)
 
-        def _spy(sandbox, autoexec, **kwargs):
-            seen.append(autoexec[0])
-            return real(sandbox, autoexec, **kwargs)
+    @pytest.mark.parametrize(
+        "name,wanted",
+        [("hello.dpr", "hello.dpr"), ("longername.dpr", "SRC.DPR"), ("a+b.dpr", "SRC.DPR")],
+    )
+    def test_program_basename_contract(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, wanted: str
+    ) -> None:
+        source = tmp_path / name
+        source.write_text("program Hello; begin end.")
+        calls = _fake_runner(monkeypatch)
+        compile_ne(source, tmp_path / "work")
+        assert calls[0]["args"][-1] == wanted
 
-        monkeypatch.setattr("rebrew.compiler.dosbox.run_dosbox", _spy)
-        compile_ne(src, workdir, extra_args=("-$R+", "-$Q+"))
+    def test_refuses_non_dos_unit_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = tmp_path / "HELLO.DPR"
+        source.write_text("program Hello; begin end.")
+        (tmp_path / "longerunit.pas").write_text("unit LongerUnit; interface implementation end.")
+        _fake_runner(monkeypatch)
+        with pytest.raises(Delphi16Error, match="8.3-truncate"):
+            compile_ne(source, tmp_path / "work")
+        assert compile_ne(source, tmp_path / "work", stage_siblings=False).exe_path.is_file()
 
-        assert seen and "C:\\DCC.EXE -$R+ -$Q+ hello.dpr" in seen[0]
+    def test_refuses_case_colliding_units(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = tmp_path / "HELLO.DPR"
+        source.write_text("program Hello; begin end.")
+        for name in ("MINE.PAS", "mine.pas"):
+            (tmp_path / name).write_text("unit Mine; interface implementation end.")
+        _fake_runner(monkeypatch)
+        with pytest.raises(Delphi16Error, match="collides"):
+            compile_ne(source, tmp_path / "work")
 
-    def test_dcc_cfg_override_is_staged_verbatim(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compiler.delphi16 import compile_ne
+    @pytest.mark.parametrize("argument", ["-$S-\nexit", "-$S-&echo", "%PATH%", "|exit"])
+    def test_refuses_dos_command_injection(self, tmp_path: Path, argument: str) -> None:
+        with pytest.raises(Delphi16Error, match="command separators"):
+            compile_ne("program Probe; begin end.", tmp_path, extra_args=(argument,))
 
-        self._stub_toolchain(tmp_path, monkeypatch)
-        workdir = self._no_op_dosbox(tmp_path, monkeypatch)
-        src = tmp_path / "hello.dpr"
-        src.write_text("program Hello;\nbegin end.\n", encoding="utf-8")
+    def test_missing_explicit_inputs_are_errors(self, tmp_path: Path) -> None:
+        with pytest.raises(Delphi16Error, match="source not found"):
+            compile_ne(tmp_path / "missing.dpr", tmp_path / "work")
+        with pytest.raises(Delphi16Error, match="units directory not found"):
+            compile_ne(
+                "program Probe; begin end.", tmp_path / "work", units_dir=tmp_path / "missing"
+            )
 
-        compile_ne(src, workdir, dcc_cfg="/uC:\\PROJ\\UNITS\n")
 
-        assert (workdir / "DCC.CFG").read_text(encoding="utf-8") == "/uC:\\PROJ\\UNITS\n"
+try:
+    _image_available = image_present("rebrew/delphi:1.0-win16")
+except ToolchainError:
+    _image_available = False
 
 
-class TestWinePrefixUnits:
-    """The extracted RTL/VCL units live in a Wine prefix, which is not
-    necessarily ``~/.wine``: ``REBREW_WINEPREFIX`` and ``WINEPREFIX`` both
-    relocate it. A prefix that is ignored stages no units, and every ``uses``
-    clause then fails inside the sandbox."""
-
-    def _stub_toolchain(self, tmp_path: Path, monkeypatch) -> None:
-        tree = tmp_path / "dcc"
-        tree.mkdir()
-        for fname in ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE"):
-            (tree / fname).write_bytes(b"\x00")
-        monkeypatch.setattr("rebrew.compiler.delphi16.find_dcc", lambda: tree / "DCC.EXE")
-
-    def _no_op_dosbox(self, tmp_path: Path, monkeypatch) -> Path:
-        workdir = tmp_path / "sandbox"
-
-        def _run(sandbox, autoexec, **kwargs):
-            from test_ne_loader import _build_ne
-
-            code = b"\x01\x00" + bytes.fromhex("55 8b ec 5d c3") + b"\x00" * 8
-            (Path(sandbox) / "DCCOUT.TXT").write_text("HELLO.DPR(1)\n", encoding="utf-8")
-            (Path(sandbox) / "HELLO.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
-
-        monkeypatch.setattr("rebrew.compiler.dosbox.run_dosbox", _run)
-        return workdir
-
-    def _prefix_with_units(self, tmp_path: Path, name: str, marker: str) -> Path:
-        prefix = tmp_path / name
-        lib = prefix / "drive_c" / "DELPHI" / "LIB"
-        lib.mkdir(parents=True)
-        (lib / f"{marker}.DCU").write_bytes(b"\x00")
-        return prefix
-
-    def _compile(self, tmp_path: Path, monkeypatch) -> Path:
-        from rebrew.compiler.delphi16 import compile_ne
-
-        # The `~/.wine` fallback must be empty, or a developer's own Delphi
-        # install would satisfy the lookup these tests are pinning.
-        home = tmp_path / "home"
-        home.mkdir(exist_ok=True)
-        monkeypatch.setenv("HOME", str(home))
-        self._stub_toolchain(tmp_path, monkeypatch)
-        workdir = self._no_op_dosbox(tmp_path, monkeypatch)
-        src = tmp_path / "hello.dpr"
-        src.write_text("program Hello;\nbegin end.\n", encoding="utf-8")
-        compile_ne(src, workdir)
-        return workdir
-
-    @staticmethod
-    def _clear_prefix_env(monkeypatch) -> None:
-        monkeypatch.delenv("REBREW_WINEPREFIX", raising=False)
-        monkeypatch.delenv("WINEPREFIX", raising=False)
-
-    def test_wineprefix_env_locates_the_units(self, tmp_path: Path, monkeypatch) -> None:
-        self._clear_prefix_env(monkeypatch)
-        prefix = self._prefix_with_units(tmp_path, "altprefix", "SYS")
-        monkeypatch.setenv("WINEPREFIX", str(prefix))
-
-        workdir = self._compile(tmp_path, monkeypatch)
-
-        assert (workdir / "DELPHI" / "LIB" / "SYS.DCU").is_file()
-        assert "/uC:\\DELPHI\\LIB" in (workdir / "DCC.CFG").read_text(encoding="utf-8")
-
-    def test_rebrew_wineprefix_wins_over_wineprefix(self, tmp_path: Path, monkeypatch) -> None:
-        self._clear_prefix_env(monkeypatch)
-        self._prefix_with_units(tmp_path, "wineprefix", "FROMWINE")
-        chosen = self._prefix_with_units(tmp_path, "rebrewprefix", "SYS")
-        monkeypatch.setenv("WINEPREFIX", str(tmp_path / "wineprefix"))
-        monkeypatch.setenv("REBREW_WINEPREFIX", str(chosen))
-
-        workdir = self._compile(tmp_path, monkeypatch)
-
-        staged = {p.stem for p in (workdir / "DELPHI" / "LIB").iterdir()}
-        assert staged == {"SYS"}
-
-    def test_relative_prefix_is_ignored(self, tmp_path: Path, monkeypatch) -> None:
-        """A relative prefix resolves against the cwd, not a real prefix, so
-        it must not be probed."""
-        self._clear_prefix_env(monkeypatch)
-        monkeypatch.chdir(tmp_path)
-        self._prefix_with_units(tmp_path, "relprefix", "REL")
-        monkeypatch.setenv("WINEPREFIX", "relprefix")
-        monkeypatch.setenv("REBREW_WINEPREFIX", "relprefix")
-
-        workdir = self._compile(tmp_path, monkeypatch)
-
-        assert not (workdir / "DELPHI").exists()
+class TestDockerIntegration:
+    @pytest.mark.skipif(not _image_available, reason="delphi-1.0 image unavailable")
+    def test_real_multi_unit_program_and_map(self, tmp_path: Path) -> None:
+        (tmp_path / "MINE.PAS").write_text(
+            "unit Mine; interface procedure Touch; implementation procedure Touch; begin end; end.\n"
+        )
+        source = tmp_path / "HELLO.DPR"
+        source.write_text("program Hello; uses Mine; begin Touch; end.\n")
+        result = compile_ne(source, tmp_path / "work", extra_args=("-$S-",), map_file=True)
+        assert result.exe_path.is_file()
+        assert result.map_path is not None and result.map_path.stat().st_size > 0
+        assert result.funcs
