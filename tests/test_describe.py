@@ -276,6 +276,28 @@ class TestDescribeCli:
         assert result.exit_code != 0
         assert "outside" in result.output
 
+    def test_internal_jump_is_not_a_callee(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Keep real recursion and an external tail call, excluding the local goto."""
+        _make_project(
+            tmp_path,
+            source="",
+            functions="0x00401000 13 probe\n0x0040100d 1 tail_helper\n",
+        )
+        # call probe; jmp local; ret; local: jmp tail_helper; tail_helper: ret.
+        code = b"\xe8" + struct.pack("<i", -5) + b"\xeb\x01\xc3\xe9\x00\x00\x00\x00\xc3"
+        (tmp_path / "game.exe").write_bytes(make_pe(code))
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--json", f"0x{PROBE_VA:x}"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["size"] == 13
+        assert data["callees"] == [
+            {"to_va": PROBE_VA, "name": "probe", "kind": "call"},
+            {"to_va": PROBE_VA + 13, "name": "tail_helper", "kind": "jmp"},
+        ]
+
     def test_json_shape(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """--json emits exactly the documented dossier keys and types."""
         result = self._invoke(tmp_path, monkeypatch, "--json", f"0x{PROBE_VA:x}")

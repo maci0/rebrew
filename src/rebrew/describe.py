@@ -278,6 +278,8 @@ def _compute_callees(
             continue
         if xref.kind not in _CALLER_KINDS and xref.kind not in _IAT_KINDS:
             continue
+        if xref.kind == "jmp" and start <= xref.to_va < end:
+            continue
         key = (xref.to_va, xref.kind)
         if key in seen:
             continue

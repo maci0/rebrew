@@ -115,6 +115,8 @@
   `load_metadata` and `stored_file_matches` from `rebrew.metadata.functions`.
 
 ### Fixed
+- Recon dossiers exclude internal jumps from callees while retaining recursive
+  calls and external tail jumps.
 - Recon dossiers use known inventory extents when source size is missing,
   retaining late branches after early returns and excluding neighboring references.
 - Assembly batches exclude their generated output from later input scans and
