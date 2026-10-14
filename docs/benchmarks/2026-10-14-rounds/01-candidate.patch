@@ -1,7 +1,0 @@
---- a/src/rebrew/c_parser.py
-+++ b/src/rebrew/c_parser.py
-@@ -13 +12,0 @@
--import hashlib
-@@ -139 +138 @@
--        key = hashlib.sha256(source).digest()
-+        key = source

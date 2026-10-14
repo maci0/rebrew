@@ -1,5 +1,0 @@
---- a/src/rebrew/c_parser.py
-+++ b/src/rebrew/c_parser.py
-@@ -2286 +2286 @@
--        pending.extend(reversed(node.children))
-+        pending.extend(reversed(node.named_children))

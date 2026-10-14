@@ -1,6 +1,8 @@
 ## [Unreleased]
 
 ### Performance
+- Keep generated performance experiment reports, profiles and candidate patches
+  local under the ignored `docs/benchmarks/` directory.
 - Reduce source-scan work in the C parse cache, signature traversal, convention
   masking, comment masking, data-anchor lookups and variable inventories. Record
   ten further measured experiments, including the reverted prototype-line change,

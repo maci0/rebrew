@@ -27,6 +27,9 @@ __pycache__/
 .scratch/
 .scratch_*.txt
 
+# Local performance experiments (reports, profiles, candidate patches)
+/docs/benchmarks/
+
 # Build artifacts
 *.egg-info/
 dist/

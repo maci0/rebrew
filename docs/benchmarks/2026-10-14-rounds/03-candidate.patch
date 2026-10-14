@@ -1,9 +1,0 @@
---- a/src/rebrew/c_parser.py
-+++ b/src/rebrew/c_parser.py
-@@ -2103 +2103,5 @@
--    return _DECLSPEC_PATTERN.sub(blank, _CC_PATTERN.sub(blank, source))
-+    if any(cc in source for cc in _CALLING_CONVENTIONS):
-+        source = _CC_PATTERN.sub(blank, source)
-+    if "__declspec" in source:
-+        source = _DECLSPEC_PATTERN.sub(blank, source)
-+    return source

@@ -7,9 +7,9 @@ Measured facts about where rebrew's hot paths spend time, and what was done
 
 Committed the preceding work at `81a9ecbf`, then ran ten additional, interleaved
 CPU-time experiments. Nine changes remain; lazy prototype-line splitting was
-reverted. The [round ledger](benchmarks/2026-10-14-rounds/README.md) contains all
-measurements, decisions, candidate patches, output identities and reproduction
-commands.
+reverted. Raw measurements, candidate patches and the round ledger remain local
+under `docs/benchmarks/`, which Git ignores. Reusable benchmark runners and
+deterministic regression tests stay in the repository.
 
 The largest targeted changes are 9.81× for large variable inventories, 4.23× for
 warmed parse-cache lookups, and 2.45× for dense data-anchor binding. Other changes
@@ -34,17 +34,17 @@ comparisons consume a saved report from the same benchmark harness instead.
 `--json` emits one JSON document without a preceding terminal table.
 
 ```sh
-uv run --frozen python tools/bench_hotpaths.py --output before.json
+mkdir -p docs/benchmarks
+uv run --frozen python tools/bench_hotpaths.py --output docs/benchmarks/before.json
 # Change the implementation, keeping benchmark workloads unchanged.
-uv run --frozen python tools/bench_hotpaths.py --compare before.json --output after.json
+uv run --frozen python tools/bench_hotpaths.py --compare docs/benchmarks/before.json --output docs/benchmarks/after.json
 ```
 
 Eighteen workloads cover metadata loading, address binding, source-purpose
 reads, source-tree scans, catalog/status aggregation, verify and compile-cache
 hits, registry construction, binary similarity, structural diffing, GA scoring,
-and mutation application. The [recorded reports](benchmarks/2026-10-14/manifest.json)
-identify the three baseline metadata modules from v3.0.0 and their optimized
-replacements. Other source files were held fixed. The paired measurements below
+and mutation application. The three metadata modules were compared against their
+v3.0.0 versions, holding other source files fixed. The paired measurements below
 interleave baseline/optimized/optimized/baseline processes on CPU 0; medians
 combine both runs' samples. Full-suite reports retain every workload, including
 unchanged controls, without attributing their timing variation to these changes.
@@ -65,7 +65,7 @@ uses the large inventory without address comments. The parse-tree batch binds
 A read-only scan of Guild's 100 largest C files (1,611,774 bytes)
 measured 0.788 → 0.311 CPU seconds
 (2.53×), with identical serialized binding hashes.
-[Profiled work counts](benchmarks/2026-10-14/work-counts.json) dropped from
+Profiled work counts dropped from
 1,777,712 to 889,812 function calls. Source reads fell from 190 to 100,
 whole-data-map loads from 100 to zero, and signature inventories from 213 to 113.
 These work counts remain comparable under scheduler load.
