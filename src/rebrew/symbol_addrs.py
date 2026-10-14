@@ -71,17 +71,16 @@ _DETAIL_SEPARATOR = " -- "
 _DUMP_HEADER: tuple[str, ...] = ("va", "name", "type", "size", "referenced_by")
 
 app = typer.Typer(
-    help="Export annotations as a splat-style symbol_addrs file.",
+    help="Export metadata symbols as a splat-style symbol_addrs file.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew export symbols · · · · · · · Annotations only\n\n"
-        "  rebrew export symbols --pe-symbols · IAT slots, exports, TLS callbacks, ...\n\n"
-        "  rebrew export symbols --references · Symbols dump with referenced_by\n\n"
-        "  rebrew export symbols --csv · · · · · The bare 0xVA,name CSV\n\n"
-        "[dim]Output is sorted by VA and idempotent: re-running produces the\n"
-        "same bytes.  An annotation always wins a collision with a symbol\n"
-        "named from the PE, and the collision is reported.[/dim]"
+        "  rebrew export symbols  # Metadata symbols only\n\n"
+        "  # IAT slots, exports, TLS callbacks, ...\n"
+        "  rebrew export symbols --pe-symbols\n\n"
+        "  rebrew export symbols --references  # Symbols dump with referenced_by\n\n"
+        "  rebrew export symbols --csv  # The bare 0xVA,name CSV\n\n"
+        "[dim]Output is sorted by VA and idempotent: re-running produces the same bytes.  A metadata symbol always wins a collision with a symbol named from the PE, and the collision is reported.[/dim]"
     ),
 )
 
@@ -345,10 +344,14 @@ def _site_resolver(rows: list[SymbolRow]) -> Callable[[int], str]:
 def main(
     output: Path = typer.Option(Path("symbol_addrs.csv"), "--output", "-o", help="Output path"),
     csv_output: bool = typer.Option(
-        False, "--csv", help="Write the bare 0xVA,name CSV instead of the rich symbol format"
+        False,
+        "--csv",
+        help="Write the bare 0xVA,name CSV instead of the rich symbol format; excludes --references",
     ),
     references: bool = typer.Option(
-        False, "--references", help="Write the CSV symbols dump with a referenced_by column"
+        False,
+        "--references",
+        help="Write the CSV symbols dump with a referenced_by column; excludes --csv",
     ),
     pe_symbol_output: bool = typer.Option(
         False, "--pe-symbols", help="Include symbols named from the target PE's data directories"

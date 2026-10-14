@@ -1113,7 +1113,7 @@ class TestLocalsCommentsImport:
         assert entry.get("comments") == {"0x00001004": {"comment": "loop", "func_addr": 0x1000}}
 
 
-class TestAnalysisMarkers:
+class TestMetadataComments:
     _SRC = SourceFixture(
         "/* ADDRESS: SERVER 0x1000 */\n\nint foo(void){return 0;}\n",
         {"SERVER.0x1000": {"kind": "FUNCTION"}},
@@ -1141,7 +1141,7 @@ class TestAnalysisMarkers:
         monkeypatch.chdir(tmp_path)
         return runner.invoke(app, ["binsync", "export", str(outdir), "--json"])
 
-    def test_import_writes_marker_in_owning_file(
+    def test_import_preserves_source_and_stores_comment(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         self._project_with_size(tmp_path)
@@ -1149,8 +1149,12 @@ class TestAnalysisMarkers:
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
         text = (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
-        # A C89 block comment, at the end, separated from the code by one blank line.
-        assert "}\n\n/* ANALYSIS @ 0x00001006: loop */\n" in text
+        from rebrew.metadata.functions import get_entry
+
+        assert text == "/* ADDRESS: SERVER 0x1000 */\n\nint foo(void){return 0;}\n"
+        assert get_entry(tmp_path, 0x1000, "SERVER")["comments"] == {
+            "0x00001006": {"comment": "loop", "func_addr": 0x1000}
+        }
 
     def test_comment_outside_function_is_metadata_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1161,12 +1165,12 @@ class TestAnalysisMarkers:
         state = self._state_with_comment(tmp_path, addr=0x2000, text="stray")
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        assert "// ANALYSIS" not in (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
+        assert "ANALYSIS @" not in (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
         assert get_entry(tmp_path, 0x1000, "SERVER").get("comments") == {
             "0x00002000": {"comment": "stray", "func_addr": 0x1000}
         }
 
-    def test_round_trip_and_source_wins(
+    def test_round_trip_and_metadata_edits_export(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.binsync.serial import load_many
@@ -1181,12 +1185,19 @@ class TestAnalysisMarkers:
         comments = load_many(outdir / "comments.toml", "comment")
         assert any(c.addr == 0x1006 and c.comment == "loop" for c in comments)
 
-        # An analyst edits the source marker; export carries the edited text.
-        src = tmp_path / "src" / "foo.c"
-        src.write_text(
-            src.read_text(encoding="utf-8").replace(
-                "/* ANALYSIS @ 0x00001006: loop */", "/* ANALYSIS @ 0x00001006: loop edited */"
-            ),
+        # The metadata store owns edits; source comments never override it.
+        from rebrew.metadata.functions import update_field
+
+        update_field(
+            tmp_path,
+            0x1000,
+            "comments",
+            {"0x00001006": {"comment": "loop edited", "func_addr": 0x1000}},
+            "SERVER",
+        )
+        source = tmp_path / "src" / "foo.c"
+        source.write_text(
+            source.read_text() + "/* ANALYSIS @ 0x00001006: ignored inline text */\n",
             encoding="utf-8",
         )
         outdir2 = tmp_path / "state_out2"
@@ -1201,16 +1212,21 @@ class TestAnalysisMarkers:
         assert _invoke_import(tmp_path, state, monkeypatch, "--json").exit_code == 0
         assert _invoke_import(tmp_path, state, monkeypatch, "--json").exit_code == 0
         text = (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
-        assert text.count("ANALYSIS @ 0x00001006:") == 1
+        assert "ANALYSIS @" not in text
 
-    def test_dry_run_writes_no_marker(
+    def test_dry_run_preserves_source_and_metadata(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         self._project_with_size(tmp_path)
         state = self._state_with_comment(tmp_path, addr=0x1006)
+        source = tmp_path / "src" / "foo.c"
+        before_source = source.read_bytes(), source.stat().st_mtime_ns
+        before_metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
         result = _invoke_import(tmp_path, state, monkeypatch, "--dry-run", "--json")
         assert result.exit_code == 0, result.output
-        assert "// ANALYSIS" not in (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
+        assert (source.read_bytes(), source.stat().st_mtime_ns) == before_source
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == before_metadata
+        assert "ANALYSIS @" not in (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
 
     def test_comments_only_state_imports(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1232,26 +1248,31 @@ class TestAnalysisMarkers:
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout)["applied_comments"] == 1
 
-    def test_failed_marker_write_is_reported(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("text", ["Café 日本語", "hi\nint injected;", "x */ int injected; /*"])
+    def test_comment_text_is_lossless_and_never_rewrites_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str
     ) -> None:
-        """The comments metadata is already written when the source marker write
-        fails, so a re-import treats the comment as done and never retries it.
-        The summary must name the files whose markers did not land."""
-        from rebrew.binsync import state as bs_state
+        from rebrew.binsync.serial import load_many
+        from rebrew.metadata.functions import get_entry
 
-        def boom(path: Path, markers: Any) -> None:
-            raise OSError("read-only file system")
-
-        monkeypatch.setattr(bs_state, "write_analysis_markers", boom)
         self._project_with_size(tmp_path)
-        state = self._state_with_comment(tmp_path, addr=0x1006)
+        source = tmp_path / "src" / "foo.c"
+        before = source.read_bytes(), source.stat().st_mtime_ns
+        state = self._state_with_comment(tmp_path, addr=0x1006, text=text)
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
         assert payload["applied_comments"] == 1
-        assert payload["marker_writes_failed"] == ["foo.c"]
-        assert "// ANALYSIS" not in (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
+        assert "marker_writes_failed" not in payload
+        assert (source.read_bytes(), source.stat().st_mtime_ns) == before
+        stored = get_entry(tmp_path, 0x1000, "SERVER")
+        assert stored["comments"]["0x00001006"]["comment"] == text
+        assert stored["origins"]["comments"]
+        outdir = tmp_path / "state_out"
+        exported = self._export(tmp_path, monkeypatch, outdir)
+        assert exported.exit_code == 0, exported.output
+        comments = load_many(outdir / "comments.toml", "comment")
+        assert any(c.addr == 0x1006 and c.comment == text for c in comments)
 
 
 class TestBinsyncImportShared:

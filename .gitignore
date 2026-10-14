@@ -144,5 +144,8 @@ rebrew-project.toml.lock
 # Toolchain download cache (pinned-source tarballs, re-fetched by rebrew toolchain vendor).
 /.cache/
 
+# Generated project-local signature cache; canonical signatures live in recondb.
+/flirt_sigs/
+
 # Generated drawio PNG exports (drawio -x -f png -p N)
 /docs/architecture-pages/

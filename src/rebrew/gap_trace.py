@@ -22,6 +22,7 @@ import typer
 
 from rebrew.analysis import Insn, iter_instructions
 from rebrew.cli import (
+    SOURCE_HELP,
     TargetOption,
     console,
     error_exit,
@@ -34,9 +35,11 @@ from rebrew.formats.binary_loader import decode_binary_name, load_binary
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew diagnose gap src/game_dll/my_func.c · · · · Trace the gap between streams\n\n"
-    "  rebrew diagnose gap f.c --va 0x10009310 --size 42 · · Override VA and size\n\n"
-    '  rebrew diagnose gap f.c --cflags "/O1 /Gd" --json · Machine-readable gap report\n'
+    "  # Trace the gap between streams\n"
+    "  rebrew diagnose gap src/game_dll/my_func.c\n\n"
+    "  rebrew diagnose gap f.c --va 0x10009310 --size 42  # Override VA and size\n\n"
+    "  # Machine-readable gap report\n"
+    '  rebrew diagnose gap f.c --cflags "/O1 /Gd" --json\n'
 )
 
 
@@ -209,8 +212,8 @@ def _obj_text(obj_path: str) -> tuple[bytes, set[int]]:
 
 @app.callback(invoke_without_command=True)
 def main(
-    source: str = typer.Argument(..., help="C source file (or VA/symbol) for the function"),
-    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from annotation)"),
+    source: str = typer.Argument(..., help=SOURCE_HELP),
+    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
     size: int | None = typer.Option(None, "--size", help="Window in bytes (default: real body)"),
     cflags: str | None = typer.Option(
         None, "--cflags", help="Compiler flags (default: from metadata)"

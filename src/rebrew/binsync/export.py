@@ -1,4 +1,4 @@
-"""export.py — Export rebrew annotations to a BinSync state directory.
+"""export.py — Export Rebrew symbols and types to a BinSync state directory.
 
 Writes function metadata, global variables, and struct definitions in
 BinSync's TOML layout so any BinSync-aware decompiler plugin can import the
@@ -55,18 +55,16 @@ from rebrew.metadata.bindings import span_contains_factory
 from rebrew.utils import is_safe_c_ident, md5_file, strip_body
 
 app = typer.Typer(
-    help="Export rebrew annotations to a BinSync state directory.",
+    help="Export Rebrew symbols and types to a BinSync state directory.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binsync export ./binsync_state · · · · · · Export all annotations\n\n"
-        "  rebrew binsync export ./state --dry-run · · · · · Preview without writing\n\n"
-        "  rebrew binsync export ./state --json · · · · · · · Machine-readable output\n\n"
-        "  rebrew binsync export ./state --module SERVER · · Export one module only\n\n"
-        "  rebrew binsync export ./state --git · · · · · · · Export + git commit\n\n"
-        "[dim]Produces BinSync-compatible TOML layout: functions/, global_vars.toml, "
-        "structs/ — BinSync-native fields only (STATUS/CFLAGS stay in "
-        "rebrew-functions.toml).[/dim]"
+        "  rebrew binsync export ./binsync_state  # Export symbols and types\n\n"
+        "  rebrew binsync export ./state --dry-run  # Preview without writing\n\n"
+        "  rebrew binsync export ./state --json  # Machine-readable output\n\n"
+        "  rebrew binsync export ./state --module SERVER  # Export one module only\n\n"
+        "  rebrew binsync export ./state --git  # Export + git commit\n\n"
+        "[dim]Produces BinSync-compatible TOML layout: functions/, global_vars.toml, structs/ — BinSync-native fields only (STATUS/CFLAGS stay in rebrew-functions.toml).[/dim]"
     ),
 )
 
@@ -328,7 +326,7 @@ def main(
         False, "--git", help="Stage and commit the state directory with git"
     ),
     clean: bool = typer.Option(
-        False, "--clean", help="Remove orphan function TOMLs no longer in the catalog/annotations"
+        False, "--clean", help="Remove orphan function TOMLs no longer in the catalog or metadata"
     ),
     user: str | None = typer.Option(
         None,
@@ -339,10 +337,9 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Export rebrew annotations to a BinSync state directory.
+    """Export Rebrew symbols and types to a BinSync state directory.
 
-    Produces a ``functions/`` tree, ``global_vars.toml``, and ``structs/``
-    placeholders compatible with BinSync's TOML state format.
+    Produces a ``functions/`` tree, ``global_vars.toml``, and ``structs/`` placeholders compatible with BinSync's TOML state format.
     """
     serial.require_declib(json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
@@ -588,13 +585,8 @@ def export_state(
             if isinstance(comment, dict):
                 metadata_comments[int(str(addr), 0)] = (va, str(comment.get("comment") or ""))
 
-    # A source ``/* ANALYSIS @ 0xADDR: text */`` marker wins over the metadata
-    # entry for the same address (the analyst edited it in source), so edits
-    # flow out to comments.toml.
-    merged_comments = dict(metadata_comments)
-
     comment_artifacts.extend(
-        (addr, owner, text) for addr, (owner, text) in sorted(merged_comments.items())
+        (addr, owner, text) for addr, (owner, text) in sorted(metadata_comments.items())
     )
 
     from rebrew.binsync.state import load_binsync_comments

@@ -20,12 +20,15 @@ from __future__ import annotations
 import functools
 import logging
 from pathlib import Path
+from typing import Literal
 
 import typer
+from typer.models import TyperPath
 
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
+    SOURCE_HELP,
     TargetOption,
     console,
     error_exit,
@@ -60,25 +63,19 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _EPILOG = (
-    "[dim]Auto-reads VA and SIZE from source markers, CFLAGS from metadata. "
-    "Symbol is derived from the C function definition. "
-    "Requires rebrew-project.toml with valid compiler paths.[/dim]\n\n"
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew match run src/f.c · · · · · · · · · GA on one function\n\n"
-    "  rebrew match batch · · · · · · · · · GA on all STUB functions\n\n"
-    "  rebrew match batch --improve · · · · · GA on all NEAR_MATCHING functions\n\n"
-    "  rebrew match batch --near-miss · · · · GA on near-miss NEAR_MATCHING (Δ ≤ threshold)\n\n"
-    "  rebrew match batch · · · · Batch flag sweep on NEAR_MATCHING functions\n\n --algorithm flags"
-    "  rebrew match batch --dry-run · · · · · List targets without running\n\n"
-    "[bold]Exit codes:[/bold]\n\n"
-    "  0   Match found (EXACT or RELOC)\n\n"
-    "  1   No match found (structural diffs remain)\n\n"
-    "  2   Build or config error (also a usage error: unknown flag, missing argument)\n\n"
-    "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]"
+    "  rebrew match run src/f.c\n\n"
+    "  rebrew match batch --dry-run\n\n"
+    "  rebrew match batch --improve\n\n"
+    "  rebrew match flags src/f.c\n\n"
+    "  rebrew match toolchains src/f.c\n\n"
+    "[dim]run searches source mutations; flags searches compiler options; toolchains compares compiler profiles. batch selects project functions and can use --algorithm flags. Identity, size, and flags resolve from the C definition and dedicated metadata/configuration. Searches compile with the configured toolchain.[/dim]\n\n"
+    "Exit codes: 0 success; 1 search found no match where applicable; "
+    "2 usage/config/build error; 130 interrupted; 141 output pipe closed.\n\n"
 )
 
 app = typer.Typer(
-    help="GA matching engine — single file or batch (--all).",
+    help="Search source mutations, compiler flags, and toolchains for byte matches.",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
@@ -137,7 +134,9 @@ def execute_search(
     json_output: bool = False,
     target: str | None = None,
 ) -> None:
-    """GA matching engine — single file or batch (--all)."""
+    """Search source mutations, compiler flags, and toolchains for byte matches."""
+    if option_default(watch, False) and option_default(json_output, False):
+        error_exit("--watch is terminal-only; omit --json", json_mode=True)
     all_targets = option_default(all_targets, False)
     all_mode = option_default(all_mode, False)
     watch = option_default(watch, False)
@@ -194,8 +193,7 @@ def execute_search(
         # LLM call and got a silent no-op has no way to tell the two apart from
         # "the endpoint returned nothing usable".
         error_exit(
-            "--seed-llm is single-function only (batch mode seeds from "
-            "--seed-solutions-file and --seed-file); run one target at a time",
+            "--seed-llm is single-function only; use rebrew match run for one target",
             json_mode=json_output,
         )
 
@@ -341,8 +339,7 @@ def execute_search(
 
     if dry_run and not llm_seed:
         error_exit(
-            "--dry-run is batch mode only — 'rebrew match batch --dry-run' lists"
-            "candidates without running. Single-function searches compile; only match run --seed-llm supports a request preview.",
+            "--dry-run requires --seed-llm; use rebrew match batch --dry-run to list candidates.",
             json_mode=json_output,
             code=EXIT_ERROR,
         )
@@ -517,60 +514,70 @@ def execute_search(
 
 @app.command(
     "run",
-    epilog="Examples:\n\n  rebrew match run src/game/f.c --seed 7 --json\n\nSingle-function searches compile. Batch --dry-run lists candidates; run --seed-llm --dry-run previews the LLM request.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew match run src/game/f.c --seed 7 --json\n\n"
+        "Searches compile with the configured toolchain. --seed-llm --dry-run previews the seed request."
+    ),
 )
 def run(
-    seed_c: str | None = typer.Argument(
-        ..., metavar="source", help="Source file, symbol, or VA for one function"
-    ),
+    seed_c: str | None = typer.Argument(..., metavar="source", help=SOURCE_HELP),
     cl: str | None = typer.Option(
         None,
-        help="CL.EXE command (auto from rebrew-project.toml)",
-        rich_help_panel="Single-Function",
+        help="Compiler command override (default: project config)",
+        rich_help_panel="Build inputs",
     ),
     inc: str | None = typer.Option(
-        None, help="Include dir (auto from rebrew-project.toml)", rich_help_panel="Single-Function"
+        None,
+        help="Include dir (auto from project config)",
+        rich_help_panel="Build inputs",
+        click_type=TyperPath(path_type=str),
     ),
     cflags: str | None = typer.Option(
-        None, help="Compiler flags (auto from source)", rich_help_panel="Single-Function"
+        None,
+        help="Compiler flags (default: resolved metadata/config)",
+        rich_help_panel="Build inputs",
     ),
     symbol: str | None = typer.Option(
         None,
         "--symbol",
-        help="Symbol to match (auto from source)",
-        rich_help_panel="Single-Function",
+        help="Symbol to match (default: C definition or metadata)",
+        rich_help_panel="Build inputs",
     ),
     target_va: str | None = typer.Option(
         None,
         "--va",
-        help="Target VA in hex (default: from annotation)",
-        rich_help_panel="Single-Function",
+        help="Target VA in hex (default: from metadata)",
+        rich_help_panel="Build inputs",
     ),
     target_size: int | None = typer.Option(
-        None, "--size", help="Target size (auto from source)", rich_help_panel="Single-Function"
+        None, "--size", help="Target size (default: stored SIZE)", rich_help_panel="Build inputs"
     ),
     out_dir: str = typer.Option(
         "output/ga_runs",
         "--output",
         "-o",
         help="Directory for search results",
-        rich_help_panel="Single-Function",
+        rich_help_panel="Output options",
+        click_type=TyperPath(path_type=str),
     ),
     compare_obj: bool = typer.Option(
-        True, help="Use object comparison instead of full link", rich_help_panel="Single-Function"
+        True, help="Use object comparison instead of full link", rich_help_panel="Build inputs"
     ),
     lib: str | None = typer.Option(
-        None, "--lib", help="Lib dir", rich_help_panel="Single-Function"
+        None,
+        "--lib",
+        help="Lib dir",
+        rich_help_panel="Build inputs",
+        click_type=TyperPath(path_type=str),
     ),
     link: str | None = typer.Option(
         None,
         "--link",
-        help="Linker command (auto from rebrew-project.toml)",
-        rich_help_panel="Single-Function",
+        help="Linker command (auto from project config)",
+        rich_help_panel="Build inputs",
     ),
-    ldflags: str | None = typer.Option(
-        None, help="Linker flags", rich_help_panel="Single-Function"
-    ),
+    ldflags: str | None = typer.Option(None, help="Linker flags", rich_help_panel="Build inputs"),
     jobs: int | None = typer.Option(
         None,
         "--jobs",
@@ -581,8 +588,8 @@ def run(
     ignore_lint: bool = typer.Option(
         False,
         "--ignore-lint",
-        help="Continue even if source marker lint errors exist",
-        rich_help_panel="Single-Function",
+        help="Continue even if source binding lint errors exist",
+        rich_help_panel="Build inputs",
     ),
     seed: int | None = typer.Option(
         None, "--seed", help="RNG seed for reproducible GA runs", rich_help_panel="GA Tuning"
@@ -590,24 +597,24 @@ def run(
     extra_seed: list[str] | None = typer.Option(
         None,
         "--seed-file",
-        help="Extra .c file(s) to seed GA population from solved functions. Ignored if --no-seeds is also passed.",
-        rich_help_panel="Single-Function",
+        help="Extra .c file(s) to seed GA population from solved functions. Ignored if --no-seeds is also passed",
+        rich_help_panel="Seeding",
+        click_type=TyperPath(path_type=str),
     ),
     no_seed: bool = typer.Option(
         False,
         "--no-seeds",
         help="Disable cross-function solution seeding (takes precedence over --seed-file)",
-        rich_help_panel="Single-Function",
+        rich_help_panel="Seeding",
     ),
-    mutation_focus: str | None = typer.Option(
+    mutation_focus: Literal["auto", "register", "equivalent", "structural"] | None = typer.Option(
         None,
         "--mutation-focus",
         help=(
-            "Bias GA mutation selection toward a near-diag category: "
-            "register | equivalent | structural, or auto (read the function's "
-            "BLOCKER metadata). Suggested operators get 6x selection weight."
+            "Bias GA mutation selection toward a near-diag category: register | equivalent | structural, or auto (read the function's BLOCKER metadata). Suggested operators get 6x selection weight"
         ),
         rich_help_panel="GA Tuning",
+        metavar="FOCUS",
     ),
     generations: int = typer.Option(
         100, "--generations", "-g", help="Number of GA generations", rich_help_panel="GA Tuning"
@@ -615,56 +622,31 @@ def run(
     pop_size: int = typer.Option(
         64, "--pop-size", "-p", help="Population size per generation", rich_help_panel="GA Tuning"
     ),
-    seed_solutions: Path | None = typer.Option(
-        None,
-        "--seed-solutions-file",
-        help=(
-            "Batch: extra GA run log to seed from (cross-project cflags/"
-            "source transfer).  E.g. ../makehm-rebrew/.rebrew/ga_runs.jsonl"
-        ),
-        rich_help_panel="Batch Mode",
-    ),
     llm_seed: bool = typer.Option(
         False,
         "--seed-llm",
-        help=(
-            "Ask a configured LLM endpoint for alternative C implementations "
-            "and inject them into the GA's initial population (see \\[llm] "
-            "config / REBREW_LLM_ENDPOINT)."
-        ),
-        rich_help_panel="Single-Function",
+        help=("Seed one function from the configured LLM endpoint; required with --dry-run"),
+        rich_help_panel="Seeding",
     ),
     kuna_seed: bool = typer.Option(
         False,
         "--seed-kuna",
         help=(
-            "Seed the GA's initial population with Kuna's decompilation of "
-            "the target function (github.com/Noelo-Lab/kuna — requires the "
-            "`kuna` binary on PATH).  The output is compilability-fixed "
-            "(rebrew source fix) before injection."
+            "Seed the GA's initial population with Kuna's decompilation of the target function (github.com/Noelo-Lab/kuna — requires the `kuna` binary on PATH).  The output is compilability-fixed (rebrew source fix) before injection"
         ),
-        rich_help_panel="Single-Function",
-    ),
-    resume: bool = typer.Option(
-        False,
-        "--resume",
-        help="Batch: resume interrupted GA runs from their per-function checkpoints.",
-        rich_help_panel="Batch Mode",
-    ),
-    seed_from_solved: bool = typer.Option(
-        True,
-        "--seed-solved/--no-seed-solved",
-        help="Seed GA population from similar solved functions",
-        rich_help_panel="Batch Mode",
+        rich_help_panel="Seeding",
     ),
     collect_pairs: str | None = typer.Option(
         None,
         "--collect-pairs",
-        help="Save source-binary pairs to JSONL file for ML training",
-        rich_help_panel="Batch Mode",
+        help="Append source/binary training pairs to a JSONL file",
+        rich_help_panel="Output options",
+        click_type=TyperPath(path_type=str),
     ),
     watch: bool = typer.Option(
-        False, "--watch", help="Watch the seed source and re-run the GA on every change"
+        False,
+        "--watch",
+        help="Watch the seed source and re-run the GA on every change (terminal only; no --json)",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -692,11 +674,8 @@ def run(
         mutation_focus=mutation_focus,
         generations=generations,
         pop_size=pop_size,
-        seed_solutions=seed_solutions,
         llm_seed=llm_seed,
         kuna_seed=kuna_seed,
-        resume=resume,
-        seed_from_solved=seed_from_solved,
         collect_pairs=collect_pairs,
         watch=watch,
         dry_run=dry_run,
@@ -707,45 +686,34 @@ def run(
 
 @app.command(
     "batch",
-    epilog="Examples:\n\n  rebrew match batch --dry-run --json\n\nSingle-function searches compile. Batch --dry-run lists candidates; run --seed-llm --dry-run previews the LLM request.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew match batch --dry-run --json\n\n"
+        "--dry-run lists selected functions without compiling or writing."
+    ),
 )
 def batch(
-    algorithm: str = typer.Option("ga", "--algorithm", help="Search: ga, flags, flags-then-ga"),
-    tier: str = typer.Option(
-        "targeted",
-        help="Flag sweep tier: quick, targeted, normal, thorough, or full",
-        rich_help_panel="Single-Function",
+    algorithm: Literal["ga", "flags", "flags-then-ga"] = typer.Option(
+        "ga", "--algorithm", help="Search: ga, flags, flags-then-ga", metavar="ALGORITHM"
     ),
-    ignore_lint: bool = typer.Option(
-        False,
-        "--ignore-lint",
-        help="Continue even if source marker lint errors exist",
-        rich_help_panel="Single-Function",
+    tier: Literal["quick", "targeted", "normal", "thorough", "full"] = typer.Option(
+        "targeted",
+        "--tier",
+        help="Flag sweep tier: quick, targeted, normal, thorough, or full",
+        rich_help_panel="Search",
+        metavar="TIER",
     ),
     seed: int | None = typer.Option(
         None, "--seed", help="RNG seed for reproducible GA runs", rich_help_panel="GA Tuning"
     ),
-    extra_seed: list[str] | None = typer.Option(
-        None,
-        "--seed-file",
-        help="Extra .c file(s) to seed GA population from solved functions. Ignored if --no-seeds is also passed.",
-        rich_help_panel="Single-Function",
-    ),
-    no_seed: bool = typer.Option(
-        False,
-        "--no-seeds",
-        help="Disable cross-function solution seeding (takes precedence over --seed-file)",
-        rich_help_panel="Single-Function",
-    ),
-    mutation_focus: str | None = typer.Option(
+    mutation_focus: Literal["register", "equivalent", "structural"] | None = typer.Option(
         None,
         "--mutation-focus",
         help=(
-            "Bias GA mutation selection toward a near-diag category: "
-            "register | equivalent | structural, or auto (read the function's "
-            "BLOCKER metadata). Suggested operators get 6x selection weight."
+            "Bias every selected function toward register, equivalent, or structural mutations. Suggested operators get 6x selection weight"
         ),
         rich_help_panel="GA Tuning",
+        metavar="FOCUS",
     ),
     generations: int = typer.Option(
         100, "--generations", "-g", help="Number of GA generations", rich_help_panel="GA Tuning"
@@ -763,106 +731,94 @@ def batch(
     skip_recent_hours: int = typer.Option(
         0,
         "--skip-recent",
-        help="Batch: skip stubs with a GA run record within the last N hours",
-        rich_help_panel="Batch Mode",
+        help="Skip stubs with a GA run record within the last N hours",
+        rich_help_panel="Selection",
     ),
     seed_solutions: Path | None = typer.Option(
         None,
         "--seed-solutions-file",
-        help=(
-            "Batch: extra GA run log to seed from (cross-project cflags/"
-            "source transfer).  E.g. ../makehm-rebrew/.rebrew/ga_runs.jsonl"
-        ),
-        rich_help_panel="Batch Mode",
-    ),
-    kuna_seed: bool = typer.Option(
-        False,
-        "--seed-kuna",
-        help=(
-            "Seed the GA's initial population with Kuna's decompilation of "
-            "the target function (github.com/Noelo-Lab/kuna — requires the "
-            "`kuna` binary on PATH).  The output is compilability-fixed "
-            "(rebrew source fix) before injection."
-        ),
-        rich_help_panel="Single-Function",
+        help="Additional GA run log for cross-project seeds (e.g. runs.jsonl)",
+        rich_help_panel="Saved runs",
     ),
     resume: bool = typer.Option(
         False,
         "--resume",
-        help="Batch: resume interrupted GA runs from their per-function checkpoints.",
-        rich_help_panel="Batch Mode",
+        help="Resume interrupted GA runs from their per-function checkpoints",
+        rich_help_panel="Saved runs",
     ),
     near_miss: bool = typer.Option(
         False,
         "--near-miss",
-        help="Batch: target NEAR_MATCHING near-misses instead of STUBs",
-        rich_help_panel="Batch Mode",
+        help="Target NEAR_MATCHING near-misses instead of STUBs",
+        rich_help_panel="Selection",
     ),
     improve: bool = typer.Option(
         False,
         "--improve",
-        help="Batch: target all NEAR_MATCHING functions (no delta threshold)",
-        rich_help_panel="Batch Mode",
+        help="Target all NEAR_MATCHING functions (no delta threshold)",
+        rich_help_panel="Selection",
     ),
     size_mismatch: bool = typer.Option(
         False,
         "--size-mismatch",
-        help="Batch: target SIZE_MISMATCH functions (length differs) with the GA",
-        rich_help_panel="Batch Mode",
+        help="Target SIZE_MISMATCH functions (length differs) with the GA",
+        rich_help_panel="Selection",
     ),
     threshold: int = typer.Option(
         10,
         "--threshold",
-        help="Batch: max byte delta for --near-miss mode",
-        rich_help_panel="Batch Mode",
+        help="Max byte delta for --near-miss mode",
+        rich_help_panel="Selection",
     ),
     fix_cflags: bool = typer.Option(
         False,
         "--fix-cflags",
         help="With --algorithm flags: auto-update CFLAGS metadata on exact match",
-        rich_help_panel="Batch Mode",
+        rich_help_panel="Selection",
     ),
     max_stubs: int = typer.Option(
         0,
         "--max-stubs",
-        help="Batch: max functions to process (0=all)",
-        rich_help_panel="Batch Mode",
+        help="Maximum functions to process (0 means all)",
+        min=0,
+        rich_help_panel="Selection",
     ),
     min_size: int = typer.Option(
         10,
         "--min-size",
-        help="Batch: min target size to attempt",
-        rich_help_panel="Batch Mode",
+        help="Min target size to attempt",
+        rich_help_panel="Selection",
     ),
     max_size: int = typer.Option(
         NO_MAX_SIZE,
         "--max-size",
-        help="Batch: max target size to attempt",
-        rich_help_panel="Batch Mode",
+        help="Max target size to attempt",
+        rich_help_panel="Selection",
     ),
     filter_str: str = typer.Option(
         "",
         "--filter",
-        help="Batch: only process functions matching substring",
-        rich_help_panel="Batch Mode",
+        help="Only process functions matching substring",
+        rich_help_panel="Selection",
     ),
     timeout_min: int = typer.Option(
         30,
         "--timeout-min",
-        help="Batch: per-function GA timeout (minutes)",
-        rich_help_panel="Batch Mode",
+        help="Per-function GA timeout (minutes)",
+        rich_help_panel="Selection",
     ),
     seed_from_solved: bool = typer.Option(
         True,
         "--seed-solved/--no-seed-solved",
         help="Seed GA population from similar solved functions",
-        rich_help_panel="Batch Mode",
+        rich_help_panel="Seeding",
     ),
     collect_pairs: str | None = typer.Option(
         None,
         "--collect-pairs",
-        help="Save source-binary pairs to JSONL file for ML training",
-        rich_help_panel="Batch Mode",
+        help="Append source/binary training pairs to a JSONL file",
+        rich_help_panel="Output options",
+        click_type=TyperPath(path_type=str),
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -870,8 +826,8 @@ def batch(
     all_targets: bool = typer.Option(
         False,
         "--all-targets",
-        help="Batch mode: run GA across STUB functions in EVERY configured target",
-        rich_help_panel="Batch Mode",
+        help="Run the selected search across every configured target",
+        rich_help_panel=None,
     ),
 ) -> None:
     """Run matching over selected project functions."""
@@ -879,17 +835,13 @@ def batch(
         error_exit("--algorithm must be ga, flags or flags-then-ga", json_mode=json_output)
     execute_search(
         tier=tier,
-        ignore_lint=ignore_lint,
         seed=seed,
-        extra_seed=extra_seed,
-        no_seed=no_seed,
         mutation_focus=mutation_focus,
         generations=generations,
         pop_size=pop_size,
         jobs=jobs,
         skip_recent_hours=skip_recent_hours,
         seed_solutions=seed_solutions,
-        kuna_seed=kuna_seed,
         resume=resume,
         near_miss=near_miss,
         improve=improve,
@@ -915,77 +867,64 @@ def batch(
 
 @app.command(
     "flags",
-    epilog="Examples:\n\n  rebrew match flags src/game/f.c --tier quick --json\n\nSingle-function searches compile. Batch --dry-run lists candidates; run --seed-llm --dry-run previews the LLM request.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew match flags src/game/f.c --tier quick --json\n\n"
+        "Compares compiler flag combinations using object bytes."
+    ),
 )
 def flags(
-    seed_c: str | None = typer.Argument(
-        ..., metavar="source", help="Source file, symbol, or VA for one function"
-    ),
+    seed_c: str | None = typer.Argument(..., metavar="source", help=SOURCE_HELP),
     cl: str | None = typer.Option(
         None,
-        help="CL.EXE command (auto from rebrew-project.toml)",
-        rich_help_panel="Single-Function",
+        help="Compiler command override (default: project config)",
+        rich_help_panel="Build inputs",
     ),
     inc: str | None = typer.Option(
-        None, help="Include dir (auto from rebrew-project.toml)", rich_help_panel="Single-Function"
+        None,
+        help="Include dir (auto from project config)",
+        rich_help_panel="Build inputs",
+        click_type=TyperPath(path_type=str),
     ),
     cflags: str | None = typer.Option(
-        None, help="Compiler flags (auto from source)", rich_help_panel="Single-Function"
+        None,
+        help="Compiler flags (default: resolved metadata/config)",
+        rich_help_panel="Build inputs",
     ),
     symbol: str | None = typer.Option(
         None,
         "--symbol",
-        help="Symbol to match (auto from source)",
-        rich_help_panel="Single-Function",
+        help="Symbol to match (default: C definition or metadata)",
+        rich_help_panel="Build inputs",
     ),
     target_va: str | None = typer.Option(
         None,
         "--va",
-        help="Target VA in hex (default: from annotation)",
-        rich_help_panel="Single-Function",
+        help="Target VA in hex (default: from metadata)",
+        rich_help_panel="Build inputs",
     ),
     target_size: int | None = typer.Option(
-        None, "--size", help="Target size (auto from source)", rich_help_panel="Single-Function"
-    ),
-    out_dir: str = typer.Option(
-        "output/ga_runs",
-        "--output",
-        "-o",
-        help="Directory for search results",
-        rich_help_panel="Single-Function",
-    ),
-    compare_obj: bool = typer.Option(
-        True, help="Use object comparison instead of full link", rich_help_panel="Single-Function"
-    ),
-    lib: str | None = typer.Option(
-        None, "--lib", help="Lib dir", rich_help_panel="Single-Function"
-    ),
-    link: str | None = typer.Option(
-        None,
-        "--link",
-        help="Linker command (auto from rebrew-project.toml)",
-        rich_help_panel="Single-Function",
-    ),
-    ldflags: str | None = typer.Option(
-        None, help="Linker flags", rich_help_panel="Single-Function"
+        None, "--size", help="Target size (default: stored SIZE)", rich_help_panel="Build inputs"
     ),
     jobs: int | None = typer.Option(
         None,
         "--jobs",
         "-j",
         help="Parallel jobs (default: from config)",
-        rich_help_panel="GA Tuning",
+        rich_help_panel="Search",
     ),
-    tier: str = typer.Option(
+    tier: Literal["quick", "targeted", "normal", "thorough", "full"] = typer.Option(
         "targeted",
+        "--tier",
         help="Flag sweep tier: quick, targeted, normal, thorough, or full",
-        rich_help_panel="Single-Function",
+        rich_help_panel="Search",
+        metavar="TIER",
     ),
     ignore_lint: bool = typer.Option(
         False,
         "--ignore-lint",
-        help="Continue even if source marker lint errors exist",
-        rich_help_panel="Single-Function",
+        help="Continue even if source binding lint errors exist",
+        rich_help_panel="Build inputs",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -999,11 +938,6 @@ def flags(
         symbol=symbol,
         target_va=target_va,
         target_size=target_size,
-        out_dir=out_dir,
-        compare_obj=compare_obj,
-        lib=lib,
-        link=link,
-        ldflags=ldflags,
         jobs=jobs,
         tier=tier,
         ignore_lint=ignore_lint,
@@ -1015,71 +949,47 @@ def flags(
 
 @app.command(
     "toolchains",
-    epilog="Examples:\n\n  rebrew match toolchains src/game/f.c --toolchains msvc-6.0,msvc-7.0 --json\n\nSingle-function searches compile. Batch --dry-run lists candidates; run --seed-llm --dry-run previews the LLM request.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew match toolchains src/game/f.c --toolchains msvc-6.0,msvc-7.0 --json\n\n"
+        "Compares object bytes for each profile; --flags also searches compiler options."
+    ),
 )
 def toolchains(
-    seed_c: str | None = typer.Argument(
-        ..., metavar="source", help="Source file, symbol, or VA for one function"
-    ),
-    cl: str | None = typer.Option(
-        None,
-        help="CL.EXE command (auto from rebrew-project.toml)",
-        rich_help_panel="Single-Function",
-    ),
-    inc: str | None = typer.Option(
-        None, help="Include dir (auto from rebrew-project.toml)", rich_help_panel="Single-Function"
-    ),
+    seed_c: str | None = typer.Argument(..., metavar="source", help=SOURCE_HELP),
     cflags: str | None = typer.Option(
-        None, help="Compiler flags (auto from source)", rich_help_panel="Single-Function"
+        None,
+        help="Compiler flags (default: resolved metadata/config)",
+        rich_help_panel="Build inputs",
     ),
     symbol: str | None = typer.Option(
         None,
         "--symbol",
-        help="Symbol to match (auto from source)",
-        rich_help_panel="Single-Function",
+        help="Symbol to match (default: C definition or metadata)",
+        rich_help_panel="Build inputs",
     ),
     target_va: str | None = typer.Option(
         None,
         "--va",
-        help="Target VA in hex (default: from annotation)",
-        rich_help_panel="Single-Function",
+        help="Target VA in hex (default: from metadata)",
+        rich_help_panel="Build inputs",
     ),
     target_size: int | None = typer.Option(
-        None, "--size", help="Target size (auto from source)", rich_help_panel="Single-Function"
-    ),
-    out_dir: str = typer.Option(
-        "output/ga_runs",
-        "--output",
-        "-o",
-        help="Directory for search results",
-        rich_help_panel="Single-Function",
-    ),
-    compare_obj: bool = typer.Option(
-        True, help="Use object comparison instead of full link", rich_help_panel="Single-Function"
-    ),
-    lib: str | None = typer.Option(
-        None, "--lib", help="Lib dir", rich_help_panel="Single-Function"
-    ),
-    link: str | None = typer.Option(
-        None,
-        "--link",
-        help="Linker command (auto from rebrew-project.toml)",
-        rich_help_panel="Single-Function",
-    ),
-    ldflags: str | None = typer.Option(
-        None, help="Linker flags", rich_help_panel="Single-Function"
+        None, "--size", help="Target size (default: stored SIZE)", rich_help_panel="Build inputs"
     ),
     jobs: int | None = typer.Option(
         None,
         "--jobs",
         "-j",
-        help="Parallel jobs (default: from config)",
-        rich_help_panel="GA Tuning",
+        help="With --flags: parallel compiles (default: from config)",
+        rich_help_panel="Search",
     ),
-    tier: str = typer.Option(
+    tier: Literal["quick", "targeted", "normal", "thorough", "full"] = typer.Option(
         "targeted",
-        help="Flag sweep tier: quick, targeted, normal, thorough, or full",
-        rich_help_panel="Single-Function",
+        "--tier",
+        help="With --flags: quick, targeted, normal, thorough, or full",
+        rich_help_panel="Search",
+        metavar="TIER",
     ),
     with_flags: bool = typer.Option(
         False, "--flags", help="Search flags for each compiler profile"
@@ -1087,38 +997,35 @@ def toolchains(
     sweep_toolchains: str = typer.Option(
         "",
         "--toolchains",
-        help="Compile with each of these toolchains and report the best comma-separated profile names or version prefixes, e.g. msvc-6.0,6.0,win16 (a Y2K binary likely rules out 2.0/4.x — exclude them with --exclude-toolchains 2.0,4.0)",
-        rich_help_panel="Single-Function",
+        help="Comma-separated profiles or version prefixes to compare (e.g. msvc-6.0,7.0)",
+        rich_help_panel="Search",
     ),
     sweep_exclude_toolchains: str = typer.Option(
         "",
         "--exclude-toolchains",
-        help="Compile with each toolchain except these and report the best comma-separated profile names or version prefixes, e.g. 2.0,4.0,win16",
-        rich_help_panel="Single-Function",
+        help="Comma-separated profiles or version prefixes to exclude",
+        rich_help_panel="Search",
     ),
     ignore_lint: bool = typer.Option(
         False,
         "--ignore-lint",
-        help="Continue even if source marker lint errors exist",
-        rich_help_panel="Single-Function",
+        help="Continue even if source binding lint errors exist",
+        rich_help_panel="Build inputs",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Compare compiler profiles, optionally searching flags per profile."""
+    if jobs is not None and not with_flags:
+        error_exit("--jobs requires --flags", json_mode=json_output)
+    if tier != "targeted" and not with_flags:
+        error_exit("--tier requires --flags", json_mode=json_output)
     execute_search(
         seed_c=seed_c,
-        cl=cl,
-        inc=inc,
         cflags=cflags,
         symbol=symbol,
         target_va=target_va,
         target_size=target_size,
-        out_dir=out_dir,
-        compare_obj=compare_obj,
-        lib=lib,
-        link=link,
-        ldflags=ldflags,
         jobs=jobs,
         tier=tier,
         flag_sweep_toolchains=True,
@@ -1133,7 +1040,11 @@ def toolchains(
 
 @app.command(
     "history",
-    epilog="Examples:\n\n  rebrew match history --json\n\nSingle-function searches compile. Batch --dry-run lists candidates; run --seed-llm --dry-run previews the LLM request.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew match history --json\n\n"
+        "Reads saved GA results without compiling."
+    ),
 )
 def history(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

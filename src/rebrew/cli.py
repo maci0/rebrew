@@ -33,6 +33,7 @@ from typing import Any, Literal, NoReturn, override
 
 import typer
 from rich.console import Console
+from typer import rich_utils
 from typer._click.core import Command as TyperBaseCommand
 from typer._click.core import Context as TyperContext
 from typer._click.core import Parameter as TyperParameter
@@ -86,7 +87,7 @@ TargetOption: str | None = typer.Option(
     None,
     "--target",
     "-t",
-    help="Target name from rebrew-project.toml (default: project default target); omit the argument to list targets.",
+    help="Target name from rebrew-project.toml (default: project default target); a final --target lists targets.",
 )
 
 
@@ -327,8 +328,11 @@ def _standalone_command_kwargs(main: Any) -> dict[str, Any]:
 
 #: Help text for the options :func:`add_global_options` attaches everywhere.
 VERSION_HELP = "Show version and exit."
-VERBOSE_HELP = "Increase output verbosity."
+VERBOSE_HELP = "Increase log verbosity (-v: info, -vv: debug)."
 QUIET_HELP = "Cancel --verbose; leave logs at warning."
+
+#: Inputs accepted by source-resolving commands, rather than identity-only selectors.
+SOURCE_HELP = "Source file, symbol name, or VA (hex)"
 
 
 def _print_version(ctx: TyperContext, param: TyperParameter, value: bool) -> None:
@@ -440,6 +444,9 @@ def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
     "errors only", not "logs at warning", so the injector adds ``--verbose``
     there and leaves ``--quiet`` alone.
     """
+    # Rich accepts four-sided padding; one column gap keeps full flags visible at 60 columns.
+    rich_utils.__dict__["STYLE_OPTIONS_TABLE_PADDING"] = (0, 1, 0, 0)
+    cmd.context_settings.setdefault("help_option_names", ["--help", "-h"])
     target_option = next(
         (
             param
@@ -494,11 +501,8 @@ def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
                 param_decls=["--verbose", "-v"],
                 count=True,
                 default=0,
-                # click renders a count option as `<int range>`; the umbrella
-                # spells it `<int>`, and one flag should look the same in both
-                # help screens.
-                metavar="<int>",
-                show_default=True,
+                metavar="",
+                show_default=False,
                 is_eager=True,
                 expose_value=False,
                 callback=_apply_verbose,
@@ -516,11 +520,29 @@ def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
                 help=QUIET_HELP,
             )
         )
+    for param in cmd.params:
+        if not isinstance(param, TyperOption) or param.rich_help_panel is not None:
+            continue
+        flags = set(param.opts)
+        if flags & {"--root", "--target", "--all-targets"}:
+            param.rich_help_panel = "Project options"
+        elif flags & {"--json", "--output", "--dry-run", "--apply"}:
+            param.rich_help_panel = "Output options"
+        elif flags & {"--version", "--verbose", "--quiet"} and param.help in {
+            VERSION_HELP,
+            VERBOSE_HELP,
+            QUIET_HELP,
+        }:
+            param.rich_help_panel = "Global options"
+    panel_order = {"Output options": 1, "Project options": 2, "Global options": 3}
+    cmd.params.sort(
+        key=lambda param: panel_order.get(getattr(param, "rich_help_panel", None) or "", 0)
+    )
     for sub in getattr(cmd, "commands", {}).values():
         add_global_options(sub)
     if "Exit codes:" not in (cmd.epilog or ""):
         cmd.epilog = (cmd.epilog or "").rstrip() + (
-            "\n\nExit codes: 0 success; 1 mismatch; 2 usage/config/build error; "
+            "\n\nExit codes: 0 success; 1 mismatch or failed check where applicable; 2 usage/config/build error; "
             "130 interrupted; 141 output pipe closed."
         )
     return cmd
@@ -774,8 +796,8 @@ def resolve_binary_arg(
 def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     """Resolve a source argument to an existing source file path.
 
-    Accepts a direct file path, a symbol name (matched against the file stem,
-    tolerating the MSVC leading underscore), or a hex VA (e.g. ``0x01006364``,
+    Accepts a direct file path, a symbol name (file stem or stored function
+    identity, tolerating compiler decoration), or a hex VA (e.g. ``0x01006364``,
     matched against function annotations).  Returns *source_arg* unchanged
     when nothing matches — the caller then reports the failure with context.
     """
@@ -871,6 +893,27 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     for src in sources:
         if unicodedata.normalize("NFC", src.stem).lstrip("_") == arg_stem:
             return src
+
+    if va_int is None:
+        from rebrew.rename_ops import c_name_from_symbol
+        from rebrew.utils import fold_ident
+
+        want = fold_ident(arg_norm.strip())
+        tm = target_marker(cfg)
+        for src in sources:
+            try:
+                annos = read_source_bindings(
+                    src, target_name=tm, metadata_dir=getattr(cfg, "metadata_dir", None)
+                )
+            except (OSError, ValueError):
+                logging.debug("Skipping %s during source resolution", src, exc_info=True)
+                continue
+            for ann in annos:
+                if not ann.is_function:
+                    continue
+                names = (ann.name, ann.symbol, c_name_from_symbol(ann.symbol))
+                if any(name and fold_ident(name.strip()) == want for name in names):
+                    return src
 
     return p
 
@@ -974,6 +1017,7 @@ __all__ = [
     "EXIT_SIGPIPE",
     "QUIET_HELP",
     "RootOption",
+    "SOURCE_HELP",
     "TargetOption",
     "VERBOSE_HELP",
     "VERSION_HELP",

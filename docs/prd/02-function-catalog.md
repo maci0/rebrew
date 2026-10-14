@@ -166,10 +166,8 @@ Output `.bin` files land in the configured `bin_dir`.
   history.  Every aggregate (per-section buckets, byte coverage,
   `function_stats`) is derived by the reader, so nothing can disagree with the
   rows it was computed from.
-- `--force` is accepted and has no effect: each document is replaced whole, so
-  there is no schema to migrate past.
-- `--regen` is accepted and dropped: generating in this process is the only
-  mode left, so there is nothing for the flag to select.
+- Each document is replaced whole, preserving status history. The catalog
+  analysis always runs in-process against the current project tree.
 - The document carries its own `version`; a file from another version is not
   migrated, and a rebuild replaces it.
 

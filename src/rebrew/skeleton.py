@@ -1,9 +1,9 @@
 """skeleton.py - Generate .c skeleton file for an uncovered function.
 
 Given a VA address, generates a pure-C skeleton and records the function's
-identity (``file``, symbol, name, marker type, and size when the store lacks
+identity (``file``, symbol, name, kind, and size when the store lacks
 it) in ``rebrew-functions.toml`` under ``MODULE.0xVA``. The ``.c`` file has
-no marker line. Prints the exact rebrew test command to verify it.
+an ADDRESS anchor above the definition. Prints the rebrew test command to verify it.
 
 STATUS is not written. An existing SIZE is left alone.
 
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
 
 import typer
+from typer.models import TyperPath
 
 from rebrew.catalog import load_function_structure
 from rebrew.cli import (
@@ -47,7 +48,7 @@ from rebrew.config import (
     inventory_path_for,
     validate_http_url,
 )
-from rebrew.decompiler import BACKEND_HELP_CHOICES, fetch_decompilation
+from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends, fetch_decompilation
 from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
 from rebrew.limits import NO_MAX_SIZE
 from rebrew.metadata.bindings import (
@@ -938,18 +939,11 @@ def list_uncovered(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew skeleton 0x10003da0 · · · · · · · · Generate skeleton for one function\n\n"
-    "  rebrew skeleton 0x10003da0 --name my_func · Custom function name\n\n"
-    "  rebrew skeleton 0x10003da0 --append crt_env.c  Append to existing multi-function file\n\n"
-    "  rebrew skeleton --batch 10 · · · · · · · · Generate 10 skeletons at once\n\n"
-    "[bold]What it creates:[/bold]\n\n"
-    "  A pure-C .c file with a placeholder body. Identity (file, symbol, name, "
-    "marker type) and SIZE, when the store lacks it, are written to "
-    "rebrew-functions.toml under MODULE.0xVA. STATUS is not written. "
-    "With --append, the body is appended to an existing .c file; a file that "
-    "still has marker lines is migrated first.\n\n"
-    "[dim]See also: 'rebrew todo' for a prioritized action list with ROI scoring. "
-    "Reads function_structure.json and existing .c files to determine what's uncovered.[/dim]"
+    "  rebrew skeleton 0x10003da0\n\n"
+    "  rebrew skeleton 0x10003da0 --name my_func\n\n"
+    "  rebrew skeleton 0x10003da0 --append src/crt_env.c\n\n"
+    "  rebrew skeleton --batch 10\n\n"
+    "[dim]Creates a .c placeholder with an ADDRESS anchor, then records file/symbol/name/kind and missing SIZE in rebrew-functions.toml. --append adds the definition to an existing file. STATUS is earned by test/verify. Uses the function inventory and source bindings to find uncovered functions; rebrew todo helps select work.[/dim]\n\n"
 )
 
 app = typer.Typer(
@@ -1504,8 +1498,12 @@ def _run_single_va_mode(
 def main(
     va: str | None = typer.Argument(None, help="Function VA in hex (e.g. 0x10003da0)"),
     name: str | None = typer.Option(None, "--name", help="Custom function name"),
-    output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
-    batch: int | None = typer.Option(None, "--batch", help="Generate N skeletons (smallest first)"),
+    output: str | None = typer.Option(
+        None, "--output", "-o", help="Output file path", click_type=TyperPath(path_type=str)
+    ),
+    batch: int | None = typer.Option(
+        None, "--batch", min=0, help="Generate N skeletons (smallest first; 0 generates none)"
+    ),
     skip_fragments: bool = typer.Option(
         False,
         "--skip-fragments",
@@ -1519,6 +1517,7 @@ def main(
         None,
         "--append",
         help="Append function to an existing .c file (multi-function file)",
+        click_type=TyperPath(path_type=str),
     ),
     decomp: bool = typer.Option(False, "--decomp", help="Embed decompilation in skeleton"),
     decomp_body: bool = typer.Option(
@@ -1531,6 +1530,7 @@ def main(
         "auto",
         "--decompiler",
         help=f"Decompiler backend: {BACKEND_HELP_CHOICES}",
+        autocompletion=complete_backends,
     ),
     xrefs: bool = typer.Option(
         False,
@@ -1578,7 +1578,7 @@ def main(
     existing_vas = load_existing_vas(src_dir, cfg=cfg)
 
     # --batch mode
-    if batch:
+    if batch is not None:
         _run_batch_mode(
             cfg,
             ghidra_funcs,
@@ -1600,7 +1600,10 @@ def main(
 
     # Single VA or append — both require a VA argument
     if not va_str:
-        error_exit("VA required for single mode.", json_mode=json_output)
+        error_exit(
+            "Specify a function VA (for example, rebrew skeleton 0x10003da0) or use --batch N.",
+            json_mode=json_output,
+        )
 
     va_int = parse_va(va_str, json_mode=json_output)
 

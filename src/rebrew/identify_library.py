@@ -40,9 +40,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew library identify · · · · · · · Identify and write library entries\n\n"
-        "  rebrew library identify --dry-run · · Preview without writing\n\n"
-        "  rebrew library identify --json · · · · Machine-readable report\n\n"
+        "  rebrew library identify  # Identify and write library entries\n\n"
+        "  rebrew library identify --dry-run  # Preview without writing\n\n"
+        "  rebrew library identify --json  # Machine-readable report\n\n"
         "[dim]Records LIBRARY rows in rebrew-functions.toml and keeps a "
         "library_<module>.h so the scan can find them. Never touches "
         "annotated functions.[/dim]"
@@ -535,20 +535,17 @@ def main(
     module: str | None = typer.Option(
         None,
         "--module",
-        help="Default module for names no backend classified (default: first "
-        "configured library_modules, else MSVCRT).",
+        help="Default module for names no backend classified (default: first configured library_modules, else MSVCRT)",
     ),
     build_sigs: bool = typer.Option(
         False,
         "--build-sigs",
-        help="Generate flirt_sigs/*.pat from the toolchain's .lib files first, "
-        "then identify with them.",
+        help="Generate flirt_sigs/*.pat from the toolchain's .lib files first, then identify with them",
     ),
     lib_dir: Path | None = typer.Option(
         None,
         "--lib-dir",
-        help="Toolchain .lib directory for --build-sigs (default: "
-        "toolchain/msvc/6.0-win32/source/VC98/Lib or the first tools/*/Lib found).",
+        help="Toolchain .lib directory for --build-sigs (default: toolchain/msvc/6.0-win32/source/VC98/Lib or the first tools/*/Lib found)",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

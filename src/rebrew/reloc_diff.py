@@ -49,9 +49,11 @@ _DEFAULT_LIMIT = 50
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew binary relocs · · · · · · · · · · · · · · · Missing/extra sites vs build/<target>\n\n"
-    "  rebrew binary relocs --built build/game.dll --json · Machine-readable site lists\n\n"
-    "  rebrew binary relocs --pairs 0x10035498:0x10035878 · Reference vs built targets in a range\n"
+    "  rebrew binary relocs  # Missing/extra sites vs build/<target>\n\n"
+    "  # Machine-readable site lists\n"
+    "  rebrew binary relocs --built build/game.dll --json\n\n"
+    "  # Reference vs built targets in a range\n"
+    "  rebrew binary relocs --pairs 0x10035498:0x10035878\n"
 )
 
 app = typer.Typer(
@@ -239,7 +241,7 @@ def _print_sites(title: str, rows: list[dict[str, Any]], limit: int) -> None:
         return
     counts = ", ".join(f"{name} {n}" for name, n in by_section(rows).items())
     console.print(f"[bold]{title}[/bold] {len(rows)} ({counts})")
-    for r in rows[: limit or None]:
+    for r in rows[:limit]:
         target = r["target"] or "-"
         console.print(
             f"  {r['site']} {escape(r['symbol'] or '?'):40} {r['type']:8} -> {target} "
@@ -247,8 +249,8 @@ def _print_sites(title: str, rows: list[dict[str, Any]], limit: int) -> None:
             + (f"  [{escape(r['target_data'])}]" if r["target_data"] else ""),
             highlight=False,
         )
-    if limit and len(rows) > limit:
-        console.print(f"  ... {len(rows) - limit} more (--limit 0 or --json for all)")
+    if len(rows) > limit:
+        console.print(f"  ... {len(rows) - limit} more (increase --limit or use --json for all)")
 
 
 @app.callback(invoke_without_command=True)
@@ -268,7 +270,7 @@ def main(
         "whose reference target is inside it",
     ),
     limit: int = typer.Option(
-        _DEFAULT_LIMIT, "--limit", help="Max sites printed per list (0 = all; JSON lists all)"
+        _DEFAULT_LIMIT, "--limit", help="Max sites printed per list (0 = none; JSON lists all)"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

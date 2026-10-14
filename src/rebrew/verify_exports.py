@@ -59,8 +59,10 @@ def compare_exports(original: Path, recomp: Path) -> dict[str, Any]:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build check-exports build/recomp.dll · · Compare exports against the target\n\n"
-    "  rebrew build check-exports build/recomp.dll --target win16 --json · Structured result\n"
+    "  # Compare exports against the target\n"
+    "  rebrew build check-exports build/recomp.dll\n\n"
+    "  # Structured result\n"
+    "  rebrew build check-exports build/recomp.dll --target win16 --json\n"
 )
 
 

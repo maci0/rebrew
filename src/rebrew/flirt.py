@@ -498,17 +498,14 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew library scan-signatures · · · · · · · · · · Scan with default .sig files\n\n"
-        "  rebrew library scan-signatures sigs/ · · · · · · · Use custom signature directory\n\n"
-        "  rebrew library scan-signatures --json · · · · · · · Output matches as JSON\n\n"
-        "  rebrew library scan-signatures --min-size 32 · · · · Only report functions ≥32 bytes\n\n"
+        "  rebrew library scan-signatures  # Scan with default .sig files\n\n"
+        "  rebrew library scan-signatures sigs/  # Use custom signature directory\n\n"
+        "  rebrew library scan-signatures --json  # Output matches as JSON\n\n"
+        "  # Only report functions ≥32 bytes\n"
+        "  rebrew library scan-signatures --min-size 32\n\n"
         "[bold]How it works:[/bold]\n\n"
-        "  Scans the target binary using FLIRT (Fast Library Identification and "
-        "Recognition Technology) signatures to identify known library functions "
-        "(MSVCRT, DirectX, Zlib, etc.).\n\n"
-        "[dim]Signatures load from the project's flirt_sigs/ merged with the "
-        "recondb checkout (REBREW_FLIRT_SIGS_DIR overrides); or pass "
-        "a SIG_DIR argument. Reads target binary path from rebrew-project.toml.[/dim]"
+        "  Scans the target binary using FLIRT (Fast Library Identification and Recognition Technology) signatures to identify known library functions (MSVCRT, DirectX, Zlib, etc.).\n\n"
+        "[dim]Signatures load from the project's flirt_sigs/ merged with the recondb checkout (REBREW_FLIRT_SIGS_DIR overrides); or pass a SIG_DIR argument. Reads target binary path from rebrew-project.toml.[/dim]"
     ),
 )
 

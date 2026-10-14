@@ -44,10 +44,11 @@ app = typer.Typer(
     help="Document unmatched functions as STUB skeletons + blockers.",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew source document-unmatched --dry-run  Preview how many functions are undocumented\n\n"
-        "  rebrew source document-unmatched · · · · · · Write STUB .c + blocker for every unmatched function\n\n"
-        "[dim]Skips VAs that already have a fcn_<va>.c file or a FUNCTION/STUB marker. "
-        "Idempotent — re-running after documenting reports zero unmatched.[/dim]"
+        "  # Preview how many functions are undocumented\n"
+        "  rebrew source document-unmatched --dry-run\n\n"
+        "  # Write STUB .c + blocker for every unmatched function\n"
+        "  rebrew source document-unmatched\n\n"
+        "[dim]Skips VAs that already have a fcn_<va>.c file or a bound function metadata row. Idempotent — re-running after documenting reports zero unmatched.[/dim]"
     ),
 )
 
@@ -87,7 +88,7 @@ def main(
         "--backfill-blockers",
         help="Write a BLOCKER for every existing STUB function that lacks one "
         "(the lint W005 class — stubs documented before document-unmatched "
-        "existed), and record an available annotation SIZE so the stub stays "
+        "existed), and record available SIZE metadata so the stub stays "
         "testable",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

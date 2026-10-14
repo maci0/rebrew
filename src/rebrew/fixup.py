@@ -164,10 +164,11 @@ def fixup_source(source: str, compile_errors: str | None = None) -> FixupResult:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew source fix raw.c · · · · · · · · · · Write raw.fixed.c, print a diff summary\n\n"
-    "  rebrew source fix raw.c --dry-run · · · · · · Report the fixes without writing\n\n"
-    "  rebrew source fix raw.c --output cleaned.c --compile-check · · Write elsewhere and compile it\n\n"
-    "  rebrew source fix raw.c --json · · · · · · · Machine-readable report\n"
+    "  rebrew source fix raw.c  # Write raw.fixed.c, print a diff summary\n\n"
+    "  rebrew source fix raw.c --dry-run  # Report the fixes without writing\n\n"
+    "  # Write elsewhere and compile it\n"
+    "  rebrew source fix raw.c --output cleaned.c --compile-check\n\n"
+    "  rebrew source fix raw.c --json  # Machine-readable report\n"
 )
 
 
@@ -226,7 +227,7 @@ def main(
     compile_check: bool = typer.Option(
         False,
         "--compile-check",
-        help="Compile the fixed source; on failure, banner the error into the output and exit nonzero.",
+        help="Compile the fixed source; on failure, banner the error into the output and exit nonzero",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

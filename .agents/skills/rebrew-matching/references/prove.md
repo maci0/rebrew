@@ -42,6 +42,6 @@ From a checkout, install the extra into that same tool environment:
 
 Limitations: float-heavy may not prove; raise `--timeout` / `--loop-bound` for
 loops. A proof is bounded by modeled calls, inputs, and loop limits; inspect
-those assumptions before treating it as semantic evidence. `--watch-va` is **decimal unless `0x`-prefixed**
-(unlike most rebrew tools). Keep watched set small (<10).
+those assumptions before treating it as semantic evidence. `--watch-va` always reads hexadecimal addresses; the `0x` prefix is optional,
+consistent with other Rebrew VA inputs. Keep watched set small (<10).
 `prove_constraints.watched_vas` metadata is the durable form.

@@ -24,6 +24,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import (
+    SOURCE_HELP,
     TargetOption,
     console,
     error_exit,
@@ -38,9 +39,12 @@ from rebrew.utils import floor_pct
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew diagnose probe src/game_dll/my_func.c · · Measure one function, write no metadata\n\n"
-    "  rebrew diagnose probe f.c --va 0x10009310 --size 42 · · Override VA and size\n\n"
-    '  rebrew diagnose probe f.c --cflags "/O1 /Gd" --json · Machine-readable measurements\n'
+    "  # Measure one function, write no metadata\n"
+    "  rebrew diagnose probe src/game_dll/my_func.c\n\n"
+    "  # Override VA and size\n"
+    "  rebrew diagnose probe f.c --va 0x10009310 --size 42\n\n"
+    "  # Machine-readable measurements\n"
+    '  rebrew diagnose probe f.c --cflags "/O1 /Gd" --json\n'
 )
 
 
@@ -66,10 +70,10 @@ def matched_reloc_count(ref_raw: bytes, cand: bytes, relocs: set[int], size: int
 
 @app.callback(invoke_without_command=True)
 def main(
-    source: str = typer.Argument(..., help="C source file (or VA/symbol) for the function"),
-    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from annotation)"),
+    source: str = typer.Argument(..., help=SOURCE_HELP),
+    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
     size: int | None = typer.Option(
-        None, "--size", help="Target size in bytes (default: from annotation)"
+        None, "--size", help="Target size in bytes (default: from metadata)"
     ),
     cflags: str | None = typer.Option(
         None, "--cflags", help="Compiler flags (default: from metadata)"

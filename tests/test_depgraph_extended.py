@@ -200,8 +200,11 @@ class TestDepgraphCli:
             metadata_fields={"SERVER.0x2000": {"kind": "FUNCTION", "symbol": "_my_func"}},
         )
         result = CliRunner().invoke(app, ["--format", "svg"])
-        assert result.exit_code != 0
-        assert "Unknown format" in result.output
+        assert result.exit_code == 2
+        message = " ".join(result.output.split())
+        assert "--format" in message and "svg" in message
+        assert "not one of" in message
+        assert all(choice in message for choice in ("mermaid", "dot", "summary"))
 
     def test_include_dispatch_missing_binary(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

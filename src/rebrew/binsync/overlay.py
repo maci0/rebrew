@@ -571,7 +571,6 @@ def overlay_state(
         if source_comments:
             src_size = int(str(remote.get("size") or 0) or 0)
             shifted: dict[str, dict[str, Any]] = {}
-            markers: dict[int, str] = {}
             for addr, info in source_comments.items():
                 if src_size <= 0 or not (src_va <= addr < src_va + src_size):
                     continue
@@ -580,7 +579,6 @@ def overlay_state(
                     "comment": info["comment"],
                     "func_addr": dst_va,
                 }
-                markers[new_addr] = str(info["comment"])
             if shifted:
                 if dry_run:
                     applied_comments += len(shifted)
@@ -603,21 +601,6 @@ def overlay_state(
                             "comments overlay failed for VA %s", _hex(dst_va), exc_info=True
                         )
                         skipped += 1
-                    filepath = getattr(local, "filepath", "") or ""
-                    if markers and filepath:
-                        from rebrew.binsync.state import write_analysis_markers
-
-                        marker_path = contained_path(source_roots(cfg), filepath)
-                        if marker_path is None:
-                            log.warning("refusing file outside the source roots: %r", filepath)
-                        else:
-                            try:
-                                write_analysis_markers(marker_path, markers)
-                            except OSError:
-                                log.warning(
-                                    "ANALYSIS marker write failed for %s", filepath, exc_info=True
-                                )
-
         rows.append(
             {
                 "dst_va": _hex(dst_va),
@@ -810,14 +793,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binsync overlay ../v1/state --dry-run · · Preview\n\n"
+        "  rebrew binsync overlay ../v1/state --dry-run  # Preview\n\n"
         "  rebrew binsync overlay ../v1/state --accept-binsync\n\n"
         "  rebrew binsync overlay ./state --fields name,prototype\n\n"
         "  rebrew binsync overlay ./state --fields global\n\n"
-        "[dim]Structurally matches the source target's BinSync functions against this\n"
-        "target's unmatched functions (same code, different VAs) and overlays names,\n"
-        "prototypes, and notes.  --fields global adds content-matched globals.\n"
-        "Source defaults to the manifest's target.[/dim]"
+        "[dim]Structurally matches the source target's BinSync functions against this target's unmatched functions (same code, different VAs) and overlays names, prototypes, and notes.  --fields global adds content-matched globals. Source defaults to the manifest's target.[/dim]"
     ),
 )
 
@@ -846,7 +826,7 @@ def main(
         help="Comma-separated fields to overlay (name, prototype, note, global)",
     ),
     module: str | None = typer.Option(
-        None, "--module", help="Only overlay annotations in this module (e.g. SERVER)"
+        None, "--module", help="Only overlay metadata in this module (e.g. SERVER)"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

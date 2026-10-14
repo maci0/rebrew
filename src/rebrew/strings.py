@@ -142,11 +142,12 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary strings · · · · · · · · · · · Extract from the project's target binary\n\n"
-        "  rebrew binary strings other.dll · · · · · · Extract from a specific binary\n\n"
-        "  rebrew binary strings --min-len 8 --section .rdata · · Longer strings, one section\n\n"
-        "  rebrew binary strings --xref 0x1000 · · · · Show code that references each string\n\n"
-        "  rebrew binary strings --json · · · · · · · · Machine-readable string list to stdout\n\n"
+        "  rebrew binary strings  # Extract from the project's target binary\n\n"
+        "  rebrew binary strings other.dll  # Extract from a specific binary\n\n"
+        "  # Longer strings, one section\n"
+        "  rebrew binary strings --min-len 8 --section .rdata\n\n"
+        "  rebrew binary strings --xref  # Show code that references each string\n\n"
+        "  rebrew binary strings --json  # Machine-readable string list to stdout\n\n"
         "[dim]Human output goes to stderr, so `rebrew binary strings --json | jq` is the scriptable form.[/dim]"
     ),
 )

@@ -27,6 +27,7 @@ from typing import Any
 
 import typer
 from rich.cells import cell_len
+from typer.models import TyperPath
 
 from rebrew.cli import (
     TargetOption,
@@ -64,9 +65,12 @@ def _name_column(name: str, width: int = _NAME_COLUMN) -> str:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build residue build/game.exe · · · Measure residue against the baseline\n\n"
-    "  rebrew build residue build/game.exe --new-baseline · · Record today's bytes as baseline\n\n"
-    "  rebrew build residue build/game.exe --baseline old.json --json · Compare against a file\n"
+    "  # Measure residue against the baseline\n"
+    "  rebrew build residue build/game.exe\n\n"
+    "  # Record today's bytes as baseline\n"
+    "  rebrew build residue build/game.exe --new-baseline baseline.json\n\n"
+    "  # Compare against a file\n"
+    "  rebrew build residue build/game.exe --baseline old.json --json\n"
 )
 
 
@@ -233,14 +237,22 @@ def layout_map_gate_note(cover: tuple[int, int, int, int]) -> str | None:
 
 @app.callback(invoke_without_command=True)
 def main(
-    built: str = typer.Argument(None, help="Built image to measure (default: build/<target>)"),
+    built: str = typer.Argument(
+        None,
+        help="Built image to measure (default: build/<target>)",
+        click_type=TyperPath(path_type=str),
+    ),
     baseline: str | None = typer.Option(
         None,
         "--baseline",
         help="Baseline JSON file: also print per-function deltas vs it",
+        click_type=TyperPath(path_type=str),
     ),
     new_baseline: str | None = typer.Option(
-        None, "--new-baseline", help="Write this run's report as JSON to PATH (adopt as baseline)"
+        None,
+        "--new-baseline",
+        help="Write this run's report as JSON to PATH (adopt as baseline)",
+        click_type=TyperPath(path_type=str),
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

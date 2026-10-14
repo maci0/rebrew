@@ -16,7 +16,7 @@ It also sets ``COMPILE_DEFINITIONS`` from the selected target's ``defines``;
 these select shared source branches and are separate from metadata guards.
 A CMake project then does
 
-    execute_process(COMMAND ${REBREW} cmake-flags -o ${CMAKE_BINARY_DIR}/rebrew-cflags.cmake)
+    execute_process(COMMAND ${REBREW} build cmake-flags -o ${CMAKE_BINARY_DIR}/rebrew-cflags.cmake)
     include(${CMAKE_BINARY_DIR}/rebrew-cflags.cmake)
 
 and adds ``rebrew-functions.toml`` to ``CMAKE_CONFIGURE_DEPENDS`` so editing the
@@ -58,16 +58,16 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew build cmake-flags -o build/rebrew-cflags.cmake · Write the flag table\n\n"
-        "  rebrew build cmake-flags --dry-run · Print the table without writing\n\n"
-        "  rebrew build cmake-flags --json · Machine-readable result\n\n"
-        "  rebrew build cmake-flags --target server · Flags for one target\n\n"
+        "  # Write the flag table\n"
+        "  rebrew build cmake-flags -o build/rebrew-cflags.cmake\n\n"
+        "  rebrew build cmake-flags --dry-run  # Print the table without writing\n\n"
+        "  rebrew build cmake-flags --json  # Machine-readable result\n\n"
+        "  rebrew build cmake-flags --target server  # Flags for one target\n\n"
         "[dim]From CMakeLists.txt:[/dim]\n\n"
-        "  execute_process(COMMAND ${REBREW} cmake-flags -o "
-        "${CMAKE_BINARY_DIR}/rebrew-cflags.cmake)\n"
-        "  include(${CMAKE_BINARY_DIR}/rebrew-cflags.cmake)\n\n"
-        "[dim]Add rebrew-functions.toml to CMAKE_CONFIGURE_DEPENDS so editing the "
-        "metadata reconfigures the build instead of reusing stale flags.[/dim]"
+        "  set(flags_file ${CMAKE_BINARY_DIR}/rebrew-cflags.cmake)\n"
+        "  execute_process(COMMAND ${REBREW} build cmake-flags -o ${flags_file})\n"
+        "  include(${flags_file})\n\n"
+        "[dim]Add rebrew-functions.toml to CMAKE_CONFIGURE_DEPENDS so editing the metadata reconfigures the build instead of reusing stale flags.[/dim]"
     ),
 )
 
@@ -194,11 +194,8 @@ def main(
     sources_file: Path = typer.Option(
         None,
         "--sources-file",
-        help="File listing the sources the build compiles (one path per line, "
-        "relative to the project root).  Every listed file gets an entry: "
-        "its metadata flags when it has any, the project default when it "
-        "does not.  Without this, a file the build compiles but nothing "
-        "annotates would silently lose its flags.",
+        help="Build source list: one project-relative path per line. Emits resolved metadata "
+        "flags or project defaults for every listed source, including files without bindings",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

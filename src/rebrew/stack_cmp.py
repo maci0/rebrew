@@ -22,6 +22,7 @@ import typer
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
+    SOURCE_HELP,
     TargetOption,
     console,
     error_exit,
@@ -126,18 +127,11 @@ def run_stack_cmp(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew diagnose stack src/game/my_func.c · · · · Compare frame vs target\n\n"
-    "  rebrew diagnose stack 0x10009310 · · · · · · · Resolve VA to its source\n\n"
-    "  rebrew diagnose stack src/game/my_func.c --json · JSON output\n\n"
-    "[bold]Exit codes:[/bold]\n\n"
-    "  0   Stack frames match\n\n"
-    "  1   Frame differs (size / frame pointer / ret-popping / slot layout)\n\n"
-    "  2   Build failed (also a usage error: unknown flag, missing argument)\n\n"
-    "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]\n\n"
-    "[dim]Derives the frame from disassembly on both sides (no PDB needed — "
-    "works for MSVC 6.0 classic PDBs llvm-pdbutil cannot read).  A frame "
-    "delta is a per-function flag symptom (/Oy, /O1 vs /O2, /Gs, calling "
-    "convention).[/dim]"
+    "  rebrew diagnose stack src/game/my_func.c  # Compare frame vs target\n\n"
+    "  rebrew diagnose stack 0x10009310  # Resolve VA to its source\n\n"
+    "  rebrew diagnose stack src/game/my_func.c --json  # JSON output\n\n"
+    "[dim]Derives the frame from disassembly on both sides (no PDB needed — works for MSVC 6.0 classic PDBs llvm-pdbutil cannot read).  A frame delta is a per-function flag symptom (/Oy, /O1 vs /O2, /Gs, calling convention).[/dim]\n\n"
+    "Exit codes: 0 frames match; 1 frame mismatch; 2 usage/config/build error; 130 interrupted; 141 output pipe closed."
 )
 
 app = typer.Typer(
@@ -149,9 +143,7 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    seed_c: str = typer.Argument(
-        ..., metavar="source", help="C source file, symbol name, or VA (hex)"
-    ),
+    seed_c: str = typer.Argument(..., metavar="source", help=SOURCE_HELP),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:

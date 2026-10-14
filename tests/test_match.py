@@ -808,19 +808,26 @@ class TestRunAllBatch:
             now=now,
         )
 
+    @pytest.mark.parametrize("max_stubs, expected_count", [(0, 2), (1, 1)])
     def test_dry_run_json_lists_stubs(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+        max_stubs: int,
+        expected_count: int,
     ) -> None:
         import json
 
         stubs = [self._stub("a.c"), self._stub("b.c", "0x10001010", 200)]
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
-        out = self._run(self._cfg(tmp_path), dry_run=True, json_output=True)
+        out = self._run(self._cfg(tmp_path), dry_run=True, json_output=True, max_stubs=max_stubs)
         assert out == (0, 0)
         data = json.loads(capsys.readouterr().out)
-        assert data["count"] == 2
-        assert [item["symbol"] for item in data["items"]] == ["a.c", "b.c"]
-        assert data["items"][1]["size"] == 200
+        assert data["count"] == expected_count
+        assert [item["symbol"] for item in data["items"]] == ["a.c", "b.c"][:expected_count]
+        if expected_count == 2:
+            assert data["items"][1]["size"] == 200
 
     def test_size_and_string_filters(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture

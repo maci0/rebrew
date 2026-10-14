@@ -382,14 +382,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew build check · · · · · · · Inspect the default build/ tree\n\n"
-        "  rebrew build check --json · · · · Machine-readable result\n\n"
-        "  rebrew build check --build-dir out/x64 · Check a non-default tree\n\n"
-        "[bold]Exit codes:[/bold] 0 in sync · 1 drift · 2 nothing to check "
-        "(missing or mistyped --build-dir)\n\n"
-        "[dim]build/ is gitignored, so no tracked-file check can see a hand-edited "
-        "build.make. Drift means every later measurement describes a build no fresh "
-        "clone can reproduce.[/dim]"
+        "  rebrew build check  # Inspect the default build/ tree\n\n"
+        "  rebrew build check --json  # Machine-readable result\n\n"
+        "  rebrew build check --build-dir out/x64  # Check a non-default tree\n\n"
+        "[dim]build/ is gitignored, so no tracked-file check can see a hand-edited build.make. Drift means every later measurement describes a build no fresh clone can reproduce.[/dim]\n\n"
+        "Exit codes: 0 in sync; 1 drift; 2 usage/config/build error; 130 interrupted; 141 output pipe closed."
     ),
 )
 
@@ -397,21 +394,21 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     build_dir: Path = typer.Option(
-        DEFAULT_BUILD_DIR, "--build-dir", help="CMake build directory to inspect."
+        DEFAULT_BUILD_DIR, "--build-dir", help="CMake build directory to inspect"
     ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     objects: bool = typer.Option(
         False,
         "--objects",
-        help="Also ask Make whether native objects and header dependencies are current.",
+        help="Also ask Make whether native objects and header dependencies are current",
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Verify build/ still matches what CMake generated.
 
     Exits non-zero when build.make has been hand-edited, because every
     measurement taken from a drifted tree describes a build no fresh clone can
     reproduce.  Also exits non-zero when there is nothing to check: a mistyped
-    ``--build-dir`` must not read as clean, or the command reproduces the very
+    --build-dir must not read as clean, or the command reproduces the very
     silent-pass failure it exists to catch.
     """
     result = check(build_dir, objects=objects)

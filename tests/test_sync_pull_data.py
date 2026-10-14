@@ -1,5 +1,6 @@
 """Tests for rebrew sync --pull-data (Ghidra data label fetching)."""
 
+import json
 import re
 import sys
 from types import SimpleNamespace
@@ -43,6 +44,7 @@ def _runpull_data(
     data_by_addr: dict[str, dict[str, Any]],
     *,
     dry_run: bool = False,
+    json_output: bool = False,
     sections: list[dict[str, Any]] | None = None,
 ) -> None:
     _mock_httpx(monkeypatch)
@@ -99,7 +101,59 @@ def _runpull_data(
         target_binary=tmp_path / "target.exe",
         format="pe",
     )
-    pull_data(cfg, "http://localhost:8080/mcp/message", "/target.exe", dry_run)
+    pull_data(
+        cfg, "http://localhost:8080/mcp/message", "/target.exe", dry_run, json_output=json_output
+    )
+
+
+class TestPullDataJson:
+    def test_writes_one_stdout_document_and_reports_unchanged(
+        self, tmp_path: Any, monkeypatch: Any, capsys: Any
+    ) -> None:
+        symbols = [{"name": "count", "address": "0x403010", "isFunction": False}]
+        details = {"0x403010": {"address": "0x403010", "dataType": "int", "length": 4}}
+        for written in [True, False]:
+            _runpull_data(monkeypatch, tmp_path, symbols, details, json_output=True)
+            payload = json.loads(capsys.readouterr().out)
+            assert payload == {
+                "output": str(tmp_path / "rebrew_globals.h"),
+                "globals": 1,
+                "written": written,
+                "dry_run": False,
+            }
+
+    def test_preview_and_empty_results_are_json(
+        self, tmp_path: Any, monkeypatch: Any, capsys: Any
+    ) -> None:
+        symbols = [{"name": "count", "address": "0x403010", "isFunction": False}]
+        details = {"0x403010": {"address": "0x403010", "dataType": "int", "length": 4}}
+        _runpull_data(monkeypatch, tmp_path, symbols, details, dry_run=True, json_output=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["dry_run"] is True
+        assert payload["globals"] == 1
+        assert payload["written"] is False
+        assert not (tmp_path / "rebrew_globals.h").exists()
+
+        _runpull_data(monkeypatch, tmp_path, [], {}, json_output=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["globals"] == 0
+        assert payload["written"] is False
+
+    def test_connection_failure_has_a_json_result(
+        self, tmp_path: Any, monkeypatch: Any, capsys: Any
+    ) -> None:
+        _mock_httpx(monkeypatch)
+
+        def fail(*args: Any, **kwargs: Any) -> str:
+            raise RuntimeError("offline")
+
+        monkeypatch.setattr("rebrew.ghidra.commands.init_mcp_session", fail)
+        cfg = SimpleNamespace(reversed_dir=tmp_path, target_binary=tmp_path / "missing.exe")
+        pull_data(cfg, "http://localhost:8080/mcp/message", "/target.exe", False, json_output=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["written"] is False
+        assert payload["globals"] == 0
+        assert "offline" in payload["error"]
 
 
 class TestPullDataGlobalsHeader:

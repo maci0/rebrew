@@ -947,8 +947,8 @@ def flag_sweep(
         # refuse loudly instead of silently wasting compiles.
         raise ValueError(
             f"flag sweep: profile {profile!r} uses posix-style flags but has no "
-            "registered flag set (rebrew.flag_sets) — run the GA without "
-            "--flag-sweep-only, or provide flag axes for the profile"
+            "registered flag set (rebrew.flag_sets). Use rebrew match run for GA; "
+            "rebrew match flags requires a registered flag set for this profile"
         )
 
     combos = generate_flag_combinations(tier=tier, profile=profile)

@@ -1,12 +1,10 @@
 """Tests for ``rebrew coverage build`` — the typer front over the TOML writer.
 
-``rebrew coverage build`` reads ``db/data_*.json`` (or regenerates the catalog
-in-process with ``--regen``) and writes one clear-text document per target,
-``db/coverage-<target>.toml``.  The writer itself is
+``rebrew coverage build`` runs the catalog analysis in-process and writes one
+document per target, ``db/coverage-<target>.toml``. The writer itself is
 :func:`rebrew.coverage_toml.write_coverage_toml` and is tested in
 ``test_coverage_toml.py``; what this file pins is the COMMAND: which files it
-writes, what ``--target`` / ``--regen`` / ``--json`` / ``--force`` do, and the
-errors a malformed snapshot produces.
+writes, target selection, JSON reporting, removed options, and malformed inputs.
 
 The SQLite storage engine these tests used to drive is gone, so every schema
 DDL / PRAGMA / sqlite_master assertion went with it.  What replaced them is a
@@ -15,7 +13,6 @@ reads it back is the strongest available check.
 """
 
 import copy
-import hashlib
 import json
 import logging
 import tomllib
@@ -692,11 +689,11 @@ class TestTargetSelection:
 
 
 # ---------------------------------------------------------------------------
-# Output modes: --json and --force
+# Output modes and rejected options
 # ---------------------------------------------------------------------------
 
 
-class TestJsonAndForce:
+class TestJsonAndOptions:
     def test_json_reports_files_and_targets(self, runner: CliRunner, project_root: Path) -> None:
         result = _build(runner, project_root, "--json")
 
@@ -735,23 +732,31 @@ class TestJsonAndForce:
         # Nothing was printed outside the JSON envelope.
         assert "Wrote" not in result.output
 
-    def test_force_is_accepted_and_changes_nothing(
-        self, runner: CliRunner, project_root: Path
+    @pytest.mark.parametrize("flag", ["--force", "--regen"])
+    @pytest.mark.parametrize("existing", [False, True])
+    def test_removed_options_are_rejected_before_writing(
+        self, runner: CliRunner, project_root: Path, flag: str, existing: bool
     ) -> None:
-        """``--force`` is a documented NO-OP: each document is replaced whole."""
-        assert _build(runner, project_root).exit_code == 0
+        """Unknown options must neither create nor rewrite a coverage document."""
         path = project_root / "db" / "coverage-testbin.toml"
-        first = path.read_bytes()
+        if existing:
+            assert _build(runner, project_root).exit_code == 0
+        before = (path.read_bytes(), path.stat().st_mtime_ns) if existing else None
 
-        result = _build(runner, project_root, "--force")
+        result = _build(runner, project_root, flag)
 
-        assert result.exit_code == 0, result.output
-        assert path.read_bytes() == first
-        assert hashlib.sha256(path.read_bytes()).digest() == hashlib.sha256(first).digest()
+        assert result.exit_code == 2, result.output
+        assert "No such option" in result.output
+        assert flag in result.output
+        assert "Processing" not in result.output
+        assert "Wrote" not in result.output
+        if existing:
+            assert (path.read_bytes(), path.stat().st_mtime_ns) == before
+        else:
+            assert not path.exists()
+            assert list((project_root / "db").iterdir()) == []
 
-    def test_rerun_is_byte_identical_without_force(
-        self, runner: CliRunner, project_root: Path
-    ) -> None:
+    def test_rerun_is_byte_identical(self, runner: CliRunner, project_root: Path) -> None:
         """A rebuild of unchanged input writes the same bytes.
 
         The header carries no timestamp for exactly this reason, and the

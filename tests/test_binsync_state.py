@@ -1,4 +1,4 @@
-"""Tests for binsync/state.py: remote BinSync text reaching local source files."""
+"""Tests for BinSync state validation and reconciliation helpers."""
 
 from __future__ import annotations
 
@@ -6,52 +6,6 @@ from pathlib import Path
 
 import pytest
 from source_util import write_source
-
-
-class TestAnalysisMarkerSanitizing:
-    def test_comment_newline_cannot_add_source_lines(self, tmp_path: Path) -> None:
-        """A collaborator's comment must stay inside the marker comment."""
-        from rebrew.binsync.state import write_analysis_markers
-
-        source = tmp_path / "foo.c"
-        source.write_text("int foo(void){return 0;}\n", encoding="utf-8")
-        write_analysis_markers(source, {0x1000: "hi\nint injected(void) { return 1; }"})
-
-        text = source.read_text(encoding="utf-8")
-        assert "int injected" not in text.split("/* ANALYSIS @")[0]
-        marker_lines = [line for line in text.splitlines() if "injected" in line]
-        assert marker_lines == ["/* ANALYSIS @ 0x00001000: hi int injected(void) { return 1; } */"]
-
-    def test_comment_cannot_close_the_marker(self, tmp_path: Path) -> None:
-        from rebrew.binsync.state import parse_analysis_markers, write_analysis_markers
-
-        source = tmp_path / "foo.c"
-        source.write_text("int foo(void){return 0;}\n", encoding="utf-8")
-        write_analysis_markers(source, {0x1000: "x */ int injected; /*"})
-        text = source.read_text(encoding="utf-8")
-        assert "/* ANALYSIS @ 0x00001000: x * / int injected; /* */" in text
-        assert parse_analysis_markers(text) == {0x1000: "x * / int injected; /*"}
-
-    def test_marker_comment_text_flattens_control_characters(self) -> None:
-        from rebrew.binsync.state import marker_comment_text
-
-        assert marker_comment_text("a\r\nb\x00c\x1bd") == "a  b c d"
-        assert marker_comment_text("plain text") == "plain text"
-        assert marker_comment_text("tab\there") == "tab\there"
-
-    def test_existing_markers_survive_a_hostile_comment(self, tmp_path: Path) -> None:
-        from rebrew.binsync.state import parse_analysis_markers, write_analysis_markers
-
-        source = tmp_path / "foo.c"
-        source.write_text(
-            "int foo(void){return 0;}\n\n// ANALYSIS @ 0x00001000: local note\n",
-            encoding="utf-8",
-        )
-        assert write_analysis_markers(source, {0x2000: "remote\nnote"})
-        assert parse_analysis_markers(source.read_text(encoding="utf-8")) == {
-            0x1000: "local note",
-            0x2000: "remote note",
-        }
 
 
 class TestDefinitionValidation:

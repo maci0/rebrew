@@ -509,6 +509,24 @@ class TestMemberOffsetCap:
 class TestRecoverProjectStructs:
     """``recover_project_structs()`` is the importable form of the CLI command."""
 
+    def test_zero_limit_skips_decompilation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _project_cfg(tmp_path)
+
+        def unexpected(*args: object, **kwargs: object) -> None:
+            pytest.fail("a zero limit must not decompile a function")
+
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", unexpected)
+        assert recover_project_structs(
+            cfg, decompiler="kuna", all_funcs=True, limit=0, json_output=True
+        ) == {"functions": 0, "structs": []}
+
+    def test_negative_limit_is_rejected(self, tmp_path: Path) -> None:
+        cfg = _project_cfg(tmp_path)
+        with pytest.raises(ValueError, match="limit must be non-negative"):
+            recover_project_structs(cfg, decompiler="kuna", all_funcs=True, limit=-1)
+
     def test_matches_cli_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _project_cfg(tmp_path)
         monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
@@ -538,7 +556,7 @@ class TestRecoverProjectStructs:
         target.write_text("/* existing */\n", encoding="utf-8")
 
         payload = recover_project_structs(
-            cfg, decompiler="kuna", functions="0x401000", apply=target, json_output=True
+            cfg, decompiler="kuna", functions="0x401000", output=target, json_output=True
         )
 
         assert payload["applied"] == str(target)
@@ -548,21 +566,21 @@ class TestRecoverProjectStructs:
     def test_apply_rerun_does_not_duplicate(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A second ``--apply`` must not append the same typedef again."""
+        """A second ``--output`` must not append the same typedef again."""
         cfg = _project_cfg(tmp_path)
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _player_decompiler)
         target = tmp_path / "structs.h"
         target.write_text("/* existing */\n", encoding="utf-8")
 
         first = recover_project_structs(
-            cfg, decompiler="kuna", functions="0x401000", apply=target, json_output=True
+            cfg, decompiler="kuna", functions="0x401000", output=target, json_output=True
         )
         assert first["applied"] == str(target)
         after_first = target.read_text(encoding="utf-8")
         assert after_first.count("typedef struct PlayerInfo_s {") == 1
 
         second = recover_project_structs(
-            cfg, decompiler="kuna", functions="0x401000", apply=target, json_output=True
+            cfg, decompiler="kuna", functions="0x401000", output=target, json_output=True
         )
         assert second["applied"] is None
         assert any(s["name"] == "PlayerInfo" and not s["new"] for s in second["structs"])
@@ -575,7 +593,7 @@ class TestRecoverProjectStructs:
         target.write_text("/* existing */\n", encoding="utf-8")
 
         payload = recover_project_structs(
-            cfg, decompiler="kuna", functions="0x401000", apply=target, dry_run=True
+            cfg, decompiler="kuna", functions="0x401000", output=target, dry_run=True
         )
 
         assert payload["applied"] is None

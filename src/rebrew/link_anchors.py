@@ -16,8 +16,9 @@ from rebrew.utils import atomic_write_text, preset_module_key
 app = typer.Typer(
     help="Generate VA-ordered native function anchors and explicitly selected data anchors.",
     epilog=(
-        "Examples:\n\n  rebrew build anchors --target server.dll --output layout/game-includes.rsp\n\n"
-        "  rebrew build anchors --data-source src/constants.c --data-prefix _ --symbol _mark --dry-run\n\n"
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew build anchors --target server.dll --output layout/game-includes.rsp\n\n"
+        "  rebrew build anchors --data-source src/data.c --dry-run\n\n"
         "Data sources are explicit storage choices; declarations and static definitions are excluded."
     ),
 )
@@ -78,7 +79,9 @@ def main(
     data_prefix: str = typer.Option(
         "", help="Explicit native decoration prefix for selected data definitions"
     ),
-    check: bool = typer.Option(False, "--check", help="Fail when the response file differs"),
+    check: bool = typer.Option(
+        False, "--check", help="Fail when the response file differs; requires --output"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

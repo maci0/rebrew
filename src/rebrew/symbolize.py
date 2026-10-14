@@ -25,12 +25,12 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew source symbolize src/game/net.c --dry-run · Preview the rewrites\n\n"
-        "  rebrew source symbolize src/game/net.c --skip LoadTables · Leave one body alone\n\n"
-        "  rebrew source symbolize src/game/net.c --declare g_table · Declare a missing global\n\n"
-        "[dim]Needs the raw link and its .map ([targets.<name>] raw_link). Re-test the file "
-        "afterwards: a symbol can change register allocation, and a loop needs both bounds "
-        "symbolized with their original signedness.[/dim]"
+        "  rebrew source symbolize src/game/net.c --dry-run  # Preview the rewrites\n\n"
+        "  # Leave one body alone\n"
+        "  rebrew source symbolize src/game/net.c --skip LoadTables\n\n"
+        "  # Declare a missing global\n"
+        "  rebrew source symbolize src/game/net.c --declare g_table\n\n"
+        "[dim]Needs the raw link and its .map (\\[targets.<name>] raw_link). Re-test the file afterwards: a symbol can change register allocation, and a loop needs both bounds symbolized with their original signedness.[/dim]"
     ),
 )
 

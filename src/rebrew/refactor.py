@@ -23,14 +23,15 @@ from rebrew.cli import console, json_print
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew dev refactor · · · · · · · · · · Suggest refactoring opportunities\n\n"
-    "  rebrew dev refactor --min-lines 400 --json · · Only large files, machine-readable\n\n"
-    "  rebrew dev refactor --repository ../rebrew · · · Point at a different tree\n"
+    "  rebrew dev refactor  # Suggest refactoring opportunities\n\n"
+    "  # Only large files, machine-readable\n"
+    "  rebrew dev refactor --min-lines 400 --json\n\n"
+    "  rebrew dev refactor --repository ../rebrew  # Point at a different tree\n"
 )
 
 
 app = typer.Typer(
-    help="Analyse the rebrew source tree and suggest refactoring opportunities.",
+    help="Analyze the rebrew source tree and suggest refactoring opportunities.",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )

@@ -6,21 +6,18 @@ from typing import Any
 
 import typer
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import SOURCE_HELP, TargetOption, console, error_exit, json_print, require_config
 
 app = typer.Typer(
     help="Manage type identities; check layouts; apply types to C signatures.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew types check · · · · · · · · · Check declared structs against decompiler evidence\n\n"
-        "  rebrew types check --json · · · · · · Same check, machine-readable\n\n"
-        "  rebrew types bind engine.object src/object.h OBJECT --size 0x228 --native-size 0x228 --evidence 'native allocation' · Bind a compiler-checked target type\n\n"
-        "  rebrew types apply src/f.c --param 2 --type MAT4 · Rewrite one parameter type\n\n"
-        "  rebrew types apply 0x10009310 --param 0 --type VEC3 --dry-run · Preview the edit\n\n"
-        "[dim]A bare invocation reports every declared struct whose field widths disagree "
-        "with the majority width seen in decompiler output. apply-type writes the spelling "
-        "into the C source, so a recovered type actually reaches the compiler.[/dim]"
+        "  rebrew types check --json\n\n"
+        "  rebrew types check --compile\n\n"
+        "  rebrew types bind obj t.h T --size 4 --native-size 4 --evidence alloc\n\n"
+        "  rebrew types apply src/f.c --param 2 --type MAT4 --dry-run\n\n"
+        "[dim]check compares declared layouts with decompiler evidence. bind records a stable type identity after compiler checks. apply rewrites a C parameter type; preview it, then verify affected functions.[/dim]\n\n"
     ),
 )
 
@@ -61,7 +58,11 @@ def collect_evidence(files: list[Path]) -> dict[str, dict[int, int]]:
 
 @app.command(
     "check",
-    epilog="Examples:\n\n  rebrew types check --json\n\nDeclarations do not allocate storage. Preview edits and verify affected functions afterwards.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew types check --json\n\n"
+        "Reports layout conflicts and stale type bindings. --compile repeats managed sizeof/offsetof checks."
+    ),
 )
 def check(
     compile_layouts: bool = typer.Option(
@@ -121,7 +122,11 @@ def check(
 
 @app.command(
     "bind",
-    epilog="Examples:\n\n  rebrew types bind engine.object src/object.h OBJECT --size 0x228 --native-size 0x228 --evidence 'allocation at A.0x401000' --field name=0 --json\n\nIdentity has no VA. Instance addresses belong to function/data records. Rebind the same ID after reviewing stale evidence.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew types bind obj t.h T --size 4 --native-size 4 --evidence alloc\n\n"
+        "Identity has no VA. Instance addresses belong to function/data records. Rebind the same ID after reviewing stale evidence."
+    ),
 )
 def bind(
     identity: str = typer.Argument(..., help="Stable type ID, independent of the C name"),
@@ -188,10 +193,14 @@ def main_entry() -> None:
 
 @app.command(
     "apply",
-    epilog="Examples:\n\n  rebrew types apply 0x401000 --param 0 --type int --dry-run\n\nDeclarations do not allocate storage. Preview edits and verify affected functions afterwards.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew types apply 0x401000 --param 0 --type int --dry-run\n\n"
+        "Preview the parameter type edit, then test affected functions."
+    ),
 )
 def apply_type(
-    target_ident: str = typer.Argument(..., metavar="source", help="File path, symbol, or hex VA"),
+    target_ident: str = typer.Argument(..., metavar="source", help=SOURCE_HELP),
     param: int = typer.Option(..., "--param", help="0-based parameter index"),
     type_name: str = typer.Option(..., "--type", help="New parameter type spelling"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),

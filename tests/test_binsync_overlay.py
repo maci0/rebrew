@@ -541,7 +541,8 @@ class TestLocalsCommentsOverlay:
         from rebrew.metadata.functions import get_entry
 
         _make_project(tmp_path)
-        _write_dest(tmp_path, local_name="func_401040")
+        source = _write_dest(tmp_path, local_name="func_401040")
+        before_source = source.read_bytes(), source.stat().st_mtime_ns
         state = _make_state(tmp_path)
         func_path = state / "functions" / f"{A_F1:08x}.toml"
         func = Function.loads(func_path.read_text(encoding="utf-8"))
@@ -554,11 +555,12 @@ class TestLocalsCommentsOverlay:
         (state / "comments.toml").write_text(Comment.dumps_many([comment]), encoding="utf-8")
         monkeypatch.chdir(tmp_path)
 
-        result = _invoke(tmp_path, state, "--json")
+        result = _invoke(tmp_path, state, "--fields", "note", "--json")
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
         assert payload["applied_locals"] == 1
         assert payload["applied_comments"] == 1
+        assert (source.read_bytes(), source.stat().st_mtime_ns) == before_source
         entry = get_entry(tmp_path / "src", B_F1, "B")
         assert entry.get("locals") == {"-4": {"name": "ret", "type": "int", "size": 4}}
         assert entry.get("comments") == {

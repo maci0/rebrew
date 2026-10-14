@@ -1,7 +1,7 @@
 ---
 name: rebrew-data-analysis
 description: >-
-  Analyze and verify Rebrew globals, DATA/GLOBAL annotations, complete data extents, BSS
+  Analyze and verify Rebrew globals, dedicated data metadata, complete extents, BSS
   gaps, dispatch tables/vtables, relocation hints, and cross-TU type conflicts. Covers
   data layout repairs and stored verdict accounting. Use rebrew-ghidra-sync for external
   data imports and rebrew-workflow for function bodies.
@@ -167,7 +167,7 @@ Two diff signals point at globals:
 | Signal in `rebrew diff --json` | Cause | Fix |
 |--------------------------------|-------|-----|
 | `XX` rows (`summary` counts them as mismatches) | Relocation resolves to a catalogued global at the wrong VA: wrong name or a type conflict | Check the name in `rebrew-data.toml`; run `--conflicts` and unify the type |
-| `missing_globals` hints (`[0]` operand on a `**` row) | Reference never resolved: no definition for the target address | Add `extern`, then `rebrew data annotate` so the row records `file`. Do not add a new marker line |
+| `missing_globals` hints (`[0]` operand on a `**` row) | Reference never resolved: no definition for the target address | Add `extern`, then `rebrew data annotate` so the row records `file`. Do not add inline metadata state |
 
 A file that spells globals as raw `(T *) 0xVA` casts matches bytes but lacks
 the reference's relocations. `rebrew source symbolize <file> --dry-run` lists
@@ -180,7 +180,7 @@ their cast types.
 ### Workflow
 
 1. `rebrew diff --json src/bench/<file>.c`: note `XX` rows and `missing_globals`
-2. Add the missing `extern` declarations, then `rebrew data annotate` to record the row. Do not add a new marker line
+2. Add the missing `extern` declarations, then `rebrew data annotate` to record the row. Do not add inline metadata state
 3. Check the backing object and stock-library provenance before adding storage:
    `rebrew library inspect <lib> --defines <symbol>` names the archive member, and
    listing that member shows its `.bss` size and alignment and its COMMON extents.
@@ -212,7 +212,7 @@ reconstructing the discarded functions instead of inventing stand-ins.
 function pointers. Tables are not labelled vtable vs dispatch table; decide from
 the callers. Table fields are in `references/json-and-failures.md`.
 
-Names come from source annotations first, then the function list / Ghidra structure
+Names come from source bindings and dedicated metadata first, then the function list / Ghidra structure
 registry, so a low-coverage table usually means its targets lack reversed sources
 (pick them up in `rebrew-workflow`), not that the detection failed. Tune detection
 with `--min-table-len` (default 3) and `--max-pointer-stride` (default 4; raise it

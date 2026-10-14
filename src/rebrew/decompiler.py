@@ -1218,6 +1218,12 @@ def refresh_backends() -> dict[str, Callable[..., str | None]]:
         return dict(merged)
 
 
+def complete_backends(incomplete: str) -> list[str]:
+    """Complete selectable backend names from the current registry snapshot."""
+    with _BACKEND_REFRESH_LOCK:
+        return [name for name in ("auto", *_BACKEND_MAP) if name.startswith(incomplete)]
+
+
 def fetch_decompilation(
     backend: str,
     binary_path: Path,

@@ -32,9 +32,9 @@ from rebrew.utils import atomic_write_text, preset_module_key
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build link-order --check · · · · · · Fail if CMakeLists.txt drifts (CI gate)\n\n"
-    "  rebrew build link-order --dry-run · · · · · Show the reordering, write nothing\n\n"
-    "  rebrew build link-order --apply · · · · · · · Rewrite CMakeLists.txt in VA order\n"
+    "  rebrew build link-order --check  # Fail if CMakeLists.txt drifts (CI gate)\n\n"
+    "  rebrew build link-order --dry-run  # Show the reordering, write nothing\n\n"
+    "  rebrew build link-order --apply  # Rewrite CMakeLists.txt in VA order\n"
 )
 
 
@@ -388,10 +388,14 @@ def _payload(
 
 @app.callback(invoke_without_command=True)
 def main(
-    apply: bool = typer.Option(False, "--apply", help="Rewrite the SOURCES block in VA order"),
+    apply: bool = typer.Option(
+        False, "--apply", help="Rewrite the SOURCES block in VA order; excludes --check"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     check: bool = typer.Option(
-        False, "--check", help="Exit 1 with a diff when the SOURCES block drifts from VA order"
+        False,
+        "--check",
+        help="Exit 1 if SOURCES drifts from VA order; excludes --apply",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

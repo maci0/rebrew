@@ -24,7 +24,7 @@ graph TD
 
 # Rebrew Ghidra Sync
 
-Synchronize annotations and symbols between rebrew source files and Ghidra.
+Synchronize names, types, and dedicated Rebrew metadata with Ghidra.
 **Field-level sync is BinSync-primary**: rebrew exports and imports the shared
 BinSync state dir; the BinSync Ghidra plugin (or a collaborator's tool) relays
 the state to and from Ghidra. ReVa MCP remains only for the structural ops the
@@ -71,14 +71,14 @@ Without declib (`uv sync --extra binsync`) every sync command exits 2 first.
 ### BinSync field sync (names, comments/notes, prototypes, structs, globals)
 
 ```bash
-rebrew sync push --state-dir D # export annotations -> state dir
+rebrew sync push --state-dir D # export metadata fields -> state dir
 rebrew sync summary --state-dir D # preview the push (no writes)
 rebrew sync pull --state-dir D --dry-run # preview the import first
 rebrew sync pull --state-dir D # import state -> renames, C signatures, notes, globals, structs
 rebrew sync pull --state-dir D --create-functions # import, then create the imported VAs in Ghidra (MCP)
 rebrew sync pull --state-dir D --accept-binsync # accept remote values on field conflicts
 rebrew sync pull --state-dir D --accept-local # keep local values on field conflicts
-rebrew sync pull --state-dir D --create-missing # STUB files for catalog functions without local annotations
+rebrew sync pull --state-dir D --create-missing # STUB files for catalog functions without local source bindings
 rebrew sync watch --state-dir D # re-export when source or other sync inputs change
 ```
 
@@ -195,6 +195,6 @@ rebrew sync pull --state-dir D --dry-run # 1. preview incoming state changes
 rebrew sync pull --state-dir D --json # 2. apply; inspect updated / conflicts
 rebrew sync pull --state-dir D --create-functions # 3. create new functions in Ghidra
 rebrew sync summary --state-dir D # 4. preview outgoing changes
-rebrew sync push --state-dir D # 5. export annotations to the state dir
+rebrew sync push --state-dir D # 5. export metadata fields to the state dir
 # 6. the BinSync Ghidra plugin (or a collaborator) relays the state into Ghidra
 ```

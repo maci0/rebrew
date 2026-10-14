@@ -60,8 +60,8 @@ What a splat config cannot give rebrew (skipped on purpose, reported by
 Usage::
 
     rebrew source import-splat splat.yaml            # dry run: what it would write
-    rebrew source import-splat splat.yaml --write    # apply
-    rebrew source import-splat splat.yaml --write --force --target win32_app.exe
+    rebrew source import-splat splat.yaml --apply    # apply
+    rebrew source import-splat splat.yaml --apply --force --target win32_app.exe
 
 Config subset
 -------------
@@ -85,6 +85,7 @@ import typer
 from rich.table import Table
 
 from rebrew.cli import (
+    TargetOption,
     error_exit,
     json_print,
     require_config,
@@ -370,13 +371,13 @@ SEED_BLOCKER = "seeded from a splat config, implementation pending"
 _MARKER_STRIP_RE = re.compile(r"[^A-Za-z0-9_]")
 
 app = typer.Typer(
-    help="Seed a rebrew project from a splat config (YAML): names, layout, annotations.",
+    help="Seed a Rebrew project from splat YAML: names, layout, and metadata.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew source import-splat splat.yaml · · · · · · Dry run: what would be written\n\n"
-        "  rebrew source import-splat splat.yaml --write · · · Apply\n\n"
-        "  rebrew source import-splat splat.yaml --json · · · · Machine-readable plan\n\n"
+        "  rebrew source import-splat splat.yaml  # Dry run: what would be written\n\n"
+        "  rebrew source import-splat splat.yaml --apply  # Apply\n\n"
+        "  rebrew source import-splat splat.yaml --json  # Machine-readable plan\n\n"
         "[dim]Reads the config surface rebrew consumes (target_path, platform, "
         "compiler, segments/subsegments, symbol_addrs, undefined_* lists).\n"
         "Ignored keys are reported by name with the reason, never dropped "
@@ -2012,20 +2013,15 @@ def _skip_spaces(text: str, position: int) -> int:
 
 @app.callback(invoke_without_command=True)
 def main(
-    config: Path = typer.Argument(..., help="Path to the splat YAML config."),
-    write: bool = typer.Option(
-        False, "--write", help="Apply the plan (default: dry run, nothing is written)"
+    config: Path = typer.Argument(..., help="Path to the splat YAML config"),
+    apply: bool = typer.Option(
+        False, "--apply", help="Apply the plan (default: dry run, nothing is written)"
     ),
     force: bool = typer.Option(
-        False, "--force", help="Replace annotations that conflict with the splat config"
+        False, "--force", help="Replace metadata entries that conflict with the splat config"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = typer.Option(
-        None,
-        "--target",
-        "-t",
-        help="Target name from rebrew-project.toml (default: project default target).",
-    ),
+    target: str | None = TargetOption,
 ) -> None:
     """Seed a rebrew project from a splat config (dry run by default)."""
     try:
@@ -2038,7 +2034,7 @@ def main(
     except (ValueError, FileNotFoundError, KeyError) as exc:
         error_exit(str(exc), json_mode=json_output)
 
-    if write:
+    if apply:
         try:
             result = apply_plan(plan, force=force)
         except ValueError as exc:
@@ -2047,9 +2043,9 @@ def main(
         result = apply_plan(plan, force=force, dry_run=True)
 
     if json_output:
-        json_print(_plan_payload(plan, result, written=write))
+        json_print(_plan_payload(plan, result, written=apply))
         return
-    _render(plan, result, written=write)
+    _render(plan, result, written=apply)
 
 
 def _plan_payload(plan: ImportPlan, result: dict[str, Any], *, written: bool) -> dict[str, Any]:
@@ -2100,7 +2096,7 @@ def _plan_payload(plan: ImportPlan, result: dict[str, Any], *, written: bool) ->
 
 
 def _render(plan: ImportPlan, result: dict[str, Any], *, written: bool) -> None:
-    """Human-readable plan (and, with ``--write``, what was written)."""
+    """Human-readable plan (and, with ``--apply``, what was written)."""
     header = "import-splat" if written else "dry run"
     console.print(
         f"[bold]{header}:[/bold] {untrusted_ident(plan.splat.path)} -> target {plan.target!r}"
@@ -2178,7 +2174,7 @@ def _render(plan: ImportPlan, result: dict[str, Any], *, written: bool) -> None:
     else:
         console.print(
             f"[cyan]dry run:[/cyan] {len(plan.annotations)} annotation(s), "
-            f"{len(plan.sections)} layout section(s); re-run with --write to apply"
+            f"{len(plan.sections)} layout section(s); re-run with --apply to apply"
         )
     if plan.conflicts and not written:
         console.print(

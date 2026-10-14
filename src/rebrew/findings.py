@@ -6,13 +6,13 @@ from typing import Any
 
 import typer
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.cli import RootOption, console, error_exit, json_print, parse_va, require_root
 
 app = typer.Typer(
     help="Find prior documented findings mentioning a native address or address range.",
     context_settings={"allow_interspersed_args": True},
     epilog=(
-        "Examples:\n\n"
+        "[bold]Examples:[/bold]\n\n"
         "  rebrew source findings 0x10009838 --window 64 --json\n\n"
         "  rebrew source findings 0x100093a0 0x10009936 --context 2\n\n"
         "  rebrew source findings 0x10001000 --doc goal.md\n\n"
@@ -85,15 +85,15 @@ def main(
     documents: list[Path] | None = typer.Option(
         None, "--doc", help="Document to search (repeatable; default: docs/**/*.md)"
     ),
+    root: Path | None = RootOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
 ) -> None:
     """Find prior findings before repeating a native-address experiment."""
-    cfg = require_config(target=target, json_mode=json_output)
+    root = require_root(root, json_mode=json_output)
     vas = [parse_va(value, json_mode=json_output) for value in addresses]
     try:
         hits = find_documented_addresses(
-            cfg.root, vas, window=window, documents=documents, context=context
+            root, vas, window=window, documents=documents, context=context
         )
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)

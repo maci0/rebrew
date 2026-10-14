@@ -36,12 +36,13 @@ import tempfile
 from collections.abc import Callable
 from functools import lru_cache, partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import typer
 
 from rebrew.analysis import Insn
 from rebrew.cli import (
+    SOURCE_HELP,
     TargetOption,
     console,
     error_exit,
@@ -49,6 +50,8 @@ from rebrew.cli import (
     parse_va,
     require_config,
     require_positive_size,
+    require_source_arg,
+    select_annotation,
 )
 from rebrew.coff_reloc import build_name_to_va
 from rebrew.compiler.compile import CompareResult, compile_and_compare, matched_byte_count
@@ -72,14 +75,12 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew match climb src/f.c · · · · · · · · · · Hill-climb one function in place\n\n"
-        "  rebrew match climb src/f.c --dry-run · · · · · Report the winning edits, write nothing\n\n"
-        "  rebrew match climb src/f.c --passes 200 · · · · Longer search before giving up\n\n"
-        "  rebrew match climb src/f.c --json · · · · · · · Machine-readable pass log to stdout\n\n"
-        "[bold]Exit codes:[/bold]\n\n"
-        "  0   The climb finished (report the matched-byte delta on stderr)\n\n"
-        "  2   Build or config error (also a usage error: unknown flag, missing argument)\n\n"
-        "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]"
+        "  rebrew match climb src/f.c  # Hill-climb one function in place\n\n"
+        "  # Report the winning edits, write nothing\n"
+        "  rebrew match climb src/f.c --dry-run\n\n"
+        "  rebrew match climb src/f.c --passes 200  # Longer search before giving up\n\n"
+        "  rebrew match climb src/f.c --json  # Machine-readable pass log to stdout\n\n"
+        "Exit codes: 0 search completed; 2 usage/config/build error; 130 interrupted; 141 output pipe closed."
     ),
 )
 
@@ -552,19 +553,20 @@ def _climb(
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(
-        ..., help="C source; unregistered functions require --va, --symbol and --size"
+        ..., help=SOURCE_HELP + "; unregistered functions require --va, --symbol, and --size"
     ),
-    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from annotation)"),
+    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
     symbol: str | None = typer.Option(None, "--symbol", help="COFF symbol (e.g. _funcname)"),
     size: int | None = typer.Option(None, "--size", help="Size in bytes"),
     cflags: str | None = typer.Option(None, "--cflags", help="Compiler flags"),
     passes: int = typer.Option(1, "--passes", help="Sweeps of adjacent statement swaps"),
-    objective: str = typer.Option(
+    objective: Literal["positional", "aligned"] = typer.Option(
         "positional",
         "--objective",
         help="Scoring: 'positional' matches bytes in place (test's count); "
         "'aligned' counts aligned instructions (near_diag), which is honest when "
         "the object's byte stream is out of step with the target's",
+        metavar="OBJECTIVE",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -572,9 +574,7 @@ def main(
 ) -> None:
     """Relocate one top-level statement at a time and keep every move that matches more bytes."""
     cfg = require_config(target=target, json_mode=json_output)
-    path = Path(source)
-    if not path.is_file():
-        error_exit(f"Source file not found: {source}", json_mode=json_output)
+    path = require_source_arg(cfg, source, json_mode=json_output)
     if objective not in ("positional", "aligned"):
         error_exit(
             f"unknown --objective {objective!r} (use 'positional' or 'aligned')",
@@ -589,6 +589,8 @@ def main(
             json_mode=json_output,
         )
     selected = anns[0] if anns else None
+    if anns and not Path(source).is_file():
+        _, selected, _ = select_annotation(cfg, source, None, json_mode=json_output)
     if va and anns:
         want = parse_va(va, json_mode=json_output)
         match = next((a for a in anns if a.va == want), None)

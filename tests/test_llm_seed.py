@@ -2548,7 +2548,7 @@ class TestLlmSeedDryRun:
         assert "return b[0];" in out  # the C is still readable
 
     def test_dry_run_without_llm_seed_still_rejected(self, tmp_path: Path, monkeypatch) -> None:
-        """--dry-run alone in single mode keeps its batch-only error."""
+        """A single-function preview requires LLM seeds or directs users to batch."""
         from types import SimpleNamespace as NS
 
         from typer.testing import CliRunner
@@ -2568,7 +2568,9 @@ class TestLlmSeedDryRun:
         monkeypatch.setattr("rebrew.match.resolve_source_arg", lambda cfg, s: s)
         result = CliRunner().invoke(app, ["run", "--dry-run", "f.c"])
         assert result.exit_code == 2  # EXIT_ERROR
-        assert "batch mode only" in result.output
+        message = " ".join(result.output.split())
+        assert "--dry-run requires --seed-llm" in message
+        assert "rebrew match batch --dry-run" in message
 
 
 class TestExtractSeedsSameLine:

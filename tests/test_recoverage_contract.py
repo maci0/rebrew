@@ -240,7 +240,7 @@ class TestRecoverageContract:
             }
         ]
         vc.save_verify_cache(cache_path, cfg, results, entries)
-        build_db(root, regen=True)
+        build_db(root)
 
         (row,) = _document(root)["verify_results"]
         assert {
@@ -271,9 +271,9 @@ class TestRecoverageContract:
     def test_rebuild_over_own_output_is_idempotent(self, tmp_path, monkeypatch) -> None:
         """Re-running build-db on its own output must work and change nothing.
 
-        This is the ordinary case (a user re-running build-db, a second
-        --regen), and it is where the writer's read-the-previous-document step
-        runs: the history baseline comes from the file the last build wrote, so
+        This is the ordinary case of rebuilding coverage, and it is where the
+        writer reads the previous document: the history baseline comes from the
+        file the last build wrote, so
         a second pass has to parse it rather than refuse it.  Nothing else
         moved, so the rewrite is byte-identical.
         """

@@ -19,6 +19,7 @@ from typing import Any
 
 import tomlkit
 import typer
+from typer.models import TyperPath
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.metadata.document import metadata_write_lock
@@ -34,24 +35,26 @@ from rebrew.utils import atomic_write_text, load_toml_for_write
 from rebrew.workspace.config import walk_up_to_root
 
 app = typer.Typer(
-    help="Per-library toolchain/flags overrides.",
+    help="Identify libraries, compare code, and manage source providers and compiler settings.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew library show src/mylib · · Show the override in force for a directory\n\n"
-        "  rebrew library list · · · · · · · · · List every rebrew-libraries.toml\n\n"
-        "  rebrew library set src/mylib --toolchain gcc-14.2.0 --cflags '-O1'\n\n"
-        "  rebrew library remove src/mylib · · · · Revert to the project default\n\n"
-        "[dim]Resolution is most-specific-first: a per-function TOOLCHAIN/CFLAGS in\n"
-        "rebrew-functions.toml, then the nearest rebrew-libraries.toml walking up\n"
-        "toward the project root, then the project default.[/dim]"
+        "  rebrew library identify --dry-run\n\n"
+        "  rebrew library inspect path/to/runtime.lib\n\n"
+        "  rebrew library show src/mylib\n\n"
+        "  rebrew library set src/mylib --toolchain gcc-14.2.0 --cflags=-O1\n\n"
+        "  rebrew library vendor --help\n\n"
+        "[dim]identify and signature commands find library functions; match/crt-match compare known library code. bind-source selects a source provider. show/set/list/remove manage per-library compiler settings; vendor manages pristine sources and patches. Settings resolve from function metadata, then the nearest rebrew-libraries.toml, then project defaults.[/dim]\n\n"
     ),
 )
 
 
 @app.command(
     "bind-source",
-    epilog="Examples:\n\n  rebrew library bind-source 0x10001000 references/zlib/adler32.c --symbol _adler32\n",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew library bind-source 0x401000 refs/adler.c --symbol _adler32\n"
+    ),
 )
 def bind_source_cmd(
     va: str = typer.Argument(..., help="Reference virtual address of a library function"),
@@ -117,14 +120,19 @@ def _resolve_root(dir_arg: str | None) -> Path:
 
 @app.command(
     "show",
-    epilog="Examples:\n\n  rebrew library show --json\n\nOverrides are resolved per function, nearest library configuration, then project defaults.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew library show --json\n\n"
+        "Overrides are resolved per function, nearest library configuration, then project defaults."
+    ),
 )
 def show_cmd(
-    directory: str = typer.Argument(".", help="Library directory (walk-up from here)"),
+    directory: str = typer.Argument(
+        ".", help="Library directory (walk-up from here)", click_type=TyperPath(path_type=str)
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Show the effective library override for a directory (nearest
-    rebrew-libraries.toml walking up toward the project root)."""
+    """Show the effective library override for a directory (nearest rebrew-libraries.toml walking up toward the project root)."""
     # Stop at the enclosing project root, as the compile paths (root=cfg.root) do.
     ovr = find_library_override(directory, root=walk_up_to_root(Path(directory)))
     if ovr is None:
@@ -156,13 +164,21 @@ def show_cmd(
 
 @app.command(
     "list",
-    epilog="Examples:\n\n  rebrew library list --json\n\nOverrides are resolved per function, nearest library configuration, then project defaults.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew library list --json\n\n"
+        "Overrides are resolved per function, nearest library configuration, then project defaults."
+    ),
 )
 def list_cmd(
-    root: str = typer.Argument(".", help="Project root (recursively finds rebrew-libraries.toml)"),
+    root: str = typer.Argument(
+        ".",
+        help="Project root (recursively finds rebrew-libraries.toml)",
+        click_type=TyperPath(path_type=str),
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """List every rebrew-libraries.toml under *root* (all library overrides)."""
+    """List every rebrew-libraries.toml under root (all library overrides)."""
     # The default is the project root, not the CWD: `library list` run from a
     # source subdirectory must still see every override in the project. An
     # explicit ROOT outside any project (no marker anywhere above it) is taken
@@ -196,28 +212,37 @@ def list_cmd(
 
 @app.command(
     "set",
-    epilog="Examples:\n\n  rebrew library set --dry-run --json\n\nOverrides are resolved per function, nearest library configuration, then project defaults.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew library set --dry-run --json\n\n"
+        "Overrides are resolved per function, nearest library configuration, then project defaults."
+    ),
 )
 def set_cmd(
     directory: str = typer.Argument(
-        ".", help="Library directory (writes rebrew-libraries.toml here)"
+        ".",
+        help="Library directory (writes rebrew-libraries.toml here)",
+        click_type=TyperPath(path_type=str),
     ),
     toolchain: str | None = typer.Option(
         None, "--toolchain", help="Compiler profile, e.g. msvc-6.0 / msvc-6.0-sp6"
     ),
     cflags: str | None = typer.Option(None, "--cflags", help="Compiler flags, e.g. /O2 /Gd /MT"),
     preset: str | None = typer.Option(
-        None, "--preset", help="Known-library preset, e.g. msvcrt-static"
+        None, "--preset", help="Known-library preset, e.g. msvcrt-static; excludes --library"
     ),
-    library: str | None = typer.Option(None, "--library", help="Library name (drives presets)"),
+    library: str | None = typer.Option(
+        None, "--library", help="Library name (drives presets); excludes --preset"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Declare (or update) the per-library toolchain/flags override.
 
-    Writes ``rebrew-libraries.toml`` at *directory*.  Explicit --toolchain /
+    Writes rebrew-libraries.toml at directory.  Explicit --toolchain /
     --cflags always win; a --preset fills the fields rebrew knows for a
-    shipped library (e.g. the MSVC CRT)."""
+    shipped library (e.g. the MSVC CRT).
+    """
     target = _resolve_root(directory)
     if not target.is_dir():
         msg = f"{target} is not a directory"
@@ -290,11 +315,17 @@ def set_cmd(
 
 @app.command(
     "remove",
-    epilog="Examples:\n\n  rebrew library remove --dry-run --json\n\nOverrides are resolved per function, nearest library configuration, then project defaults.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew library remove --dry-run --json\n\n"
+        "Overrides are resolved per function, nearest library configuration, then project defaults."
+    ),
 )
 def rm_cmd(
     directory: str = typer.Argument(
-        ".", help="Library directory (removes rebrew-libraries.toml here)"
+        ".",
+        help="Library directory (removes rebrew-libraries.toml here)",
+        click_type=TyperPath(path_type=str),
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

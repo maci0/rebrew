@@ -7,7 +7,7 @@ is a composition break (duplicate symbols at best, foreign bytes at
 worst).  ``rebrew build cmake-sources`` partitions the tree by marker and writes
 a CMake include setting ``<VAR>`` to exactly that target's files:
 
-    execute_process(COMMAND ${REBREW} cmake-sources -o ${CMAKE_BINARY_DIR}/rebrew-sources.cmake)
+    execute_process(COMMAND ${REBREW} build cmake-sources -o ${CMAKE_BINARY_DIR}/rebrew-sources.cmake)
     include(${CMAKE_BINARY_DIR}/rebrew-sources.cmake)
     add_library(server_dll SHARED ${REBREW_SOURCES})
 
@@ -47,17 +47,18 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew build cmake-sources -o build/rebrew-sources.cmake · Write the source list\n\n"
-        "  rebrew build cmake-sources --var TARGET_SOURCES · Set a different CMake variable\n\n"
-        "  rebrew build cmake-sources --dry-run · Print the list without writing\n\n"
-        "  rebrew build cmake-sources --target server --json · Machine-readable, one target\n\n"
+        "  # Write the source list\n"
+        "  rebrew build cmake-sources -o build/rebrew-sources.cmake\n\n"
+        "  # Set a different CMake variable\n"
+        "  rebrew build cmake-sources --var TARGET_SOURCES\n\n"
+        "  rebrew build cmake-sources --dry-run  # Print the list without writing\n\n"
+        "  # Machine-readable, one target\n"
+        "  rebrew build cmake-sources --target server --json\n\n"
         "[dim]From CMakeLists.txt:[/dim]\n\n"
-        "  execute_process(COMMAND ${REBREW} cmake-sources -o "
-        "${CMAKE_BINARY_DIR}/rebrew-sources.cmake)\n"
-        "  include(${CMAKE_BINARY_DIR}/rebrew-sources.cmake)\n\n"
-        "[dim]Canonical identities and source-purpose metadata select each target's "
-        "translation units. A glob over src/ would link another "
-        "target's TUs in.[/dim]"
+        "  set(sources_file ${CMAKE_BINARY_DIR}/rebrew-sources.cmake)\n"
+        "  execute_process(COMMAND ${REBREW} build cmake-sources -o ${sources_file})\n"
+        "  include(${sources_file})\n\n"
+        "[dim]Canonical identities and source-purpose metadata select each target's translation units. A glob over src/ would link another target's TUs in.[/dim]"
     ),
 )
 

@@ -23,7 +23,7 @@ Docker build source lives in the sibling **recompile-toolchains** checkout (`REB
 
 **CMake**: `rebrew build cmake-toolchain --toolchain msvc-6.0 --output cmake/` then `cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake`. Tools run as `rebrew build driver <cl|link|lib> -- <arguments>`; compiler flags follow `--` unchanged.
 
-**Library overrides** (`rebrew-libraries.toml`, `rebrew library set/show/list/rm`): resolve most-specific-first (per-function `TOOLCHAIN`/`CFLAGS` → nearest `rebrew-libraries.toml` (walk-up) → project default). Presets fill missing fields (e.g. `msvcrt-static` = `/O2 /Gd /MT`).
+**Library overrides** (`rebrew-libraries.toml`, `rebrew library set/show/list/remove`): resolve most-specific-first (per-function `TOOLCHAIN`/`CFLAGS` → nearest `rebrew-libraries.toml` (walk-up) → project default). Presets fill missing fields (e.g. `msvcrt-static` = `/O2 /Gd /MT`).
 
 ## Build & Test Commands
 
@@ -112,9 +112,10 @@ Dockerfiles / wrappers / 16-bit media: sibling **recompile-toolchains** (not ven
 
 Install one CLI, `rebrew`, and register all tools as components in `app/builtins.py`. Do not add `rebrew-<command>` console scripts. `[project.scripts]` contains only the umbrella (`rebrew.app.main:main`); external build tools use `rebrew build driver <cl|link|lib> -- <arguments>` and `rebrew build objdiff-driver <target> <base-object>` (ADR 027). Regenerate CMake/objdiff configs when upgrading from the old executable hooks. Single-command modules use `@app.callback(invoke_without_command=True)` and may keep `main_entry()` for `python -m` execution.
 
-- **Shared helpers** come from `rebrew.cli`: `TargetOption`, `require_config()`, `error_exit(..., json_mode=json_output)`, `json_print`, `parse_va`, `EXIT_*`. `load_config` is in no `__all__` there even though the module imports it; import it from `rebrew.config`, and only for optional loads.
-- **Param order**: `--json` before `--target`, both last. The batch tools (`verify`/`test`/`lint`/`status`/`todo`) put `--all-targets` after `--target`, since it is mutually exclusive with it.
+- **Shared helpers** come from `rebrew.cli`: `TargetOption`, `SOURCE_HELP`, `require_config()`, `error_exit(..., json_mode=json_output)`, `json_print`, `parse_va`, `EXIT_*`. `load_config` is in no `__all__` there even though the module imports it; import it from `rebrew.config`, and only for optional loads.
+- **Param order**: `--json` before `--target`, both last. The batch tools (`verify`/`test`/`lint`/`status`/`todo`/`match batch`) put `--all-targets` after `--target`, since it is mutually exclusive with it.
 - **Help strings are exact**: `--json` → `"Output results as JSON"`; `--dry-run` → `"Preview changes without writing"`.
+- **Help and layout**: `--help/-h` works at every command depth. Shared target/root options use the Project panel, JSON/preview/output options the Output panel, and version/verbosity options the Global options panel. Give each group a concise purpose and concrete current-command examples. Mounted module help is shared by parent listings and command pages; `CliComponent.help` is the fallback. Keep the opening sentence concise.
 - **Shared options** `--version/-V`, `--verbose/-v`, `--quiet/-q` are injected by `add_global_options` into every command, so they parse after the subcommand name too. Build hooks take their caller's arguments instead. A command that declares one itself keeps it (`lint --quiet` stays "errors only").
 - **Output** goes through the shared `console` from `rebrew.utils` (a `Console(stderr=True)`); do not construct a per-module `Console` for normal output. A stdout `Console()` is reserved for data the user pipes (`--version`, `rebrew skills show`). Raw `print()` only for piped data.
 - **`main_entry`** carries the docstring `"""Run the Typer CLI application."""` and a body of `run_standalone(main)` (single-command) or `run_cli(app)` (group), never a bare `app()`, which loses the 141/130/2 exit contract.

@@ -1561,10 +1561,10 @@ def _render_terminal(report: StatusReport) -> None:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew status · · · · · · · Quick project overview\n\n"
-    "  rebrew status --json · · · · Machine-readable JSON output\n\n"
-    "  rebrew status --target client_exe · Status for a specific target\n\n"
-    "[dim]Reads source markers, metadata, and function structure (no compilation needed). "
+    "  rebrew status  # Quick project overview\n\n"
+    "  rebrew status --json  # Machine-readable JSON output\n\n"
+    "  rebrew status --target client_exe  # Status for a specific target\n\n"
+    "[dim]Reads source bindings, metadata, and function structure (no compilation needed). "
     "Run 'rebrew verify' first for verify stats, or 'rebrew coverage catalog' for function data.[/dim]"
 )
 

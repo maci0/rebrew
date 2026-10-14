@@ -315,6 +315,46 @@ class TestLibraryFilter:
 
 
 class TestCli:
+    def test_default_generators_keep_their_artifacts_separate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from rebrew.gen_link_stubs import app as link_stubs_app
+        from rebrew.metadata.data import record_data_rows
+
+        monkeypatch.chdir(tmp_path)
+        _write_src(tmp_path, "extern int g_counter;\n")
+        record_data_rows(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x1000,
+                    "identity": {"name": "g_data", "kind": "GLOBAL"},
+                    "fill": {"section": ".data", "size": 4, "type": "int"},
+                }
+            ],
+        )
+        runner = CliRunner()
+        linked = runner.invoke(link_stubs_app, ["--json"])
+        assert linked.exit_code == 0, linked.output
+        link_path = tmp_path / "src" / "link_stubs.c"
+        assert json.loads(linked.stdout)["output"] == str(link_path)
+        before_link = link_path.read_bytes(), link_path.stat().st_mtime_ns
+
+        generated = runner.invoke(gen_stubs.app, ["--json"], input=LNK_OUTPUT)
+        assert generated.exit_code == 0, generated.output
+        symbol_path = tmp_path / "src" / "symbol_stubs.c"
+        assert json.loads(generated.stdout)["output"] == str(symbol_path)
+        assert "int g_counter = 0;" in symbol_path.read_text()
+        assert (link_path.read_bytes(), link_path.stat().st_mtime_ns) == before_link
+        before_symbol = symbol_path.read_bytes(), symbol_path.stat().st_mtime_ns
+
+        regenerated = runner.invoke(link_stubs_app, ["--json"])
+        assert regenerated.exit_code == 0, regenerated.output
+        assert (symbol_path.read_bytes(), symbol_path.stat().st_mtime_ns) == before_symbol
+
     def test_stdin_dry_run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.gen_stubs import app
 

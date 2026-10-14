@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -38,9 +37,7 @@ class TestFindings:
 
     def test_json_through_cli(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         (tmp_path / "goal.md").write_text("# Test\n0x1000 [measured]\n")
-        monkeypatch.setattr(
-            "rebrew.findings.require_config", lambda **_kw: SimpleNamespace(root=tmp_path)
-        )
+        monkeypatch.setattr("rebrew.findings.require_root", lambda root=None, **_kw: tmp_path)
         result = CliRunner().invoke(
             app, ["source", "findings", "0x1000", "--doc", "goal.md", "--json"]
         )

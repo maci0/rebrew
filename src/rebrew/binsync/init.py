@@ -92,12 +92,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binsync init ./binsync_state · · · · · · Initialize\n\n"
+        "  rebrew binsync init ./binsync_state  # Initialize\n\n"
         "  rebrew binsync init ./binsync_state --user alice\n\n"
-        "  rebrew binsync init ./binsync_state --dry-run --json · Preview\n\n"
-        "[dim]Creates the git envelope upstream BinSync requires: the\n"
-        "binsync/__root__ root commit (.gitignore + binary_hash) and a\n"
-        "binsync/<user> branch created from it.[/dim]"
+        "  rebrew binsync init ./binsync_state --dry-run --json  # Preview\n\n"
+        "[dim]Creates the git envelope upstream BinSync requires: the binsync/__root__ root commit (.gitignore + binary_hash) and a binsync/<user> branch created from it.[/dim]"
     ),
 )
 

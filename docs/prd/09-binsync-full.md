@@ -69,7 +69,7 @@ substrate (ff-only pull + local commit / optional `--git-push` ship today).
 - Real declib-compatible struct fields, enums, typedefs. (Shipped via declib artifacts.)
 - Annotation surface for stack vars / local vars (see "Annotation Surface" below). (Shipped: `LOCALS` metadata ↔ `Function.stack_vars`.)
 - Conflict detection on pull: when both rebrew and BinSync have meaningful (non-generic) names for the same VA, report and let the user pick via `--accept-binsync` / `--accept-local` (same pattern as `rebrew sync push`). (Shipped on umbrella `pull` and flat `binsync import`.)
-- Per-instruction comments, both directions. (Shipped: `COMMENTS` metadata + `// ANALYSIS @ 0xADDR:` source markers.)
+- Per-instruction comments, both directions. (Shipped: dedicated `comments` metadata ↔ BinSync Comment artifacts.)
 - Declib as an optional dependency (under `[project.optional-dependencies].binsync`, `declib>=4.5.0,<5`) so users who don't need this feature aren't forced to install it. (Shipped; this PRD originally named the layer `libbs`.)
 
 ## Non-Goals
@@ -125,10 +125,10 @@ named the layer `libbs`; the shipped dependency is `declib>=4.5.0,<5`.)*
 
 For each function in the BinSync state:
 
-- **Name** → if generic per `rebrew.binsync.importer.is_meaningful` (`func_<hex>`, `FUN_`, `DAT_`, `switchdata`, `thunk_`, `g_<hex>`), skip. If meaningful and rebrew already has a meaningful different name, report CONFLICT. Else update `ann.name` (writes `// FUNCTION: <module> 0x<va>` doesn't change; symbol declaration in `.c` does change, plus cross-references like `rebrew source rename` does today).
+- **Name** → if generic per `rebrew.binsync.importer.is_meaningful` (`func_<hex>`, `FUN_`, `DAT_`, `switchdata`, `thunk_`, `g_<hex>`), skip. If meaningful and rebrew already has a meaningful different name, report CONFLICT. Else update the managed function identity and C declaration through the rename owner, including bound cross-references. Optional ADDRESS anchors retain the same module/VA.
 - **Prototype** → update the C function declaration via the prototype-rewrite path in `rebrew.binsync.importer` (the `--pull-signatures` flag it replaced is removed).
 - **Stack frame / locals** → write to a new `[locals]` block in `rebrew-functions.toml`. See F4.
-- **Per-instruction comments** → write as `// ANALYSIS @ 0x<addr>: <text>` markers in the C body (the shape the removed `rebrew sync push --pull-comments` flag wrote).
+- **Per-instruction comments** → store offset-scoped comment fields in dedicated function metadata. No ANALYSIS state is written into C source.
 - **Struct / enum / typedef** → write unknown type definitions into `binsync_types.h` in `reversed_dir` (see F5).
 - **Global variable** → write `name`/`size`/`type` into `rebrew-data.toml` (canonical data metadata file).
 
@@ -305,10 +305,9 @@ rebrew binsync diff ./binsync-state --json > diff.json
 - **declib version pinning.** v1 pins `declib>=4.5.0,<5` (the `binsync` extra); the upper bound excludes an unreviewed major.
   When declib evolves, rebrew may need migration code on `pull` for old
   state dirs. *(This PRD originally named the pin `libbs>=2.0`.)*
-- **Per-instruction comments.** Source markers are
-  `// ANALYSIS @ 0xADDR: text` in a trailing block; comments outside any
-  known function range stay metadata-only. Address↔line alignment can
-  drift for inlined/reordered code.
+- **Per-instruction comments.** Native addresses remain dedicated metadata
+  keys. C line mapping is unavailable; no inline ANALYSIS representation is
+  emitted or parsed.
 - **Locals annotation discipline.** Without lint validation against
   tree-sitter-extracted locals, the `[locals]` block can drift from the
   actual C source. Cheap mitigation: pass through. Future: W020.

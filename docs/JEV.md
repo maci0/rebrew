@@ -267,8 +267,9 @@ cookbooks + 4 patterns + smart-home demo + agent skill):
 
 ### 5.1 Init / intake (once per target)
 
-`rebrew init` → `doctor` → `flirt` → `crt-match` → `catalog` →
-`build-db` → first `todo`. Almost all of this is already
+`rebrew init` → `rebrew doctor` → `rebrew library scan-signatures` →
+`rebrew library crt-match` → `rebrew coverage catalog` → `rebrew coverage build`
+→ first `rebrew todo`. Almost all of this is already
 deterministic (`--guess-compiler`, FLIRT, CRT).
 
 **Jev earns a call only on leftovers:**

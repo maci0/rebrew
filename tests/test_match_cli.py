@@ -493,7 +493,7 @@ class TestMatchCliDryRun:
         monkeypatch.setattr("rebrew.match.run_single_ga", _boom)
         result = CliRunner().invoke(app, ["run", "--dry-run", "f.c"])
         assert result.exit_code == 2
-        assert "batch mode only" in result.output
+        assert "--dry-run requires --seed-llm" in result.output
 
     @pytest.mark.parametrize("operation", ["flags", "toolchains"])
     def test_compiler_sweeps_reject_preview_before_loading_config(
@@ -962,3 +962,181 @@ class TestLlmSeedMisconfiguration:
             dry_run=True,
         )
         assert constructed == []  # nothing to bill, nothing to preview
+
+
+class TestMatchOptionContracts:
+    @pytest.mark.parametrize("option", ["--cl", "--inc"])
+    def test_toolchain_sweep_rejects_overridden_profile_inputs(
+        self, monkeypatch: pytest.MonkeyPatch, option: str
+    ) -> None:
+        from rebrew.match import app
+
+        def _unexpected(**kwargs: object) -> None:
+            pytest.fail("an invalid option reached the search writer")
+
+        monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
+        result = CliRunner().invoke(app, ["toolchains", "f.c", option, "override"])
+        assert result.exit_code == 2, result.output
+        assert "No such option" in result.output
+
+    @pytest.mark.parametrize("operation", ["flags", "toolchains"])
+    @pytest.mark.parametrize(
+        "options",
+        [
+            ["--output", "results"],
+            ["--compare-obj"],
+            ["--no-compare-obj"],
+            ["--lib", "lib"],
+            ["--link", "link.exe"],
+            ["--ldflags", "/DEBUG"],
+        ],
+    )
+    def test_sweeps_reject_unused_build_options(
+        self, monkeypatch: pytest.MonkeyPatch, operation: str, options: list[str]
+    ) -> None:
+        from rebrew.match import app
+
+        def _unexpected(**kwargs: object) -> None:
+            pytest.fail("an invalid option reached the search writer")
+
+        monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
+        result = CliRunner().invoke(app, [operation, "f.c", *options])
+        assert result.exit_code == 2, result.output
+        assert "No such option" in result.output
+
+    @pytest.mark.parametrize("options", [["--jobs", "2"], ["--tier", "quick"]])
+    def test_toolchain_sweep_requires_flags_for_flag_tuning(
+        self, monkeypatch: pytest.MonkeyPatch, options: list[str]
+    ) -> None:
+        from rebrew.match import app
+
+        def _unexpected(**kwargs: object) -> None:
+            pytest.fail("an inapplicable option reached the search writer")
+
+        monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
+        result = CliRunner().invoke(app, ["toolchains", "f.c", *options, "--json"])
+        assert result.exit_code == 2, result.output
+        assert "requires --flags" in result.stdout
+
+    def test_toolchain_flag_sweep_forwards_tuning_to_driver(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.match import app
+
+        monkeypatch.setattr(
+            "rebrew.match.require_config", lambda **kw: SimpleNamespace(default_jobs=4)
+        )
+        monkeypatch.setattr("rebrew.match.resolve_source_arg", lambda cfg, source: source)
+        monkeypatch.setattr("rebrew.match.resolve_build_params", lambda *a, **kw: _params())
+        seen: dict = {}
+
+        def _sweep(*args: object) -> None:
+            seen["args"] = args
+
+        monkeypatch.setattr("rebrew.match.run_single_toolchain_flag_sweep", _sweep)
+        result = CliRunner().invoke(
+            app, ["toolchains", "f.c", "--flags", "--jobs", "2", "--tier", "quick", "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        assert seen["args"][1:4] == ("quick", 2, True)
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            ["--ignore-lint"],
+            ["--seed-file", "solved.c"],
+            ["--no-seeds"],
+            ["--seed-kuna"],
+        ],
+    )
+    def test_batch_rejects_single_function_options_before_execution(
+        self, monkeypatch: pytest.MonkeyPatch, options: list[str]
+    ) -> None:
+        from rebrew.match import app
+
+        def _unexpected(**kwargs: object) -> None:
+            pytest.fail("an invalid option reached the search writer")
+
+        monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
+        result = CliRunner().invoke(app, ["batch", *options])
+        assert result.exit_code == 2, result.output
+        assert "No such option" in result.output
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            ["--resume"],
+            ["--seed-solutions-file", "runs.jsonl"],
+            ["--seed-solved"],
+            ["--no-seed-solved"],
+        ],
+    )
+    def test_run_rejects_batch_options_before_execution(
+        self, monkeypatch: pytest.MonkeyPatch, options: list[str]
+    ) -> None:
+        from rebrew.match import app
+
+        def _unexpected(**kwargs: object) -> None:
+            pytest.fail("an invalid option reached the search writer")
+
+        monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
+        result = CliRunner().invoke(app, ["run", "f.c", *options])
+        assert result.exit_code == 2, result.output
+        assert "No such option" in result.output
+
+    def test_negative_batch_limit_fails_before_execution(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.match import app
+
+        def _unexpected(**kwargs: object) -> None:
+            pytest.fail("a negative limit reached the search writer")
+
+        monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
+        result = CliRunner().invoke(app, ["batch", "--max-stubs", "-1"])
+        assert result.exit_code == 2, result.output
+        assert "--max-stubs" in result.output
+
+    def test_batch_retains_resume_and_seeding_controls(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.match import app
+
+        cfg = SimpleNamespace(root=tmp_path, default_jobs=2)
+        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        seen: dict = {}
+
+        def _run_all(**kwargs: object) -> tuple[int, int]:
+            seen.update(kwargs)
+            return 0, 0
+
+        monkeypatch.setattr("rebrew.match.run_all", _run_all)
+        result = CliRunner().invoke(
+            app,
+            [
+                "batch",
+                "--resume",
+                "--seed-solutions-file",
+                "runs.jsonl",
+                "--no-seed-solved",
+                "--max-stubs",
+                "0",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert seen["resume"] is True
+        assert seen["seed_solutions_path"] == Path("runs.jsonl")
+        assert seen["seed_from_solved"] is False
+        assert seen["max_stubs"] == 0
+
+    @pytest.mark.parametrize("operation", ["run", "batch", "flags", "toolchains"])
+    def test_help_uses_operation_specific_panels(self, operation: str) -> None:
+        from rebrew.match import app
+
+        result = CliRunner().invoke(app, [operation, "--help"])
+        assert result.exit_code == 0, result.output
+        assert "Single-Function" not in result.output
+        assert "Batch Mode" not in result.output
+        if operation in ("flags", "toolchains"):
+            assert "GA Tuning" not in result.output

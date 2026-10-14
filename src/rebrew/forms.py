@@ -11,7 +11,7 @@ from rebrew.formats.dfm import encode, render, scan_forms
 app = typer.Typer(
     help="Decode Delphi 1 form streams and verify lossless re-encoding.",
     epilog=(
-        "Examples:\n\n"
+        "[bold]Examples:[/bold]\n\n"
         "  rebrew binary forms --json\n\n"
         "  rebrew binary forms original/holiday.exe\n\n"
         "  rebrew binary forms recovered.DFM --json\n\n"

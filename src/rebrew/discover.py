@@ -39,17 +39,20 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from typer.models import TyperPath
 
 from rebrew.analysis import direct_call_target, iter_instructions
-from rebrew.cli import console, error_exit, json_print
+from rebrew.cli import TargetOption, console, json_print, resolve_binary_arg
 from rebrew.formats.binary_loader import load_binary
 from rebrew.utils import atomic_write_text, run_process_group
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew binary functions mini.exe · · · · List functions, sizes validated\n\n"
-    "  rebrew binary functions mini.exe --output functions.csv · Write the inventory\n\n"
-    "  rebrew binary functions mini.exe --min-size 32 --json · Machine-readable output\n"
+    "  rebrew binary functions mini.exe  # List functions, sizes validated\n\n"
+    "  # Write the inventory\n"
+    "  rebrew binary functions mini.exe --output src/game/function_structure.json\n\n"
+    "  # Machine-readable output\n"
+    "  rebrew binary functions mini.exe --min-size 32 --json\n"
 )
 
 
@@ -1036,21 +1039,22 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
 
 @app.callback(invoke_without_command=True)
 def main(
-    binary: str = typer.Argument(..., help="Path to the target binary."),
+    binary: Path | None = typer.Argument(
+        None, help="Binary path (default: configured project target)"
+    ),
     output: str | None = typer.Option(
         None,
         "--output",
         "-o",
-        help="Write function_structure.json to this path (default: stdout as text).",
+        help="Write function_structure.json to this path (default: stdout as text)",
+        click_type=TyperPath(path_type=str),
     ),
-    min_size: int = typer.Option(8, "--min-size", help="Drop functions smaller than this."),
+    min_size: int = typer.Option(8, "--min-size", help="Drop functions smaller than this"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Enumerate functions with chained strategies and validated sizes."""
-    bin_path = Path(binary)
-    if not bin_path.exists():
-        msg = f"binary not found: {bin_path}"
-        error_exit(msg, json_mode=json_output)
+    bin_path = resolve_binary_arg(binary, target=target, json_mode=json_output)
 
     d = discover_functions(bin_path, min_size=min_size)
     text = "".join(f"0x{va:08x} {name} {size}\n" for va, size, name in d.functions)

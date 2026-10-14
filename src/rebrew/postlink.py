@@ -858,9 +858,12 @@ def run_fixers(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build postlink build/game.exe ref/game.exe · Normalize the built layout\n\n"
-    "  rebrew build postlink build/game.exe --dry-run · · Report the fixes, apply none\n\n"
-    "  rebrew build postlink build/game.exe --fix headers,iat · · Run only these fixers\n"
+    "  # Normalize the built layout\n"
+    "  rebrew build postlink build/game.exe ref/game.exe\n\n"
+    "  # Report the fixes, apply none\n"
+    "  rebrew build postlink build/game.exe original/game.exe --dry-run\n\n"
+    "  # Run only these fixers\n"
+    "  rebrew build postlink built.exe original.exe --fix imports,pe-metadata\n"
 )
 
 
@@ -891,7 +894,7 @@ def main(
     fix: str = typer.Option(
         "all",
         "--fix",
-        help="Fixer to run: all, imports, data, pe-metadata (defaults to all)",
+        help="Comma-separated fixers: all, imports, data, pe-metadata",
     ),
     output: Path | None = typer.Option(
         None, "--output", "-o", help="Write the result here instead of in place"
@@ -899,15 +902,11 @@ def main(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Converge the layout of *built* onto *reference* (byte-identical).
+    """Converge the layout of built onto reference (byte-identical).
 
-    Run after linking, when the decompiled content is correct but the
-    linker's placement (import records, .data COMDATs, PE stamps) differs
-    from the original build.  See ``rebrew build postlink --help`` and
-    ``docs/POSTLINK.md`` for what each fixer touches.
+    Run after linking, when the decompiled content is correct but the linker's placement (import records, .data COMDATs, PE stamps) differs from the original build.  See rebrew build postlink --help and docs/POSTLINK.md for what each fixer touches.
 
-    The reference comes from ``--layout`` (a text-only layout package — no
-    original binary or binary blobs needed) or a reference DLL directly.
+    The reference comes from --layout (a text-only layout package — no original binary or binary blobs needed) or a reference DLL directly.
     """
     if not built.exists():
         error_exit(f"built binary not found: {built}", json_mode=json_output, code=EXIT_ERROR)

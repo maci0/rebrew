@@ -1,255 +1,101 @@
 # PRD 06: Data Section Analysis
 
 - **Status**: Shipped
-- **Date**: 2026-05 (updated 2026-09)
+- **Date**: 2026-05 (updated 2026-10)
 - **Owner**: rebrew team
 
 **Feature name:** Global Data Inventory & Relocation Hygiene
-**One-line value:** Treat globals, dispatch tables, and BSS layout as
-first-class artifacts so relocation byte diffs can be reasoned about
-without leaving the rebrew toolchain.
+**One-line value:** Explain global references, storage ownership, dispatch tables,
+and linked layout with the same target configuration as function matching.
 
-## Problem It Solves
+## Problem and Users
 
-Once functions start referencing global variables, the byte-level matching
-problem becomes a relocation problem:
+Reversers need to distinguish a wrong declaration from a wrong data address,
+complete storage extent, or misplaced linked object. Agents need reproducible
+inventories and previews that preserve identity and provenance. Project leads
+need section-level summaries without treating extern declarations as owners or
+function matches as proof of data bytes.
 
-- The same VA may be annotated with different types in different `.c`
-  files; the linker doesn't catch it but it breaks reasoning.
-- BSS layout is implicit: missing an extern declaration shifts every
-  subsequent global, cascading mismatches across the project.
-- Vtables and dispatch tables in `.rdata` look like noise in a hex dump
-  until you know they're tables of function pointers.
-- Header files describing globals must be hand-maintained, or generated
-  from Ghidra, which is overkill when offline.
+## Data Model
 
-PRD 06 ships `rebrew data list` for the data-section side of the workbench:
-inventory, conflict detection, dispatch-table identification, BSS
-verification, and `rebrew_globals.h` generation.
+`rebrew-data.toml` is a dedicated format-2 managed store. Qualified `MODULE.0xVA`
+rows own identity (`file`, `name`, `kind`), type, extent, section, storage
+relationships, and verification evidence. Use CLI commands or locked metadata
+APIs; never hand-edit the store. Optional ADDRESS comments bind exactly the next
+C declaration. No inline state, old blocks, or earlier data schemas are read.
 
-## Users
+One source definition or selected linked archive member owns an allocation.
+Extern declarations and users are reported separately. An interior alias names
+its backing allocation; a layout span or import slot is not another game global.
+Uncertain ownership remains unresolved. Binary placement alone does not establish
+whether data belongs to the game or runtime.
 
-- **Solo reverser** chasing a `~~` (relocation diff) trail back to a
-  missing global.
-- **AI agent** (`rebrew-data-analysis` skill) auditing the data section
-  for conflicts and generating type headers without touching Ghidra.
-- **Team lead** wanting a section-by-section summary of how much data is
-  annotated.
+## Commands
 
-## Goals
+| Command | Behavior |
+|---|---|
+| `rebrew data list` | Combine source declarations, metadata, sections, and raw-link map evidence; list globals and owners. `--conflicts` filters type conflicts; `--summary` prints section counts. |
+| `rebrew data set` | Edit type, name, size, section, file, kind, note, storage kind, backing, or native link symbol through locked writers. Values use repeatable `0xVA=VALUE` options. |
+| `rebrew data move OLD_VA NEW_VA` | Re-address one row, refusing an occupied destination; drops the verdict while retaining verification history. |
+| `rebrew data mark-literals` | Record compiler literals supported by the link map. |
+| `rebrew data dispatch` | Detect plausible function-pointer runs in data sections. `--min-table-len` and `--max-pointer-stride` tune table selection. |
+| `rebrew data bss` | Report BSS extents and uncovered gaps. |
+| `rebrew data fix-bss` | Generate `bss_padding.c` gap arrays with ADDRESS anchors and dedicated metadata; preserve earlier generated declarations. |
+| `rebrew data header` | Generate typed extern declarations from known metadata/declarations without Ghidra. `--output` chooses a path; `--force` permits replacing an existing header. |
+| `rebrew data annotate` | Record discovered globals in dedicated metadata; does not insert legacy source markers. |
+| `rebrew data layout audit` | Report per-object span/order violations and unresolved or duplicate storage ownership. |
+| `rebrew data layout fill` | Emit byte-exact initialized padding and zero-filled BSS padding for established gaps; `--bss-only` limits this to BSS. |
+| `rebrew data layout own` | Materialize placeholder globals in their owning source files. `--stub-file` selects the placeholder source. |
+| `rebrew data layout fix-ownership` | Move global definitions between source files so each owns a contiguous address run. |
+| `rebrew data layout converge` | Insert or adjust leading data pads from measured linked placement. `--rounds` repeats measurement of the same build; rebuild between invocations to measure changed placement. |
 
-- One command (`rebrew data list`) with mode flags for the recurring data
-  questions:
-  - What globals do we know about?
-  - Which globals have type conflicts across files?
-  - Where are dispatch tables / vtables?
-  - Where are the gaps in our BSS layout?
-- Auto-fix mode for BSS gaps (`--fix-bss`) that generates a
-  `bss_padding.c` with dummy arrays so the linker emits the correct
-  layout.
-- A `--gen-header` mode that builds `rebrew_globals.h` from local
-  annotations without needing Ghidra.
-- `.data` placement tooling (`--layout-audit`, `--fill-data`, `--own`,
-  `--fix-ownership`, `--converge`) that converges the linked per-TU data
-  layout onto the reference binary's bytes.
+Operations offer `--json` for structured output and `--target` for target
+selection. Write operations offer `--dry-run`; preview ownership moves and
+padding/header generation before accepting them. Read the operation's `-h` for
+its exact options; flags belong after the selected subcommand.
 
-## Non-Goals
+Data inventory does not verify bytes. Rebuild after source/layout changes, then
+use `rebrew verify --data --built PATH --raw-link` with an actual raw link.
+Function matches do not establish data verdicts. BSS is virtual zero-filled
+storage and is excluded from initialized-file byte accounting.
 
-- `rebrew data list` does not push to Ghidra; that's PRD 07.
-- It does not infer types from byte patterns alone; type discovery is a
-  human/agent task (the tool surfaces evidence).
-- It does not rewrite the original `.c` source bodies (only generates
-  helper files / headers).
+## Workflows
 
-## Functional Requirements
+### Resolve a declaration conflict
 
-### Default mode
+1. Run `rebrew diff src/foo.c --mismatches-only` to locate the operand difference.
+2. Run `rebrew data list --conflicts --json` and inspect canonical declarations.
+3. Fix the owning subsystem header while preserving compiler-sensitive order.
+4. Test affected functions, rebuild, and verify data against the raw link.
 
-- Scans `reversed_dir` for `// GLOBAL:`, `// DATA:`, `// VTABLE:`, and
-  `// STRING:` markers (ADR-023) plus matching `extern` declarations.
-- Cross-references with the target binary's section table.
-- Lists every global by VA, name, section (`.data`, `.rdata`, `.bss`),
-  and type (per file).
-- `--json` emits structured data.
+### Investigate a BSS gap
 
-### `--conflicts`
+1. Run `rebrew data bss --json` and establish the complete extent and provenance.
+2. Preview `rebrew data fix-bss --dry-run` or the appropriate layout operation.
+3. Accept proven padding, rebuild, and compare placement; a gap alone is not a
+   reason to invent another allocation or replacement runtime definition.
 
-- Filters the inventory to globals whose declared type or array length
-  disagrees across files.
-- Used to bisect a relocation diff back to a wrong extern.
+### Generate declarations offline
 
-### `--summary`
+1. Preview `rebrew data header --dry-run`.
+2. Reconcile generated declarations with game/runtime ownership boundaries.
+3. Generate the header and verify functions affected by declaration changes.
 
-- Section-level counts (number of globals, total bytes annotated, %
-  coverage of each PE section).
+### Decode a dispatch table
 
-### `--dispatch`
+1. Run `rebrew data dispatch --json`.
+2. Check pointer width, stride, entry count, full extent, and target evidence.
+3. Record a backed storage identity and reuse its canonical declaration.
 
-- Heuristically detects dispatch tables and vtables in `.data` / `.rdata`
-  by looking for runs of plausible function-pointer-aligned values into
-  the `.text` section.
-- Lists the table VA, length, and named entries (when identifiable).
-- Tunable via `--min-table-len` (default 3) and `--max-pointer-stride`
-  (default 4 = contiguous); non-pointer slots within the stride are
-  tolerated, so sparse tables still register.
+## Success Criteria and Limits
 
-### `--bss`
+Inventories are deterministic and separate owners, declarations, and users.
+Repeated generation preserves managed identity and avoids duplicate definitions.
+Previews write nothing; errors name the invalid input. Unknown types and
+ambiguous archive providers remain unresolved rather than guessed.
 
-- Verifies BSS layout: walks the `.bss` section and reports gaps between
-  known globals (missing externs).
-- Detects "implicit" globals that shift subsequent variables.
-
-### `--fix-bss`
-
-- Generates `bss_padding.c` with `char gap_<VA>[N];` arrays (plus
-  `// DATA:` markers) for each detected gap, headed by an auto-generated
-  comment.
-- Writes `size` / `section` / `note` metadata back to `rebrew-data.toml`
-  (the data metadata file at `cfg.metadata_dir`, distinct from the
-  `rebrew-functions.toml` that sits in the same directory and tracks
-  function status).
-- Idempotent on re-run: previously generated declarations are merged with
-  newly detected gaps instead of being deleted.
-
-### `--gen-header`
-
-- Builds `rebrew_globals.h` from `// GLOBAL:` / `// DATA:` annotations,
-  grouped by section.
-- Emits typed `extern` declarations. A global with no known type is left
-  out of the header entirely rather than given a guessed `char` type.
-- Writes to `{reversed_dir}/rebrew_globals.h` by default;
-  `--gen-header-out` redirects it. Refuses to overwrite an existing file
-  unless `--force` is passed; regeneration is idempotent (the write is
-  skipped when only the timestamp would differ).
-- Safe to invoke offline; `rebrew sync pull-data` writes the same file
-  with Ghidra-sourced types when available.
-
-### `.data` placement family
-
-These modes treat per-TU `.data`/`.bss` placement as a convergence
-problem: the linked layout must reproduce the reference binary's byte
-order across all translation units at once.
-
-- `--annotate` inserts `// GLOBAL:` markers from `rebrew-data.toml` into
-  the sources, above each symbol's first declaration (`--dry-run`
-  previews; already-marked symbols are skipped).
-- `--layout-audit` reports per-TU `.data`/`.bss` span/order feasibility:
-  what blocks placement convergence (ORDER/SPAN violations, unowned and
-  duplicate-owned symbols).
-- `--fill-data` emits `_dpad_<addr>[N]` pads for uncovered `.data` byte
-  runs (byte-exact from the reference in the raw region, zero-init for
-  BSS); `--bss-only` skips the initialized region.
-- `--own` materializes stub-file globals as real definitions in their
-  owner TUs (original bytes from the reference); `--stub-file PATH`
-  overrides the stub TU (default `src/link_stubs.c`).
-- `--fix-ownership` re-partitions global definitions across TUs so each
-  owns one contiguous address run (fixes `--layout-audit` SPAN/ORDER
-  violations).
-- `--converge` runs fixed-point `.data` placement: insert/adjust
-  `_dlead_<tu>[N]` leading pads and re-measure; `--rounds N` repeats the
-  measure/adjust pass in one invocation without re-linking (rebrew does not
-  invoke the build, so rebuild and re-run for the next fixed-point round).
-
-## User Stories / Workflows
-
-### Story 1: Chasing a `~~` diff to a missing extern
-
-1. `rebrew diff foo.c -m` shows two `~~` lines on a memory load.
-2. `rebrew data list --conflicts --json` reports that `_g_state` is `int` in
-   `foo.c` but `struct State*` in `state.c`.
-3. User fixes the type, reruns `rebrew test`, and the diff promotes to
-   EXACT.
-
-### Story 2: Filling a BSS gap
-
-1. `rebrew data bss --json` reports a 24-byte gap between `_buffer`
-   (0x10100000) and `_counter` (0x10100020).
-2. `rebrew data fix-bss` generates `bss_padding.c` with a 24-byte
-   placeholder and updates metadata.
-3. Subsequent verify runs see no further BSS-induced relocation noise.
-
-### Story 3: Generating a global header offline
-
-1. The user is working without Ghidra. They run
-   `rebrew data header`.
-2. `src/<target>/rebrew_globals.h` is written with grouped extern
-   declarations by section.
-3. They `#include "rebrew_globals.h"` in functions that needed them.
-
-### Story 4: Finding a vtable
-
-1. A function calls indirectly through a memory location near
-   `0x10300100` in `.rdata`.
-2. `rebrew data dispatch --json` flags a 28-entry table starting at
-   that VA with each entry pointing into `.text`.
-3. User annotates the table and writes wrappers, unblocking 28 STUB
-   functions at once.
-
-## CLI Surface
-
-```
-rebrew data list [OPTIONS]
-      --conflicts
-      --summary
-      --dispatch
-      --min-table-len INTEGER       (default: 3)
-      --max-pointer-stride INTEGER  (default: 4)
-      --bss
-      --fix-bss
-      --annotate
-      --section TEXT                (default: .data)
-      --set-type VA=TYPE
-      --set-section VA=SECTION
-      --layout-audit
-      --fill-data
-      --bss-only
-      --own
-      --stub-file PATH
-      --fix-ownership
-      --converge
-      --rounds N                    (default: 1)
-      --gen-header
-      --gen-header-out PATH         (default: {reversed_dir}/rebrew_globals.h)
-      --force
-      --dry-run
-      --json
-  -t, --target TEXT
-```
-
-(Read-only modes compose with `--json`. The write modes are mutually
-exclusive: each returns as it runs, so a single invocation runs one write
-mode. Dispatch order is `--set-type`, `--set-section`, `--gen-header`, the
-`.data` placement family (`--fill-data` / `--own` / `--fix-ownership` /
-`--converge`), `--annotate`, then `--bss` / `--fix-bss`. Write modes are
-previewable with `--dry-run`.)
-
-## Success Metrics
-
-- After running `rebrew data fix-bss` and then `rebrew data list
-  --gen-header`, no relocation-diff (`~~`) lines remain in `rebrew diff`
-  runs that are attributable to missing/mistyped globals.
-- `rebrew data list --conflicts` returns an empty list on a clean project.
-- `rebrew_globals.h` is deterministic across runs (no spurious
-  reordering).
-- `rebrew data dispatch` recovers known vtables on the reference
-  project with no false positives.
-
-## Open Questions / Known Limitations
-
-- Type inference is annotation-driven; if no file declares a type the
-  tool can only report the byte range.
-- `--fix-bss` adds opaque padding arrays; the user must later replace
-  them with the real declarations.
-- The dispatch-table heuristic (tunable via `--min-table-len` /
-  `--max-pointer-stride`) tolerates non-pointer slots within the
-  configured stride, but tables whose pointer runs are further apart
-  than the stride may still be missed; 16-bit NE tables rely on far
-  pointer (`seg:off`) decoding.
-- `--gen-header` refuses to overwrite an existing `rebrew_globals.h`
-  unless `--force` is passed (FIXED: was a silent overwrite); hand-edited
-  files are otherwise preserved.
-- Section detection comes from LIEF and covers PE, ELF, NE (16-bit),
-  Mach-O and fat binaries; for a fat binary the first slice is used, so
-  selecting a slice by architecture is not supported.
-- `rebrew data list` does not handle data-flow analysis (e.g. which functions
-  read which globals). That's left to Ghidra.
+Dispatch detection is heuristic and can miss sparse or unusual tables. Type
+inference still needs evidence. Padding records layout facts, not recovered
+semantics. Placement convergence does not invoke the build. Header generation
+refuses an existing file unless explicitly forced. Live Ghidra label imports use
+`rebrew sync pull-data`; synchronization is specified in PRD 07.

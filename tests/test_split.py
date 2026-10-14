@@ -558,8 +558,9 @@ class TestSplitCliErrors:
             "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
         )
         result = runner.invoke(app, [])
-        assert result.exit_code != 0
-        assert "Source file argument is required" in result.output
+        assert result.exit_code == 2
+        assert "Missing argument" in result.output
+        assert "source" in result.output.lower()
 
     def test_source_not_found(self, tmp_path: Path, monkeypatch: Any) -> None:
         monkeypatch.setattr(

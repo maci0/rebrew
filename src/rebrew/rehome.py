@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from typer.models import TyperPath
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 
@@ -20,10 +21,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew source rehome 0x1000ca90=src/game/command.c · Re-home one function\n\n"
+        "  rebrew source rehome 0x1000ca90=src/game/command.c  # Re-home one function\n\n"
         "  rebrew source rehome 0x1000ca90=a.c 0x1000cb20=a.c --dry-run\n\n"
-        "  rebrew source rehome 0x4f13a0=src/game/ahm.c:ahm_CountBusyWorkers -t TL · Join a shared definition\n\n"
-        "  rebrew source rehome --from src/a/x.c --to src/b/y.c · After git mv\n\n"
+        "  # Join a shared definition\n"
+        "  rebrew source rehome 0x4f13a0=src/game/ahm.c:ahm_CountBusyWorkers -t TL\n\n"
+        "  rebrew source rehome --from src/a/x.c --to src/b/y.c  # After git mv\n\n"
         "[dim]The destination must define each moved function (or NAME after a colon, which also renames the row); the definition text is not moved.[/dim]"
     ),
 )
@@ -225,9 +227,17 @@ def main(
         help="Function VA and its new file; :NAME binds the row to that definition",
     ),
     from_file: str | None = typer.Option(
-        None, "--from", help="Old source path: retarget every row naming it"
+        None,
+        "--from",
+        help="Retarget every row naming this old source path; requires --to; excludes positional specs",
+        click_type=TyperPath(path_type=str),
     ),
-    to_file: str | None = typer.Option(None, "--to", help="New source path for --from"),
+    to_file: str | None = typer.Option(
+        None,
+        "--to",
+        help="New source path; requires --from; excludes positional specs",
+        click_type=TyperPath(path_type=str),
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

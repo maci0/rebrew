@@ -35,13 +35,14 @@ from rebrew.verify_hash import expected_text_functions as _expected_functions
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build check-text-placement · · · · · · · · Compare built .text VAs against the markers\n\n"
-    "  rebrew build check-text-placement --json · · · · · · Machine-readable mismatch list\n"
+    "  # Compare built .text VAs against metadata addresses\n"
+    "  rebrew build check-text-placement\n\n"
+    "  rebrew build check-text-placement --json  # Machine-readable mismatch list\n"
 )
 
 
 app = typer.Typer(
-    help="Compare .text function VAs of the current build against the source markers.",
+    help="Compare .text function VAs of the current build against metadata addresses.",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
@@ -159,11 +160,11 @@ def main(
         "--built",
         help="Built binary to inspect (default: build/<target>)",
     ),
-    limit: int = typer.Option(15, "--limit", help="Max misplaced functions to print"),
+    limit: int = typer.Option(15, "--limit", help="Max misplaced functions to print (0 = none)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Build-then-compare: .text function VAs of the current build vs the markers."""
+    """Compare built .text function addresses with metadata; build the project first."""
     limit = require_non_negative(option_default(limit, 15), "--limit", json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
     root = Path(cfg.root)

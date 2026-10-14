@@ -510,10 +510,9 @@ def _print_terminal(dossier: dict[str, Any]) -> None:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew binary function 0x401000 · · · · · · Recon dossier for one function\n\n"
-    "  rebrew binary function 0x401000 --json · · Machine-readable dossier\n\n"
-    "[dim]Scans the target binary for cross-references and merges source "
-    "annotations to build the dossier.[/dim]"
+    "  rebrew binary function 0x401000  # Recon dossier for one function\n\n"
+    "  rebrew binary function 0x401000 --json  # Machine-readable dossier\n\n"
+    "[dim]Scans binary cross-references and merges source metadata to build the dossier.[/dim]"
 )
 
 app = typer.Typer(
@@ -525,7 +524,7 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    va: str = typer.Argument(..., help="Function address (hex or int)"),
+    va: str = typer.Argument(..., help="Function address in hex (0x prefix optional)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:

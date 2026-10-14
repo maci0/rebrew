@@ -81,9 +81,11 @@ Index = dict[str, list[tuple[str, bytes, set[int]]]]
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew library match --lib msvcrt.lib · · · Compare against one static library\n\n"
-    "  rebrew library match --lib msvcrt.lib --stock-lib · · · Only the stock CRT\n\n"
-    "  rebrew library match --lib msvcrt.lib --va 0x10009310 --json · One function, machine-readable"
+    "  # Compare against one static library\n"
+    "  rebrew library match --lib msvcrt.lib\n\n"
+    "  rebrew library match --stock-lib libcmt.lib  # Match the stock CRT\n\n"
+    "  # One function, machine-readable\n"
+    "  rebrew library match --lib msvcrt.lib --va 0x10009310 --json"
 )
 
 app = typer.Typer(
@@ -659,35 +661,32 @@ def main(
     lib: list[Path] | None = typer.Option(
         None,
         "--lib",
-        help="Static library to check against (repeatable).",
+        help="Static library to check against (repeatable)",
     ),
     stock_lib: list[str] | None = typer.Option(
         None,
         "--stock-lib",
         help=(
-            "Stock archive from the project toolchain's image (repeatable), e.g. LIBCMT.LIB. "
-            "Cached under .scratch/, extracted when missing, refused when it differs from the "
-            "image's copy."
+            "Stock archive from the project toolchain's image (repeatable), e.g. LIBCMT.LIB. Cached under .scratch/, extracted when missing, refused when it differs from the image's copy"
         ),
     ),
     compile_commands: Path | None = typer.Option(
         None,
         "--compile-commands",
         help=(
-            "Build database used to index objects built from a source-vendored tree "
-            "(default: build/compile_commands.json; skipped when absent)."
+            "Build database used to index objects built from a source-vendored tree (default: build/compile_commands.json; skipped when absent)"
         ),
     ),
     va: str | None = typer.Option(
         None, "--va", help="Check a single VA (hex) instead of every reversed function."
     ),
     allow: Path | None = typer.Option(
-        None, "--allow", help="File of VAs known library code, one hex VA per line (# comments)."
+        None, "--allow", help="File of VAs known library code, one hex VA per line (# comments)"
     ),
     resolve_callees: bool = typer.Option(
         False,
         "--resolve-callees",
-        help="With --va, check candidates against complete native direct callees; report unresolved edges.",
+        help="With --va, check candidates against complete native direct callees; report unresolved edges",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

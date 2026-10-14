@@ -31,10 +31,12 @@ import typer
 
 from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.cli import (
+    SOURCE_HELP,
     TargetOption,
     console,
     error_exit,
     json_print,
+    option_default,
     require_config,
     select_annotation,
 )
@@ -57,14 +59,14 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew match qualifiers src/f.c · · · · · · · · Try every qualifier set, keep winners\n\n"
-        "  rebrew match qualifiers src/f.c --rounds 5 · · · Re-sweep until the result stops changing\n\n"
-        "  rebrew match qualifiers src/f.c --dry-run · · · List declaration candidates without compiling\n\n"
-        "  rebrew match qualifiers src/f.c --json · · · · · · Machine-readable winner table to stdout\n\n"
-        "[bold]Exit codes:[/bold]\n\n"
-        "  0   The sweep finished (report the winner on stderr)\n\n"
-        "  2   Build or config error (also a usage error: unknown flag, missing argument)\n\n"
-        "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]"
+        "  rebrew match qualifiers src/f.c  # Try every qualifier set, keep winners\n\n"
+        "  # Re-sweep until the result stops changing\n"
+        "  rebrew match qualifiers src/f.c --rounds 5\n\n"
+        "  # List declaration candidates without compiling\n"
+        "  rebrew match qualifiers src/f.c --dry-run\n\n"
+        "  # Machine-readable winner table to stdout\n"
+        "  rebrew match qualifiers src/f.c --json\n\n"
+        "Exit codes: 0 sweep completed; 2 usage/config/build error; 130 interrupted; 141 output pipe closed."
     ),
 )
 
@@ -196,19 +198,24 @@ def score_fn(
 
 @app.callback(invoke_without_command=True)
 def main(
-    source: str = typer.Argument(..., help="C source file (or VA/symbol) for the function"),
-    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from annotation)"),
+    source: str = typer.Argument(..., help=SOURCE_HELP),
+    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
     symbol: str | None = typer.Option(
-        None, "--symbol", help="COFF symbol (default: from annotation)"
+        None, "--symbol", help="COFF symbol (default: from metadata)"
     ),
     rounds: int = typer.Option(4, "--rounds", help="Sweep rounds (stops early on convergence)"),
-    jobs: int = typer.Option(4, "--jobs", "-j", help="Parallel compile workers"),
+    jobs: int | None = typer.Option(
+        None, "--jobs", "-j", help="Parallel compile workers (default: project jobs)"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Sweep one qualifier at a time over every declaration; keep winners."""
     cfg = require_config(target=target, json_mode=json_output)
+    jobs = option_default(jobs, None)
+    if jobs is None:
+        jobs = int(getattr(cfg, "default_jobs", 4))
     path, sel, va_int = select_annotation(cfg, source, va, json_mode=json_output)
     sym = symbol or sel.symbol
     size = sel.size

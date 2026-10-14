@@ -353,14 +353,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew similarity binary ../v2/server.dll --other-list ../v2/src/SERVER/function_structure.json\n\n"
+        "  rebrew similarity binary other.exe --other-list functions.json\n\n"
         "  rebrew similarity binary --other-target CLIENT --json\n\n"
         "  rebrew similarity binary other.dll --other-list other.json --limit 20\n\n"
-        "[dim]Matches every function of the current target against the other "
-        "binary's function list by structural signature (mnemonic histogram + "
-        "call/branch agreement) and aggregates the best matches into a "
-        "byte-weighted binary similarity.  The lowest-scoring functions are "
-        "the version deltas.  Same-arch binaries only.[/dim]"
+        "[dim]Matches every function of the current target against the other binary's function list by structural signature (mnemonic histogram + call/branch agreement) and aggregates the best matches into a byte-weighted binary similarity.  The lowest-scoring functions are the version deltas.  Same-arch binaries only.[/dim]"
     ),
 )
 
@@ -373,12 +369,12 @@ def main(
     other_list: Path | None = typer.Option(
         None,
         "--other-list",
-        help="Function inventory for the other binary (function_structure.json)",
+        help="Function inventory for the other binary (function_structure.json); excludes --other-target",
     ),
     other_target: str | None = typer.Option(
         None,
         "--other-target",
-        help="Resolve the other binary + function list from a configured target",
+        help="Use a configured target instead of OTHER_BINARY and --other-list",
     ),
     low: int = typer.Option(
         10, "--limit", help="Maximum lowest-scoring functions to list (0 = no rows)"

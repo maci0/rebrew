@@ -6,7 +6,7 @@ extraction from C source, and known ASM-only function detection.
 
 Usage:
     rebrew library crt-match 0x10006c00              Match a single VA
-    rebrew library crt-match --all                   Match all LIBRARY-marker functions
+    rebrew library crt-match --all                   Match all LIBRARY metadata entries
     rebrew library crt-match --fix-source --all      Record library source provenance in metadata
 """
 
@@ -411,7 +411,7 @@ def _canonical_size(cfg: ProjectConfig, va: int) -> int:
 
 
 def match_all(cfg: ProjectConfig) -> list[CrtMatch]:
-    """Match all LIBRARY-marker functions against configured CRT source indices."""
+    """Match all LIBRARY metadata entries against configured CRT source indices."""
     indexes = _build_indexes(cfg)
     all_matches: list[CrtMatch] = []
 
@@ -424,7 +424,7 @@ def match_all(cfg: ProjectConfig) -> list[CrtMatch]:
         if not binary_name:
             continue
 
-        # LIBRARY-marker functions often carry the TARGET's module (e.g.
+        # LIBRARY metadata entries often carry the TARGET's module (e.g.
         # `// LIBRARY: SERVER 0x...`) rather than the library's module, so
         # the marker module may not own an index.  Fall back to every
         # configured library index — the library identity is decided by the
@@ -525,11 +525,12 @@ def _render_match_table(matches: list[CrtMatch]) -> None:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew library crt-match 0x10006c00 · · · · · Match a single VA\n\n"
-    "  rebrew library crt-match --all · · · · · · · · Match all LIBRARY-marker functions\n\n"
-    "  rebrew library crt-match --fix-source --all · · Record library source provenance in metadata\n\n"
-    "  rebrew library crt-match --index · · · · · · · Show CRT source index\n\n"
-    "  rebrew library crt-match --json · · · · · · · · JSON output"
+    "  rebrew library crt-match 0x10006c00  # Match a single VA\n\n"
+    "  rebrew library crt-match --all  # Match all LIBRARY metadata entries\n\n"
+    "  # Record library source provenance in metadata\n"
+    "  rebrew library crt-match --fix-source --all\n\n"
+    "  rebrew library crt-match --index  # Show CRT source index\n\n"
+    "  rebrew library crt-match --json  # JSON output"
 )
 
 app = typer.Typer(
@@ -542,7 +543,7 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     va: str | None = typer.Argument(None, help="Virtual address to match (hex, e.g. 0x10006c00)"),
-    all_funcs: bool = typer.Option(False, "--all", help="Match all LIBRARY-marker functions"),
+    all_funcs: bool = typer.Option(False, "--all", help="Match all LIBRARY metadata entries"),
     fix_source: bool = typer.Option(
         False,
         "--fix-source",

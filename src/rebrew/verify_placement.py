@@ -4,11 +4,11 @@ The linked ``.data`` section is the concatenation of per-TU contributions in
 link order.  After editing sources, this command walks the link's object
 files (objdump on each obj, in link order), computes every symbol's current
 ``.data`` VA, and compares it against the data metadata
-(``src/rebrew-data.toml``).  Misplaced symbols mean the object order or a
-TU's own layout drifted — the reccmp "0 aligned" symptom.
+(``rebrew-data.toml`` in the configured metadata directory). Misplaced symbols
+mean the object order or a TU's own layout drifted — the reccmp "0 aligned" symptom.
 
 Usage:
-    rebrew build check-data-placement [--data-metadata src/rebrew-data.toml] [--json]
+    rebrew build check-data-placement [--data-metadata rebrew-data.toml] [--json]
 """
 
 from __future__ import annotations
@@ -34,9 +34,12 @@ from rebrew.formats.binary_loader import load_binary
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew build check-data-placement · · · · · · Compare .data symbol VAs against the metadata\n\n"
-    "  rebrew build check-data-placement --cut 0x100273e0 · · · Veto a size edit at this VA\n\n"
-    "  rebrew build check-data-placement --target win16 --json · Machine-readable result\n"
+    "  # Compare .data symbol VAs against the metadata\n"
+    "  rebrew build check-data-placement\n\n"
+    "  # Veto a size edit at this VA\n"
+    "  rebrew build check-data-placement --cut 0x100273e0\n\n"
+    "  # Machine-readable result\n"
+    "  rebrew build check-data-placement --target win16 --json\n"
 )
 
 
@@ -73,15 +76,17 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    data_metadata: Path = typer.Option(
-        Path("src/rebrew-data.toml"), "--data-metadata", help="Data metadata toml path"
+    data_metadata: Path | None = typer.Option(
+        None,
+        "--data-metadata",
+        help="Data metadata file (default: configured metadata directory/rebrew-data.toml)",
     ),
     built: Path | None = typer.Option(
         None,
         "--built",
         help="Built binary to inspect (default: build/<target>)",
     ),
-    limit: int = typer.Option(15, "--limit", help="Max misplaced symbols to print"),
+    limit: int = typer.Option(15, "--limit", help="Max misplaced symbols to print (0 = none)"),
     cut: str | None = typer.Option(
         None, "--cut", help="VA of a .data cut. Score size shifts of the bytes after it"
     ),
@@ -94,13 +99,11 @@ def main(
     limit = require_non_negative(option_default(limit, 15), "--limit", json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
     root = Path(cfg.root)
-    metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
-    if not metadata.exists():
-        # A project whose stores sit in the metadata directory (the project
-        # root) has no src/rebrew-data.toml.
-        stored = Path(cfg.metadata_dir) / "rebrew-data.toml"
-        if stored.exists():
-            metadata = stored
+    data_metadata = option_default(data_metadata, None)
+    if data_metadata is None:
+        metadata = Path(cfg.metadata_dir) / "rebrew-data.toml"
+    else:
+        metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
     if not metadata.exists():
         error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
     built = option_default(built, None)

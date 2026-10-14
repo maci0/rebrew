@@ -81,6 +81,20 @@ def _run(args: list[str]) -> tuple[int, dict]:
 
 
 class TestRelocsCommand:
+    def test_zero_limit_hides_sites_without_changing_totals(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(_project(tmp_path))
+        runner = CliRunner()
+        zero = runner.invoke(app, ["binary", "relocs", "--limit", "0"])
+        one = runner.invoke(app, ["binary", "relocs", "--limit", "1"])
+        assert zero.exit_code == one.exit_code == 1
+        assert "0x00401004" not in zero.output
+        assert "0x00401008" not in zero.output
+        assert "0x00401004" in one.output
+        assert "0x00401008" in one.output
+        assert "1 more" in zero.output
+
     def test_missing_and_extra_sites_with_names(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

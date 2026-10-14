@@ -20,6 +20,7 @@ from rich.table import Table
 
 from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
 from rebrew.cli import (
+    SOURCE_HELP,
     TargetOption,
     console,
     error_exit,
@@ -340,26 +341,24 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew diagnose near src/game/func.c · · · · · Classify the delta\n\n"
-        "  rebrew diagnose near src/game/func.c --json · · Machine-readable\n\n"
-        "  rebrew diagnose near --all --fix-blocker · · · Classify + document all NEAR_MATCHING\n\n"
-        "[dim]Categories: register (same insn, different regs), equivalent\n"
-        "(semantically equal instruction selection), reloc (relocation-masked),\n"
-        "structural (different layout). The verdict suggests whether the delta\n"
-        "is likely solvable via C-level changes.[/dim]"
+        "  rebrew diagnose near src/game/func.c  # Classify the delta\n\n"
+        "  rebrew diagnose near src/game/func.c --json  # Machine-readable\n\n"
+        "  # Classify + document all NEAR_MATCHING\n"
+        "  rebrew diagnose near --all --fix-blocker\n\n"
+        "[dim]Categories: register (same insn, different regs), equivalent (semantically equal instruction selection), reloc (relocation-masked), structural (different layout). The verdict suggests whether the delta is likely solvable via C-level changes.[/dim]"
     ),
 )
 
 
 @app.callback(invoke_without_command=True)
 def main(
-    source: str = typer.Argument(None, help="C source file for the function to diagnose"),
+    source: str = typer.Argument(None, help=SOURCE_HELP + " (omit with --all)"),
     all_funcs: bool = typer.Option(
-        False, "--all", help="Classify every NEAR_MATCHING function in the project"
+        False, "--all", help="Classify all NEAR_MATCHING functions; excludes SOURCE and --va"
     ),
-    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from annotation)"),
+    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
     size: int | None = typer.Option(
-        None, "--size", help="Target size in bytes (default: from annotation)"
+        None, "--size", help="Target size in bytes (default: from metadata)"
     ),
     fix_blocker: bool = typer.Option(
         False,

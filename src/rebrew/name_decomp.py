@@ -38,7 +38,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
-from rebrew.decompiler import BACKEND_HELP_CHOICES
+from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends
 from rebrew.struct_recover import (
     PSEUDO_TYPES,
     TYPE_WIDTHS,
@@ -495,9 +495,10 @@ def _elem_type(elem_width: int) -> str:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew decompile 0x10009310 · · · · · Decompile one function\n\n"
-    "  rebrew decompile 0x10009310 --named · · Apply known struct and field names\n\n"
-    "  rebrew decompile 0x10009310 --decompiler ghidra --json · Pick a backend, machine-readable"
+    "  rebrew decompile 0x10009310  # Decompile one function\n\n"
+    "  rebrew decompile 0x10009310 --named  # Apply known struct and field names\n\n"
+    "  # Pick a backend, machine-readable\n"
+    "  rebrew decompile 0x10009310 --decompiler ghidra --json"
 )
 
 app = typer.Typer(
@@ -514,6 +515,7 @@ def main(
         "kuna",
         "--decompiler",
         help=f"Decompiler backend: {BACKEND_HELP_CHOICES}",
+        autocompletion=complete_backends,
     ),
     named: bool = typer.Option(False, "--named", help="Apply known struct names to the output"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -521,9 +523,9 @@ def main(
 ) -> None:
     """Fetch one function's decompilation and print it (raw C, pipeable).
 
-    ``--named`` additionally rewrites anonymous pointer variables to the
+    --named additionally rewrites anonymous pointer variables to the
     project's declared structs (see module docstring); structs are read
-    from the reversed sources and ``library_*.h`` headers.
+    from the reversed sources and library_*.h headers.
     """
     cfg = require_config(target=target, json_mode=json_output)
     va = parse_va(address, json_mode=json_output)

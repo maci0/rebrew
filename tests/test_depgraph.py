@@ -1,6 +1,7 @@
 """Tests for rebrew.depgraph graph building and rendering."""
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -655,9 +656,12 @@ class TestFormatValidation:
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["--format", "bogus"])
         assert result.exit_code == 2
-        assert "Use mermaid, dot, or summary" in result.output
+        assert "Invalid value" in result.output
+        assert all(value in result.output for value in ("mermaid", "dot", "summary"))
 
-    def test_unknown_format_json_envelope(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_unknown_format_is_a_parser_error_even_with_json(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from typer.testing import CliRunner
 
         from rebrew.depgraph import app
@@ -665,7 +669,70 @@ class TestFormatValidation:
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["--format", "bogus", "--json"])
         assert result.exit_code == 2
-        assert json.loads(result.output) == {
-            "error": "Unknown format: bogus. Use mermaid, dot, or summary.",
-            "code": 2,
+        assert result.stdout == ""
+        assert "Invalid value" in result.stderr
+        assert "--format" in result.stderr
+
+
+class TestGraphArtifacts:
+    @pytest.mark.parametrize("fmt", ["mermaid", "dot", "summary"])
+    @pytest.mark.parametrize("json_output", [False, True])
+    def test_output_is_independent_of_json_logging(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fmt: str, json_output: bool
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.depgraph import app
+
+        nodes: dict[str, NodeInfo] = {
+            "A": {"status": "EXACT", "va": 0x1000, "size": 10, "file": "a.c", "symbol": "_A"},
+            "B": {"status": "STUB", "va": 0x2000, "size": 12, "file": "b.c", "symbol": "_B"},
         }
+        edges = [("A", "B")]
+        monkeypatch.setattr(
+            "rebrew.depgraph.require_config", lambda **kw: SimpleNamespace(reversed_dir=tmp_path)
+        )
+        monkeypatch.setattr("rebrew.depgraph.build_graph", lambda *a, **kw: (nodes, edges, []))
+        output = tmp_path / f"graph.{fmt}"
+        args = ["--format", fmt, "--output", str(output)]
+        if json_output:
+            args.append("--json")
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 0, result.output
+        render = {"mermaid": render_mermaid, "dot": render_dot, "summary": render_summary}[fmt]
+        assert output.read_text(encoding="utf-8") == render(nodes, edges, []) + "\n"
+        if json_output:
+            data = json.loads(result.stdout)
+            assert data["output"] == str(output)
+            assert data["total_nodes"] == 2
+            assert data["edges"] == [{"caller": "A", "callee": "B"}]
+            assert data["nodes"]["A"] == {
+                "status": "EXACT",
+                "va": "0x00001000",
+                "file": "a.c",
+                "symbol": "_A",
+            }
+        else:
+            assert result.stdout == ""
+
+    def test_failed_artifact_write_returns_json_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.depgraph import app
+
+        monkeypatch.setattr(
+            "rebrew.depgraph.require_config", lambda **kw: SimpleNamespace(reversed_dir=tmp_path)
+        )
+        node: NodeInfo = {
+            "status": "EXACT",
+            "va": 0x1000,
+            "size": 10,
+            "file": "a.c",
+            "symbol": "_A",
+        }
+        monkeypatch.setattr("rebrew.depgraph.build_graph", lambda *a, **kw: ({"A": node}, [], []))
+        result = CliRunner().invoke(app, ["--output", str(tmp_path), "--json"])
+        assert result.exit_code == 2, result.output
+        assert "Cannot write graph" in json.loads(result.stdout)["error"]

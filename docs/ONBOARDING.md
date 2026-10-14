@@ -41,7 +41,7 @@ and prints the next steps.  If you have the binary handy, skip straight to
 Bare `rebrew init` on a TTY runs an **onboarding wizard** (`--wizard` is the
 default; `--no-wizard` or `--json` opts out).  It only asks about parameters
 you did NOT pass on the command line: a fully flagged run
-(`--target/--binary/--toolchain/--install-completions` all given) prompts
+(`--target/--binary/--toolchain/--write-completions` all given) prompts
 nothing.
 
 1. **Binary**: scans `original/` first, then the current directory, for
@@ -161,7 +161,7 @@ graph TD
 | `no functions discovered` | no discoverer found functions (rizin missing, timed out, or couldn't analyze the binary) | `apt install rizin` or register another `rebrew.discoverers` plugin; re-run `rebrew intake` (the scaffold is kept) |
 | `docker image rebrew/… not built` | image missing | `rebrew toolchain build <profile>` (or `rebrew toolchain pull <profile>`) |
 | `Toolchain alignment` fail | detected family ≠ configured profile | `rebrew cfg set compiler.profile <detected>` |
-| `Cannot extract DLL bytes` (verify) | binary changed since the annotation | re-run `rebrew intake` for re-discovery, or fix the marker VA (the error names the VA when it is missing from the current function list) |
+| `Cannot extract DLL bytes` (verify) | binary changed since the annotation | re-run `rebrew intake` for re-discovery, or fix the stored/bound VA (the error names the VA when it is missing from the current function list) |
 | `Failed to load: …` (doctor) | `format` doesn't match the binary | set `format = "pe"/"elf"/"macho"/"ne"` in `rebrew-project.toml` |
 | `A rebrew-project.toml already exists` | `init` in an existing project | use `rebrew intake` instead: it re-runs init only when needed |
 
@@ -198,6 +198,6 @@ Then continue at step 3 (`rebrew doctor`).
 
 - [CLI.md](CLI.md): every command
 - [TOOLCHAIN.md](TOOLCHAIN.md): compilers, images, per-library overrides
-- [ANNOTATIONS.md](ANNOTATIONS.md): function and data identity, and the legacy marker format
+- [ANNOTATIONS.md](ANNOTATIONS.md): function/data metadata, optional ADDRESS anchors, and lint diagnostics
 - [CONFIG.md](CONFIG.md): `rebrew-project.toml` reference
 - [ARCHITECTURE.md](ARCHITECTURE.md): how the pieces fit together

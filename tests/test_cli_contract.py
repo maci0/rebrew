@@ -45,7 +45,7 @@ VA_HELP_ALLOWED = frozenset(
         # Class A: pick which function inside a file/function reference.
         "Disambiguate VA in a multi-function file (hex)",
         # Class B: direct VA selection, default from the file's annotation.
-        "Target VA in hex (default: from annotation)",
+        "Target VA in hex (default: from metadata)",
         # Class C: kept distinct — bulk/artifact scoping, not target selection.
         "VA in hex (e.g. 0x10009310)",
         "Check a single function VA (hex) instead of the whole .text",
@@ -340,7 +340,7 @@ class TestVerbosityFlags:
         cmd = add_global_options(typer.main.get_command(lint_app))
         params = {param.name: param for param in cmd.params}
         assert params["quiet"].help == "Only show errors, suppress warnings"
-        assert params["verbose"].help == "Increase output verbosity."
+        assert params["verbose"].help == "Increase log verbosity (-v: info, -vv: debug)."
 
     def test_subcommand_quiet_reaches_the_log_level(self) -> None:
         """`rebrew diff -q` parses and pins logs at warning.
@@ -538,6 +538,9 @@ class TestRowCountOptions:
         ("types recover", "limit", "--limit"),
         ("source import-related", "limit", "--limit"),
         ("source graph", "depth", "--depth"),
+        ("match batch", "max_stubs", "--max-stubs"),
+        ("skeleton", "batch", "--batch"),
+        ("match partitions", "max_compiles", "--max-compiles"),
     )
 
     def test_negative_row_count_exits_2(self) -> None:
@@ -580,7 +583,7 @@ class TestRowCountOptions:
                 bad.append((comp, param, flag))
                 continue
             body = inspect.getsource(fn)
-            if "require_non_negative" not in body:
+            if "require_non_negative" not in body and not (info.min is not None and info.min >= 0):
                 bad.append((comp, param, "not validated by require_non_negative"))
         assert not bad, f"row-count option without a non-negative check: {bad}"
 
@@ -656,60 +659,54 @@ class TestComposedHelp:
             for name, child in getattr(current, "commands", {}).items():
                 pending.append(((*path, name), child))
 
-    def test_help_examples_name_real_operations_flags_and_required_arguments(self) -> None:
+    def test_help_examples_name_real_operations_flags_and_required_arguments(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rich.markup import render
+        from typer.models import TyperPath
+
         from rebrew.app.main import app
         from rebrew.cli import add_global_options
 
+        monkeypatch.chdir(tmp_path)
         root = add_global_options(typer.main.get_command(app))
         pending = [((), root)]
+        commands = []
         while pending:
             path, current = pending.pop()
-            for line in (current.epilog or "").splitlines():
-                if not line.strip().startswith("rebrew "):
+            commands.append((path, current))
+            for name, child in getattr(current, "commands", {}).items():
+                pending.append(((*path, name), child))
+        # Parse examples without invoking callbacks or requiring their illustrative
+        # paths to exist. Numeric types, choices, option arity and positionals
+        # still use the command's real parser.
+        for _, current in commands:
+            context = typer._click.core.Context(current)
+            for param in current.get_params(context):
+                monkeypatch.setattr(param, "callback", None)
+                if isinstance(param.type, TyperPath):
+                    monkeypatch.setattr(param.type, "exists", False)
+        failures = []
+        for path, current in commands:
+            for line in render(current.epilog or "", emoji=False).plain.splitlines():
+                line = line.strip()
+                if line.startswith(("Examples:", "Example:")):
+                    line = line.partition(":")[2].strip()
+                if not line.startswith("rebrew "):
                     continue
-                example = line.strip().removeprefix("rebrew ").split("·", 1)[0].split("#", 1)[0]
+                example = line.removeprefix("rebrew ").split("·", 1)[0]
                 command = root
-                words = shlex.split(example)
-                while (
-                    words and hasattr(command, "commands") and not words[0].startswith(("-", "<"))
-                ):
+                words = shlex.split(example, comments=True)
+                while words and hasattr(command, "commands") and not words[0].startswith("-"):
                     word = words.pop(0)
                     assert word in command.commands, (path, example, word)
                     command = command.commands[word]
-                options = {"--help"} | {
-                    option
-                    for param in command.params
-                    for option in (*param.opts, *getattr(param, "secondary_opts", []))
-                }
-                # Build-tool argv is owned by its caller after the delimiter.
-                flags = re.findall(r"--[a-z][a-z0-9-]*", example.split(" -- ", 1)[0])
-                assert set(flags) <= options, (path, example, set(flags) - options)
-                if set(words) & {"--help", "--version", "-V"}:
+                if set(words) & {"--help", "-h", "--version", "-V"}:
                     continue
-                named_options = {
-                    option: param
-                    for param in command.params
-                    if param.param_type_name == "option"
-                    for option in (*param.opts, *getattr(param, "secondary_opts", []))
-                }
-                positional = []
-                index = 0
-                while index < len(words):
-                    word = words[index]
-                    if word == "--":
-                        positional.extend(words[index + 1 :])
-                        break
-                    option = named_options.get(word.split("=", 1)[0])
-                    if option is not None:
-                        index += 0 if option.is_flag or "=" in word else option.nargs
-                    elif not word.startswith("-"):
-                        positional.append(word)
-                    index += 1
-                required = sum(
-                    max(param.nargs, 1)
-                    for param in command.params
-                    if param.param_type_name == "argument" and param.required
-                )
-                assert len(positional) >= required, (path, example, "missing required arguments")
-            for name, child in getattr(current, "commands", {}).items():
-                pending.append(((*path, name), child))
+                try:
+                    with command.make_context("rebrew", words):
+                        pass
+                except typer._click.exceptions.ClickException as exc:
+                    failures.append(f"{path}: rebrew {example}: {exc.format_message()}")
+        assert failures == [], "\n".join(failures)
+        assert list(tmp_path.iterdir()) == []

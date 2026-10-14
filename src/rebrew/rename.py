@@ -68,16 +68,15 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew source rename old_func new_func · · · · · · · · · Rename function\n\n"
-        "  rebrew source rename SERVER.0x10003da0 new_func · · · · Rename one identity\n\n"
-        "  rebrew source rename GOLD.0x405000 new_func --shared-definition · Bound shared rows\n\n"
-        "  rebrew source rename gm_Init gm_Kill --all-modules · · · Shared definition\n\n"
-        "  rebrew source rename g_old g_new --data · · · · · · · · Rename a global\n\n"
-        "  rebrew source rename OldType NewType --type · · · · · · Rename a type\n\n"
-        "  rebrew source rename Rec.old_member new --field · · · · Rename a member\n\n"
-        "[dim]A name without a row in this target renames the source symbol and the rows "
-        "of other modules bound to it. String literals are never rewritten; comments only "
-        "with --comments. Preview with --dry-run.[/dim]"
+        "  rebrew source rename old_func new_func  # Rename function\n\n"
+        "  rebrew source rename SERVER.0x10003da0 new_func  # Rename one identity\n\n"
+        "  # Bound shared rows\n"
+        "  rebrew source rename GOLD.0x405000 new_func --shared-definition\n\n"
+        "  rebrew source rename gm_Init gm_Kill --all-modules  # Shared definition\n\n"
+        "  rebrew source rename g_old g_new --data  # Rename a global\n\n"
+        "  rebrew source rename OldType NewType --type  # Rename a type\n\n"
+        "  rebrew source rename Rec.old_member new --field  # Rename a member\n\n"
+        "[dim]A name without a row in this target renames the source symbol and the rows of other modules bound to it. String literals are never rewritten; comments only with --comments. Preview with --dry-run.[/dim]"
     ),
 )
 
@@ -130,13 +129,19 @@ def main(
     ),
     new_file: str | None = typer.Option(None, "--file", help="New filename"),
     data: bool = typer.Option(
-        False, "--data", help="Rename a global (data row, definition, declarations, uses)"
+        False,
+        "--data",
+        help="Rename a global (data row, definition, declarations, uses); excludes --type and --field",
     ),
     type_rename: bool = typer.Option(
-        False, "--type", help="Rename a struct/union/enum tag or typedef name"
+        False,
+        "--type",
+        help="Rename a struct/union/enum tag or typedef name; excludes --data and --field",
     ),
     field_rename: bool = typer.Option(
-        False, "--field", help="Rename a struct/union member given as STRUCT.MEMBER"
+        False,
+        "--field",
+        help="Rename a struct/union member given as STRUCT.MEMBER; excludes --data and --type",
     ),
     all_modules: bool = typer.Option(
         False,
@@ -149,7 +154,7 @@ def main(
     shared_definition: bool = typer.Option(
         False,
         "--shared-definition",
-        help="Rename every function row bound to the selected definition; preserve independent twins",
+        help="Rename every function row bound to one definition; requires MODULE.0xVA; excludes --all-modules, --data, --type, and --field",
     ),
     comments: bool = typer.Option(
         False, "--comments", help="Also rewrite whole-word occurrences inside comments"

@@ -108,7 +108,7 @@ _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ("test --json", {0, 1, 2}),
     ("verify --json", {0, 1, 2}),
     ("types check --json", {0}),
-    ("source split --json", {0, 2}),
+    ("source split src/SERVER/fcn.c --dry-run --json", {0, 2}),
     ("skills list --json", {0}),
     ("source security --json", {0}),
     ("types recover --json", {0, 2}),

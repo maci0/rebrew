@@ -318,8 +318,8 @@ def test_option_help_survives_rich_markup() -> None:
     """Literal ``[section]`` spans in ``help=`` must render in ``--help``.
 
     Rich treats ``[link]`` / ``[compiler]`` as markup tags and silently drops
-    them from help text unless escaped as ``\\[…]`` (see ``pdb-info
-    --write-cflags``).  Pin the gen-layout options that previously vanished.
+    them from help text unless escaped as ``\\[…]``. Pin the build-layout
+    options that previously vanished.
     """
     from typer.testing import CliRunner
 
@@ -329,10 +329,6 @@ def test_option_help_survives_rich_markup() -> None:
     assert result.exit_code == 0, result.output
     assert "[link]" in result.stdout
     assert "[targets.<t>.layout]" in result.stdout
-
-    match_result = CliRunner().invoke(app, ["match", "run", "--help"])
-    assert match_result.exit_code == 0, match_result.output
-    assert "[llm]" in match_result.stdout
 
 
 #: Status values the ADR convention in ``docs/adr/README.md`` defines.  A

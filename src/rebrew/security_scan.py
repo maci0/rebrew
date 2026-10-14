@@ -472,17 +472,17 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew source security · · · · · · · · · Scan the project's reversed sources\n\n"
-        "  rebrew source security src/other · · · · Scan an arbitrary C source tree\n\n"
-        "  rebrew source security --min-severity high Only high-severity findings\n\n"
-        "  rebrew source security --json · · · · · · Machine-readable findings\n\n"
+        "  rebrew source security  # Scan the project's reversed sources\n\n"
+        "  rebrew source security src/other  # Scan an arbitrary C source tree\n\n"
+        "  rebrew source security --min-severity high  # Only high-severity findings\n\n"
+        "  rebrew source security --json  # Machine-readable findings\n\n"
         "[bold]Rules (id, CWE, severity):[/bold]\n\n"
-        "  unbounded-copy · · · strcpy/strcat/sprintf/gets/... (CWE-120, high)\n\n"
+        "  unbounded-copy · · ·  strcpy/strcat/sprintf/gets/... (CWE-120, high)\n\n"
         "  format-string · · · · non-literal printf-family format (CWE-134, medium)\n\n"
-        "  command-exec · · · · · system/popen/WinExec/... (CWE-78, medium)\n\n"
-        "  unchecked-memcpy · · · non-literal memcpy/memmove size (CWE-787, low)\n\n"
-        "  insecure-random · · · · rand/random used as a value (CWE-338, low)\n\n"
-        "  stack-alloc · · · · · · alloca with a non-literal size (CWE-770, low)\n\n"
+        "  command-exec · · · ·  system/popen/WinExec/... (CWE-78, medium)\n\n"
+        "  unchecked-memcpy · ·  non-literal memcpy/memmove size (CWE-787, low)\n\n"
+        "  insecure-random · · · rand/random used as a value (CWE-338, low)\n\n"
+        "  stack-alloc · · · · · alloca with a non-literal size (CWE-770, low)\n\n"
         "[dim]A finding is a review indicator: the call can be safe in context.[/dim]"
     ),
 )

@@ -84,7 +84,7 @@ Scope:
 - Generating skeletons (`rebrew skeleton`).
 - Test/diff/lint inner loop.
 - Multi-target source-sharing notes.
-- References to the annotation spec.
+- References to optional ADDRESS anchors and dedicated metadata.
 
 Excludes (route to other skills): intake, deep matching, data analysis,
 Ghidra sync.
@@ -93,19 +93,19 @@ Ghidra sync.
 
 Trigger keywords: `intake`, `onboard`, `onboard binary`, `new binary`,
 `new target`, `import binary`, `binary recon`, `FLIRT scan`, `first triage`,
-`catalog`, `build-db`, `detect-crt`, `gen-layout`.
+`coverage catalog`, `coverage build`, `cfg detect-crt`, `build layout`.
 
 Scope:
 
 - `rebrew intake <binary>`: the one-shot onboarding command (init +
   enumerate + STUB document). It runs `rebrew init` in-process when no
   `rebrew-project.toml` exists, so it also covers the bare-directory case.
-  It does not run FLIRT, catalog, or `build-db`; the skill's procedure
+  It does not run FLIRT, catalog, or `rebrew coverage build`; the skill's procedure
   continues from there. `rebrew-init` remains the path for teaching
   `rebrew init`, profile selection, and target naming.
 - Multi-target file layout.
-- Ordered intake procedure: doctor → FLIRT (`cfg detect-crt --write`,
-  `rebrew library scan-signatures`) → `crt-match` → catalog → `build-db` → triage.
+- Ordered intake procedure: doctor → FLIRT (`rebrew cfg detect-crt apply`,
+  `rebrew library scan-signatures`) → `rebrew library crt-match` → `rebrew coverage catalog` → `rebrew coverage build` → triage.
 - Outputs and post-intake hand-off to other skills.
 
 Excludes: day-to-day work, deep matching, individual function reversing.
@@ -137,9 +137,9 @@ Trigger keywords: `global`, `global variable`, `data section`, `BSS`,
 
 Scope:
 
-- `rebrew data list` mode flags (`--conflicts`, `--summary`, `--dispatch`,
-  `--bss`, `--fix-bss`, `--gen-header`).
-- DATA / GLOBAL annotation format and where metadata lives
+- `rebrew data list --conflicts/--summary`, plus the `dispatch`, `bss`,
+  `fix-bss`, `header`, and `layout` subcommands.
+- Dedicated DATA/GLOBAL identities and storage relationships
   (`rebrew-data.toml`).
 - Relationship with `rebrew sync pull-data`.
 

@@ -26,23 +26,28 @@ from typing import Any
 
 import typer
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.cli import (
+    SOURCE_HELP,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    parse_va,
+    require_config,
+)
 from rebrew.config import module_marker
 from rebrew.metadata.bindings import min_valid_va_for
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    '  rebrew blocker set 0x401000 "needs RE structs" · · · Set BLOCKER by VA\n\n'
-    '  rebrew blocker set src/game/foo.c "SEH helper" · · Target by file\n\n'
-    "  rebrew blocker clear src/game/foo.c · · · · · · · · Clear BLOCKER (+ delta)\n\n"
-    "  rebrew blocker show 0x401000 --json · · · · · · · · Show BLOCKER metadata\n\n"
-    "[dim]Writes go through rebrew.metadata.functions (locked + atomic). "
-    "Auto-classified blockers use `rebrew diff --fix-blocker` or "
-    "`rebrew diagnose near --fix-blocker` instead.[/dim]"
+    '  rebrew blocker set 0x401000 "needs recovered structs"\n\n'
+    "  rebrew blocker show src/game/foo.c --json\n\n"
+    "  rebrew blocker clear src/game/foo.c\n\n"
+    "[dim]BLOCKER and optional BLOCKER_DELTA are stored in rebrew-functions.toml through locked writers. For a blocker derived from byte differences, use rebrew diff --fix-blocker or rebrew diagnose near --fix-blocker.[/dim]\n\n"
 )
 
 app = typer.Typer(
-    help="Manage BLOCKER metadata in rebrew-functions.toml (programmatic only).",
+    help="Record, inspect, and clear function blockers in dedicated metadata.",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
@@ -144,12 +149,12 @@ def resolve_function(
 
 @app.command(
     "set",
-    epilog='Examples:\n\n  rebrew blocker set 0x401000 "compiler mismatch" --dry-run\n\nUse --target to select a configured project target.',
+    epilog=(
+        '[bold]Examples:[/bold]\n\n  rebrew blocker set 0x401000 "compiler mismatch" --dry-run\n\n'
+    ),
 )
 def blocker_set(
-    function: str = typer.Argument(
-        ..., help="Function to act on: C source file, symbol, or hex VA (0x...)"
-    ),
+    function: str = typer.Argument(..., help=SOURCE_HELP),
     blocker: str = typer.Argument(..., help="BLOCKER text to write"),
     delta: str | None = typer.Option(
         None, "--delta", help="BLOCKER_DELTA as integer (decimal or 0x hex)"
@@ -223,12 +228,10 @@ def blocker_set(
 
 @app.command(
     "clear",
-    epilog="Examples:\n\n  rebrew blocker clear 0x401000 --dry-run\n\nUse --target to select a configured project target.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew blocker clear 0x401000 --dry-run\n\n"),
 )
 def blocker_clear(
-    function: str = typer.Argument(
-        ..., help="Function to act on: C source file, symbol, or hex VA (0x...)"
-    ),
+    function: str = typer.Argument(..., help=SOURCE_HELP),
     va: str | None = typer.Option(
         None, "--va", help="Disambiguate VA in a multi-function file (hex)"
     ),
@@ -271,12 +274,10 @@ def blocker_clear(
 
 @app.command(
     "show",
-    epilog="Examples:\n\n  rebrew blocker show 0x401000 --json\n\nUse --target to select a configured project target.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew blocker show 0x401000 --json\n\n"),
 )
 def blocker_show(
-    function: str = typer.Argument(
-        ..., help="Function to act on: C source file, symbol, or hex VA (0x...)"
-    ),
+    function: str = typer.Argument(..., help=SOURCE_HELP),
     va: str | None = typer.Option(
         None, "--va", help="Disambiguate VA in a multi-function file (hex)"
     ),

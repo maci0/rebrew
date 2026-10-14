@@ -25,6 +25,7 @@ from rebrew.cli import (
     console,
     error_exit,
     json_print,
+    option_default,
     parse_va,
     require_config,
     require_non_negative,
@@ -268,7 +269,9 @@ def _setup_candidates(
     json_output: bool,
     binary: Path | None,
     min_size: int,
-    max_size: int,
+    max_size: int | None,
+    *,
+    unreversed_only: bool = True,
 ) -> tuple[ProjectConfig, list[tuple[int, int, str]], Path]:
     cfg = require_config(target=target, json_mode=json_output)
 
@@ -280,8 +283,8 @@ def _setup_candidates(
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
 
-    reversed_vas = detect_reversed_vas(src_dir, cfg=cfg)
-    if not json_output:
+    reversed_vas = detect_reversed_vas(src_dir, cfg=cfg) if unreversed_only else set()
+    if unreversed_only and not json_output:
         console.print(f"Found {len(reversed_vas)} already-reversed functions")
 
     candidates: list[tuple[int, int, str]] = []
@@ -292,7 +295,7 @@ def _setup_candidates(
 
         if va in reversed_vas:
             continue
-        if size < min_size or size > max_size:
+        if size < min_size or (max_size is not None and size > max_size):
             continue
 
         candidates.append((va, size, name))
@@ -310,12 +313,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary extract list · · · · · · · · List un-reversed candidates\n\n"
-        "  rebrew binary extract show 0x10001860 · · · Extract + disassemble one VA\n\n"
-        "  rebrew binary extract batch 20 · · · · · · Extract first 20 smallest\n\n"
-        "  rebrew binary extract batch 20 --start 10 · Offset into sorted list\n\n"
-        "[dim]Reads the discovery inventory (function_structure.json) and auto-detects "
-        "already-reversed VAs. Outputs .bin files to the configured bin_dir.[/dim]"
+        "  rebrew binary extract list\n\n"
+        "  rebrew binary extract show 0x10001860\n\n"
+        "  rebrew binary extract batch 20\n\n"
+        "  rebrew binary extract batch 20 --start 10\n\n"
+        "[dim]list/batch select unreversed inventory functions. show selects an explicit VA, including already-reversed functions. show/batch write .bin files into the configured bin_dir and print disassembly; --dry-run previews the writes.[/dim]\n\n"
     ),
 )
 
@@ -327,7 +329,7 @@ def main() -> None:
 
 @app.command(
     "list",
-    epilog="Examples:\n\n  rebrew binary extract list --json\n\nUse --target to select a configured project target.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew binary extract list --json\n\n"),
 )
 def list_candidates(
     binary: Path | None = typer.Option(
@@ -349,38 +351,67 @@ def list_candidates(
 
 @app.command(
     "show",
-    epilog="Examples:\n\n  rebrew binary extract show 0x401000 --json\n\nUse --target to select a configured project target.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binary extract show 0x401000 --json\n\n"
+        "  rebrew binary extract show 0x401000 --dry-run\n\n"
+        " --dry-run previews the .bin path and size without extracting bytes or writing files."
+    ),
 )
 def show_candidate(
     va: str = typer.Argument(..., help="VA (hex) to extract and disassemble"),
     size: int | None = typer.Option(
-        None, "--size", help="Override catalog-recorded size for this extraction"
+        None, "--size", min=1, help="Override catalog-recorded size for this extraction"
     ),
     binary: Path | None = typer.Option(
         None, "--binary", help="Path to DLL/EXE (default: from config)"
     ),
-    min_size: int = typer.Option(8, "--min-size", help="Minimum function size"),
-    max_size: int = typer.Option(50000, "--max-size", help="Maximum function size"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Extract and disassemble a single VA."""
-    cfg, candidates, exe_path = _setup_candidates(target, json_output, binary, min_size, max_size)
-    binary_info = load_binary(exe_path)
+    dry_run = option_default(dry_run, False)
     target_va = parse_va(va, json_mode=json_output)
+    cfg, candidates, exe_path = _setup_candidates(
+        target, json_output, binary, 0, None, unreversed_only=False
+    )
     # --size override: inject a synthetic candidate entry so the VA is found
-    # even when it is absent from the candidate list (e.g. already-reversed) or
-    # when the catalog size is wrong.
+    # even when the VA is absent from the inventory or its size is wrong.
     if size is not None:
         candidates = [(target_va, size, f"0x{target_va:08X}")] + [
             c for c in candidates if c[0] != target_va
         ]
+    if dry_run:
+        selected = next((candidate for candidate in candidates if candidate[0] == target_va), None)
+        if selected is None:
+            error_exit(f"VA 0x{target_va:08X} not found in inventory", json_mode=json_output)
+        _, planned_size, name = selected
+        bin_path = cfg.bin_dir / f"func_0x{target_va:08X}.bin"
+        if json_output:
+            json_print(
+                {
+                    "status": "DRY_RUN",
+                    "dry_run": True,
+                    "name": name,
+                    "va": f"0x{target_va:08x}",
+                    "size": planned_size,
+                    "bin_path": str(bin_path),
+                }
+            )
+        else:
+            console.print(
+                f"[cyan]dry-run:[/cyan] would write {untrusted_ident(bin_path)} "
+                f"({planned_size} bytes, {untrusted_ident(name)})"
+            )
+        return
+    binary_info = load_binary(exe_path)
     cmd_extract(binary_info, candidates, target_va, cfg.bin_dir, cfg=cfg, json_output=json_output)
 
 
 @app.command(
     "batch",
-    epilog="Examples:\n\n  rebrew binary extract batch --dry-run --json\n\nUse --target to select a configured project target.",
+    epilog=("[bold]Examples:[/bold]\n\n  rebrew binary extract batch --dry-run --json\n\n"),
 )
 def batch_candidates(
     count: int = typer.Argument(20, help="Number of functions to extract"),

@@ -256,3 +256,33 @@ def test_candidates_preserve_original_header_directory(tmp_path, monkeypatch):
     assert source in seen and any(path != source for path in seen)
     assert all(not path.exists() for path in seen if path != source)
     assert source.read_text() == original
+
+
+@pytest.mark.parametrize("explicit, expected", [(None, 7), (2, 2)])
+def test_jobs_use_project_default_unless_overridden(tmp_path, monkeypatch, explicit, expected):
+    from rebrew.utils import interruptible_pool
+
+    source = _prepare(monkeypatch, tmp_path, lambda *a: (0.0, 0))
+    monkeypatch.setattr(
+        rebrew.qual_sweep,
+        "require_config",
+        lambda **kw: SimpleNamespace(root=tmp_path, default_jobs=7),
+    )
+    seen = []
+
+    def pool(jobs):
+        seen.append(jobs)
+        return interruptible_pool(jobs)
+
+    monkeypatch.setattr(rebrew.qual_sweep, "interruptible_pool", pool)
+    main(
+        source=str(source),
+        va=None,
+        symbol=None,
+        rounds=1,
+        jobs=explicit,
+        dry_run=False,
+        json_output=True,
+        target=None,
+    )
+    assert seen == [expected]

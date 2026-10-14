@@ -3,7 +3,7 @@
 ``rebrew.struct_recover`` reads a whole decompilation (Kuna, Ghidra, r2ghidra)
 as text: six regexes extract member offsets, array indexes and pointer base
 types, and the evidence it keeps is rendered into ``typedef struct`` blocks
-that ``--apply`` appends to a project header.  Every offset, index and type
+that ``--output`` appends to a project header.  Every offset, index and type
 name in that text is produced by another tool, so all of it is untrusted.
 
 The harness feeds decompiler-shaped statements alongside arbitrary text and

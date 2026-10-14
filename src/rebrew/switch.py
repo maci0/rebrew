@@ -314,9 +314,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary switches 0x10311e0 · · · · · · · · · Show all switch dispatches\n\n"
-        "  rebrew binary switches 0x10311e0 --json · · · · · · Machine-readable case tables\n\n"
-        "  rebrew binary switches 0x10311e0 --window 1024 · · Wider disassembly window\n"
+        "  rebrew binary switches 0x10311e0  # Show all switch dispatches\n\n"
+        "  rebrew binary switches 0x10311e0 --json  # Machine-readable case tables\n\n"
+        "  rebrew binary switches 0x10311e0 --window 1024  # Wider disassembly window\n"
     ),
 )
 

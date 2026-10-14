@@ -47,12 +47,13 @@ _SCN_ALIGN_MASK = 0xF
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew library inspect LIBCMT.LIB --member mbctype.obj · Sections, definitions, references\n\n"
-    "  rebrew library inspect LIBCMT.LIB --refs __imp__GetCPInfo@8 · Members referencing a symbol\n\n"
-    "  rebrew library inspect KERNEL32 --defines __imp__GetCPInfo@8 --json · Configured archive by name\n\n"
-    "[dim]LIBRARY is a path, or a targets.<name>.external_libs key or spec from "
-    "rebrew-project.toml; a bare spec resolves to the stock archive cached under "
-    ".scratch/ (extracted from the toolchain image when missing).[/dim]"
+    "  # Sections, definitions, references\n"
+    "  rebrew library inspect LIBCMT.LIB --member mbctype.obj\n\n"
+    "  # Members referencing a symbol\n"
+    "  rebrew library inspect LIBCMT.LIB --refs __imp__GetCPInfo@8\n\n"
+    "  # Configured archive by name\n"
+    "  rebrew library inspect KERNEL32 --defines __imp__GetCPInfo@8 --json\n\n"
+    "[dim]LIBRARY is a path, or a targets.<name>.external_libs key or spec from rebrew-project.toml; a bare spec resolves to the stock archive cached under .scratch/ (extracted from the toolchain image when missing).[/dim]"
 )
 
 app = typer.Typer(
@@ -269,21 +270,23 @@ def _print_member(row: dict[str, Any]) -> None:
 @app.callback(invoke_without_command=True)
 def main(
     library: str = typer.Argument(
-        ..., help="Archive path, or an external_libs key/spec from rebrew-project.toml."
+        ..., help="Archive path, or an external_libs key/spec from rebrew-project.toml"
     ),
     member: list[str] | None = typer.Option(
         None,
         "--member",
         "-m",
-        help="Only this member (full archive name or basename, repeatable).",
+        help="Only this member (full archive name or basename, repeatable)",
     ),
     refs: str | None = typer.Option(
-        None, "--refs", help="List the members with an undefined reference to SYMBOL."
+        None,
+        "--refs",
+        help="List the members with an undefined reference to SYMBOL; excludes --defines",
     ),
     defines: str | None = typer.Option(
         None,
         "--defines",
-        help="List the members that define SYMBOL (section, COMMON, alias, import).",
+        help="List the members that define SYMBOL (section, COMMON, alias, import); excludes --refs",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

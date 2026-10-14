@@ -19,6 +19,89 @@
   samples, saved-report comparisons, eighteen workloads and deterministic work budgets.
 
 ### Changed
+- **Breaking:** Project-wide operations use `--root` instead of `--target`:
+  `rebrew.cache_cli.stats`, `rebrew.cache_cli.clear`, and
+  `rebrew.findings.main` replace the `target` argument with `root`. Removed
+  incidental imports `rebrew.cache_cli.TargetOption`,
+  `rebrew.findings.TargetOption`, and `rebrew.findings.require_config`; use
+  `rebrew.cli` for shared options and configuration helpers.
+- **Breaking:** `rebrew.cmake_tc.main` defaults `toolchain` to the configured
+  project profile and uses `output` in both preview and write JSON reports.
+  Unsupported profiles fail before writing a toolchain file.
+  `rebrew.qual_sweep.main` defaults `jobs` to project configuration.
+- **Breaking:** Static CLI values use native choices in `rebrew.diff.main`,
+  `rebrew.cfg.raw`, `rebrew.cfg.add_target`, `rebrew.depgraph.main`,
+  `rebrew.asm.show`, `rebrew.match.run`, `rebrew.match.batch`,
+  `rebrew.match.flags`, `rebrew.match.toolchains`, `rebrew.recommend.main`,
+  and `rebrew.climb.main`. Invalid choices fail during argument parsing;
+  plugin-owned decompiler names retain registry validation and completion.
+- **Breaking:** `rebrew.init.main` uses `write_completion_scripts` and
+  `init --write-completions` instead of `install_completions` and
+  `--install-completions`; writing project scripts is distinct from installing
+  completion into a shell. `rebrew.ghidra.cli.watch` drops the unsupported
+  `json_output` argument and `--json` option; it is a terminal-only operation.
+- **Breaking:** `rebrew.struct_recover.recover_project_structs` and
+  `rebrew.struct_recover.main` use `limit=None` for unlimited recovery and
+  `limit=0` for no functions. `binary relocs --limit 0` prints no site rows;
+  its JSON document continues to contain all sites.
+- **Breaking:** Module filters use `test/verify --module` instead of `--origin`,
+  and `build order-sources --module` instead of `--marker`.
+  `verify --skip-libraries` replaces `--nolib`; no old spellings are retained.
+  The affected callbacks are `rebrew.test.main`, `rebrew.verify.main`, and
+  `rebrew.order_sources.main`.
+- **Breaking:** `rebrew.verify_placement.main` defaults `data_metadata` to the
+  configured metadata directory. An explicit missing path is an error rather
+  than falling back to another store.
+- **Breaking:** Remove ignored options from the `data` and `match` operations.
+  The affected callbacks are `rebrew.data.fix_bss`, `rebrew.data.layout_audit`,
+  `rebrew.data.layout_fill`, `rebrew.data.layout_own`,
+  `rebrew.data.layout_fix_ownership`, `rebrew.data.layout_converge`,
+  `rebrew.match.run`, `rebrew.match.batch`, `rebrew.match.flags`, and
+  `rebrew.match.toolchains`. `data layout fill --bss-only` now reaches the actual
+  fill handler. [CLI migration](docs/CLI_MIGRATION.md) lists removed options.
+- **Breaking:** Standardize explicit write/output selection:
+  `source import-splat --apply` replaces `--write` (`rebrew.splat_config.main`);
+  `library vendor --apply` replaces `--sync` (`rebrew.vendor.main`);
+  `types recover --output/-o` replaces the path-valued `--apply`
+  (`rebrew.struct_recover.main`, `rebrew.struct_recover.recover_project_structs`);
+  `export decompme --cflags` replaces `--flags` (`rebrew.decompme.main`).
+  An explicit decomp.me `--api` now takes precedence over the environment.
+- **Breaking:** `coverage serve --print-url` selects the non-serving probe;
+  add `--json` for its JSON document. Watch modes reject `--json` before starting
+  because they have no JSON stream protocol. `prove --watch-va` uses hexadecimal
+  addresses with or without `0x`, matching other VA selectors.
+- **Breaking:** `rebrew.extract.show_candidate` drops batch-only size filters
+  and adds a read-only output preview. Explicit extraction includes already
+  reversed functions. `rebrew.discover.main` accepts an optional binary and
+  target selection; the incidental `rebrew.discover.error_exit` import is removed
+  (use `rebrew.cli.error_exit`). `rebrew.build_check.main` places `objects` before
+  `json_output`. `rebrew.split.main` and `rebrew.merge.main` now require source
+  arguments in the CLI grammar. `build symbol-stubs` defaults to
+  `src/symbol_stubs.c`, separate from `build link-stubs`.
+- **Breaking:** BinSync notes are stored only in dedicated metadata. Remove
+  `rebrew.binsync.importer.result_paths`, the `marker_writes_failed` result field,
+  and `rebrew.binsync.state.marker_comment_text`, `analysis_marker`,
+  `parse_analysis_markers`, `write_analysis_markers`, and `scan_analysis_comments`.
+  Source comments are neither parsed as state nor rewritten on import/overlay.
+  `rebrew.asm.batch_extract_nasm` now returns a structured output summary and
+  accepts a read-only preview; show/batch JSON output honors requested artifacts.
+- CLI help separates project selection, output, and shared logging options;
+  `-h` works alongside `--help` at every depth. Parent command lists and pages
+  share their command descriptions. Group workflows and examples describe current operations
+  and dedicated metadata rather than removed inline marker formats.
+- **Breaking:** Remove the no-op `rebrew coverage build --force` and `--regen`
+  flags. Remove `force`/`regen` from `rebrew.build_db.main`,
+  `rebrew.coverage_db.write_coverage`, `rebrew.coverage_db.build_db`, and
+  `rebrew.coverage_toml.write_coverage_toml`; remove `regen` from
+  `rebrew.coverage_db.load_coverage_datasets`. Coverage generation always scans
+  the project and rewrites complete documents while preserving retained history.
+  The re-exported `rebrew.build_db.write_coverage` and
+  `rebrew.coverage_toml.load_coverage_datasets` have the same reduced signatures.
+- **Breaking:** CLI presentation metadata changes in
+  `rebrew.app.builtins.BUILTIN_COMPONENTS`, `rebrew.app.builtins.DOMAIN_COMPONENTS`
+  (also `rebrew.app.main.BUILTIN_COMPONENTS`), and `rebrew.cli.VERBOSE_HELP`
+  (also `rebrew.app.main.VERBOSE_HELP`): summaries, panel assignments, and logging
+  help now describe the current command organization and repeatable verbosity.
 - **Breaking:** Remove the incidental `split.parse_c_source` import. Import
   `parse_c_source` from `rebrew.c_parser`; structural source slices use the new
   `rebrew.c_parser.parse_c_structure` API.
@@ -34,6 +117,10 @@
 ### Fixed
 - Recon dossiers use known inventory extents when source size is missing,
   retaining late branches after early returns and excluding neighboring references.
+- Assembly batches exclude their generated output from later input scans and
+  reject output directories that contain configured source roots. Repeated
+  inline-C runs preserve artifact paths and metadata identities.
+- Dashboard URL probes bracket IPv6 host literals correctly.
 - Function boundaries and variable scopes retain conditional brace fragments
   without swallowing following definitions. Inventories include each structural
   alternative while preserving source coordinates and conditional split guards.

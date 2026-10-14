@@ -420,13 +420,13 @@ step; see `docs/CI.md`.
 The same tool runs each of its 23 mutating commands (`source register`,
 `source document-unmatched`, `build link-stubs`, both `skeleton` forms, `coverage build`, `export symbols`,
 `build cmake-toolchain`, `source fix`, `export context`, both `blocker set` forms, both
-`library set` forms, `coverage report`, the three `data` forms: `--gen-header`,
-`--set-type`, `--set-section`, and the five `cfg` forms that write
-`rebrew-project.toml`: `set`, `set-compiler`, `add-module`, `set-cflags`,
-`add-target`) twice against their own
+`library set` forms, `coverage report`, the three `data` forms: `header`,
+`set --type`, `set --section`, and the five `cfg` forms that write
+`rebrew-project.toml`: `set`, `target set-compiler`, `module add`, `module set-cflags`,
+`target add`) twice against their own
 fresh fixture project and
-content-digests the whole tree after each run, so a command that appends a
-marker, a stub or a metadata row on every execution fails the gate.
+content-digests the whole tree after each run, so a command that appends an
+address anchor, a stub or a metadata row on every execution fails the gate.
 A first run that changes nothing also fails it: exiting 0 twice over an
 unchanged tree is what a mutating command looks like once it has stopped
 mutating, and the digest compares alone cannot tell that from safety.

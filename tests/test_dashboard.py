@@ -1683,6 +1683,56 @@ size = 1
 
 
 class TestCli:
+    def test_json_requires_print_url_before_config_or_server_setup(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.app.main import app
+
+        def refuse(*args: object, **kwargs: object) -> None:
+            raise AssertionError("Invalid JSON mode must stop before reading config or binding")
+
+        monkeypatch.setattr("rebrew.dashboard.require_root", refuse)
+        monkeypatch.setattr("rebrew.dashboard._DashboardServer", refuse)
+        result = CliRunner().invoke(app, ["coverage", "serve", "--json"])
+        assert result.exit_code == 2, result.output
+        assert json.loads(result.stdout) == {
+            "error": "--json requires --print-url; omit --json to start the server",
+            "code": 2,
+        }
+
+    @pytest.mark.parametrize(
+        "host,url", [("localhost", "http://localhost:9123"), ("::1", "http://[::1]:9123")]
+    )
+    def test_print_url_is_plain_text_and_never_opens_a_socket(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str, url: str
+    ) -> None:
+        from rebrew.dashboard import app
+
+        def refuse(*args: object, **kwargs: object) -> None:
+            raise AssertionError("Printing a URL must not bind a listening socket")
+
+        _write_document(tmp_path / "db", "t")
+        monkeypatch.setattr("rebrew.dashboard._DashboardServer", refuse)
+        result = CliRunner().invoke(
+            app, ["--root", str(tmp_path), "--print-url", "--host", host, "--port", "9123"]
+        )
+        assert result.exit_code == 0, result.output
+        assert result.stdout == url + "\n"
+        assert result.stderr == ""
+
+    def test_print_url_refuses_unreadable_coverage_before_binding(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.dashboard import app
+
+        def refuse(*args: object, **kwargs: object) -> None:
+            raise AssertionError("Unreadable coverage must not start a server")
+
+        monkeypatch.setattr("rebrew.dashboard._DashboardServer", refuse)
+        result = CliRunner().invoke(app, ["--root", str(tmp_path), "--print-url", "--json"])
+        assert result.exit_code == 2, result.output
+        assert "no readable coverage document" in json.loads(result.stdout)["error"]
+
     def test_missing_db_errors(self, tmp_path: Path) -> None:
         """An empty coverage directory fails fast, naming what to run."""
         from rebrew.dashboard import app
@@ -1709,8 +1759,10 @@ class TestCli:
         assert result.exit_code == 0
         assert "--target" not in result.output
 
-    def test_json_exits_without_serving(self, tmp_path: Path) -> None:
-        """``--json`` is a bind-probe for scripts: print URL + db path and exit
+    def test_print_url_json_exits_without_serving(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``--print-url --json`` prints URL + db path and exits
         (never ``serve_forever``)."""
         import json
 
@@ -1719,7 +1771,14 @@ class TestCli:
         db_dir = tmp_path / "db"
         _write_document(db_dir, "t")
 
-        result = CliRunner().invoke(app, ["--root", str(tmp_path), "--json", "--port", "9123"])
+        def refuse(*args: object, **kwargs: object) -> None:
+            raise AssertionError("Printing a URL must not bind a listening socket")
+
+        monkeypatch.setattr("rebrew.dashboard._DashboardServer", refuse)
+
+        result = CliRunner().invoke(
+            app, ["--root", str(tmp_path), "--print-url", "--json", "--port", "9123"]
+        )
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
         assert payload == {

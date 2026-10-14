@@ -70,7 +70,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
 | `reversed_dir` | `[targets.<name>].reversed_dir` | Where `.c` files are stored |
 | `inventory_file` | `[targets.<name>].inventory_file` | Function-inventory path override, relative to project root (default: `reversed_dir/function_structure.json`); per-target inventories for one shared source tree |
-| `shared_dir` | `[project].shared_dir` | Project-level shared-sources root (`src/shared` by default); sources here are scanned for every target. Each target's identity is a `MODULE.0xVA` row naming that file. An unmigrated file may still carry one marker line per target. Empty value disables shared sources. When the whole tree is the source root (`reversed_dir` is `src` itself), the TOMLs may live inside it |
+| `shared_dir` | `[project].shared_dir` | Project-level shared-sources root (`src/shared` by default); sources here are scanned for every target. Each target's identity is a `MODULE.0xVA` row naming that file. Optional ADDRESS anchors may be stacked one per target; state is metadata-only. Empty value disables shared sources. When the whole tree is the source root (`reversed_dir` is `src` itself), the TOMLs may live inside it |
 | `metadata_dir` | Derived: the parent of `reversed_dir` when it holds `rebrew-functions.toml`, otherwise the outermost store found walking up through `reversed_dir` and its ancestors to the project root, falling back to `reversed_dir`'s parent when no store exists yet | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; the loaders do no walk-up, so callers must pass it explicitly |
 | `capstone_arch` / `capstone_mode` | Derived from `arch` and the target image header | Capstone disassembly constants. MIPS, PPC, and SH2 set `CS_MODE_BIG_ENDIAN` unless the image header is little-endian; ARM sets it only when the image is big-endian |
 | `padding_bytes` | Derived from `arch` | `(0xCC, 0x90)` for x86_32/x86_64 (see Architecture Presets) |
@@ -82,7 +82,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `raw_link` | `[targets.<name>].raw_link` | Pre-postlink image to compare against instead of `build/<target>`; acknowledges data-verdict write-back when selected by default or by a matching `--built` path. Also gates the `postlink-mangled` todo category. Unset by default |
 | `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files; one extension (`".c"`, the default) or a comma-separated list (`".c,.cpp"`) for a mixed tree. A missing leading dot is added, and a value carrying a path separator is refused |
 | `ghidra_program_path` | `[targets.<name>].ghidra_program_path` | ReVa MCP program path override |
-| `origins` | `[targets.<name>].origins` | The target's module list, managed by `rebrew cfg module add` / `rebrew cfg module remove`. Carried for the editor and UI only; annotation filtering reads the markers themselves, not this list |
+| `origins` | `[targets.<name>].origins` | The target's module list, managed by `rebrew cfg module add` / `rebrew cfg module remove`. Carried for the editor and UI only; source binding filters read the metadata modules, not this list |
 | `layout` | `[targets.<name>].layout` | Inline position-alignment package (image base, section geometry, exports, imports) printed by `rebrew build layout --layout-config` and written to `layout/<target>/rebrew-layout.toml`. Not read by this loader: the layout tooling parses the file directly. Recognised here so a target carrying it does not warn on every invocation and no config rewriter drops the block |
 | `ghidra_backend` | `[targets.<name>].ghidra_backend` | Ghidra transport: `reva` (MCP, default) or `cli`; an unknown value is a config error |
 | `binsync_state_dir` | `[targets.<name>].binsync_state_dir` | BinSync state directory (default for `--state-dir`) |
@@ -168,9 +168,9 @@ Running `rebrew test --target server_dll` compiles the `SERVER` row. Running `re
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `marker` | `string` | target key uppercased, characters other than letters, digits, and `_` stripped (e.g. `server.dll` → `SERVERDLL`) | Module name in `MODULE.0xVA` keys, and in an unmigrated `// FUNCTION:` / `// LIBRARY:` / `// STUB:` line. Blank (or whitespace-only) uses that default. A value with whitespace, or one containing `.0x`, fails at load: the first never matches a marker line, and the second breaks `MODULE.0xVA` metadata keys |
+| `marker` | `string` | target key uppercased, characters other than letters, digits, and `_` stripped (e.g. `server.dll` → `SERVERDLL`) | Module name in `MODULE.0xVA` keys, and optional `ADDRESS: MODULE 0xVA` comments. Blank (or whitespace-only) uses that default. A value with whitespace, or one containing `.0x`, fails at load: the first cannot identify an address module, and the second breaks `MODULE.0xVA` metadata keys |
 
-The lint tool (`rebrew lint`) validates that each marker's module matches the configured marker (error E012), except stacked blocks naming another known project target, which is the `src/shared` pattern (ADR-010), not a mismatch. Each stacked block answers to its own target's CFLAGS defaults (W018).
+The lint tool (`rebrew lint`) validates each binding module against configured targets and libraries (E012). A shared definition can have one metadata row and optional ADDRESS anchor per target. Each target resolves its own compiler flags; no inline state blocks are supported (ADR-030).
 
 `src/shared` files are scanned for every target; `rebrew doctor` warns on multi-target projects when the shared dir is missing or `shared_dir` is disabled. `rebrew source import-related --shared` records the destination `MODULE.0xVA` row on the shared file (verified before STATUS promotion) instead of copying per-target duplicates. A promote retargets rows whose `file` named the old path.
 
@@ -556,7 +556,7 @@ rebrew receives.
   explicit `-v` / `-q` outranks it.  An unknown name warns and keeps the
   default, so a typo is reported by `cfg effective` rather than aborting the
   run that would have named it.
-- `_REBREW_COMPLETE`: click's shell-completion mode marker, set by the completion scripts `rebrew init --install-completions` writes. Rebrew never reads it itself, and there is no `completion` subcommand.
+- `_REBREW_COMPLETE`: click's shell-completion mode marker, set by the completion scripts `rebrew init --write-completions` writes. Rebrew never reads it itself, and there is no `completion` subcommand.
 - `GH_TOKEN` / `GITHUB_TOKEN`: optional GitHub auth for `rebrew toolchain`
   downloads that need a token (not a rebrew-prefixed name; standard gh env).
 - `KUNA_SPECS`: SLEIGH spec directory the host `kuna` binary reads for
@@ -706,18 +706,18 @@ resolves through the `server.dll` key.
 | `raw` | Dump entire config as JSON (default) or TOML (`--format toml`) | `rebrew cfg raw` |
 | `effective` | Print the values in force after env and default resolution (secrets redacted, env vars named only) | `rebrew cfg effective --json` |
 | `path` | Print absolute path to `rebrew-project.toml` | `rebrew cfg path` |
-| `add-target NAME` | Add a target section + create dirs | `rebrew cfg target add client.exe --binary original/client.exe` |
-| `remove-target NAME` | Remove a target section | `rebrew cfg target remove old_target` |
-| `set-cflags ORIGIN FLAGS` | Set cflags preset for an origin | `rebrew cfg module set-cflags ZLIB"/O3" --target server.dll` |
-| `set-compiler TARGET PROFILE` | Set compiler profile for a target | `rebrew cfg target set-compiler client.exe msvc-7.0` |
-| `add-module MODULE` | Add a module to a target's origins list | `rebrew cfg module add ZLIB --target server.dll` |
-| `remove-module MODULE` | Remove a module from a target's origins list | `rebrew cfg module remove ZLIB --target server.dll` |
-| `detect-crt` | Auto-detect MSVC CRT source directories | `rebrew cfg detect-crt apply` |
+| `target add NAME` | Add a target section + create dirs | `rebrew cfg target add client.exe --binary original/client.exe` |
+| `target remove NAME` | Remove a target section | `rebrew cfg target remove old_target` |
+| `module set-cflags MODULE FLAGS` | Set the module CFLAGS preset | `rebrew cfg module set-cflags ZLIB "/O3" --target server.dll` |
+| `target set-compiler TARGET PROFILE` | Set compiler profile for a target | `rebrew cfg target set-compiler client.exe msvc-7.0` |
+| `module add MODULE` | Add a module to a target's origins list | `rebrew cfg module add ZLIB --target server.dll` |
+| `module remove MODULE` | Remove a module from a target's origins list | `rebrew cfg module remove ZLIB --target server.dll` |
+| `detect-crt apply` | Import detected MSVC CRT source directories | `rebrew cfg detect-crt apply` |
 
 ```bash
 # Example workflow: add a second binary and configure it
 rebrew cfg target add client.exe --binary original/Client/client.exe --arch x86_32
-rebrew cfg module set-cflags GAME"/O2 /Gd" --target client.exe
+rebrew cfg module set-cflags GAME "/O2 /Gd" --target client.exe
 rebrew cfg show targets.client.exe
 
 # Read/write through dotted target names

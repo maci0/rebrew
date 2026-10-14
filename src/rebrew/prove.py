@@ -49,10 +49,12 @@ from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
     EXIT_OK,
+    SOURCE_HELP,
     TargetOption,
     console,
     error_exit,
     json_print,
+    option_default,
     parse_va,
     require_config,
     require_source_arg,
@@ -1131,23 +1133,23 @@ def prove_equivalence(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew prove src/mygame/calculate_physics.c · Prove equivalence\n\n"
-    "  rebrew prove 0x01006364 · · · · · · · · · · · Find by VA\n\n"
-    "  rebrew prove my_func · · · · · · · · · · · · · Find by symbol name\n\n"
-    "  rebrew prove src/mygame/func.c --dry-run · · · Don't update annotations\n\n"
-    "  rebrew prove src/mygame/func.c --watch · · · · Re-prove on every save\n\n"
-    "  rebrew prove --all · · · · · · · · · · · · · · Prove all eligible functions\n\n"
-    "  rebrew prove my_func --start-offset 0 --end-offset 48  Prove a specific block\n\n"
+    "  rebrew prove src/mygame/calculate_physics.c  # Prove equivalence\n\n"
+    "  rebrew prove 0x01006364  # Find by VA\n\n"
+    "  rebrew prove my_func  # Find by symbol name\n\n"
+    "  rebrew prove src/mygame/func.c --dry-run  # Do not update metadata\n\n"
+    "  rebrew prove src/mygame/func.c --watch  # Re-prove on every save\n\n"
+    "  rebrew prove --all  # Prove all eligible functions\n\n"
+    "  # Prove a specific block\n"
+    "  rebrew prove my_func --start-offset 0 --end-offset 48\n\n"
     "[bold]How it works:[/bold]\n\n"
     "  1. Validates the function status is NEAR_MATCHING/SIZE_MISMATCH — the gate\n"
     "     checks the effective status (metadata or the verify cache)\n\n"
-    "  2. Extracts target bytes from the DLL and compiles the C source\n\n"
+    "  2. Extracts target bytes from the configured binary and compiles the C source\n\n"
     "  3. Verifies bytes still differ post-compile (matched bytes belong as RELOC, not PROVEN)\n\n"
     "  4. Loads both byte blobs into angr's symbolic execution engine\n\n"
     "  5. Proves EAX equivalence via Z3 constraint solving\n\n"
-    "  6. If proven: updates STATUS from NEAR_MATCHING/SIZE_MISMATCH \u2192 PROVEN\n\n"
-    "[dim]angr is a heavy optional dependency (~500 MB). "
-    "Install with: uv tool install --reinstall 'rebrew\\[prove] @ git+https://github.com/maci0/rebrew.git'[/dim]"
+    "  6. If proven: updates STATUS from NEAR_MATCHING/SIZE_MISMATCH → PROVEN\n\n"
+    "[dim]angr is a heavy optional dependency (~500 MB). Install with: uv tool install --reinstall 'rebrew\\[prove] @ git+https://github.com/maci0/rebrew.git'[/dim]"
 )
 
 app = typer.Typer(
@@ -1159,21 +1161,19 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    source: str = typer.Argument(None, help="C source file, symbol name, or VA (hex)"),
+    source: str = typer.Argument(None, help=SOURCE_HELP + " (omit with --all)"),
     all_sources: bool = typer.Option(
         False, "--all", help="Prove all NEAR_MATCHING/SIZE_MISMATCH functions"
     ),
     ceiling_only: bool = typer.Option(
         False,
         "--ceiling",
-        help="With --all: only prove GA_CEILING-documented functions (the register- or "
-        "encoding-only set the GA gave up on — the sanctioned PROVEN lane)",
+        help="With --all, restrict to GA_CEILING functions; excludes --max-delta",
     ),
     max_delta: int | None = typer.Option(
         None,
         "--max-delta",
-        help="With --all: only prove NEAR_MATCHING/SIZE_MISMATCH functions whose recorded "
-        "byte delta (blocker_delta) is at most this — focus Z3 time on the closest matches",
+        help="With --all, cap recorded blocker_delta in bytes; excludes --ceiling",
     ),
     timeout: int = typer.Option(60, "--timeout", help="Seconds before giving up"),
     loop_bound: int = typer.Option(10, "--loop-bound", help="Max loop iterations for angr"),
@@ -1191,7 +1191,7 @@ def main(
     watch_va: list[str] | None = typer.Option(
         None,
         "--watch-va",
-        help="Also compare 4 bytes of memory at this VA (repeatable). Values are decimal unless 0x-prefixed — unlike most other rebrew tools, bare digits are NOT hex (adds to prove_constraints.watched_vas)",
+        help="Also compare 4 bytes of memory at this VA (hex, repeatable; adds to prove_constraints.watched_vas)",
     ),
     stub_thunks: bool = typer.Option(
         False,
@@ -1203,12 +1203,16 @@ def main(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     watch: bool = typer.Option(
-        False, "--watch", help="Watch the source file and re-prove on every change"
+        False,
+        "--watch",
+        help="Watch the source file and re-prove on every change (terminal only; no --json)",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Prove semantic equivalence of a NEAR_MATCHING/SIZE_MISMATCH function via symbolic execution."""
+    if option_default(watch, False) and option_default(json_output, False):
+        error_exit("--watch is terminal-only; omit --json", json_mode=True)
     # angr logs an ERROR about its optional unicorn engine at import; prove
     # is the only tool that legitimately imports angr, and its own status
     # messages are the meaningful output — silence angr's logger so every
@@ -1222,16 +1226,12 @@ def main(
 
     cfg = require_config(target=target, json_mode=json_output)
 
-    # --watch-va accepts hex (0x...) or plain decimal VAs; normalize once
-    # up front.  int(v, 0) keeps both semantics (parse_va is base-16 only).
+    # Use the same hexadecimal address syntax as every other VA selector.
     watch_va_ints: list[int] | None = None
     if watch_va:
         watch_va_ints = []
         for _v in watch_va:
-            try:
-                _va = int(_v.strip(), 0)
-            except ValueError:
-                error_exit(f"Invalid watch VA: {_v!r}", json_mode=json_output)
+            _va = parse_va(_v, json_mode=json_output)
             if not (0 <= _va <= 0xFFFFFFFF):
                 error_exit(
                     f"Invalid watch VA: {_v!r} (expected 0..0xFFFFFFFF)",

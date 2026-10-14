@@ -24,7 +24,15 @@ from rebrew.app.plugin import (
     activate,
     entry_point_components,
 )
-from rebrew.cli import QUIET_HELP, VERBOSE_HELP, VersionedGroup, configure_logging, console, run_cli
+from rebrew.cli import (
+    QUIET_HELP,
+    VERBOSE_HELP,
+    VERSION_HELP,
+    VersionedGroup,
+    configure_logging,
+    console,
+    run_cli,
+)
 
 _stdout_console = Console()
 
@@ -32,33 +40,26 @@ app = typer.Typer(
     cls=VersionedGroup,
     help="Compiler-in-the-loop decompilation workbench for binary-matching reversing.",
     rich_markup_mode="rich",
+    context_settings={"help_option_names": ["--help", "-h"]},
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "rebrew todo · · · · · · · · See what needs work (prioritized by ROI)\n\n"
-        "rebrew skeleton 0x<VA> · · · Generate a .c skeleton from address\n\n"
-        "rebrew test src/<func>.c · · Compile, byte-compare, and auto-update STATUS\n\n"
-        "rebrew diff src/f.c · · · · Show byte diff for near-misses\n\n"
-        "rebrew verify · · · · · · · Bulk-verify all reversed functions\n\n"
-        "[bold]test vs verify vs match:[/bold]\n\n"
-        "rebrew test <file> · · · · · Single function — compile, compare, auto-promote STATUS\n\n"
-        "rebrew test --all · · · · ·  Batch — verify's engine, always recompiles\n\n"
-        "rebrew verify · · · · · · ·  Batch — incremental verify with caching (--compare for CI)\n\n"
-        "rebrew match run <file> · · · · GA engine — iteratively mutate source to find byte match\n\n"
-        "[bold]Status ladder (byte match, best → worst):[/bold]\n\n"
-        "EXACT · · · · · · 100% byte match\n\n"
-        "RELOC · · · · · · Match after masking relocation records\n\n"
-        "NEAR_MATCHING · · ≥60% match — use rebrew diff / rebrew prove\n\n"
-        "STUB · · · · · · <60% match — rewrite needed\n\n"
-        "PROVEN · · · · · Side path: semantic equivalence via rebrew prove; "
-        "bytes still differ, and the next test/verify records the byte result\n\n"
-        "[bold]Exit codes:[/bold]\n\n"
-        "0 — Success (all functions matched / no errors)\n\n"
-        "1 — Mismatch or test failure (actionable — fix your code)\n\n"
-        "2 — Build error, config error, or usage error (bad flags or arguments)\n\n"
-        "130 — Interrupted (Ctrl+C)\n\n"
-        "141 — stdout closed early (piped into head, or the reader exited)\n\n"
-        "[dim]All subcommands read project settings from rebrew-project.toml. "
-        "Run 'rebrew init' to create a new project, or 'rebrew <cmd> --help' for details.[/dim]"
+        "  # Create a project\n"
+        "  rebrew init\n\n"
+        "  # See reversing progress\n"
+        "  rebrew status\n\n"
+        "  # Choose the next function\n"
+        "  rebrew todo\n\n"
+        "  # Generate C source at an address\n"
+        "  rebrew skeleton 0x401000\n\n"
+        "  # Compile, compare, and record the verdict\n"
+        "  rebrew test src/game/f.c\n\n"
+        "  # Verify the project and report regressions\n"
+        "  rebrew verify --compare\n\n"
+        "  # Search for a byte match\n"
+        "  rebrew match run src/game/f.c\n\n"
+        "test checks one function; test --all recompiles a batch; verify reuses cached results when inputs are unchanged. Use test --no-promote to measure without recording metadata.\n\n"
+        "Use rebrew <command> --help for inputs and examples. Commands with --target use the project default unless you select another target; a final --target lists configured targets.\n\n"
+        "Exit codes: 0 success; 1 mismatch or failed check; 2 usage/config/build error; 130 interrupted; 141 output pipe closed."
     ),
 )
 
@@ -93,9 +94,19 @@ def _global_options(
         "-V",
         callback=_version_callback,
         is_eager=True,
-        help="Show version and exit.",
+        help=VERSION_HELP,
+        rich_help_panel="Global options",
     ),
-    verbose: int = typer.Option(0, "--verbose", "-v", count=True, help=VERBOSE_HELP),
+    verbose: int = typer.Option(
+        0,
+        "--verbose",
+        "-v",
+        count=True,
+        metavar="",
+        show_default=False,
+        help=VERBOSE_HELP,
+        rich_help_panel="Global options",
+    ),
     # Logging only. Command tables stay; `lint --quiet` is a different flag.
     # The default level is already WARNING, so this exists to cancel --verbose.
     quiet: bool = typer.Option(
@@ -103,6 +114,7 @@ def _global_options(
         "--quiet",
         "-q",
         help=QUIET_HELP,
+        rich_help_panel="Global options",
     ),
 ) -> None:
     """Compiler-in-the-loop decompilation workbench."""

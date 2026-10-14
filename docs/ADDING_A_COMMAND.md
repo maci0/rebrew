@@ -18,6 +18,12 @@ Conventions (CLI review will flag drift):
 - Param order: `--json` before `--target`, both last.
 - Exact help strings: `--json` → `"Output results as JSON"`,
   `--dry-run` → `"Preview changes without writing"`.
+- Help uses `--help/-h` at every depth. Shared options are grouped into Project
+  (root/target), Output (JSON/previews/destinations), and Global options
+  (version/verbosity) panels; task-specific options keep their domain panels.
+- Keep group landing pages concise: a clear purpose, copyable examples, and
+  accurate preview/write behavior. Do not advertise parent flags removed when
+  an operation became a subcommand.
 - `console.print()` for humans; raw `print()` only for piped data.
 - `error_exit(msg, json_mode=json_output)` for failures.
 - A "how many rows" option (`--count`, `--limit`, `--top`) runs through
@@ -32,7 +38,9 @@ Conventions (CLI review will flag drift):
 - `src/rebrew/app/builtins.py`: append a `CliComponent` to the appropriate `DOMAIN_COMPONENTS` family
   for a specialized operation, or `BUILTIN_COMPONENTS` for a root workflow
   (name, module, help,
-  panel, is_group). The `help` string shows in `--help`; keep it one line.
+  panel, is_group). Mounted module help supplies both the parent listing and
+  command page; keep its first sentence concise. `CliComponent.help` is the
+  fallback when the module has no app help. Examples come from the mounted module.
   Default `needs` are `cli` and `console`; `apply()` mounts only while
   those services are provided. See the [Cordis CLI recipe](CORDIS.md#add-a-cli-plugin)
   for ownership and the [tutorial](CORDIS_TUTORIAL.md) for a complete lifetime.

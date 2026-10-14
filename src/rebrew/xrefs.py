@@ -232,16 +232,16 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary xrefs 0x401000 · · · · · · Who references 0x00401000\n\n"
-        "  rebrew binary xrefs 0x401000 --kind call · Only direct calls\n\n"
-        "  rebrew binary xrefs 0x401000 --json · · · · Machine-readable output\n"
+        "  rebrew binary xrefs 0x401000  # Who references 0x00401000\n\n"
+        "  rebrew binary xrefs 0x401000 --kind call  # Only direct calls\n\n"
+        "  rebrew binary xrefs 0x401000 --json  # Machine-readable output\n"
     ),
 )
 
 
 @app.callback(invoke_without_command=True)
 def main(
-    va: str = typer.Argument(..., help="Target address (hex or int)"),
+    va: str = typer.Argument(..., help="Target address in hex (0x prefix optional)"),
     binary: Path | None = typer.Argument(None, help="Binary path (default: project target)"),
     kind: list[str] = typer.Option(None, "--kind", help="Only show this ref kind (repeatable)"),
     calls_from: int = typer.Option(
@@ -253,7 +253,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Show every reference to *va* in the binary's code sections."""
+    """Show every reference to va in the binary's code sections."""
     # Typer binds positionals in declaration order, so `va` comes first for
     # `rebrew binary xrefs <va>`.  A binary-first call (`rebrew binary xrefs game.exe
     # 0x1000`) is detected by the leading arg not looking like a VA and

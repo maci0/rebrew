@@ -20,7 +20,11 @@ def _patch(
     monkeypatch.setattr(
         extract_mod,
         "_setup_candidates",
-        lambda target, json_output, exe, min_size, max_size: (cfg, candidates, Path("/tmp/x.dll")),
+        lambda target, json_output, exe, min_size, max_size, **kw: (
+            cfg,
+            candidates,
+            Path("/tmp/x.dll"),
+        ),
     )
     return cfg
 
@@ -200,3 +204,75 @@ class TestCmdBatch:
         candidates = [(0x1000, 4, "a"), (0x2000, 4, "b"), (0x3000, 4, "c")]
         extract_mod.cmd_batch(self._info(), candidates, count=2, start=1, bin_dir=tmp_path)
         assert seen == [0x2000, 0x3000]  # start offset skips the first
+
+
+class TestExplicitExtraction:
+    @pytest.mark.parametrize("flag", ["--min-size", "--max-size"])
+    def test_show_rejects_batch_only_filters_before_setup(
+        self, monkeypatch: pytest.MonkeyPatch, flag: str
+    ) -> None:
+        def _unexpected(*args: object, **kwargs: object) -> None:
+            pytest.fail("a removed filter reached extraction setup")
+
+        monkeypatch.setattr(extract_mod, "_setup_candidates", _unexpected)
+        result = runner.invoke(extract_mod.app, ["show", "0x1000", flag, "10"])
+        assert result.exit_code == 2, result.output
+        assert "No such option" in result.output
+
+    @pytest.mark.parametrize("size", [4, 60000])
+    def test_explicit_va_ignores_batch_size_and_reversed_filters(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, size: int
+    ) -> None:
+        cfg = SimpleNamespace(
+            bin_dir=tmp_path / "bins",
+            target_binary=tmp_path / "x.dll",
+            reversed_dir=tmp_path / "src",
+        )
+        monkeypatch.setattr(extract_mod, "require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            extract_mod, "load_functions", lambda cfg: [{"va": 0x1000, "size": size, "name": "f"}]
+        )
+
+        def _unexpected(*args: object, **kwargs: object) -> None:
+            pytest.fail("explicit extraction consulted the reversed-function exclusion scan")
+
+        monkeypatch.setattr(extract_mod, "detect_reversed_vas", _unexpected)
+        monkeypatch.setattr(extract_mod, "load_binary", lambda path: SimpleNamespace())
+        monkeypatch.setattr(extract_mod, "extract_bytes_at_va", lambda *a: b"\x90" * size)
+        monkeypatch.setattr(extract_mod, "disasm_bytes", lambda *a, **kw: "nop")
+        result = runner.invoke(extract_mod.app, ["show", "0x1000", "--json"])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["size"] == size
+        assert (cfg.bin_dir / "func_0x00001000.bin").read_bytes() == b"\x90" * size
+
+    @pytest.mark.parametrize("override", [None, 42])
+    def test_dry_run_previews_before_loading_binary_or_creating_output(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: int | None
+    ) -> None:
+        cfg = SimpleNamespace(
+            bin_dir=tmp_path / "bins",
+            target_binary=tmp_path / "x.dll",
+            reversed_dir=tmp_path / "src",
+        )
+        monkeypatch.setattr(extract_mod, "require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            extract_mod, "load_functions", lambda cfg: [{"va": 0x1000, "size": 4, "name": "f"}]
+        )
+
+        def _unexpected(*args: object, **kwargs: object) -> None:
+            pytest.fail("dry-run loaded, extracted, or disassembled binary bytes")
+
+        monkeypatch.setattr(extract_mod, "load_binary", _unexpected)
+        monkeypatch.setattr(extract_mod, "extract_bytes_at_va", _unexpected)
+        monkeypatch.setattr(extract_mod, "disasm_bytes", _unexpected)
+        args = ["show", "0x1000", "--dry-run", "--json"]
+        if override is not None:
+            args.extend(["--size", str(override)])
+        result = runner.invoke(extract_mod.app, args)
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert data["status"] == "DRY_RUN"
+        assert data["dry_run"] is True
+        assert data["size"] == (override if override is not None else 4)
+        assert data["bin_path"] == str(cfg.bin_dir / "func_0x00001000.bin")
+        assert not cfg.bin_dir.exists()

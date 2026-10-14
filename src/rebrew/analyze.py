@@ -36,9 +36,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary analyze · · · · · · · · · · · · Analyze the project target\n\n"
-        "  rebrew binary analyze other.exe · · · · · · · Analyze a specific binary\n\n"
-        "  rebrew binary analyze --json · · · · · · · · · Machine-readable dossier\n\n"
+        "  rebrew binary analyze  # Analyze the project target\n\n"
+        "  rebrew binary analyze other.exe  # Analyze a specific binary\n\n"
+        "  rebrew binary analyze --json  # Machine-readable dossier\n\n"
         "[bold]Sections:[/bold]\n\n"
         "  Binary layout (format/sections) · toolchain detection\n"
         "  Strings + references · imports + IAT stubs · reference profile\n"
@@ -717,13 +717,13 @@ def main(
     function_va: str | None = typer.Option(
         None,
         "--function",
-        help="Drill into one function (hex VA): callers, callees, strings, imports.",
+        help="Drill into one function (hex VA): callers, callees, strings, imports",
     ),
     output: Path | None = typer.Option(
         None,
         "--output",
         "-o",
-        help="Write a Markdown report to this path instead of the terminal.",
+        help="Write a Markdown report to this path (mutually exclusive with --json)",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

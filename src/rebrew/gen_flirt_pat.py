@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import typer
+from typer.models import TyperPath
 
 from rebrew.cli import console, error_exit, json_print
 from rebrew.formats.archives import parse_archive as parse_archive
@@ -34,12 +35,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew library signatures toolchain/msvc/6.0-win32/VC98/Lib/LIBCMT.LIB\n\n"
+        "  rebrew library signatures source/VC98/Lib/LIBCMT.LIB\n\n"
         "  rebrew library signatures LIBCMT.LIB --output flirt_sigs/libcmt.pat\n\n"
         "  rebrew library signatures libultra.a --output flirt_sigs/libultra.pat\n\n"
-        "[dim]Reads COFF .obj or ELF .o members from an ar archive, extracts public "
-        "function symbols with relocations, and emits FLIRT .pat-format "
-        "signatures.[/dim]"
+        "[dim]Reads COFF .obj or ELF .o members from an ar archive, extracts public function symbols with relocations, and emits FLIRT .pat-format signatures.[/dim]"
     ),
 )
 
@@ -571,8 +570,12 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
 
 @app.callback(invoke_without_command=True)
 def main(
-    lib_path: str = typer.Argument(..., help="Path to .lib file"),
-    output: str | None = typer.Option(None, "--output", "-o", help="Output .pat file path"),
+    lib_path: str = typer.Argument(
+        ..., help="Path to .lib file", click_type=TyperPath(path_type=str)
+    ),
+    output: str | None = typer.Option(
+        None, "--output", "-o", help="Output .pat file path", click_type=TyperPath(path_type=str)
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Generate FLIRT .pat files from COFF .lib and ELF .a archives."""

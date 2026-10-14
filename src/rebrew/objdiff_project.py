@@ -44,9 +44,11 @@ from rebrew.utils import atomic_write_bytes, atomic_write_text
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew export objdiff · · · · · · · · · · Write objdiff.json and copy the target objects\n\n"
-    "  rebrew export objdiff --output objdiff.json --target-dir build/objdiff · Custom paths\n\n"
-    "  rebrew export objdiff --output output/objdiff --json · · Report the plan, write nothing\n"
+    "  rebrew export objdiff  # Write objdiff.json and copy the target objects\n\n"
+    "  # Custom paths\n"
+    "  rebrew export objdiff --output objdiff.json --target-dir build/objdiff\n\n"
+    "  # Write the project and target objects; print a JSON summary\n"
+    "  rebrew export objdiff --output output/objdiff.json --json\n"
 )
 
 

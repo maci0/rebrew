@@ -297,22 +297,16 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew similarity function 0x10001000 · · · · · · · · · Top 10 structural matches\n\n"
-        "  rebrew similarity function 0x10001000 --limit 5 --min-score 50 · · Raise the bar\n\n"
-        "  rebrew similarity function 0x10001000 --submatch --other 0x10002000 · Common instruction runs\n\n"
-        "  rebrew similarity function --cluster · · · · · · · · · · Groups of identical functions\n\n"
-        "  rebrew similarity function 0x10001000 --json · · · · · · · Machine-readable output\n\n"
-        "[dim]Scores: 0-100 blend of mnemonic histogram (50%), call count (15%),\n"
-        "branch count (15%), size agreement (20%). Use it to find which STUBs likely share the same\n"
-        "source and optimisation approach as a solved function.[/dim]\n\n"
-        "[bold]Similar or identical?[/bold]\n"
-        "Ranking similarity is what this command does by default, and what the sibling\n"
-        "`resembl` project does across a persisted corpus (MinHash + LSH, fragment queries,\n"
-        "cross-project duplicates).  --submatch and --cluster report structure instead, and\n"
-        "answer the two questions a resemblance score cannot: --submatch names WHERE inside\n"
-        "two functions the common instructions are (offsets + text), --cluster names WHICH\n"
-        "functions of one target are identical after normalization.  In-process, exact, one\n"
-        "target, no index: for cross-project or near-duplicate work use resembl."
+        "  rebrew similarity function 0x10001000  # Top 10 structural matches\n\n"
+        "  # Raise the bar\n"
+        "  rebrew similarity function 0x10001000 --limit 5 --min-score 50\n\n"
+        "  # Common instruction runs\n"
+        "  rebrew similarity function 0x10001000 --submatch --other 0x10002000\n\n"
+        "  rebrew similarity function --cluster  # Groups of identical functions\n\n"
+        "  rebrew similarity function 0x10001000 --json  # Machine-readable output\n\n"
+        "[dim]Scores: 0-100 blend of mnemonic histogram (50%), call count (15%), branch count (15%), size agreement (20%). Use it to find which STUBs likely share the same source and optimization approach as a solved function.[/dim]\n\n"
+        "[bold]Similar or identical?[/bold]\n\n"
+        "Ranking similarity is what this command does by default, and what the sibling `resembl` project does across a persisted corpus (MinHash + LSH, fragment queries, cross-project duplicates).  --submatch and --cluster report structure instead, and answer the two questions a resemblance score cannot: --submatch names WHERE inside two functions the common instructions are (offsets + text), --cluster names WHICH functions of one target are identical after normalization.  In-process, exact, one target, no index: for cross-project or near-duplicate work use resembl."
     ),
 )
 
@@ -325,7 +319,7 @@ def main(
     size: int | None = typer.Option(
         None, "--size", help="Query function size in bytes (defaults to catalog size)"
     ),
-    top: int = typer.Option(10, "--limit", help="Number of results to show"),
+    top: int = typer.Option(10, "--limit", help="Number of results to show (0 = none)"),
     min_score: float = typer.Option(
         0.0, "--min-score", help="Minimum similarity score (0-100) to include"
     ),

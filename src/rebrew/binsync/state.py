@@ -30,46 +30,6 @@ log = logging.getLogger(__name__)
 _NOTE_PREFIX = "[rebrew:note]"
 _GHIDRA_PREFIX = "[rebrew:ghidra]"
 
-#: Per-address source comment marker.  Import writes the block-comment form,
-#: valid in C89; export and import also read the older line-comment form::
-#:
-#:     /* ANALYSIS @ 0x401010: some note */
-#:     // ANALYSIS @ 0x401010: some note
-_ANALYSIS_MARKER_RE = re.compile(
-    r"^(?:/\*\s*ANALYSIS\s*@\s*(0x[0-9a-fA-F]+)\s*:\s?(.*?)\s*\*/"
-    r"|//\s*ANALYSIS\s*@\s*(0x[0-9a-fA-F]+)\s*:\s?(.*))$"
-)
-
-#: A comment lands inside one marker line in a real source file, so it must
-#: stay on that line.  BinSync state is written by collaborators, and a
-#: comment carrying a newline would add live source lines to the file.
-_MARKER_CONTROL_RE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
-
-
-def marker_comment_text(comment: str) -> str:
-    """One-line form of a BinSync comment, safe to splice into a ``.c`` file.
-
-    Line breaks and control characters become spaces and ``*/`` is split, so
-    the text can neither end the marker comment nor start source of its own.
-    """
-    return _MARKER_CONTROL_RE.sub(" ", str(comment)).replace("*/", "* /").rstrip()
-
-
-def analysis_marker(addr: int, comment: str) -> str:
-    """The source line that carries *comment* for *addr* (a C89 block comment)."""
-    return f"/* ANALYSIS @ 0x{addr:08x}: {comment} */"
-
-
-def parse_analysis_markers(text: str) -> dict[int, str]:
-    """Return ``{addr: comment}`` for every per-address ANALYSIS marker line."""
-    out: dict[int, str] = {}
-    for line in text.splitlines():
-        match = _ANALYSIS_MARKER_RE.match(line.strip())
-        if match:
-            addr = match.group(1) or match.group(3)
-            out[int(addr, 16)] = (match.group(2) or match.group(4) or "").rstrip()
-    return out
-
 
 def containing_va(candidates: list[tuple[int, int]], addr: int) -> int | None:
     """VA of the first ``(va, size)`` candidate whose range contains *addr*."""
@@ -77,45 +37,6 @@ def containing_va(candidates: list[tuple[int, int]], addr: int) -> int | None:
         if size and va <= addr < va + size:
             return va
     return None
-
-
-def write_analysis_markers(path: Path, comments: dict[int, str]) -> bool:
-    """Merge per-address *comments* into *path*'s trailing ANALYSIS block.
-
-    Existing lines for the same address are updated in place and new addresses
-    are appended, so a re-import is idempotent.  The block is sorted by address
-    and separated from the code by one blank line.  Returns True when the file
-    changed (a no-op rewrite returns False without touching the file).
-
-    Comment text is flattened to one line by :func:`marker_comment_text`; a
-    comment arriving from a collaborator's state directory never contributes
-    source lines of its own.
-
-    Raises:
-        OSError: *path* cannot be read or written.  A failed read is not a
-            no-op — callers must not treat it as "nothing to merge".
-    """
-    from rebrew.utils import atomic_write_text, read_source_text, split_source_lines
-
-    if not comments:
-        return False
-    text, encoding = read_source_text(path)
-
-    merged = parse_analysis_markers(text)
-    merged.update({addr: marker_comment_text(text) for addr, text in comments.items()})
-
-    kept = [
-        line for line in split_source_lines(text) if not _ANALYSIS_MARKER_RE.match(line.strip())
-    ]
-    while kept and not kept[-1].strip():
-        kept.pop()
-    block = "\n".join(analysis_marker(addr, merged[addr]) for addr in sorted(merged))
-    body = "\n".join(kept)
-    new_text = f"{body}\n\n{block}\n" if body else f"{block}\n"
-    if new_text == text:
-        return False
-    atomic_write_text(path, new_text, encoding=encoding)
-    return True
 
 
 def load_binsync_state(
@@ -600,52 +521,6 @@ def iter_comment_metadata(entry: object) -> list[tuple[int, int, str]]:
     return out
 
 
-def scan_analysis_comments(
-    cfg: ProjectConfig, func_entries: list[object]
-) -> dict[int, tuple[int, str]]:
-    """``{addr: (func_va, comment)}`` from source ``// ANALYSIS @ 0xADDR: text``.
-
-    Scans the target's sources and the project-shared tree; the owning function
-    VA is resolved by address containment (falling back to the address itself).
-    These markers win over the metadata COMMENTS store for the same address.
-    """
-    from rebrew.binsync.state import containing_va, parse_analysis_markers
-    from rebrew.sources import iter_sources
-    from rebrew.utils import read_source_text
-
-    ranges = [
-        (int(getattr(e, "va", 0) or 0), int(getattr(e, "size", 0) or 0))
-        for e in func_entries
-        if getattr(e, "va", 0)
-    ]
-    paths: list[Path] = []
-    reversed_dir = getattr(cfg, "reversed_dir", None)
-    if reversed_dir is not None:
-        try:
-            paths.extend(iter_sources(Path(reversed_dir), cfg))
-        except OSError:
-            log.debug("ANALYSIS scan: cannot list %s", reversed_dir, exc_info=True)
-    shared_dir = getattr(cfg, "shared_dir", None)
-    if shared_dir is not None:
-        try:
-            paths.extend(iter_sources(Path(shared_dir), cfg))
-        except OSError:
-            log.debug("ANALYSIS scan: cannot list %s", shared_dir, exc_info=True)
-
-    out: dict[int, tuple[int, str]] = {}
-    for path in paths:
-        try:
-            # Detected encoding (not UTF-8-replace): a CP1252/Shift-JIS
-            # ANALYSIS comment (e.g. "Café") must survive into the export.
-            text, _ = read_source_text(path)
-        except OSError:
-            continue
-        for addr, comment in parse_analysis_markers(text).items():
-            owner = containing_va(ranges, addr)
-            out[addr] = (owner if owner is not None else addr, comment)
-    return out
-
-
 # ---------------------------------------------------------------------------
 # Canonical projections and the last successfully shared field values
 # ---------------------------------------------------------------------------
@@ -789,12 +664,6 @@ def local_sync_records(
             fields["stack_vars"] = metadata.get("locals") or fields.get("stack_vars") or {}
             fields["comments"] = metadata.get("comments") or fields.get("comments") or {}
         records[sync_key(kind, module, va)] = fields
-    # Source ANALYSIS markers are authoritative over their metadata projection.
-    for addr, (owner, comment) in scan_analysis_comments(cfg, list(entries)).items():
-        for key, fields in records.items():
-            if key.startswith("function.") and key.endswith(f".0x{owner:x}"):
-                fields["comments"] = dict(fields.get("comments") or {})
-                fields["comments"][f"0x{addr:08x}"] = {"comment": comment, "func_addr": owner}
     records.update(type_sync_records(cfg))
     return records
 

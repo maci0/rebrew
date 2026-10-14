@@ -180,7 +180,13 @@ def test_round_trip_through_binsync(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         source
     )
     assert "int g_town_count;" in source
-    assert "/* ANALYSIS @ 0x10001005: lock taken here */" in source
+    assert "ANALYSIS @" not in source
+    from rebrew.metadata.functions import get_entry
+
+    assert (
+        get_entry(tmp_path, 0x10001000, "SERVER")["comments"]["0x10001005"]["comment"]
+        == "lock taken here"
+    )
     assert "    int census;\n" in header
     data = (tmp_path / "rebrew-data.toml").read_text(encoding="utf-8")
     assert 'link_symbol = "_g_town_count"' in data

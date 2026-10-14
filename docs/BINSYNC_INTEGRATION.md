@@ -156,7 +156,7 @@ inputs/artifacts, not a byte-match verdict.
 ## Export: `rebrew binsync export <outdir>`
 
 Writes a [BinSync](https://github.com/binsync/binsync) state directory from the
-project's annotations and metadata:
+project's source bindings and dedicated metadata:
 
 ```
 <outdir>/
@@ -188,7 +188,7 @@ with `--create-missing`.
 |---|---|---|
 | `va` + C name of `symbol` | `Function.addr` / `Function.name` (undecorated: `_x@4` exports as `x`; a name that is no C identifier as `func_<va>`) | `functions/<hex>.toml` |
 | `size` | `Function.size` | `functions/<hex>.toml` |
-| `prototype` (inline marker line, or the C definition of a migrated row) | `Function.header.type` | `functions/<hex>.toml` |
+| `prototype` (parsed from the bound C definition) | `Function.header.type` | `functions/<hex>.toml` |
 | `locals` metadata | `Function.stack_vars` (`StackVariable`) | `functions/<hex>.toml` |
 | `note` | `Comment` at `va + 1` (`func_addr=va`) | `comments.toml` |
 | `ghidra` | `Comment` at `va + 2` (only when different) | `comments.toml` |
@@ -314,11 +314,11 @@ are logged. This name-keyed projection does not distinguish function/block
 scopes or target ownership when names overlap; reconcile those source
 definitions before treating the exported type set as a clean Ghidra model.
 
-If `STRUCT:` annotations name a struct that isn't defined in any scanned header,
+If function `struct` metadata names a struct that isn't defined in any scanned header,
 a minimal placeholder (no members) is still emitted.
 
-Export also warns (JSON `warnings`) when one VA has two identities (a store row
-and a leftover inline marker) and when a row's name is not a C identifier.
+Export also warns (JSON `warnings`) when one VA has two selected source
+identities or a row's name is not a C identifier.
 
 ### Enums and typedefs
 
@@ -383,8 +383,8 @@ and applies changes back into rebrew metadata/source:
 - **Notes / comments**: declib `Comment` artifacts in `comments.toml`:
   `[rebrew:note]`/`[rebrew:ghidra]` prefixes become rebrew `note`/`ghidra`
   metadata; every other comment lands in the function's `comments` metadata
-  keyed by hex address. A comment whose address falls inside the owning
-  function's range also gets a human-editable source marker (see below).
+  keyed by hex address. Comments remain metadata-only, including addresses
+  inside the owning function's range.
 - **Locals**: declib `Function.stack_vars` → the function's `locals` metadata
   (`[<module>.<va>.locals]`, offset-keyed `{name, type, size}`).
 - **Structs / enums / typedefs**: declib `Struct`, `Enum`, and `Typedef`
@@ -402,32 +402,18 @@ pull with nothing new writes no file. An edit the import refuses (a rename the
 engine rejects, a type definition that is not unique) is listed in
 `skipped_details` with its reason, not only logged.
 
-### Per-address comment markers
+### Per-address comments
 
-Per-instruction comments have a source representation, anchored by address
-(rebrew has no source line table, so the block is placed at the END of the
-owning `.c` file and never touches a function body). Import writes a C89 block
-comment; the older line-comment form is still read:
+Per-instruction comments live only in the owning function's dedicated
+`comments` metadata, keyed by address. Import/pull updates those fields through
+locked writers; export/push translates them to BinSync `Comment` artifacts.
+Overlay shifts accepted comment addresses by the matched function-pair delta
+and stores the destination fields. No ANALYSIS comments are emitted or read
+in C, and no source representation takes precedence over metadata.
 
-```c
-/* ANALYSIS @ 0x401010: some note */
-```
-
-- **Import/pull** writes or updates one marker per comment whose address is
-  inside a local function's range, in a single trailing block sorted by
-  address, separated from the code by one blank line. Re-import updates the
-  existing line in place (idempotent, no duplicates). A comment outside every
-  known function's range stays in the `comments` metadata only.
-- **Export/push** collects comments from BOTH the metadata `comments` field and
-  a scan of the project sources for the marker pattern, merged by address. A
-  source marker wins over the metadata entry for the same address, so an edit
-  made in source flows out to `comments.toml`. `func_addr` is derived from the
-  owning function's VA.
-- **Overlay** shifts each transferred comment address by the matched pair's VA
-  delta and writes the marker in the destination file too.
-
-The metadata `comments` field remains the lossless store (it survives even for
-addresses with no source marker).
+An address outside a known function range can remain associated through an
+explicit valid `func_addr`; lack of source-line mapping does not create a
+source marker or another storage owner.
 
 Conflict resolution mirrors `rebrew sync push`:
 
@@ -594,13 +580,9 @@ The metadata-comment column is notes and differing Ghidra names only:
 
 ## Limitations (remaining)
 
-- **Comments outside a function range**: a per-instruction comment whose
-  address falls outside every known function's range has no source marker
-  (rebrew has nowhere to anchor it); it stays in the metadata `comments` store
-  and still round-trips through `comments.toml`.
-- **Marker placement**: the `/* ANALYSIS @ 0xADDR: text */` block is file-level
-  (one trailing block per `.c`), not mapped to a source line; rebrew has no
-  line table, so the address is the only anchor.
+- **Source-line alignment**: comment addresses refer to native instructions,
+  not C line numbers. There is no source line table; comments remain in dedicated
+  metadata and round-trip through BinSync artifacts.
 
 ---
 
@@ -630,29 +612,28 @@ graph TD
 
 | Feature | Direction | Status | Command |
 |---------|-----------|--------|---------|
-| Export annotations to a BinSync state dir | Local → file | Done | `--push --state-dir D` |
-| Import a BinSync state dir into rebrew | File → Local | Done | `--pull --state-dir D` |
-| Import structs / notes / global types+sizes | File → Local | Done | `--pull` (structs → `binsync_types.h`, notes → metadata, global type/size → `rebrew-data.toml`) |
-| Create missing functions in Ghidra | Local → Ghidra | Done | `--pull --create-functions` (MCP create op over imported VAs) |
-| Status bookmarks | Local → Ghidra | Done | `--bookmarks` (category `rebrew`, status in the comment) |
+| Export fields to a BinSync state dir | Local → file | Done | `rebrew sync push --state-dir D` |
+| Import a BinSync state dir into rebrew | File → Local | Done | `rebrew sync pull --state-dir D` |
+| Import structs / notes / global types+sizes | File → Local | Done | `rebrew sync pull` (structs → `binsync_types.h`, notes → metadata, global type/size → `rebrew-data.toml`) |
+| Create missing functions in Ghidra | Local → Ghidra | Done | `rebrew sync pull --create-functions` (MCP create op over imported VAs) |
+| Status bookmarks | Local → Ghidra | Done | `rebrew sync bookmarks` (category `rebrew`, status in the comment) |
 | Custom MCP endpoint URL | n/a | Done | `--endpoint URL` |
-| Summary / dry-run preview | n/a | Done | `--summary`, `--dry-run` |
+| Summary / dry-run preview | n/a | Done | `rebrew sync summary`, `rebrew sync pull --dry-run` |
 | Prototype conflict gating | File → Local | Done | remote-only edits apply; concurrent edits conflict; `--accept-binsync` resolves |
 | Whitespace-normalized prototype compare | n/a | Done | formatting-only differences are not divergence |
 | Freshness manifest | File | Done | `manifest.toml` schema/input/artifact digests; JSON `health` reports freshness |
 | Field conflict detection | Both | Done | Warns on conflict, `--accept-binsync`/`--accept-local` |
-| Pull data labels from Ghidra | Ghidra → Local | Done | `--pull-data` (generates `rebrew_globals.h`) |
+| Pull data labels from Ghidra | Ghidra → Local | Done | `rebrew sync pull-data` (generates `rebrew_globals.h`) |
 | Validate `programPath` against Ghidra project | n/a | Done | queries `get-current-program` via ReVa MCP and warns on mismatch |
-| Watch mode (live input-change sync) | Local → state dir | Done | `--watch` (push only) |
-| XREF context in skeleton generation | Ghidra → Local | Done | `skeleton --xrefs` |
-| Ghidra decompilation backend for skeleton | Ghidra → Local | Done | `skeleton --decomp --decompiler ghidra` |
+| Watch mode (live input-change sync) | Local → state dir | Done | `rebrew sync watch` |
+| XREF context in skeleton generation | Ghidra → Local | Done | `rebrew skeleton --xrefs` |
+| Ghidra decompilation backend for skeleton | Ghidra → Local | Done | `rebrew skeleton --decomp --decompiler ghidra` |
 | Metadata-aware linting | Local | Done | `rebrew lint` reads `rebrew-functions.toml` before validation |
 
 ### Known issues
 
-- **Per-instruction comments outside a function range**: an in-range comment
-  round-trips through the `/* ANALYSIS @ 0xADDR: text */` source marker; one with
-  no anchorable function stays in the metadata `comments` store (see
+- **Per-instruction comments**: native addresses are metadata keys, not C line
+  mappings. Out-of-range comments require a known owning `func_addr` (see
   [Limitations](#limitations-remaining)).
 - **Library rows without a C definition** (a `library_*.h` identification, a
   row bound to a reference source outside the source roots) export no

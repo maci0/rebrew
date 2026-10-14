@@ -4,8 +4,8 @@ Parses each ``src/rebrew/agent-skills/*/SKILL.md`` and its ``references/*.md``,
 collects every ``rebrew <subcommand>`` invocation from both ``bash`` code
 blocks and inline code spans, and for each unique ``(subcommand, flags)``
 combination runs ``uv run --frozen rebrew <subcommand> --help`` to confirm the
-subcommand resolves AND every long flag mentioned (``--flag``) appears in the
-help output.
+subcommand resolves, then checks every referenced long flag against that
+command's registered option declarations.
 
 The script does NOT invoke the actual commands — it only exercises ``--help``.
 
@@ -30,6 +30,7 @@ from functools import cache
 from pathlib import Path
 
 from typer._click.core import Command as TyperBaseCommand
+from typer._click.core import Context as TyperContext
 from typer.core import TyperGroup
 
 # ---------------------------------------------------------------------------
@@ -53,10 +54,7 @@ _MERMAID_SEP_RE = re.compile(r"[\[\]{}()|<>]+")
 _MERMAID_CMD_RE = re.compile(r"rebrew [a-z][a-z0-9-]*[^\n]*")
 _FLAG_RE = re.compile(r"(--[a-z][a-z0-9-]+)")
 
-# typer colors the help whenever GITHUB_ACTIONS/FORCE_COLOR/PY_COLORS is set
-# (its rich console then treats the pipe as a terminal), splitting an option
-# name across escape sequences — ``-\x1b[1;36m-target`` never matches
-# ``_FLAG_RE``.  Strip the styling before parsing the help text.
+# Strip terminal styling from help-probe diagnostics.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 # Flags every Typer command carries regardless of what a skill writes, so
@@ -91,6 +89,24 @@ def _command_tree() -> TyperBaseCommand:
     from rebrew.app.main import app
 
     return typer.main.get_command(app)
+
+
+def _registered_flags(subcommand: str) -> set[str] | None:
+    """Resolve a mounted command and return its declared long option names."""
+    command = _command_tree()
+    for name in subcommand.split():
+        if not isinstance(command, TyperGroup):
+            return None
+        child = command.get_command(TyperContext(command), name)
+        if child is None:
+            return None
+        command = child
+    return {
+        flag
+        for param in command.params
+        for flag in (*param.opts, *getattr(param, "secondary_opts", ()))
+        if flag.startswith("--")
+    }
 
 
 def _parse_command(line: str) -> tuple[str, list[str]] | None:
@@ -210,7 +226,7 @@ def _run_help(subcommand: str) -> tuple[bool, str]:
     """Run ``rebrew <subcommand> --help`` and return (ok, output).
 
     Runs with a wide terminal (COLUMNS=200) so Rich does not truncate flag names.
-    *subcommand* may be a space-separated multi-word string like ``cfg add-target``.
+    *subcommand* may be a space-separated route like ``cfg target add``.
     """
     import os
 
@@ -308,6 +324,7 @@ def validate(*, quiet: bool = False, docs: bool = False) -> bool:
         help_cache: dict[str, tuple[bool, str]] = dict(
             zip(unique_subs, pool.map(_run_help, unique_subs), strict=True)
         )
+    registered_flags = {sub: _registered_flags(sub) for sub in unique_subs if help_cache[sub][0]}
 
     errors: list[str] = []
     checked = 0
@@ -322,10 +339,16 @@ def validate(*, quiet: bool = False, docs: bool = False) -> bool:
                 print(f"FAIL  {err}")
             continue
 
-        available_flags = set(_FLAG_RE.findall(output))
+        available_flags = registered_flags[subcommand]
+        if available_flags is None:
+            err = f"{skill_name}: rebrew {subcommand} — command not registered"
+            errors.append(err)
+            if not quiet:
+                print(f"FAIL  {err}")
+            continue
         for flag in combo_flags:
             if flag not in available_flags:
-                err = f"{skill_name}: rebrew {subcommand} {flag} — flag not in --help output"
+                err = f"{skill_name}: rebrew {subcommand} {flag} — flag not registered"
                 errors.append(err)
                 if not quiet:
                     print(f"FAIL  {err}")

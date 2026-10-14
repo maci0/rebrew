@@ -1,6 +1,8 @@
 # Choose Tools Before Adding Project Scripts
 
-Read the relevant `--help` from the installed Rebrew version. Command names and
+Read the relevant `--help` (or `-h`) from the installed Rebrew version, down to
+the operation: `rebrew <domain> <operation> -h`. Project/Output/Global options
+panels separate target/root selection, output/previews, and verbosity/version. Command names and
 options in old notebooks may have changed; run the current command rather than
 copying the old implementation. `rebrew skills list --json` identifies packaged
 and user-overridden skills.
@@ -14,7 +16,7 @@ and user-overridden skills.
 | Whole-program Delphi 1 | `rebrew build delphi`, `rebrew binary ne-compare`, `rebrew binary forms`; fresh Docker build/map, exact bytes separately from content overlap |
 | Disassembly or binary structure | `rebrew binary asm show`, `rebrew binary pe`; use the loaders for VA/raw-byte reads |
 | Static-library attribution and ownership | `rebrew library match`, `rebrew library inspect`; distinguish a masked template hit from a uniquely supported provider in the raw map |
-| Pristine source plus patches | `rebrew library vendor MANIFEST...`; check by default, explicit `--sync` to regenerate |
+| Pristine source plus patches | `rebrew library vendor MANIFEST...`; check by default, explicit `--apply` to regenerate |
 | Rename, bind or reorganize source identities | `rebrew source rename`, `rebrew source merge`, `rebrew source split`, `rebrew library bind-source`; CLI writers preserve identity and provenance |
 | Data rows, canonical declarations and extents | `rebrew data list`, `rebrew data set`, `rebrew types bind`; read the data-analysis ownership reference before emitting storage |
 | Bare address operands or missing fixups | `rebrew source symbolize --dry-run`, `rebrew binary relocs --json` |

@@ -50,7 +50,6 @@ from rebrew.binsync.state import (
     record_sync_origins,
     remote_sync_records,
     result_count,
-    result_paths,
     result_rows,
     seed_peer_baseline,
     sync_action,
@@ -100,12 +99,12 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binsync import ./state --dry-run · · · Preview without writing\n\n"
-        "  rebrew binsync import ./state --accept-binsync · Accept BinSync names\n\n"
-        "  rebrew binsync import ./state --accept-local · · Keep local, record provenance\n\n"
-        "  rebrew binsync import ./state --module SERVER · Only import one module\n\n"
-        "[dim]Reads functions/*.toml, global_vars.toml, and structs/*.toml from a BinSync\n"
-        "state directory and applies names/prototypes/globals back to rebrew metadata.[/dim]"
+        "  rebrew binsync import ./state --dry-run  # Preview without writing\n\n"
+        "  rebrew binsync import ./state --accept-binsync  # Accept BinSync names\n\n"
+        "  # Keep local, record provenance\n"
+        "  rebrew binsync import ./state --accept-local\n\n"
+        "  rebrew binsync import ./state --module SERVER  # Only import one module\n\n"
+        "[dim]Reads functions/*.toml, global_vars.toml, and structs/*.toml from a BinSync state directory and applies names/prototypes/globals back to rebrew metadata.[/dim]"
     ),
 )
 
@@ -684,7 +683,6 @@ def import_state(
     applied_notes = 0
     skipped = 0
     touched_vas: list[int] = []
-    marker_writes_failed: list[str] = []
     stub_statuses: list[dict[str, Any]] = []
     stub_field_updates: list[dict[str, Any]] = []
     stub_identities: list[dict[str, Any]] = []
@@ -1263,8 +1261,7 @@ def import_state(
                     log.warning("locals apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1
 
-    # Per-instruction comments: the metadata COMMENTS store is lossless, and a
-    # comment inside its owning function's range also gets a source marker.
+    # Per-instruction comments live only in the lossless metadata comments store.
     for va, entry in funcs_by_va.items():
         original = incoming_sync.get(
             next(
@@ -1281,7 +1278,7 @@ def import_state(
             comments_by_addr = {
                 a: c for a, c in comments_by_addr.items() if c.get("func_addr") != va
             }
-    comments_by_func, source_markers = _route_comments(comments_by_addr, local_by_va, module)
+    comments_by_func = _route_comments(comments_by_addr, local_by_va, module)
     for owner_va in sorted(comments_by_func):
         func_comments = comments_by_func[owner_va]
         owner = local_by_va.get(owner_va)
@@ -1292,7 +1289,7 @@ def import_state(
         if normalize_sync_value("comments", func_comments) == normalize_sync_value(
             "comments", local_comments
         ):
-            continue  # already stored and marked: a repeated pull writes nothing
+            continue  # A repeated pull writes nothing.
         if not owner_mod:
             log.warning("skipping comments for VA 0x%x: no module marker", owner_va)
             skipped += 1
@@ -1314,30 +1311,6 @@ def import_state(
             except Exception:
                 log.warning("comments apply failed for VA 0x%x", owner_va, exc_info=True)
                 skipped += 1
-
-        markers = source_markers.get(owner_va)
-        filepath = getattr(owner, "filepath", "") if owner is not None else ""
-        marker_path = Path(cfg.reversed_dir) / filepath if filepath else None
-        if markers and marker_path is not None and not dry_run:
-            from rebrew.binsync.state import write_analysis_markers
-
-            if not _inside_project(marker_path, cfg):
-                # The same containment the rename, prototype, and comment
-                # writes get: a filepath that resolves outside the project
-                # never names a file to write.
-                marker_writes_failed.append(filepath)
-                log.warning("ANALYSIS marker write refused, outside project: %s", filepath)
-                skipped += 1
-            else:
-                try:
-                    write_analysis_markers(marker_path, markers)
-                except OSError:
-                    # The comments metadata entry is already written, so a later
-                    # re-import treats it as done and never repairs the source
-                    # marker.  Report the failure instead of counting the comment
-                    # as fully applied.
-                    marker_writes_failed.append(filepath)
-                    log.warning("ANALYSIS marker write failed for %s", filepath, exc_info=True)
 
     if not dry_run:
         from rebrew.metadata.functions import set_fields_batch
@@ -1365,10 +1338,6 @@ def import_state(
                 and "prototype" in incoming_sync.get(key, {})
             ):
                 fields["prototype"] = incoming_sync[key]["prototype"]
-        if marker_writes_failed:
-            # A source-marker failure is not an acknowledged comment sync.
-            for key in incoming_sync:
-                incoming_sync[key].pop("comments", None)
         acknowledge_sync(cfg, state_dir, after_sync, incoming_sync)
         health = sync_health(
             cfg,
@@ -1392,7 +1361,6 @@ def import_state(
         "applied_notes": applied_notes,
         "conflicts": len(conflicts),
         "skipped": skipped,
-        "marker_writes_failed": sorted(marker_writes_failed),
         "touched_vas": sorted(set(touched_vas)),
         "proposed": proposed,
         "skipped_details": skipped_details,
@@ -1424,7 +1392,6 @@ _IMPORT_LISTS: tuple[str, ...] = (
     "proposed",
     "skipped_details",
     "conflict_details",
-    "marker_writes_failed",
 )
 
 
@@ -1512,18 +1479,12 @@ def _route_comments(
     comments_by_addr: dict[int, dict[str, Any]],
     local_by_va: dict[int, object],
     module: str | None,
-) -> tuple[dict[int, dict[str, dict[str, Any]]], dict[int, dict[int, str]]]:
-    """Route imported per-instruction comments to their owning local function.
-
-    Returns ``(by_func, source_markers)``: metadata entries keyed by owning VA
-    (hex-addr subkeys) and, for comments whose address falls inside the owner's
-    range, the text to write as a source marker.
-    """
+) -> dict[int, dict[str, dict[str, Any]]]:
+    """Route per-instruction comments into their owning function's metadata."""
     from rebrew.binsync.state import containing_va
 
     ranges = [(va, int(getattr(ann, "size", 0) or 0)) for va, ann in local_by_va.items()]
     by_func: dict[int, dict[str, dict[str, Any]]] = {}
-    markers: dict[int, dict[int, str]] = {}
     for addr, comment in comments_by_addr.items():
         text = str(comment.get("comment") or "")
         if text.startswith(("[rebrew:note]", "[rebrew:ghidra]")):
@@ -1540,10 +1501,7 @@ def _route_comments(
         ):
             continue
         by_func.setdefault(owner, {})[f"0x{addr:08x}"] = {"comment": text, "func_addr": owner}
-        size = int(getattr(ann, "size", 0) or 0)
-        if size and owner <= addr < owner + size:
-            markers.setdefault(owner, {})[addr] = text
-    return by_func, markers
+    return by_func
 
 
 def _definition_files(cfg: ProjectConfig) -> list[Path]:
@@ -1829,7 +1787,6 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
     conflicts = result_count(result, "conflicts")
     proposed = result_rows(result, "proposed")
     conflict_details = result_rows(result, "conflict_details")
-    marker_writes_failed = result_paths(result, "marker_writes_failed")
     module = result.get("module")
     accept_binsync = bool(result.get("accept_binsync"))
     accept_local = bool(result.get("accept_local"))
@@ -1861,8 +1818,6 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
             "conflicts": conflicts,
             "skipped": result_count(result, "skipped"),
         }
-        if marker_writes_failed:
-            payload["marker_writes_failed"] = marker_writes_failed
         if proposed:
             payload["proposed"] = proposed
         skipped_details = result_rows(result, "skipped_details")
@@ -1910,13 +1865,6 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
             f"{applied_enums} enum(s), {applied_typedefs} typedef(s), "
             f"{applied_locals} locals, {applied_comments} comment(s), {applied_notes} note(s) "
             f"from [cyan]{state_dir}[/cyan]"
-        )
-    if marker_writes_failed:
-        # The comment metadata landed; the // ANALYSIS: markers in the source
-        # did not.  A re-import will not retry them, so name the files.
-        console.print(
-            f"[yellow]ANALYSIS marker write failed for {len(marker_writes_failed)} file(s):[/yellow] "
-            + ", ".join(marker_writes_failed[:10])
         )
     skipped_details = result_rows(result, "skipped_details")
     for item in skipped_details[:10]:

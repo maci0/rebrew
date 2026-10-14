@@ -952,26 +952,6 @@ class TestManifest:
         assert tomlkit.parse(before.decode("utf-8"))["content_hash"] == first
 
 
-class TestScanAnalysisComments:
-    def test_cp1252_analysis_comment_preserves_non_ascii(self, tmp_path: Path) -> None:
-        """UTF-8-replace would turn Café into CafU+FFFD; detected CP1252 keeps é."""
-        from rebrew.binsync.state import scan_analysis_comments
-
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "f.c").write_bytes(
-            b"// FUNCTION: SERVER 0x10001000\n"
-            b"// ANALYSIS @ 0x00001006: Caf\xe9 note\n"
-            b"int foo(void) { return 0; }\n"
-        )
-        cfg = SimpleNamespace(reversed_dir=src, shared_dir=None, source_ext=".c")
-        entries = [SimpleNamespace(va=0x10001000, size=0x20)]
-        out = scan_analysis_comments(cast(Any, cfg), cast(list[object], entries))
-        assert 0x1006 in out
-        _owner, comment = out[0x1006]
-        assert comment == "Café note"
-
-
 class TestBinaryHashAndSharedTypes:
     _FOO = SourceFixture(
         "/* ADDRESS: SERVER 0x10001000 */\n\n\nint foo() { return 1; }\n",

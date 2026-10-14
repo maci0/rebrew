@@ -494,17 +494,17 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary fingerprints · · · · · · · · · Fingerprint the project's target binary\n\n"
-        "  rebrew binary fingerprints original/game.exe · Fingerprint a specific binary\n\n"
-        "  rebrew binary fingerprints game.exe --json · · Machine-readable bundle\n\n"
+        "  rebrew binary fingerprints  # Fingerprint the project's target binary\n\n"
+        "  # Fingerprint a specific binary\n"
+        "  rebrew binary fingerprints original/game.exe\n\n"
+        "  rebrew binary fingerprints game.exe --json  # Machine-readable bundle\n\n"
         "[bold]What it shows:[/bold]\n\n"
-        "  File hashes · · · · · · · · MD5 / SHA1 / SHA256 / SHA512 / SHA3-224/256/384/512 / CRC32\n\n"
-        "  imphash · · · · · · · · · · Mandiant import hash (DLL.API order)\n\n"
-        "  export_hash · · · · · · · · SHA-256 over the sorted ordinal:name export lines\n\n"
-        "  rich_header_hash · · · · · MD5 of the MSVC Rich header (toolchain stamp)\n\n"
-        "  Section entropy · · · · · · Per-section Shannon entropy over raw bytes\n\n"
-        "[dim]TLSH and ssdeep are reported only when their optional backend "
-        "is installed.[/dim]"
+        "  File hashes · · · · · MD5 / SHA1 / SHA256 / SHA512 / SHA3-224/256/384/512 / CRC32\n\n"
+        "  imphash · · · · · · · Mandiant import hash (DLL.API order)\n\n"
+        "  export_hash · · · · · SHA-256 over the sorted ordinal:name export lines\n\n"
+        "  rich_header_hash · ·  MD5 of the MSVC Rich header (toolchain stamp)\n\n"
+        "  Section entropy · · · Per-section Shannon entropy over raw bytes\n\n"
+        "[dim]TLSH and ssdeep are reported only when their optional backend is installed.[/dim]"
     ),
 )
 
