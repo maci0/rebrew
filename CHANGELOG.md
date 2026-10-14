@@ -57,6 +57,9 @@
   their defining modules. The retired migration `main` and the
   `Annotation.display_path` surface are removed with the old modules/model.
 
+- **Breaking:** `cmake_sources.HEADER` describes canonical metadata and source-purpose
+  inputs in generated CMake includes.
+
 - **Breaking:** `generate_annotation_block` is removed; use `generate_skeleton`
   with `todo_text=None` for a compact definition. Forced append replaces the
   existing definition for that identity, preserving its C name and a source backup.
