@@ -956,6 +956,55 @@ class TestStaticAndRollback:
 
 
 class TestSelectedFunctionAliases:
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_source_can_catch_up_with_its_already_renamed_row(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dry_run: bool
+    ) -> None:
+        """Restored legacy C can still bind the same identity's canonical name."""
+        from rebrew.metadata.functions import load_metadata, save_metadata
+
+        root = _project(tmp_path)
+        source = root / "src" / "command" / "lobby.c"
+        source.write_text("// FUNCTION: SERVER 0x10002000\n" + source.read_text())
+        rows = load_metadata(root)
+        rows[("SERVER", 0x10002000)].update(name="lb_Ready", symbol="_lb_Ready")
+        save_metadata(root, rows)
+        before = _snapshot(root)
+        args = ["lb_SendLobbyConfig", "lb_Ready", "--json"]
+        if dry_run:
+            args.append("--dry-run")
+        result = _run(root, monkeypatch, *args)
+        assert result.exit_code == 0, result.output
+        assert _row(_functions(root), "SERVER", 0x10002000)["name"] == "lb_Ready"
+        if dry_run:
+            assert _snapshot(root) == before
+        else:
+            assert "void lb_Ready(int player)" in source.read_text()
+            assert "lb_Ready(1);" in _text(root, "server.c")
+
+    @pytest.mark.parametrize("store", ["function", "data"])
+    def test_already_renamed_row_does_not_hide_a_different_identity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, store: str
+    ) -> None:
+        from rebrew.metadata.data import set_data_field
+        from rebrew.metadata.functions import load_metadata, save_metadata
+
+        root = _project(tmp_path)
+        source = root / "src" / "command" / "lobby.c"
+        source.write_text("// FUNCTION: SERVER 0x10002000\n" + source.read_text())
+        rows = load_metadata(root)
+        rows[("SERVER", 0x10002000)].update(name="lb_Ready", symbol="_lb_Ready")
+        if store == "function":
+            rows[("SERVER", 0x10006000)] = {"name": "lb_Ready", "symbol": "_lb_Ready"}
+        else:
+            set_data_field(root, 0x10002000, "name", "lb_Ready", "SERVER")
+        save_metadata(root, rows)
+        before = _snapshot(root)
+        result = _run(root, monkeypatch, "lb_SendLobbyConfig", "lb_Ready", "--json")
+        assert result.exit_code == 2, result.output
+        assert "duplicate symbol" in result.output
+        assert _snapshot(root) == before
+
     @pytest.mark.parametrize("selector", ["SERVER.0x10002000", "lb_SendLobbyConfig"])
     @pytest.mark.parametrize("dry_run", [False, True])
     def test_library_alias_of_selected_definition_is_not_a_collision(

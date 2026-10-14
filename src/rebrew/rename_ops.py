@@ -442,15 +442,22 @@ def _ordinary_collisions(project: _Project, new_name: str) -> list[tuple[Path, i
 
 
 def _row_name_collisions(
-    project: _Project, new_name: str, modules: set[str] | None = None
+    project: _Project,
+    new_name: str,
+    modules: set[str] | None = None,
+    renamed: set[tuple[str, str, int]] | None = None,
 ) -> list[str]:
     """``MODULE.0xVA`` of every function or data row already named *new_name*.
 
     With *modules*, only rows of those modules count: each module links its
     own image, so a row of another module with that name is not a duplicate.
     A shared source definition is caught by the source-level check instead.
+    Rows in the current plan are the same identities, even when their names
+    already agree with the destination and their restored C source does not.
     """
     from rebrew.metadata.functions import load_metadata
+
+    renamed = renamed or set()
 
     def counted(module: str) -> bool:
         return modules is None or module in modules
@@ -459,6 +466,7 @@ def _row_name_collisions(
         f"{module}.0x{va:08x}"
         for (module, va), row in load_metadata(project.metadata_dir, deepcopy=False).items()
         if counted(module)
+        and (KIND_FUNCTION, module, va) not in renamed
         and (
             row.get("name") == new_name
             or (row.get("symbol") and c_name_from_symbol(str(row["symbol"])) == new_name)
@@ -467,7 +475,9 @@ def _row_name_collisions(
     taken += [
         f"{module}.0x{va:08x}"
         for (module, va), row in project.data_rows().items()
-        if counted(module) and row.get("name") == new_name
+        if counted(module)
+        and (KIND_DATA, module, va) not in renamed
+        and row.get("name") == new_name
     ]
     return taken
 
@@ -729,7 +739,12 @@ def plan_symbol_rename(
     renamed_modules = {row.module for row in plan.rows} | (
         {selected.module} if selected is not None else set()
     )
-    taken = _row_name_collisions(project, new_name, renamed_modules or None)
+    taken = _row_name_collisions(
+        project,
+        new_name,
+        renamed_modules or None,
+        {(row.store, row.module, row.va) for row in plan.rows},
+    )
     if taken:
         raise RenameError(
             f"cannot rename {old_name} to {new_name}: rows already use {new_name} "
