@@ -1,0 +1,19 @@
+{
+  "round": 1,
+  "case": "parse_cache",
+  "baseline_head": "81a9ecbfd31c792810cc8f6eca169f36f1d127ab",
+  "before_cpu": 0.002910569,
+  "after_cpu": 0.0006873545,
+  "speedup": 4.234451072917977,
+  "outputs_identical": true,
+  "runner_sha256": "9445af01d00a31d7307e0705a8aca561a8acf4aaeb2e97c71ff843248e9b202e",
+  "changed_modules": {
+    "c_parser.py": {
+      "before": "6e2393db7fc8f84feca42270b0f66a269dc8ea222ddc0c40d60fd72ab7cc5711",
+      "after": "12f11e0e76798c63134eb891c6ec3d39f81a56d72d8a265bafa193367c9c8ade"
+    }
+  },
+  "retained": true,
+  "decision": "Exact byte keys reuse the immutable input already retained by the AST cache; remove 400 SHA-256 calls per batch.",
+  "candidate_patch": "01-candidate.patch"
+}

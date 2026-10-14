@@ -1017,6 +1017,10 @@ def source_bindings(
         )
     rows = _annotations_from_metadata(filepath, target_name, base_dir, metadata_dir, text=text)
     indexed = {(preset_module_key(a.module), a.va, a.is_data): a for a in rows}
+    data_rows: dict[tuple[str, int], list[SourceBinding]] = {}
+    for row in rows:
+        if row.is_data:
+            data_rows.setdefault((row.module, row.va), []).append(row)
     functions: dict[tuple[str, int], dict[str, Any]] | None = None
     target = preset_module_key(target_name) if target_name else ""
     for anchor in parse_address_anchors(text):
@@ -1030,11 +1034,8 @@ def source_bindings(
             else next(
                 (
                     row
-                    for row in rows
-                    if row.is_data
-                    and row.module == anchor.module
-                    and row.va == anchor.va
-                    and (not row.name or row.name == anchor.name)
+                    for row in data_rows.get((anchor.module, anchor.va), ())
+                    if not row.name or row.name == anchor.name
                 ),
                 None,
             )
@@ -1082,6 +1083,8 @@ def source_bindings(
             ann.kind = str(stored.get("kind", "FUNCTION"))
         indexed[key] = ann
         rows.append(ann)
+        if ann.is_data:
+            data_rows.setdefault((ann.module, ann.va), []).append(ann)
     return sorted(rows, key=lambda a: (a.line or 2**31, a.va, a.module))
 
 

@@ -1,0 +1,12 @@
+--- a/src/rebrew/c_parser.py
++++ b/src/rebrew/c_parser.py
+@@ -1752,4 +1752 @@
+-                if (
+-                    child.type == "storage_class_specifier"
+-                    and node_text(child, src_bytes) == "extern"
+-                ):
++                if child.type == "storage_class_specifier" and node_text(child, src_bytes) == "extern":
+@@ -1757,2 +1754 @@
+-                text = node_text(child, src_bytes)
+-                if child.type == "ms_declspec_modifier" and "dllimport" in text:
++                if child.type == "ms_declspec_modifier" and "dllimport" in node_text(child, src_bytes):

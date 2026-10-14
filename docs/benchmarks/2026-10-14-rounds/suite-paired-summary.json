@@ -1,0 +1,92 @@
+{
+  "source_purposes": {
+    "before_cpu": 0.000988714,
+    "after_cpu": 0.000983385,
+    "speedup": 1.0054190373048195
+  },
+  "bindings_small": {
+    "before_cpu": 0.017664520500000003,
+    "after_cpu": 0.015578696,
+    "speedup": 1.1338895437718282
+  },
+  "bindings_large": {
+    "before_cpu": 0.017562468999999997,
+    "after_cpu": 0.016455821500000002,
+    "speedup": 1.0672496052536784
+  },
+  "bindings_metadata_only": {
+    "before_cpu": 0.0089890435,
+    "after_cpu": 0.008978588499999999,
+    "speedup": 1.0011644369268067
+  },
+  "annotation_parsing": {
+    "before_cpu": 0.008217832500000001,
+    "after_cpu": 0.0071441935,
+    "speedup": 1.1502813438633768
+  },
+  "metadata_load": {
+    "before_cpu": 0.0087556635,
+    "after_cpu": 0.0091657495,
+    "speedup": 0.9552588689010102
+  },
+  "catalog_grid": {
+    "before_cpu": 0.049877696,
+    "after_cpu": 0.0494258935,
+    "speedup": 1.009141008245
+  },
+  "verify_cache": {
+    "before_cpu": 0.0020731525,
+    "after_cpu": 0.0019853279999999997,
+    "speedup": 1.044236770951702
+  },
+  "near_diag": {
+    "before_cpu": 0.019533497,
+    "after_cpu": 0.017046123,
+    "speedup": 1.145920218926028
+  },
+  "binary_similarity": {
+    "before_cpu": 0.025025964499999998,
+    "after_cpu": 0.023568954000000003,
+    "speedup": 1.0618190565436207
+  },
+  "ga_scoring": {
+    "before_cpu": 0.0806313515,
+    "after_cpu": 0.0780527715,
+    "speedup": 1.0330363669405385
+  },
+  "parse_tree": {
+    "before_cpu": 0.0405128505,
+    "after_cpu": 0.0355395425,
+    "speedup": 1.1399373106730342
+  },
+  "diff_structural": {
+    "before_cpu": 0.079837573,
+    "after_cpu": 0.0776386085,
+    "speedup": 1.028323079747108
+  },
+  "registry_build": {
+    "before_cpu": 0.0041657255,
+    "after_cpu": 0.004778014,
+    "speedup": 0.8718529288528666
+  },
+  "status_aggregation": {
+    "before_cpu": 0.079882513,
+    "after_cpu": 0.0808155265,
+    "speedup": 0.9884550216968518
+  },
+  "compile_cache": {
+    "before_cpu": 0.0039398215,
+    "after_cpu": 0.0038940924999999998,
+    "speedup": 1.0117431725106685
+  },
+  "verify_cached": {
+    "before_cpu": 0.009742325,
+    "after_cpu": 0.009143212,
+    "speedup": 1.0655254411688146
+  },
+  "mutation_apply": {
+    "before_cpu": 0.0119562665,
+    "after_cpu": 0.011552399500000001,
+    "speedup": 1.0349595770125504
+  }
+}

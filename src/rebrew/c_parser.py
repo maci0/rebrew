@@ -10,7 +10,6 @@ regex patterns.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 import threading
@@ -136,7 +135,7 @@ def parse_c_source(source: str | bytes) -> tuple[Any, bytes]:
         if memo is None:
             memo = OrderedDict()
             _tls.parse_memo = memo
-        key = hashlib.sha256(source).digest()
+        key = source
         hit = memo.get(key)
         if hit is not None:
             memo.move_to_end(key)
@@ -1738,7 +1737,7 @@ def find_extern_variables(
         if (
             node.type == "function_definition"
             and function_filter is not None
-            and not function_filter(src_bytes.count(b"\n", 0, node.start_byte) + 1)
+            and not function_filter(node.start_point[0] + 1)
         ):
             return
         if node.type == "declaration" and node.has_error:
@@ -1755,8 +1754,9 @@ def find_extern_variables(
                     and node_text(child, src_bytes) == "extern"
                 ):
                     has_extern = True
-                text = node_text(child, src_bytes)
-                if child.type == "ms_declspec_modifier" and "dllimport" in text:
+                if child.type == "ms_declspec_modifier" and "dllimport" in node_text(
+                    child, src_bytes
+                ):
                     has_dllimport = True
 
             # A definition qualifies only at file scope: a local `int i = 0;`
@@ -1803,9 +1803,7 @@ def find_extern_variables(
                     stack = [decl]
                     while stack:
                         part = stack.pop()
-                        if part.type == "identifier" and _variable_name(
-                            decl, src_bytes
-                        ) == node_text(part, src_bytes):
+                        if part.type == "identifier" and name == node_text(part, src_bytes):
                             removed.append((part.start_byte, part.end_byte))
                         if part.type == "parameter_declaration":
                             parameter = part.child_by_field_name("declarator")
@@ -1921,8 +1919,8 @@ def find_extern_variables(
                             ExternVar(name=name, type_str=full_type, array_suffix=array_suffix)
                         )
             for variable in results[first_result:]:
-                variable.line = src_bytes.count(b"\n", 0, node.start_byte) + 1
-                variable.end_line = src_bytes.count(b"\n", 0, node.end_byte) + 1
+                variable.line = node.start_point[0] + 1
+                variable.end_line = node.end_point[0] + 1
                 variable.declaration = node_text(node, src_bytes)
         else:
             for child in node.children:
@@ -2101,7 +2099,11 @@ def _mask_cc(source: str) -> str:
         raw = match[0].encode("utf-8", errors="surrogateescape")
         return re.sub(rb"[^\r\n]", b" ", raw).decode("ascii")
 
-    return _DECLSPEC_PATTERN.sub(blank, _CC_PATTERN.sub(blank, source))
+    if any(cc in source for cc in _CALLING_CONVENTIONS):
+        source = _CC_PATTERN.sub(blank, source)
+    if "__declspec" in source:
+        source = _DECLSPEC_PATTERN.sub(blank, source)
+    return source
 
 
 _ASM_KEYWORDS = frozenset({"__asm", "_asm"})
@@ -2137,7 +2139,7 @@ def mask_msvc_syntax(source: str) -> str:
     i = 0
     while i < len(tokens):
         kind, start, end, row = tokens[i]
-        if data[start:end].decode("utf-8", "replace") not in _ASM_KEYWORDS or i + 1 == len(tokens):
+        if data[start:end] not in (b"__asm", b"_asm") or i + 1 == len(tokens):
             i += 1
             continue
         if tokens[i + 1][0] == "(":  # GNU asm expressions are valid C grammar.
@@ -2154,7 +2156,7 @@ def mask_msvc_syntax(source: str) -> str:
             elif (
                 node_row != row
                 or node_kind == "}"
-                or data[node_start:node_end].decode("utf-8", "replace") in _ASM_KEYWORDS
+                or data[node_start:node_end] in (b"__asm", b"_asm")
             ):
                 j -= 1
                 break
@@ -2284,7 +2286,7 @@ def function_signatures(source: str) -> dict[str, str]:
                 )
                 found[name] = " ".join(text.split())
             continue
-        pending.extend(reversed(node.children))
+        pending.extend(reversed(node.named_children))
     return found
 
 

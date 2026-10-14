@@ -1,0 +1,52 @@
+{
+  "calls": {
+    "<built-in method builtins.getattr>": 10,
+    "<built-in method builtins.isinstance>": 5,
+    "<built-in method builtins.len>": 2505,
+    "<method 'child_by_field_name' of 'tree_sitter.Node' objects>": 5000,
+    "<method 'decode' of 'bytes' objects>": 5000,
+    "<method 'disable' of '_lsprof.Profiler' objects>": 1,
+    "<method 'encode' of 'str' objects>": 10,
+    "<method 'extend' of 'list' objects>": 55005,
+    "<method 'get' of 'dict' objects>": 5,
+    "<method 'join' of 'str' objects>": 2500,
+    "<method 'move_to_end' of 'collections.OrderedDict' objects>": 5,
+    "<method 'pop' of 'list' objects>": 57505,
+    "<method 'split' of 'str' objects>": 2500,
+    "<method 'sub' of 're.Pattern' objects>": 10,
+    "bench_source_scans.py:<lambda>": 1,
+    "c_parser.py:_get_parser": 5,
+    "c_parser.py:_mask_cc": 5,
+    "c_parser.py:find_function_name_in_node": 2500,
+    "c_parser.py:function_signatures": 5,
+    "c_parser.py:node_text": 2500,
+    "c_parser.py:parse_c_source": 5
+  },
+  "case": "signature_walk",
+  "cpu_samples": [
+    0.013462938,
+    0.013492846,
+    0.013470133,
+    0.013504749,
+    0.013465303,
+    0.013525774,
+    0.013480002,
+    0.013651126,
+    0.013334116
+  ],
+  "cpu_seconds": 0.013480002,
+  "output_sha256": "2d68398c0b707dce7e868b8ff2e1976f9e7918a1091289cb868a5a319a913c95",
+  "runner_sha256": "9445af01d00a31d7307e0705a8aca561a8acf4aaeb2e97c71ff843248e9b202e",
+  "wall_samples": [
+    0.013493191,
+    0.013518869,
+    0.01349852,
+    0.013528578,
+    0.013496056,
+    0.013552212,
+    0.013508159,
+    0.013682116,
+    0.013364949
+  ],
+  "wall_seconds": 0.013508159
+}

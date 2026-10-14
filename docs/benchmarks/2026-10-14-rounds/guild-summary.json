@@ -1,0 +1,9 @@
+{
+  "before_cpu": 0.285896908,
+  "after_cpu": 0.297678965,
+  "speedup": 0.9604202567688986,
+  "outputs_identical": true,
+  "digest": "aedc20bfa674d7ec3def09f19dec3874a9199a084ab41e65ad9b2a1919bbebae",
+  "files": 100,
+  "bytes": 1611774
+}

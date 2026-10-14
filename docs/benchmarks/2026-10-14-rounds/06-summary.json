@@ -1,0 +1,19 @@
+{
+  "round": 6,
+  "case": "data_bindings",
+  "baseline_head": "81a9ecbfd31c792810cc8f6eca169f36f1d127ab",
+  "before_cpu": 0.0477481425,
+  "after_cpu": 0.019462391500000002,
+  "speedup": 2.453354332123059,
+  "outputs_identical": true,
+  "runner_sha256": "9445af01d00a31d7307e0705a8aca561a8acf4aaeb2e97c71ff843248e9b202e",
+  "changed_modules": {
+    "metadata/bindings.py": {
+      "before": "958de601d29e1f365f59bf395dfebd3013bca54889e11d44a84e20bb075f0576",
+      "after": "b4c9dfb225e41e3d719fb54fbf18906950b40c8799d783d08889591bd116101d"
+    }
+  },
+  "retained": true,
+  "decision": "Index data rows by exact module/address, retaining ordered name checks for multiple views. is_data checks fall from 501500 to 2000.",
+  "candidate_patch": "06-candidate.patch"
+}

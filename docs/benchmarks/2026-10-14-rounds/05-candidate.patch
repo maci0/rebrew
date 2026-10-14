@@ -1,0 +1,11 @@
+--- a/src/rebrew/metadata/anchors.py
++++ b/src/rebrew/metadata/anchors.py
+@@ -16,0 +17 @@
++_COMMENT_MASK = bytes(byte if byte in (10, 13) else 32 for byte in range(256))
+@@ -72,3 +73,3 @@
+-        for pos in range(node.start_byte, node.end_byte):
+-            if masked[pos] not in (10, 13):
+-                masked[pos] = 32
++        masked[node.start_byte : node.end_byte] = src[node.start_byte : node.end_byte].translate(
++            _COMMENT_MASK
++        )

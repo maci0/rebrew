@@ -3,6 +3,27 @@
 Measured facts about where rebrew's hot paths spend time, and what was done
 (and deliberately *not* done) about it.
 
+## Ten additional source-scan rounds (2026-10-14)
+
+Committed the preceding work at `81a9ecbf`, then ran ten additional, interleaved
+CPU-time experiments. Nine changes remain; lazy prototype-line splitting was
+reverted. The [round ledger](benchmarks/2026-10-14-rounds/README.md) contains all
+measurements, decisions, candidate patches, output identities and reproduction
+commands.
+
+The largest targeted changes are 9.81× for large variable inventories, 4.23× for
+warmed parse-cache lookups, and 2.45× for dense data-anchor binding. Other changes
+reduce signature, comment, assembly-token and callback-name work. Declaration
+text decoding drops from 14,700 calls to 400 with neutral CPU timing. These are
+workload-specific ratios; unchanged controls vary and no timing threshold enters
+the tests.
+
+The paired 18-workload check reports about 1.14–1.15× for the large binding tree
+and annotation parsing. Guild's same 100-file scan retains its binding digest and
+uses 13.3% fewer profiled calls; CPU time remains essentially flat. Deterministic
+regression budgets check exact source-cache reuse/eviction, named-only traversal,
+linear data lookups, declaration decoding, and preserved source coordinates.
+
 ## Metadata scan measurements (2026-10-14)
 
 The runner now reports warmed **process CPU time**, wall time, all samples,

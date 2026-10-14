@@ -1,0 +1,9 @@
+--- a/src/rebrew/metadata/bindings.py
++++ b/src/rebrew/metadata/bindings.py
+@@ -762 +762,2 @@
+-        self._lines = text.splitlines()
++        self._text = text
++        self._lines: list[str] | None = None
+@@ -773,0 +775,2 @@
++        if self._lines is None:
++            self._lines = self._text.splitlines()

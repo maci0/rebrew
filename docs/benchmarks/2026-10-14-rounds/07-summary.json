@@ -1,0 +1,19 @@
+{
+  "round": 7,
+  "case": "prototype_lines",
+  "baseline_head": "81a9ecbfd31c792810cc8f6eca169f36f1d127ab",
+  "before_cpu": 0.00185016,
+  "after_cpu": 0.00219907,
+  "speedup": 0.8413374744778475,
+  "outputs_identical": true,
+  "runner_sha256": "9445af01d00a31d7307e0705a8aca561a8acf4aaeb2e97c71ff843248e9b202e",
+  "changed_modules": {
+    "metadata/bindings.py": {
+      "before": "b4c9dfb225e41e3d719fb54fbf18906950b40c8799d783d08889591bd116101d",
+      "after": "1eb91fcd0bb27d82aae0d17dbbe21620ebe94a595dce484dd396d79a214723c4"
+    }
+  },
+  "retained": false,
+  "decision": "Try deferring fallback splitlines until a signature is missing. Rejected: no timing benefit and more state.",
+  "candidate_patch": "07-candidate.patch"
+}

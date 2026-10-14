@@ -14,6 +14,7 @@ from rebrew.c_parser import (
 )
 
 _ADDRESS_RE = re.compile(r"ADDRESS:\s+(\S+)\s+(0x[0-9a-fA-F]+)\s*\Z")
+_COMMENT_MASK = bytes(byte if byte in (10, 13) else 32 for byte in range(256))
 
 
 @dataclass(frozen=True)
@@ -69,9 +70,9 @@ def parse_address_anchors(source: str) -> list[AddressAnchor]:
             stack.extend(reversed(node.named_children))
             continue
         comment = src[node.start_byte : node.end_byte].decode("utf-8")
-        for pos in range(node.start_byte, node.end_byte):
-            if masked[pos] not in (10, 13):
-                masked[pos] = 32
+        masked[node.start_byte : node.end_byte] = src[node.start_byte : node.end_byte].translate(
+            _COMMENT_MASK
+        )
         body = comment[2:-2].strip() if comment.startswith("/*") else comment[2:].strip()
         if not body.startswith("ADDRESS:"):
             continue

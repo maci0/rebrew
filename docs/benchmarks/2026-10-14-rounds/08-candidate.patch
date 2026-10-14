@@ -1,0 +1,10 @@
+--- a/src/rebrew/c_parser.py
++++ b/src/rebrew/c_parser.py
+@@ -1740 +1740 @@
+-            and not function_filter(src_bytes.count(b"\n", 0, node.start_byte) + 1)
++            and not function_filter(node.start_point[0] + 1)
+@@ -1919,2 +1919,2 @@
+-                variable.line = src_bytes.count(b"\n", 0, node.start_byte) + 1
+-                variable.end_line = src_bytes.count(b"\n", 0, node.end_byte) + 1
++                variable.line = node.start_point[0] + 1
++                variable.end_line = node.end_point[0] + 1

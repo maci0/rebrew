@@ -1,0 +1,18 @@
+--- a/src/rebrew/metadata/bindings.py
++++ b/src/rebrew/metadata/bindings.py
+@@ -1019,0 +1020,4 @@
++    data_rows: dict[tuple[str, int], list[SourceBinding]] = {}
++    for row in rows:
++        if row.is_data:
++            data_rows.setdefault((row.module, row.va), []).append(row)
+@@ -1033,5 +1037,2 @@
+-                    for row in rows
+-                    if row.is_data
+-                    and row.module == anchor.module
+-                    and row.va == anchor.va
+-                    and (not row.name or row.name == anchor.name)
++                    for row in data_rows.get((anchor.module, anchor.va), ())
++                    if not row.name or row.name == anchor.name
+@@ -1084,0 +1086,2 @@
++        if ann.is_data:
++            data_rows.setdefault((ann.module, ann.va), []).append(ann)

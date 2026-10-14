@@ -1,0 +1,8 @@
+--- a/src/rebrew/c_parser.py
++++ b/src/rebrew/c_parser.py
+@@ -2139 +2139 @@
+-        if data[start:end].decode("utf-8", "replace") not in _ASM_KEYWORDS or i + 1 == len(tokens):
++        if data[start:end] not in (b"__asm", b"_asm") or i + 1 == len(tokens):
+@@ -2156 +2156 @@
+-                or data[node_start:node_end].decode("utf-8", "replace") in _ASM_KEYWORDS
++                or data[node_start:node_end] in (b"__asm", b"_asm")

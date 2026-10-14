@@ -1,0 +1,19 @@
+{
+  "round": 5,
+  "case": "anchor_comments",
+  "baseline_head": "81a9ecbfd31c792810cc8f6eca169f36f1d127ab",
+  "before_cpu": 0.0072697709999999995,
+  "after_cpu": 0.0048770029999999995,
+  "speedup": 1.4906226221308456,
+  "outputs_identical": true,
+  "runner_sha256": "9445af01d00a31d7307e0705a8aca561a8acf4aaeb2e97c71ff843248e9b202e",
+  "changed_modules": {
+    "metadata/anchors.py": {
+      "before": "0db9adcb23f7dbd3dd8cb6f42bbe8df39e86792ba75a4cde7ee2592bd75addba",
+      "after": "fee2a0c5c97ab5d7e4d1fba223915d732e49cf0a9fb9c33887d6210e07b84b0c"
+    }
+  },
+  "retained": true,
+  "decision": "Translate comment bytes to spaces in C, retaining CR/LF and the original byte extent.",
+  "candidate_patch": "05-candidate.patch"
+}

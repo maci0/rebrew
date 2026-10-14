@@ -1,0 +1,44 @@
+{
+  "calls": {
+    "<built-in method builtins.any>": 20,
+    "<built-in method builtins.isinstance>": 5000,
+    "<method 'decode' of 'bytes' objects>": 5000,
+    "<method 'disable' of '_lsprof.Profiler' objects>": 1,
+    "<method 'encode' of 'str' objects>": 5000,
+    "<method 'sub' of 're.Pattern' objects>": 5040,
+    "__init__.py:_compile": 5000,
+    "__init__.py:sub": 5000,
+    "bench_source_scans.py:<lambda>": 1,
+    "c_parser.py:<genexpr>": 60,
+    "c_parser.py:_mask_cc": 20,
+    "c_parser.py:blank": 5000,
+    "c_parser.py:mask_msvc_syntax": 20
+  },
+  "case": "mask_conventions",
+  "cpu_samples": [
+    0.006675038,
+    0.006699062,
+    0.006731468,
+    0.006737336,
+    0.006747747,
+    0.006715774,
+    0.006742533,
+    0.006733044,
+    0.006732916
+  ],
+  "cpu_seconds": 0.006732916,
+  "output_sha256": "47ed4de121a271e3e27a2501a24021bf8561498c4ea3b414a05283e9ed51bc02",
+  "runner_sha256": "9445af01d00a31d7307e0705a8aca561a8acf4aaeb2e97c71ff843248e9b202e",
+  "wall_samples": [
+    0.006690008,
+    0.006709594,
+    0.006742847,
+    0.006746585,
+    0.006756934,
+    0.006728561,
+    0.006752556,
+    0.006750102,
+    0.006746053
+  ],
+  "wall_seconds": 0.006746053
+}

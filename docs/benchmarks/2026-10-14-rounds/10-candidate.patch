@@ -1,0 +1,7 @@
+--- a/src/rebrew/c_parser.py
++++ b/src/rebrew/c_parser.py
+@@ -1801,3 +1801 @@
+-                        if part.type == "identifier" and _variable_name(
+-                            decl, src_bytes
+-                        ) == node_text(part, src_bytes):
++                        if part.type == "identifier" and name == node_text(part, src_bytes):

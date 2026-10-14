@@ -1,6 +1,10 @@
 ## [Unreleased]
 
 ### Performance
+- Reduce source-scan work in the C parse cache, signature traversal, convention
+  masking, comment masking, data-anchor lookups and variable inventories. Record
+  ten further measured experiments, including the reverted prototype-line change,
+  with output hashes, CPU/wall samples and deterministic regression budgets.
 - Reuse pre-read source/prototypes and indexed data lookups during binding scans;
   cache immutable source-purpose records with file-identity invalidation and prune
   ignored function bodies from metadata-comment validation.
