@@ -15,11 +15,12 @@ import re
 import threading
 from bisect import bisect_left
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from itertools import pairwise
 from typing import Any
 
+from rebrew import c_conditionals
 from rebrew.utils import parse_c_integer_literal, strip_body
 
 logger = logging.getLogger(__name__)
@@ -152,6 +153,38 @@ def parse_c_source(source: str | bytes) -> tuple[Any, bytes]:
 # ---------------------------------------------------------------------------
 # Node helpers
 # ---------------------------------------------------------------------------
+
+
+def _structure_trees(tree: Any, raw: bytes) -> Iterator[tuple[Any, bytes, list[tuple[int, int]]]]:
+    if not tree.root_node.has_error:
+        yield tree, raw, []
+        return
+    parser_bytes = tree.root_node.text
+    if not parser_bytes or b"#" not in parser_bytes:
+        yield tree, raw, []
+        return
+    fragments, regions = c_conditionals.conditional_fragments(parser_bytes, parse_c_source)
+    if not fragments:
+        yield tree, raw, regions
+        return
+    for variant in c_conditionals.structural_variants(parser_bytes, fragments):
+        variant_tree, _ = parse_c_source(variant)
+        yield variant_tree, raw, regions
+
+
+def parse_c_structure(source: str | bytes) -> tuple[Any, bytes, list[tuple[int, int]]]:
+    """A same-coordinate structural AST and original conditional regions.
+
+    Equivalent brace fragments select their first branch. This is for bounded
+    source slices; inventories use every alternative rather than evaluating macros.
+    """
+    tree, raw = parse_c_source(source)
+    return next(_structure_trees(tree, raw))
+
+
+def _function_trees(source: str) -> Iterator[tuple[Any, bytes, list[tuple[int, int]]]]:
+    tree, _ = parse_c_source(mask_msvc_syntax(source))
+    return _structure_trees(tree, source.encode("utf-8", errors="surrogateescape"))
 
 
 def node_text(node: Any, source_bytes: bytes) -> str:
@@ -1227,7 +1260,7 @@ def iter_function_name_and_proto(source: str) -> list[tuple[str, str]]:
     :func:`extract_function_name_and_proto`, which takes the first match.
     """
     try:
-        tree, src_bytes = parse_c_source(source)
+        trees = _function_trees(source)
     except ImportError:
         return []
 
@@ -1266,8 +1299,10 @@ def iter_function_name_and_proto(source: str) -> list[tuple[str, str]]:
         for child in node.children:
             walk(child)
 
-    walk(tree.root_node)
-    return results
+    for tree, _raw, _regions in trees:
+        src_bytes = _raw
+        walk(tree.root_node)
+    return list(dict.fromkeys(results))
 
 
 def extract_function_name_and_proto(source: str) -> tuple[str, str] | None:
@@ -1375,7 +1410,7 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
     if not source or not source.strip():
         return []
     try:
-        tree, src_bytes = parse_c_source(mask_msvc_syntax(source))
+        trees = _function_trees(source)
     except ImportError:
         return []
 
@@ -1404,25 +1439,27 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
             for child in node.children:
                 walk(child)
 
-    walk(tree.root_node)
-    return results
+    for tree, _raw, _regions in trees:
+        src_bytes = _raw
+        walk(tree.root_node)
+    return sorted(set(results), key=lambda item: item[1])
 
 
 def function_definition_spans(source: str) -> list[tuple[str, int, int]]:
     """Return name and byte extent of each unambiguous parsed C definition."""
-    tree, parsed = parse_c_source(mask_msvc_syntax(source))
     spans = []
-    pending = [tree.root_node]
-    while pending:
-        node = pending.pop()
-        if node.type != "function_definition":
-            pending.extend(reversed(node.named_children))
-            continue
-        declarator = node.child_by_field_name("declarator")
-        name = find_function_name_in_node(declarator, parsed) if declarator else None
-        if name:
-            spans.append((name, node.start_byte, node.end_byte))
-    return spans
+    for tree, parsed, _regions in _function_trees(source):
+        pending = [tree.root_node]
+        while pending:
+            node = pending.pop()
+            if node.type != "function_definition":
+                pending.extend(reversed(node.named_children))
+                continue
+            declarator = node.child_by_field_name("declarator")
+            name = find_function_name_in_node(declarator, parsed) if declarator else None
+            if name:
+                spans.append((name, node.start_byte, node.end_byte))
+    return sorted(set(spans), key=lambda item: item[1])
 
 
 def find_extern_function_names(source: str) -> list[str]:
@@ -1926,8 +1963,26 @@ def find_extern_variables(
             for child in node.children:
                 walk(child)
 
-    walk(tree.root_node)
-    return results
+    _variant_index = 0
+    for _variant_index, (variant_tree, _raw, _regions) in enumerate(
+        _structure_trees(tree, src_bytes)
+    ):
+        walk(variant_tree.root_node)
+    if not _variant_index:
+        return results
+    unique: dict[tuple[str, str, int, int, str], ExternVar] = {}
+    for variable in results:
+        unique.setdefault(
+            (
+                variable.name,
+                variable.type_str,
+                variable.line,
+                variable.end_line,
+                variable.declaration,
+            ),
+            variable,
+        )
+    return sorted(unique.values(), key=lambda variable: variable.line)
 
 
 def find_variable_roles(
@@ -2014,8 +2069,9 @@ def find_variable_roles(
         for child in node.named_children:
             walk(child, shadows, file_scope)
 
-    for node in tree.root_node.named_children:
-        walk(node, set(), True)
+    for variant_tree, _raw, _regions in _structure_trees(tree, src):
+        for node in variant_tree.root_node.named_children:
+            walk(node, set(), True)
     return definitions, declarations, uses
 
 
@@ -2270,23 +2326,23 @@ def function_signatures(source: str) -> dict[str, str]:
     bury in an ERROR node are found, and the text keeps them.  The first
     definition of a name wins.
     """
-    tree, parsed = parse_c_source(_mask_cc(source))
     raw = source.encode("utf-8", errors="surrogateescape")
     found: dict[str, str] = {}
-    pending = [tree.root_node]
-    while pending:
-        node = pending.pop()
-        if node.type == "function_definition":
-            declarator = node.child_by_field_name("declarator")
-            body = node.child_by_field_name("body")
-            name = find_function_name_in_node(declarator, parsed) if declarator else None
-            if name and body is not None and name not in found:
-                text = raw[node.start_byte : body.start_byte].decode(
-                    "utf-8", errors="surrogateescape"
-                )
-                found[name] = " ".join(text.split())
-            continue
-        pending.extend(reversed(node.named_children))
+    for tree, parsed, _regions in _function_trees(source):
+        pending = [tree.root_node]
+        while pending:
+            node = pending.pop()
+            if node.type == "function_definition":
+                declarator = node.child_by_field_name("declarator")
+                body = node.child_by_field_name("body")
+                name = find_function_name_in_node(declarator, parsed) if declarator else None
+                if name and body is not None and name not in found:
+                    text = raw[node.start_byte : body.start_byte].decode(
+                        "utf-8", errors="surrogateescape"
+                    )
+                    found[name] = " ".join(text.split())
+                continue
+            pending.extend(reversed(node.named_children))
     return found
 
 

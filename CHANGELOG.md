@@ -19,6 +19,9 @@
   samples, saved-report comparisons, eighteen workloads and deterministic work budgets.
 
 ### Changed
+- **Breaking:** Remove the incidental `split.parse_c_source` import. Import
+  `parse_c_source` from `rebrew.c_parser`; structural source slices use the new
+  `rebrew.c_parser.parse_c_structure` API.
 - **Breaking:** Move `rebrew.merge.rebase_includes` to
   `rebrew.source_paths.rebase_includes`; source split and merge share the
   same AST-selected header-path repair.
@@ -29,6 +32,9 @@
   `load_metadata` and `stored_file_matches` from `rebrew.metadata.functions`.
 
 ### Fixed
+- Function boundaries and variable scopes retain conditional brace fragments
+  without swallowing following definitions. Inventories include each structural
+  alternative while preserving source coordinates and conditional split guards.
 - Source splitting and merging preserve local quoted-header resolution after
   moving a definition, including sibling names without a `./` prefix.
 - Source splitting checks dependencies within the selected definition and keeps

@@ -756,6 +756,29 @@ def _invoke_meta(
 class TestMarkerlessSplit:
     """A migrated file is split from its function rows, not from a marker line."""
 
+    def test_extraction_after_conditional_braces_preserves_other_body_and_storage(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = (
+            "int counter = 3;\nextern int left, right;\n"
+            "void first(int x) {\n#ifdef FIRST\nif (left) {\n#else\nif (right) {\n"
+            "#endif\nx++;\n}\n}\n"
+            "int second(int n, ...) { return counter + n; }\n"
+        )
+        _write(tmp_path / "multi.c", source)
+        _seed(tmp_path, [("SERVER", 0x10001000, "_first"), ("SERVER", 0x10002000, "_second")])
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10002000", "--force")
+        assert result.exit_code == 0, result.output
+        out = (tmp_path / "multi_c" / "second.c").read_text(encoding="utf-8")
+        assert "int second(int n, ...) { return counter + n; }" in out
+        assert "extern int counter;" in out
+        assert "void first" not in out
+        assert "int counter = 3;" not in out
+        remaining = src.read_text(encoding="utf-8")
+        assert "int counter = 3;" in remaining
+        assert "void first" in remaining
+        assert "int second" not in remaining
+
     def test_extraction_rebases_local_and_nested_quoted_headers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

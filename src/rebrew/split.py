@@ -28,7 +28,7 @@ from rebrew.c_parser import (
     find_function_name_in_node,
     find_variable_roles,
     node_text,
-    parse_c_source,
+    parse_c_structure,
 )
 from rebrew.cli import (
     TargetOption,
@@ -336,10 +336,15 @@ def _mask_for_parse(raw: bytes) -> bytes:
 
 def source_layout(text: str) -> tuple[bytes, list[SourceSpan]]:
     raw = text.encode("utf-8", errors="surrogateescape")
-    tree, _ = parse_c_source(_mask_for_parse(raw))
+    tree, _, conditional_regions = parse_c_structure(_mask_for_parse(raw))
     spans: list[SourceSpan] = []
     for child in tree.root_node.named_children:
         _collect_spans(child, raw, inside_pp=False, acc=spans)
+    for span in spans:
+        if span.kind in {"function", "storage"} and any(
+            start <= span.start < end for start, end in conditional_regions
+        ):
+            span.inside_pp = True
     spans.sort(key=lambda span: span.start)
     for index, span in enumerate(spans):
         if span.kind != "comment":
