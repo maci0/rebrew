@@ -1131,3 +1131,37 @@ Evidence: guild-rebrew `.scratch/goal24/production/callee-interface.json`,
 `src/GOLDTL.fcn_004c5250.c`, and native callback instructions
 0x005725c7..0x005725cf. Project repair must validate complete helper bodies,
 existing callers and typed operands independently of the byte-match totals.
+
+
+## Verify compiler literal values and distinguish reviewed library bindings
+
+With `check_known_bindings=true`, guild-rebrew's all-target corpus correctly
+rejects named data operands that reference the wrong offsets. Anonymous compiler
+literals remain UNRESOLVED, however: replacing a double literal 1.0 with2.0 can
+retain the same function bytes after relocation masking while changing behavior.
+The shared transfer template had incorrectly grouped Gold0x004b6b10,
+0x004b6d30 and0x004b6ef0: their native coefficients are respectively
+(1.0,0.01),(2.0,0.01),(2.0,1/120). Those are distinct native formulas, even
+though relocation-masked bodies have the same shape. Function RELOC does not
+verify the referred literal bytes.
+
+Expose an opt-in literal-content audit using the compiled COFF/LIEF sections,
+typed relocations and complete native pool bytes. Report the literal symbol,
+object value, native VA/value and rejecting mismatched-value evidence. Preserve
+multiple equal-value pools and separate value agreement from raw-link placement
+and storage ownership. Do not silently turn arbitrary data into compiler literals.
+Replay `rebrew test src/GOLDTL.fcn_004b6f00.c --target Europa1400Gold.exe --json`
+in guild-rebrew; inspect UNRESOLVED __real@ bindings and the native pools at
+0x005eb8a8(1.0),0x005eb928(2.0),0x005ece60(0.01),0x005edbc0(1/120).
+
+The binding resolver intentionally excludes LIBRARY rows because unreviewed
+FLIRT/Ghidra names have been swapped. Add explicit trust/evidence for reviewed
+native library identities so known callee operands can be checked without
+promoting attribution guesses to providers. Header-owned TL __ftol at0x0064d228
+and strlen at0x00654120 currently remain unresolved in these comparisons;
+source/runtime member byte evidence should establish the binding, while a raw
+map still establishes the linked provider. Preserve uncertainty for unreviewed
+library names. Evidence: guild-rebrew `.scratch/goal26/production/corpus.json`,
+`transfer-{tl,gold}.json`, `strict-binding-4ec780.json` and repaired native
+literal values. Project-specific operand validation belongs in ignored scratch;
+reusable value/trust policy should live upstream.
