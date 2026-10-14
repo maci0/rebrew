@@ -115,6 +115,9 @@
   `load_metadata` and `stored_file_matches` from `rebrew.metadata.functions`.
 
 ### Fixed
+- Reject malformed remote compile artifact URLs as non-retryable protocol errors
+  before fetching. Malformed base URLs raise validation errors before requests,
+  including invalid bracketed hosts and Unicode netloc characters.
 - Preserve target scope for metadata-only data definitions in mixed-target source
   files, while retaining shared extern declarations without foreign address bindings.
 - Recon dossiers exclude internal jumps from callees while retaining recursive

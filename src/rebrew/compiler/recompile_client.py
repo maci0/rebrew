@@ -178,7 +178,12 @@ def _same_origin_artifact_url(base_url: str, artifact_url: str) -> str:
     http(s) URLs whose scheme+netloc match *base_url* are accepted; relative
     paths (including ``./`` forms) are joined onto the base.
     """
-    base = urlparse(base_url)
+    try:
+        base = urlparse(base_url)
+    except ValueError as exc:
+        raise RecompileError(
+            f"invalid recompile base URL: {base_url!r}", kind="validation"
+        ) from exc
     if base.scheme not in ("http", "https") or not base.netloc:
         raise RecompileError(
             f"recompile base URL must be http(s) with a host: {base_url!r}",
@@ -192,10 +197,16 @@ def _same_origin_artifact_url(base_url: str, artifact_url: str) -> str:
         )
     # Protocol-relative (``//evil``) and absolute URLs are parsed as-is;
     # everything else is joined onto the compile base.
-    if raw.startswith("//") or "://" in raw:
-        resolved = urlparse(raw)
-    else:
-        resolved = urlparse(urljoin(base_url.rstrip("/") + "/", raw.lstrip("/")))
+    try:
+        if raw.startswith("//") or "://" in raw:
+            resolved = urlparse(raw)
+        else:
+            resolved = urlparse(urljoin(base_url.rstrip("/") + "/", raw.lstrip("/")))
+    except ValueError as exc:
+        raise RecompileError(
+            f"recompile service returned an invalid artifact_url: {artifact_url!r}",
+            kind="protocol",
+        ) from exc
     if resolved.scheme != base.scheme or resolved.netloc != base.netloc:
         raise RecompileError(
             f"recompile artifact_url is not same-origin as {base_url!r}: {artifact_url!r}",
@@ -313,7 +324,12 @@ def compile_source(
             )
 
     # Fail fast on a mistyped base URL before opening a client / posting.
-    parsed = urlparse(base_url.strip())
+    try:
+        parsed = urlparse(base_url.strip())
+    except ValueError as exc:
+        raise RecompileError(
+            f"invalid recompile base URL: {base_url!r}", kind="validation"
+        ) from exc
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise RecompileError(
             f"recompile base URL must be http(s) with a host: {base_url!r}",

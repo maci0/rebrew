@@ -480,8 +480,38 @@ class TestCompileSource:
             ("get", "http://svc/api/v1/artifacts/x.obj"),
         ]
 
+    @pytest.mark.parametrize(
+        "artifact", ["//[", "//[]", "//[]0", "//][", "http://[", "http://svc\uff0f/x"]
+    )
+    def test_malformed_artifact_url_is_rejected_before_fetch(
+        self, monkeypatch: pytest.MonkeyPatch, artifact: str
+    ) -> None:
+        body = {"status": "ok", "artifact_url": artifact}
+        client = _patch(monkeypatch, _Resp(200, json_body=body), _Resp(200, content=b"NO"))
+        with pytest.raises(RecompileError) as ei:
+            compile_source("http://svc", "msvc-6.0", "int f(void){}", ["/c"], retries=2)
+        assert ei.value.kind == "protocol"
+        assert not ei.value.retryable
+        assert client.calls == [("post", "http://svc/api/v1/compile")]
+
+    @pytest.mark.parametrize("base", ["http://[", "http://[]", "http://svc\uff0f"])
+    def test_malformed_base_url_is_rejected_before_request(
+        self, monkeypatch: pytest.MonkeyPatch, base: str
+    ) -> None:
+        client = _patch(monkeypatch, _Resp(200, json_body={}), _Resp(200, content=b"NO"))
+        with pytest.raises(RecompileError) as ei:
+            compile_source(base, "msvc-6.0", "int f(void){}", ["/c"])
+        assert ei.value.kind == "validation"
+        assert client.calls == []
+
 
 class TestSameOriginArtifactUrl:
+    @pytest.mark.parametrize("base", ["http://[", "http://[]", "http://svc\uff0f"])
+    def test_malformed_base_is_a_validation_error(self, base: str) -> None:
+        with pytest.raises(RecompileError) as ei:
+            _same_origin_artifact_url(base, "/x.obj")
+        assert ei.value.kind == "validation"
+
     def test_relative_path(self) -> None:
         assert (
             _same_origin_artifact_url("http://svc", "/api/v1/artifacts/x.obj")
