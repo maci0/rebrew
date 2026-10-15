@@ -319,7 +319,10 @@ def build_graph(
         lines_by_name = dict(find_c_function_definitions(text))
         externs = _extract_callees(cfile, text)
         for entry in read_source_bindings(
-            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
+            cfile,
+            target_name=target_marker(cfg),
+            metadata_dir=cfg.metadata_dir if cfg else None,
+            project_root=getattr(cfg, "root", None),
         ):
             if entry.is_data:
                 continue

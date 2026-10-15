@@ -624,6 +624,7 @@ def _load_annotations(cfg: ProjectConfig) -> dict[int, Any]:
         iter_sources(cfg.reversed_dir, cfg),
         target=marker,
         metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     ):
         for ann in anns:
             if ann.va and ann.va not in out:
@@ -649,7 +650,12 @@ def _parse_annotations_fallback(cfg: ProjectConfig) -> dict[int, Any]:
     out: dict[int, Any] = {}
     for src in iter_sources(cfg.reversed_dir, cfg):
         try:
-            anns = read_source_bindings(src, target_name=marker, metadata_dir=cfg.metadata_dir)
+            anns = read_source_bindings(
+                src,
+                target_name=marker,
+                metadata_dir=cfg.metadata_dir,
+                project_root=getattr(cfg, "root", None),
+            )
         except (OSError, ValueError) as exc:
             # Every annotation in this file is then absent from the fallback
             # map, so its functions enter no partition and the sweep reports

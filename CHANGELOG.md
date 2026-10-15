@@ -6,6 +6,27 @@
   quadratic work collecting names at each matching offset.
 
 ### Changed
+- Add `test FILE --source-targets` and `verify FILE --source-targets`: preflight
+  exact function/provider bindings, report unbound targets as skipped, isolate
+  target failures and refuse a wholly empty scope. Paths are explicit, relative
+  to the current directory, including when `verify --root` selects the project.
+  `data list --all-targets` uses each target's configured raw link map.
+- All-target dispatch enumerates targets before loading any target's settings;
+  `verify --root` selects the correct project for the sweep. Explicit per-target
+  link maps cannot be silently discarded. JSON failures always carry an error.
+- **Breaking:** Function/data source identities now match exact metadata-relative
+  paths, rather than arbitrary suffixes. Explicit compiled-library identities
+  retain project-relative provider resolution through the optional `project_root`
+  keyword on `metadata.bindings.read_source_bindings` / `source_bindings`.
+  Rebind moved sources explicitly;
+  sibling files with the same basename no longer inherit one another's rows.
+- `data set` accepts multiple fields/rows atomically. `--dry-run` validates the
+  complete patch without creating files; `--expected-digest` requires the input
+  hash from a reviewed preview and rechecks it under the write lock. Public
+  `metadata.data.patch_data_fields_batch` rejects verdict/evidence injection and
+  conflicting repeated fields; `data_annotate.patch_data_fields` shares CLI
+  normalization. Definition/placement edits, including `link_symbol`, invalidate
+  the current verdict while retaining verification evidence. Notes/no-ops keep it.
 - Complete decompiler implementations use `c_parser.function_source_error`, with
   concrete structural/identity rejection reasons and no GA population size cap.
   `skeleton --decomp-body` preserves large valid bodies and renames C identifiers,

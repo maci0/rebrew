@@ -51,6 +51,7 @@ from rebrew.cli import (
     EXIT_MISMATCH,
     AllTargetsOption,
     RootOption,
+    SourceTargetsOption,
     TargetOption,
     all_targets_run,
     console,
@@ -58,6 +59,7 @@ from rebrew.cli import (
     json_print,
     option_default,
     require_config,
+    source_targets_run,
 )
 from rebrew.compiler.compile import (
     clears_blocker,
@@ -801,11 +803,13 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
     all_targets: bool = AllTargetsOption,
+    source_targets: bool = SourceTargetsOption,
 ) -> None:
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
     all_targets = option_default(all_targets, False)
+    source_targets = option_default(source_targets, False)
     # An OptionInfo reaching the jobs bound is truthy, so a direct callback
     # call from a test would feed min(jobs, fresh_count) an object.
     jobs = option_default(jobs, None)
@@ -817,17 +821,37 @@ def main(
             (watch, "--watch"),
             (output_path, "--output"),
             (built, "--built"),
+            (link_map, "--link-map"),
         ):
             if clash:
                 error_exit(
                     f"--all-targets and {why} are mutually exclusive (each target needs its own)",
                     json_mode=json_output,
                 )
-    if all_targets_run(
-        target=target,
-        all_targets=all_targets,
-        json_mode=json_output,
-        run_one=lambda n: main(
+    if source_targets:
+        for clash, flag in (
+            (batch_dir, "--dir"),
+            (origin, "--module"),
+            (watch, "--watch"),
+            (output_path, "--output"),
+            (built, "--built"),
+            (link_map, "--link-map"),
+            (data, "--data"),
+            (text, "--text"),
+            (whole_binary, "--whole-binary"),
+            (prune_orphans, "--prune-orphans"),
+            (raw_link, "--raw-link"),
+        ):
+            if option_default(clash, None):
+                error_exit(
+                    f"--source-targets and {flag} are mutually exclusive", json_mode=json_output
+                )
+
+    if source_targets and file is not None:
+        file = str(Path(file).resolve())
+
+    def run_one(n: str) -> None:
+        main(
             file=file,
             root=root,
             jobs=jobs,
@@ -853,7 +877,25 @@ def main(
             json_output=json_output,
             target=n,
             all_targets=False,
-        ),
+            source_targets=False,
+        )
+
+    if source_targets_run(
+        file,
+        enabled=source_targets,
+        target=target,
+        all_targets=all_targets,
+        json_mode=json_output,
+        run_one=run_one,
+        root=root,
+    ):
+        return
+    if all_targets_run(
+        target=target,
+        all_targets=all_targets,
+        json_mode=json_output,
+        run_one=run_one,
+        root=root,
     ):
         return
     cfg = require_config(target=target, json_mode=json_output, root=root)

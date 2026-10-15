@@ -377,3 +377,113 @@ class TestProviderEvidence:
         assert report["summary"]["total"] == 4
         assert report["summary"]["library_total"] == 2
         assert report["summary"]["library_passed"] == 1
+
+
+class TestExactProviderPaths:
+    @pytest.mark.parametrize("anchored", [False, True])
+    def test_nested_metadata_resolves_library_from_project_root(
+        self, tmp_path: Path, anchored: bool
+    ) -> None:
+        from rebrew.metadata.bindings import read_source_bindings
+
+        source = tmp_path / "lib/native/f.c"
+        source.parent.mkdir(parents=True)
+        prefix = "/* ADDRESS: GAME 0x00401000 */\n" if anchored else ""
+        source.write_text(prefix + "int f(void) { return 0; }\n")
+        reversed_dir = tmp_path / "src/game"
+        reversed_dir.mkdir(parents=True)
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=reversed_dir, marker="GAME")
+        record_function_rows(
+            reversed_dir.parent,
+            [
+                {
+                    "module": "GAME",
+                    "va": 0x401000,
+                    "identity": {
+                        "file": "lib/native/f.c",
+                        "kind": "LIBRARY",
+                        "name": "f",
+                        "symbol": "_f",
+                    },
+                    "fields": {"size": 4},
+                }
+            ],
+        )
+        rows = read_source_bindings(
+            source, target_name="GAME", metadata_dir=cfg.metadata_dir, project_root=cfg.root
+        )
+        assert len(rows) == 1
+        assert (rows[0].kind, rows[0].symbol, rows[0].size) == ("LIBRARY", "_f", 4)
+        assert rows[0].prototype
+        from rebrew.metadata.bindings import file_backed_by_metadata, function_rows_for_file
+        from rebrew.metadata.functions import load_metadata
+
+        metadata = load_metadata(cfg.metadata_dir)
+        assert function_rows_for_file(source, cfg.metadata_dir, metadata, project_root=cfg.root)
+        wrong_namespace = cfg.metadata_dir / "lib/native/f.c"
+        assert not function_rows_for_file(
+            wrong_namespace, cfg.metadata_dir, metadata, project_root=cfg.root
+        )
+        assert not file_backed_by_metadata(wrong_namespace, cfg.metadata_dir, project_root=cfg.root)
+        scanned = scan_reversed_dir(reversed_dir, cfg)
+        assert [(row.va, row.filepath) for row in scanned] == [(0x401000, "../../lib/native/f.c")]
+        imposter = reversed_dir / "imposter.c"
+        imposter.write_text("/* ADDRESS: GAME 0x00401000 */\nint f(void) { return 1; }\n")
+        with pytest.raises(ValueError, match="stored source binding"):
+            scan_reversed_dir(reversed_dir, cfg)
+
+    def test_invalid_counterpart_does_not_poison_selected_test(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata.bindings import read_source_bindings
+        from rebrew.test import _run_test_impl
+
+        source = tmp_path / "src/shared/f.c"
+        source.parent.mkdir(parents=True)
+        source.write_text(
+            "/* ADDRESS: A 0x00401000 */\n/* ADDRESS: B 0x00501000 */\nint f(void) { return 0; }\n"
+        )
+        reversed_dir = tmp_path / "src/game"
+        reversed_dir.mkdir()
+        cfg = ProjectConfig(
+            root=tmp_path, reversed_dir=reversed_dir, marker="A", target_binary=tmp_path / "a.exe"
+        )
+        record_function_rows(
+            reversed_dir.parent,
+            [
+                {
+                    "module": module,
+                    "va": va,
+                    "identity": {"file": file, "kind": "FUNCTION", "name": "f", "symbol": "_f"},
+                    "fields": {"size": 4},
+                }
+                for module, va, file in [
+                    ("A", 0x401000, "shared/f.c"),
+                    ("B", 0x501000, "other/f.c"),
+                ]
+            ],
+        )
+        rows = read_source_bindings(
+            source, target_name="A", metadata_dir=cfg.metadata_dir, project_root=cfg.root
+        )
+        with pytest.raises(ValueError, match="stored source binding"):
+            read_source_bindings(
+                source, target_name="B", metadata_dir=cfg.metadata_dir, project_root=cfg.root
+            )
+        monkeypatch.setattr(
+            "rebrew.compiler.overrides.resolve_compile_overrides", lambda *args: (None, "")
+        )
+        monkeypatch.setattr("rebrew.test._cmake_pin_for", lambda *args: (None, None))
+
+        class ReachedSelectedBytes(Exception):
+            pass
+
+        def extract(binary: Path, va: int, size: int) -> bytes:
+            assert (binary, va, size) == (cfg.target_binary, 0x401000, 4)
+            raise ReachedSelectedBytes
+
+        monkeypatch.setattr("rebrew.test.extract_raw_bytes", extract)
+        with pytest.raises(ReachedSelectedBytes):
+            _run_test_impl(
+                cfg, str(source), lint_annos=rows, name_to_va={}, json_output=True, no_promote=True
+            )

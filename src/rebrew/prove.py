@@ -1302,6 +1302,7 @@ def main(
         source_path,
         target_name=target_marker(cfg),
         metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     )
     ann = None
     if was_va_arg:
@@ -1977,7 +1978,12 @@ def _run_all_batch(
     all_annos: list[Any] = []
     for src in sources:
         try:
-            annos = read_source_bindings(src, target_name=tm, metadata_dir=cfg.metadata_dir)
+            annos = read_source_bindings(
+                src,
+                target_name=tm,
+                metadata_dir=cfg.metadata_dir,
+                project_root=getattr(cfg, "root", None),
+            )
         except Exception as exc:
             # Dropping the file quietly makes a batch run indistinguishable
             # from one where every function was already out of scope.

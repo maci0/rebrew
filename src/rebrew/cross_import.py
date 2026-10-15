@@ -155,6 +155,7 @@ def annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
             target_name=target_marker(cfg),
             base_dir=cfg.reversed_dir,
             metadata_dir=cfg.metadata_dir,
+            project_root=getattr(cfg, "root", None),
         ):
             out[ann.va] = (getattr(ann, "status", "") or "", getattr(ann, "filepath", "") or "")
     return out
@@ -395,7 +396,9 @@ def _library_vas(cfg: ProjectConfig) -> set[int]:
     modules = {preset_module_key(str(m)) for m in (getattr(cfg, "external_libs", None) or ())}
     out: set[int] = set()
     for path in iter_library_headers(reversed_dir, cfg):
-        for ann in read_source_bindings(path, metadata_dir=cfg.metadata_dir):
+        for ann in read_source_bindings(
+            path, metadata_dir=cfg.metadata_dir, project_root=getattr(cfg, "root", None)
+        ):
             kind = str(getattr(ann, "kind", "") or "").upper()
             module = preset_module_key(str(getattr(ann, "module", "") or ""))
             if ann.va and (kind == "LIBRARY" or (module and module in modules)):
@@ -784,7 +787,10 @@ def import_shared_function(
     )
 
     existing = read_source_bindings(
-        target_path, target_name=module, metadata_dir=cfg_dst.metadata_dir
+        target_path,
+        target_name=module,
+        metadata_dir=cfg_dst.metadata_dir,
+        project_root=cfg_dst.root,
     )
     src_module = target_marker(cfg_src) or cfg_src.target_name
     superseded = any(e.va == dst_va for e in existing)
@@ -1024,7 +1030,10 @@ def import_function(
         (
             ann
             for ann in read_source_bindings(
-                src_path, target_name=src_module, metadata_dir=cfg_src.metadata_dir
+                src_path,
+                target_name=src_module,
+                metadata_dir=cfg_src.metadata_dir,
+                project_root=cfg_src.root,
             )
             if ann.va == src_va and ann.kind in FUNCTION_KINDS
         ),
@@ -1074,7 +1083,10 @@ def import_function(
         from rebrew.metadata.bindings import read_source_bindings
 
         existing = read_source_bindings(
-            dst_path, target_name=module, metadata_dir=cfg_dst.metadata_dir
+            dst_path,
+            target_name=module,
+            metadata_dir=cfg_dst.metadata_dir,
+            project_root=cfg_dst.root,
         )
         own = [e for e in existing if e.va == dst_va]
         other = [e for e in existing if e.va != dst_va]
@@ -1082,7 +1094,10 @@ def import_function(
         src_in_file = any(
             e.va == src_va
             for e in read_source_bindings(
-                dst_path, target_name=src_module, metadata_dir=cfg_src.metadata_dir
+                dst_path,
+                target_name=src_module,
+                metadata_dir=cfg_src.metadata_dir,
+                project_root=cfg_src.root,
             )
         )
         if not own or other or src_in_file:
@@ -1247,6 +1262,7 @@ def _source_flags(cfg_src: ProjectConfig, src_path: Path, src_va: int) -> str:
             src_path,
             target_name=target_marker(cfg_src),
             metadata_dir=cfg_src.metadata_dir,
+            project_root=cfg_src.root,
         )
     except OSError:
         anns = []

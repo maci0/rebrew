@@ -152,7 +152,12 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
 
     from rebrew.formats.binary_loader import extract_raw_bytes
 
-    for path, annos in iter_source_bindings(sources, target=marker, metadata_dir=cfg.metadata_dir):
+    for path, annos in iter_source_bindings(
+        sources,
+        target=marker,
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
+    ):
         fns: list[tuple[str, int, bytes]] = []
         for a in annos:
             if a.is_data:
@@ -237,7 +242,10 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
     from rebrew.metadata.bindings import read_source_bindings
 
     annos = read_source_bindings(
-        source, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+        source,
+        target_name=target_marker(cfg),
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     )
     ann = annos[0] if annos else None
     toolchain, cflags = resolve_compile_overrides(

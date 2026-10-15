@@ -2062,7 +2062,12 @@ def lint_file(
         from rebrew.metadata.bindings import source_bindings
 
         bindings = source_bindings(
-            text, filepath, None, None, cfg.metadata_dir if cfg else filepath.parent
+            text,
+            filepath,
+            None,
+            None,
+            cfg.metadata_dir if cfg else filepath.parent,
+            project_root=getattr(cfg, "root", None),
         )
         definition_lines: dict[str, int] = {}
         if any(a.is_function for a in bindings):
@@ -2142,6 +2147,7 @@ def lint_file(
             filepath,
             cfg.metadata_dir if cfg is not None else filepath.parent,
             _metadata_entries,
+            project_root=getattr(cfg, "root", None),
         ):
             if _own_marker and preset_module_key(_row_module) != preset_module_key(_own_marker):
                 continue
@@ -2313,7 +2319,10 @@ def lint_file(
         code_lines,
         text,
         function_rows_for_file(
-            filepath, cfg.metadata_dir if cfg else filepath.parent, _metadata_entries
+            filepath,
+            cfg.metadata_dir if cfg else filepath.parent,
+            _metadata_entries,
+            project_root=getattr(cfg, "root", None),
         ),
         all_headers,
         _own_marker,

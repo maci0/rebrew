@@ -132,6 +132,8 @@ def run_for_each_target(
     worst = 0
     for name in names:
         buf: Any = None
+        failure = ""
+        code = 0
         try:
             if json_mode:
                 buf = io.StringIO()
@@ -141,10 +143,15 @@ def run_for_each_target(
                 console.print(f"\n[bold cyan]=== Target {name} ===[/]")
                 run_one(name)
         except typer.Exit as exc:
-            worst = max(worst, int(getattr(exc, "exit_code", 0) or 0))
+            code = int(getattr(exc, "exit_code", 0) or 0)
+            worst = max(worst, code)
+            if code:
+                failure = f"target command exited with code {code}"
         except Exception as exc:
             log.warning("target %s failed", name, exc_info=True)
             worst = max(worst, EXIT_ERROR)
+            code = EXIT_ERROR
+            failure = f"{type(exc).__name__}: {exc}"
             if not json_mode:
                 console.print(
                     f"[yellow]warning:[/yellow] target {name} failed: {type(exc).__name__}: {exc}"
@@ -155,9 +162,12 @@ def run_for_each_target(
                 try:
                     collected[name] = json.loads(raw)
                 except ValueError:
-                    collected[name] = {"raw": raw}
+                    collected[name] = {"error": "target command emitted invalid JSON"}
+                    worst = max(worst, EXIT_ERROR)
             else:
-                collected[name] = None
+                collected[name] = {"error": failure} if failure else None
+            if code == EXIT_ERROR and failure:
+                collected[name] = {"error": failure, "result": collected[name]}
     if json_mode:
         json_print({"targets": collected})
     return worst
@@ -169,6 +179,7 @@ def all_targets_run(
     all_targets: bool,
     json_mode: bool,
     run_one: Any,
+    root: Path | None = None,
 ) -> bool:
     """Dispatch an ``--all-targets`` sweep; return True when it handled the run.
 
@@ -193,8 +204,7 @@ def all_targets_run(
             "--all-targets and --target are mutually exclusive — pick one target or sweep them all",
             json_mode=json_mode,
         )
-    cfg = require_config(target=None, json_mode=json_mode)
-    names = list(getattr(cfg, "all_targets", []) or []) or [cfg.target_name]
+    names = configured_target_names(root, json_mode=json_mode)
     if len(set(names)) != len(names):
         # A target repeated in all_targets would compile (and write STATUS)
         # twice; the second pass reports the first pass's work as its own.
@@ -204,6 +214,97 @@ def all_targets_run(
         )
         names = list(dict.fromkeys(names))
     code = run_for_each_target(names, run_one, json_mode=json_mode)
+    if code:
+        raise typer.Exit(code=code)
+    return True
+
+
+SourceTargetsOption: bool = typer.Option(
+    False,
+    "--source-targets",
+    help="Run only targets bound to the explicit source file; report unbound targets as skipped",
+)
+
+
+def configured_target_names(root: Path | None = None, *, json_mode: bool = False) -> list[str]:
+    """Enumerate configured targets without loading the default target's settings."""
+    from rebrew.workspace.config import WorkspaceConfigError, read_config
+
+    resolved = require_root(root, json_mode=json_mode)
+    try:
+        document = read_config(resolved)
+        targets = document.get("targets")
+        if not isinstance(targets, dict) or not targets:
+            raise ValueError("rebrew-project.toml has no [targets] section")
+        return list(targets)
+    except (OSError, ValueError, WorkspaceConfigError) as exc:
+        error_exit(str(exc), json_mode=json_mode)
+
+
+def source_targets_run(
+    source: str | None,
+    *,
+    enabled: bool,
+    target: str | None,
+    all_targets: bool,
+    json_mode: bool,
+    run_one: Any,
+    root: Path | None = None,
+) -> bool:
+    """Preflight exact source bindings before running a source-scoped target sweep.
+
+    Unbound targets are explicit skips. Invalid configurations or bindings are
+    errors, isolated from healthy targets; an entirely unbound scope fails.
+    """
+    if not enabled:
+        return False
+    if target is not None or all_targets:
+        error_exit("--source-targets excludes --target and --all-targets", json_mode=json_mode)
+    path = Path(source).resolve() if source else None
+    if path is None or not path.is_file():
+        error_exit("--source-targets requires an existing source file", json_mode=json_mode)
+    try:
+        source_bytes = path.read_bytes()
+    except OSError as exc:
+        error_exit(str(exc), json_mode=json_mode)
+    resolved = require_root(root, json_mode=json_mode)
+    names = configured_target_names(resolved, json_mode=json_mode)
+    plans: dict[str, dict[str, Any]] = {}
+    for name in names:
+        try:
+            cfg = load_config(root=resolved, target=name)
+            bindings = read_source_bindings(
+                path,
+                target_name=target_marker(cfg),
+                metadata_dir=cfg.metadata_dir,
+                project_root=cfg.root,
+            )
+            bound = any(row.is_function for row in bindings)
+            plans[name] = (
+                {} if bound else {"skipped": "source has no function binding for this target"}
+            )
+        except (OSError, ValueError) as exc:
+            plans[name] = {"error": str(exc)}
+    if path.read_bytes() != source_bytes:
+        error_exit("source changed during target preflight; retry", json_mode=json_mode)
+
+    def run(name: str) -> None:
+        plan = plans[name]
+        if plan:
+            if json_mode:
+                json_print(plan)
+            else:
+                console.print(untrusted_text(next(iter(plan.values()))))
+            if "error" in plan:
+                raise typer.Exit(code=EXIT_ERROR)
+            return
+        if path.read_bytes() != source_bytes:
+            error_exit("source changed after target preflight; retry", json_mode=json_mode)
+        run_one(name)
+
+    code = run_for_each_target(names, run, json_mode=json_mode)
+    if not any(not plan for plan in plans.values()) and not code:
+        code = EXIT_MISMATCH
     if code:
         raise typer.Exit(code=code)
     return True
@@ -846,7 +947,12 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
                     return candidate
         for src in sources:
             try:
-                annos = read_source_bindings(src, target_name=tm, metadata_dir=cfg.metadata_dir)
+                annos = read_source_bindings(
+                    src,
+                    target_name=tm,
+                    metadata_dir=cfg.metadata_dir,
+                    project_root=getattr(cfg, "root", None),
+                )
             except Exception:  # per-file parse noise in a scan
                 logging.debug("Skipping %s during source resolution", src, exc_info=True)
                 continue
@@ -903,7 +1009,10 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
         for src in sources:
             try:
                 annos = read_source_bindings(
-                    src, target_name=tm, metadata_dir=getattr(cfg, "metadata_dir", None)
+                    src,
+                    target_name=tm,
+                    metadata_dir=getattr(cfg, "metadata_dir", None),
+                    project_root=getattr(cfg, "root", None),
                 )
             except (OSError, ValueError):
                 logging.debug("Skipping %s during source resolution", src, exc_info=True)
@@ -971,7 +1080,7 @@ def select_annotation(
     path = require_source_arg(cfg, source_arg, json_mode=json_mode)
 
     annos = read_source_bindings(
-        path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+        path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir, project_root=cfg.root
     )
     if not annos:
         error_exit("No // FUNCTION annotation found in the source", json_mode=json_mode)
@@ -1009,6 +1118,9 @@ def select_annotation(
 
 
 __all__ = [
+    "source_targets_run",
+    "configured_target_names",
+    "SourceTargetsOption",
     "AllTargetsOption",
     "EXIT_ERROR",
     "EXIT_INTERRUPTED",

@@ -102,6 +102,7 @@ def _collect_annotations(cfg: ProjectConfig) -> list[SourceBinding]:
                     cfile,
                     target_name=target_marker(cfg),
                     metadata_dir=cfg.metadata_dir,
+                    project_root=getattr(cfg, "root", None),
                 )
             )
         except (OSError, KeyError, ValueError, TypeError) as exc:

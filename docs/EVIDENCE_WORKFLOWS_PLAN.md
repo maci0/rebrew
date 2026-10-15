@@ -16,9 +16,9 @@ unchecked item does not describe a shipped command.
   existing exported documents during migration, and retain standalone serving.
 - [x] Separate complete decompiler-body validation from GA population limits;
   preserve structural/identity checks and report concrete rejection reasons.
-- [ ] Add all-target data inventories and explicit source-bound target selection
+- [x] Add all-target data inventories and explicit source-bound target selection
   for test/verify, with per-target results, skipped reasons and failure isolation.
-- [ ] Expose atomic multi-field non-verdict data patches through the locked
+- [x] Expose atomic multi-field non-verdict data patches through the locked
   metadata owner, with complete validation, previews and input-change guards.
 - [ ] Add reviewed source-binding retirement/rebinding and selected inventory
   extent repairs. Preserve native identities, unrelated rows, existing valid
@@ -72,3 +72,11 @@ with a Rebrew release containing the live reader. The old v3.0.0 CI pin cannot
 provide this new API. Preserve concurrent brand edits and project compiler changes
 when committing task-owned changes. Remaining capabilities and final cross-project
 release/checks above stay open; these notes are not a completion claim for them.
+
+Source-scoped sweeps and atomic data patches now have focused and adversarial
+controls. The target/compiler/binding checks passed 423 tests; the broader
+CLI/data/docs/skills batch passed 636. A separate 24-control data-patch suite
+covers one-publication batches, rejected later rows, no-write previews, locked
+digest rechecks, verdict injection rejection and historical evidence retention.
+Root-aware library binding and invalid counterpart tests exercise both direct
+comparison and catalog scan paths. Final full-suite checks remain pending.

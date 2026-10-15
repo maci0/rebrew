@@ -358,7 +358,7 @@ class TestSetDataSize:
         set_data_sizes(cfg, ["0x1000=414720"])
         fields = tomllib.loads(meta.read_text())["SERVER.0x1000"]
         assert fields["size"] == 0x65400
-        assert fields["status"] == "UNCHECKED"
+        assert "status" not in fields
         assert fields["name"] == "slots"
 
     @pytest.mark.parametrize("spec", ["0x1000", "0x1000=", "0x1000=-1", "0x1000=0"])
@@ -1481,7 +1481,7 @@ class TestDataSetMarkerTypeAndNote:
             )
         return CliRunner().invoke(app, ["set", *args, "--json"]), meta
 
-    def test_kind_is_written_and_keeps_the_verdict(
+    def test_kind_is_written_and_invalidates_the_verdict(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import tomllib
@@ -1493,7 +1493,7 @@ class TestDataSetMarkerTypeAndNote:
         ]
         row = tomllib.loads(meta.read_text(encoding="utf-8"))["SERVER.0x1000"]
         assert row["kind"] == "GLOBAL"
-        assert row["status"] == "EXACT"
+        assert "status" not in row
         assert row["updated_by"] == "data"
 
     def test_kind_outside_the_data_markers_is_refused(
@@ -1525,14 +1525,16 @@ class TestDataSetMarkerTypeAndNote:
         assert result.exit_code != 0
         assert "--note" in json.loads(result.stdout)["error"]
 
-    def test_still_one_setter_per_call(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        result, _meta = self._invoke(
+    def test_combines_note_and_kind(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.metadata.data import get_data_entry
+
+        result, meta = self._invoke(
             tmp_path, monkeypatch, ["--note", "0x1000=a", "--kind", "0x1000=DATA"]
         )
-        assert result.exit_code != 0
-        assert "Use only one" in json.loads(result.stdout)["error"]
+        assert result.exit_code == 0, result.output
+        row = get_data_entry(meta.parent, 0x1000, "SERVER")
+        assert row["note"] == "a" and row["kind"] == "DATA"
+        assert "status" not in row
 
 
 class TestDataMove:

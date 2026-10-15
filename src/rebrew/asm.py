@@ -170,7 +170,10 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
         for cfile in iter_sources(src_dir, cfg):
             try:
                 entries = read_source_bindings(
-                    cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+                    cfile,
+                    target_name=target_marker(cfg),
+                    metadata_dir=cfg.metadata_dir,
+                    project_root=getattr(cfg, "root", None),
                 )
                 for entry in entries:
                     # The C name wins. A missing name uses the symbol:

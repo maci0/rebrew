@@ -125,7 +125,10 @@ def main(
     # a ``_`` + stem guess silently fails to extract and reports EXTRACT_ERROR.
     meta = read_function_fields(str(src_path))
     annos = read_source_bindings(
-        src_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+        src_path,
+        target_name=target_marker(cfg),
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     )
     selected = None
     if va is not None:

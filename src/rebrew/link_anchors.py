@@ -31,7 +31,10 @@ def anchor_symbols(
     marker = target_marker(cfg)
     rows: dict[int, str] = {}
     for _path, annotations in iter_source_bindings(
-        list(iter_sources(cfg)), target=marker, metadata_dir=cfg.metadata_dir
+        list(iter_sources(cfg)),
+        target=marker,
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     ):
         for ann in annotations:
             if ann.kind not in FUNCTION_KINDS or ann.kind == "LIBRARY":

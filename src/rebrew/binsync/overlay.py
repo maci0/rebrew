@@ -235,6 +235,7 @@ def _dest_annotation(cfg: ProjectConfig, va: int, filepath: str) -> Any:
             target_name=cfg.target_name,
             base_dir=cfg.reversed_dir,
             metadata_dir=cfg.metadata_dir,
+            project_root=getattr(cfg, "root", None),
         )
     except OSError:
         log.warning("cannot parse local annotation file %s", filepath, exc_info=True)

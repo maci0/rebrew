@@ -87,13 +87,24 @@ def test_duplicate_function_catalog_uses_the_managed_provider(
         symbol="_bound",
         size=64,
     )
-    annotations = [
-        ann
-        for path in paths
-        for ann in read_source_bindings(
-            path, target_name="GAME", base_dir=src, metadata_dir=tmp_path
-        )
-    ]
+    with pytest.raises(ValueError, match="stored source binding"):
+        read_source_bindings(paths[0], target_name="GAME", base_dir=src, metadata_dir=tmp_path)
+    from rebrew.coff_reloc import CatalogScanError
+
+    with pytest.raises(CatalogScanError, match="stored source binding"):
+        build_name_to_va(load_config(root=tmp_path))
+    paths[0].unlink()
+    from rebrew.metadata.bindings import SourceBinding
+
+    annotations = read_source_bindings(
+        paths[1], target_name="GAME", base_dir=src, metadata_dir=tmp_path
+    )
+    # A pre-collected inventory may still contain duplicate candidates. The
+    # managed provider must win, even if the stale candidate arrives first.
+    annotations.insert(
+        0,
+        SourceBinding(va=0x1000, name="stale", symbol="_stale", module="GAME", filepath="stale.c"),
+    )
     names = build_name_to_va(
         load_config(root=tmp_path), annotations=annotations if provided_annotations else None
     )

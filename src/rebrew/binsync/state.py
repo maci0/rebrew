@@ -386,7 +386,11 @@ def global_name_and_type(
         else iter_sources(Path(directory), cfg)
     )
     for path in paths:
-        bindings = read_source_bindings(path, metadata_dir=getattr(cfg, "metadata_dir", None))
+        bindings = read_source_bindings(
+            path,
+            metadata_dir=getattr(cfg, "metadata_dir", None),
+            project_root=getattr(cfg, "root", None),
+        )
         matching = [
             b
             for b in bindings

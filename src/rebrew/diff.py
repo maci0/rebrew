@@ -210,7 +210,9 @@ def _write_blocker(
     # A marker-less (ADR 023) source has its annotations only in
     # rebrew-functions.toml; without metadata_dir the module is empty and the
     # write is rejected.
-    annos = read_source_bindings(seed_path, metadata_dir=p.cfg.metadata_dir)
+    annos = read_source_bindings(
+        seed_path, metadata_dir=p.cfg.metadata_dir, project_root=getattr(p.cfg, "root", None)
+    )
     # `p.va_int` is the diffed VA and is authoritative: taking `annos[0]` wrote
     # the blocker onto the seed file's FIRST function when the diffed VA was a
     # later one.  The matching annotation is used only for the module scope.

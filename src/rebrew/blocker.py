@@ -103,7 +103,10 @@ def resolve_function(
         )
 
     annos = read_source_bindings(
-        source_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+        source_path,
+        target_name=target_marker(cfg),
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     )
     if not annos:
         error_exit(f"No annotations found in {source_path.name}", json_mode=json_mode)

@@ -2348,10 +2348,14 @@ def load_config(
                 _config_warn(
                     f"rebrew-project.toml [targets.{tgt_name}]: unrecognized keys: {sorted(unknown_tgt)}",
                 )
-            target_compiler = _as_table(
-                tgt_data.get("compiler", {}), f"targets.{tgt_name}.compiler"
+            # Compiler settings belong to the selected target. A malformed
+            # sibling must fail its own run without poisoning a healthy one.
+            sibling_compiler = tgt_data.get("compiler", {})
+            unknown_target_compiler = (
+                set(sibling_compiler) - _KNOWN_COMPILER_KEYS
+                if isinstance(sibling_compiler, dict)
+                else set()
             )
-            unknown_target_compiler = set(target_compiler) - _KNOWN_COMPILER_KEYS
             if unknown_target_compiler:
                 _config_warn(
                     f"rebrew-project.toml [targets.{tgt_name}.compiler]: "

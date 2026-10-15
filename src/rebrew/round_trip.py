@@ -173,6 +173,7 @@ def _collect_splice_set(
         iter_sources(cfg.reversed_dir, cfg),
         target=target_marker(cfg),
         metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     ):
         for ann in anns:
             if symbol_filter and symbol_filter not in resolve_symbol(ann, path):
@@ -869,6 +870,7 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
         sources,
         target=marker,
         metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     ):
         for ann in anns:
             key = resolve_symbol(ann, _path)

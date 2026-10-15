@@ -221,7 +221,12 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     skipped_files: list[str] = []
     for src in sources:
         try:
-            annos = read_source_bindings(src, target_name=tm, metadata_dir=cfg.metadata_dir)
+            annos = read_source_bindings(
+                src,
+                target_name=tm,
+                metadata_dir=cfg.metadata_dir,
+                project_root=getattr(cfg, "root", None),
+            )
         except Exception as exc:  # one bad file must not kill the batch
             skipped_files.append(f"{src.name}: {exc}")
             continue
@@ -410,7 +415,10 @@ def main(
     source_path = Path(source).resolve()
 
     annos = read_source_bindings(
-        source_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+        source_path,
+        target_name=target_marker(cfg),
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     )
     if not annos:
         error_exit(f"No annotations found in {source}", json_mode=json_output)

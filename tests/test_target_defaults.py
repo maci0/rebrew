@@ -277,3 +277,128 @@ class TestVerifyPlacementDefaults:
         # Missing binary error must name the DEFAULT target's build path.
         assert result.exit_code == 2
         assert "build/alpha" in result.output
+
+
+class TestSourceTargetScope:
+    def test_bound_skipped_and_invalid_targets_are_distinct(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from rebrew.cli import source_targets_run
+
+        root = _project(tmp_path)
+        config = root / "rebrew-project.toml"
+        config.write_text(config.read_text() + '\n[targets.broken]\narch = "unknown"\n')
+        source = root / "src" / "f.c"
+        source.write_text("/* ADDRESS: BETA 0x401000 */\nint f(void) { return 0; }\n")
+        monkeypatch.chdir(root)
+        seen: list[str] = []
+        from rebrew.cli import json_print
+
+        def run(name: str) -> None:
+            seen.append(name)
+            json_print({"ran": name})
+
+        with pytest.raises(typer.Exit) as caught:
+            source_targets_run(
+                str(source),
+                enabled=True,
+                target=None,
+                all_targets=False,
+                json_mode=True,
+                run_one=run,
+            )
+        assert caught.value.exit_code == 2
+        assert seen == ["beta"]
+        targets = json.loads(capsys.readouterr().out)["targets"]
+        assert "skipped" in targets["alpha"]
+        assert targets["beta"] == {"ran": "beta"}
+        assert "error" in targets["broken"]
+
+    def test_entirely_unbound_scope_is_not_success(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from rebrew.cli import source_targets_run
+
+        root = _project(tmp_path)
+        source = root / "src" / "f.c"
+        source.write_text("int f(void) { return 0; }\n")
+        monkeypatch.chdir(root)
+        with pytest.raises(typer.Exit) as caught:
+            source_targets_run(
+                str(source),
+                enabled=True,
+                target=None,
+                all_targets=False,
+                json_mode=True,
+                run_one=lambda _: pytest.fail("unbound compile"),
+            )
+        assert caught.value.exit_code == 1
+        assert all(
+            "skipped" in row for row in json.loads(capsys.readouterr().out)["targets"].values()
+        )
+
+    def test_exact_paths_do_not_bind_sibling_basenames(self, tmp_path: Path) -> None:
+        from rebrew.metadata.bindings import function_rows_for_file
+        from rebrew.metadata.data import data_rows_for_path, set_data_field
+        from rebrew.metadata.functions import stored_file_matches
+
+        source = tmp_path / "other" / "f.c"
+        assert not stored_file_matches("f.c", "other/f.c")
+        entries = {("ALPHA", 0x401000): {"file": "f.c", "name": "f"}}
+        assert function_rows_for_file(source, tmp_path, entries) == []
+        set_data_field(tmp_path, 0x402000, "file", "f.c", "ALPHA")
+        assert data_rows_for_path(tmp_path, source) == []
+
+    @pytest.mark.parametrize("fragment", ["", "not JSON"])
+    def test_failed_json_target_has_explicit_error(
+        self, fragment: str, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        def run(_: str) -> None:
+            if fragment:
+                print(fragment)
+            raise RuntimeError("compile broke")
+
+        assert run_for_each_target(["alpha"], run, json_mode=True) == 2
+        assert "error" in json.loads(capsys.readouterr().out)["targets"]["alpha"]
+
+    def test_all_targets_root_does_not_load_invalid_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _project(tmp_path)
+        config = root / "rebrew-project.toml"
+        config.write_text(
+            config.read_text().replace('default_target = "alpha"', 'default_target = "absent"')
+        )
+        monkeypatch.chdir(tmp_path.parent)
+        seen: list[str] = []
+        assert all_targets_run(
+            target=None, all_targets=True, json_mode=False, run_one=seen.append, root=root
+        )
+        assert seen == ["alpha", "beta"]
+
+    @pytest.mark.parametrize(
+        "module, args",
+        [
+            ("rebrew.test", ["--source-targets", "--va", "0x401000"]),
+            ("rebrew.test", ["--source-targets", "--size", "0"]),
+            ("rebrew.verify", ["--source-targets", "--data"]),
+            ("rebrew.verify", ["--all-targets", "--link-map", "one.map"]),
+            ("rebrew.data", ["list", "--all-targets", "--link-map", "one.map"]),
+        ],
+    )
+    def test_pinned_overrides_rejected_before_config(self, module: str, args: list[str]) -> None:
+        result = CliRunner().invoke(importlib.import_module(module).app, [*args, "--json"])
+        assert result.exit_code == 2
+        assert "mutually exclusive" in json.loads(result.stdout)["error"]
+
+
+class TestTargetCompilerIsolation:
+    def test_invalid_sibling_compiler_only_fails_its_target(self, tmp_path: Path) -> None:
+        root = _project(tmp_path)
+        path = root / "rebrew-project.toml"
+        path.write_text(
+            path.read_text().replace("[targets.beta]", '[targets.beta]\ncompiler = "invalid"')
+        )
+        assert load_config(root=root, target="alpha").target_name == "alpha"
+        with pytest.raises(ValueError, match="targets.beta.compiler"):
+            load_config(root=root, target="beta")

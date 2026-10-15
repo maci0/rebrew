@@ -278,6 +278,63 @@ def _emit_extern_decl(row: dict[str, Any]) -> str | None:
     return f"extern {type_str} {name};"
 
 
+def patch_data_fields(
+    cfg: ProjectConfig,
+    specifications: dict[str, list[str]],
+    *,
+    dry_run: bool = False,
+    expected_digest: str | None = None,
+) -> dict[str, Any]:
+    """Normalize CLI fields, then preview/apply one locked non-verdict patch."""
+    from rebrew.metadata.bindings import DATA_KINDS
+    from rebrew.metadata.data import patch_data_fields_batch
+    from rebrew.metadata.functions import identity_file, validate_identity_file
+    from rebrew.sources import target_marker
+
+    module = target_marker(cfg) or ""
+    if not module:
+        raise ValueError("no target marker configured to address the data metadata")
+    updates: list[dict[str, Any]] = []
+    rows: dict[int, dict[str, Any]] = {}
+    for field, specs in specifications.items():
+        for spec in specs:
+            va_s, sep, text = spec.partition("=")
+            value: Any = text.strip()
+            option = "--" + field.replace("_", "-")
+            placeholder = {"file": "PATH", "size": "BYTES"}.get(field, field.upper())
+            if not sep or (not value and field in {"note", "kind", "file"}):
+                raise ValueError(f"{option} wants 0xVA={placeholder}, got {spec!r}")
+            va = int(va_s, 16)
+            if field == "size":
+                value = int(value, 0)
+                if value <= 0:
+                    raise ValueError(f"{option} wants a positive byte count, got {text!r}")
+            elif field == "name" and not is_safe_c_ident(value):
+                raise ValueError(f"{option} wants a C identifier, got {value!r}")
+            elif field == "kind" and value not in DATA_KINDS:
+                raise ValueError(
+                    f"{option} wants one of {', '.join(sorted(DATA_KINDS))}, got {value!r}"
+                )
+            elif field == "section" and value not in _DATA_SECTIONS:
+                raise ValueError(
+                    f"{option} wants one of {', '.join(_DATA_SECTIONS)}, got {value!r}"
+                )
+            elif field == "file":
+                source = Path(value)
+                if not source.is_absolute():
+                    source = cfg.root / source
+                if not source.is_file():
+                    raise ValueError(f"--file names a missing source: {value}")
+                value = validate_identity_file(identity_file(source, cfg.metadata_dir))
+            updates.append({"module": module, "va": va, "fields": {field: value}})
+            row = rows.setdefault(va, {"va": f"0x{va:x}", "module": module})
+            row[field] = value
+    report = patch_data_fields_batch(
+        cfg.metadata_dir, updates, dry_run=dry_run, expected_digest=expected_digest
+    )
+    return {**report, "set": list(rows.values())}
+
+
 def _set_global_field(
     cfg: ProjectConfig,
     specs: list[str],
@@ -288,82 +345,16 @@ def _set_global_field(
     allowed: tuple[str, ...] | None = None,
     dry_run: bool = False,
 ) -> list[dict[str, Any]]:
-    """Write one metadata field per ``0xVA=VALUE`` spec and return the rows.
-
-    *option* and *placeholder* only shape the two ValueError messages, so
-    ``--type`` still reports ``0xVA=TYPE`` and ``--section`` reports
-    ``0xVA=SECTION``; *allowed*, when given, rejects a value outside it.
-    """
-    from rebrew.metadata.data import set_data_fields_batch
-    from rebrew.sources import target_marker
-
-    module = target_marker(cfg) or ""
-    if not module:
-        raise ValueError("no target marker configured to address the data metadata")
-    rows: list[dict[str, Any]] = []
-    updates: list[dict[str, Any]] = []
-    for spec in specs:
-        va_s, sep, value = spec.partition("=")
-        value = value.strip()
-        if not sep:
-            raise ValueError(f"{option} wants 0xVA={placeholder}, got {spec!r}")
-        if not value and field in ("note", "kind"):
-            raise ValueError(f"{option} wants 0xVA={placeholder}, got {spec!r}")
-        if field == "name" and not is_safe_c_ident(value):
-            raise ValueError(f"{option} wants a C identifier, got {value!r}")
-        if allowed is not None and value not in allowed:
-            raise ValueError(f"{option} wants one of {', '.join(allowed)}, got {value!r}")
-        va = int(va_s, 16)
-        fields: dict[str, Any] = {field: value}
-        if field == "size":
-            size = int(value, 0)
-            if size <= 0:
-                raise ValueError(f"{option} wants a positive byte count, got {value!r}")
-            fields = {"size": size, "status": "UNCHECKED"}
-        rows.append({"va": f"0x{va:x}", field: fields[field], "module": module})
-        updates.append({"module": module, "va": va, "fields": fields, "updated_by": "data"})
-    if not dry_run:
-        set_data_fields_batch(cfg.metadata_dir, updates)
+    """Apply a single-field request through the same complete patch planner."""
+    rows: list[dict[str, Any]] = patch_data_fields(cfg, {field: specs}, dry_run=dry_run)["set"]
     return rows
 
 
 def set_data_files(
     cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
 ) -> list[dict[str, Any]]:
-    """Point globals at the source file that defines them, from ``0xVA=PATH`` specs.
-
-    A merge or split moves definitions between files and retargets the rows it
-    knows about; a data-only file has no function row, so moving its globals
-    back out had no writer. The path must exist and is stored in the same
-    identity form a merge writes.
-    """
-    from rebrew.metadata.data import set_data_fields_batch
-    from rebrew.metadata.functions import identity_file, validate_identity_file
-    from rebrew.sources import target_marker
-
-    module = target_marker(cfg) or ""
-    if not module:
-        raise ValueError("no target marker configured to address the data metadata")
-    rows: list[dict[str, Any]] = []
-    updates: list[dict[str, Any]] = []
-    for spec in specs:
-        va_s, sep, value = spec.partition("=")
-        value = value.strip()
-        if not sep or not value:
-            raise ValueError(f"--file wants 0xVA=PATH, got {spec!r}")
-        path = Path(value)
-        if not path.is_absolute():
-            path = cfg.root / path
-        if not path.is_file():
-            raise ValueError(f"--file names a missing source: {value}")
-        identity = validate_identity_file(identity_file(path, cfg.metadata_dir))
-        va = int(va_s, 16)
-        rows.append({"va": f"0x{va:x}", "file": identity, "module": module})
-        updates.append(
-            {"module": module, "va": va, "fields": {"file": identity}, "updated_by": "data"}
-        )
-    if not dry_run:
-        set_data_fields_batch(cfg.metadata_dir, updates)
+    """Point globals at existing source files through an atomic data patch."""
+    rows: list[dict[str, Any]] = patch_data_fields(cfg, {"file": specs}, dry_run=dry_run)["set"]
     return rows
 
 
@@ -678,7 +669,10 @@ def gen_globals_header(
     for src in header_sources:
         try:
             annotations = read_source_bindings(
-                src, target_name=marker, metadata_dir=cfg.metadata_dir
+                src,
+                target_name=marker,
+                metadata_dir=cfg.metadata_dir,
+                project_root=getattr(cfg, "root", None),
             )
         except Exception:  # one bad file must not abort the scan
             logging.warning("Skipping %s: annotation parse failed", src, exc_info=True)

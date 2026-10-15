@@ -335,3 +335,18 @@ purposes use the `definitions` and `files` tables in `rebrew-source.toml`.
 importing state from comments. Older schemas and inline blocks are rejected;
 no legacy migration reader is shipped. See [source addresses](ANNOTATIONS.md)
 and [ADR 030](adr/030-address-only-source.md).
+
+Source `file` identities use exact paths relative to the resolved metadata root.
+Compiled LIBRARY providers explicitly use the project root. Source readers and
+file-index helpers share that distinction; their optional `project_root` keyword
+passes known configuration context without another project lookup. Standalone
+reads resolve the enclosing project from the metadata directory, never CWD.
+Suffix/basename matching is not supported. Contradictory address anchors fail
+instead of inheriting the managed provider's verdict.
+
+Non-verdict data edits use `metadata.data.patch_data_fields_batch`: normalize and
+validate all fields, merge equal repetitions, reject contradictions and report
+`input_digest`. A dry run takes no writer lock and creates no artifacts. Apply
+can require that digest; it is checked again under the same metadata write lock.
+Identity/definition/placement changes remove current `status` while retaining
+`verification`; notes and unchanged fields preserve the verdict.

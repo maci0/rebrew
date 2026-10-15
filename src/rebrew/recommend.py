@@ -849,7 +849,10 @@ def load_layout(
     for cfile in iter_sources(cfg.reversed_dir, cfg):
         rel = rel_display_path(cfile, cfg.reversed_dir)
         for entry in read_source_bindings(
-            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+            cfile,
+            target_name=target_marker(cfg),
+            metadata_dir=cfg.metadata_dir,
+            project_root=getattr(cfg, "root", None),
         ):
             if entry.is_data or not entry.va:
                 continue

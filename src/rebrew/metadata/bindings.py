@@ -591,33 +591,24 @@ def _metadata_file_index(
     return index
 
 
-def _path_suffixes(rel_path: str) -> list[str]:
-    """Every distinct path suffix of *rel_path* that an entry may store.
-
-    ``"a/b/c.c"`` yields ``["a/b/c.c", "b/c.c", "c.c"]`` — the full relative
-    path plus each component-aligned suffix, which covers the bare filename.
-    """
-    parts = rel_path.split("/")
-    return ["/".join(parts[i:]) for i in range(len(parts))]
-
-
 def function_rows_for_file(
     filepath: Path,
     metadata_dir: Path,
     function_entries: dict[tuple[str, int], dict[str, Any]],
+    *,
+    project_root: Path | None = None,
 ) -> list[tuple[str, int, dict[str, Any]]]:
-    """Function-store rows whose ``file`` names *filepath*.
+    """Exact source rows, respecting compiled libraries' project-root namespace."""
+    from rebrew.metadata.functions import resolve_metadata_dir
 
-    A pure-C file has no marker blocks, so its blockers and statuses live only
-    in these rows.
-    """
+    metadata_dir = resolve_metadata_dir(metadata_dir)
+    project_root = project_root or _binding_project_root(metadata_dir)
     rel = os.path.relpath(filepath, metadata_dir).replace(os.sep, "/")
+    project_rel = os.path.relpath(filepath, project_root).replace(os.sep, "/")
     index = _metadata_file_index(function_entries)
-    seen: dict[tuple[str, int], tuple[str, int, dict[str, Any]]] = {}
-    for suffix in _path_suffixes(rel):
-        for row in index.get(suffix, []):
-            seen[(row[0], row[1])] = row
-    return list(seen.values())
+    return [row for row in index.get(rel, ()) if row[2].get("kind") != "LIBRARY"] + [
+        row for row in index.get(project_rel, ()) if row[2].get("kind") == "LIBRARY"
+    ]
 
 
 def file_backed_by_metadata(
@@ -636,23 +627,16 @@ def file_backed_by_metadata(
     maps; omitted maps are read from *metadata_dir*. Explicit LIBRARY source
     bindings use exact paths relative to *project_root*, when supplied.
     """
+    from rebrew.metadata.functions import resolve_metadata_dir
+
+    metadata_dir = resolve_metadata_dir(metadata_dir)
     rel = os.path.relpath(filepath, metadata_dir).replace(os.sep, "/")
-    suffixes = set(_path_suffixes(rel))
+    suffixes = {rel}
     if function_entries is None:
         from rebrew.metadata.functions import load_metadata
 
         function_entries = load_metadata(metadata_dir, deepcopy=False)
-    index = _metadata_file_index(function_entries)
-    if project_root is not None:
-        try:
-            project_rel = filepath.resolve().relative_to(project_root.resolve()).as_posix()
-        except ValueError:
-            project_rel = ""
-        if project_rel and any(
-            entry.get("kind") == "LIBRARY" for _module, _va, entry in index.get(project_rel, [])
-        ):
-            return True
-    if any(candidate in index for candidate in suffixes):
+    if function_rows_for_file(filepath, metadata_dir, function_entries, project_root=project_root):
         return True
     if data_entries is None:
         from rebrew.metadata.data import data_rows_for_path
@@ -671,6 +655,7 @@ def _annotations_from_metadata(
     base_dir: Path | None,
     metadata_dir: Path | None,
     *,
+    project_root: Path | None = None,
     text: str | None = None,
     prototypes_needed: bool = True,
     anchored_prototypes: dict[str, str] | None = None,
@@ -688,6 +673,7 @@ def _annotations_from_metadata(
         base_dir,
         metadata_dir,
         text=text,
+        project_root=project_root,
         prototypes_needed=prototypes_needed,
         anchored_prototypes=anchored_prototypes,
     )
@@ -696,12 +682,20 @@ def _annotations_from_metadata(
     return results
 
 
+def _binding_project_root(metadata_dir: Path) -> Path:
+    """Resolve standalone reads from their metadata context, never the caller's CWD."""
+    from rebrew.workspace.config import walk_up_to_root
+
+    return walk_up_to_root(metadata_dir) or metadata_dir
+
+
 def _function_annotations_from_metadata(
     filepath: Path,
     target_name: str | None,
     base_dir: Path | None,
     metadata_dir: Path,
     *,
+    project_root: Path | None = None,
     text: str | None = None,
     prototypes_needed: bool = True,
     anchored_prototypes: dict[str, str] | None = None,
@@ -713,17 +707,9 @@ def _function_annotations_from_metadata(
     if not entries_by_key:
         return []
 
-    rel_md = os.path.relpath(filepath, metadata_dir).replace(os.sep, "/")
-    matches: list[tuple[str, int, dict[str, Any]]] = []
-    # The stored `file` matches the exact relative path, the bare filename,
-    # or any trailing path suffix of it (projects that moved the metadata
-    # root).  A source tree scan runs this once per marker-less file, so
-    # resolve the match through an index over the stored paths instead of
-    # re-scanning every entry per file.
-    index = _metadata_file_index(entries_by_key)
-    for candidate in _path_suffixes(rel_md):
-        for module, va, entry in index.get(candidate, ()):
-            matches.append((module, va, entry))
+    matches = function_rows_for_file(
+        filepath, metadata_dir, entries_by_key, project_root=project_root
+    )
 
     rel = rel_display_path(filepath, base_dir)
     results: list[SourceBinding] = []
@@ -850,6 +836,7 @@ def iter_source_bindings(
     *,
     target: str | None = None,
     metadata_dir: Path | None = None,
+    project_root: Path | None = None,
 ) -> list[tuple[Path, list[SourceBinding]]]:
     """Parse annotations from each source in *sources*, skipping failures.
 
@@ -867,7 +854,9 @@ def iter_source_bindings(
     results: list[tuple[Path, list[SourceBinding]]] = []
     for src in sources:
         try:
-            annos = read_source_bindings(src, target_name=target, metadata_dir=metadata_dir)
+            annos = read_source_bindings(
+                src, target_name=target, metadata_dir=metadata_dir, project_root=project_root
+            )
         except Exception:
             # Any per-source failure (parse error, I/O, encoding) silently
             # drops the whole function from verify/todo/status output — one
@@ -996,10 +985,14 @@ def read_source_bindings(
     target_name: str | None = None,
     base_dir: Path | None = None,
     metadata_dir: Path | None = None,
+    *,
+    project_root: Path | None = None,
 ) -> list[SourceBinding]:
     """Read address anchors and canonical metadata; comments carry no state."""
     text, _ = read_source_text(filepath)
-    return source_bindings(text, filepath, target_name, base_dir, metadata_dir)
+    return source_bindings(
+        text, filepath, target_name, base_dir, metadata_dir, project_root=project_root
+    )
 
 
 def source_bindings(
@@ -1009,11 +1002,15 @@ def source_bindings(
     base_dir: Path | None,
     metadata_dir: Path | None,
     *,
+    project_root: Path | None = None,
     with_prototypes: bool = True,
 ) -> list[SourceBinding]:
     """Join the pre-read source's address bindings with both metadata stores."""
     from rebrew.metadata.data import get_data_entry
-    from rebrew.metadata.functions import apply_metadata_entry, load_metadata
+    from rebrew.metadata.functions import apply_metadata_entry, load_metadata, resolve_metadata_dir
+
+    if metadata_dir is not None:
+        metadata_dir = resolve_metadata_dir(metadata_dir)
 
     forbidden = metadata_comments(text)
     if forbidden:
@@ -1028,6 +1025,7 @@ def source_bindings(
         base_dir,
         metadata_dir,
         text=text,
+        project_root=project_root,
         prototypes_needed=with_prototypes,
         anchored_prototypes={
             anchor.name: anchor.prototype for anchor in anchors if anchor.kind == "FUNCTION"
@@ -1096,6 +1094,24 @@ def source_bindings(
             if not stored.get("name") or stored.get("name") == anchor.name:
                 ann.kind = str(stored.get("kind", "DATA"))
         else:
+            from rebrew.metadata.functions import identity_file, stored_file_matches
+
+            binding_root = (
+                (project_root or _binding_project_root(metadata_dir))
+                if stored.get("kind") == "LIBRARY" and metadata_dir is not None
+                else metadata_dir
+            )
+            if (
+                stored.get("file")
+                and binding_root is not None
+                and not stored_file_matches(
+                    str(stored["file"]), identity_file(filepath, binding_root)
+                )
+            ):
+                raise ValueError(
+                    f"{filepath}:{anchor.line}: address anchor conflicts with the "
+                    f"stored source binding {stored['file']!r}"
+                )
             apply_metadata_entry(ann, stored)
             ann.kind = str(stored.get("kind", "FUNCTION"))
         indexed[key] = ann

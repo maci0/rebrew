@@ -985,12 +985,8 @@ def identity_file(filepath: Path | str, metadata_dir: Path | str) -> str:
 
 
 def stored_file_matches(stored: str, rel: str) -> bool:
-    """True when *stored* is *rel* or a path suffix of it."""
-    stored = stored.replace("\\", "/")
-    if not stored:
-        return False
-    parts = rel.split("/")
-    return stored in {"/".join(parts[i:]) for i in range(len(parts))}
+    """True when two metadata-root-relative source identities are equal."""
+    return bool(stored) and stored.replace("\\", "/") == rel.replace("\\", "/")
 
 
 def record_function_identity(

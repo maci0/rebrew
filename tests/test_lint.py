@@ -245,7 +245,10 @@ class TestDuplicateVA:
         r1 = lint_file(f1, seen_vas=seen_vas)
         r2 = lint_file(f2, seen_vas=seen_vas)
         assert not any((c == "E013" for _, c, _ in r1.errors))
-        assert any((c == "E013" for _, c, _ in r2.errors))
+        assert any(
+            c == "E001" and "stored source binding" in message for _, c, message in r1.errors
+        )
+        assert not any(c == "E013" for _, c, _ in r2.errors)
 
     def test_different_vas_no_duplicate(self, tmp_path: Path) -> None:
         seen_vas: dict[int, str] = {}
@@ -742,9 +745,12 @@ class TestLintFile:
         seen_vas: dict[int, str] = {}
         f1 = _make_c_file(tmp_path, name="func1.c")
         f2 = _make_c_file(tmp_path, name="func2.c")
-        lint_file(f1, seen_vas=seen_vas)
+        result1 = lint_file(f1, seen_vas=seen_vas)
         result2 = lint_file(f2, seen_vas=seen_vas)
-        assert any((c == "E013" for _, c, _ in result2.errors))
+        assert any(
+            c == "E001" and "stored source binding" in message for _, c, message in result1.errors
+        )
+        assert not any(c == "E013" for _, c, _ in result2.errors)
 
     def test_with_config(self, tmp_path: Path) -> None:
         cfg = ProjectConfig(root=tmp_path, marker="SERVER")
@@ -3976,3 +3982,15 @@ class TestW037W038DataRows:
         assert "tiled" in message
         assert "22 bytes" in message
         assert "rebrew data set --size 0x00001000=22" in message
+
+
+class TestUnregisteredDuplicateAddresses:
+    def test_duplicate_anchors_keep_the_duplicate_diagnostic(self, tmp_path: Path) -> None:
+        first = tmp_path / "first.c"
+        second = tmp_path / "second.c"
+        for path in [first, second]:
+            path.write_text("/* ADDRESS: SERVER 0x10008880 */\nint f(void) { return 1; }\n")
+        seen: dict[int, str] = {}
+        lint_file(first, seen_vas=seen)
+        result = lint_file(second, seen_vas=seen)
+        assert any(code == "E013" for _, code, _ in result.errors)

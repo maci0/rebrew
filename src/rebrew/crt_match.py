@@ -330,7 +330,10 @@ def collect_library_annotations(
         cfg.reversed_dir, cfg
     ):
         for ann in read_source_bindings(
-            source_path, target_name=None, metadata_dir=cfg.metadata_dir
+            source_path,
+            target_name=None,
+            metadata_dir=cfg.metadata_dir,
+            project_root=getattr(cfg, "root", None),
         ):
             module_key = preset_module_key(ann.module or "")
             if ann.kind not in ("FUNCTION", "LIBRARY"):

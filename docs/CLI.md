@@ -276,6 +276,14 @@ silent metadata write that the build never honors.
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 | `--all-targets` | flag | `False` | Run across EVERY configured target (default: project default target only). |
+| `--source-targets` | flag | `False` | Run only targets bound to the explicit source file; report unbound targets as skipped |
+
+With `--source-targets`, SOURCE must be an existing path relative to the current
+directory (or absolute). Target bindings are preflighted before compilation;
+unbound targets have a `skipped` reason, invalid targets have an `error`, and
+remaining targets still run. A wholly unbound scope exits 1. This excludes
+`--target`, `--all-targets`, batch filters, watch/linked mode and target-pinned
+VA/symbol/size/byte-slice overrides. Compiler flags/context still apply explicitly.
 
 ### `rebrew verify`
 
@@ -437,6 +445,13 @@ Output prefixes for unambiguous parsing:
 | `--root` | path | — | Project root directory (default: auto-detected from rebrew-project.toml). |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 | `--all-targets` | flag | `False` | Run across EVERY configured target (default: project default target only). |
+| `--source-targets` | flag | `False` | Run only targets bound to the explicit source file; report unbound targets as skipped |
+With `--source-targets`, FILE uses an explicit current-directory-relative or
+absolute path, including with `--root`. Eligibility, skips and failure isolation
+follow `test --source-targets`. This excludes target/all-target selection, watch,
+batch filters, shared report output, orphan pruning and linked data/text/binary
+checks; each selected target verifies its bound functions in that source.
+
 
 ### `rebrew skeleton`
 
@@ -2798,17 +2813,25 @@ rebrew data list --json
 | `--summary` | flag | `False` | Show section-level summary only |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--all-targets` | flag | `False` | Run across EVERY configured target (default: project default target only). |
+
+`--all-targets` reports every target independently in configured order, using its
+own raw link map. An explicit `--link-map` cannot be used with the sweep.
 
 ### `rebrew data set`
 
 `rebrew data set [OPTIONS]`
 
-Set one metadata field through the locked data writers.
+Set one or more non-verdict fields in a single atomic patch. Repeated fields for
+one identity must agree. Every requested field and the existing store are checked
+before publication; a failed later row leaves the entire store unchanged.
 
-
-One setter per call. A row `data set` creates has no `kind` and reads
-as `DATA` until `--kind` records one. `--note` and `--kind` take
-a non-empty value and leave the stored verdict in place.
+Preview with `--dry-run --json`, review `input_digest` and `set`, then repeat the
+same request with `--expected-digest HASH`. A changed store rejects the apply.
+Previews create no metadata, lock sidecars or directories. Notes and no-op edits
+retain verdicts; definition, identity and placement edits invalidate the current
+verdict but retain its historical `verification` record. Patches cannot supply a
+verdict or forge evidence/provenance.
 
 ```bash
 rebrew data set --type 0x401000=int --dry-run --json
@@ -2826,6 +2849,7 @@ rebrew data set --type 0x401000=int --dry-run --json
 | `--file` | str (repeatable) | `[]` | Set the source file that defines a global: 0xVA=PATH (repeatable) |
 | `--kind` | str (repeatable) | `[]` | Set a global's kind: 0xVA=GLOBAL&#124;DATA&#124;VTABLE&#124;STRING (repeatable) |
 | `--note` | str (repeatable) | `[]` | Set a global's free-text note: 0xVA=TEXT (repeatable); keeps its verdict |
+| `--expected-digest` | str | — | Require the complete input digest from a reviewed preview |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |

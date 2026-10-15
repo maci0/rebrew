@@ -10,7 +10,6 @@ from source_util import write_source, write_store_fixture
 from rebrew.compiler.compile import CompareResult
 from rebrew.test import (
     _expand_reloc_offsets,
-    _marker_va_from_annotation,
     _select_annotation_for_va,
     build_result_dict_from_compare,
 )
@@ -25,30 +24,6 @@ class TestExpandRelocOffsets:
 
     def test_empty(self) -> None:
         assert _expand_reloc_offsets([], limit=10) == set()
-
-
-class TestMarkerVaFromAnnotation:
-    """A shared file carries one ``// FUNCTION:`` marker per target and
-    ``read_function_fields`` is first-block only, so the file's first marker
-    is not necessarily the active target's."""
-
-    @staticmethod
-    def _ann(va: int | None) -> object:
-        from types import SimpleNamespace as NS
-
-        return NS(va=va)
-
-    def test_target_annotation_wins_over_first_marker(self) -> None:
-        meta = {"FUNCTION": "SERVER 0x1000d330"}
-        assert _marker_va_from_annotation(self._ann(0x4C75E0), meta) == "0x4c75e0"
-
-    def test_falls_back_to_first_marker(self) -> None:
-        assert _marker_va_from_annotation(self._ann(None), {"FUNCTION": "SERVER 0x1000d330"}) == (
-            "0x1000d330"
-        )
-
-    def test_no_annotation_and_no_marker(self) -> None:
-        assert _marker_va_from_annotation(None, {}) is None
 
 
 class TestSelectAnnotationForVa:
@@ -238,7 +213,7 @@ class TestSizePersistence:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
-            '[targets.x]\nbinary = "original/x.exe"\nmarker = ""\n'
+            '[targets.x]\nbinary = "original/x.exe"\nmarker = "SERVER"\n'
             '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src_dir = tmp_path / "src" / "x"

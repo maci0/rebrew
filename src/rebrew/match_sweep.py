@@ -162,7 +162,10 @@ def resolve_build_params(
         # FileNotFoundError traceback.
         error_exit(f"Source file not found: {seed_c}", json_mode=json_output)
     annos = read_source_bindings(
-        seed_c_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+        seed_c_path,
+        target_name=target_marker(cfg),
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     )
     annos = [a for a in annos if a.is_function]
     # Prefer the VA-matched annotation when a VA is given (diff/match/prove

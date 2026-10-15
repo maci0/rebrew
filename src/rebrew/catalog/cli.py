@@ -225,6 +225,7 @@ def run_catalog(
                 cfile,
                 target_name=target_marker(cfg),
                 metadata_dir=cfg.metadata_dir,
+                project_root=getattr(cfg, "root", None),
             )
             for ann in parsed:
                 va = ann.va

@@ -385,7 +385,12 @@ def scan_globals(
             tuple(
                 module
                 for module, _, _ in (
-                    function_rows_for_file(cfile, metadata_dir, function_entries)
+                    function_rows_for_file(
+                        cfile,
+                        metadata_dir,
+                        function_entries,
+                        project_root=getattr(cfg, "root", None),
+                    )
                     + data_rows_for_path(metadata_dir, cfile)
                 )
             )
@@ -398,7 +403,15 @@ def scan_globals(
         from rebrew.c_parser import find_c_function_definitions
         from rebrew.metadata.bindings import source_bindings
 
-        bindings = source_bindings(text, cfile, None, None, metadata_dir, with_prototypes=False)
+        bindings = source_bindings(
+            text,
+            cfile,
+            None,
+            None,
+            metadata_dir,
+            with_prototypes=False,
+            project_root=getattr(cfg, "root", None),
+        )
         function_modules: dict[str, set[str]] = defaultdict(set)
         data_modules: dict[str, set[str]] = defaultdict(set)
         anchored_data_names: set[str] = set()
@@ -625,7 +638,10 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     for cfile in iter_sources_and_headers(src_dir, cfg):
         rel_name = rel_display_path(cfile, src_dir)
         for ann in read_source_bindings(
-            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else src_dir
+            cfile,
+            target_name=target_marker(cfg),
+            metadata_dir=cfg.metadata_dir if cfg else src_dir,
+            project_root=getattr(cfg, "root", None),
         ):
             if ann.is_data:
                 # Metadata root is cfg.metadata_dir; cfile.parent would
@@ -669,7 +685,10 @@ def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int,
     known_functions: dict[int, dict[str, str]] = {}
     for cfile in iter_sources(src_dir, cfg):
         for entry in read_source_bindings(
-            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+            cfile,
+            target_name=target_marker(cfg),
+            metadata_dir=cfg.metadata_dir,
+            project_root=getattr(cfg, "root", None),
         ):
             if entry.va:
                 known_functions[entry.va] = {

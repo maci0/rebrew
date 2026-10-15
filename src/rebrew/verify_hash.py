@@ -498,7 +498,10 @@ def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     marker = target_marker(cfg)
     out: dict[str, int] = {}
     for path, annos in iter_source_bindings(
-        iter_sources(cfg.reversed_dir, cfg), target=marker, metadata_dir=cfg.metadata_dir
+        iter_sources(cfg.reversed_dir, cfg),
+        target=marker,
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     ):
         for ann in annos:
             if not ann.is_function:

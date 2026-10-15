@@ -1091,7 +1091,12 @@ def _existing_annotations(cfg: Any) -> dict[int, tuple[str, str]]:
     existing: dict[int, tuple[str, str]] = {}
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     marker = target_marker(cfg)
-    for path, annos in iter_source_bindings(sources, target=marker, metadata_dir=cfg.metadata_dir):
+    for path, annos in iter_source_bindings(
+        sources,
+        target=marker,
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
+    ):
         for ann in annos:
             name = ann.symbol or ann.name or ""
             existing.setdefault(ann.va, (f"{ann.kind} {name}".strip(), path.name))

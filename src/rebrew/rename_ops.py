@@ -386,10 +386,17 @@ def _rename_annotations(cfg: ProjectConfig, path: Path) -> list[SourceBinding]:
     from rebrew.metadata.functions import load_metadata
 
     metadata_dir = getattr(cfg, "metadata_dir", path.parent)
-    parsed = read_source_bindings(path, metadata_dir=metadata_dir)
+    parsed = read_source_bindings(
+        path, metadata_dir=metadata_dir, project_root=getattr(cfg, "root", None)
+    )
     by_identity = {(e.module, e.va, e.kind): e for e in parsed}
     for module in {m for m, _va in load_metadata(metadata_dir, deepcopy=False)}:
-        for e in read_source_bindings(path, target_name=module, metadata_dir=metadata_dir):
+        for e in read_source_bindings(
+            path,
+            target_name=module,
+            metadata_dir=metadata_dir,
+            project_root=getattr(cfg, "root", None),
+        ):
             by_identity[(e.module, e.va, e.kind)] = e
     return list(by_identity.values())
 

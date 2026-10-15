@@ -109,7 +109,9 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str]
     for src in iter_sources(cfg.reversed_dir, cfg):
         entries = [
             e
-            for e in read_source_bindings(src, metadata_dir=cfg.metadata_dir)
+            for e in read_source_bindings(
+                src, metadata_dir=cfg.metadata_dir, project_root=getattr(cfg, "root", None)
+            )
             if e.va
             and preset_module_key(e.module) == preset_module_key(marker)
             and (not e.kind or e.kind.upper() in CODE_MARKERS)

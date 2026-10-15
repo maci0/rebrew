@@ -1285,23 +1285,31 @@ class TestFindDispatchTablesSparse:
         assert [t.num_entries for t in tables] == [3, 3]
 
 
-def test_data_rejects_combined_metadata_mutations(monkeypatch):
+def test_data_combines_metadata_mutations(monkeypatch, tmp_path: Path) -> None:
     import json
+    from types import SimpleNamespace
 
     from typer.testing import CliRunner
 
     from rebrew.data import app
+    from rebrew.metadata.data import get_data_entry
 
-    def unexpected_config(**kwargs):
-        raise AssertionError("Conflicting mutations must fail before reading or writing metadata")
-
-    monkeypatch.setattr("rebrew.data.require_config", unexpected_config)
+    cfg = SimpleNamespace(
+        metadata_dir=tmp_path,
+        root=tmp_path,
+        reversed_dir=tmp_path,
+        target_binary=tmp_path / "reference.dll",
+        marker="SERVER",
+    )
+    monkeypatch.setattr("rebrew.data.require_config", lambda **kwargs: cfg)
     result = CliRunner().invoke(
         app,
         ["set", "--json", "--type", "0x10001000=char[260]", "--size", "0x10001000=260"],
     )
-    assert result.exit_code != 0
-    assert "Use only one" in json.loads(result.stdout)["error"]
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["changed"] == 1
+    row = get_data_entry(tmp_path, 0x10001000, "SERVER")
+    assert row["type"] == "char[260]" and row["size"] == 260
 
 
 def test_bss_aliases_do_not_create_gaps_inside_backing_allocations() -> None:

@@ -335,7 +335,11 @@ def run_single_ga(
         # warm build cache, so run before ga.close()).
         if best_src is not None and best_score >= EXACT_SCORE_THRESHOLD:
             try:
-                annos = read_source_bindings(p.seed_c, metadata_dir=p.cfg.metadata_dir)
+                annos = read_source_bindings(
+                    p.seed_c,
+                    metadata_dir=p.cfg.metadata_dir,
+                    project_root=getattr(p.cfg, "root", None),
+                )
             except Exception as exc:
                 log.debug("ceiling annotation parse failed for %s: %s", p.seed_c, exc)
                 annos = []

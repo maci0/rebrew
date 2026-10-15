@@ -217,7 +217,10 @@ def function_symbol_rows(cfg: Any) -> tuple[list[SymbolRow], int, int]:
     skipped = 0
     skipped_va = 0
     for _path, annos in iter_source_bindings(
-        sources, target=target_marker(cfg), metadata_dir=cfg.metadata_dir
+        sources,
+        target=target_marker(cfg),
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     ):
         for a in annos:
             if a.is_data:

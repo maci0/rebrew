@@ -66,6 +66,7 @@ def _documented_vas(src_dir: Path, cfg: Any) -> set[int]:
         iter_sources(src_dir, cfg),
         target=target_marker(cfg),
         metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     ):
         for ann in anns:
             documented.add(ann["va"])

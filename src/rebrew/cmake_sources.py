@@ -96,7 +96,13 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[list[Path], list[Path]]:
         source = (cfg.reversed_dir / bound.filepath).resolve()
         library_entries.setdefault(source, []).append(bound)
     for src in iter_sources(cfg.reversed_dir, cfg):
-        anns = [a for a in read_source_bindings(src, metadata_dir=cfg.metadata_dir) if a.va]
+        anns = [
+            a
+            for a in read_source_bindings(
+                src, metadata_dir=cfg.metadata_dir, project_root=getattr(cfg, "root", None)
+            )
+            if a.va
+        ]
         anns.extend(library_entries.get(src.resolve(), []))
         if not anns:
             relative = src.resolve().relative_to(cfg.metadata_dir.resolve()).as_posix()

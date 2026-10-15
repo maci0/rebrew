@@ -8,6 +8,7 @@ replacement. Data comparison evidence remains separate from ordinary edit stamps
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import threading
@@ -76,17 +77,6 @@ def _invalidate_data_cache(path: Path) -> None:
         _DATA_FILE_INDEX_OWNER.clear()
 
 
-def _path_suffixes(rel_path: str) -> list[str]:
-    """Every distinct path suffix of *rel_path* that a ``file`` value may store.
-
-    ``"a/b/c.c"`` yields ``["a/b/c.c", "b/c.c", "c.c"]``.  The same rule the
-    function store uses, kept here so this module does not import annotation's
-    private helper.
-    """
-    parts = rel_path.replace("\\", "/").split("/")
-    return ["/".join(parts[i:]) for i in range(len(parts)) if parts[i] not in ("", ".")]
-
-
 def data_file_index(
     directory: Path | str | Any,
 ) -> dict[str, list[tuple[str, int, dict[str, Any]]]]:
@@ -131,9 +121,8 @@ def data_rows_for_path(
 ) -> list[tuple[str, int, dict[str, Any]]]:
     """Return data rows whose ``file`` matches *filepath*.
 
-    The match is the metadata-root-relative path, any trailing suffix of it,
-    or the bare filename.  One ``(module, va)`` is returned once even when
-    several suffixes hit it.
+    The match is the exact metadata-root-relative path. Sibling files with
+    the same basename never inherit one another's rows.
     """
     dir_path = resolve_metadata_dir(directory)
     try:
@@ -143,7 +132,7 @@ def data_rows_for_path(
     seen: set[tuple[str, int]] = set()
     rows: list[tuple[str, int, dict[str, Any]]] = []
     index = data_file_index(directory)
-    for candidate in _path_suffixes(rel):
+    for candidate in (rel,):
         for module, va, entry in index.get(candidate, ()):
             identity = (module, va)
             if identity in seen:
@@ -245,6 +234,7 @@ __all__ = [
     "module_visible_to_target",
     "set_data_field",
     "set_data_fields_batch",
+    "patch_data_fields_batch",
     "validate_data_field",
     "merge_into_data_binding",
     "record_data_rows",
@@ -518,70 +508,184 @@ def set_data_fields_batch(
     changed_entries = 0
     with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
         doc = load_metadata_for_write(path, "data metadata", known_fields=DATA_METADATA_FIELDS)
-        key_index = build_metadata_key_index(doc)
-        from rebrew.utils import toml_safe
-
-        for u in updates:
-            module = str(u.get("module") or "")
-            if not module:
-                raise ValueError("data metadata writes require a non-empty module")
-            va = u.get("va")
-            if va is None:
-                raise ValueError(f"data field update for {module!r} missing 'va': {u!r}")
-            va_int = as_metadata_int(va)
-            if va_int < 0:
-                raise ValueError(f"VA must be non-negative, got {va_int:#x}")
-            fields = u.get("fields") or {}
-            if not fields:
-                continue
-            tag = str(u.get("updated_by") or "")
-            if tag and tag not in PROVENANCE_TAGS:
-                raise ValueError(
-                    f"data field update for {module!r} 0x{va_int:x} names unknown "
-                    f"provenance tag {tag!r}, not in {sorted(PROVENANCE_TAGS)}"
-                )
-            toml_key = resolve_metadata_key(doc, module, va_int, index=key_index)
-            if toml_key not in doc:
-                doc[toml_key] = tomlkit.table()
-                # The index is keyed on the NFC-normalized module
-                # (build_metadata_key_index parses with parse_metadata_key),
-                # so store it in that spelling or a later resolve misses.
-                key_index[(unicodedata.normalize("NFC", module), va_int)] = toml_key
-            elif not isinstance(doc[toml_key], dict):
-                raise ValueError(
-                    f"data metadata entry {toml_key!r} is not a table "
-                    f"({type(doc[toml_key]).__name__}); repair or remove it first"
-                )
-            entry = doc[toml_key]
-            changed = False
-            definition_changed = False
-            for key, value in fields.items():
-                safe = toml_safe(validate_data_field(key, value))
-                if isinstance(entry, dict) and entry.get(key) == safe:
-                    continue
-                entry[key] = safe
-                changed = True
-                definition_changed |= key in ("name", "type", "size", "section")
-            evidence_changed = False
-            evidence = u.get("verification")
-            if evidence is not None:
-                if tag != "verify" or evidence.get("status") != fields.get("status"):
-                    raise ValueError("data verification evidence requires its verify verdict")
-                evidence_changed = record_verification(entry, evidence, now=now)
-            if changed or evidence_changed:
-                # A verdict measured the old symbol extent/identity. Notes and
-                # provenance leave it valid; a new measurement may set it in
-                # the same update as the definition it verified.
-                if definition_changed and "status" not in fields:
-                    entry.pop("status", None)
-                tag = str(u.get("updated_by") or "")
-                if tag and changed:
-                    stamp_provenance(entry, tag, now=now)
-                changed_entries += 1
+        changed_entries = _patch_data_document(doc, updates, now=now)
         if changed_entries:
             stamp_format(doc)
             atomic_write_locked(path, tomlkit.dumps(doc))
             _invalidate_data_cache(path)
+    return changed_entries
+
+
+_DATA_PATCH_FIELDS = frozenset(
+    {
+        "file",
+        "kind",
+        "name",
+        "type",
+        "size",
+        "section",
+        "storage_kind",
+        "backing",
+        "link_symbol",
+        "note",
+    }
+)
+
+
+def _data_document_digest(path: Path) -> str:
+    """Hash complete input bytes, distinguishing an absent store from an empty one."""
+    try:
+        content = b"present\0" + path.read_bytes()
+    except FileNotFoundError:
+        content = b"absent\0"
+    return hashlib.sha256(content).hexdigest()
+
+
+def patch_data_fields_batch(
+    directory: Path | str | Any,
+    updates: list[dict[str, Any]],
+    *,
+    dry_run: bool = False,
+    expected_digest: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Preview or atomically apply non-verdict edits with a complete-input guard.
+
+    Previews never acquire the writer lock or create directories/sidecars. A
+    reviewed digest is rechecked under the lock before any actual publication.
+    Conflicting repeated fields and attempts to supply verdict/evidence fields
+    are rejected before locking. Existing verification evidence is retained;
+    definition and placement edits invalidate only the current verdict.
+    """
+    if expected_digest is not None and (
+        len(expected_digest) != 64 or any(c not in "0123456789abcdef" for c in expected_digest)
+    ):
+        raise ValueError("expected digest must be a lowercase SHA-256 hex digest")
+    merged: dict[tuple[str, int], dict[str, Any]] = {}
+    for update in updates:
+        if set(update) - {"module", "va", "fields"}:
+            raise ValueError("data patches accept only module, va and non-verdict fields")
+        module = update.get("module")
+        if not isinstance(module, str) or not module:
+            raise ValueError("data patches require a non-empty module")
+        va = as_metadata_int(update.get("va"))
+        if va < 0:
+            raise ValueError("data patches require a non-negative VA")
+        fields = update.get("fields")
+        if not isinstance(fields, dict) or not fields:
+            raise ValueError("data patches require a non-empty fields table")
+        target = merged.setdefault((unicodedata.normalize("NFC", module), va), {})
+        for field, value in fields.items():
+            if field not in _DATA_PATCH_FIELDS:
+                raise ValueError(f"{field!r} is not a non-verdict data patch field")
+            value = validate_data_field(field, value)
+            if field in target and target[field] != value:
+                raise ValueError(f"conflicting repeated {field} for {module}.0x{va:x}")
+            target[field] = value
+    normalized = [
+        {"module": module, "va": va, "fields": fields, "updated_by": "data"}
+        for (module, va), fields in merged.items()
+    ]
+    directory = resolve_metadata_dir(directory)
+    path = directory / DATA_METADATA_FILENAME
+
+    def prepare() -> tuple[Any, str, int]:
+        digest = _data_document_digest(path)
+        if expected_digest is not None and digest != expected_digest:
+            raise ValueError("data metadata changed since preview; review a new preview")
+        doc = load_metadata_for_write(path, "data metadata", known_fields=DATA_METADATA_FIELDS)
+        if _data_document_digest(path) != digest:
+            raise ValueError("data metadata changed while reading; retry")
+        changed = _patch_data_document(doc, normalized, now=now)
+        return doc, digest, changed
+
+    # Validate the whole operation before the lock can create any files.
+    doc, digest, changed = prepare()
+    if not dry_run:
+        with metadata_write_lock(directory, DATA_METADATA_FILENAME):
+            doc, digest, changed = prepare()
+            if changed:
+                stamp_format(doc)
+                atomic_write_locked(path, tomlkit.dumps(doc))
+                _invalidate_data_cache(path)
+    return {"dry_run": dry_run, "input_digest": digest, "changed": changed}
+
+
+def _patch_data_document(
+    doc: Any, updates: list[dict[str, Any]], *, now: datetime | None = None
+) -> int:
+    """Apply validated edits to an unpublished document shared by preview and writers."""
+    changed_entries = 0
+    key_index = build_metadata_key_index(doc)
+    from rebrew.utils import toml_safe
+
+    for u in updates:
+        module = str(u.get("module") or "")
+        if not module:
+            raise ValueError("data metadata writes require a non-empty module")
+        va = u.get("va")
+        if va is None:
+            raise ValueError(f"data field update for {module!r} missing 'va': {u!r}")
+        va_int = as_metadata_int(va)
+        if va_int < 0:
+            raise ValueError(f"VA must be non-negative, got {va_int:#x}")
+        fields = u.get("fields") or {}
+        if not fields:
+            continue
+        tag = str(u.get("updated_by") or "")
+        if tag and tag not in PROVENANCE_TAGS:
+            raise ValueError(
+                f"data field update for {module!r} 0x{va_int:x} names unknown "
+                f"provenance tag {tag!r}, not in {sorted(PROVENANCE_TAGS)}"
+            )
+        toml_key = resolve_metadata_key(doc, module, va_int, index=key_index)
+        if toml_key not in doc:
+            doc[toml_key] = tomlkit.table()
+            # The index is keyed on the NFC-normalized module
+            # (build_metadata_key_index parses with parse_metadata_key),
+            # so store it in that spelling or a later resolve misses.
+            key_index[(unicodedata.normalize("NFC", module), va_int)] = toml_key
+        elif not isinstance(doc[toml_key], dict):
+            raise ValueError(
+                f"data metadata entry {toml_key!r} is not a table "
+                f"({type(doc[toml_key]).__name__}); repair or remove it first"
+            )
+        entry = doc[toml_key]
+        changed = False
+        definition_changed = False
+        for key, value in fields.items():
+            safe = toml_safe(validate_data_field(key, value))
+            if isinstance(entry, dict) and entry.get(key) == safe:
+                continue
+            entry[key] = safe
+            changed = True
+            definition_changed |= key in (
+                "name",
+                "type",
+                "size",
+                "section",
+                "file",
+                "kind",
+                "storage_kind",
+                "backing",
+                "link_symbol",
+            )
+        evidence_changed = False
+        evidence = u.get("verification")
+        if evidence is not None:
+            if tag != "verify" or evidence.get("status") != fields.get("status"):
+                raise ValueError("data verification evidence requires its verify verdict")
+            evidence_changed = record_verification(entry, evidence, now=now)
+        if changed or evidence_changed:
+            # A verdict measured the old symbol extent/identity. Notes and
+            # provenance leave it valid; a new measurement may set it in
+            # the same update as the definition it verified.
+            if definition_changed and "status" not in fields:
+                entry.pop("status", None)
+            tag = str(u.get("updated_by") or "")
+            if tag and changed:
+                stamp_provenance(entry, tag, now=now)
+            changed_entries += 1
     return changed_entries
 
 

@@ -1195,7 +1195,10 @@ def _run_append_mode(
 
     try:
         existing_in_file = read_source_bindings(
-            append_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+            append_path,
+            target_name=target_marker(cfg),
+            metadata_dir=cfg.metadata_dir,
+            project_root=getattr(cfg, "root", None),
         )
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)

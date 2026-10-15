@@ -374,6 +374,7 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
             target_name=target_marker(cfg),
             base_dir=reversed_dir,
             metadata_dir=metadata_root,
+            project_root=cfg.root if cfg else None,
         )
         entries.extend(parsed)
 

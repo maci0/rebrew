@@ -11,7 +11,17 @@ from typing import Any
 
 import typer
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.cli import (
+    AllTargetsOption,
+    TargetOption,
+    all_targets_run,
+    console,
+    error_exit,
+    json_print,
+    option_default,
+    parse_va,
+    require_config,
+)
 from rebrew.config import module_marker
 from rebrew.data_scan import (
     BssReport,
@@ -289,6 +299,7 @@ def execute_data(
     gen_header_out: Path | None = None,
     force: bool = False,
     dry_run: bool = False,
+    expected_digest: str | None = None,
     layout_audit: bool = False,
     section: str = ".data",
     fill_data: bool = False,
@@ -312,158 +323,36 @@ def execute_data(
     set_file = set_file or []
     set_kind = set_kind or []
     set_note = set_note or []
-    if (
-        sum(
-            bool(value)
-            for value in (
-                set_type,
-                set_name,
-                set_size,
-                set_section,
-                set_file,
-                set_storage_kind,
-                set_backing,
-                set_link_symbol,
-                set_kind,
-                set_note,
-            )
-        )
-        > 1
-    ):
-        error_exit(
-            "Use only one data setter per call: --type, --name, --size, "
-            "--section, --file, --storage-kind, --backing, --link-symbol, "
-            "--kind, or --note.",
-            json_mode=json_output,
-        )
     cfg = require_config(target=target, json_mode=json_output)
-
     src_dir = cfg.reversed_dir
     bin_path = cfg.target_binary
-
-    # --type: correct a declared global type in the data metadata
-    if set_storage_kind or set_backing or set_link_symbol:
-        from rebrew.data_annotate import set_data_relation
-
-        try:
-            rows = []
-            for field, specs in (
-                ("storage_kind", set_storage_kind),
-                ("backing", set_backing),
-                ("link_symbol", set_link_symbol),
-            ):
-                rows.extend(set_data_relation(cfg, specs, field, dry_run=dry_run))
-        except ValueError as exc:
-            error_exit(str(exc), json_mode=json_output)
-        if json_output:
-            json_print({"dry_run": dry_run, "set": rows})
-        else:
-            console.print(f"Updated {len(rows)} data storage relationship(s).")
-        return
-
-    if set_kind or set_note:
-        from rebrew.data_annotate import set_data_kinds, set_data_notes
+    specifications = {
+        "storage_kind": set_storage_kind,
+        "backing": set_backing,
+        "link_symbol": set_link_symbol,
+        "type": set_type,
+        "name": set_name,
+        "size": set_size,
+        "section": set_section,
+        "file": set_file,
+        "kind": set_kind,
+        "note": set_note,
+    }
+    if any(specifications.values()):
+        from rebrew.data_annotate import patch_data_fields
 
         try:
-            rows = (
-                set_data_kinds(cfg, set_kind, dry_run=dry_run)
-                if set_kind
-                else set_data_notes(cfg, set_note, dry_run=dry_run)
+            report = patch_data_fields(
+                cfg, specifications, dry_run=dry_run, expected_digest=expected_digest
             )
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             error_exit(str(exc), json_mode=json_output)
         if json_output:
-            json_print({"dry_run": dry_run, "set": rows})
+            json_print(report)
         else:
-            field = "kind" if set_kind else "note"
-            for row in rows:
-                console.print(
-                    f"set {field} {untrusted_ident(str(row[field]))!r} for {row['va']} "
-                    f"({untrusted_ident(row['module'])})"
-                )
-        return
-
-    if set_type:
-        from rebrew.data_annotate import set_data_types
-
-        try:
-            rows = set_data_types(cfg, set_type, dry_run=dry_run)
-        except ValueError as exc:
-            error_exit(str(exc), json_mode=json_output)
-        if json_output:
-            json_print({"dry_run": dry_run, "set": rows})
-        else:
-            for row in rows:
-                console.print(
-                    f"set type {row['type']!r} for {row['va']} ({untrusted_ident(row['module'])})"
-                )
-        return
-
-    if set_name:
-        from rebrew.data_annotate import set_data_names
-
-        try:
-            rows = set_data_names(cfg, set_name, dry_run=dry_run)
-        except ValueError as exc:
-            error_exit(str(exc), json_mode=json_output)
-        if json_output:
-            json_print({"dry_run": dry_run, "set": rows})
-        else:
-            for row in rows:
-                console.print(
-                    f"set name {row['name']!r} for {row['va']} ({untrusted_ident(row['module'])})"
-                )
-        return
-
-    if set_size:
-        from rebrew.data_annotate import set_data_sizes
-
-        try:
-            rows = set_data_sizes(cfg, set_size, dry_run=dry_run)
-        except ValueError as exc:
-            error_exit(str(exc), json_mode=json_output)
-        if json_output:
-            json_print({"dry_run": dry_run, "set": rows})
-        else:
-            for row in rows:
-                console.print(
-                    f"set size {row['size']} for {row['va']} ({untrusted_ident(row['module'])})"
-                )
-        return
-
-    if set_file:
-        from rebrew.data_annotate import set_data_files
-
-        try:
-            rows = set_data_files(cfg, set_file, dry_run=dry_run)
-        except ValueError as exc:
-            error_exit(str(exc), json_mode=json_output)
-        if json_output:
-            json_print({"dry_run": dry_run, "set": rows})
-        else:
-            for row in rows:
-                console.print(
-                    f"set file {untrusted_ident(row['file'])} for {row['va']} "
-                    f"({untrusted_ident(row['module'])})"
-                )
-        return
-
-    # --section: give a // GLOBAL: marker its SECTION metadata (lint W016)
-    if set_section:
-        from rebrew.data_annotate import set_data_sections
-
-        try:
-            rows = set_data_sections(cfg, set_section, dry_run=dry_run)
-        except ValueError as exc:
-            error_exit(str(exc), json_mode=json_output)
-        if json_output:
-            json_print({"dry_run": dry_run, "set": rows})
-        else:
-            for row in rows:
-                console.print(
-                    f"set section {row['section']!r} for {row['va']} "
-                    f"({untrusted_ident(row['module'])})"
-                )
+            action = "Would update" if dry_run else "Updated"
+            console.print(f"{action} {report['changed']} data row(s).")
+            console.print(f"Input digest: {report['input_digest']}")
         return
 
     # --gen-header: generate rebrew_globals.h from annotations (no Ghidra)
@@ -871,8 +760,26 @@ def list_data(
     summary: bool = typer.Option(False, "--summary", help="Show section-level summary only"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
+    all_targets: bool = AllTargetsOption,
 ) -> None:
     """Inventory globals and report section summaries or conflicts."""
+    all_targets = option_default(all_targets, False)
+    if all_targets and link_map is not None:
+        error_exit("--all-targets and --link-map are mutually exclusive", json_mode=json_output)
+    if all_targets_run(
+        target=target,
+        all_targets=all_targets,
+        json_mode=json_output,
+        run_one=lambda name: list_data(
+            link_map=None,
+            conflicts=conflicts,
+            summary=summary,
+            json_output=json_output,
+            target=name,
+            all_targets=False,
+        ),
+    ):
+        return
     execute_data(
         link_map=link_map,
         conflicts=conflicts,
@@ -940,11 +847,14 @@ def set_data(
         "--note",
         help="Set a global's free-text note: 0xVA=TEXT (repeatable); keeps its verdict",
     ),
+    expected_digest: str | None = typer.Option(
+        None, "--expected-digest", help="Require the complete input digest from a reviewed preview"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Set one metadata field through the locked data writers."""
+    """Atomically set one or more non-verdict metadata fields."""
     if (
         sum(
             bool(value)
@@ -963,7 +873,7 @@ def set_data(
         )
         == 0
     ):
-        error_exit("Choose exactly one data field to set", json_mode=json_output)
+        error_exit("Choose at least one data field to set", json_mode=json_output)
     execute_data(
         set_storage_kind=set_storage_kind,
         set_backing=set_backing,
@@ -976,6 +886,7 @@ def set_data(
         set_kind=set_kind,
         set_note=set_note,
         dry_run=dry_run,
+        expected_digest=expected_digest,
         json_output=json_output,
         target=target,
     )

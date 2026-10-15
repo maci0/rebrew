@@ -111,7 +111,9 @@ def diagnose_source(cfg: ProjectConfig, source: Path) -> dict[str, Any]:
     A file with no annotations still reports the project-default chain."""
     from rebrew.compiler.overrides import resolve_overrides_steps
 
-    annos = read_source_bindings(source, metadata_dir=cfg.metadata_dir)
+    annos = read_source_bindings(
+        source, metadata_dir=cfg.metadata_dir, project_root=getattr(cfg, "root", None)
+    )
     functions: list[dict[str, Any]] = []
     for anno in annos:
         toolchain, cflags, steps = resolve_overrides_steps(

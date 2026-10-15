@@ -142,6 +142,7 @@ def missing_relocations(cfg: Any, source: Path, built: Path, link_map: Path) -> 
         target_name=target_marker(cfg),
         base_dir=cfg.root,
         metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     )
     for ann in annotations:
         if not ann.is_function or ann.size <= 0:

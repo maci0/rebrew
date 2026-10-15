@@ -31,6 +31,7 @@ from rebrew.cli import (
     EXIT_MISMATCH,
     SOURCE_HELP,
     AllTargetsOption,
+    SourceTargetsOption,
     TargetOption,
     all_targets_run,
     console,
@@ -40,6 +41,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
     require_source_arg,
+    source_targets_run,
 )
 from rebrew.coff_reloc import (
     CatalogScanError,
@@ -68,7 +70,6 @@ from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata.bindings import (
     SourceBinding,
     min_valid_va_for,
-    read_function_fields,
     read_source_bindings,
 )
 from rebrew.metadata.functions import (
@@ -79,9 +80,7 @@ from rebrew.metadata.functions import (
     update_source_status,
 )
 from rebrew.present import bar_plain
-from rebrew.sources import (
-    target_marker,
-)
+from rebrew.sources import target_marker
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
 from rebrew.utils import floor_pct, untrusted_ident
 
@@ -236,27 +235,6 @@ def _select_annotation_for_va(
     return next((a for a in lint_annos if a.va == want_va), None)
 
 
-def _marker_va_from_annotation(sel_ann: SourceBinding | None, meta: dict[str, str]) -> str | None:
-    """VA string for the selected annotation, else the file's first marker.
-
-    ``read_function_fields`` is first-block only, so on a shared file carrying
-    one ``// FUNCTION:`` marker per target it reports the OTHER target's VA.
-    *sel_ann* already comes from a target-filtered parse, so it wins when it
-    carries a VA (guild-rebrew round 1291: ``rebrew test cm_MarkAndReturn.c
-    --target GOLDTL`` compared SERVER 0x1000d330's bytes).
-    """
-    if sel_ann is not None and getattr(sel_ann, "va", None):
-        return f"0x{int(sel_ann.va):x}"
-    for marker_key in ("FUNCTION", "LIBRARY", "STUB"):
-        # Marker form: // FUNCTION: [TARGET] 0x100011f0
-        func_meta = meta.get(marker_key)
-        if func_meta and "0x" in func_meta:
-            after_hex = func_meta.split("0x")[1].split()
-            if after_hex:
-                return "0x" + after_hex[0]
-    return None
-
-
 @app.callback(invoke_without_command=True)
 def main(
     source: str | None = typer.Argument(None, help=SOURCE_HELP + " (omit with --all)"),
@@ -336,12 +314,13 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
     all_targets: bool = AllTargetsOption,
+    source_targets: bool = SourceTargetsOption,
 ) -> None:
     """Compile a source file and compare one function against target bytes.
 
     With --all, batch-tests every .c file found in the reversed directory (iterating via iter_sources).  Optional --dir and --module flags restrict the batch.  Without --all, a single source file must be provided.
 
-    In single-function mode it resolves symbol, va, and size from CLI arguments first, then falls back to source markers. In multi-function mode (when no explicit symbol/va/size is provided), it compiles once and evaluates each annotated function independently.
+    In single-function mode it resolves symbol, va, and size from CLI arguments first, then falls back to dedicated metadata and optional address anchors. In multi-function mode (when no explicit symbol/va/size is provided), it compiles once and evaluates each annotated function independently.
 
     Comparison is relocation-aware: COFF relocation records are used to mask relocation-dependent byte spans before scoring exactness. Output status is reported as EXACT, RELOC, NEAR_MATCHING, SIZE_MISMATCH, STUB, or an error state.
 
@@ -350,6 +329,7 @@ def main(
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
     all_targets = option_default(all_targets, False)
+    source_targets = option_default(source_targets, False)
     if all_targets:
         # --va/--target-bin pin ONE target's address space and --watch blocks
         # the sweep; none survive a multi-target run.
@@ -364,11 +344,29 @@ def main(
                     "(each target resolves its own)",
                     json_mode=json_output,
                 )
-    if all_targets_run(
-        target=target,
-        all_targets=all_targets,
-        json_mode=json_output,
-        run_one=lambda n: main(
+    if source_targets:
+        for scope_clash, flag in (
+            (all_sources, "--all"),
+            (batch_dir, "--dir"),
+            (origin, "--module"),
+            (va, "--va"),
+            (symbol, "--symbol"),
+            (size, "--size"),
+            (target_bin, "--target-bin"),
+            (watch, "--watch"),
+            (linked, "--linked"),
+        ):
+            value = option_default(scope_clash, None)
+            if value or (flag == "--size" and value is not None):
+                error_exit(
+                    f"--source-targets and {flag} are mutually exclusive", json_mode=json_output
+                )
+
+    if source_targets and source is not None:
+        source = str(Path(source).resolve())
+
+    def run_one(n: str) -> None:
+        main(
             source=source,
             va=None,
             symbol=symbol,
@@ -390,7 +388,25 @@ def main(
             json_output=json_output,
             target=n,
             all_targets=False,
-        ),
+            source_targets=False,
+        )
+
+    if source_targets_run(
+        source,
+        enabled=source_targets,
+        target=target,
+        all_targets=all_targets,
+        json_mode=json_output,
+        run_one=run_one,
+        root=None,
+    ):
+        return
+    if all_targets_run(
+        target=target,
+        all_targets=all_targets,
+        json_mode=json_output,
+        run_one=run_one,
+        root=None,
     ):
         return
     cfg = require_config(target=target, json_mode=json_output)
@@ -851,7 +867,10 @@ def _status_skip_for_source(cfg: ProjectConfig, source: str, no_promote: bool) -
         bound_library = source_path.is_relative_to(cfg.root.resolve()) and any(
             entry.kind == "LIBRARY" and not entry.is_data
             for entry in read_source_bindings(
-                source_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+                source_path,
+                target_name=target_marker(cfg),
+                metadata_dir=cfg.metadata_dir,
+                project_root=cfg.root,
             )
         )
         if not bound_library:
@@ -887,7 +906,10 @@ def _lint_preamble(
         error_exit(str(exc), json_mode=json_output, code=EXIT_ERROR)
 
     lint_annos = read_source_bindings(
-        Path(source), target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+        Path(source),
+        target_name=target_marker(cfg),
+        metadata_dir=cfg.metadata_dir,
+        project_root=cfg.root,
     )
     lint_annos = [anno for anno in lint_annos if not anno.is_data]
     if size is not None:
@@ -935,8 +957,6 @@ def _run_test_impl(
     *lint_annos* and *name_to_va* come from :func:`_lint_preamble`, so the
     source is parsed and the project's VA map scanned once per invocation.
     """
-    meta = read_function_fields(source, metadata_dir=cfg.metadata_dir)
-
     # Derive symbol from annotation (C function definition).  The
     # VA-based selection happens UNCONDITIONALLY (not just when symbol is
     # absent): an explicit --va on a multi-module file must target the
@@ -974,34 +994,22 @@ def _run_test_impl(
 
     va_str = va
     if not va_str:
-        va_str = _marker_va_from_annotation(sel_ann, meta)
+        va_str = f"0x{sel_ann.va:x}" if sel_ann is not None and sel_ann.va else None
 
     size_val = size
-    # ``meta["SIZE"]`` is the first annotation only (read_function_fields).
-    # A sibling selected via --va with no SIZE must not borrow that span.
-    if (
-        size_val is None
-        and "SIZE" in meta
-        and (sel_ann is None or not lint_annos or sel_ann is lint_annos[0])
-    ):
-        try:
-            size_val = int(meta["SIZE"])
-        except ValueError:
-            error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
-
     from rebrew.compiler.overrides import resolve_cflags, resolve_compile_overrides
 
     _mod = (sel_ann or lint_annos[0]).module if lint_annos else ""
     # Shared fallback chain (per-function metadata → per-library
     # rebrew-libraries.toml → preset → compiler.cflags); an explicit
     # --toolchain / --cflags wins over the metadata value.  Prefer the
-    # SELECTED annotation's fields — ``meta`` is first-block only.
+    # selected annotation's fields, already scoped to the active target.
     if sel_ann is not None:
         _ann_toolchain: str | None = sel_ann.toolchain or None
         _ann_cflags: str | None = sel_ann.cflags or None
     else:
-        _ann_toolchain = meta.get("TOOLCHAIN")
-        _ann_cflags = meta.get("CFLAGS")
+        _ann_toolchain = None
+        _ann_cflags = None
     toolchain_name, cflags_str = resolve_compile_overrides(
         cfg,
         Path(source).resolve().parent,

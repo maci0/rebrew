@@ -705,7 +705,10 @@ def _resolve_annotation(
     from rebrew.sources import target_marker
 
     annos = read_source_bindings(
-        source, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+        source,
+        target_name=target_marker(cfg),
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     )
     funcs = [a for a in annos if a.is_function]
     if not funcs:

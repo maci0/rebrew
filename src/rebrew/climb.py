@@ -582,7 +582,12 @@ def main(
         )
     scorer: Callable[..., tuple[float, int]] = _score
 
-    anns = read_source_bindings(path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir)
+    anns = read_source_bindings(
+        path,
+        target_name=target_marker(cfg),
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
+    )
     if not anns and not (va and symbol and size is not None):
         error_exit(
             "No function annotation found; provide --va, --symbol and --size for scratch C",

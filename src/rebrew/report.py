@@ -563,6 +563,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
         sources,
         target=target_marker(cfg),
         metadata_dir=metadata_dir,
+        project_root=getattr(cfg, "root", None),
     ):
         for ann in annos:
             if ann.is_data:
@@ -1439,7 +1440,12 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     marker = target_marker(cfg)
     annos_by_file: list[tuple[str, list[Any]]] = []
-    for path, annos in iter_source_bindings(sources, target=marker, metadata_dir=cfg.metadata_dir):
+    for path, annos in iter_source_bindings(
+        sources,
+        target=marker,
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
+    ):
         # Relative to reversed_dir, like every other source-path computation in
         # this module: a bare basename made two `pool.c` under different
         # directories indistinguishable in report.json.

@@ -308,6 +308,7 @@ def build_name_to_va(
                     target_name=active_marker,
                     base_dir=cfg.reversed_dir,
                     metadata_dir=cfg.metadata_dir,
+                    project_root=getattr(cfg, "root", None),
                 )
             ]
         selected, _duplicates = select_source_bindings(cfg, annotations)

@@ -665,7 +665,12 @@ def _collect_functions(
     seen: set[int] = set()
     out = []
     for src in iter_sources(cfg.reversed_dir, cfg):
-        annos = read_source_bindings(src, target_name=marker, metadata_dir=cfg.metadata_dir)
+        annos = read_source_bindings(
+            src,
+            target_name=marker,
+            metadata_dir=cfg.metadata_dir,
+            project_root=getattr(cfg, "root", None),
+        )
         for a in annos:
             if a.kind not in ("FUNCTION", "STUB", "LIBRARY"):
                 continue

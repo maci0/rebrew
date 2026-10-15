@@ -297,7 +297,12 @@ def load_data(
     metadata_root = cfg.metadata_dir
     marker_name = target_marker(cfg)
     for cfile in iter_sources(src_dir, cfg, scanned=tree):
-        entries = read_source_bindings(cfile, target_name=marker_name, metadata_dir=metadata_root)
+        entries = read_source_bindings(
+            cfile,
+            target_name=marker_name,
+            metadata_dir=metadata_root,
+            project_root=getattr(cfg, "root", None),
+        )
         rel_name = rel_display_path(cfile, src_dir)
         for entry in entries:
             if entry.is_data:
@@ -518,7 +523,10 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     for cfile in iter_sources(src_path, cfg):
         rel_name = rel_display_path(cfile, src_path)
         entries = read_source_bindings(
-            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
+            cfile,
+            target_name=target_marker(cfg),
+            metadata_dir=cfg.metadata_dir if cfg else None,
+            project_root=getattr(cfg, "root", None),
         )
         for entry in entries:
             if entry.is_data:

@@ -108,3 +108,10 @@ The writer records the source and native symbol. Sources may live outside
 atomically. Generic metadata setters cannot edit it. Import older portable events
 with `coverage import-history` before retiring exports; automatic source cleanup
 preserves identities carrying this history.
+
+For a shared source, `rebrew test FILE --source-targets --json` or
+`rebrew verify FILE --source-targets --json` preflights exact bindings and runs
+only eligible targets, with explicit skip reasons. FILE must be an existing
+current-directory-relative or absolute path, including with `verify --root`.
+Malformed target inputs fail independently; an entirely unbound scope fails.
+Use `--all-targets` when an absent binding should itself be an error.
