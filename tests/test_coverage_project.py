@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,18 @@ def _project(root: Path, *, extra: str = "") -> None:
 
 
 class TestLiveProjectCoverage:
+    def test_existing_epoch_timestamp_config_is_read(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        config = tmp_path / "rebrew-project.toml"
+        os.utime(config, ns=(0, 0))
+        assert config.stat().st_mtime_ns == 0
+        view = load_project_coverage(tmp_path, refresh=True)
+        assert "good" in view.snapshots and not view.failures
+
+    def test_missing_config_stays_an_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ProjectCoverageError, match="no rebrew-project.toml"):
+            load_project_coverage(tmp_path, refresh=True)
+
     def test_reads_canonical_metadata_without_creating_exports(self, tmp_path: Path) -> None:
         _project(tmp_path)
         before = {p.relative_to(tmp_path) for p in tmp_path.rglob("*")}

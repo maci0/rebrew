@@ -193,7 +193,7 @@ def load_project_coverage(root: Path, *, refresh: bool = False) -> ProjectCovera
             return state.view
         try:
             key = _stat(root / "rebrew-project.toml")
-            if not key[0]:
+            if key == (0, 0, 0, 0):
                 raise ProjectCoverageError(f"{root}: no rebrew-project.toml")
             if state.config_key != key:
                 configs, failures = _configs(root)

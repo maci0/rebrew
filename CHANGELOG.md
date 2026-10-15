@@ -142,6 +142,8 @@
 
 
 ### Fixed
+- Accept existing project configurations whose mtime is the Unix epoch in live
+  coverage; distinguish the complete missing-file sentinel from a zero timestamp.
 - Report incomplete C syntax in contract and organization audits, including an
   unused canonical header before reconciliation. Determine void returns from the
   AST independently of calling conventions; preserve pointer-return distinctions.
