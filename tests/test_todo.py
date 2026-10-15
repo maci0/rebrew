@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 from cache_util import cache_text
+from cli_json import cli_payload
 from source_util import write_store_fixture
 
 from rebrew.catalog import FunctionEntry
@@ -1351,7 +1352,6 @@ class TestTodoCli:
         return CliRunner().invoke(app, args or [])
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         result = self._invoke(
             tmp_path,
@@ -1362,7 +1362,7 @@ class TestTodoCli:
             args=["--json"],
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["coverage"]["ghidra_funcs"] == 1
         assert data["coverage"]["matching"] == 1
         assert data["total_items"] >= 1
@@ -1374,7 +1374,6 @@ class TestTodoCli:
         """Attributed library functions are neither candidates nor count toward
         the start-function cap, so a real unstarted function above 50 of them is
         still offered, and the denominator matches `rebrew status`."""
-        import json
 
         lib = {
             0x1000 + 0x40 * i: {"filename": "library_x.h", "size": "64", "kind": "LIBRARY"}
@@ -1390,7 +1389,7 @@ class TestTodoCli:
             covered_vas={},
             args=["--json", "-n", "100"],
         )
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert [i["va"] for i in data["items"] if i["category"] == "start-function"] == [
             "0x00009000"
         ]
@@ -1435,7 +1434,6 @@ class TestTodoCli:
     ) -> None:
         """Sz is the SIZE verify compares (2115), not the inventory extent with
         alignment padding (2128)."""
-        import json
 
         result = self._invoke(
             tmp_path,
@@ -1445,7 +1443,7 @@ class TestTodoCli:
             covered_vas={0x1000: "f.c"},
             args=["--json"],
         )
-        items = [i for i in json.loads(result.output)["items"] if i["va"] == "0x00001000"]
+        items = [i for i in cli_payload(result)["items"] if i["va"] == "0x00001000"]
         assert [i["size"] for i in items] == [2115]
 
     def test_library_rows_leave_counts_and_denominator(
@@ -1457,7 +1455,6 @@ class TestTodoCli:
         the status counts and the denominator, or coverage reads artificially
         low (28% here where `rebrew status` said 42% for the same tree).
         """
-        import json
 
         result = self._invoke(
             tmp_path,
@@ -1484,7 +1481,7 @@ class TestTodoCli:
             args=["--json"],
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         cov = data["coverage"]
         # 2 ghidra functions minus the identified library one = 1 total.
         assert cov["ghidra_funcs"] == 1
@@ -1495,7 +1492,6 @@ class TestTodoCli:
     def test_pct_matched_excludes_proven(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         result = self._invoke(
             tmp_path,
@@ -1512,7 +1508,7 @@ class TestTodoCli:
             args=["--json"],
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["coverage"]["proven"] == 1
         assert data["coverage"]["pct_matched"] == 50.0
         vas = {i["va"] for i in data["items"]}
@@ -1526,7 +1522,6 @@ class TestTodoCli:
         (`ghidra ∪ covered`): dividing by `covered` alone reported 100% where
         status reported 50% for the same project, because the uncovered ghidra
         function is unmatched by definition."""
-        import json
 
         result = self._invoke(
             tmp_path,
@@ -1540,7 +1535,7 @@ class TestTodoCli:
             args=["--json"],
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["coverage"]["ghidra_funcs"] == 2
         assert data["coverage"]["covered"] == 1
         assert data["coverage"]["pct_matched"] == 50.0
@@ -1565,7 +1560,6 @@ class TestTodoCli:
         function list — library-header functions are covered but absent from
         function_structure.json, and the old math produced >100% (regression:
         guild-rebrew reported 240.6%)."""
-        import json
 
         # Covered population (3) is larger than ghidra_funcs (1).
         existing = {
@@ -1583,7 +1577,7 @@ class TestTodoCli:
             args=["--json"],
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         cov = data["coverage"]
         assert cov["covered"] == 3
         assert cov["exact"] == 1
@@ -1601,7 +1595,6 @@ class TestTodoCli:
         NEAR_MATCHING and DOCUMENTED, so the row total read above the number
         of covered functions.
         """
-        import json
 
         import rebrew.status
 
@@ -1637,7 +1630,7 @@ class TestTodoCli:
             args=["--json"],
         )
         assert result.exit_code == 0
-        cov = json.loads(result.output)["coverage"]
+        cov = cli_payload(result)["coverage"]
         assert cov["documented"] == 1
         assert cov["matching"] == 1
         assert cov["stub"] == 1
@@ -1652,7 +1645,6 @@ class TestTodoCli:
         )
 
     def test_category_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         existing = {
             0x1000: {"status": "NEAR_MATCHING", "symbol": "a", "size": "50", "blocker_delta": "12"},
@@ -1669,7 +1661,7 @@ class TestTodoCli:
             covered_vas={},
             args=["--json", "-c", "fix-delta"],
         )
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["total_items"] == 1
         assert data["items"][0]["category"] == "fix-delta"
 
@@ -1682,7 +1674,6 @@ class TestTodoCli:
         assert "fix-delta" in result.output
 
     def test_start_data_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         write_store_fixture(
             tmp_path / "rebrew-data.toml",
@@ -1697,7 +1688,7 @@ class TestTodoCli:
             covered_vas={},
             args=["--json", "-c", "start-data"],
         )
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["total_items"] == 1
         assert data["items"][0]["va"] == "0x00002000"
         assert data["items"][0]["category"] == "start-data"
@@ -1731,7 +1722,6 @@ class TestTodoCli:
         assert "Failed to load project data" in result.output
 
     def test_verify_statuses_overlay(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
@@ -1762,7 +1752,7 @@ class TestTodoCli:
             args=["--json"],
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         # Verify-cache COMPILE_ERROR wins over annotation STUB in status counts.
         assert data["coverage"]["stub"] == 0
 

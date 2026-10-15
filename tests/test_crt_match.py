@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 
 from rebrew.config import ProjectConfig, load_config
@@ -563,7 +564,6 @@ class TestCrtMatchCli:
         assert "crt_sources" in result.output
 
     def test_index_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -576,7 +576,7 @@ class TestCrtMatchCli:
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--index", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["count"] >= 2  # function entry + filename entry
         assert all(e["module"] == "MSVCRT" for e in data["entries"])
 
@@ -607,7 +607,6 @@ class TestCrtMatchCli:
         assert "No library marker found" in result.output
 
     def test_single_va_match_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -628,7 +627,7 @@ class TestCrtMatchCli:
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json", "0x10001000"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["match_count"] == 2
         best = data["matches"][0]
         assert best["binary_name"] == "malloc"
@@ -636,7 +635,6 @@ class TestCrtMatchCli:
         assert best["confidence"] == 0.95
 
     def test_all_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -657,7 +655,7 @@ class TestCrtMatchCli:
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--all", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["match_count"] == 2
 
     def test_fix_source_writes_metadata(
@@ -799,7 +797,6 @@ class TestCrtMatchCliBranches:
     ) -> None:
         """A marker module with no index falls back to every configured index
         (same rule as match_all) — 0 matches, not a spurious module error."""
-        import json
 
         from typer.testing import CliRunner
 
@@ -826,11 +823,10 @@ class TestCrtMatchCliBranches:
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json", "0x10001000"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["match_count"] == 0  # MSVCRT index can't name inflate
 
     def test_both_va_and_all_dedup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -860,7 +856,7 @@ class TestCrtMatchCliBranches:
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--all", "--json", "0x10001000"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         # --all would produce the same 2 matches; dedup keeps them at 2.
         assert data["match_count"] == 2
 
@@ -1078,7 +1074,6 @@ class TestSingleVaModuleFallback:
     def test_marker_module_without_index_falls_back(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -1099,7 +1094,7 @@ class TestSingleVaModuleFallback:
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json", "0x10001000"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["match_count"] >= 1
         assert data["matches"][0]["source_file"] == "MALLOC.C"
 

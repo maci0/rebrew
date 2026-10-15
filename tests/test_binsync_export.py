@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytest
 import tomlkit
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import CliRunner
 
@@ -386,9 +387,8 @@ class TestBinsyncExportDryRun:
         )
         result, outdir = _invoke(tmp_path, monkeypatch, "--dry-run", "--json")
         assert result.exit_code == 0
-        import json
 
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["dry_run"] is True
         assert data["functions"] == 1
         assert not outdir.exists()
@@ -412,9 +412,8 @@ class TestBinsyncExportJson:
         )
         result, outdir = _invoke(tmp_path, monkeypatch, "--json")
         assert result.exit_code == 0
-        import json
 
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert "functions" in data
         assert "globals" in data
         assert "structs" in data
@@ -551,7 +550,6 @@ class TestBinsyncExportModuleFilter:
     def test_module_filter_unknown_exits_nonzero(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json as _json
 
         _make_project(
             tmp_path,
@@ -564,10 +562,9 @@ class TestBinsyncExportModuleFilter:
         )
         result, _ = _invoke(tmp_path, monkeypatch, "--module", "UNKNOWN", "--json")
         assert result.exit_code == 2
-        assert _json.loads(result.stdout) == {"error": "No annotations found.", "code": 2}
+        assert cli_payload(result) == {"error": "No annotations found.", "code": 2}
 
     def test_module_filter_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json as _json
 
         _make_project(
             tmp_path,
@@ -580,7 +577,7 @@ class TestBinsyncExportModuleFilter:
         )
         result, _ = _invoke(tmp_path, monkeypatch, "--module", "SERVER", "--json")
         assert result.exit_code == 0
-        data = _json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["module"] == "SERVER"
 
 
@@ -1027,7 +1024,6 @@ class TestBinsyncEnumsAndTypedefs:
     def test_enum_and_typedef_exported(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         _make_project(tmp_path, {"foo.c": self._FOO})
         (tmp_path / "src" / "types.h").write_text(
@@ -1045,7 +1041,7 @@ class TestBinsyncEnumsAndTypedefs:
         typedef = next(t for t in typedefs if t.name == "uint32_t")
         assert typedef.type == "unsigned int"
 
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["enums"] == 1
         assert payload["typedefs"] == 1
         assert str(payload["enums_file"]).endswith("enums.toml")
@@ -1399,7 +1395,6 @@ class TestExportIdentityWarnings:
     def test_prose_name_and_duplicate_identity_are_reported(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         _make_project(
             tmp_path,
@@ -1424,7 +1419,7 @@ class TestExportIdentityWarnings:
         )
         result, outdir = _invoke(tmp_path, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        warnings = json.loads(result.stdout)["warnings"]
+        warnings = cli_payload(result)["warnings"]
         assert any("0x10001000 has two identities (a.c, b.c)" in w for w in warnings), warnings
         assert any("is not a C identifier; exported as func_10002000" in w for w in warnings)
         assert _load_func(outdir / "functions" / "10002000.toml").name == "func_10002000"

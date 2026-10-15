@@ -10,11 +10,11 @@ convention as ``test_imports.py``.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 from bin_util import PROBE_IMAGE_BASE, PROBE_TEXT_VA, make_pe, make_xref_probe
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.xrefs import app, build_xrefs_payload
@@ -32,7 +32,7 @@ class TestXrefsCli:
         path.write_bytes(make_pe(code))
         result = CliRunner().invoke(app, ["--json", "--kind", "mov", hex(callback), str(path)])
         assert result.exit_code == 0
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["target"] == callback
         assert payload["count"] == 1
         assert payload["refs"][0]["from_va"] == PROBE_TEXT_VA
@@ -43,7 +43,7 @@ class TestXrefsCli:
         call_dst = syms["call"] + 5 + 0x10
         result = CliRunner().invoke(app, ["--json", str(path), f"0x{call_dst:X}"])
         assert result.exit_code == 0
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["target"] == call_dst
         assert payload["import_name"] is None
         assert payload["count"] == 1
@@ -56,7 +56,7 @@ class TestXrefsCli:
         path, syms = make_xref_probe(tmp_path)
         result = CliRunner().invoke(app, ["--json", str(path), f"0x{syms['hello']:X}"])
         assert result.exit_code == 0
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         pushes = [r for r in payload["refs"] if r["kind"] == "push"]
         assert len(pushes) == 1
         assert pushes[0]["from_va"] == syms["push"]
@@ -71,7 +71,7 @@ class TestXrefsCli:
         path, syms = make_xref_probe(tmp_path)
         result = CliRunner().invoke(app, ["--json", str(path), f"0x{syms['iat_slot']:X}"])
         assert result.exit_code == 0
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["import_name"] == "HeapCreate"
         assert payload["count"] == 1
         assert payload["refs"][0]["kind"] == "iat_call"
@@ -87,7 +87,7 @@ class TestXrefsCli:
             app, ["--kind", "push", "--json", str(path), f"0x{syms['hello']:X}"]
         )
         assert filtered.exit_code == 0
-        payload = json.loads(filtered.output)
+        payload = cli_payload(filtered)
         assert {r["kind"] for r in payload["refs"]} == {"push"}
         # Repeatable: both kinds pass through together.
         both = CliRunner().invoke(
@@ -95,7 +95,7 @@ class TestXrefsCli:
             ["--kind", "push", "--kind", "and_mem", "--json", str(path), f"0x{syms['hello']:X}"],
         )
         assert both.exit_code == 0
-        assert {r["kind"] for r in json.loads(both.output)["refs"]} == {"push", "and_mem"}
+        assert {r["kind"] for r in cli_payload(both)["refs"]} == {"push", "and_mem"}
         # A kind with no hits filters everything out (still exit 0).
         none = CliRunner().invoke(app, ["--kind", "mov", str(path), f"0x{syms['hello']:X}"])
         assert none.exit_code == 0
@@ -103,7 +103,7 @@ class TestXrefsCli:
         # Without a filter both kinds pointing at hello are reported.
         unfiltered = CliRunner().invoke(app, ["--json", str(path), f"0x{syms['hello']:X}"])
         assert unfiltered.exit_code == 0
-        kinds = {r["kind"] for r in json.loads(unfiltered.output)["refs"]}
+        kinds = {r["kind"] for r in cli_payload(unfiltered)["refs"]}
         assert kinds == {"push", "and_mem"}
 
     def test_empty_result_exits_ok(self, tmp_path: Path) -> None:
@@ -114,7 +114,7 @@ class TestXrefsCli:
         assert "no references to" in result.output
         result = CliRunner().invoke(app, ["--json", str(path), f"0x{target:X}"])
         assert result.exit_code == 0
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["count"] == 0
         assert payload["refs"] == []
         assert payload["import_name"] is None
@@ -124,7 +124,7 @@ class TestXrefsCli:
         call_dst = syms["call"] + 5 + 0x10
         result = CliRunner().invoke(app, ["--json", str(path), f"0x{call_dst:X}"])
         assert result.exit_code == 0
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert set(payload) == {"target", "import_name", "count", "refs"}
         assert isinstance(payload["target"], int)
         assert isinstance(payload["count"], int)
@@ -205,7 +205,7 @@ class TestBuildXrefsPayload:
         payload = build_xrefs_payload(path, call_dst)
         result = CliRunner().invoke(app, ["--json", str(path), f"0x{call_dst:X}"])
         assert result.exit_code == 0
-        assert payload == json.loads(result.output)
+        assert payload == cli_payload(result)
         assert payload["count"] == 1
         assert payload["refs"][0]["kind"] == "call"
 

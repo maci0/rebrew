@@ -6,11 +6,11 @@ enumeration, and header reader are pure and pinned here against the
 checked-in mini PE fixture.
 """
 
-import json
 import struct
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
@@ -626,7 +626,7 @@ class TestLinkSweepTemplate:
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["--link-cmd", template, "--json"])
         assert result.exit_code == 2
-        assert "error" in json.loads(result.stdout)
+        assert "error" in cli_payload(result)
         assert list(tmp_path.iterdir()) == []
 
     def test_template_can_repeat_valid_placeholders(self) -> None:

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import zlib
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from typer.testing import CliRunner
@@ -365,7 +365,7 @@ class TestFingerprintsCli:
             rebrew.app.main.app, ["binary", "fingerprints", str(MINI_PE), "--json"]
         )
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["sha256"] == MINI_PE_SHA256
         assert payload["imphash"] == MINI_PE_IMPHASH
 
@@ -382,7 +382,7 @@ class TestFingerprintsCli:
             ["binary", "fingerprints", str(tmp_path / "absent.exe"), "--json"],
         )
         assert result.exit_code == 2
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert "error" in payload
 
 
@@ -436,7 +436,7 @@ class TestUnparseablePE:
             rebrew.app.main.app, ["binary", "fingerprints", str(corrupt), "--json"]
         )
         assert result.exit_code == 2
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert "truncated.exe" in payload["error"]
         assert "PE header" in payload["error"]
 

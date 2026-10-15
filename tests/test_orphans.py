@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
@@ -76,7 +77,6 @@ class TestOrphansList:
         assert "No orphaned" in res.output
 
     def test_json_lists_orphans(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         from rebrew.orphans import app
 
@@ -84,7 +84,7 @@ class TestOrphansList:
         _write_project(tmp_path)
         res = CliRunner().invoke(app, ["list", "--json"])
         assert res.exit_code == 0, res.output
-        payload = json.loads(res.output)
+        payload = cli_payload(res)
         assert payload["orphans"] == [
             {
                 "module": "SERVER",
@@ -126,7 +126,6 @@ class TestOrphansPrune:
     def test_prune_json_deletes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Regression: --prune --json used to short-circuit on the listing path
         and report pruned: 0 without deleting anything."""
-        import json
 
         from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
@@ -135,7 +134,7 @@ class TestOrphansPrune:
         _write_project(tmp_path)
         res = CliRunner().invoke(app, ["prune", "--json"])
         assert res.exit_code == 0, res.output
-        out = json.loads(res.output)
+        out = cli_payload(res)
         assert out["pruned"] == 1
         assert get_entry(tmp_path, 0x2000, "SERVER") == {}
         assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "STUB"
@@ -144,7 +143,6 @@ class TestOrphansPrune:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """--prune --include-matched --json reports held_back 0 and prunes matched."""
-        import json
 
         from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
@@ -153,7 +151,7 @@ class TestOrphansPrune:
         _write_project(tmp_path, matched_orphan=True)
         res = CliRunner().invoke(app, ["prune", "--include-matched", "--json"])
         assert res.exit_code == 0, res.output
-        out = json.loads(res.output)
+        out = cli_payload(res)
         assert out["pruned"] == 2
         assert out["held_back"] == 0
         assert get_entry(tmp_path, 0x2000, "SERVER") == {}
@@ -196,14 +194,13 @@ class TestKnownSourceWidening:
     def test_ghidra_and_export_vas_not_orphans(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from rebrew.orphans import app
 
         self._project_with_extra_known(tmp_path, monkeypatch)
         res = CliRunner().invoke(app, ["list", "--json"])
         assert res.exit_code == 0, res.output
-        payload = json.loads(res.output)
+        payload = cli_payload(res)
         vas = sorted(o["va"] for o in payload["orphans"])
         # 0x2000 lives only in the Ghidra structure cache, 0x3000 only in
         # dll_exports — both are known functions, not orphans.
@@ -248,7 +245,6 @@ class TestDataOrphansNameExemption:
     def test_named_stale_entry_is_orphan(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from rebrew.orphans import app
 
@@ -256,7 +252,7 @@ class TestDataOrphansNameExemption:
         res = CliRunner().invoke(app, ["list", "--json"])
         assert res.exit_code == 0, res.output
         vas = sorted(
-            o["va"] for o in json.loads(res.output)["orphans"] if o["store"] == "rebrew-data.toml"
+            o["va"] for o in cli_payload(res)["orphans"] if o["store"] == "rebrew-data.toml"
         )
         assert vas == ["0x2000", "0x3000"]
 

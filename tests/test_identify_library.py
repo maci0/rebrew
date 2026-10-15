@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from source_util import write_source
@@ -391,7 +391,7 @@ timeout = 60
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["library", "identify", "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)  # pure JSON
+        payload = cli_payload(result)  # pure JSON
         assert payload["identified"] == 0
         assert payload["to_write"] == 0
 
@@ -414,7 +414,7 @@ timeout = 60
         monkeypatch.setattr("rebrew.identify_library._existing_vas", lambda cfg: set())
         result = CliRunner().invoke(app, ["library", "identify", "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)  # pure JSON, even after a write
+        payload = cli_payload(result)  # pure JSON, even after a write
         assert payload["to_write"] == 1
         assert payload["written"] == 1
         header = tmp_path / "src" / "library_msvcrt.h"
@@ -547,7 +547,7 @@ class TestBuildSigs:
         monkeypatch.setattr("rebrew.identify_library._existing_vas", lambda cfg: set())
         result = CliRunner().invoke(app, ["--build-sigs", "--dry-run", "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["sigs_written"] == 1
         assert payload["identified"] == 0
 

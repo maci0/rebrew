@@ -153,10 +153,11 @@ def test_every_nested_cli_route_is_documented() -> None:
 
 
 #: Commands intentionally absent from the agent skills — meta/niche tooling
-#: agents never drive (PE resource compare, skill discovery itself).  Every
+#: agents never drive (PE resource compare, skill discovery, the clispec
+#: document).  Every
 #: other command must be named in a SKILL.md or a progressive-disclosure
 #: reference under agent-skills/ (e.g. workflow references/advanced-commands.md).
-_SKILL_OUT_OF_SCOPE = {"resource", "skills"}
+_SKILL_OUT_OF_SCOPE = {"resource", "skills", "schema"}
 
 
 def test_every_cli_command_covered_by_agent_skills() -> None:

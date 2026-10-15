@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.build_db import app
@@ -586,14 +587,13 @@ class TestRootResolution:
         assert "Errno" not in result.output
 
     def test_root_errors_keep_the_json_envelope(self, runner: CliRunner, tmp_path: Path) -> None:
-        import json
 
         result = runner.invoke(
             app, ["--root", str(tmp_path / "nowhere"), "--output", "snapshots", "--json"]
         )
 
         assert result.exit_code == 2, result.output
-        assert json.loads(result.stdout)["code"] == 2
+        assert cli_payload(result)["code"] == 2
 
 
 class TestTargetSelection:

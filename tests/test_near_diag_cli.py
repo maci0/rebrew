@@ -1,10 +1,10 @@
 """CLI tests for rebrew near_diag — main() with stubbed compile/extract."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -81,7 +81,7 @@ class TestNearDiagCli:
         )
         result = CliRunner().invoke(app, ["--json", str(cfg.reversed_dir / "f.c")])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert "verdict" in data
         assert "categories" in data
 
@@ -98,7 +98,7 @@ class TestNearDiagCli:
             app, ["--json", "--va", "0x2000", "--size", "16", str(cfg.reversed_dir / "f.c")]
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["va"] == "0x00002000"
 
     def test_no_annotations_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -198,7 +198,7 @@ class TestVAPositionalResolution:
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, src: str(p))
         result = CliRunner().invoke(app, ["--json", "0x2000"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["va"] == "0x00002000"
 
     def test_symbol_positional_resolves_file(
@@ -215,7 +215,7 @@ class TestVAPositionalResolution:
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, src: str(p))
         result = CliRunner().invoke(app, ["--json", "some_symbol"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["va"] == "0x00001000"
 
 

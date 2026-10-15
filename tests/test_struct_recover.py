@@ -1,10 +1,10 @@
 """Tests for struct_recover.py — struct recovery from decompiler output."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from source_util import write_source
@@ -335,7 +335,6 @@ class TestExistingStructs:
 
 class TestCli:
     def test_recover_via_mocked_decompiler(self, tmp_path, monkeypatch) -> None:
-        import json
         from types import SimpleNamespace
 
         from typer.testing import CliRunner
@@ -370,13 +369,12 @@ class TestCli:
             main_mod.app, ["types", "recover", "--functions", "0x401000", "--json"]
         )
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["decompiled"] == 1
         assert any(s["name"] == "PlayerInfo" and s["new"] for s in data["structs"])
         assert "typedef struct PlayerInfo_s {" in data["structs"][0]["definition"]
 
     def test_anonymous_in_json_output(self, tmp_path, monkeypatch) -> None:
-        import json
         from types import SimpleNamespace
 
         from typer.testing import CliRunner
@@ -411,7 +409,7 @@ class TestCli:
             main_mod.app, ["types", "recover", "--functions", "0x401000", "--json"]
         )
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         anon = [s for s in data["structs"] if s["anonymous"]]
         assert len(anon) == 1
         assert anon[0]["var"] == "a0"
@@ -437,7 +435,6 @@ class TestTypeWidthSharedModel:
 class TestFailureEnvelope:
     def test_no_decompilation_json_has_code(self, tmp_path, monkeypatch) -> None:
         """The failure envelope matches the {"error", "code"} JSON contract."""
-        import json
         from types import SimpleNamespace
 
         from typer.testing import CliRunner
@@ -473,7 +470,7 @@ class TestFailureEnvelope:
             main_mod.app, ["types", "recover", "--functions", "0x401000", "--json"]
         )
         assert result.exit_code == EXIT_ERROR
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["code"] == EXIT_ERROR
         assert "error" in data
 
@@ -547,7 +544,7 @@ class TestRecoverProjectStructs:
             main_mod.app, ["types", "recover", "--functions", "0x401000", "--json"]
         )
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout) == payload
+        assert cli_payload(result) == payload
 
     def test_apply_writes_artifact(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _project_cfg(tmp_path)

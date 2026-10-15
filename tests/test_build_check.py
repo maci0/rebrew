@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 
 from rebrew import build_check
 from rebrew.build_check import check, parse_compile_lines, parse_recorded
@@ -292,7 +293,6 @@ def test_cli_exits_nonzero_on_missing_source(tmp_path):
 
 def test_cli_json_goes_to_stdout_status_to_stderr(tmp_path) -> None:
     """Human status stays on stderr so ``--json`` can be piped cleanly."""
-    import json
 
     from typer.testing import CliRunner
 
@@ -308,7 +308,7 @@ def test_cli_json_goes_to_stdout_status_to_stderr(tmp_path) -> None:
     coded = runner.invoke(app, ["--build-dir", str(build), "--json"])
     assert coded.exit_code == 0, coded.stdout + coded.stderr
     assert coded.stderr == ""
-    payload = json.loads(coded.stdout)
+    payload = cli_payload(coded)
     assert payload["status"] == "ok"
 
 
@@ -430,7 +430,6 @@ def test_object_freshness_make_missing_is_not_reported_as_ok(
 def test_json_and_objects_remain_independent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str, code: int
 ) -> None:
-    import json
 
     from typer.main import get_command
     from typer.testing import CliRunner
@@ -446,7 +445,7 @@ def test_json_and_objects_remain_independent(
         build_check.app, ["--build-dir", str(tmp_path), "--objects", "--json"]
     )
     assert result.exit_code == code, result.output
-    assert json.loads(result.stdout)["status"] == status
+    assert cli_payload(result)["status"] == status
     assert seen == {"build_dir": tmp_path, "objects": True}
     names = [param.name for param in get_command(build_check.app).params]
     assert names.index("objects") < names.index("json_output")

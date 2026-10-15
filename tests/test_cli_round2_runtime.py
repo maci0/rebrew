@@ -1,11 +1,11 @@
 """Regression coverage for project scope, compiler defaults, and source selectors."""
 
 import importlib
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -23,7 +23,7 @@ class TestPreviewRequirements:
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _unexpected)
         result = CliRunner().invoke(app, ["types", "recover", "--dry-run", "--json"])
         assert result.exit_code == 2, result.output
-        assert json.loads(result.stdout)["error"] == "--dry-run requires --output"
+        assert cli_payload(result)["error"] == "--dry-run requires --output"
 
 
 class TestProjectWideRoots:
@@ -46,7 +46,7 @@ class TestProjectWideRoots:
         result = CliRunner().invoke(cache_cli.app, [operation, "--root", str(selected), "--json"])
         assert result.exit_code == 0, result.output
         assert seen == [selected]
-        assert json.loads(result.stdout)["cache_dir"] == str(selected / ".rebrew/compile_cache")
+        assert cli_payload(result)["cache_dir"] == str(selected / ".rebrew/compile_cache")
 
     @pytest.mark.parametrize(
         "route", [["cache", "stats"], ["cache", "clear"], ["source", "findings", "0x1000"]]
@@ -72,7 +72,7 @@ class TestProjectWideRoots:
             ["source", "findings", "0x1000", "--root", str(selected), "--doc", "goal.md", "--json"],
         )
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["hits"][0]["doc"] == "goal.md"
+        assert cli_payload(result)["hits"][0]["doc"] == "goal.md"
 
 
 class TestCmakeProfileDefaults:
@@ -120,7 +120,7 @@ class TestCmakeProfileDefaults:
         assert result.exit_code == 0, result.output
         expected = "msvc-7.1" if explicit else "gcc-14.2.0" if inside_project else "msvc-6.0"
         path = Path("cmake") / f"toolchain-{expected}-docker.cmake"
-        assert json.loads(result.stdout) == {
+        assert cli_payload(result) == {
             "toolchain": expected,
             "output": str(path),
             "dry_run": dry_run,
@@ -212,5 +212,5 @@ def test_cmake_does_not_substitute_msvc_for_an_unsupported_project_profile(
     )
     result = CliRunner().invoke(cmake_tc.app, ["--dry-run", "--json"])
     assert result.exit_code == 2, result.output
-    assert "gcc-14.2.0" in json.loads(result.stdout)["error"]
+    assert "gcc-14.2.0" in cli_payload(result)["error"]
     assert not (tmp_path / "cmake").exists()

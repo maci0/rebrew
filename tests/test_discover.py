@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 
 from rebrew.discover import _is_padding, discover_functions
 
@@ -738,14 +739,13 @@ class TestDiscoveryCliInputs:
         )
         assert result.exit_code == 0, result.output
         assert seen == [binary]
-        assert json.loads(result.stdout)["binary"] == str(binary)
+        assert cli_payload(result)["binary"] == str(binary)
         assert json.loads(output.read_text()) == [{"va": 0x1000, "size": 12, "name": "func"}]
 
     @pytest.mark.parametrize("target, expected", [(None, "server"), ("client", "client")])
     def test_project_target_is_resolved_before_discovery(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str | None, expected: str
     ) -> None:
-        import json
 
         from bin_util import make_pe
         from typer.testing import CliRunner
@@ -774,12 +774,11 @@ class TestDiscoveryCliInputs:
         assert result.exit_code == 0, result.output
         binary = tmp_path / f"{expected}.bin"
         assert seen == [binary]
-        assert json.loads(result.stdout)["binary"] == str(binary)
+        assert cli_payload(result)["binary"] == str(binary)
 
     def test_missing_project_binary_fails_before_discovery_or_output(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -797,5 +796,5 @@ class TestDiscoveryCliInputs:
         monkeypatch.setattr(discover, "discover_functions", _unexpected)
         result = CliRunner().invoke(discover.app, ["--output", str(output), "--json"])
         assert result.exit_code == 2, result.output
-        assert "target binary missing" in json.loads(result.stdout)["error"]
+        assert "target binary missing" in cli_payload(result)["error"]
         assert not output.exists()

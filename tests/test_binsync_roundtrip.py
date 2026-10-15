@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -110,13 +111,13 @@ def _peer(*args: str) -> dict[str, Any]:
         check=False,
     )
     assert done.returncode == 0, done.stderr
-    return dict(json.loads(done.stdout))
+    return dict(cli_payload(done))
 
 
 def _rebrew(*args: str) -> dict[str, Any]:
     result = runner.invoke(app, [*args, "--json"], catch_exceptions=False)
     assert result.exit_code == 0, result.output
-    return dict(json.loads(result.output))
+    return dict(cli_payload(result))
 
 
 def _tree(root: Path) -> dict[str, bytes]:

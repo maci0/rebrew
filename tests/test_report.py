@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from bin_util import make_pe
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import CliRunner
 
@@ -207,7 +208,7 @@ class TestReportCli:
         result = runner.invoke(app, ["--json", "--output", str(site)])
         assert result.exit_code == 0, result.output
 
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["out"] == str(site)
         assert payload["pages"] == ["index.html", "strings.html", "imports.html", "graph.html"]
         summary = payload["summary"]

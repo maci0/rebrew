@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 from bin_util import make_pe
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
 
 import rebrew.cross_import as ci
@@ -3134,7 +3135,6 @@ class TestSourceVA:
     def test_selects_evidenced_twin_at_default_gap(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shared: bool, donor: int
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -3147,10 +3147,10 @@ class TestSourceVA:
         runner = CliRunner()
         ambiguous = runner.invoke(umbrella, args)
         assert ambiguous.exit_code == 0, ambiguous.output
-        assert json.loads(ambiguous.output)["results"][0]["action"] == "skipped"
+        assert cli_payload(ambiguous)["results"][0]["action"] == "skipped"
         selected = runner.invoke(umbrella, [*args, "--source-va", hex(donor)])
         assert selected.exit_code == 0, selected.output
-        row = json.loads(selected.output)["results"][0]
+        row = cli_payload(selected)["results"][0]
         assert row["src_va"] == f"0x{donor:08x}"
         assert row["score"] == 100.0
         assert row["action"] == "would-import"
@@ -3184,7 +3184,6 @@ class TestSourceVA:
     def test_explicit_donor_still_obeys_score_threshold(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -3207,4 +3206,4 @@ class TestSourceVA:
             ],
         )
         assert result.exit_code == 0, result.output
-        assert json.loads(result.output)["results"][0]["action"] == "skipped"
+        assert cli_payload(result)["results"][0]["action"] == "skipped"

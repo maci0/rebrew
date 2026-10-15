@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 
 
 class TestQualSweepVariants:
@@ -321,7 +322,6 @@ class TestCommandWiring:
     def test_residue_defaults_to_target_build_output(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -335,12 +335,11 @@ class TestCommandWiring:
         monkeypatch.chdir(root)
         r = CliRunner().invoke(app, ["--json"])
         assert r.exit_code == 2
-        assert json.loads(r.stdout)["error"] == f"Built image not found: {root / 'build' / 'game'}"
+        assert cli_payload(r)["error"] == f"Built image not found: {root / 'build' / 'game'}"
 
     def test_residue_rejects_unloadable_layout_package(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -358,6 +357,6 @@ class TestCommandWiring:
         monkeypatch.chdir(root)
         r = CliRunner().invoke(app, ["--json"])
         assert r.exit_code == 2
-        error = json.loads(r.stdout)["error"]
+        error = cli_payload(r)["error"]
         assert error.startswith(f"cannot load layout package {layout}:")
         assert "rebrew-layout.toml" in error

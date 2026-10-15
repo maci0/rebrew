@@ -1,10 +1,10 @@
 """CLI tests for rebrew library scan-signatures — main() with stubbed signature loading."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.flirt import app
@@ -76,7 +76,7 @@ class TestFlirtCli:
         _patch(tmp_path, monkeypatch, sigs=["sig1"], text_bytes=b"\x90" * 16)
         result = CliRunner().invoke(app, ["--json", str(tmp_path)])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["matches"] == []
         assert "too small" in data["warning"]
 
@@ -94,7 +94,7 @@ class TestFlirtCli:
         monkeypatch.setattr("rebrew.flirt.flirt.compile", lambda sigs: _Matcher())
         result = CliRunner().invoke(app, ["--json", str(tmp_path)])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["match_count"] >= 1
         assert data["matches"][0]["names"] == ["printf"]
 
@@ -112,7 +112,7 @@ class TestFlirtCli:
         monkeypatch.setattr("rebrew.flirt.flirt.compile", lambda sigs: _Matcher())
         result = CliRunner().invoke(app, ["--json", str(tmp_path)])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         # 10 names > _MAX_AMBIGUOUS → skipped.
         assert data["match_count"] == 0
         assert data["skipped_ambiguous"] >= 1
@@ -148,7 +148,7 @@ class TestFlirtCli:
         result = CliRunner().invoke(app, args)
         comparisons = CountedName.comparisons
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["match_count"] == 0
         assert data["skipped_ambiguous"] == 1
         if show_ambiguous:
@@ -173,7 +173,7 @@ class TestFlirtSigsDirEnv:
         monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", str(tmp_path / "typo"))
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code != 0
-        assert "REBREW_FLIRT_SIGS_DIR" in json.loads(result.stdout)["error"]
+        assert "REBREW_FLIRT_SIGS_DIR" in cli_payload(result)["error"]
 
 
 class TestFlirtInit:
@@ -211,7 +211,6 @@ class TestSignatureSetup:
     def test_explicit_setup_copies_signatures_and_preserves_project_files(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, matched_only: bool
     ) -> None:
-        import json
 
         from rebrew import flirt as module
         from rebrew.app.main import app as umbrella
@@ -234,6 +233,6 @@ class TestSignatureSetup:
         assert result.exit_code == 0, result.output
         assert (dest / "crt.sig").read_bytes() == b"project-crt"
         assert (dest / "other.sig").exists() is not matched_only
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["copied"] == (0 if matched_only else 1)
         assert data["linkage"] == ("static" if matched_only else "")

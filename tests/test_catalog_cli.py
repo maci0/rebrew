@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
@@ -72,7 +73,7 @@ class TestCatalogCli:
         _patch(monkeypatch, tmp_path)
         r = runner.invoke(catalog_cli.app, ["--json"])
         assert r.exit_code == 0
-        payload = json.loads(r.stdout)
+        payload = cli_payload(r)
         expected = {
             "target": "T",
             "annotations": 0,
@@ -214,10 +215,11 @@ class TestCatalogCli:
         result = runner.invoke(catalog_cli.app, ["--fix-sizes", "--json"])
 
         assert result.exit_code == 2
-        assert json.loads(result.stdout) == {
-            "error": "--fix-sizes modifies metadata; pass --force to use it in --json mode",
-            "code": 2,
-        }
+        error = json.loads(result.stderr.strip().splitlines()[-1])["error"]
+        assert error["kind"] == "confirmation_required"
+        assert error["message"] == (
+            "--fix-sizes modifies metadata; pass --force to use it in --json mode"
+        )
 
 
 class TestCatalogCliSummary:

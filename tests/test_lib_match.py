@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from bin_util import make_coff_obj, make_lib_archive, make_pe
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -98,7 +99,7 @@ class TestNativeCallees:
             app, ["--lib", str(lib), "--va", hex(va), "--resolve-callees", "--json"]
         )
         assert result.exit_code == (0 if native == "game" else 1), result.output
-        report = json.loads(result.stdout)
+        report = cli_payload(result)
         assert report["library"] == (native != "game")
         if native != "game":
             assert report["symbol"] == {"reader": "_read", "writer": "_write"}[native]
@@ -199,7 +200,7 @@ class TestLibMatch:
         result = CliRunner().invoke(lm.app, args)
         expected_match = scope != "archive"
         assert result.exit_code == int(expected_match), result.output
-        report = json.loads(result.stdout)
+        report = cli_payload(result)
         if single_va:
             assert report["library"] is expected_match
         else:
@@ -230,7 +231,7 @@ class TestLibMatch:
             args.extend(["--va", hex(va)])
         res = CliRunner().invoke(app, args)
         assert res.exit_code == 1, res.output
-        report = json.loads(res.output)
+        report = cli_payload(res)
         hit = report if single_va else report["findings"][0]
         assert hit["symbol"] is None
         assert hit["object"] is None
@@ -277,7 +278,7 @@ class TestLibMatch:
         allow.write_text(f"# displaced for the link\n0x{va:x}\n", encoding="utf-8")
         res = CliRunner().invoke(app, ["--lib", str(lib_path), "--allow", str(allow), "--json"])
         assert res.exit_code == 0, res.output
-        assert json.loads(res.output) == {"findings": [], "count": 0}
+        assert cli_payload(res) == {"findings": [], "count": 0}
 
     def test_va_verdict(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.lib_match import app
@@ -309,7 +310,7 @@ class TestLibMatch:
         _mock_cfg(tmp_path, pe, monkeypatch)
         res = CliRunner().invoke(app, ["--lib", str(lib), "--va", "0x401000", "--json"])
         assert res.exit_code == 1, res.output
-        assert json.loads(res.output)["symbol"] == "_small"
+        assert cli_payload(res)["symbol"] == "_small"
 
     @pytest.mark.parametrize("single_va", [False, True])
     def test_masked_wrappers_report_all_candidate_names(
@@ -330,7 +331,7 @@ class TestLibMatch:
             args.extend(["--va", f"0x{va:x}"])
         result = CliRunner().invoke(app, args)
         assert result.exit_code == 1, result.output
-        report = json.loads(result.stdout)
+        report = cli_payload(result)
         finding = report if single_va else report["findings"][0]
         assert finding["symbol"] is None
         assert finding["object"] is None
@@ -341,7 +342,6 @@ class TestLibMatch:
         }
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         from rebrew.lib_match import app
 
@@ -349,7 +349,7 @@ class TestLibMatch:
         _mock_cfg(tmp_path, pe_path, monkeypatch)
         res = CliRunner().invoke(app, ["--lib", str(lib_path), "--json"])
         assert res.exit_code == 1, res.output
-        out = json.loads(res.output)
+        out = cli_payload(res)
         assert out["count"] == 1
         assert out["findings"][0]["symbol"] == "_mylibfn"
 
@@ -404,7 +404,7 @@ class TestLibMatch:
         _mock_cfg(tmp_path, pe_path, monkeypatch)
         res = CliRunner().invoke(app, ["--lib", str(lib_path), "--va", "zz", "--json"])
         assert res.exit_code == 2, res.output
-        assert json.loads(res.stdout)["error"] == "Invalid hex VA: 'zz'"
+        assert cli_payload(res)["error"] == "Invalid hex VA: 'zz'"
 
 
 class TestLoadAllowlist:

@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from bin_util import make_pe
+from cli_json import cli_payload
 from source_util import write_source
 
 from rebrew import coverage_project
@@ -186,7 +187,6 @@ class TestPortableHistoryMigration:
     def test_selected_import_ignores_broken_sibling_and_preview_writes_nothing(
         self, tmp_path: Path
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -215,7 +215,7 @@ class TestPortableHistoryMigration:
         assert rejected.exit_code != 0
         preview = runner.invoke(app, [*args, "--target", "good", "--dry-run"])
         assert preview.exit_code == 0, preview.output
-        assert json.loads(preview.stdout)["results"][0]["functions_changed"] == 1
+        assert cli_payload(preview)["results"][0]["functions_changed"] == 1
         assert before == {str(p): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
         applied = runner.invoke(app, [*args, "--target", "good"])
         assert applied.exit_code == 0, applied.output

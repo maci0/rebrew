@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 import typer
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -128,9 +129,8 @@ class TestMatchAllTargets:
         # green for CI gates).
         assert result.exit_code == 1
         assert calls == ["server_dll", "client_exe"]
-        import json
 
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["mode"] == "all-targets"
         assert payload["matched"] == 1
         assert payload["failed"] == 1

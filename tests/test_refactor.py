@@ -9,10 +9,10 @@ and the JSON shape, which are the only parts a caller can observe.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner, Result
 
 from rebrew import refactor
@@ -160,7 +160,7 @@ class TestRefactorCommand:
         root = self._tree(tmp_path)
         result = self._run(root, "--min-lines", "200", "--json")
         assert result.exit_code == 0
-        files = json.loads(result.stdout)["files"]
+        files = cli_payload(result)["files"]
         assert [f["file"] for f in files] == ["src/big.py"]
         assert files[0]["lines"] == 300
 
@@ -169,14 +169,14 @@ class TestRefactorCommand:
         root = self._tree(tmp_path)
         result = self._run(root, "--json")
         assert result.exit_code == 0
-        files = json.loads(result.stdout)["files"]
+        files = cli_payload(result)["files"]
         assert [f["file"] for f in files] == ["src/big.py"]
 
     def test_min_lines_zero_reports_every_file(self, tmp_path: Path) -> None:
         root = self._tree(tmp_path)
         result = self._run(root, "--min-lines", "0", "--json")
         assert result.exit_code == 0
-        files = json.loads(result.stdout)["files"]
+        files = cli_payload(result)["files"]
         assert {f["file"] for f in files} == {"src/big.py", "src/small.py"}
 
     def test_table_output_names_the_files(self, tmp_path: Path) -> None:

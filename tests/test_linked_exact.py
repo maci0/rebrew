@@ -8,13 +8,13 @@ metadata store, the verify cache, ``rebrew status``.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 from bin_util import make_pe
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -91,7 +91,7 @@ def _verify(root: Path, *args: str) -> dict[str, Any]:
     clear_metadata_cache()
     result = CliRunner().invoke(app, [*args, "--json", "--root", str(root)])
     assert result.exit_code in (0, 1), result.output
-    report: dict[str, Any] = json.loads(result.stdout)
+    report: dict[str, Any] = cli_payload(result)
     return report
 
 
@@ -249,7 +249,7 @@ class TestStickiness:
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["test", "src/foo.c", "--json"])
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["status"] == "EXACT"
+        assert cli_payload(result)["status"] == "EXACT"
         entry = _stored(tmp_path)
         assert entry["status"] == "EXACT"
         assert entry["verification"]["linked_image_hash"] == evidence["linked_image_hash"]
@@ -281,7 +281,7 @@ class TestStickiness:
         )
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["test", "src/foo.c", "--json"])
-        rows = {r["va"]: r["status"] for r in json.loads(result.stdout)["results"]}
+        rows = {r["va"]: r["status"] for r in cli_payload(result)["results"]}
         assert rows[f"0x{_VA:08x}"] == "EXACT"
         entry = _stored(tmp_path)
         assert entry["status"] == "EXACT"

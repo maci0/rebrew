@@ -1,11 +1,11 @@
 """Tests for the rebrew annotation linter."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
 
 from rebrew.config import ProjectConfig
@@ -508,7 +508,7 @@ class TestNoConfig:
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 2
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["code"] == 2
         assert "rebrew-project.toml" in payload["error"]
 
@@ -909,7 +909,6 @@ class TestLintCli:
         return CliRunner().invoke(app, args)
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         src = tmp_path / "src"
         src.mkdir()
@@ -921,7 +920,7 @@ class TestLintCli:
         )
         result = self._invoke(tmp_path, monkeypatch, ["--json", str(src / "ok.c")])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["files"][0]["path"] == str(src / "ok.c")
 
     def test_json_quiet_lists_errors_only(
@@ -946,14 +945,13 @@ class TestLintCli:
         assert data["files"][0]["warnings"] == []
 
     def test_errors_exit_nonzero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         src = tmp_path / "src"
         src.mkdir()
         (src / "bad.c").write_text("not a c file\n", encoding="utf-8")
         result = self._invoke(tmp_path, monkeypatch, ["--json", str(src / "bad.c")])
         assert result.exit_code == 1
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert [e["code"] for e in data["files"][0]["errors"]] == ["E001"]
 
     def test_summary_flag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3448,7 +3446,6 @@ class TestW031Cli:
         assert "2 warnings" in result.output
 
     def test_json_lists_the_offending_artifacts(self, tmp_path: Path) -> None:
-        import json
         from unittest.mock import patch
 
         from typer.testing import CliRunner
@@ -3463,7 +3460,7 @@ class TestW031Cli:
         )
         with patch("rebrew.lint.load_config", return_value=cfg):
             result = CliRunner().invoke(app, ["--json"])
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["warnings"] >= 1
         files = {entry["file"] for entry in payload["files"]}
         assert "rebrew-data.toml" in files
@@ -3797,7 +3794,7 @@ class TestW037W038DataRows:
 
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["--json"])
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         return [
             (entry["file"], warning["line"], warning["code"], warning["message"])
             for entry in payload["files"]

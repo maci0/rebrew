@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 
 from rebrew.data import _generate_bss_fix
@@ -1286,7 +1287,6 @@ class TestFindDispatchTablesSparse:
 
 
 def test_data_combines_metadata_mutations(monkeypatch, tmp_path: Path) -> None:
-    import json
     from types import SimpleNamespace
 
     from typer.testing import CliRunner
@@ -1307,7 +1307,7 @@ def test_data_combines_metadata_mutations(monkeypatch, tmp_path: Path) -> None:
         ["set", "--json", "--type", "0x10001000=char[260]", "--size", "0x10001000=260"],
     )
     assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout)["changed"] == 1
+    assert cli_payload(result)["changed"] == 1
     row = get_data_entry(tmp_path, 0x10001000, "SERVER")
     assert row["type"] == "char[260]" and row["size"] == 260
 

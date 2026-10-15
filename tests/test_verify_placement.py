@@ -7,11 +7,11 @@ built ``.data`` base VA, then each symbol's computed VA is compared with the
 metadata expectation.
 """
 
-import json
 from pathlib import Path
 
 import pytest
 from bin_util import make_pe
+from cli_json import cli_payload
 from source_util import write_store_fixture
 from typer.testing import CliRunner
 
@@ -185,7 +185,7 @@ class TestVerifyPlacement:
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 1
         assert result.stderr == ""
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["symbols"] == 2
         assert payload["matched"] == 2
         assert payload["correct"] == 1
@@ -208,7 +208,7 @@ class TestVerifyPlacement:
         )
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 0
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["correct"] == 2
         assert payload["misplaced"] == 0
         assert payload["misplaced_list"] == []
@@ -331,4 +331,4 @@ class TestMetadataPathSelection:
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["--data-metadata", "missing.toml", "--json"])
         assert result.exit_code == 2, result.output
-        assert "missing.toml" in json.loads(result.stdout)["error"]
+        assert "missing.toml" in cli_payload(result)["error"]

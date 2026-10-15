@@ -1,11 +1,11 @@
 """Tests for rebrew data mark-literals: link-map literals into rebrew-data.toml rows."""
 
-import json
 import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_store_fixture
 from typer.testing import CliRunner, Result
 
@@ -72,7 +72,7 @@ class TestMarkLiterals:
         before = (root / "rebrew-data.toml").read_bytes()
         result = _invoke("--dry-run", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["dry_run"] is True
         assert payload["marked"] == [
             {
@@ -116,7 +116,7 @@ class TestMarkLiterals:
 
         again = _invoke("--json")
         assert again.exit_code == 0, again.output
-        payload = json.loads(again.stdout)
+        payload = cli_payload(again)
         assert payload["marked"] == []
         assert payload["unchanged"] == 3
 
@@ -134,4 +134,4 @@ class TestMarkLiterals:
         monkeypatch.chdir(root)
         result = _invoke("--json")
         assert result.exit_code == 2
-        assert "cannot read link map" in json.loads(result.stdout)["error"]
+        assert "cannot read link map" in cli_payload(result)["error"]

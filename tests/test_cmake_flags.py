@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import CliRunner
 
@@ -123,8 +124,8 @@ def test_target_defines_reach_annotated_and_listed_sources(
     assert configured.returncode == 0, configured.stdout + configured.stderr
     for name in ("a", "extra"):
         assert (tmp_path / "build" / f"{name}.txt").read_text().splitlines() == defines
-    assert json.loads(result.stdout)["defines"] == defines
-    assert "DREBREW_ALLOW_NAKED" not in json.loads(result.stdout)["files"]["src/server_dll/a.c"]
+    assert cli_payload(result)["defines"] == defines
+    assert "DREBREW_ALLOW_NAKED" not in cli_payload(result)["files"]["src/server_dll/a.c"]
 
 
 def test_target_defines_do_not_leak_between_targets(
@@ -154,7 +155,7 @@ def test_target_defines_do_not_leak_between_targets(
     for target, define in [("server_dll", "SERVER_BUILD"), ("client", "CLIENT_BUILD")]:
         result = CliRunner().invoke(app, ["--json", "--dry-run", "--target", target])
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["defines"] == [define]
+        assert cli_payload(result)["defines"] == [define]
 
 
 def test_conflicting_functions_in_one_file_are_reported(tmp_path: Path) -> None:
@@ -272,7 +273,7 @@ def test_cli_json_dry_run_stdout_is_pure(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(app, ["--json", "--dry-run"])
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.stdout)
+    payload = cli_payload(result)
     assert payload["written"] is None
     assert payload["problems"] == []
     assert "set_source_files_properties" not in result.stdout
@@ -299,7 +300,7 @@ def test_cli_conflicting_flags_exit_error_with_json(
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(app, ["--json", "-o", str(tmp_path / "out.cmake")])
     assert result.exit_code == EXIT_ERROR, result.output
-    payload = json.loads(result.stdout)
+    payload = cli_payload(result)
     assert payload["written"] is None
     assert payload["problems"]
     assert not (tmp_path / "out.cmake").exists()
@@ -307,7 +308,7 @@ def test_cli_conflicting_flags_exit_error_with_json(
     # Conflicts must fail under --dry-run too (preview is not a free pass).
     dry = CliRunner().invoke(app, ["--json", "--dry-run"])
     assert dry.exit_code == EXIT_ERROR
-    assert json.loads(dry.stdout)["problems"]
+    assert cli_payload(dry)["problems"]
 
 
 def test_toolchain_pin_is_reported_because_the_build_cannot_honour_it(
@@ -359,7 +360,7 @@ def test_sources_file_unannotated_appears_in_json(
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(app, ["--json", "--dry-run", "--sources-file", str(listed)])
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.stdout)
+    payload = cli_payload(result)
     assert "src/server_dll/a.c" in payload["files"]
     assert "src/server_dll/extra.c" in payload["files"]
     assert payload["files"]["src/server_dll/a.c"] == "/Ox /Gd"

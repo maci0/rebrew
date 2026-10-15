@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+## [4.2.0] - 2026-10-15
+
+### Changed
+- **Breaking:** JSON errors are one stderr line,
+  `{"error":{"kind","message","hint"}}`. Exit 1 is a mismatch outcome
+  (`{"outcome":"mismatch","message"}` on stdout), not an error kind.
+  `rebrew schema` prints the clispec 0.3 document. Before a subcommand,
+  `-o`/`--output` selects `auto`, `text`, or `json` (`auto` stays text).
+  `--json` still requests JSON. Collection JSON uses an `{"items","total"}`
+  envelope. `cfg target remove` and `cfg module remove` include `changed`.
+
 ## [4.1.0] - 2026-10-15
 
 ### Performance

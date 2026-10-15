@@ -1,10 +1,10 @@
 """Tests for rebrew skills.py — discovery, frontmatter matching, CLI fallbacks."""
 
-import json
 from pathlib import Path
 from typing import NoReturn
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.skills as skills
@@ -54,8 +54,8 @@ class TestSkillsCli:
         monkeypatch.setattr(skills, "_SKILLS_DIR", tmp_path)
         result = CliRunner().invoke(skills.app, ["list", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
-        assert data["skills"][0]["name"] == "rebrew-workflow"
+        data = cli_payload(result)
+        assert data["items"][0]["name"] == "rebrew-workflow"
 
     def test_list_empty_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(skills, "_SKILLS_DIR", tmp_path)
@@ -68,7 +68,7 @@ class TestSkillsCli:
         monkeypatch.setattr(skills, "_SKILLS_DIR", tmp_path)
         result = CliRunner().invoke(skills.app, ["show", "rebrew-intake", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["name"] == "rebrew-intake"
         assert "# Guide" in data["content"]
 

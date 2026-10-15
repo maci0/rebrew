@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import unicodedata
 
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.skills import _find_skill, _list_skills, parse_frontmatter
@@ -114,16 +114,16 @@ class TestCLISkillsList:
     def test_list_json_output(self) -> None:
         result = runner.invoke(skills_app, ["list", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert "skills" in data
-        names = [s["name"] for s in data["skills"]]
+        data = cli_payload(result)
+        assert "items" in data
+        names = [s["name"] for s in data["items"]]
         assert "rebrew-workflow" in names
         assert "rebrew-intake" in names
 
     def test_workflow_description_contains_triggers(self) -> None:
         result = runner.invoke(skills_app, ["list", "--json"])
         assert result.exit_code == 0
-        skills = {s["name"]: s for s in json.loads(result.output)["skills"]}
+        skills = {s["name"]: s for s in cli_payload(result)["items"]}
         description = skills["rebrew-workflow"]["description"]
         for trigger in ("todo", "skeleton", "verify", "rebrew-matching"):
             assert trigger in description
@@ -131,8 +131,8 @@ class TestCLISkillsList:
 
     def test_list_json_has_description(self) -> None:
         result = runner.invoke(skills_app, ["list", "--json"])
-        data = json.loads(result.output)
-        for s in data["skills"]:
+        data = cli_payload(result)
+        for s in data["items"]:
             assert "description" in s
             assert s["description"]
 
@@ -152,14 +152,14 @@ class TestCLISkillsShow:
     def test_show_json_output(self) -> None:
         result = runner.invoke(skills_app, ["show", "rebrew-workflow", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["name"] == "rebrew-workflow"
         assert "content" in data
         assert "description" in data
 
     def test_show_content_is_non_empty(self) -> None:
         result = runner.invoke(skills_app, ["show", "rebrew-intake", "--json"])
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert len(data["content"]) > 100  # SKILL.md is not trivially short
 
 

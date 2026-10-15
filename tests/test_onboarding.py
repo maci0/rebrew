@@ -15,11 +15,11 @@ Also asserts that `rebrew init`'s "Next steps" points at docs/ONBOARDING.md.
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.app.main as main_mod
@@ -62,7 +62,7 @@ class TestOnboardingJourney:
         runner = self._patch_env(monkeypatch, tmp_path)
         result = runner.invoke(main_mod.app, ["intake", str(FIXTURE), "--json"])
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["target"] == "mini_pe"
         assert data["functions"] == 2
         assert data["documented"] == 2
@@ -107,7 +107,7 @@ class TestOnboardingJourney:
         assert intake.exit_code == 0, intake.output
 
         doctor = runner.invoke(main_mod.app, ["doctor", "--json"])
-        report = json.loads(doctor.output)
+        report = cli_payload(doctor)
         fails = [c for c in report["checks"] if c["status"] == "fail"]
         # No toolchain-independent check may fail on a fresh intake.  The
         # Toolchain check legitimately fails where the rebrew images are not
@@ -134,7 +134,7 @@ class TestOnboardingJourney:
         assert first.exit_code == 0, first.output
         second = runner.invoke(main_mod.app, ["intake", str(FIXTURE), "--json"])
         assert second.exit_code == 0, second.output
-        data = json.loads(second.output)
+        data = cli_payload(second)
         assert data["functions"] == 2
         assert data["documented"] == 0
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from rich.console import Console
 from typer.testing import CliRunner
 
@@ -167,7 +168,7 @@ class TestSolutionsCli:
         )
         result = CliRunner().invoke(app, ["match", "solutions", "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["count"] == 2
         assert payload["rows"][0]["symbol"] == "_free"
 
@@ -178,7 +179,7 @@ class TestSolutionsCli:
             lambda target=None, json_mode=False: _cfg(tmp_path),
         )
         result = CliRunner().invoke(app, ["match", "solutions", "--symbol", "malloc", "--json"])
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["count"] == 1
         assert payload["rows"][0]["symbol"] == "_malloc"
 
@@ -207,7 +208,7 @@ class TestSolutionsCli:
         )
         # Query with NFD: e + combining acute
         result = CliRunner().invoke(app, ["match", "solutions", "--symbol", "Fé", "--json"])
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["count"] == 1
         assert payload["rows"][0]["symbol"] == "_f\u00e9"
 
@@ -222,6 +223,6 @@ class TestSolutionsCli:
             lambda target=None, json_mode=False: _cfg(tmp_path),
         )
         result = CliRunner().invoke(app, ["match", "solutions", "--best", "--json"])
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["best"] is True
         assert payload["rows"][0]["va"] == "0x1000"

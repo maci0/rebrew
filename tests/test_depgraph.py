@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 
 from rebrew.data_scan import DispatchEntry, DispatchTable
@@ -702,7 +703,7 @@ class TestGraphArtifacts:
         render = {"mermaid": render_mermaid, "dot": render_dot, "summary": render_summary}[fmt]
         assert output.read_text(encoding="utf-8") == render(nodes, edges, []) + "\n"
         if json_output:
-            data = json.loads(result.stdout)
+            data = cli_payload(result)
             assert data["output"] == str(output)
             assert data["total_nodes"] == 2
             assert data["edges"] == [{"caller": "A", "callee": "B"}]
@@ -735,4 +736,4 @@ class TestGraphArtifacts:
         monkeypatch.setattr("rebrew.depgraph.build_graph", lambda *a, **kw: ({"A": node}, [], []))
         result = CliRunner().invoke(app, ["--output", str(tmp_path), "--json"])
         assert result.exit_code == 2, result.output
-        assert "Cannot write graph" in json.loads(result.stdout)["error"]
+        assert "Cannot write graph" in cli_payload(result)["error"]

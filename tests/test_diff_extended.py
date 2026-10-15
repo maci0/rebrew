@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 import typer
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -410,7 +411,7 @@ class TestDiffCli:
         result = CliRunner().invoke(app, ["diff", *args])
         assert result.exit_code == EXIT_ERROR, result.output
         if json_output:
-            assert json.loads(result.stdout) == {
+            assert cli_payload(result) == {
                 "error": "--dry-run requires --fix-blocker",
                 "code": EXIT_ERROR,
             }
@@ -482,7 +483,7 @@ class TestDiffCli:
         for args in (["--format", "csv", "--json", "f.c"], ["--json", "--format", "csv", "f.c"]):
             result = CliRunner().invoke(app, args)
             assert result.exit_code == EXIT_ERROR, args
-            assert json.loads(result.stdout) == {
+            assert cli_payload(result) == {
                 "error": "--format csv and --json select different output formats; pass one.",
                 "code": EXIT_ERROR,
             }

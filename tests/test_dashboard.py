@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew import dashboard as dashboard_module
@@ -1694,7 +1695,7 @@ class TestCli:
         monkeypatch.setattr("rebrew.dashboard._DashboardServer", refuse)
         result = CliRunner().invoke(app, ["coverage", "serve", "--json"])
         assert result.exit_code == 2, result.output
-        assert json.loads(result.stdout) == {
+        assert cli_payload(result) == {
             "error": "--json requires --print-url; omit --json to start the server",
             "code": 2,
         }
@@ -1733,7 +1734,7 @@ class TestCli:
             app, ["--snapshots", str(tmp_path / "db"), "--print-url", "--json"]
         )
         assert result.exit_code == 2, result.output
-        assert "no readable coverage targets" in json.loads(result.stdout)["error"]
+        assert "no readable coverage targets" in cli_payload(result)["error"]
 
     def test_missing_db_errors(self, tmp_path: Path) -> None:
         """An empty coverage directory fails fast, naming what to run."""
@@ -1766,7 +1767,6 @@ class TestCli:
     ) -> None:
         """``--print-url --json`` prints URL + db path and exits
         (never ``serve_forever``)."""
-        import json
 
         from rebrew.dashboard import app
 
@@ -1782,7 +1782,7 @@ class TestCli:
             app, ["--snapshots", str(tmp_path / "db"), "--print-url", "--json", "--port", "9123"]
         )
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload == {
             "url": "http://127.0.0.1:9123",
             "coverage_source": str(db_dir),

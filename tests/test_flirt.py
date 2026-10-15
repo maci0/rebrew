@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 
 from rebrew.flirt import find_func_size, iter_match_offsets, load_signatures
 
@@ -198,7 +199,6 @@ class TestAmbiguousReporting:
     def test_ambiguous_kept_with_flag(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -219,7 +219,7 @@ class TestAmbiguousReporting:
         self._setup(tmp_path, monkeypatch, FakeMatcher())
         result = CliRunner().invoke(flirt_mod.app, ["--show-ambiguous", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["match_count"] == 0  # all four are ambiguous
         assert data["skipped_ambiguous"] >= 1
         assert len(data["ambiguous_matches"]) >= 1
@@ -230,7 +230,6 @@ class TestAmbiguousReporting:
     def test_ambiguous_empty_without_flag(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -251,14 +250,13 @@ class TestAmbiguousReporting:
         self._setup(tmp_path, monkeypatch, FakeMatcher())
         result = CliRunner().invoke(flirt_mod.app, ["--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["skipped_ambiguous"] >= 1
         assert data["ambiguous_matches"] == []  # not collected by default
 
     def test_names_capped_at_report_limit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -273,7 +271,7 @@ class TestAmbiguousReporting:
 
         self._setup(tmp_path, monkeypatch, FakeMatcher())
         result = CliRunner().invoke(flirt_mod.app, ["--show-ambiguous", "--json"])
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         first = data["ambiguous_matches"][0]
         assert len(first["names"]) == flirt_mod._MAX_AMBIGUOUS_REPORT
         assert first["more"] is True
@@ -315,7 +313,6 @@ class TestSmallTextSectionSchema:
         )
 
     def test_small_text_full_schema(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -324,7 +321,7 @@ class TestSmallTextSectionSchema:
         self._setup(tmp_path, monkeypatch, raw_size=16)
         result = CliRunner().invoke(flirt_mod.app, ["--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         for key in (
             "binary",
             "sig_dirs",
@@ -344,7 +341,6 @@ class TestSmallTextSectionSchema:
     def test_small_text_va_check_runs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -356,7 +352,7 @@ class TestSmallTextSectionSchema:
         # the fake matcher returns no matches).
         result = CliRunner().invoke(flirt_mod.app, ["--json", "--va", "0x1005"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["match_count"] == 0
 
     def test_small_text_va_out_of_section_still_errors(
@@ -422,7 +418,6 @@ class TestMultiSectionScan:
     def test_matches_from_every_code_section(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -431,7 +426,7 @@ class TestMultiSectionScan:
         self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(flirt_mod.app, ["--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         names = {n for m in data["matches"] for n in m["names"]}
         assert "fn_A" in names  # .text
         assert "fn_B" in names  # .text_rest
@@ -443,7 +438,6 @@ class TestMultiSectionScan:
     def test_va_probe_finds_the_containing_section(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -452,7 +446,7 @@ class TestMultiSectionScan:
         self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(flirt_mod.app, ["--json", "--va", "0x2000"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert {n for m in data["matches"] for n in m["names"]} == {"fn_B"}
 
 

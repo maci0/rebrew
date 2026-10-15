@@ -8,13 +8,13 @@ annotations and a function list so the dossier can resolve names.
 
 from __future__ import annotations
 
-import json
 import struct
 from pathlib import Path
 from typing import Any
 
 import pytest
 from bin_util import append_pe_section, make_pe
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -190,7 +190,7 @@ class TestDescribeCli:
         """Callers/callees/strings/imports all appear for the annotated probe."""
         result = self._invoke(tmp_path, monkeypatch, "--json", f"0x{PROBE_VA:x}")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["va"] == PROBE_VA
         assert data["name"] == "my_func"
         assert data["status"] == "EXACT"
@@ -211,7 +211,7 @@ class TestDescribeCli:
         """An unannotated VA retains its fallback name and known inventory extent."""
         result = self._invoke(tmp_path, monkeypatch, "--json", "0x401016")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["name"] == "fcn_00401016"
         assert data["status"] is None
         assert data["size"] == 8
@@ -263,7 +263,7 @@ class TestDescribeCli:
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["--json", f"0x{PROBE_VA:x}"])
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["size"] == 11
         assert {"to_va": PROBE_VA + 17, "name": "late_helper", "kind": "call"} in data["callees"]
         assert not any(callee["to_va"] == PROBE_VA + 18 for callee in data["callees"])
@@ -291,7 +291,7 @@ class TestDescribeCli:
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["--json", f"0x{PROBE_VA:x}"])
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["size"] == 13
         assert data["callees"] == [
             {"to_va": PROBE_VA, "name": "probe", "kind": "call"},
@@ -302,7 +302,7 @@ class TestDescribeCli:
         """--json emits exactly the documented dossier keys and types."""
         result = self._invoke(tmp_path, monkeypatch, "--json", f"0x{PROBE_VA:x}")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert set(data.keys()) == {
             "va",
             "name",
@@ -359,7 +359,7 @@ class TestDescribeCli:
             tmp_path, monkeypatch, "--json", "--target", "game", f"0x{PROBE_VA:x}"
         )
         assert result.exit_code == 0, result.output
-        assert json.loads(result.output)["name"] == "my_func"
+        assert cli_payload(result)["name"] == "my_func"
 
     def test_globals_section(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A mov [global] ref into .data is reported in the globals section."""
@@ -382,7 +382,7 @@ class TestDescribeCli:
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["--json", f"0x{PROBE_VA:x}"])
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["name"] == "fcn_00401000"
         assert {"va": dstart, "kind": "mov_mem"} in data["globals"]
 

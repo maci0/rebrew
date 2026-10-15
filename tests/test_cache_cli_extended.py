@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.cache_cli import app
@@ -63,7 +64,7 @@ class TestCacheCli:
         _patch_cache(monkeypatch)
         result = CliRunner().invoke(app, ["stats", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["entries"] == 3
         assert data["session_hits"] == 2
 
@@ -106,7 +107,7 @@ class TestCacheCli:
         monkeypatch.setattr("rebrew.cache_cli.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["clear", "--json"])
         assert result.exit_code == 0
-        assert json.loads(result.stdout)["cleared"] == 0
+        assert cli_payload(result)["cleared"] == 0
 
     def test_clear_force_json_deletes_entries(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -129,7 +130,7 @@ class TestCacheCli:
         )
         result = CliRunner().invoke(app, ["clear", "--force", "--json"])
         assert result.exit_code == 0
-        assert json.loads(result.stdout) == {
+        assert cli_payload(result) == {
             "cleared": 3,
             "cache_dir": str(cache_dir),
             "backend": "diskcache",
@@ -159,10 +160,11 @@ class TestCacheCli:
         result = CliRunner().invoke(app, ["clear", "--json"])
 
         assert result.exit_code == 2
-        assert json.loads(result.stdout) == {
-            "error": "--json cannot prompt for confirmation; pass --force to clear the cache",
-            "code": 2,
-        }
+        error = json.loads(result.stderr.strip().splitlines()[-1])["error"]
+        assert error["kind"] == "confirmation_required"
+        assert error["message"] == (
+            "--json cannot prompt for confirmation; pass --force to clear the cache"
+        )
         with closing(CompileCache(cache_dir)) as after:
             assert after.count == 1
             assert after.get("k1") == b"\x01"

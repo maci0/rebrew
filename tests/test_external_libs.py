@@ -11,10 +11,10 @@ order).
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.config import load_config
@@ -95,7 +95,7 @@ class TestCmakeSources:
         monkeypatch.chdir(root)
         result = CliRunner().invoke(cs_app, ["--json", "--dry-run"])
         assert result.exit_code == 0
-        doc = json.loads(result.stdout)
+        doc = cli_payload(result)
         # Config order preserved (link order: KERNEL32 before D3DX8);
         # empty specs contribute no archive.
         assert doc["external_libs"] == ["KERNEL32.lib", "references/libs/d3dx8.lib"]

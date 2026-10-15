@@ -1,10 +1,10 @@
 """Tests for rebrew skeleton.py — decomp renderers, fetch_xref_context, CLI modes."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -280,7 +280,7 @@ class TestSkeletonCli:
         )
         result = CliRunner().invoke(app, ["--batch", "0", "--json"])
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["count"] == 0
+        assert cli_payload(result)["count"] == 0
         assert not (cfg.reversed_dir / "func_a.c").exists()
 
     def _setup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
@@ -303,7 +303,7 @@ class TestSkeletonCli:
         result = CliRunner().invoke(app, ["--batch", "1", "--json"])
         assert result.exit_code == 0
         assert (cfg.reversed_dir / "func_a.c").exists()
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["count"] == 1
 
     def test_single_va_mode(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -313,7 +313,7 @@ class TestSkeletonCli:
         # Options precede VA: the callback app parses a token after it as a subcommand.
         result = CliRunner().invoke(app, ["--name", "my_func", "--json", "0x1000"])
         assert result.exit_code == 2, result.output
-        assert json.loads(result.stdout) == {
+        assert cli_payload(result) == {
             "error": "VA 0x00001000 not found in function_structure.json",
             "code": 2,
         }
@@ -337,14 +337,13 @@ class TestSkeletonCliModes:
         return cfg
 
     def test_single_va_creates_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         from rebrew.skeleton import app
 
         cfg = self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(app, ["--json", "0x1000"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["action"] == "created"
         assert "func_a.c" in data["file"]
         assert (cfg.reversed_dir / "func_a.c").exists()
@@ -358,7 +357,6 @@ class TestSkeletonCliModes:
         assert "not found in function_structure.json" in result.output
 
     def test_append_mode(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         from rebrew.skeleton import app
 
@@ -372,7 +370,7 @@ class TestSkeletonCliModes:
         )
         result = CliRunner().invoke(app, ["--append", "multi.c", "--json", "0x1000"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["action"] == "appended"
         text = target.read_text(encoding="utf-8")
         # The old marker is migrated away; the new function is pure C.
@@ -501,7 +499,6 @@ class TestSkeletonCliModes:
         the same invocation under --force must not leave a second copy of the
         block: two definitions of one symbol, with the second shadowing the
         first for the metadata parser."""
-        import json
 
         from rebrew.skeleton import app
 
@@ -515,12 +512,12 @@ class TestSkeletonCliModes:
         )
         first = CliRunner().invoke(app, ["--append", "multi.c", "--force", "--json", "0x1000"])
         assert first.exit_code == 0, first.output
-        assert json.loads(first.stdout)["action"] == "appended"
+        assert cli_payload(first)["action"] == "appended"
         after_first = target.read_text(encoding="utf-8")
 
         second = CliRunner().invoke(app, ["--append", "multi.c", "--force", "--json", "0x1000"])
         assert second.exit_code == 0, second.output
-        assert json.loads(second.stdout)["action"] == "already_present"
+        assert cli_payload(second)["action"] == "already_present"
         assert target.read_text(encoding="utf-8") == after_first
 
     def test_append_force_replaces_a_differing_block(
@@ -563,7 +560,7 @@ class TestSkeletonCliModes:
         (cfg.reversed_dir / "func_a.c").write_text("existing", encoding="utf-8")
         result = CliRunner().invoke(app, ["--batch", "1", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["count"] == 0  # skipped because the file exists
         assert (cfg.reversed_dir / "func_a.c").read_text(encoding="utf-8") == "existing"
 
@@ -579,14 +576,13 @@ class TestSkeletonCliModes:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Batch with nothing to do still emits machine-readable JSON."""
-        import json
 
         from rebrew.skeleton import app
 
         self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(app, ["--batch", "1", "--min-size", "100", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["action"] == "none"
         assert data["count"] == 0
         assert data["created"] == []
@@ -595,7 +591,6 @@ class TestSkeletonCliModes:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A covered VA reports JSON instead of empty stdout."""
-        import json
 
         from rebrew.skeleton import app
 
@@ -605,7 +600,7 @@ class TestSkeletonCliModes:
         )
         result = CliRunner().invoke(app, ["--json", "0x1000"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["action"] == "none"
         assert data["covered_by"] == "func_a.c"
         assert not (cfg.reversed_dir / "func_a.c").exists()

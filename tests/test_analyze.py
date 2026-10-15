@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
@@ -241,7 +241,7 @@ class TestAnalyzeCli:
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["binary", "analyze", "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)  # pure JSON, no preamble
+        payload = cli_payload(result)  # pure JSON, no preamble
         for key in (
             "binary",
             "meta",
@@ -262,7 +262,7 @@ class TestAnalyzeCli:
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["binary", "analyze", "--json"])
         assert result.exit_code == 2  # error_exit convention
-        assert json.loads(result.stdout)["error"]
+        assert cli_payload(result)["error"]
 
     def test_standalone_mode_without_project(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -278,7 +278,7 @@ class TestAnalyzeCli:
         binary = FIXTURES / "mini_pe.exe"
         result = CliRunner().invoke(app, ["binary", "analyze", str(binary), "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)  # pure JSON
+        payload = cli_payload(result)  # pure JSON
         assert payload["binary"].endswith("mini_pe.exe")
         assert payload["meta"]["format"] == "pe"
         assert payload["flirt"] is None  # no project sig dir
@@ -306,7 +306,7 @@ class TestAnalyzeCli:
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["binary", "analyze", "--json"])
         assert result.exit_code == 2
-        assert "no binary given" in json.loads(result.stdout)["error"]
+        assert "no binary given" in cli_payload(result)["error"]
 
 
 class TestAnalyzeV2:

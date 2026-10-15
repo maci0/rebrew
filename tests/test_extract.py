@@ -176,9 +176,10 @@ class TestCmdExtractErrors:
 
         assert exc_info.value.exit_code == 2
         captured = capsys.readouterr()
-        payload = json.loads(captured.out)
-        assert payload["code"] == 2
-        assert "0x00001000" in payload["error"]
+        payload = json.loads(captured.err)
+        assert payload["error"]["kind"] == "failure"
+        assert "0x00001000" in payload["error"]["message"]
+        assert captured.out == ""
 
 
 # -------------------------------------------------------------------------

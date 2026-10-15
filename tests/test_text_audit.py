@@ -10,12 +10,12 @@ LIEF-parseable minimal PE from ``bin_util``.
 
 from __future__ import annotations
 
-import json
 import struct
 from pathlib import Path
 
 import pytest
 from bin_util import make_coff_obj, make_pe
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -192,7 +192,7 @@ class TestTextAuditCli:
         _patch_layout(monkeypatch, objects=[(0x20, {"alpha": 0}), (0x20, {"beta": 0})])
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["functions"] == 2
         assert payload["found"] == 2
         assert payload["correct"] == 2
@@ -210,7 +210,7 @@ class TestTextAuditCli:
         _patch_layout(monkeypatch, objects=[(0x10, {"alpha": 0}), (0x20, {"beta": 0})])
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 1
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["correct"] == 1
         assert payload["misplaced"] == 1
         assert payload["missing"] == 0
@@ -251,7 +251,7 @@ class TestTextAuditCli:
         _patch_layout(monkeypatch, objects=[(0x20, {"alpha": 0})])
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["missing"] == 1
         assert payload["misplaced"] == 0
         assert payload["misplaced_list"][0]["status"] == "MISSING"

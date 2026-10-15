@@ -1,10 +1,10 @@
 """Watch commands reject single-document JSON mode before starting work."""
 
 import importlib
-import json
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 
@@ -40,7 +40,7 @@ class TestWatchOutputContract:
             monkeypatch.setattr(owner, "run_single_ga", _unexpected)
         result = CliRunner().invoke(app, [*route, "--watch", "--json"])
         assert result.exit_code == 2, result.output
-        assert json.loads(result.stdout) == {
+        assert cli_payload(result) == {
             "error": "--watch is terminal-only; omit --json",
             "code": 2,
         }

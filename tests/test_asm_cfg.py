@@ -9,7 +9,6 @@ back edge), driven through the real CLI surface.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -17,6 +16,7 @@ from typing import Any
 import capstone
 import pytest
 import typer
+from cli_json import cli_payload
 from typer.testing import CliRunner, Result
 
 import rebrew.asm as asm
@@ -94,7 +94,7 @@ def _run(
 
 def _payload(result: Result) -> dict[str, Any]:
     assert result.exit_code == 0, result.output
-    return json.loads(result.output)
+    return cli_payload(result)
 
 
 class TestCfgJsonPayload:
@@ -224,14 +224,14 @@ class TestCfgUsageErrors:
         raw.write_bytes(b"")
         result = runner.invoke(_app(), ["--bin", str(raw), "--format", "cfg", "--json"])
         assert result.exit_code == 2
-        assert "--format cfg requires a VA" in json.loads(result.output)["error"]
+        assert "--format cfg requires a VA" in cli_payload(result)["error"]
 
     def test_cfg_rejects_non_x86_target(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         result = _run(monkeypatch, tmp_path, IFELSE, "--size", "18", "--json", arch="arm32")
         assert result.exit_code == 2
-        assert "x86 targets only" in json.loads(result.output)["error"]
+        assert "x86 targets only" in cli_payload(result)["error"]
 
     def test_unknown_format_rejected(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, tmp_path, IFELSE)

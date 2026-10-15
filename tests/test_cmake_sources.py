@@ -8,13 +8,13 @@ translation units, with unbound helpers shared across targets.
 
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -151,7 +151,7 @@ def test_json_reports_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.chdir(tmp_path)
     out = CliRunner().invoke(app, ["--json", "--dry-run"])
     assert out.exit_code == 0, out.output
-    payload = json.loads(out.stdout)
+    payload = cli_payload(out)
     assert payload["files"] == []
     assert payload["excluded"] == ["src/shared/only_client.c"]
 

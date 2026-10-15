@@ -933,14 +933,16 @@ def _remove_target_locked(name: str, *, force: bool, dry_run: bool, json_mode: b
     targets = doc.get("targets", {})
     if name not in targets:
         if json_mode:
-            json_print({"removed": False, "target": name, "already_removed": True})
+            json_print(
+                {"removed": False, "target": name, "already_removed": True, "changed": False}
+            )
         else:
             console.print(f"[yellow]Target '{name}' not found (already removed).[/yellow]")
         return
 
     if dry_run:
         if json_mode:
-            json_print({"removed": False, "target": name, "dry_run": True})
+            json_print({"removed": False, "target": name, "dry_run": True, "changed": False})
         else:
             console.print(f'[cyan]dry-run:[/cyan] would remove [targets."{name}"]')
         return
@@ -951,12 +953,14 @@ def _remove_target_locked(name: str, *, force: bool, dry_run: bool, json_mode: b
                 f"refusing to remove target '{name}' without --force under --json "
                 "(no interactive confirm)",
                 json_mode=True,
+                kind="confirmation_required",
+                hint="Pass --force to skip the prompt.",
             )
         confirm_abort(f"Remove target '{name}' from rebrew-project.toml?")
     del targets[name]
     save_toml(doc, toml_path, json_mode=json_mode)
     if json_mode:
-        json_print({"removed": True, "target": name})
+        json_print({"removed": True, "target": name, "changed": True})
         return
     console.print(f'[green]Removed [targets."{name}"] from rebrew-project.toml[/green]')
     console.print("  [dim]Note: src/ and bin/ directories were NOT deleted.[/dim]")
@@ -1261,6 +1265,7 @@ def _remove_module_locked(
                     "module": module_upper,
                     "target": target,
                     "already_removed": True,
+                    "changed": False,
                 }
             )
         else:
@@ -1279,6 +1284,7 @@ def _remove_module_locked(
                     "target": target,
                     "origins": remaining,
                     "dry_run": True,
+                    "changed": False,
                 }
             )
         else:
@@ -1294,6 +1300,8 @@ def _remove_module_locked(
                 f"refusing to remove module '{module_upper}' without --force under --json "
                 "(no interactive confirm)",
                 json_mode=True,
+                kind="confirmation_required",
+                hint="Pass --force to skip the prompt.",
             )
         confirm_abort(f"Remove module '{module_upper}' from target '{target}'?")
     for item in [o for o in list(origins) if preset_module_key(str(o)) == module_upper]:
@@ -1306,6 +1314,7 @@ def _remove_module_locked(
                 "module": module_upper,
                 "target": target,
                 "origins": list(origins),
+                "changed": True,
             }
         )
         return

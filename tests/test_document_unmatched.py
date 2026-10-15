@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -117,10 +118,10 @@ class TestDocumentUnmatched:
         """Second run documents nothing (all VAs covered)."""
         r1 = CliRunner().invoke(app, ["source", "document-unmatched", "--json"])
         assert r1.exit_code == 0, r1.output
-        assert json.loads(r1.stdout)["written"] == 1
+        assert cli_payload(r1)["written"] == 1
         r2 = CliRunner().invoke(app, ["source", "document-unmatched", "--json"])
         assert r2.exit_code == 0, r2.output
-        payload = json.loads(r2.stdout)
+        payload = cli_payload(r2)
         assert payload["written"] == 0
         assert payload["unmatched"] == 0
 
@@ -128,7 +129,7 @@ class TestDocumentUnmatched:
         """--dry-run reports the count without creating files or metadata."""
         result = CliRunner().invoke(app, ["source", "document-unmatched", "--dry-run", "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["written"] == 0
         assert payload["unmatched"] == 1
         assert payload["dry_run"] is True
@@ -139,7 +140,7 @@ class TestDocumentUnmatched:
         """stdout is exactly one JSON document."""
         result = CliRunner().invoke(app, ["source", "document-unmatched", "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert isinstance(payload, dict)
         assert "written" in payload and "unmatched" in payload
         # No Rich/stderr bleed into the machine-readable stream.
@@ -148,7 +149,6 @@ class TestDocumentUnmatched:
 
     def test_backfill_blockers(self, project: Path) -> None:
         """Existing STUB functions missing a BLOCKER get one (W005 class)."""
-        import json
 
         from typer.testing import CliRunner
 
@@ -164,7 +164,7 @@ class TestDocumentUnmatched:
             app, ["source", "document-unmatched", "--backfill-blockers", "--json"]
         )
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["backfilled_blockers"] == 1  # only 0x1010
         # 0x1010 now has a blocker; 0x1000's is untouched
         assert get_entry(project / "src", 0x401010, "SERVER").get("blocker")
@@ -173,7 +173,6 @@ class TestDocumentUnmatched:
     def test_backfill_writes_missing_size(self, project: Path) -> None:
         """A blocker backfill also records an available annotation SIZE so the
         stub stays testable (mirrors classify_all's size write for intake)."""
-        import json
 
         from typer.testing import CliRunner
 
@@ -195,7 +194,7 @@ class TestDocumentUnmatched:
             app, ["source", "document-unmatched", "--backfill-blockers", "--json"]
         )
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         # 0x401010 (no blocker) + 0x401020 (no blocker) both backfilled
         assert payload["backfilled_blockers"] == 2
         # only 0x401020 had an annotation size to record
@@ -204,7 +203,6 @@ class TestDocumentUnmatched:
 
     def test_backfill_dry_run(self, project: Path) -> None:
         """--dry-run backfill writes nothing."""
-        import json
 
         from typer.testing import CliRunner
 
@@ -217,7 +215,7 @@ class TestDocumentUnmatched:
         )
         assert result.exit_code == 0, result.output
         # both fixture stubs (0x401000, 0x401010) lack blockers
-        assert json.loads(result.stdout)["backfilled_blockers"] == 2
+        assert cli_payload(result)["backfilled_blockers"] == 2
         assert not get_entry(project / "src", 0x401000, "SERVER").get("blocker")
         assert not get_entry(project / "src", 0x401010, "SERVER").get("blocker")
 

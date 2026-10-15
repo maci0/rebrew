@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any
 
+from cli_json import cli_payload
 from source_util import write_source
 
 import rebrew.near_analysis as nd
@@ -769,9 +770,8 @@ class TestAllBatch:
         assert len(calls) == 2
         assert calls[0][0][1] == 0x1000
         assert calls[1][0][1] == 0x2000
-        import json
 
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["total"] == 2
         assert payload["classified"] == 2
         assert payload["failed"] == 0
@@ -779,7 +779,6 @@ class TestAllBatch:
 
     def test_batch_includes_size_mismatch(self, monkeypatch, tmp_path: Path) -> None:
         """--all must also classify SIZE_MISMATCH functions (mirror prove --all)."""
-        import json
 
         annos = [
             SourceBinding(
@@ -804,7 +803,7 @@ class TestAllBatch:
         )
         assert result.exit_code == 0, result.output
         assert len(calls) == 2
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["total"] == 2
         assert payload["classified"] == 2
         assert payload["results"][1]["blocker_written"] is True
@@ -824,9 +823,8 @@ class TestAllBatch:
         result, calls = self._invoke(monkeypatch, tmp_path, ["--all", "--json"], annos)
         assert result.exit_code == 0, result.output
         assert calls == []
-        import json
 
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["total"] == 0
         assert payload["results"] == []
 
@@ -869,9 +867,8 @@ class TestAllBatch:
         assert result.exit_code == 0, result.output
         assert len(calls) == 1  # only the second function got its blocker
         assert calls[0][0][1] == 0x2000
-        import json
 
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["total"] == 2
         assert payload["classified"] == 1
         assert payload["failed"] == 1
@@ -891,7 +888,6 @@ class TestValidatedRelocMasking:
     def _invoke_diag(
         self, monkeypatch, tmp_path: Path, compiled: bytes, target: bytes, reloc_fn=None
     ) -> dict:
-        import json
         from types import SimpleNamespace as NS
 
         from typer.testing import CliRunner
@@ -940,7 +936,7 @@ class TestValidatedRelocMasking:
         )
         result = CliRunner().invoke(app, ["--json", str(src)])
         assert result.exit_code == 0, result.output
-        return json.loads(result.output)
+        return cli_payload(result)
 
     def test_invalid_reloc_classified_as_structural(self, monkeypatch, tmp_path: Path) -> None:
         # Compiled bytes 1,2 vs target 1,3: site 0 validates (masked), site 5
@@ -1040,7 +1036,6 @@ class TestFixBlockerDryRun:
         assert calls == []  # update_field never invoked under --dry-run
 
     def test_dry_run_reports_would_write_in_json(self, tmp_path: Path, monkeypatch) -> None:
-        import json
         from types import SimpleNamespace as NS
 
         from typer.testing import CliRunner
@@ -1095,7 +1090,7 @@ class TestFixBlockerDryRun:
         )
         result = CliRunner().invoke(app, ["--fix-blocker", "--dry-run", "--json", str(src)])
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["blocker_written"] is True  # would write, but dry-run skipped it
 
     def test_dry_run_human_output_says_would_write(self, tmp_path: Path, monkeypatch) -> None:

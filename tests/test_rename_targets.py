@@ -8,12 +8,12 @@ change list.
 
 from __future__ import annotations
 
-import json
 import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 
 _PROJECT = """\
@@ -263,7 +263,7 @@ class TestLinkerReferences:
         before = _snapshot(root)
         result = _run(root, monkeypatch, "lb_SendLobbyConfig", "lb_Ready", "--dry-run", "--json")
         assert result.exit_code == 0, result.output
-        files = json.loads(result.stdout)["files"]
+        files = cli_payload(result)["files"]
         assert any(row["file"] == "layout/server.dll/game.rsp" for row in files)
         assert _snapshot(root) == before
 
@@ -398,7 +398,7 @@ class TestFunctionIdentity:
         args = ("GOLDTL.0x00402000", "d3_AllocObjAnim", "--shared-definition", "--json")
         preview = _run(root, monkeypatch, *args, "--dry-run")
         assert preview.exit_code == 0, preview.output
-        plan = json.loads(preview.stdout)
+        plan = cli_payload(preview)
         assert {r["module"] for r in plan["rows"]} == {"GOLDTL", "GOLD"}
         assert any("SERVER.0x10004000" in note for note in plan["notes"])
         assert _snapshot(root) == before
@@ -471,7 +471,7 @@ class TestFunctionIdentity:
             root, monkeypatch, "lb_SendLobbyConfig", "lb_ExPlayerReadyStatus", "--dry-run", "--json"
         )
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         edits = {(f["file"], e["line"], e["column"]) for f in payload["files"] for e in f["edits"]}
         assert edits == {
             ("src/command/lobby.c", 3, 6),
@@ -535,7 +535,7 @@ class TestFunctionIdentity:
         assert result.exit_code == 0, result.output
         assert "void cm_ExAllocCharacter(void)" in _text(root, "command.c")
         assert _text(root, "GOLDTL.citizen.c") == _TL_CITIZEN_C
-        notes = json.loads(result.stdout)["notes"]
+        notes = cli_payload(result)["notes"]
         assert any("GOLDTL.0x00402000" in note for note in notes)
 
     def test_all_modules_renames_every_twin(
@@ -737,7 +737,7 @@ class TestSourceLevelSymbol:
         assert result.exit_code == 0, result.output
         assert "void gm_KillAll(void)\n" in _text(root, "game/spiel.c")
         assert "void gm_KillAll(void);" in _text(root, "game.h")
-        assert json.loads(result.stdout)["rows"] == []
+        assert cli_payload(result)["rows"] == []
 
     def test_rowless_in_target_updates_the_other_modules_rows(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -800,7 +800,7 @@ class TestDataRename:
             "--json",
         )
         assert result.exit_code != 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert "SERVER.0x100a8c30" in payload["error"]
 
     def test_rowless_global_is_renamed(
@@ -1081,7 +1081,7 @@ class TestSelectedFunctionAliases:
             args.append("--dry-run")
         result = _run(root, monkeypatch, *args)
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert any(r["new"].get("name") == "lb_Ready" for r in payload["rows"])
         if dry_run:
             assert _snapshot(root) == before

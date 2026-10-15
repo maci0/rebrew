@@ -16,6 +16,7 @@ than inferred from a compiler's output.
 from __future__ import annotations
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 
 from rebrew.drift import branch_targets, derive_regions, drift_windows
@@ -212,7 +213,6 @@ class TestDriftCommand:
         return src
 
     def test_json_reports_the_window_the_compare_produced(self, tmp_path, monkeypatch) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -226,7 +226,7 @@ class TestDriftCommand:
         )
 
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["va"] == "0x10001000"
         assert payload["size"] == 7
         assert payload["obj_size"] == len(ours)
@@ -239,7 +239,6 @@ class TestDriftCommand:
     def test_compile_failure_names_the_symbol_and_the_status(self, tmp_path, monkeypatch) -> None:
         """No object bytes means the arithmetic has nothing to measure; the
         error must say which symbol failed and why, not report zero drift."""
-        import json
 
         from typer.testing import CliRunner
 
@@ -252,7 +251,7 @@ class TestDriftCommand:
         )
 
         assert result.exit_code != 0
-        error = json.loads(result.stdout)["error"]
+        error = cli_payload(result)["error"]
         assert "compile/extract failed" in error
         assert "COMPILE_ERROR" in error
 
@@ -272,7 +271,6 @@ class TestDriftCommand:
 
     def test_unknown_va_in_annotated_file_errors(self, tmp_path, monkeypatch) -> None:
         """--va naming no annotation must not borrow the first function's SIZE/SYMBOL."""
-        import json
         from types import SimpleNamespace
 
         from typer.testing import CliRunner
@@ -295,4 +293,4 @@ class TestDriftCommand:
         )
 
         assert result.exit_code != 0
-        assert "no annotation for 0x10002000" in json.loads(result.stdout)["error"]
+        assert "no annotation for 0x10002000" in cli_payload(result)["error"]

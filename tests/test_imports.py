@@ -1,6 +1,5 @@
 """Tests for rebrew imports — import-table symbol recovery."""
 
-import json
 import struct
 import tempfile
 from pathlib import Path
@@ -8,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from bin_util import make_elf, make_pe
+from cli_json import cli_payload
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from typer.testing import CliRunner
@@ -221,7 +221,7 @@ class TestImportsCli:
 
         result = CliRunner().invoke(app, ["list", "--json", str(pe_path)])
         assert result.exit_code == 0
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert any(i["name"] == "MessageBoxA" for i in payload["imports"])
         assert payload["stubs"]  # stub VA → name present
         # VAs are hex strings, consistent with every other rebrew JSON.
@@ -308,7 +308,7 @@ class TestElfImports:
 
         result = CliRunner().invoke(app, ["list", "--json", str(_elf_with_imports(tmp_path))])
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         names = {i["name"] for i in payload["imports"]}
         assert {"printf", "puts", "sqrt", "plain_sym"} <= names
         assert all(str(i["iat_va"]).startswith("0x") for i in payload["imports"])
@@ -535,7 +535,7 @@ class TestImportsMark:
         payload = imports_payload(pe_path)
         result = CliRunner().invoke(app, ["list", "--json", str(pe_path)])
         assert result.exit_code == 0
-        assert payload == json.loads(result.output)
+        assert payload == cli_payload(result)
         assert any(i["name"] == "MessageBoxA" for i in payload["imports"])
         assert all(s["va"].startswith("0x") for s in payload["stubs"])
         assert all(str(i["iat_va"]).startswith("0x") for i in payload["imports"])

@@ -6,7 +6,6 @@ style from ``tests/test_binsync_init.py``.
 
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -14,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -78,7 +78,7 @@ class TestBinsyncUmbrella:
 
         result = _invoke(tmp_path, monkeypatch, "push", str(state), "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["functions"] >= 1
         assert (state / "functions").is_dir()
         log = _git(state, "log", "--oneline").stdout.splitlines()
@@ -92,7 +92,7 @@ class TestBinsyncUmbrella:
 
         result = _invoke(tmp_path, monkeypatch, "pull", str(state), "--no-git", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["conflicts"] == 0
 
     def test_summary_reports_and_writes_nothing(self, tmp_path: Path, monkeypatch) -> None:
@@ -105,7 +105,7 @@ class TestBinsyncUmbrella:
         before = _git(state, "status", "--porcelain").stdout
         result = runner.invoke(app, ["binsync", "summary", str(state), "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert "push" in payload and "pull" in payload
         assert payload["push"]["functions"] >= 1
         after = _git(state, "status", "--porcelain").stdout
@@ -152,7 +152,7 @@ class TestBinsyncUmbrella:
 
         result = _invoke(tmp_path, monkeypatch, "push", str(state), "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         for key in ("functions", "globals", "structs", "enums", "typedefs", "comments"):
             assert key in payload
 
@@ -163,7 +163,7 @@ class TestBinsyncUmbrella:
 
         result = _invoke(tmp_path, monkeypatch, "push", str(state), "--dry-run", "--json")
         assert result.exit_code == 0, result.output
-        assert json.loads(result.output)["dry_run"] is True
+        assert cli_payload(result)["dry_run"] is True
         assert not (state / "functions").exists()
 
     def test_git_requires_state_repo(self, tmp_path: Path, monkeypatch) -> None:
@@ -280,14 +280,14 @@ class TestUserBranches:
 
         first = _invoke(tmp_path, monkeypatch, "pull", str(state), "--json")
         assert first.exit_code == 0, first.output
-        payload = json.loads(first.output)
+        payload = cli_payload(first)
         assert payload["peers"] == ["ghidra"]
         assert payload["applied_names"] == 1
         assert "int bar(void)" in (tmp_path / "src" / "a" / "bar.c").read_text(encoding="utf-8")
 
         second = _invoke(tmp_path, monkeypatch, "pull", str(state), "--json")
         assert second.exit_code == 0, second.output
-        again = json.loads(second.output)
+        again = cli_payload(second)
         applied = {k: v for k, v in again.items() if k.startswith("applied_") and v}
         assert applied == {}
         assert _git(state, "rev-parse", "binsync/ghidra").stdout.strip() == peer_head
@@ -323,7 +323,7 @@ class TestPrototypePull:
     def _pull(self, tmp_path: Path, monkeypatch: Any, state: Path) -> dict[str, Any]:
         result = _invoke(tmp_path, monkeypatch, "pull", str(state), "--json")
         assert result.exit_code == 0, result.output
-        return dict(json.loads(result.output))
+        return dict(cli_payload(result))
 
     def test_equivalent_spelling_leaves_source_alone(self, tmp_path: Path, monkeypatch) -> None:
         state, source = self._pushed(tmp_path, monkeypatch)
@@ -393,7 +393,7 @@ class TestMissingDeclib:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, [*argv, str(state), "--json"])
         assert result.exit_code == 2, result.output
-        assert "declib is required" in json.loads(result.output)["error"]
+        assert "declib is required" in cli_payload(result)["error"]
         assert list(state.iterdir()) == []
 
 
@@ -448,7 +448,7 @@ class TestGlobalPull:
 
         first = _invoke(tmp_path, monkeypatch, "pull", str(state), "--json")
         assert first.exit_code == 0, first.output
-        assert json.loads(first.output)["applied_globals"] == 1
+        assert cli_payload(first)["applied_globals"] == 1
         source = (tmp_path / "src" / "a" / "foo.c").read_text(encoding="utf-8")
         assert "int g_total;" in source
         assert "return g_total + g_other;" in source
@@ -460,7 +460,7 @@ class TestGlobalPull:
         store = (tmp_path / "rebrew-data.toml").read_bytes()
         second = _invoke(tmp_path, monkeypatch, "pull", str(state), "--json")
         assert second.exit_code == 0, second.output
-        assert json.loads(second.output)["applied_globals"] == 0
+        assert cli_payload(second)["applied_globals"] == 0
         assert (tmp_path / "rebrew-data.toml").read_bytes() == store
 
 
@@ -504,7 +504,7 @@ class TestStructMemberPull:
 
         first = _invoke(tmp_path, monkeypatch, "pull", str(state), "--json")
         assert first.exit_code == 0, first.output
-        assert json.loads(first.output)["applied_structs"] == 1
+        assert cli_payload(first)["applied_structs"] == 1
         src = tmp_path / "src" / "a"
         assert (src / "town.h").read_text(encoding="utf-8") == _TOWN_H.replace("a04", "census")
         assert "return t->census + t->pop;" in (src / "foo.c").read_text(encoding="utf-8")
@@ -512,7 +512,7 @@ class TestStructMemberPull:
 
         second = _invoke(tmp_path, monkeypatch, "pull", str(state), "--json")
         assert second.exit_code == 0, second.output
-        assert json.loads(second.output)["applied_structs"] == 0
+        assert cli_payload(second)["applied_structs"] == 0
 
     def test_refused_member_rename_is_reported(self, tmp_path: Path, monkeypatch) -> None:
         state = self._pushed(tmp_path, monkeypatch)
@@ -520,7 +520,7 @@ class TestStructMemberPull:
 
         result = _invoke(tmp_path, monkeypatch, "pull", str(state), "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["applied_structs"] == 0
         assert payload["skipped_details"][0]["type"] == "TOWN_REC"
         assert "not a valid C identifier" in payload["skipped_details"][0]["reason"]

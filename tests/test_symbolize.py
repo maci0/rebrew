@@ -115,6 +115,11 @@ def _run(cfg: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, *args: str) -> t
     return result.exit_code, result.output
 
 
+def _error_text(output: str) -> str:
+    error = json.loads(output)["error"]
+    return error["message"] if isinstance(error, dict) else error
+
+
 def _source(cfg: SimpleNamespace) -> str:
     path: Path = cfg.root / "src" / "net.c"
     return path.read_text(encoding="utf-8")
@@ -200,7 +205,7 @@ class TestSymbolize:
         cfg = _project(tmp_path)
         code, output = _run(cfg, monkeypatch, "--skip", "nope", "--json")
         assert code != 0
-        assert "nope" in json.loads(output)["error"]
+        assert "nope" in _error_text(output)
         assert _source(cfg) == _SOURCE
 
 
@@ -225,7 +230,7 @@ class TestDeclare:
         cfg = _project(tmp_path, source)
         code, output = _run(cfg, monkeypatch, "--declare", "g_table", "--json")
         assert code != 0
-        assert "extern" in json.loads(output)["error"]
+        assert "extern" in _error_text(output)
         assert _source(cfg) == source
 
     def test_rejects_a_non_identifier(
@@ -234,7 +239,7 @@ class TestDeclare:
         cfg = _project(tmp_path)
         code, output = _run(cfg, monkeypatch, "--declare", "a b", "--json")
         assert code != 0
-        assert "a b" in json.loads(output)["error"]
+        assert "a b" in _error_text(output)
 
 
 def test_missing_raw_link_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -242,7 +247,7 @@ def test_missing_raw_link_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     (tmp_path / "build" / "server.map").unlink()
     code, output = _run(cfg, monkeypatch, "--json")
     assert code != 0
-    assert "link map" in json.loads(output)["error"]
+    assert "link map" in _error_text(output)
 
 
 def test_mounted_under_source() -> None:

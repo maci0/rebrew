@@ -1,6 +1,5 @@
 """`rebrew source rehome`: retarget function and data rows at the file that now defines them."""
 
-import json
 import shutil
 import tomllib
 from pathlib import Path
@@ -8,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_store_fixture
 from typer.testing import CliRunner
 
@@ -138,7 +138,7 @@ class TestRetargetFile:
         )
         result = self._rehome("--from", "src/a/x.c", "--to", "src/b/y.c", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert [(r["module"], r["va"], r["file"]) for r in payload["rows"]] == [
             ("CLIENT", "0x5000", "src/b/y.c"),
             ("SERVER", "0x1000", "src/b/y.c"),
@@ -158,7 +158,7 @@ class TestRetargetFile:
         root = self._project(tmp_path, monkeypatch, "int f(void)\n{\n\treturn 0;\n}\n")
         result = self._rehome("--from", "src/a/x.c", "--to", "src/b/y.c", "--dry-run", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["dry_run"] is True
         assert len(payload["rows"]) == 2 and len(payload["data"]) == 1
         assert (root / "rebrew-functions.toml").read_text(encoding="utf-8") == _FUNCTIONS_TOML

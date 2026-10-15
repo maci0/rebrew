@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import struct
@@ -12,6 +11,7 @@ from pathlib import Path
 import lief
 import pytest
 from bin_util import make_pe
+from cli_json import cli_payload
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from source_util import SourceFixture, write_source, write_store_fixture
@@ -79,7 +79,7 @@ def _export(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> dict
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["export", "pdb", *args, "--json"])
     assert result.exit_code == 0, result.output
-    payload: dict[str, object] = json.loads(result.stdout)
+    payload: dict[str, object] = cli_payload(result)
     return payload
 
 

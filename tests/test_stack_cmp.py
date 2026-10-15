@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -204,12 +205,11 @@ class TestRunStackCmp:
         assert "frame differs" in result.stderr.lower()
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         src = self._patch(monkeypatch, tmp_path, EBP_FRAME_0X28)
         result = CliRunner().invoke(app, ["--json", str(src)])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["frame_match"] is True
         assert data["target"]["frame_size"] == 0x2C
         assert data["va"] == "0x00001000"

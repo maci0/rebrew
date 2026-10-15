@@ -1,11 +1,11 @@
 """Lossless form streams, candidate scope, and malformed input handling."""
 
-import json
 import struct
 from pathlib import Path
 
 import pytest
 from bin_util import make_ne
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -106,7 +106,7 @@ class TestFormCommand:
         path.write_bytes(_form())
         result = CliRunner().invoke(app, ["binary", "forms", str(path), "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["unsupported_candidates"] == []
         assert payload["forms"][0]["roundtrip"] is True
         assert payload["forms"][0]["events"][0]["handler"] == "FormClose"
@@ -116,4 +116,4 @@ class TestFormCommand:
         path.write_bytes(b"TPF0\x05TForm\x04Main\x01x\xff")
         result = CliRunner().invoke(app, ["binary", "forms", str(path), "--json"])
         assert result.exit_code == 2, result.output
-        assert len(json.loads(result.stdout)["unsupported_candidates"]) == 1
+        assert len(cli_payload(result)["unsupported_candidates"]) == 1

@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 import tomlkit
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -194,7 +195,7 @@ class TestBinsyncImportDryRun:
             tmp_path, state, monkeypatch, "--accept-binsync", "--dry-run", "--json"
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["dry_run"] is True
         assert data["applied_names"] == 1  # counts the would-be rename
         assert _src_files(tmp_path) == before
@@ -211,7 +212,7 @@ class TestBinsyncImportDryRun:
         )
         state = _make_state(tmp_path, funcs={0x10001000: "_Other"})
         result = _invoke_import(tmp_path, state, monkeypatch, "--dry-run", "--json")
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert "conflicts" in data
         assert "applied_names" in data
 
@@ -232,7 +233,7 @@ class TestBinsyncImportConflicts:
         state = _make_state(tmp_path, funcs={0x10001000: "_OtherName"})
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 1
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["conflicts"] == 1
 
     def test_accept_binsync_applies(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -248,7 +249,7 @@ class TestBinsyncImportConflicts:
         state = _make_state(tmp_path, funcs={0x10001000: "_Renamed"})
         result = _invoke_import(tmp_path, state, monkeypatch, "--accept-binsync", "--json")
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_names"] == 1
         assert _src_files(tmp_path) == {
             "Renamed.c": SourceFixture(
@@ -274,7 +275,7 @@ class TestBinsyncImportConflicts:
             tmp_path, state, monkeypatch, "--accept-binsync", "--accept-local", "--json"
         )
         assert result.exit_code == 2
-        assert json.loads(result.stdout)["error"] == (
+        assert cli_payload(result)["error"] == (
             "--accept-binsync and --accept-local are mutually exclusive"
         )
         assert "foo.c" in _src_files(tmp_path)  # nothing renamed
@@ -298,7 +299,7 @@ class TestBinsyncImportConflicts:
             tmp_path, state, monkeypatch, "--module", "SERVER", "--accept-binsync", "--json"
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["module"] == "SERVER"
         assert data["applied_names"] == 1
         files = _src_files(tmp_path)
@@ -328,7 +329,7 @@ class TestBinsyncImportConflicts:
             tmp_path, state, monkeypatch, "--module", "server", "--accept-binsync", "--json"
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["module"] == "SERVER"
         assert data["applied_names"] == 1
         files = _src_files(tmp_path)
@@ -346,7 +347,7 @@ class TestBinsyncImportConflicts:
         )
         result = _invoke_import(tmp_path, tmp_path / "nope", monkeypatch, "--json")
         assert result.exit_code == 2
-        assert json.loads(result.stdout)["error"].startswith("State directory not found:")
+        assert cli_payload(result)["error"].startswith("State directory not found:")
 
     def test_empty_state_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
@@ -362,7 +363,7 @@ class TestBinsyncImportConflicts:
         empty.mkdir()
         result = _invoke_import(tmp_path, empty, monkeypatch, "--json")
         assert result.exit_code == 2
-        assert json.loads(result.stdout)["error"].startswith("No BinSync data found in")
+        assert cli_payload(result)["error"].startswith("No BinSync data found in")
 
 
 class TestBinsyncRoundTrip:
@@ -399,7 +400,7 @@ class TestBinsyncRoundTrip:
             tmp_path, tmp_path / "state", monkeypatch, "--accept-binsync", "--json"
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_names"] == 1
         # rename_function_everywhere may have renamed foo.c -> RenamedFromIDA.c
         renamed = tmp_path / "src" / "RenamedFromIDA.c"
@@ -432,7 +433,7 @@ class TestBinsyncRoundTrip:
 
         result = _invoke_import(tmp_path, tmp_path / "state", monkeypatch, "--json")
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_prototypes"] == 1
         assert data["conflicts"] == 0
 
@@ -440,7 +441,7 @@ class TestBinsyncRoundTrip:
             tmp_path, tmp_path / "state", monkeypatch, "--json", "--accept-binsync"
         )
         assert result.exit_code == 0
-        assert json.loads(result.stdout)["applied_prototypes"] == 0
+        assert cli_payload(result)["applied_prototypes"] == 0
 
     def test_global_round_trip(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
@@ -471,7 +472,7 @@ class TestBinsyncRoundTrip:
 
             result = _invoke_import(tmp_path, tmp_path / "state", monkeypatch, "--json")
             assert result.exit_code == 0
-            data = json.loads(result.stdout)
+            data = cli_payload(result)
             # Either applied or skipped if name considered non-meaningful — just check no crash
             assert "applied_globals" in data
 
@@ -511,7 +512,7 @@ reversed_dir = "src/server"
         state = _make_state(tmp_path, funcs={0x10002000: "_NewCatalogName"})
         result = _invoke_import(tmp_path, state, monkeypatch, "--dry-run", "--json")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         proposed = data.get("proposed", [])
         assert any(
             p.get("field") == "new_function" and "10002000" in p.get("va", "") for p in proposed
@@ -628,7 +629,7 @@ reversed_dir = "src/server"
         )
         result = _invoke_import(tmp_path, state, monkeypatch, "--create-missing", "--json")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_names"] == 2
         assert (src / "AlsoBinSync.c").exists()
         assert (src / "FromBinSync.c").exists()
@@ -699,7 +700,7 @@ reversed_dir = "src/server"
         state = _make_state(tmp_path, funcs={0x10002000: "_FromBinSync"})
         result = _invoke_import(tmp_path, state, monkeypatch, "--create-missing", "--json")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_names"] == 1
         entry = get_entry(tmp_path, 0x10002000, "SERVER")
         assert entry["status"] == "STUB"
@@ -768,7 +769,7 @@ class TestStructImport:
         (structs / "Player.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_structs"] == 1
         header = tmp_path / "src" / "binsync_types.h"
         assert "Player" in header.read_text(encoding="utf-8")
@@ -829,7 +830,7 @@ class TestStructImport:
         )
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_structs"] == 0
         assert not (tmp_path / "src" / "binsync_types.h").exists()
 
@@ -872,7 +873,7 @@ class TestNoteImport:
         self._write_state_with_note(state, "needs RE structs")
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_notes"] == 1
         assert get_entry(tmp_path, 0x1000, "SERVER").get("note") == "needs RE structs"
 
@@ -893,7 +894,7 @@ class TestNoteImport:
         self._write_state_with_note(state, "needs RE structs")
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["applied_notes"] == 0
+        assert cli_payload(result)["applied_notes"] == 0
 
 
 class TestUnparsedTypeComment:
@@ -1014,7 +1015,7 @@ class TestEnumTypedefImport:
         )
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_enums"] == 1
         assert data["applied_typedefs"] == 1
         header = (tmp_path / "src" / "binsync_types.h").read_text(encoding="utf-8")
@@ -1037,7 +1038,7 @@ class TestEnumTypedefImport:
         state = self._state_with(tmp_path, enum=("E", {"A": 0}))
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_enums"] == 0
         assert not (tmp_path / "src" / "binsync_types.h").exists()
 
@@ -1062,7 +1063,7 @@ class TestEnumTypedefImport:
         )
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_enums"] == 1
         assert data["applied_typedefs"] == 1
         header = (tmp_path / "src" / "binsync_types.h").read_text(encoding="utf-8")
@@ -1105,7 +1106,7 @@ class TestLocalsCommentsImport:
 
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_locals"] == 1
         assert data["applied_comments"] == 1
         entry = get_entry(tmp_path, 0x1000, "SERVER")
@@ -1246,7 +1247,7 @@ class TestMetadataComments:
         )
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["applied_comments"] == 1
+        assert cli_payload(result)["applied_comments"] == 1
 
     @pytest.mark.parametrize("text", ["Café 日本語", "hi\nint injected;", "x */ int injected; /*"])
     def test_comment_text_is_lossless_and_never_rewrites_source(
@@ -1261,7 +1262,7 @@ class TestMetadataComments:
         state = self._state_with_comment(tmp_path, addr=0x1006, text=text)
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["applied_comments"] == 1
         assert "marker_writes_failed" not in payload
         assert (source.read_bytes(), source.stat().st_mtime_ns) == before
@@ -1348,7 +1349,7 @@ marker = "V1"
             tmp_path, tmp_path / "state", monkeypatch, "--accept-binsync", "--json"
         )
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["applied_prototypes"] == 1, data
 
 

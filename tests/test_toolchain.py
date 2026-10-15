@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 
 from rebrew.compiler.toolchain import (
     TOOLCHAINS,
@@ -637,9 +638,8 @@ class TestCli:
 
         result = CliRunner().invoke(umbrella, ["toolchain", "list", "--json"])
         assert result.exit_code == 0, result.output
-        import json
 
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert {t["name"] for t in data["toolchains"]} >= {
             "msvc-5.0",
             "msvc-4.2",
@@ -685,7 +685,6 @@ class TestCli:
 
     def test_detect_json_standalone(self, tmp_path: Path, monkeypatch) -> None:
         """`toolchain detect` works without a project; no profile keys in JSON."""
-        import json
 
         from typer.testing import CliRunner
 
@@ -705,7 +704,7 @@ class TestCli:
         monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", lambda p, **k: info)
         result = CliRunner().invoke(umbrella, ["toolchain", "detect", str(bin_path), "--json"])
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["family"] == "msvc"
         assert data["version_hint"] == "MSVC 6.0"
         assert data["confidence"] == "high"
@@ -714,7 +713,6 @@ class TestCli:
 
     def test_detect_alignment_mismatch(self, tmp_path: Path, monkeypatch) -> None:
         """A project profile that cannot byte-match the detection is flagged."""
-        import json
 
         from typer.testing import CliRunner
 
@@ -739,13 +737,12 @@ class TestCli:
         monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", lambda p, **k: info)
         result = CliRunner().invoke(umbrella, ["toolchain", "detect", "x.exe", "--json"])
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["profile"] == "msvc-6.0"
         assert data["aligned"] is False
         assert "msvc-1.52" in data["explanation"]
 
     def test_detect_missing_binary_errors(self, tmp_path: Path, monkeypatch) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -754,7 +751,7 @@ class TestCli:
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(umbrella, ["toolchain", "detect", "nope.exe", "--json"])
         assert result.exit_code == 2
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["error"] and data["code"] == 2
 
     def test_build_host_only_errors(self, monkeypatch) -> None:
@@ -894,8 +891,9 @@ class TestPullToolchain:
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
         result = CliRunner().invoke(umbrella, ["toolchain", "pull", "msvc-6.0", "--json"])
         assert result.exit_code == 0
-        assert '"already_present": true' in result.output
-        assert '"pulled": "rebrew/msvc:6.0-win32"' in result.output
+        payload = cli_payload(result)
+        assert payload["already_present"] is True
+        assert payload["pulled"] == "rebrew/msvc:6.0-win32"
 
 
 class TestSwapToolchainImage:
@@ -1109,7 +1107,6 @@ class TestResolveBinaryCaseInsensitive:
     def test_status_uses_shared_resolver(self, monkeypatch, tmp_path: Path) -> None:
         """toolchain status must agree with _resolve_binary (case-insensitive
         host_bin) instead of its own case-sensitive path check."""
-        import json
 
         from typer.testing import CliRunner
 
@@ -1133,7 +1130,7 @@ class TestResolveBinaryCaseInsensitive:
         )
         result = CliRunner().invoke(umbrella, ["toolchain", "status", "msvc-1.52", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["host_binary_present"] is True
 
 
@@ -1451,7 +1448,6 @@ class TestSmokePrintGoldens:
         self, monkeypatch, fixture, print_goldens, expected_exit, expected_runs
     ) -> None:
         import hashlib
-        import json
         from dataclasses import replace
         from types import SimpleNamespace
 
@@ -1485,7 +1481,7 @@ class TestSmokePrintGoldens:
         result = CliRunner().invoke(umbrella, args)
         assert result.exit_code == expected_exit, result.output
         assert len(calls) == expected_runs
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         if expected_runs:
             assert calls == [(spec.image, ["/c", "t.c"])]
             masked = bytearray(obj)
@@ -1500,7 +1496,6 @@ class TestSmokePrintGoldens:
     def test_failed_compile_cannot_pass_with_a_matching_object(
         self, tmp_path: Path, monkeypatch, hash_only, missing_runner
     ) -> None:
-        import json
         from types import SimpleNamespace
 
         from typer.testing import CliRunner
@@ -1524,14 +1519,13 @@ class TestSmokePrintGoldens:
         else:
             result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
             assert result.exit_code == 2, result.output
-            payload = json.loads(result.stdout)
+            payload = cli_payload(result)
             assert payload["passed"] is False
             message = "could not run" if missing_runner else "compile exited 1"
             assert message in payload["results"]["msvc-6.0"]
 
     def test_print_goldens_emits_masked_hash(self, tmp_path: Path, monkeypatch, capsys) -> None:
         import hashlib
-        import json
         import subprocess
         from types import SimpleNamespace
 
@@ -1555,7 +1549,7 @@ class TestSmokePrintGoldens:
             umbrella, ["toolchain", "smoke", "msvc-6.0", "--print-goldens", "--json"]
         )
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert set(payload) == {"goldens"}
         # msvc-6.0 mask is (4,8): the TimeDateStamp is zeroed before hashing.
         masked = bytearray(obj)
@@ -1563,7 +1557,6 @@ class TestSmokePrintGoldens:
         assert payload["goldens"]["msvc-6.0"] == hashlib.sha256(bytes(masked)).hexdigest()
 
     def test_docker_timeout_kills_named_container(self, monkeypatch) -> None:
-        import json
         import subprocess
 
         from typer.testing import CliRunner
@@ -1580,7 +1573,7 @@ class TestSmokePrintGoldens:
         monkeypatch.setattr(subprocess, "run", _fake_run)
         monkeypatch.setattr("rebrew.compiler.toolchain.kill_container", killed.append)
         result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["results"] == {"msvc-6.0": "FAIL (docker run timed out after 300s)"}
         assert payload["passed"] is False
         assert killed == names
@@ -1589,7 +1582,6 @@ class TestSmokePrintGoldens:
     def test_golden_drift_exits_mismatch_not_error(self, monkeypatch) -> None:
         """A reproducible-but-different object is the finding the gate exists
         to report (exit 1), not a broken toolchain (exit 2)."""
-        import json
         import subprocess
         from types import SimpleNamespace
 
@@ -1607,7 +1599,7 @@ class TestSmokePrintGoldens:
         monkeypatch.setattr(subprocess, "run", _fake_run)
         result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
         assert result.exit_code == 1, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["passed"] is False
         assert payload["results"]["msvc-6.0"].startswith("MISMATCH (")
 
@@ -2173,7 +2165,7 @@ class TestVendorRetryAfterPartialFailure:
         # Second run on a complete tree is an idempotent success.
         result2 = runner.invoke(app, ["vendor", "fake-1.0", "--json"])
         assert result2.exit_code == 0, result2.output
-        assert '"already_present": true' in result2.output
+        assert cli_payload(result2)["already_present"] is True
 
 
 class TestDockerAvailableCache:

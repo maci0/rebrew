@@ -1,10 +1,10 @@
 """Source-only assembly evidence stays definition-scoped and never earns a verdict."""
 
-import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -216,11 +216,11 @@ class TestDocumentAssemblyCLI:
         assert runner.invoke(app, args).exit_code != 0
         preview = runner.invoke(app, [*args, "--evidence", "Original macro", "--dry-run"])
         assert preview.exit_code == 0, preview.output
-        assert json.loads(preview.stdout)["dry_run"]
+        assert cli_payload(preview)["dry_run"]
         assert not (tmp_path / SOURCE_PROVENANCE_FILENAME).exists()
         recorded = runner.invoke(app, [*args, "--evidence", "Original macro"])
         assert recorded.exit_code == 0, recorded.output
-        assert json.loads(recorded.stdout)["module"] == "CLIENT"
+        assert cli_payload(recorded)["module"] == "CLIENT"
         assert [r.symbol for r in load_source_provenance(tmp_path)] == ["fill0"]
         cleared = runner.invoke(app, [*args, "--clear"])
         assert cleared.exit_code == 0, cleared.output

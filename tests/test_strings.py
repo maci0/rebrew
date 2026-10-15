@@ -15,11 +15,11 @@ passed BEFORE the positional binary path.
 
 from __future__ import annotations
 
-import json
 import struct
 from pathlib import Path
 
 from bin_util import make_pe
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.strings import app, collect_strings
@@ -52,17 +52,17 @@ class TestExtractStrings:
         path = _write_probe(tmp_path, code)
         short = runner.invoke(app, ["--json", "--min-len", "2", "--section", ".text", str(path)])
         assert short.exit_code == 0
-        texts = [s["text"] for s in json.loads(short.stdout)["strings"]]
+        texts = [s["text"] for s in cli_payload(short)["strings"]]
         assert texts == ["AB", "LongEnoughString"]
         long = runner.invoke(app, ["--json", "--min-len", "10", "--section", ".text", str(path)])
-        assert [s["text"] for s in json.loads(long.stdout)["strings"]] == ["LongEnoughString"]
+        assert [s["text"] for s in cli_payload(long)["strings"]] == ["LongEnoughString"]
 
     def test_utf16_extraction(self, tmp_path: Path) -> None:
         code = b"H\x00i\x00\x00\x00" + b"\xc3"
         path = _write_probe(tmp_path, code)
         result = runner.invoke(app, ["--json", "--min-len", "2", "--section", ".text", str(path)])
         assert result.exit_code == 0
-        strings = json.loads(result.stdout)["strings"]
+        strings = cli_payload(result)["strings"]
         assert len(strings) == 1
         assert strings[0]["text"] == "Hi"
         assert strings[0]["kind"] == "utf16"
@@ -77,14 +77,14 @@ class TestFilter:
             app, ["--json", "--section", ".text", "--filter", "WORLD", str(path)]
         )
         assert result.exit_code == 0
-        texts = [s["text"] for s in json.loads(result.stdout)["strings"]]
+        texts = [s["text"] for s in cli_payload(result)["strings"]]
         assert texts == ["Hello World"]
 
     def test_no_match_yields_empty(self, tmp_path: Path) -> None:
         code = b"Hello World\x00" + b"\xc3"
         path = _write_probe(tmp_path, code)
         result = runner.invoke(app, ["--json", "--section", ".text", "--filter", "zzz", str(path)])
-        assert json.loads(result.stdout)["count"] == 0
+        assert cli_payload(result)["count"] == 0
 
 
 class TestSectionSelection:
@@ -101,7 +101,7 @@ class TestSectionSelection:
         path = _write_probe(tmp_path, code)
         result = runner.invoke(app, ["--json", str(path)])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["count"] == 0
         assert data["strings"] == []
 
@@ -110,7 +110,7 @@ class TestSectionSelection:
         path = _write_probe(tmp_path, code)
         result = runner.invoke(app, ["--json", "--section", ".text", str(path)])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["count"] == 1
         assert data["strings"][0]["section"] == ".text"
 
@@ -134,14 +134,14 @@ class TestXrefs:
         path = self._probe(tmp_path)
         result = runner.invoke(app, ["--xref", "--json", "--section", ".text", str(path)])
         assert result.exit_code == 0
-        strings = json.loads(result.stdout)["strings"]
+        strings = cli_payload(result)["strings"]
         assert len(strings) == 1
         assert strings[0]["xrefs"] == [{"kind": "push", "from_va": TEXT_VA}]
 
     def test_no_xref_flag_leaves_xrefs_empty(self, tmp_path: Path) -> None:
         path = self._probe(tmp_path)
         result = runner.invoke(app, ["--json", "--section", ".text", str(path)])
-        assert json.loads(result.stdout)["strings"][0]["xrefs"] == []
+        assert cli_payload(result)["strings"][0]["xrefs"] == []
 
 
 class TestJsonOutput:
@@ -150,7 +150,7 @@ class TestJsonOutput:
         path = _write_probe(tmp_path, code)
         result = runner.invoke(app, ["--json", "--section", ".text", str(path)])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert set(data) == {"binary", "count", "strings"}
         assert data["binary"] == str(path)
         assert data["count"] == 2
@@ -171,7 +171,7 @@ class TestBinaryArgument:
         path = _write_probe(tmp_path, code)
         result = runner.invoke(app, ["--json", "--section", ".text", str(path)])
         assert result.exit_code == 0
-        assert json.loads(result.stdout)["binary"] == str(path)
+        assert cli_payload(result)["binary"] == str(path)
 
 
 class TestErrors:
@@ -185,7 +185,7 @@ class TestErrors:
         missing = tmp_path / "missing.exe"
         result = runner.invoke(app, ["--json", str(missing)])
         assert result.exit_code == 2
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["code"] == 2
         assert "binary not found" in data["error"]
 
@@ -205,7 +205,7 @@ class TestCollectStrings:
         payload = collect_strings(path, section_names=[".text"], json_output=True)
         result = runner.invoke(app, ["--json", "--section", ".text", str(path)])
         assert result.exit_code == 0
-        assert payload == json.loads(result.stdout)
+        assert payload == cli_payload(result)
         assert payload["count"] == 2
         assert payload["strings"][0]["text"] == "Hello World"
 

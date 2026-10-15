@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew import gen_stubs
@@ -318,7 +319,6 @@ class TestCli:
     def test_default_generators_keep_their_artifacts_separate(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from rebrew.gen_link_stubs import app as link_stubs_app
         from rebrew.metadata.data import record_data_rows
@@ -340,13 +340,13 @@ class TestCli:
         linked = runner.invoke(link_stubs_app, ["--json"])
         assert linked.exit_code == 0, linked.output
         link_path = tmp_path / "src" / "link_stubs.c"
-        assert json.loads(linked.stdout)["output"] == str(link_path)
+        assert cli_payload(linked)["output"] == str(link_path)
         before_link = link_path.read_bytes(), link_path.stat().st_mtime_ns
 
         generated = runner.invoke(gen_stubs.app, ["--json"], input=LNK_OUTPUT)
         assert generated.exit_code == 0, generated.output
         symbol_path = tmp_path / "src" / "symbol_stubs.c"
-        assert json.loads(generated.stdout)["output"] == str(symbol_path)
+        assert cli_payload(generated)["output"] == str(symbol_path)
         assert "int g_counter = 0;" in symbol_path.read_text()
         assert (link_path.read_bytes(), link_path.stat().st_mtime_ns) == before_link
         before_symbol = symbol_path.read_bytes(), symbol_path.stat().st_mtime_ns
@@ -382,7 +382,6 @@ class TestCli:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``--json`` is encoding only — the stub TU must still be written."""
-        import json
 
         from rebrew.gen_stubs import app
 
@@ -393,7 +392,7 @@ class TestCli:
         out = tmp_path / "stubs.c"
         result = CliRunner().invoke(app, ["--log", str(log), "--output", str(out), "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["written"] is True
         assert out.is_file()
         assert "int g_counter = 0;" in out.read_text(encoding="utf-8")

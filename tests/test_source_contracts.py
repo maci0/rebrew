@@ -1,11 +1,11 @@
 """Source contract contradictions are independent of matching object bytes."""
 
-import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+from cli_json import cli_payload
 
 from rebrew.config import ProjectConfig
 from rebrew.metadata.functions import record_function_identity
@@ -309,7 +309,7 @@ class TestReleaseContractControls:
         with patch("rebrew.types_cli.require_config", return_value=cfg):
             result = CliRunner().invoke(app, ["contracts", "--name", "queue", "--json"])
         assert result.exit_code == 1, result.output
-        assert json.loads(result.stdout)["unknown"]
+        assert cli_payload(result)["unknown"]
         with pytest.raises(ValueError, match="incomplete"):
             reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
         assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}

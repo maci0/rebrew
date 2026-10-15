@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 import typer
 from cache_util import cache_text
+from cli_json import cli_payload
 from source_util import write_source
 
 from rebrew.cli import (
@@ -92,7 +93,7 @@ class TestMissingTargetArgument:
         result = CliRunner().invoke(app, argv)
         assert result.exit_code == 0, result.output
         if json_mode:
-            assert json.loads(result.stdout) == {
+            assert cli_payload(result) == {
                 "targets": ["alpha", "beta"],
                 "default_target": "beta",
             }
@@ -141,17 +142,29 @@ class TestErrorExit:
         with pytest.raises(typer.Exit):
             error_exit("bad input", json_mode=True)
         captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert data == {"error": "bad input", "code": 2}
-        assert captured.err == ""
+        data = json.loads(captured.err)
+        assert data == {"error": {"kind": "failure", "message": "bad input", "hint": ""}}
+        assert captured.out == ""
 
     def test_json_mode_exit_code(self, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(typer.Exit) as exc_info:
             error_exit("nope", json_mode=True, code=3)
         assert exc_info.value.exit_code == 3
         captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert data == {"error": "nope", "code": 3}
+        data = json.loads(captured.err)
+        assert data["error"]["kind"] == "failure"
+        assert data["error"]["message"] == "nope"
+        assert captured.out == ""
+
+    def test_mismatch_is_an_outcome(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from rebrew.cli import EXIT_MISMATCH
+
+        with pytest.raises(typer.Exit) as exc_info:
+            error_exit("bytes differ", json_mode=True, code=EXIT_MISMATCH)
+        assert exc_info.value.exit_code == EXIT_MISMATCH
+        captured = capsys.readouterr()
+        assert json.loads(captured.out) == {"outcome": "mismatch", "message": "bytes differ"}
+        assert captured.err == ""
 
     def test_error_exit_auto_detects_json_requested(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -161,9 +174,9 @@ class TestErrorExit:
             error_exit("failed via auto json")
         assert exc_info.value.exit_code == 2
         captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert data == {"error": "failed via auto json", "code": 2}
-        assert captured.err == ""
+        data = json.loads(captured.err)
+        assert data == {"error": {"kind": "failure", "message": "failed via auto json", "hint": ""}}
+        assert captured.out == ""
 
     def test_plain_neutralizes_terminal_escapes(self, capsys: pytest.CaptureFixture[str]) -> None:
         # Remote response text (decomp.me, recompile service) reaches error_exit;
@@ -239,13 +252,13 @@ class TestJsonPrint:
         json_print([{"va": "0x1000"}, {"va": "0x2000"}])
         captured = capsys.readouterr()
         data = json.loads(captured.out)
-        assert len(data) == 2
-        assert data[0]["va"] == "0x1000"
+        assert data["total"] == 2
+        assert data["items"][0]["va"] == "0x1000"
 
     def test_pretty_printed(self, capsys: pytest.CaptureFixture[str]) -> None:
         json_print({"a": 1})
         captured = capsys.readouterr()
-        assert captured.out == '{\n  "a": 1\n}\n'
+        assert captured.out == '{"a":1}\n'
 
     def test_empty_dict(self, capsys: pytest.CaptureFixture[str]) -> None:
         json_print({})
@@ -286,9 +299,9 @@ class TestParseVa:
         with pytest.raises(typer.Exit):
             parse_va("zzz", json_mode=True)
         captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert "error" in data
-        assert "zzz" in data["error"]
+        data = json.loads(captured.err)
+        assert data["error"]["kind"] == "usage"
+        assert "zzz" in data["error"]["message"]
 
     def test_empty_string_exits(self) -> None:
         with pytest.raises(typer.Exit):
@@ -320,8 +333,8 @@ class TestRequirePositiveSize:
     def test_json_mode_reports_the_error(self, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(typer.Exit):
             require_positive_size(-1, json_mode=True)
-        data = json.loads(capsys.readouterr().out)
-        assert "error" in data
+        data = json.loads(capsys.readouterr().err)
+        assert "positive" in data["error"]["message"]
 
 
 class TestRequireConfigErrors:
@@ -674,7 +687,10 @@ class TestSelectAnnotation:
             select_annotation(self._cfg(tmp_path), str(src), "0x3000", json_mode=json_mode)
         assert exc_info.value.exit_code == EXIT_ERROR
         captured = capsys.readouterr()
-        message = json.loads(captured.out)["error"] if json_mode else captured.err
+        if json_mode:
+            message = json.loads(captured.err.strip().splitlines()[-1])["error"]["message"]
+        else:
+            message = captured.err
         assert "0x3000" in message and "annotation" in message
 
     @pytest.mark.parametrize(("module", "symbol", "size"), [("GAME", "_b", 23), ("ALT", "_c", 31)])

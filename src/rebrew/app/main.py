@@ -35,6 +35,15 @@ from rebrew.cli import (
 )
 
 _stdout_console = Console()
+_OUTPUT_FORMATS = frozenset({"auto", "text", "json"})
+
+
+def _accept_output_format(value: str) -> str:
+    """Keep a root format of auto, text, or json."""
+    if value not in _OUTPUT_FORMATS:
+        raise typer.BadParameter("must be auto, text, or json")
+    return value
+
 
 app = typer.Typer(
     cls=VersionedGroup,
@@ -57,8 +66,11 @@ app = typer.Typer(
         "  rebrew verify --compare\n\n"
         "  # Search for a byte match\n"
         "  rebrew match run src/game/f.c\n\n"
+        "  # Machine-readable command document\n"
+        "  rebrew schema\n\n"
         "test checks one function; test --all recompiles a batch; verify reuses cached results when inputs are unchanged. Use test --no-promote to measure without recording metadata.\n\n"
         "Use rebrew <command> --help for inputs and examples. Commands with --target use the project default unless you select another target; a final --target lists configured targets.\n\n"
+        "The schema command prints the clispec 0.3 document. Before a subcommand, -o or --output selects auto, text, or json; auto stays text. After a command that writes a file, -o remains the destination path.\n\n"
         "Exit codes: 0 success; 1 mismatch or failed check; 2 usage/config/build error; 130 interrupted; 141 output pipe closed."
     ),
 )
@@ -116,8 +128,20 @@ def _global_options(
         help=QUIET_HELP,
         rich_help_panel="Global options",
     ),
+    output_format: str = typer.Option(
+        "auto",
+        "--output",
+        "-o",
+        callback=_accept_output_format,
+        help=(
+            "Format before the subcommand: auto, text, or json. auto stays text."
+            " A command's own -o is a path."
+        ),
+        rich_help_panel="Global options",
+    ),
 ) -> None:
     """Compiler-in-the-loop decompilation workbench."""
+    del output_format  # read from the click context by cli._apply_output_choice
     configure_logging(verbose, quiet=quiet)
 
 

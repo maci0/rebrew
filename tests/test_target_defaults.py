@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 import typer
+from cli_json import cli_payload
 from source_util import write_store_fixture
 from typer.testing import CliRunner
 
@@ -245,7 +246,7 @@ class TestStatusAllTargetsCli:
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(status_app, ["--all-targets", "--json"])
         assert result.exit_code == 0
-        doc = json.loads(result.stdout)
+        doc = cli_payload(result)
         assert set(doc["targets"]) == {"alpha", "beta"}
         for target_doc in doc["targets"].values():
             assert "functions" in target_doc
@@ -389,7 +390,7 @@ class TestSourceTargetScope:
     def test_pinned_overrides_rejected_before_config(self, module: str, args: list[str]) -> None:
         result = CliRunner().invoke(importlib.import_module(module).app, [*args, "--json"])
         assert result.exit_code == 2
-        assert "mutually exclusive" in json.loads(result.stdout)["error"]
+        assert "mutually exclusive" in cli_payload(result)["error"]
 
 
 class TestTargetCompilerIsolation:

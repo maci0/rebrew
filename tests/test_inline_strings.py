@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -234,13 +235,12 @@ class TestNamedMode:
         return src
 
     def _run(self, *args: str) -> dict[str, object]:
-        import json
 
         from rebrew.inline_strings import app
 
         result = CliRunner().invoke(app, ["--named", "--json", *args])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert isinstance(payload, dict)
         return payload
 

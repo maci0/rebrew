@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 
 from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.library import app
@@ -199,7 +199,7 @@ class TestLibraryCli:
         res = self._invoke("list", str(proj), "--json")
         assert res.exit_code == 0, res.output
 
-        payload = json.loads(res.output)
+        payload = cli_payload(res)
         assert len(payload["libraries"]) == 1
         assert payload["libraries"][0]["toolchain"] == "msvc-6.0"
 
@@ -211,7 +211,7 @@ class TestLibraryCli:
         assert (lib / LIBRARY_METADATA_FILE).exists()
         shown = self._invoke("show", str(lib), "--json")
         assert shown.exit_code == 0
-        payload = json.loads(shown.output)
+        payload = cli_payload(shown)
         assert payload["found"] is True
         assert payload["toolchain"] == "msvc-6.0"
         assert payload["cflags"] == "/O2 /Gd"
@@ -225,7 +225,7 @@ class TestLibraryCli:
         (tmp_path / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
         shown = self._invoke("show", str(lib), "--json")
         assert shown.exit_code == 0, shown.output
-        assert json.loads(shown.output)["found"] is False
+        assert cli_payload(shown)["found"] is False
 
     def test_set_library_with_preset_rejected(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"

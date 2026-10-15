@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from bin_util import make_coff_obj, make_lib_archive
+from cli_json import cli_payload
 from hypothesis import strategies as st
 
 from rebrew.gen_flirt_pat import _crc16_flirt, bytes_to_pat_line, parse_archive
@@ -445,7 +446,6 @@ class TestGenFlirtPatCli:
         assert "not found" in result.output
 
     def test_json_output(self, tmp_path: Path, monkeypatch) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -455,7 +455,7 @@ class TestGenFlirtPatCli:
         out = tmp_path / "out.pat"
         result = CliRunner().invoke(app, ["--json", "-o", str(out), str(tmp_path / "msvcrt.lib")])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["signatures"] == 1
         assert data["written"] is True
         assert data["skipped_members"] == 0
@@ -463,7 +463,6 @@ class TestGenFlirtPatCli:
         assert "---" in out.read_text(encoding="utf-8")
 
     def test_corrupt_member_skipped(self, tmp_path: Path, monkeypatch) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -473,7 +472,7 @@ class TestGenFlirtPatCli:
         out = tmp_path / "out.pat"
         result = CliRunner().invoke(app, ["--json", "-o", str(out), str(tmp_path / "msvcrt.lib")])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["signatures"] == 0
         assert data["written"] is False
         assert data["skipped_members"] == 1
@@ -481,7 +480,6 @@ class TestGenFlirtPatCli:
 
     def test_zero_signatures_removes_existing_pat(self, tmp_path: Path, monkeypatch) -> None:
         """A previous ``---``-only output is removed when the lib has no code."""
-        import json
 
         from typer.testing import CliRunner
 
@@ -492,7 +490,7 @@ class TestGenFlirtPatCli:
         out.write_text("---\n", encoding="utf-8")
         result = CliRunner().invoke(app, ["--json", "-o", str(out), str(tmp_path / "msvcrt.lib")])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["written"] is False
         assert not out.exists()
 
@@ -594,7 +592,6 @@ class TestGenFlirtPatEndToEnd:
     """Full pipeline: real .lib archive → COFF obj → .pat line (no stubs)."""
 
     def test_generates_pat_from_real_lib(self, tmp_path: Path, monkeypatch) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -607,7 +604,7 @@ class TestGenFlirtPatEndToEnd:
         out = tmp_path / "out.pat"
         result = CliRunner().invoke(app, ["--json", "-o", str(out), str(lib_path)])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["signatures"] == 1
         assert data["skipped_members"] == 0
         text = out.read_text(encoding="utf-8")
@@ -621,7 +618,6 @@ class TestGenFlirtPatEndToEnd:
         field, so an empty name yields a line signature parsers reject.
         With nothing else to emit, no pattern file is written.
         """
-        import json
 
         from typer.testing import CliRunner
 
@@ -634,7 +630,7 @@ class TestGenFlirtPatEndToEnd:
         out = tmp_path / "out.pat"
         result = CliRunner().invoke(app, ["--json", "-o", str(out), str(lib_path)])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["signatures"] == 0
         assert data["written"] is False
         assert not out.exists()
@@ -668,7 +664,6 @@ class TestWeakSignatureCli:
     def test_weak_functions_filtered_from_output(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -688,7 +683,7 @@ class TestWeakSignatureCli:
         out = tmp_path / "out.pat"
         result = CliRunner().invoke(app, ["--json", "-o", str(out), str(lib)])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["signatures"] == 1
         assert data["skipped_weak"] == 1
         text = out.read_text(encoding="utf-8")

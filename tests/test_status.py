@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from cache_util import cache_text
+from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
 
 from rebrew.status import (
@@ -1405,7 +1406,6 @@ class TestStatusBranches:
 
 class TestStatusCli:
     def test_json_output(self, tmp_path: Path, monkeypatch: object) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -1428,7 +1428,7 @@ class TestStatusCli:
         )
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["target"] == "SERVER"
 
 

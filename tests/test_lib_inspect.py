@@ -1,6 +1,5 @@
 """Tests for rebrew library inspect: COFF archive members, symbols, and short imports."""
 
-import json
 import struct
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +7,7 @@ from typing import Any
 
 import pytest
 from bin_util import make_lib_archive
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -122,7 +122,7 @@ def _write_lib(tmp_path: Path) -> Path:
 def _run(args: list[str]) -> dict[str, Any]:
     res = CliRunner().invoke(app, ["library", "inspect", *args, "--json"])
     assert res.exit_code == 0, res.output
-    out: dict[str, Any] = json.loads(res.stdout)
+    out: dict[str, Any] = cli_payload(res)
     return out
 
 
@@ -186,7 +186,7 @@ class TestListing:
             app, ["library", "inspect", str(_write_lib(tmp_path)), "-m", "nope.obj", "--json"]
         )
         assert res.exit_code != 0
-        assert "nope.obj" in json.loads(res.stdout)["error"]
+        assert "nope.obj" in cli_payload(res)["error"]
 
 
 class TestQueries:
@@ -248,7 +248,7 @@ class TestConfiguredArchive:
         monkeypatch.setattr("rebrew.lib_inspect.require_config", lambda **_: cfg)
         res = CliRunner().invoke(app, ["library", "inspect", "NOPE", "--json"])
         assert res.exit_code != 0
-        assert "external_libs" in json.loads(res.stdout)["error"]
+        assert "external_libs" in cli_payload(res)["error"]
 
 
 def test_mounted_under_library() -> None:

@@ -5,6 +5,7 @@ from shutil import which
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 
 from rebrew.asm import (
@@ -568,7 +569,6 @@ timeout = 60
     def test_default_size_extends_and_warns(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -584,7 +584,7 @@ timeout = 60
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["stale_size"] is True
         assert payload["requested_size"] == 32  # the stale default
         assert payload["size"] == 60  # extended dump
@@ -593,7 +593,6 @@ timeout = 60
     def test_explicit_size_warns_but_honors_request(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -610,7 +609,7 @@ timeout = 60
             app, ["binary", "asm", "show", "0x401000", "--size", "10", "--json"]
         )
         assert result.exit_code == 0, result.stdout
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["stale_size"] is False  # explicit --size honored
         assert payload["requested_size"] == 10
         assert payload["size"] == 10
@@ -638,7 +637,6 @@ timeout = 60
     def test_accurate_size_no_warning(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -653,7 +651,7 @@ timeout = 60
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["stale_size"] is False
         assert "stale" not in result.stderr
 
@@ -669,7 +667,6 @@ timeout = 60
         CrashDumpUnhandledExceptionFilter from 673 instructions to 724 and made
         the function look like it used a different calling convention.
         """
-        import json
 
         from typer.testing import CliRunner
 
@@ -684,7 +681,7 @@ timeout = 60
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["size"] == 16
         assert payload["stale_size"] is True
 
@@ -697,7 +694,6 @@ timeout = 60
         smaller extent than the truth.  Truncating to it would cut the dump
         short, which is worse than the padding it was meant to remove.
         """
-        import json
 
         from typer.testing import CliRunner
 
@@ -711,13 +707,12 @@ timeout = 60
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["size"] == 32  # declared size kept
 
     def test_non_x86_skips_extent_check(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -736,7 +731,7 @@ timeout = 60
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["stale_size"] is False
         assert calls == []  # never invoked
 

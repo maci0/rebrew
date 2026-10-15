@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 import typer
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.extract import cmd_batch, cmd_extract, load_functions
@@ -58,8 +59,8 @@ class TestCmdExtract:
         with pytest.raises(typer.Exit) as exc:
             cmd_extract(binary, [(0x1000, 8, "f")], 0x1000, tmp_path, json_output=True)  # type: ignore[arg-type]
         assert exc.value.exit_code == 2
-        out = json.loads(capsys.readouterr().out)
-        assert out["code"] == 2
+        out = json.loads(capsys.readouterr().err)
+        assert out["error"]["kind"] == "failure"
 
     def test_json_disasm_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
@@ -74,9 +75,9 @@ class TestCmdExtract:
         with pytest.raises(typer.Exit) as exc:
             cmd_extract(binary, [(0x1000, 8, "f")], 0x1000, tmp_path, json_output=True)  # type: ignore[arg-type]
         assert exc.value.exit_code == 2
-        out = json.loads(capsys.readouterr().out)
-        assert out["code"] == 2
-        assert "no capstone" in out["error"]
+        out = json.loads(capsys.readouterr().err)
+        assert out["error"]["kind"] == "failure"
+        assert "no capstone" in out["error"]["message"]
 
     def test_va_not_found_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
@@ -85,8 +86,8 @@ class TestCmdExtract:
         with pytest.raises(typer.Exit) as exc:
             cmd_extract(binary, [], 0x9999, tmp_path, json_output=True)  # type: ignore[arg-type]
         assert exc.value.exit_code == 2
-        out = json.loads(capsys.readouterr().out)
-        assert "not found" in out["error"]
+        out = json.loads(capsys.readouterr().err)
+        assert "not found" in out["error"]["message"]
 
     def test_success_writes_bin(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         binary = SimpleNamespace(data=b"", sections={})
@@ -180,7 +181,7 @@ class TestExtractCli:
         _write_inv(tmp_path, [{"va": 0x1000, "size": 64, "name": "func_a"}])
         result = CliRunner().invoke(app, ["list", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["count"] == 1
         assert data["candidates"][0]["name"] == "func_a"
 
@@ -196,7 +197,7 @@ class TestExtractCli:
             ],
         )
         result = CliRunner().invoke(app, ["list", "--json", "--min-size", "100"])
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["count"] == 1
         assert data["candidates"][0]["name"] == "func_b"
 
@@ -209,7 +210,7 @@ class TestExtractCli:
         monkeypatch.setattr("rebrew.extract.disasm_bytes", lambda *a, **k: "nop")
         result = CliRunner().invoke(app, ["show", "0x1000", "--size", "16", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["status"] == "OK"
         assert data["size"] == 16
 
@@ -228,7 +229,7 @@ class TestExtractCli:
         monkeypatch.setattr("rebrew.extract.disasm_bytes", lambda *a, **k: "nop")
         result = CliRunner().invoke(app, ["batch", "2", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["count"] == 2
 
     def test_missing_function_list_errors(

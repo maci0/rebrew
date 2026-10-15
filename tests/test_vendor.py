@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.vendor import VendorError, app, vendor_trees
@@ -52,7 +52,7 @@ class TestVendor:
         assert "return 2;" in (tmp_path / "lib/f.c").read_text()
         result = CliRunner().invoke(app, ["--root", str(tmp_path), "--json", str(manifest)])
         assert result.exit_code == 0, result.output
-        report = json.loads(result.stdout)["libraries"][0]
+        report = cli_payload(result)["libraries"][0]
         assert report["mode"] == "check" and report["files"] == report["patches"] == 1
         (tmp_path / "lib/extra.c").write_text("extra")
         (tmp_path / "lib/f.c").write_text("edited")
@@ -72,7 +72,7 @@ class TestVendor:
             (tmp_path / "lib/f.c").unlink()
         before = {p: p.read_bytes() for p in (tmp_path / "lib").rglob("*") if p.is_file()}
         result = CliRunner().invoke(app, ["--root", str(tmp_path), "--json", str(manifest)])
-        assert result.exit_code == 1 and "error" in json.loads(result.stdout)
+        assert result.exit_code == 1 and cli_payload(result)["outcome"] == "mismatch"
         assert before == {p: p.read_bytes() for p in (tmp_path / "lib").rglob("*") if p.is_file()}
 
     @pytest.mark.parametrize("change", ["modified", "extra", "missing", "unpinned"])
@@ -181,7 +181,7 @@ class TestVendor:
 
     def test_io_failure_has_json_error(self, tmp_path: Path) -> None:
         result = CliRunner().invoke(app, ["--root", str(tmp_path), "--json", "missing.toml"])
-        assert result.exit_code == 2 and "error" in json.loads(result.stdout)
+        assert result.exit_code == 2 and "error" in cli_payload(result)
 
     def test_nested_files_and_shared_checksums(self, tmp_path: Path) -> None:
         manifest = _tree(tmp_path)
@@ -210,7 +210,7 @@ class TestVendor:
 
         monkeypatch.setattr("rebrew.vendor.subprocess.run", unavailable)
         result = CliRunner().invoke(app, ["--root", str(tmp_path), "--json", str(manifest)])
-        assert result.exit_code == 2 and "GNU patch" in json.loads(result.stdout)["error"]
+        assert result.exit_code == 2 and "GNU patch" in cli_payload(result)["error"]
 
     def test_output_must_be_a_directory(self, tmp_path: Path) -> None:
         manifest = _tree(tmp_path)

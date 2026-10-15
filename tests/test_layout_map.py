@@ -8,13 +8,13 @@ JSON manifest fields plus the ``--output`` text-map package.
 
 from __future__ import annotations
 
-import json
 import struct
 import warnings
 from pathlib import Path
 
 import pytest
 from bin_util import append_pe_section, make_pe
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 _TOML = """\
@@ -90,7 +90,7 @@ def _invoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str):
 
 def _manifest(result) -> dict:
     assert result.exit_code == 0, result.output
-    return json.loads(result.stdout)
+    return cli_payload(result)
 
 
 class TestLayoutMapCli:
@@ -207,7 +207,7 @@ class TestLayoutMapCli:
         (tmp_path / "game.exe").unlink()
         result = _invoke(tmp_path, monkeypatch, "--json")
         assert result.exit_code == 2
-        assert json.loads(result.stdout)["error"]
+        assert cli_payload(result)["error"]
 
     def test_help_lists_options(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.layout_map import app

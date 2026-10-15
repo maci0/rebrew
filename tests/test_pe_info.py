@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import lief
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.app.main
@@ -658,7 +659,7 @@ class TestPeInfoCli:
     def test_json_output(self) -> None:
         result = runner.invoke(rebrew.app.main.app, ["binary", "pe", str(MINI_PE), "--json"])
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["format"] == "pe"
         assert payload["sections"][0]["name"] == ".text"
 
@@ -675,7 +676,7 @@ class TestPeInfoCli:
             rebrew.app.main.app, ["binary", "pe", str(tmp_path / "absent.exe"), "--json"]
         )
         assert result.exit_code == 2
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert "error" in payload
 
     def test_unsupported_binary_exits_two(self, tmp_path: Path) -> None:
@@ -683,5 +684,5 @@ class TestPeInfoCli:
         path.write_text("not a binary", encoding="utf-8")
         result = runner.invoke(rebrew.app.main.app, ["binary", "pe", str(path), "--json"])
         assert result.exit_code == 2
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert "error" in payload

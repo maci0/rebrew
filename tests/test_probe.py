@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import struct
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +10,7 @@ from typing import Any
 import capstone
 import pytest
 import typer
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner, Result
 
@@ -116,7 +116,7 @@ class TestProbeRelocationContext:
     ) -> None:
         result = self._invoke(tmp_path, monkeypatch, kind, actual, iat)
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert (payload["matched"] == payload["total"]) is matched
         assert (payload["matched_reloc"] == payload["total"]) is matched
 
@@ -125,7 +125,7 @@ class TestProbeRelocationContext:
     ) -> None:
         result = self._invoke(tmp_path, monkeypatch, catalog_error=True)
         assert result.exit_code == 2, result.output
-        assert "catalog unavailable" in result.stdout
+        assert "catalog unavailable" in cli_payload(result)["error"]
 
 
 class TestProbeAnnotationSelection:
@@ -195,7 +195,7 @@ class TestProbeAnnotationSelection:
         app.command()(probe.main)
         result = CliRunner().invoke(app, ["0x2000", "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert (payload["va"], payload["symbol"], payload["size"], payload["matched"]) == (
             "0x2000",
             "_second",
@@ -208,5 +208,5 @@ class TestProbeAnnotationSelection:
         calls.clear()
         missing = CliRunner().invoke(app, [str(source), "--va", "0x3000", "--json"])
         assert missing.exit_code == 2
-        assert "0x3000" in json.loads(missing.stdout)["error"]
+        assert "0x3000" in cli_payload(missing)["error"]
         assert calls == []

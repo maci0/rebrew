@@ -1,11 +1,11 @@
 """Tests for extract.py CLI paths (list/show) with mocked pipeline."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import typer
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.extract as extract_mod
@@ -34,7 +34,7 @@ class TestExtractCli:
         _patch(monkeypatch, [(0x1000, 64, "f")])
         r = runner.invoke(extract_mod.app, ["list", "--json"])
         assert r.exit_code == 0
-        payload = json.loads(r.stdout)
+        payload = cli_payload(r)
         assert payload["count"] == 1
         assert payload["candidates"][0]["va"] == "0x00001000"
 
@@ -242,7 +242,7 @@ class TestExplicitExtraction:
         monkeypatch.setattr(extract_mod, "disasm_bytes", lambda *a, **kw: "nop")
         result = runner.invoke(extract_mod.app, ["show", "0x1000", "--json"])
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["size"] == size
+        assert cli_payload(result)["size"] == size
         assert (cfg.bin_dir / "func_0x00001000.bin").read_bytes() == b"\x90" * size
 
     @pytest.mark.parametrize("override", [None, 42])
@@ -270,7 +270,7 @@ class TestExplicitExtraction:
             args.extend(["--size", str(override)])
         result = runner.invoke(extract_mod.app, args)
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["status"] == "DRY_RUN"
         assert data["dry_run"] is True
         assert data["size"] == (override if override is not None else 4)

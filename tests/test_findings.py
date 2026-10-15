@@ -1,9 +1,9 @@
 """Regression checks for project document/address lookup."""
 
-import json
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -42,7 +42,7 @@ class TestFindings:
             app, ["source", "findings", "0x1000", "--doc", "goal.md", "--json"]
         )
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["hits"][0]["text"] == "0x1000 [measured]"
+        assert cli_payload(result)["hits"][0]["text"] == "0x1000 [measured]"
 
     @pytest.mark.parametrize("field", ["window", "context"])
     def test_rejects_negative_limits(self, tmp_path: Path, field: str) -> None:

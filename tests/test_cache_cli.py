@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.cache_cli as cache_cli
@@ -43,7 +44,7 @@ class TestStats:
         _patch_cfg(monkeypatch, tmp_path)
         r = runner.invoke(cache_cli.app, ["stats", "--json"])
         assert r.exit_code == 0
-        payload = json.loads(r.stdout)
+        payload = cli_payload(r)
         # The absent path carries the same key set as the present one, so a
         # consumer indexes one shape either way.
         assert payload == {
@@ -174,7 +175,7 @@ class TestClear:
         _patch_cfg(monkeypatch, tmp_path)
         r = runner.invoke(cache_cli.app, ["clear", "--json"])
         assert r.exit_code == 0
-        payload = json.loads(r.stdout)
+        payload = cli_payload(r)
         # cache_dir / backend are the same fields the clearing path prints,
         # so a consumer reads one shape whether or not there was anything to
         # clear.

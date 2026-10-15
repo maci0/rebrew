@@ -1,9 +1,9 @@
 """Compiled library identities and evidence for prebuilt link providers."""
 
-import json
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 
 from rebrew.catalog.loaders import scan_reversed_dir
@@ -88,7 +88,7 @@ class TestCompiledSources:
             args.append("--dry-run")
         result = CliRunner().invoke(app, args)
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["provider"] == "compiled"
+        assert cli_payload(result)["provider"] == "compiled"
         metadata = load_metadata(cfg.metadata_dir)
         if dry_run:
             assert metadata[("GAME", 0x10001000)]["file"] == "src/library_vendor.h"

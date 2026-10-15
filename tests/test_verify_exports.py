@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
@@ -161,7 +162,6 @@ class TestCli:
         assert "cannot parse exports" in result.output
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         recomp = self._patch(
             monkeypatch,
@@ -178,5 +178,5 @@ class TestCli:
         )
         result = CliRunner().invoke(app, ["--json", str(recomp)])
         assert result.exit_code == EXIT_MISMATCH
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["missing"] == ["B"]

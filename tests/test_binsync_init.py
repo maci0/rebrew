@@ -7,7 +7,6 @@ BinSync's Client resolves.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -16,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -92,7 +92,7 @@ class TestInit:
 
         result = _invoke(state, "--user", "tester", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         digest = md5_file(tmp_path / "a.exe")
         assert payload == {
             "state_dir": str(state.resolve()),
@@ -181,7 +181,7 @@ class TestInit:
         monkeypatch.chdir(tmp_path)
         result = _invoke(state, "--user", "tester", "--dry-run", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["dry_run"] is True
         assert payload["user_branch"] == "binsync/tester"
         assert not (state / ".git").exists()
@@ -214,7 +214,7 @@ class TestInitUser:
         monkeypatch.chdir(tmp_path)
         result = _invoke(state, "--user", "Marcel W. Wysocki", "--json")
         assert result.exit_code == 2, result.output
-        assert "invalid BinSync user 'Marcel W. Wysocki'" in json.loads(result.output)["error"]
+        assert "invalid BinSync user 'Marcel W. Wysocki'" in cli_payload(result)["error"]
         assert not (state / ".git").exists()
 
     @pytest.mark.parametrize("user", ["a/b", "__root__", "x..y", "bad~name"])
@@ -225,7 +225,7 @@ class TestInitUser:
         monkeypatch.chdir(tmp_path)
         result = _invoke(tmp_path / "state", "--user", user, "--json")
         assert result.exit_code == 2, result.output
-        assert "invalid BinSync user" in json.loads(result.output)["error"]
+        assert "invalid BinSync user" in cli_payload(result)["error"]
 
     def test_default_ignores_git_user_name(self, tmp_path: Path, monkeypatch) -> None:
         """A person's ``git config user.name`` has spaces; the default is ``rebrew``."""
@@ -238,7 +238,7 @@ class TestInitUser:
         monkeypatch.chdir(tmp_path)
         result = _invoke(state, "--json")
         assert result.exit_code == 0, result.output
-        assert json.loads(result.output)["user_branch"] == "binsync/rebrew"
+        assert cli_payload(result)["user_branch"] == "binsync/rebrew"
         assert _git(state, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "binsync/rebrew"
 
     def test_configured_user_is_the_default(self, tmp_path: Path, monkeypatch) -> None:
@@ -251,7 +251,7 @@ class TestInitUser:
         monkeypatch.chdir(tmp_path)
         result = _invoke(state, "--json")
         assert result.exit_code == 0, result.output
-        assert json.loads(result.output)["user"] == "decomp"
+        assert cli_payload(result)["user"] == "decomp"
 
 
 class TestGitExecOverrides:

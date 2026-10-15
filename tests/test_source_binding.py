@@ -1,10 +1,10 @@
 """Reviewed source claims retain native identities and historical comparisons."""
 
-import json
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.config import ProjectConfig
@@ -221,14 +221,14 @@ class TestBindingCommands:
         with patch("rebrew.source_binding.require_config", return_value=cfg):
             preview = CliRunner().invoke(app, [*args, "--dry-run"])
             assert preview.exit_code == 0, preview.output
-            digest = json.loads(preview.stdout)["input_digest"]
+            digest = cli_payload(preview)["input_digest"]
             cfg.target_binary.write_bytes(b"changed binary")
             rejected = CliRunner().invoke(app, [*args, "--expected-digest", digest])
             assert rejected.exit_code == 2
             assert get_entry(cfg.metadata_dir, 0x401000, "GAME")["status"] == "EXACT"
             preview = CliRunner().invoke(app, [*args, "--dry-run"])
             applied = CliRunner().invoke(
-                app, [*args, "--expected-digest", json.loads(preview.stdout)["input_digest"]]
+                app, [*args, "--expected-digest", cli_payload(preview)["input_digest"]]
             )
             assert applied.exit_code == 0, applied.output
         assert get_entry(cfg.metadata_dir, 0x402000, "GAME") == original
@@ -280,7 +280,7 @@ class TestRebindRejectingControls:
                 app, ["rebind", "0x401000", str(source), "--reason", "proof", "--json"]
             )
         assert result.exit_code == 2
-        assert "discovery roots" in json.loads(result.stdout)["error"]
+        assert "discovery roots" in cli_payload(result)["error"]
         assert (cfg.metadata_dir / "rebrew-functions.toml").read_bytes() == before
 
     def test_rebind_after_retire_keeps_library_ancestry(self, tmp_path: Path) -> None:
@@ -344,7 +344,7 @@ class TestRebindRejectingControls:
                 ["rebind", "0x401000", str(source), "--name", "f", "--reason", "proof", "--json"],
             )
         assert result.exit_code == 2
-        assert "changed while parsing" in json.loads(result.stdout)["error"]
+        assert "changed while parsing" in cli_payload(result)["error"]
         assert (cfg.metadata_dir / "rebrew-functions.toml").read_bytes() == before
 
 
@@ -397,7 +397,7 @@ class TestStaticDefinitionScope:
                 ],
             )
         assert result.exit_code == 2
-        assert "external symbol" in json.loads(result.stdout)["error"]
+        assert "external symbol" in cli_payload(result)["error"]
         assert (cfg.metadata_dir / "rebrew-functions.toml").read_bytes() == before
 
 
@@ -431,7 +431,7 @@ class TestCanonicalDefinitionCollision:
                 ],
             )
         assert result.exit_code == 2
-        assert "already belongs" in json.loads(result.stdout)["error"]
+        assert "already belongs" in cli_payload(result)["error"]
         assert metadata.read_bytes() == before
         with pytest.raises(ValueError, match="already belongs"):
             change_source_binding(

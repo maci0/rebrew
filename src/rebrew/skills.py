@@ -227,10 +227,11 @@ def list_skills(
     if json_output:
         json_print(
             {
-                "skills": [
+                "items": [
                     {"name": s["name"], "description": s["description"], "origin": s["origin"]}
                     for s in skills
-                ]
+                ],
+                "total": len(skills),
             }
         )
         return

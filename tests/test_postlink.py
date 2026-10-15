@@ -14,11 +14,11 @@ wrong ``.data`` raw size + operand, stamped headers), then asserts that
 
 from __future__ import annotations
 
-import json
 import struct
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.postlink import FIXER_ORDER, app, run_fixers
@@ -596,7 +596,7 @@ class TestCli:
             env={"COLUMNS": "200"},
         )
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["reports"]
         assert out.exists()
         assert out.read_bytes() == ref.read_bytes()

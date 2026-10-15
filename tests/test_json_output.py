@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
@@ -564,7 +565,7 @@ marker = "SERVER"
         # A wide terminal keeps rich from wrapping the JSON across lines.
         result = CliRunner().invoke(app, ["--json"], env={"COLUMNS": "400"})
         assert result.exit_code != 0
-        payload = json.loads(result.output[result.output.index("{") :])
+        payload = cli_payload(result)
         assert "error" in payload
         assert "signature" in payload["error"].lower()
 

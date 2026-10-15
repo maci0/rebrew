@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 from cache_util import cache_text
+from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
 from typer.testing import Result
 
@@ -1518,7 +1519,6 @@ class TestProveBatchEmptySchema:
         """The empty-candidate branch emitted {total, proven, failed, results}
         while the normal branch adds schema_version/already_matched, so a script
         reading those KeyError'd exactly on an empty result."""
-        import json
         import shutil
 
         from typer.testing import CliRunner
@@ -1541,7 +1541,7 @@ class TestProveBatchEmptySchema:
             app, ["--all", "--json", "--target", "GAME"], catch_exceptions=False
         )
         assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["schema_version"] == 1
         assert data["already_matched"] == 0
         assert data["total"] == 0

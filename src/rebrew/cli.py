@@ -31,6 +31,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, NoReturn, override
 
+import click
 import typer
 from rich.console import Console
 from typer import rich_utils
@@ -374,32 +375,187 @@ def require_root(root: Path | None = None, *, json_mode: bool = False) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> NoReturn:
+def _output_choice_from(ctx: TyperContext | None) -> str:
+    """The root ``--output`` value visible from *ctx*, or ``auto``."""
+    while ctx is not None:
+        params = ctx.params or {}
+        if "output_format" in params and params["output_format"] is not None:
+            return str(params["output_format"])
+        ctx = ctx.parent
+    return "auto"
+
+
+def _argv_format_choice(argv: list[str] | None = None) -> str | None:
+    """Format selected before the subcommand, from argv when click has no context.
+
+    ``-o`` / ``--output`` counts only before the first positional and only when
+    the value is ``auto``, ``text``, or ``json``. A later ``-o`` is a path.
+    ``--output text`` wins over ``--json``.
+    """
+    args = list(sys.argv[1:] if argv is None else argv)
+    saw_text = False
+    saw_json = False
+    saw_command = False
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            break
+        if arg in ("--json", "--json=true") and not saw_text:
+            saw_json = True
+        elif arg.startswith("--output="):
+            value = arg.split("=", 1)[1]
+            if not saw_command and value == "text":
+                saw_text = True
+            elif not saw_command and value == "json":
+                saw_json = True
+        elif arg in ("-o", "--output") and index + 1 < len(args):
+            value = args[index + 1]
+            if not saw_command and value in {"auto", "text", "json"}:
+                if value == "text":
+                    saw_text = True
+                elif value == "json":
+                    saw_json = True
+                index += 1
+        elif not arg.startswith("-"):
+            saw_command = True
+        index += 1
+    if saw_text:
+        return "text"
+    if saw_json:
+        return "json"
+    return None
+
+
+def _json_mode_active(*, explicit: bool = False) -> bool:
+    """True when this invocation asked for JSON.
+
+    ``--output text`` wins over ``--json``. ``auto`` stays text, including
+    when stdout is not a terminal: rebrew's pipe contract is text unless the
+    caller asks. ``--json`` remains the explicit request.
+    """
+    choice = "auto"
+    found_format = False
+    flagged = explicit
+    ctx = click.get_current_context(silent=True)
+    while ctx is not None:
+        params = ctx.params or {}
+        if params.get("json_output"):
+            flagged = True
+        if "output_format" in params and params["output_format"] is not None:
+            choice = str(params["output_format"])
+            found_format = True
+            break
+        ctx = ctx.parent
+    if not found_format:
+        argv_choice = _argv_format_choice()
+        if argv_choice is not None:
+            choice = argv_choice
+    if choice == "json":
+        return True
+    if choice == "text":
+        return False
+    return flagged or _json_requested()
+
+
+def _apply_output_choice(ctx: TyperContext) -> None:
+    """Copy a root ``--output json|text`` onto a command's ``--json`` parameter."""
+    if "json_output" not in ctx.params:
+        return
+    choice = _output_choice_from(ctx)
+    if choice == "json":
+        ctx.params["json_output"] = True
+    elif choice == "text":
+        ctx.params["json_output"] = False
+
+
+def _write_error(kind: str, message: str, hint: str) -> None:
+    """Write one clispec error object as the next stderr line."""
+    payload = {"error": {"kind": kind, "message": message, "hint": hint}}
+    sys.stderr.write(json.dumps(payload, separators=(",", ":")) + "\n")
+    sys.stderr.flush()
+
+
+def _install_click_error_hook() -> None:
+    """JSON mode turns Click errors into the stderr envelope. Text mode stays human."""
+    from click.exceptions import ClickException
+    from click.exceptions import UsageError as ClickUsageError
+
+    original = ClickException.show
+    if getattr(original, "_rebrew_hook", False):
+        return
+
+    def show(self: ClickException, file: Any = None) -> None:
+        if _json_mode_active():
+            kind = "usage" if isinstance(self, ClickUsageError) else "failure"
+            _write_error(kind, self.format_message(), "")
+            return
+        original(self, file=file)
+
+    show._rebrew_hook = True  # type: ignore[attr-defined]
+    ClickException.show = show  # type: ignore[method-assign]
+
+
+_install_click_error_hook()
+
+
+def _emit_outcome(message: str, *, json_mode: bool) -> None:
+    """Report an exit-1 mismatch without an error envelope."""
+    if json_mode:
+        json_print({"outcome": "mismatch", "message": message})
+        return
+    console.print(f"[red bold]error:[/red bold] {untrusted_text(message)}", soft_wrap=True)
+
+
+def error_exit(
+    msg: str,
+    *,
+    json_mode: bool = False,
+    code: int = EXIT_ERROR,
+    kind: str = "failure",
+    hint: str = "",
+) -> NoReturn:
     """Print *msg* as an error and ``raise typer.Exit(code)``.
 
-    In JSON mode the envelope is ``{"error": <msg>, "code": <exit_code>}`` so
-    callers can distinguish mismatch (1) from infrastructure errors (2) without
-    relying solely on the process exit status.
+    JSON mode writes ``{"error": {"kind", "message", "hint"}}`` as one stderr
+    line. Exit :data:`EXIT_MISMATCH` is an outcome, not an error kind: stdout
+    carries ``{"outcome": "mismatch", "message": ...}`` and stderr carries no
+    error envelope.
 
-    On the Rich branch *msg* is rendered literally (markup escaped, terminal
+    On the text branch *msg* is rendered literally (markup escaped, terminal
     control characters other than tab/newline shown as ``\\xNN``): error text
     often embeds file contents, paths, and remote responses that must not be
-    interpreted as markup or escape sequences.  The JSON branch carries *msg*
+    interpreted as markup or escape sequences. The JSON branch carries *msg*
     verbatim, because the value is JSON-escaped and a consumer parses it.
     """
-    if json_mode or _json_requested():
-        print(json.dumps({"error": msg, "code": code}, indent=2))
+    use_json = json_mode or _json_mode_active()
+    if code == EXIT_MISMATCH:
+        _emit_outcome(msg, json_mode=use_json)
+        raise typer.Exit(code=code)
+    if use_json:
+        _write_error(kind, msg, hint)
     else:
-        # soft_wrap keeps embedded commands/paths contiguous — without it
-        # Rich folds mid-token (e.g. `rebrew coverage catalog …` → `rebrew\ncatalog`).
+        # soft_wrap keeps embedded commands/paths contiguous. Without it
+        # Rich folds mid-token (for example `rebrew coverage catalog …`).
         safe = untrusted_text(msg)
-        console.print(f"[red bold]error:[/red bold] {safe}", soft_wrap=True)
+        suffix = f" {hint}" if hint else ""
+        console.print(f"[red bold]error:[/red bold] {safe}{suffix}", soft_wrap=True)
     raise typer.Exit(code=code)
 
 
 def json_print(data: dict[str, Any] | list[Any]) -> None:
-    """Print *data* as pretty-printed JSON to stdout."""
-    print(json.dumps(data, indent=2))
+    """Print *data* as one JSON document on stdout.
+
+    A bare list is a collection and is wrapped in an items envelope. The
+    document is indented on a terminal and compact otherwise.
+    """
+    if isinstance(data, list):
+        data = {"items": data, "total": len(data)}
+    if sys.stdout.isatty():
+        text = json.dumps(data, indent=2)
+    else:
+        text = json.dumps(data, separators=(",", ":"))
+    print(text)
 
 
 def _standalone_command_kwargs(main: Any) -> dict[str, Any]:
@@ -538,13 +694,27 @@ def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
     accepts them after it (``rebrew diff --version``). Direct module execution
     uses the same options. Injected as eager,
     ``expose_value=False`` Typer options so the tool callbacks keep their own
-    signatures: no wrapper, no re-annotated copy of every command.  Groups
+    signatures: callbacks keep their parameters. Groups
     recurse, so ``rebrew binsync push --version`` works like the flat form.
 
     A command that declares a flag itself keeps it: ``lint --quiet`` means
     "errors only", not "logs at warning", so the injector adds ``--verbose``
     there and leaves ``--quiet`` alone.
+
+    The invoke wrapper copies a root ``--output json|text`` onto ``--json``.
+    Wrapping is once per command object: ``get_command`` and ``run_cli`` both
+    call this, and a second wrap would apply the choice twice.
     """
+    if getattr(cmd, "_rebrew_global_options", False):
+        return cmd
+    cmd._rebrew_global_options = True  # type: ignore[attr-defined]
+    original_invoke = cmd.invoke
+
+    def invoke(ctx: TyperContext) -> Any:
+        _apply_output_choice(ctx)
+        return original_invoke(ctx)
+
+    cmd.invoke = invoke  # type: ignore[method-assign]
     # Rich accepts four-sided padding; one column gap keeps full flags visible at 60 columns.
     rich_utils.__dict__["STYLE_OPTIONS_TABLE_PADDING"] = (0, 1, 0, 0)
     cmd.context_settings.setdefault("help_option_names", ["--help", "-h"])
@@ -783,8 +953,8 @@ def run_cli(app: Callable[[], Any]) -> None:
         # error_exit() outside click's handler: the message is already out.
         raise SystemExit(e.exit_code) from None
     except (ValueError, OSError, KeyError, RuntimeError) as e:
-        if _json_requested():
-            print(json.dumps({"error": str(e), "code": EXIT_ERROR}, indent=2))
+        if _json_mode_active():
+            _write_error("failure", str(e), "")
         else:
             console.print(f"[red]error:[/red] {untrusted_text(str(e))}", soft_wrap=True)
         raise SystemExit(EXIT_ERROR) from None
@@ -833,7 +1003,12 @@ def parse_va(va_str: str, *, json_mode: bool = False) -> int:
     except ValueError:
         va = -1
     if va < 0:
-        error_exit(f"Invalid hex VA: {va_str!r}", json_mode=json_mode, code=EXIT_ERROR)
+        error_exit(
+            f"Invalid hex VA: {va_str!r}",
+            json_mode=json_mode,
+            code=EXIT_ERROR,
+            kind="usage",
+        )
     return va
 
 
@@ -865,8 +1040,13 @@ def confirm_abort(prompt: str, *, skip_flag: str = "--force") -> None:
         answer, eof = False, not stdin_is_tty()
     if answer:
         return
-    hint = f" (stdin is not a terminal; pass {skip_flag})" if eof else ""
-    error_exit(f"aborted: {prompt}{hint}")
+    if eof:
+        error_exit(
+            f"aborted: {prompt} (stdin is not a terminal; pass {skip_flag})",
+            kind="confirmation_required",
+            hint=f"Pass {skip_flag} to skip the prompt.",
+        )
+    error_exit(f"aborted: {prompt}")
 
 
 def resolve_binary_arg(

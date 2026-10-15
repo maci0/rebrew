@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.init import app, main
@@ -83,7 +84,7 @@ class TestWizardGating:
         _no_prompts(monkeypatch)
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["target"] == "main"
         assert payload["binary"] == "program.exe"
         assert (tmp_path / "rebrew-project.toml").is_file()

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from bin_util import append_pe_section, make_pe
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -25,7 +25,7 @@ def test_compare_identical_rsrc(tmp_path: Path) -> None:
     b = _rsrc_pe(tmp_path / "b.exe", rsrc)
     result = runner.invoke(app, ["compare", str(a), str(b), "--json"])
     assert result.exit_code == 0
-    data = json.loads(result.stdout)
+    data = cli_payload(result)
     assert data["match"] is True
 
 
@@ -36,7 +36,7 @@ def test_compare_differing_rsrc_exits_mismatch(tmp_path: Path) -> None:
     b = _rsrc_pe(tmp_path / "b.exe", b"\x00" * 64 + b"BBBB")
     result = runner.invoke(app, ["compare", str(a), str(b), "--json"])
     assert result.exit_code == 1
-    data = json.loads(result.stdout)
+    data = cli_payload(result)
     assert data["match"] is False
     assert data["diff_bytes"] == 4
     assert data["first_diff_offset"] == 64
@@ -51,7 +51,7 @@ def test_compare_missing_rsrc(tmp_path: Path) -> None:
     b = _rsrc_pe(tmp_path / "b.exe", b"R")
     result = runner.invoke(app, ["compare", str(a), str(b), "--json"])
     assert result.exit_code == 1
-    data = json.loads(result.stdout)
+    data = cli_payload(result)
     assert data["match"] is False
     assert data["recompiled_rsrc"]["present"] is False
 
@@ -85,7 +85,7 @@ def test_extract_json(tmp_path: Path) -> None:
     out = tmp_path / "out.rsrc"
     result = runner.invoke(app, ["extract", str(a), "--output", str(out), "--json"])
     assert result.exit_code == 0
-    data = json.loads(result.stdout)
+    data = cli_payload(result)
     assert data["present"] is True
     assert data["output"] == str(out)
     assert data["bytes"] == len(rsrc)
@@ -100,5 +100,5 @@ def test_extract_missing_rsrc_json(tmp_path: Path) -> None:
     a.write_bytes(make_pe(b"\xc3"))
     result = runner.invoke(app, ["extract", str(a), "--json"])
     assert result.exit_code == EXIT_ERROR
-    data = json.loads(result.stdout)
+    data = cli_payload(result)
     assert data["present"] is False

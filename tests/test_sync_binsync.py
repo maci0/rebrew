@@ -1,11 +1,11 @@
 """Tests for the BinSync-primary sync command (ghidra/cli.py) and the
 structural MCP op builders (ghidra/commands.py)."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.ghidra.cli as sync_cli
@@ -73,7 +73,7 @@ class TestJsonContracts:
         monkeypatch.setattr(sync_cli, "pull_data_cmd", pull)
         result = runner.invoke(sync_cli.app, ["pull-data", "--dry-run", "--json"])
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["output"] == "header.h"
+        assert cli_payload(result)["output"] == "header.h"
 
 
 def _cfg(tmp_path: Path) -> SimpleNamespace:
@@ -528,8 +528,9 @@ class TestMcpApplyFallback:
             raise McpApplyAborted("transport failed at op 2/2", applied=2, errors=1)
 
         monkeypatch.setattr("rebrew.ghidra.client.apply_commands_via_mcp", _boom)
-        with pytest.raises(Exit):
+        with pytest.raises(Exit) as excinfo:
             sync_cli._mcp_apply(self._ops(), "http://x", "/prog", True, None)
-        data = json.loads(capsys.readouterr().out)
-        assert data["code"] == 2
-        assert "may have been applied" in data["error"]
+        assert excinfo.value.exit_code == 2
+        data = json.loads(capsys.readouterr().err)
+        assert data["error"]["kind"] == "failure"
+        assert "may have been applied" in data["error"]["message"]

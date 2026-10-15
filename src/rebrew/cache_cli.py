@@ -148,6 +148,8 @@ def clear(
         error_exit(
             "--json cannot prompt for confirmation; pass --force to clear the cache",
             json_mode=True,
+            kind="confirmation_required",
+            hint="Pass --force to skip the prompt.",
         )
 
     cache = get_compile_cache(

@@ -13,6 +13,7 @@ from contextlib import suppress
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -258,7 +259,6 @@ class TestUnpackCli:
         return CliRunner().invoke(lzexe_cli.app, list(args))
 
     def test_default_output_sits_beside_the_packed_file(self, tmp_path: Path) -> None:
-        import json
         import shutil
 
         packed = tmp_path / "packed.exe"
@@ -267,7 +267,7 @@ class TestUnpackCli:
         result = self._run("--json", str(packed))
 
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         default_out = tmp_path / "packed.exe.unpacked.exe"
         assert payload["output"] == str(default_out)
         assert payload["version"] == "0.91"
@@ -288,18 +288,16 @@ class TestUnpackCli:
         assert not (tmp_path / "packed.exe.unpacked.exe").exists()
 
     def test_missing_binary_reports_the_path(self, tmp_path: Path) -> None:
-        import json
 
         missing = tmp_path / "nope.exe"
 
         result = self._run("--json", str(missing))
 
         assert result.exit_code != 0
-        assert json.loads(result.stdout)["error"] == f"binary not found: {missing}"
+        assert cli_payload(result)["error"] == f"binary not found: {missing}"
 
     def test_unpacked_mz_reports_the_packer_message(self, tmp_path: Path) -> None:
         """A file that exists but is not packed must say so, not fail later."""
-        import json
         import shutil
 
         plain = tmp_path / "plain.exe"
@@ -308,6 +306,6 @@ class TestUnpackCli:
         result = self._run("--json", str(plain))
 
         assert result.exit_code != 0
-        error = json.loads(result.stdout)["error"]
+        error = cli_payload(result)["error"]
         assert "LZEXE" in error
         assert not (tmp_path / "plain.exe.unpacked.exe").exists()

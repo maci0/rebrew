@@ -1,9 +1,9 @@
 """Tests for rebrew build check-tu-data: per-object TU shape from an MSVC link map."""
 
-import json
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner, Result
 
 PROJECT_TOML = """\
@@ -75,7 +75,7 @@ class TestCheckTuData:
         monkeypatch.chdir(_project(tmp_path))
         result = _invoke("--json")
         assert result.exit_code == 1, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["link_map"].endswith("build/server.map")
         rows = {(row["object"], row["section"]): row for row in payload["objects"]}
         assert sorted(rows) == [
@@ -126,10 +126,10 @@ class TestCheckTuData:
         monkeypatch.chdir(root)
         result = _invoke("--link-map", "clean.map", "--json")
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["flagged"] == 0
+        assert cli_payload(result)["flagged"] == 0
 
     def test_missing_map_is_an_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.chdir(_project(tmp_path))
         result = _invoke("--link-map", "nope.map", "--json")
         assert result.exit_code == 2
-        assert "cannot read link map" in json.loads(result.stdout)["error"]
+        assert "cannot read link map" in cli_payload(result)["error"]

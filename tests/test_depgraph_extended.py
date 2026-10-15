@@ -1,10 +1,10 @@
 """Tests for rebrew depgraph — build_graph branches, summary edges, CLI main."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -146,7 +146,7 @@ class TestDepgraphCli:
         )
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["total_nodes"] == 1
         assert "va:0x00002000" in data["nodes"]
         assert data["nodes"]["va:0x00002000"]["symbol"] == "_my_func"

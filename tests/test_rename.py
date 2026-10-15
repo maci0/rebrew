@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
 
 from rebrew import rename_ops
@@ -479,7 +480,6 @@ class TestRenameEdgeCases:
 
 class TestRenameCli:
     def test_json_preserves_stdcall_suffix(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import json
 
         source = tmp_path / "src" / "SERVER" / "old_fn.c"
         source.parent.mkdir(parents=True)
@@ -500,7 +500,7 @@ class TestRenameCli:
             ],
         )
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["new_symbol"] == "_new_fn@12"
+        assert cli_payload(result)["new_symbol"] == "_new_fn@12"
 
     def test_json_preserves_vectorcall_and_fastcall(self, tmp_path: Path, monkeypatch: Any) -> None:
         """``name@@N`` and ``@name@N`` stay decorated after a rename.
@@ -508,7 +508,6 @@ class TestRenameCli:
         The reported symbol kept only one ``@N`` and always added ``_``,
         so ``hook@@12`` became ``_new_hook@12``.
         """
-        import json
 
         source = tmp_path / "src" / "SERVER" / "hook.c"
         source.parent.mkdir(parents=True)
@@ -528,7 +527,7 @@ class TestRenameCli:
             entries=[SimpleNamespace(name="hook", symbol="hook@@12", filepath="hook.c", va=0x1000)],
         )
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["new_symbol"] == "new_hook@@12"
+        assert cli_payload(result)["new_symbol"] == "new_hook@@12"
 
         fast = tmp_path / "src" / "SERVER" / "keeps.c"
         write_source(
@@ -549,7 +548,7 @@ class TestRenameCli:
             ],
         )
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["new_symbol"] == "@new_keeps@4"
+        assert cli_payload(result)["new_symbol"] == "@new_keeps@4"
 
     def _invoke(
         self, tmp_path: Path, monkeypatch: Any, *args: str, entries: list[Any] | None = None
@@ -579,7 +578,6 @@ class TestRenameCli:
         return CliRunner().invoke(app, list(args))
 
     def test_json_output(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import json
 
         f = tmp_path / "src" / "SERVER" / "old_fn.c"
         f.parent.mkdir(parents=True)
@@ -591,7 +589,7 @@ class TestRenameCli:
         )
         result = self._invoke(tmp_path, monkeypatch, "--json", "old_fn", "new_fn")
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["new_name"] == "new_fn"
         assert data["files_updated"] >= 1
 
@@ -834,7 +832,6 @@ class TestRenameCli:
             assert "not a valid C identifier" in result.output
 
     def test_rename_by_va(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import json
 
         f = tmp_path / "src" / "SERVER" / "old_fn.c"
         f.parent.mkdir(parents=True)
@@ -846,11 +843,10 @@ class TestRenameCli:
         )
         result = self._invoke(tmp_path, monkeypatch, "--json", "0x1000", "new_fn")
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["new_name"] == "new_fn"
 
     def test_json_dry_run_flag(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import json
 
         f = tmp_path / "src" / "SERVER" / "old_fn.c"
         f.parent.mkdir(parents=True)
@@ -862,7 +858,7 @@ class TestRenameCli:
         )
         result = self._invoke(tmp_path, monkeypatch, "--json", "--dry-run", "old_fn", "new_fn")
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["dry_run"] is True
         # The count is what the run would rewrite, not what it did.
         assert data["files_updated"] == 1
@@ -1338,7 +1334,6 @@ class TestFunctionReferenceBinding:
         conflict: str | None,
         return_type: str,
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -1407,7 +1402,7 @@ class TestFunctionReferenceBinding:
         )
         if conflict is None:
             assert result.exit_code == 0, result.output
-            assert json.loads(result.stdout)["rows"] == []
+            assert cli_payload(result)["rows"] == []
         else:
             assert result.exit_code == 2, result.output
             reason = {
@@ -1438,7 +1433,6 @@ class TestFunctionReferenceBinding:
     def test_binds_linked_library_without_creating_source_or_changing_identity(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preview: bool, header_text: str
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -1470,7 +1464,7 @@ class TestFunctionReferenceBinding:
             app, ["--json", *(["--dry-run"] if preview else []), "placeholder", "CLIENT.0x1000"]
         )
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["rows"] == []
+        assert cli_payload(result)["rows"] == []
         assert caller.read_bytes() == (
             original if preview else original.replace(b"placeholder", b"free")
         )
@@ -1547,7 +1541,6 @@ class TestFunctionReferenceBinding:
     def test_preview_and_apply_preserve_destination_and_metadata(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         builder = _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
         caller = _src(
@@ -1559,7 +1552,7 @@ class TestFunctionReferenceBinding:
         original = caller.read_bytes()
         preview = self._invoke(tmp_path, monkeypatch, "--dry-run")
         assert preview.exit_code == 0, preview.output
-        plan = json.loads(preview.stdout)
+        plan = cli_payload(preview)
         assert plan["new_name"] == "BuildEvent"
         assert plan["rows"] == []
         assert plan["files_updated"] == 1

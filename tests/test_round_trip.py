@@ -1,11 +1,11 @@
 """End-to-end tests for the rebrew build round-trip CLI."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
@@ -28,7 +28,7 @@ class TestRoundTripCli:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["--json"])
         assert result.exit_code != 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert "rebrew-project.toml" in payload["error"]
         assert payload["code"] == 2
 
@@ -1171,7 +1171,6 @@ class TestReasonCounts:
     triage (e.g. "92 skipped: 85 unresolved_symbol, ...")."""
 
     def test_reason_counts_aggregate(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         from rebrew.coff_reloc import UnresolvedSymbolError
         from rebrew.matcher.parsers import CoffRelocRecord
@@ -1211,7 +1210,7 @@ class TestReasonCounts:
         )
         result = runner.invoke(app, ["--json", "--dry-run"])
         assert result.exit_code == EXIT_OK
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["reason_counts"] == {"unresolved_symbol": 1}
         assert data["skipped_catalog"][0]["reason"] == "unresolved_symbol"
 

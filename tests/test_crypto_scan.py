@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import math
 import random
 from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.app.main
@@ -281,7 +281,7 @@ class TestCryptoScanCli:
     def test_json_output(self) -> None:
         result = runner.invoke(rebrew.app.main.app, ["binary", "crypto", str(MINI_PE), "--json"])
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert set(payload) == {"binary", "findings", "count", "by_confidence"}
         assert payload["binary"] == str(MINI_PE)
         assert payload["count"] == len(payload["findings"])
@@ -298,5 +298,5 @@ class TestCryptoScanCli:
             ["binary", "crypto", str(tmp_path / "absent.exe"), "--json"],
         )
         assert result.exit_code == 2
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert "error" in payload

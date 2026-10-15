@@ -1,9 +1,9 @@
 """Tests for the rebrew similarity function CLI command (via the umbrella app)."""
 
-import json
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.app.main
@@ -27,7 +27,7 @@ class TestSimilarCli:
         )
         r = runner.invoke(rebrew.app.main.app, ["similarity", "function", "0x1000", "--json"])
         assert r.exit_code == 0
-        payload = json.loads(r.stdout)
+        payload = cli_payload(r)
         assert payload["query_va"] == "0x1000"
         assert payload["results"][0]["name"] == "_twin"
 
@@ -35,7 +35,7 @@ class TestSimilarCli:
         _patch(monkeypatch, [])
         r = runner.invoke(rebrew.app.main.app, ["similarity", "function", "0x1000", "--json"])
         assert r.exit_code == 0
-        payload = json.loads(r.stdout)
+        payload = cli_payload(r)
         assert payload["results"] == []
 
     def test_table_results(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -69,5 +69,5 @@ class TestSimilarCli:
         monkeypatch.setattr(similar_mod, "find_similar", _raise)
         r = runner.invoke(rebrew.app.main.app, ["similarity", "function", "0x99999999", "--json"])
         assert r.exit_code == 2
-        payload = json.loads(r.stdout)
+        payload = cli_payload(r)
         assert "No function found" in payload["error"]

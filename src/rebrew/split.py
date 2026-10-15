@@ -695,6 +695,8 @@ def _split_definitions(
                 "Split removes the extracted function from the source file. "
                 "Pass --force to apply it in --json mode, or use --dry-run to preview.",
                 json_mode=True,
+                kind="confirmation_required",
+                hint="Pass --force to skip the prompt.",
             )
         confirm_abort(
             f"Split will remove {len(selected)} function(s) from {source_path.name}. Continue?"

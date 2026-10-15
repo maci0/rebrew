@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 
 from tools import release_check
 
@@ -1578,7 +1579,6 @@ class TestInstalledWheelAssetRuntime:
 
     def test_wheel_runtime_skill_and_scaffold_behavior(self, tmp_path: Path) -> None:
         """The built wheel executes skills listing and resolves packaged scaffold assets."""
-        import json
         import os
         import subprocess
         import zipfile
@@ -1646,7 +1646,7 @@ class TestInstalledWheelAssetRuntime:
         assert run_proc.returncode == 0, (
             f"Wheel runtime probe failed:\n{run_proc.stderr}\n{run_proc.stdout}"
         )
-        data = json.loads(run_proc.stdout)
+        data = cli_payload(run_proc)
         skills = data.get("skills", [])
         assert len(skills) >= 6, f"Expected >= 6 packaged skills, got {len(skills)}"
         names = {s["name"] for s in skills}

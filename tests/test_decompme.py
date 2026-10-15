@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -713,7 +714,7 @@ class TestCli:
         cfg, src = self._patch(tmp_path, monkeypatch)
         r = runner.invoke(decompme.app, ["--dry-run", "--json", str(src)])
         assert r.exit_code == 0
-        data = json.loads(r.stdout)
+        data = cli_payload(r)
         assert data["dry_run"] is True
         assert data["compiler"] == "msvc6.0"
         assert data["platform"] == "win32"
@@ -728,7 +729,7 @@ class TestCli:
         ctx.write_text(text, encoding="utf-8")
         r = runner.invoke(decompme.app, ["--dry-run", "--json", "--context", str(ctx), str(src)])
         assert r.exit_code == 0
-        data = json.loads(r.stdout)
+        data = cli_payload(r)
         assert data["context_bytes"] == len(text.encode("utf-8"))
         assert data["context_bytes"] > len(text)
 
@@ -770,7 +771,7 @@ class TestCli:
         )
         r = runner.invoke(decompme.app, ["--dry-run", "--json", str(src)])
         assert r.exit_code == 0
-        assert json.loads(r.stdout)["compiler"] == "msvc6.0"
+        assert cli_payload(r)["compiler"] == "msvc6.0"
 
     def test_compiler_flag_still_resolves_default_flags(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -779,7 +780,7 @@ class TestCli:
         cfg, src = self._patch(tmp_path, monkeypatch)
         r = runner.invoke(decompme.app, ["--dry-run", "--json", "--compiler", "msvc6.0", str(src)])
         assert r.exit_code == 0
-        assert json.loads(r.stdout)["flags"] == "/O1"
+        assert cli_payload(r)["flags"] == "/O1"
 
     def test_upload_success(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg, src = self._patch(tmp_path, monkeypatch)
@@ -826,11 +827,11 @@ class TestCli:
         monkeypatch.setattr("httpx.post", fake_post)
         first = runner.invoke(decompme.app, ["--json", str(src)])
         assert first.exit_code == 0
-        assert json.loads(first.stdout)["reused"] is False
+        assert cli_payload(first)["reused"] is False
 
         second = runner.invoke(decompme.app, ["--json", str(src)])
         assert second.exit_code == 0
-        data = json.loads(second.stdout)
+        data = cli_payload(second)
         assert data["reused"] is True
         assert data["slug"] == "abc1"
         assert calls == ["https://decomp.me/api/scratch"]
@@ -853,7 +854,7 @@ class TestCli:
         runner.invoke(decompme.app, [str(src)])
         again = runner.invoke(decompme.app, ["--json", "--reupload", str(src)])
         assert again.exit_code == 0
-        data = json.loads(again.stdout)
+        data = cli_payload(again)
         assert data["reused"] is False
         assert data["slug"] == "abc2"
         assert len(calls) == 2
@@ -883,7 +884,7 @@ class TestCli:
         )
         again = runner.invoke(decompme.app, ["--json", str(src)])
         assert again.exit_code == 0
-        assert json.loads(again.stdout)["reused"] is False
+        assert cli_payload(again)["reused"] is False
         assert len(calls) == 2
 
 

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 
 from rebrew.types import parse_structs
 
@@ -273,7 +274,6 @@ class TestTypeCLI:
     def test_bind_and_check_json_and_stale_exit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -302,14 +302,14 @@ class TestTypeCLI:
         ]
         bound = runner.invoke(app, args)
         assert bound.exit_code == 0, bound.output
-        assert json.loads(bound.stdout)["id"] == "engine.item"
+        assert cli_payload(bound)["id"] == "engine.item"
         current = runner.invoke(app, ["check", "--compile", "--json"])
         assert current.exit_code == 0, current.output
-        assert json.loads(current.stdout)["type_findings"] == []
+        assert cli_payload(current)["type_findings"] == []
         cfg.base_cflags = "/Zp1"
         stale = runner.invoke(app, ["check", "--json"])
         assert stale.exit_code == 1, stale.output
-        assert "stale" in json.loads(stale.stdout)["type_findings"][0]["issue"]
+        assert "stale" in cli_payload(stale)["type_findings"][0]["issue"]
         assert runner.invoke(app, ["check"]).exit_code == 1
 
     def test_generated_probe_uses_type_and_target_flags(

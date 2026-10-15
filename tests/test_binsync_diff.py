@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -59,7 +60,7 @@ def _diff(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: Path) -> dict[
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["binsync", "diff", "--json", str(state)], catch_exceptions=False)
     try:
-        return json.loads(result.stdout)
+        return cli_payload(result)
     except json.JSONDecodeError:
         raise AssertionError(
             f"exit={result.exit_code} stdout={result.stdout!r} stderr={result.stderr!r}"

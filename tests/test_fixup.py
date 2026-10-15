@@ -1,10 +1,10 @@
 """Tests for fixup.py — compilability fixup for raw decompiler output."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.fixup import app, fixup_source
@@ -146,11 +146,11 @@ class TestFixupCli:
         first = runner.invoke(app, args)
         assert first.exit_code == 0, first.output
         assert p.read_text(encoding="utf-8") == expected
-        assert json.loads(first.output)["changed"] is True
+        assert cli_payload(first)["changed"] is True
         second = runner.invoke(app, args)
         assert second.exit_code == 0, second.output
         assert p.read_text(encoding="utf-8") == expected
-        assert json.loads(second.output)["changed"] is False
+        assert cli_payload(second)["changed"] is False
 
     def test_dry_run_prints_source(self, tmp_path: Path) -> None:
         p = self._write(tmp_path, "undefined4 x;\n")
@@ -163,7 +163,7 @@ class TestFixupCli:
         p = self._write(tmp_path, "undefined4 x;\n")
         result = CliRunner().invoke(app, ["--json", str(p)])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["changed"] is True
         assert any("undefined4" in c for c in data["changes"])
         assert "wrote" in data
@@ -192,7 +192,7 @@ class TestFixupCli:
         p.write_bytes('const char *s = "Caf\xe9";\nundefined4 x;\n'.encode("latin-1"))
         result = CliRunner().invoke(app, ["--json", str(p)])
         assert result.exit_code == 0
-        wrote = Path(json.loads(result.output)["wrote"])
+        wrote = Path(cli_payload(result)["wrote"])
         assert wrote.read_bytes() == b'const char *s = "Caf\xe9";\nint x;\n'
 
     def test_compile_check_passed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -245,7 +245,7 @@ class TestFixupCli:
         )
         result = CliRunner().invoke(app, ["--compile-check", "--json", str(p)])
         assert result.exit_code == 2
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["compile_check"] is True
         assert data["compile_error"] == "error C2065: 'x': undeclared"
 

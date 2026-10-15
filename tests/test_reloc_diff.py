@@ -6,13 +6,13 @@ the base relocation table, so the command reads the same tables a linker writes.
 
 from __future__ import annotations
 
-import json
 import struct
 from pathlib import Path
 
 import lief
 import pytest
 from bin_util import make_pe
+from cli_json import cli_payload
 from source_util import write_store_fixture
 from typer.testing import CliRunner
 
@@ -77,7 +77,7 @@ def _project(tmp_path: Path, *, link_map: bool = True) -> Path:
 
 def _run(args: list[str]) -> tuple[int, dict]:
     result = CliRunner().invoke(app, ["binary", "relocs", *args, "--json"])
-    return result.exit_code, json.loads(result.stdout)
+    return result.exit_code, cli_payload(result)
 
 
 class TestRelocsCommand:

@@ -1,5 +1,6 @@
 """Tests for name_decomp.py — applying known struct names to decompiler output."""
 
+from cli_json import cli_payload
 from source_util import write_source
 
 from rebrew.name_decomp import (
@@ -528,7 +529,6 @@ class TestApplyKnownNames:
 
 class TestCli:
     def test_decompile_named_via_mocked_backend(self, tmp_path, monkeypatch) -> None:
-        import json
         from types import SimpleNamespace
 
         from typer.testing import CliRunner
@@ -561,7 +561,7 @@ class TestCli:
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _fake_fetch)
         result = CliRunner().invoke(main_mod.app, ["decompile", "0x401000", "--named", "--json"])
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["backend"] == "kuna"
         assert data["named"] is True
         assert "a0->field_10 = 1;" in data["code"]
@@ -570,7 +570,6 @@ class TestCli:
         assert data["applied"][0]["struct"] == "command_s"
 
     def test_decompile_raw_without_named(self, tmp_path, monkeypatch) -> None:
-        import json
         from types import SimpleNamespace
 
         from typer.testing import CliRunner
@@ -603,7 +602,7 @@ class TestCli:
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _fake_fetch)
         result = CliRunner().invoke(main_mod.app, ["decompile", "0x401000", "--json"])
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["named"] is False
         assert data["applied"] == []
         assert "*(char *)(a0 + 0x10) = 1;" in data["code"]

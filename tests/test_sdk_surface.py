@@ -14,6 +14,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 
 import rebrew
 from rebrew.compiler.compile import CompareResult, CompareStatus
@@ -866,7 +867,7 @@ class TestDocumentedToolchainRegistryViews:
 
         result = CliRunner().invoke(cli_mod.app, ["list", "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert set(payload) == {"toolchains", "docker_available"}
         assert payload["docker_available"] is False
         assert payload["toolchains"] == toolchain_mod.list_toolchains()

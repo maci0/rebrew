@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.app.main
@@ -212,7 +212,7 @@ class TestSubmatchCli:
             ["similarity", "function", "0x1000", "--submatch", "--other", "0x2000", "--json"],
         )
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["runs"][0]["length"] == 5
         assert payload["runs"][0]["right_va"] == "0x00002005"
 
@@ -226,7 +226,7 @@ class TestSubmatchCli:
             rebrew.app.main.app, ["similarity", "function", "0x1000", "--submatch", "--json"]
         )
         assert result.exit_code == 2
-        assert "--other" in json.loads(result.stdout)["error"]
+        assert "--other" in cli_payload(result)["error"]
 
     def test_render_without_runs_is_not_an_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._patch(
@@ -285,7 +285,7 @@ class TestClusterCli:
             rebrew.app.main.app, ["similarity", "function", "--cluster", "--json"]
         )
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["duplicate_groups"] == 1
         assert payload["clusters"][0]["size"] == 40
         assert payload["clusters"][0]["members"][0]["va"] == "0x00001000"
@@ -298,4 +298,4 @@ class TestClusterCli:
         )
         result = runner.invoke(rebrew.app.main.app, ["similarity", "function", "--json"])
         assert result.exit_code == 2
-        assert "--cluster" in json.loads(result.stdout)["error"]
+        assert "--cluster" in cli_payload(result)["error"]

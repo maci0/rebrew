@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 
 import rebrew.climb
@@ -639,9 +640,8 @@ def test_preview_preserves_original_header_directory(tmp_path, monkeypatch, obje
         rebrew.climb.app, ["--dry-run", "--objective", objective, "--json", str(source)]
     )
     assert result.exit_code == 0, result.output
-    import json
 
-    payload = json.loads(result.stdout)
+    payload = cli_payload(result)
     assert payload["objective"] == objective
     metric = "matched" if objective == "positional" else "score"
     assert payload[f"baseline_{metric}"] == payload[f"best_{metric}"]
@@ -655,7 +655,6 @@ def test_preview_preserves_original_header_directory(tmp_path, monkeypatch, obje
 @pytest.mark.parametrize("marker", ["SERVER", "GOLDTL"])
 def test_explicit_target_accepts_unregistered_source(tmp_path, monkeypatch, marker):
     """Complete overrides measure pure scratch C under the selected target."""
-    import json
     from types import SimpleNamespace
 
     from typer.testing import CliRunner
@@ -705,7 +704,7 @@ def test_explicit_target_accepts_unregistered_source(tmp_path, monkeypatch, mark
         ],
     )
     assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout)["va"] == "0x1234"
+    assert cli_payload(result)["va"] == "0x1234"
     assert calls and source.read_text() == original
     assert all(not p.exists() for p in calls)
 

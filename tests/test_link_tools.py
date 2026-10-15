@@ -7,6 +7,7 @@ import struct
 from pathlib import Path
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import Result
 
@@ -106,7 +107,6 @@ def test_gen_link_stubs(tmp_path: Path) -> None:
 
 def test_gen_link_stubs_json_still_writes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """``--json`` changes encoding only — the output TU must still be written."""
-    import json
 
     from typer.testing import CliRunner
 
@@ -123,7 +123,7 @@ def test_gen_link_stubs_json_still_writes(tmp_path: Path, monkeypatch: pytest.Mo
     out = tmp_path / "src" / "link_stubs.c"
     result = CliRunner().invoke(app, ["--data-metadata", str(meta), "--output", str(out), "--json"])
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.stdout)
+    payload = cli_payload(result)
     assert payload["written"] is True
     assert out.is_file()
     assert "char g_a[1] = {0};" in out.read_text(encoding="utf-8")
@@ -138,7 +138,6 @@ def test_gen_link_stubs_keeps_calibrated_tail(
     there; a regeneration that hard-codes the placeholder silently reverts a
     byte-match the user had already converged.
     """
-    import json
 
     from typer.testing import CliRunner
 
@@ -166,7 +165,7 @@ def test_gen_link_stubs_keeps_calibrated_tail(
 
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.stdout)
+    payload = cli_payload(result)
     assert payload["tail"] == "0x1234"
     assert payload["tail_preserved"] is True
     text = out.read_text(encoding="utf-8")
@@ -292,13 +291,12 @@ class TestOrderSourcesCli:
         assert result.stdout.split() == [str(lo), str(hi)]
 
     def test_json_orders_and_reports_excluded(self, tmp_path: Path) -> None:
-        import json
 
         lo = _mk_src(tmp_path, "b.c", 0x10001000)
         dead = _mk_src(tmp_path, "dead.c", None)
         result = self._run("--json", "--exclude", "dead.c", str(dead), str(lo))
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["ordered"] == [str(lo)]
         assert payload["excluded"] == ["dead.c"]
 
@@ -307,9 +305,8 @@ class TestOrderSourcesCli:
         game = _mk_src(tmp_path, "game.c", 0x10002000)
         result = self._run("--json", "--first-va", "zlib.c=0x10001000", str(game), str(zlib))
         assert result.exit_code == 0
-        import json
 
-        assert json.loads(result.stdout)["ordered"] == [str(zlib), str(game)]
+        assert cli_payload(result)["ordered"] == [str(zlib), str(game)]
 
     @pytest.mark.parametrize("entry", ["zlib.c", "=0x1000", "zlib.c=", "zlib.c=0xzz"])
     def test_malformed_first_va_exits_with_the_offending_value(
@@ -321,9 +318,8 @@ class TestOrderSourcesCli:
         assert entry in result.stderr
 
     def test_malformed_first_va_is_json_when_json_is_requested(self, tmp_path: Path) -> None:
-        import json
 
         src = _mk_src(tmp_path, "a.c", 0x1000)
         result = self._run("--json", "--first-va", "nope", str(src))
         assert result.exit_code != 0
-        assert "nope" in json.loads(result.stdout)["error"]
+        assert "nope" in cli_payload(result)["error"]

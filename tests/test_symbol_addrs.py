@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import struct
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from bin_util import make_pe
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.symbol_addrs as symbol_addrs
@@ -130,7 +130,7 @@ class TestSymbolAddrs:
         out = tmp_path / "symbol_addrs.csv"
         r = runner.invoke(symbol_addrs.app, ["--output", str(out), "--json"])
         assert r.exit_code == 0
-        payload = json.loads(r.stdout)
+        payload = cli_payload(r)
         assert payload["symbols"] == 1
         assert payload["skipped_unnamed"] == 1
         assert payload["format"] == "rich"
@@ -162,7 +162,7 @@ class TestSymbolAddrs:
         out = tmp_path / "symbol_addrs.csv"
         r = runner.invoke(symbol_addrs.app, ["--output", str(out), "--json"])
         assert r.exit_code == 0
-        payload = json.loads(r.stdout)
+        payload = cli_payload(r)
         assert payload["symbols"] == 1
         assert payload["skipped_invalid_va"] == 1
         lines = out.read_text(encoding="utf-8").splitlines()
@@ -190,7 +190,7 @@ class TestPeSymbolsFlag:
         out = tmp_path / "symbol_addrs.csv"
         r = runner.invoke(symbol_addrs.app, ["--output", str(out), "--pe-symbols", "--json"])
         assert r.exit_code == 0
-        payload = json.loads(r.stdout)
+        payload = cli_payload(r)
         assert payload["pe_symbols"] >= 2
         assert payload["pe_collisions"] == []
         text = out.read_text(encoding="utf-8")
@@ -216,7 +216,7 @@ class TestPeSymbolsFlag:
         out = tmp_path / "symbol_addrs.csv"
         r = runner.invoke(symbol_addrs.app, ["--output", str(out), "--pe-symbols", "--json"])
         assert r.exit_code == 0
-        payload = json.loads(r.stdout)
+        payload = cli_payload(r)
         assert len(payload["pe_collisions"]) == 1
         assert "same VA" in payload["pe_collisions"][0]
         text = out.read_text(encoding="utf-8")
@@ -257,7 +257,7 @@ class TestReferences:
         out = tmp_path / "symbols.csv"
         r = runner.invoke(symbol_addrs.app, ["--output", str(out), "--references", "--json"])
         assert r.exit_code == 0
-        assert json.loads(r.stdout)["format"] == "references"
+        assert cli_payload(r)["format"] == "references"
         lines = out.read_text(encoding="utf-8").splitlines()
         assert lines[0] == "va,name,type,size,referenced_by"
         by_name = {line.split(",")[1]: line for line in lines[1:]}

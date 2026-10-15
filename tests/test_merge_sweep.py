@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -384,7 +385,7 @@ class TestDryRunCli:
 
         result = runner.invoke(app, ["--dry-run", "--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["dry_run"] is True
         assert payload["clusters"] == 2
         assert len(payload["merge_candidates"]) == 1
@@ -446,7 +447,7 @@ class TestAuditCli:
 
         result = runner.invoke(app, ["--json"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["moves"] == 0
         assert payload["clusters"] == 2
 

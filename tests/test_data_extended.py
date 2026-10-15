@@ -1,10 +1,10 @@
 """Extended tests for rebrew data.py — scan branches, renderers, gen-header, CLI."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
@@ -718,7 +718,7 @@ class TestDataCli:
         self._write_global(cfg)
         result = self._invoke(tmp_path, monkeypatch, ["list", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert "g_counter" in data["globals"]
         assert "sections" in data
 
@@ -737,7 +737,7 @@ class TestDataCli:
         self._write_global(cfg)
         result = self._invoke(tmp_path, monkeypatch, ["list", "--summary", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert "summary" in data
         row = next(r for r in data["summary"]["sections"] if r["name"] == "unknown")
         # one annotated g_counter → 1 annotated global, 4-byte int.
@@ -784,13 +784,13 @@ class TestDataCli:
         )
         result = self._invoke(tmp_path, monkeypatch, ["list", "--conflicts", "--json"])
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert list(data["globals"]) == ["g_x"]
         assert data["summary"]["total"] == 1
         assert data["summary"]["conflicts"] == 1
         # Control: without --conflicts the full set comes back.
         result = self._invoke(tmp_path, monkeypatch, ["list", "--json"])
-        assert "g_counter" in json.loads(result.output)["globals"]
+        assert "g_counter" in cli_payload(result)["globals"]
 
     def test_gen_header_writes_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
@@ -809,15 +809,15 @@ class TestDataCli:
         self._write_global(cfg)
         result = self._invoke(tmp_path, monkeypatch, ["header", "--json"])
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["written"] is True
         assert data["globals"] >= 1
         assert data["path"] == str(cfg.reversed_dir / "rebrew_globals.h")
         # Re-run with --force: identical body → written=False (nothing rewritten).
         result = self._invoke(tmp_path, monkeypatch, ["header", "--force", "--json"])
-        assert json.loads(result.output)["written"] is False
+        assert cli_payload(result)["written"] is False
         result = self._invoke(tmp_path, monkeypatch, ["header", "--force", "--dry-run", "--json"])
-        assert json.loads(result.output)["dry_run"] is True
+        assert cli_payload(result)["dry_run"] is True
 
     def test_gen_header_refuses_overwrite_without_force(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -828,7 +828,7 @@ class TestDataCli:
         out.write_text("existing", encoding="utf-8")
         result = self._invoke(tmp_path, monkeypatch, ["header", "--json"])
         assert result.exit_code == 2, result.output
-        assert "already exists" in json.loads(result.output)["error"]
+        assert "already exists" in cli_payload(result)["error"]
         assert out.read_text(encoding="utf-8") == "existing"
 
     def test_gen_header_out_custom_path(
@@ -861,7 +861,7 @@ class TestDataCli:
         (tmp_path / "fake.dll").write_bytes(b"\x00" * 16)
         result = self._invoke(tmp_path, monkeypatch, ["bss", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["bss_size"] == 0x100
 
     def test_fix_bss_writes_padding(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -910,7 +910,7 @@ class TestDataCli:
         monkeypatch.setattr("rebrew.data.find_dispatch_tables", lambda *a, **k: [])
         result = self._invoke(tmp_path, monkeypatch, ["dispatch", "--json"])
         assert result.exit_code == 0
-        assert json.loads(result.output) == []
+        assert cli_payload(result) == {"items": [], "total": 0}
 
     def test_dispatch_parses_binary_once(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1488,7 +1488,7 @@ class TestDataSetMarkerTypeAndNote:
 
         result, meta = self._invoke(tmp_path, monkeypatch, ["--kind", "0x1000=GLOBAL"])
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["set"] == [
+        assert cli_payload(result)["set"] == [
             {"va": "0x1000", "kind": "GLOBAL", "module": "SERVER"}
         ]
         row = tomllib.loads(meta.read_text(encoding="utf-8"))["SERVER.0x1000"]
@@ -1501,7 +1501,7 @@ class TestDataSetMarkerTypeAndNote:
     ) -> None:
         result, meta = self._invoke(tmp_path, monkeypatch, ["--kind", "0x1000=FUNCTION"])
         assert result.exit_code != 0
-        assert "--kind" in json.loads(result.stdout)["error"]
+        assert "--kind" in cli_payload(result)["error"]
         assert "kind" not in meta.read_text(encoding="utf-8")
 
     def test_note_is_written_and_dry_run_writes_nothing(
@@ -1523,7 +1523,7 @@ class TestDataSetMarkerTypeAndNote:
     def test_empty_note_is_refused(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         result, _meta = self._invoke(tmp_path, monkeypatch, ["--note", "0x1000="])
         assert result.exit_code != 0
-        assert "--note" in json.loads(result.stdout)["error"]
+        assert "--note" in cli_payload(result)["error"]
 
     def test_combines_note_and_kind(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.metadata.data import get_data_entry
@@ -1567,7 +1567,7 @@ class TestDataMove:
 
         result, meta = self._invoke(tmp_path, monkeypatch, ["0x1000", "0x1004"])
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["moved"] == {
             "module": "SERVER",
             "from": "0x1000",
@@ -1590,7 +1590,7 @@ class TestDataMove:
     def test_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         result, meta = self._invoke(tmp_path, monkeypatch, ["0x1000", "0x1004", "--dry-run"])
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["dry_run"] is True
+        assert cli_payload(result)["dry_run"] is True
         assert "SERVER.0x00001004" not in meta.read_text(encoding="utf-8")
 
     @pytest.mark.parametrize(
@@ -1611,7 +1611,7 @@ class TestDataMove:
     ) -> None:
         result, meta = self._invoke(tmp_path, monkeypatch, [old, new])
         assert result.exit_code != 0
-        assert reason in json.loads(result.stdout)["error"]
+        assert reason in cli_payload(result)["error"]
         assert "SERVER.0x00001004" not in meta.read_text(encoding="utf-8")
 
     def test_refuses_a_row_its_source_still_marks_inline(
@@ -1628,7 +1628,7 @@ class TestDataMove:
         )
         result, meta = self._invoke(tmp_path, monkeypatch, ["0x1000", "0x1004"])
         assert result.exit_code != 0
-        assert "ADDRESS anchor" in json.loads(result.stdout)["error"]
+        assert "ADDRESS anchor" in cli_payload(result)["error"]
         assert "SERVER.0x00001004" not in meta.read_text(encoding="utf-8")
 
 
@@ -1678,7 +1678,7 @@ class TestDataOptionContracts:
             args.append("--bss-only")
         result = CliRunner().invoke(app, args)
         assert result.exit_code == 0, result.output
-        assert json.loads(result.output) == {"init_pads": 0, "bss_pads": 1}
+        assert cli_payload(result) == {"init_pads": 0, "bss_pads": 1}
         assert seen["args"] == (
             tmp_path,
             tmp_path / "rebrew-data.toml",

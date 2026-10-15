@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.binary_similarity import aggregate_similarity, app, score_matrix
@@ -138,12 +139,11 @@ class TestCli:
         assert "overall" in result.stderr.lower()
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         other, other_list = self._patch(monkeypatch, tmp_path)
         result = CliRunner().invoke(app, ["--json", "--other-list", str(other_list), str(other)])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["overall"] == 100.0
         assert data["binary_a"].endswith("a.dll")
 

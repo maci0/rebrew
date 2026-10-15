@@ -907,6 +907,8 @@ def _stop_before_write(
                 "Merge retargets rows onto the output file. "
                 "Pass --force to apply it in --json mode, or use --dry-run to preview.",
                 json_mode=True,
+                kind="confirmation_required",
+                hint="Pass --force to skip the prompt.",
             )
         extra = f" and delete {len(input_files)} input file(s)" if delete else ""
         confirm_abort(f"Merge will retarget rows onto {output_path.name}{extra}. Continue?")

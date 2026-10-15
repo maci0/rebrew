@@ -8,13 +8,13 @@ the source (its BinSync state carries the names); target B is the destination
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 import tomlkit
 from bin_util import make_pe
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -160,7 +160,7 @@ class TestOverlayNameTransfer:
 
         result = _invoke(tmp_path, state, "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["from_target"] == "A"
         assert payload["target"] == "B"
         assert payload["matches"] == 1
@@ -179,7 +179,7 @@ class TestDryRun:
 
         result = _invoke(tmp_path, state, "--dry-run", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["dry_run"] is True
         assert payload["applied_names"] == 1
         assert dest.exists()
@@ -199,7 +199,7 @@ class TestConflict:
         dest, state = self._setup(tmp_path, monkeypatch)
         result = _invoke(tmp_path, state, "--json")
         assert result.exit_code == 1
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert len(payload["conflicts"]) == 1
         conflict = payload["conflicts"][0]
         assert conflict["field"] == "name"
@@ -212,7 +212,7 @@ class TestConflict:
         dest, state = self._setup(tmp_path, monkeypatch)
         result = _invoke(tmp_path, state, "--accept-binsync", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["applied_names"] == 1
         assert "RemoteName" in _dest_text(tmp_path)
 
@@ -220,7 +220,7 @@ class TestConflict:
         dest, state = self._setup(tmp_path, monkeypatch)
         result = _invoke(tmp_path, state, "--accept-binsync", "--dry-run", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["applied_names"] == 1
         assert payload["proposed"][0]["action"] == "would rename (accept-binsync)"
         assert "LocalName" in dest.read_text(encoding="utf-8")
@@ -251,7 +251,7 @@ class TestDecoratedOverlayName:
 
         result = _invoke(tmp_path, state, "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["conflicts"] == []
         assert payload["applied_names"] == 0
         assert "void hook(void)" in dest.read_text(encoding="utf-8")
@@ -264,7 +264,7 @@ class TestDecoratedOverlayName:
 
         result = _invoke(tmp_path, state, "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["conflicts"] == []
         assert "void keeps(void)" in dest.read_text(encoding="utf-8")
 
@@ -281,7 +281,7 @@ class TestDecoratedOverlayName:
 
         result = _invoke(tmp_path, state, "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["applied_names"] == 1
         text = _dest_text(tmp_path)
         assert "void hook(void)" in text
@@ -320,7 +320,7 @@ class TestSourceResolution:
 
         result = _invoke(tmp_path, state, "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["from_target"] == "A"
 
     def test_missing_target_errors(self, tmp_path: Path, monkeypatch) -> None:
@@ -343,13 +343,13 @@ class TestPrototypeAndNote:
 
         result = _invoke(tmp_path, state, "--fields", "prototype", "--json")
         assert result.exit_code == 1
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["conflicts"][0]["field"] == "prototype"
         assert "PROTOTYPE" not in dest.read_text(encoding="utf-8")
 
         result = _invoke(tmp_path, state, "--fields", "prototype", "--accept-binsync", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["applied_prototypes"] == 1
         assert "int func_401040(int x)" in dest.read_text(encoding="utf-8")
 
@@ -363,7 +363,7 @@ class TestPrototypeAndNote:
 
         result = _invoke(tmp_path, state, "--fields", "note", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["applied_notes"] == 1
         assert get_entry(tmp_path / "src", B_F1, "B").get("note") == "needs RE"
 
@@ -377,7 +377,7 @@ class TestJsonShape:
 
         result = _invoke(tmp_path, state, "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert set(payload) == {
             "state_dir",
             "from_target",
@@ -412,7 +412,7 @@ class TestFieldsAndModule:
 
         result = _invoke(tmp_path, state, "--fields", "name", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["applied_names"] == 1
         assert payload["applied_prototypes"] == 0
         assert payload["applied_notes"] == 0
@@ -473,7 +473,7 @@ class TestGlobalOverlay:
         state = self._setup(tmp_path, monkeypatch)
         result = _invoke(tmp_path, state, "--fields", "global", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["applied_globals"] == 1
         assert payload["touched_vas"] == [f"0x{G_DST:08x}"]
         stored = get_data_entry(tmp_path / "src", G_DST, "B")
@@ -487,7 +487,7 @@ class TestGlobalOverlay:
         state = self._setup(tmp_path, monkeypatch, duplicate=True)
         result = _invoke(tmp_path, state, "--fields", "global", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["applied_globals"] == 0
         assert get_data_entry(tmp_path / "src", G_DST, "B") == {}
 
@@ -498,7 +498,7 @@ class TestGlobalOverlay:
         state = self._setup(tmp_path, monkeypatch)
         result = _invoke(tmp_path, state, "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["applied_globals"] == 0
         assert get_data_entry(tmp_path / "src", G_DST, "B") == {}
 
@@ -525,7 +525,7 @@ class TestEnumTypedefOverlay:
         state = self._setup(tmp_path, monkeypatch)
         result = _invoke(tmp_path, state, "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["applied_enums"] == 1
         assert payload["applied_typedefs"] == 1
         header = tmp_path / "src" / "b" / "binsync_types.h"
@@ -557,7 +557,7 @@ class TestLocalsCommentsOverlay:
 
         result = _invoke(tmp_path, state, "--fields", "note", "--json")
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["applied_locals"] == 1
         assert payload["applied_comments"] == 1
         assert (source.read_bytes(), source.stat().st_mtime_ns) == before_source

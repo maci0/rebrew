@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI exposes 225 surfaces: 193 leaf commands and 32 groups, including the
+The CLI exposes 226 surfaces: 194 leaf commands and 32 groups, including the
 root. They are registered under the unified `rebrew` entry point in `app/main.py`
 (`CliComponent` rows in `app/builtins.py`).
 Only `rebrew` is installed. Invoke tools as subcommands:
@@ -83,7 +83,14 @@ every code.
 
 Status messages, progress, warnings, and errors go to **stderr**; only
 `--json` documents (and piped data like `rebrew cfg show`) go to **stdout**.
-`rebrew <cmd> --json` writes one JSON document to stdout. Continuous watch
+`rebrew <cmd> --json` writes one JSON document to stdout. A pipe stays text
+unless `--json` or `-o json` is set. `-o` / `--output` before the subcommand
+selects `auto`, `text`, or `json`; `auto` stays text, and a command's own
+`-o` is still a destination path. In JSON mode the last stderr line of a
+failure is `{"error":{"kind","message","hint"}}`. Exit 1 is a mismatch
+outcome, not an error kind: the report stays on stdout.
+`rebrew schema` prints the clispec 0.3 document with no project and no network.
+Continuous watch
 modes are terminal-only: `--watch --json` is rejected; `sync watch` has no JSON option and rejects it
 before project loading or execution. For one-shot structured results, omit watch.
 For example,
@@ -97,9 +104,9 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 
 ## Entry Points
 
-The 33 root entries lead to the daily workflow and focused domain scopes.
+The 34 root entries lead to the daily workflow and focused domain scopes.
 Counts include each entry's landing page and all of its nested operations;
-the root adds one surface to the 224 listed here. Each operation below has a
+the root adds one surface to the 225 listed here. Each operation below has a
 reference section with its current arguments, options, and defaults.
 
 | Entry | Surfaces | Purpose |
@@ -115,6 +122,7 @@ reference section with its current arguments, options, and defaults.
 | [`rebrew status`](#rebrew-status) | 1 | At-a-glance reversing progress overview. |
 | [`rebrew todo`](#rebrew-todo) | 1 | Prioritized action list: what to work on next for highest ROI. |
 | [`rebrew doctor`](#rebrew-doctor) | 1 | Diagnostic checks for rebrew project health. |
+| [`rebrew schema`](#rebrew-schema) | 1 | Print the clispec 0.3 JSON document for this CLI. |
 | [`rebrew prove`](#rebrew-prove) | 1 | Prove semantic equivalence of NEAR_MATCHING/SIZE_MISMATCH functions via symbolic execution. |
 | [`rebrew recommend`](#rebrew-recommend) | 1 | Deterministic project advice: TU layout, hygiene, next steps. |
 | [`rebrew sync`](#rebrew-sync) | 8 | Exchange metadata with Ghidra through BinSync and perform structural operations. |
@@ -838,6 +846,18 @@ tools. For image-backed profiles the host runner config is obsolete;
 | --- | --- | --- | --- |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+
+### `rebrew schema`
+
+`rebrew schema [COMMAND...]`
+
+Print the clispec 0.3 JSON document for this CLI. The document is JSON on
+stdout and does not read a project, a credential, or the network. A command
+path keeps that command and any command under it.
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `COMMAND` | str | — | Command path to include. Matching commands and their children are kept. |
 
 ### `rebrew prove`
 
@@ -5752,7 +5772,8 @@ there are no `install`/`remove` subcommands.
 
 `rebrew skills list [OPTIONS]`
 
-List all available agent skills with a short description.
+List all available agent skills with a short description. JSON output is
+`{"items":[{"name","description","origin"}],"total":N}`.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

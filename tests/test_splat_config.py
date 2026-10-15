@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from source_util import write_source
@@ -655,9 +656,8 @@ class TestApply:
         _, yaml_path = self._project(tmp_path, monkeypatch)
         result = _invoke([str(yaml_path), "--json"])
         assert result.exit_code == 0, result.output
-        import json
 
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["dry_run"] is True
         assert payload["project"]["profile"] == "msvc-6.0"
         assert [s["name"] for s in payload["layout"]["sections"]] == [".text", ".data"]

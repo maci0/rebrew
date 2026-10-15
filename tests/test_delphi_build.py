@@ -1,10 +1,10 @@
 """The Delphi CLI produces consistent artifacts without changing reference bytes or stores."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
@@ -63,7 +63,7 @@ class TestDelphiBuild:
         assert result.exit_code == 0, result.output
         assert output.read_bytes() == b"compiled"
         assert map_output.read_text() == "segment map"
-        assert json.loads(result.stdout)["toolchain"] == "delphi-1.0"
+        assert cli_payload(result)["toolchain"] == "delphi-1.0"
         assert (tmp_path / "original.exe").read_bytes() == b"reference"
 
     def test_failure_cannot_publish_stale_artifacts(

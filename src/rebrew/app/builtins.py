@@ -793,6 +793,12 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
         panel=Panel.PROJECT_SETUP,
     ),
     CliComponent(
+        name="schema",
+        module="rebrew.schema_cmd",
+        help="Print the clispec 0.3 JSON document for this CLI.",
+        panel=Panel.PROJECT_SETUP,
+    ),
+    CliComponent(
         name="prove",
         module="rebrew.prove",
         help="Prove semantic equivalence of NEAR_MATCHING/SIZE_MISMATCH functions via symbolic execution.",

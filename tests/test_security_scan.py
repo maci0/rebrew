@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.app.main
@@ -280,7 +280,7 @@ class TestSecurityScanCli:
         _write(tmp_path, "one.c", "void f(char *d, char *s) {\n    strcpy(d, s);\n}\n")
         result = runner.invoke(rebrew.app.main.app, ["source", "security", str(tmp_path), "--json"])
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert set(payload) == {"root", "files_scanned", "findings", "count", "by_severity"}
         assert payload["count"] == 1
         assert payload["findings"][0]["rule"] == "unbounded-copy"
@@ -312,7 +312,7 @@ class TestSecurityScanCli:
             ["source", "security", str(tmp_path), "--min-severity", "high", "--json"],
         )
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["count"] == 1
         assert payload["by_severity"] == {"high": 1, "medium": 0, "low": 0}
         assert [f["rule"] for f in payload["findings"]] == ["unbounded-copy"]
@@ -323,7 +323,7 @@ class TestSecurityScanCli:
             ["source", "security", str(tmp_path), "--min-severity", "bogus", "--json"],
         )
         assert result.exit_code == 2
-        assert "error" in json.loads(result.stdout)
+        assert "error" in cli_payload(result)
 
     def test_missing_directory_errors(self, tmp_path: Path) -> None:
         result = runner.invoke(
@@ -331,7 +331,7 @@ class TestSecurityScanCli:
             ["source", "security", str(tmp_path / "absent"), "--json"],
         )
         assert result.exit_code == 2
-        assert "error" in json.loads(result.stdout)
+        assert "error" in cli_payload(result)
 
     def test_default_directory_from_project(self, tmp_path: Path, monkeypatch: Any) -> None:
         (tmp_path / "rebrew-project.toml").write_text(
@@ -343,7 +343,7 @@ class TestSecurityScanCli:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(rebrew.app.main.app, ["source", "security", "--json"])
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["count"] == 1
         assert payload["findings"][0]["file"].endswith("src/T/one.c")
 

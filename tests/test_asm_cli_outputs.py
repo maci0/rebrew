@@ -1,11 +1,11 @@
 """Assembly previews, output files and machine-readable summaries."""
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -105,7 +105,7 @@ class TestShowArtifacts:
             args.append("--inline-c")
         result = CliRunner().invoke(app, args)
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["output"] == str(output)
         assert payload["written"] is False
         assert payload["dry_run"] is True
@@ -137,7 +137,7 @@ class TestShowArtifacts:
             args.append("--inline-c")
         result = CliRunner().invoke(app, args)
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["output"] == str(output)
         assert payload["written"] is True
         assert payload["dry_run"] is False
@@ -172,7 +172,7 @@ class TestBatchArtifacts:
         first = CliRunner().invoke(app, args)
         assert first.exit_code == 0, first.output
         metadata = load_metadata(tmp_path)
-        assert json.loads(first.stdout)["total"] == 1
+        assert cli_payload(first)["total"] == 1
         history = metadata[("SERVER", 0x1000)]["binding_history"]
         assert history[-1]["previous"]["file"] == "src/f.c"
         assert history[-1]["replacement"]["kind"] == "FUNCTION"
@@ -189,8 +189,8 @@ class TestBatchArtifacts:
         generated_files = _state(generated)
         second = CliRunner().invoke(app, args)
         assert second.exit_code == 0, second.output
-        assert json.loads(second.stdout)["total"] == 0
-        assert json.loads(second.stdout)["files"] == []
+        assert cli_payload(second)["total"] == 0
+        assert cli_payload(second)["files"] == []
         assert load_metadata(tmp_path) == metadata
         assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata_bytes
         assert _state(generated) == generated_files
@@ -264,7 +264,7 @@ class TestBatchArtifacts:
             app, ["batch", "--output", str(output), "--inline-c", "--verify", "--dry-run", "--json"]
         )
         assert result.exit_code == 2, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert "must not equal or contain configured source directory" in payload["error"]
         assert payload["code"] == 2
         assert _state(tmp_path) == before
@@ -307,7 +307,7 @@ class TestBatchArtifacts:
             args.append("--dry-run")
         result = CliRunner().invoke(app, args)
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         artifact = output / f"f.c.{va:08x}.c"
         assert payload["total"] == 1
         assert payload["files"] == [str(artifact)]
@@ -344,7 +344,7 @@ class TestBatchArtifacts:
             app, ["batch", "--output", str(output), "--inline-c", "--verify", "--dry-run", "--json"]
         )
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload == {
             "output": str(output),
             "total": 1,
@@ -378,7 +378,7 @@ class TestBatchArtifacts:
         result = CliRunner().invoke(app, ["batch", "--output", str(output), "--json"])
         assert result.exit_code == 0, result.output
         artifact = output / "f.c.00001000.asm"
-        assert json.loads(result.stdout) == {
+        assert cli_payload(result) == {
             "output": str(output),
             "total": 2,
             "ok": 1,

@@ -186,10 +186,13 @@ def test_json_stdout_is_pure_json(project: Path, argv: str, exit_codes: set[int]
     assert result.exit_code in exit_codes, (
         f"rebrew {argv} exited {result.exit_code}, want {sorted(exit_codes)}:\n{result.output}"
     )
-    assert result.stdout.strip(), f"rebrew {argv} --json produced empty stdout"
-    # The whole stdout (no preamble) must parse as JSON.
-    payload = json.loads(result.stdout)
-    assert isinstance(payload, (dict, list))
+    if result.stdout.strip():
+        payload = json.loads(result.stdout)
+        assert isinstance(payload, (dict, list))
+        return
+    assert result.exit_code != 0, f"rebrew {argv} --json produced empty stdout on success"
+    envelope = json.loads(result.stderr.strip().splitlines()[-1])
+    assert set(envelope["error"]) >= {"kind", "message", "hint"}
 
 
 @pytest.mark.parametrize(

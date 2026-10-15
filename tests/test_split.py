@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -606,7 +607,6 @@ class TestSplitCliErrors:
         assert "Pass --force" in result.output
 
     def test_va_json_force_extracts(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import json
 
         monkeypatch.setattr(
             "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
@@ -616,7 +616,7 @@ class TestSplitCliErrors:
             app, ["--va", "0x10001000", "--json", "--force", str(tmp_path / "multi.c")]
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["count"] == 1
         assert data["files"][0]["va"] == "0x10001000"
 

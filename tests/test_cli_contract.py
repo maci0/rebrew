@@ -567,7 +567,8 @@ class TestRowCountOptions:
             app, ["source", "import-related", "--from", "OTHER", "--limit", "-1", "--json"]
         )
         assert result.exit_code == 2
-        assert "--limit" in json.loads(result.stdout)["error"]
+        error = json.loads(result.stderr.strip().splitlines()[-1])["error"]
+        assert "--limit" in error["message"]
 
     def test_every_count_option_is_validated(self) -> None:
         callbacks = {

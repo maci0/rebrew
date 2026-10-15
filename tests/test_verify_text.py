@@ -7,11 +7,11 @@ function fails the gate in both human and ``--json`` output, and the JSON
 payload carries the text verdict block.
 """
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
@@ -124,7 +124,7 @@ class TestVerifyText:
             args += ["--link-map", str(link_map)]
         result = CliRunner().invoke(app, args)
         assert result.exit_code == 0, result.output
-        text = json.loads(result.output)["text"]
+        text = cli_payload(result)["text"]
         assert (text["found"], text["correct"], text["misplaced"], text["missing"]) == (3, 3, 0, 0)
         assert text["linked"]["placement"] == str(link_map)
 
@@ -144,7 +144,7 @@ class TestVerifyText:
         )
         result = CliRunner().invoke(app, ["--text", "--json"])
         assert result.exit_code == EXIT_MISMATCH
-        text = json.loads(result.output)["text"]
+        text = cli_payload(result)["text"]
         assert (text["correct"], text["misplaced"], text["missing"]) == (0, 1, 1)
         assert text["misplaced_list"][0]["delta"] == 16
 
@@ -156,7 +156,7 @@ class TestVerifyText:
         _patch_flow(monkeypatch, cfg)
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 0
-        assert json.loads(result.output)["text"] is None
+        assert cli_payload(result)["text"] is None
 
     def test_aligned_build_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.verify import app
@@ -167,7 +167,7 @@ class TestVerifyText:
         _make_built(tmp_path)
         result = CliRunner().invoke(app, ["--text", "--json"])
         assert result.exit_code == 0
-        text = json.loads(result.output)["text"]
+        text = cli_payload(result)["text"]
         assert text["functions"] == 1
         assert text["correct"] == 1
         assert text["misplaced"] == 0
@@ -182,7 +182,7 @@ class TestVerifyText:
         _make_built(tmp_path)
         result = CliRunner().invoke(app, ["--text", "--json"])
         assert result.exit_code == EXIT_MISMATCH
-        text = json.loads(result.output)["text"]
+        text = cli_payload(result)["text"]
         assert text["misplaced"] == 1
         assert text["misplaced_list"] == [
             {
@@ -210,7 +210,7 @@ class TestVerifyText:
         _make_built(tmp_path)
         result = CliRunner().invoke(app, ["--text", "--json"])
         assert result.exit_code == 0  # missing is reported, not gated
-        text = json.loads(result.output)["text"]
+        text = cli_payload(result)["text"]
         # The linked-EXACT block rides along; with no RELOC rows it promotes nothing.
         linked = text.pop("linked")
         assert (linked["candidates"], linked["promoted"]) == (0, 0)

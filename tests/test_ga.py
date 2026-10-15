@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
 
 from rebrew.match_batch import (
@@ -1886,7 +1887,7 @@ class TestGaHistory:
         )
         result = CliRunner().invoke(app, ["history", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["total"] == 3  # broken line skipped
         assert data["matched"] == 1
         assert data["matched_pct"] == round(100.0 / 3, 1)
@@ -1981,7 +1982,6 @@ class TestGaHistory:
             )
 
     def test_history_empty(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -1990,7 +1990,7 @@ class TestGaHistory:
         self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(app, ["history", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["total"] == 0
         assert data["matched"] == 0
         assert data["avg_score"] is None

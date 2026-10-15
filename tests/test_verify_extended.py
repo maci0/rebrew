@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 import tomlkit
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -636,7 +637,7 @@ class TestVerifyCli:
             args.append("--raw-link")
         result = CliRunner().invoke(app, args)
         assert result.exit_code == 0, result.output
-        report = json.loads(result.stdout)
+        report = cli_payload(result)
         assert report["data"]["matched"] == 1
         assert ("section_copied_warning" in report["data"]) is (acknowledgement == "none")
 
@@ -716,7 +717,7 @@ class TestVerifyCli:
         result = CliRunner().invoke(app, args)
         assert result.exit_code == EXIT_MISMATCH, result.output
         acknowledged = acknowledgement not in {"other", "none"}
-        report = json.loads(result.stdout)
+        report = cli_payload(result)
         assert report["data"].get("raw_link_status_suppressed", False) is not acknowledged
         assert get_data_entry(tmp_path, sec.va, "SERVER").get("status") == (
             "VERIFIED" if acknowledged else None
@@ -786,7 +787,7 @@ class TestVerifyCli:
         )
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["summary"]["total"] == 1
         assert data["summary"]["exact"] == 1
 
@@ -808,7 +809,7 @@ class TestVerifyCli:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 2
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data.get("skipped") is True
         assert "NE" in data["reason"]
 
@@ -876,7 +877,7 @@ class TestVerifyCli:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 2
-        payload = json.loads(result.output)
+        payload = cli_payload(result)
         assert payload.get("skipped") is True
         assert ".exe" in payload["reason"]
         assert "delphi-1.0" in payload["reason"]
@@ -934,7 +935,7 @@ class TestVerifyCli:
 
         result = CliRunner().invoke(app, ["--json", "--skip-libraries"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["summary"]["library_excluded"] == 1
         assert data["summary"]["total"] == 1  # only the FUNCTION entry remains
         assert data["summary"]["passed"] == 0  # cached LIBRARY hit dropped
@@ -1030,7 +1031,7 @@ class TestVerifyCli:
 
         result = CliRunner().invoke(app, ["--json", "--skip-libraries"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["summary"]["library_excluded"] == 1
         assert data["summary"]["failed"] == 0
 
@@ -1081,7 +1082,7 @@ class TestVerifyCli:
         # previous == current → unchanged, no regression → exit 0.
         result = CliRunner().invoke(app, ["--compare", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["report"]["summary"]["passed"] == 1
 
     def test_compare_has_regression(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1139,7 +1140,7 @@ class TestVerifyCli:
         result = CliRunner().invoke(app, ["--compare", "--json"])
         # One pre-existing failure, zero regressions → the gate passes.
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["report"]["summary"]["failed"] == 1
         assert data["diff"]["regressions"] == []
 
@@ -1205,7 +1206,7 @@ class TestVerifyCli:
         )
         result = CliRunner().invoke(app, ["--compare", "--json"])
         assert result.exit_code == 0, result.output
-        diff = json.loads(result.output)["diff"]
+        diff = cli_payload(result)["diff"]
         assert diff["regressions"] == []
         assert [entry["va"] for entry in diff["new"]] == ["0x00003000"]
 
@@ -1653,7 +1654,7 @@ class TestProvenIsNotAPass:
 
         result, cfg = self._run(tmp_path, monkeypatch, byte_status, ["--json"])
         assert result.exit_code == 1
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["results"][0]["status"] == byte_status
         assert data["results"][0]["passed"] is False
         assert data["summary"]["passed"] == 0
@@ -1677,7 +1678,7 @@ class TestProvenIsNotAPass:
 
         result, _cfg = self._run(tmp_path, monkeypatch, "COMPILE_ERROR", ["--json"])
         assert result.exit_code == 1
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["results"][0]["status"] == "COMPILE_ERROR"
         assert data["summary"]["failed"] == 1
         entry = get_entry(tmp_path, 0x1000, "SERVER")
@@ -1690,7 +1691,7 @@ class TestProvenIsNotAPass:
 
         result, _cfg_ns = self._run(tmp_path, monkeypatch, "EXACT", ["--json"])
         assert result.exit_code == 0
-        assert json.loads(result.stdout)["summary"]["passed"] == 1
+        assert cli_payload(result)["summary"]["passed"] == 1
         entry = get_entry(tmp_path, 0x1000, "SERVER")
         assert entry.get("status") == "EXACT"
         assert "blocker" not in entry

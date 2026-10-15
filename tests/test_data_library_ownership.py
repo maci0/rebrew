@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from bin_util import make_coff_obj, make_lib_archive
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -146,7 +147,6 @@ def test_missing_auto_map_is_optional_explicit_missing_map_errors(tmp_path: Path
 def test_data_cli_exposes_explicit_library_owners(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import json
 
     import rebrew.data as cli
 
@@ -174,7 +174,7 @@ def test_data_cli_exposes_explicit_library_owners(
     monkeypatch.setattr(cli, "require_config", lambda **kwargs: cfg)
     result = CliRunner().invoke(cli.app, ["list", "--link-map", str(link_map), "--json"])
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
+    payload = cli_payload(result)
     assert payload["globals"]["__argc"]["library_owners"][0]["member"] == "crt0dat.obj"
     assert payload["summary"]["library_owned"] == 1
 

@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 import typer
+from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
 
 from rebrew.compiler.compile import CompareResult
@@ -1431,7 +1432,6 @@ class TestRunTest:
     def test_returns_the_mismatch_object_like_the_cli(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -1447,7 +1447,7 @@ class TestRunTest:
 
         # A mismatch is a result (exit 1), not an error: both return the object.
         assert cli.exit_code == 1, cli.output
-        assert result == json.loads(cli.stdout)
+        assert result == cli_payload(cli)
         assert result["status"] == "NEAR_MATCHING"
 
     def test_no_promote_writes_no_metadata(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -1612,7 +1612,6 @@ class TestMissingSourceArgument:
         assert "Source file not found: nope.c" in result.output
 
     def test_json_envelope(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -1621,7 +1620,7 @@ class TestMissingSourceArgument:
         self._project(tmp_path, monkeypatch)
         result = CliRunner().invoke(umbrella, ["test", "nope.c", "--json"])
         assert result.exit_code == 2, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["code"] == 2
         assert "Source file not found" in payload["error"]
 

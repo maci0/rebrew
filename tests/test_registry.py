@@ -7,7 +7,6 @@ backends, GA mutations, CLI commands).
 
 from __future__ import annotations
 
-import json
 import logging
 import random
 import sys
@@ -20,6 +19,7 @@ from typing import Any
 
 import pytest
 import typer
+from cli_json import cli_payload
 from rich.console import Console
 from typer.testing import CliRunner
 
@@ -1111,7 +1111,7 @@ class TestLibraryPresetRegistry:
             library_app, ["set", "--preset", "my-runtime", str(tmp_path), "--json"]
         )
         assert result.exit_code == 0, result.output
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["presets"] == ["my-runtime"]
         assert (payload["toolchain"], payload["cflags"]) == ("mytc", "-O2")
         assert tomllib.loads((tmp_path / "rebrew-libraries.toml").read_text()) == {

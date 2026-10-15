@@ -306,6 +306,8 @@ def main(
             error_exit(
                 "--fix-sizes modifies metadata; pass --force to use it in --json mode",
                 json_mode=True,
+                kind="confirmation_required",
+                hint="Pass --force to skip the prompt.",
             )
         if not force:
             # Prompt on stderr so a redirected stdout still shows the question.

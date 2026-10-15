@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cli_json import cli_payload
 from source_util import write_store_fixture
 
 from rebrew.doctor import _FAIL, _OK, _WARN, check_compiler, check_runner
@@ -324,11 +325,10 @@ class TestDoctorCli:
         return CliRunner().invoke(app, args)
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         result = self._invoke(tmp_path, monkeypatch, ["--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert data["checks"] == []
         assert data["passed"] is True
 
@@ -814,7 +814,6 @@ class TestRunnerSetupContract:
     def test_json_setup_is_idempotent_and_keeps_docker_configuration(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, already_installed: bool
     ) -> None:
-        import json
 
         from typer.testing import CliRunner
 
@@ -840,7 +839,7 @@ class TestRunnerSetupContract:
         monkeypatch.setattr("rebrew.wibo.download_wibo", download)
         result = CliRunner().invoke(app, ["toolchain", "install-wibo", "--json"])
         assert result.exit_code == 0, result.output
-        output = json.loads(result.stdout)
+        output = cli_payload(result)
         assert output["downloaded"] is not already_installed
         assert output["runner_updated"] is False
         assert downloads == ([] if already_installed else [wibo])

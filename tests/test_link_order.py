@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
@@ -135,7 +136,7 @@ class TestLinkOrderCli:
 
         result = CliRunner().invoke(app, ["--json", "src/a.c", "src/b.c"])
         assert result.exit_code == 0
-        assert json.loads(result.stdout)["ordered"] == ["src/b.c", "src/a.c"]
+        assert cli_payload(result)["ordered"] == ["src/b.c", "src/a.c"]
 
     def test_preview_lists_va_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(tmp_path, {"a.c": 0x10001000, "b.c": 0x10003000})

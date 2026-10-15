@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_json import cli_payload
 
 from rebrew.types_cli import _first_function_name, collect_evidence
 
@@ -60,14 +61,13 @@ class TestApplyType:
         return CliRunner().invoke(app, ["types", "apply", *args])
 
     def test_json_still_writes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         f = self._project(tmp_path)
         result = self._invoke(
             tmp_path, monkeypatch, str(f), "--param", "1", "--type", "PlayerInfo *", "--json"
         )
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["dry_run"] is False
+        assert cli_payload(result)["dry_run"] is False
         text = f.read_text(encoding="utf-8")
         assert "PlayerInfo *" in text and "int b" not in text
 
@@ -89,15 +89,14 @@ class TestApplyType:
         assert f.read_text(encoding="utf-8") == before
 
     def test_second_run_is_noop(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         f = self._project(tmp_path)
         args = (str(f), "--param", "1", "--type", "PlayerInfo *", "--json")
         first = self._invoke(tmp_path, monkeypatch, *args)
         assert first.exit_code == 0, first.output
-        assert json.loads(first.stdout)["changed"] is True
+        assert cli_payload(first)["changed"] is True
         once = f.read_text(encoding="utf-8")
         second = self._invoke(tmp_path, monkeypatch, *args)
         assert second.exit_code == 0, second.output
-        assert json.loads(second.stdout)["changed"] is False
+        assert cli_payload(second)["changed"] is False
         assert f.read_text(encoding="utf-8") == once

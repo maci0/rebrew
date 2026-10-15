@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -160,7 +161,6 @@ class TestBlockerClear:
 
 class TestBlockerShow:
     def test_show_json(self, tmp_path: Path, monkeypatch) -> None:
-        import json
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
         (cfg.reversed_dir).mkdir()
@@ -175,14 +175,13 @@ class TestBlockerShow:
         CliRunner().invoke(app, ["set", "0x401000", "hello", "--delta", "7"])
         res = CliRunner().invoke(app, ["show", "0x401000", "--json"])
         assert res.exit_code == 0
-        data = json.loads(res.output)
+        data = cli_payload(res)
         assert data["blocker"] == "hello"
         assert data["blocker_delta"] == 7
 
 
 class TestBlockerJson:
     def test_set_json(self, tmp_path: Path, monkeypatch) -> None:
-        import json
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
         (cfg.reversed_dir).mkdir()
@@ -196,7 +195,7 @@ class TestBlockerJson:
 
         res = CliRunner().invoke(app, ["set", "0x401000", "j", "--json"])
         assert res.exit_code == 0
-        data = json.loads(res.output)
+        data = cli_payload(res)
         assert data["written"] is True
         assert data["blocker"] == "j"
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import tomlkit
 from bin_util import make_pe_stub
+from cli_json import cli_payload
 from typer import Exit as TyperExit
 
 from rebrew.cfg import (
@@ -499,7 +500,7 @@ class TestCLIListTargets:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["target", "list", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         defaults = [item["name"] for item in data["targets"] if item["default"]]
         assert defaults == ["client"]
 
@@ -632,7 +633,7 @@ class TestCLIAddRemoveTarget:
             ["target", "add", "ghost", "--binary", "original/ghost.exe", "--json"],
         )
         assert result.exit_code == 2
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["code"] == 2
         assert "does not exist" in data["error"]
 
@@ -655,7 +656,7 @@ class TestCLIAddRemoveTarget:
             ],
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["added"] is True
         assert data["target"] == "client.exe"
         assert data["forced_missing_binary"] is True
@@ -670,7 +671,7 @@ class TestCLIAddRemoveTarget:
             ["target", "add", "server.dll", "--binary", "original/server.dll", "--json"],
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data == {"target": "server.dll", "added": False, "existed": True}
 
     def test_remove_target_json_requires_force(self, tmp_path: Path, monkeypatch) -> None:
@@ -679,16 +680,17 @@ class TestCLIAddRemoveTarget:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["target", "remove", "server.dll", "--json"])
         assert result.exit_code == 2
-        data = json.loads(result.stdout)
-        assert "--force" in data["error"]
+        data = json.loads(result.stderr.strip().splitlines()[-1])
+        assert data["error"]["kind"] == "confirmation_required"
+        assert "--force" in data["error"]["hint"]
 
     def test_remove_target_json_success(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["target", "remove", "server.dll", "--force", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
-        assert data == {"removed": True, "target": "server.dll"}
+        data = cli_payload(result)
+        assert data == {"removed": True, "target": "server.dll", "changed": True}
         doc, _ = load_toml(tmp_path)
         assert "server.dll" not in doc.get("targets", {})
 
@@ -700,8 +702,9 @@ class TestCLIAddRemoveTarget:
             cfg_app, ["module", "remove", "ZLIB", "--target", "server.dll", "--json"]
         )
         assert result.exit_code == 2
-        data = json.loads(result.stdout)
-        assert "--force" in data["error"]
+        data = json.loads(result.stderr.strip().splitlines()[-1])
+        assert data["error"]["kind"] == "confirmation_required"
+        assert "--force" in data["error"]["hint"]
 
     def test_remove_module_json_success(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
@@ -711,7 +714,7 @@ class TestCLIAddRemoveTarget:
             ["module", "remove", "ZLIB", "--target", "server.dll", "--force", "--json"],
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["removed"] is True
         assert data["module"] == "ZLIB"
         assert data["target"] == "server.dll"
@@ -727,12 +730,13 @@ class TestCLIAddRemoveTarget:
             ["module", "remove", "MISSING", "--target", "server.dll", "--json"],
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data == {
             "removed": False,
             "module": "MISSING",
             "target": "server.dll",
             "already_removed": True,
+            "changed": False,
         }
 
     def test_add_module_json_success(self, tmp_path: Path, monkeypatch) -> None:
@@ -742,7 +746,7 @@ class TestCLIAddRemoveTarget:
             cfg_app, ["module", "add", "CRYPTO", "--target", "server.dll", "--json"]
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["added"] is True
         assert data["module"] == "CRYPTO"
         assert "CRYPTO" in data["origins"]
@@ -1126,19 +1130,18 @@ class TestCLIDump:
         monkeypatch.setattr("rebrew.cfg.load_toml", refuse)
         result = runner.invoke(cfg_app, ["raw", *args])
         assert result.exit_code == 2, result.output
-        assert json.loads(result.stdout) == {
+        assert cli_payload(result) == {
             "error": "--format toml and --json select different output formats; pass one.",
             "code": 2,
         }
 
     def test_dump_json(self, tmp_path: Path, monkeypatch) -> None:
-        import json
 
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["raw"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = cli_payload(result)
         assert "targets" in data
         assert "compiler" in data
 
@@ -1196,6 +1199,7 @@ class TestCLISetDottedTarget:
 # ---------------------------------------------------------------------------
 # CRT auto-detection tests
 # ---------------------------------------------------------------------------
+
 
 from rebrew.config import detect_crt_sources  # noqa: E402
 
@@ -1291,9 +1295,8 @@ class TestCLIDetectCrt:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["detect-crt", "show", "--json"])
         assert result.exit_code == 0
-        import json as _json
 
-        payload = _json.loads(result.output)
+        payload = cli_payload(result)
         assert payload == {"crt_sources": []}
 
     def test_detect_crt_json_found(self, tmp_path: Path, monkeypatch) -> None:
@@ -1304,9 +1307,8 @@ class TestCLIDetectCrt:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["detect-crt", "show", "--json"])
         assert result.exit_code == 0
-        import json as _json
 
-        payload = _json.loads(result.output)
+        payload = cli_payload(result)
         assert payload["crt_sources"] == [
             {
                 "origin": "MSVCRT",
@@ -1529,36 +1531,32 @@ class TestCfgCli:
         return CliRunner().invoke(app, args)
 
     def test_list_targets(self, tmp_path: Path, monkeypatch: object) -> None:
-        import json
 
         result = self._invoke(tmp_path, monkeypatch, ["target", "list", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["targets"][0]["name"] == "main"
 
     def test_list_targets_empty(self, tmp_path: Path, monkeypatch: object) -> None:
-        import json
 
         result = self._invoke(
             tmp_path, monkeypatch, ["target", "list", "--json"], toml="[project]\n"
         )
         assert result.exit_code == 0
-        assert json.loads(result.stdout) == {"targets": []}
+        assert cli_payload(result) == {"targets": []}
 
     def test_show_full_json(self, tmp_path: Path, monkeypatch: object) -> None:
-        import json
 
         result = self._invoke(tmp_path, monkeypatch, ["show", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["targets"]["main"]["binary"] == "test.exe"
 
     def test_show_key_json(self, tmp_path: Path, monkeypatch: object) -> None:
-        import json
 
         result = self._invoke(tmp_path, monkeypatch, ["show", "project.default_target", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["value"] == "main"
 
     def test_show_key_missing(self, tmp_path: Path, monkeypatch: object) -> None:
@@ -1646,13 +1644,13 @@ class TestCfgWriteCommandsJson:
     def test_path_json(self, tmp_path: Path, monkeypatch: object) -> None:
         result = self._invoke(tmp_path, monkeypatch, ["path", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["path"] == str(tmp_path / "rebrew-project.toml")
 
     def test_set_json(self, tmp_path: Path, monkeypatch: object) -> None:
         result = self._invoke(tmp_path, monkeypatch, ["set", "project.jobs", "4", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["key"] == "project.jobs"
         assert data["value"] == 4
         assert "jobs = 4" in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
@@ -1662,14 +1660,14 @@ class TestCfgWriteCommandsJson:
             tmp_path, monkeypatch, ["set", "project.jobs", "4", "--dry-run", "--json"]
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["dry_run"] is True
         assert "jobs" not in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
     def test_set_error_json_envelope(self, tmp_path: Path, monkeypatch: object) -> None:
         result = self._invoke(tmp_path, monkeypatch, ["set", "targets.main.arch", "z80", "--json"])
         assert result.exit_code == 2
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["code"] == 2
         assert "z80" in data["error"]
 
@@ -1678,7 +1676,7 @@ class TestCfgWriteCommandsJson:
             tmp_path, monkeypatch, ["module", "set-cflags", "ZLIB", "/O2", "--json"]
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data == {
             "scope": "compiler",
             "module": "ZLIB",
@@ -1693,7 +1691,7 @@ class TestCfgWriteCommandsJson:
             tmp_path, monkeypatch, ["module", "set-cflags", "ZLIB", "/O2", "--dry-run", "--json"]
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["dry_run"] is True
         assert "cflags_presets" not in (tmp_path / "rebrew-project.toml").read_text(
             encoding="utf-8"
@@ -1704,7 +1702,7 @@ class TestCfgWriteCommandsJson:
             tmp_path, monkeypatch, ["target", "set-compiler", "main", "msvc-6.0", "--json"]
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["target"] == "main"
         assert data["profile"] == "msvc-6.0"
         assert data["command"] == ""
@@ -1719,7 +1717,7 @@ class TestCfgWriteCommandsJson:
             ["target", "set-compiler", "main", "msvc-6.0", "--dry-run", "--json"],
         )
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["dry_run"] is True
         assert "profile" not in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
@@ -1728,7 +1726,7 @@ class TestCfgWriteCommandsJson:
             tmp_path, monkeypatch, ["target", "set-compiler", "main", "boguscompiler", "--json"]
         )
         assert result.exit_code == 2
-        data = json.loads(result.stdout)
+        data = cli_payload(result)
         assert data["code"] == 2
         assert "boguscompiler" in data["error"]
 
@@ -1842,7 +1840,7 @@ class TestCLIEffective:
         monkeypatch.setenv("REBREW_LLM_API_KEY", "s3cret")
         result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["config"]["llm_endpoint"] == "https://toml.example/v1"
         assert payload["config"]["llm_api_key"] == "***"
         assert "s3cret" not in result.stdout
@@ -1862,7 +1860,7 @@ class TestCLIEffective:
         monkeypatch.setenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", "1")
         result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 0
-        assert "REBREW_LLM_ALLOW_PROJECT_ENDPOINT" in json.loads(result.stdout)["env_overrides"]
+        assert "REBREW_LLM_ALLOW_PROJECT_ENDPOINT" in cli_payload(result)["env_overrides"]
 
     def test_bad_env_knob_is_reported_with_its_own_message(
         self, tmp_path: Path, monkeypatch
@@ -1874,7 +1872,7 @@ class TestCLIEffective:
         monkeypatch.setenv("REBREW_WINE_HEADLESS", "flase")
         result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 0
-        errors = json.loads(result.stdout)["env_errors"]
+        errors = cli_payload(result)["env_errors"]
         assert "dockre" in errors["REBREW_CONTAINER_RUNTIME"]
         assert "flase" in errors["REBREW_WINE_HEADLESS"]
 
@@ -1889,7 +1887,7 @@ class TestCLIEffective:
         monkeypatch.setenv("REBREW_TOOLCHAINS_DIR", str(tmp_path / "absent"))
         result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 0
-        errors = json.loads(result.stdout)["env_errors"]
+        errors = cli_payload(result)["env_errors"]
         assert "absolute" in errors["REBREW_WINEPREFIX"]
         for name in (
             "REBREW_SKILLS_DIR",
@@ -1906,7 +1904,7 @@ class TestCLIEffective:
         monkeypatch.setenv("REBREW_SKILLS_DIR", str(tmp_path))
         result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 0
-        assert json.loads(result.stdout)["env_errors"] == {}
+        assert cli_payload(result)["env_errors"] == {}
 
     def test_valid_env_knobs_report_no_errors(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path, '[project]\ndefault_target = "server.dll"\n\n' + SAMPLE_TOML)
@@ -1915,7 +1913,7 @@ class TestCLIEffective:
         monkeypatch.setenv("REBREW_WINE_HEADLESS", "0")
         result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 0
-        assert json.loads(result.stdout)["env_errors"] == {}
+        assert cli_payload(result)["env_errors"] == {}
 
     def test_effective_reports_env_error_despite_config_failure(
         self, tmp_path: Path, monkeypatch
@@ -1932,7 +1930,7 @@ class TestCLIEffective:
         monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "dockre")
         result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 2
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["config"] is None
         assert "REBREW_LLM_MAX_REQUESTS" in payload["error"]
         assert "REBREW_CONTAINER_RUNTIME" in payload["env_errors"]
@@ -1944,7 +1942,7 @@ class TestCLIEffective:
         monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "abc")
         result = runner.invoke(cfg_app, ["effective", "--json"])
         # A second document (the error envelope) would make this raise.
-        assert json.loads(result.stdout)["code"] == 2
+        assert cli_payload(result)["code"] == 2
 
     def test_every_env_var_reaches_effective(self, tmp_path: Path, monkeypatch) -> None:
         """Every documented env knob is named by `cfg effective`, in force or not.
@@ -1973,7 +1971,7 @@ class TestCLIEffective:
         result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 0
         assert "s3cret" not in result.stdout
-        assert json.loads(result.stdout)["env_overrides"] == sorted(knobs)
+        assert cli_payload(result)["env_overrides"] == sorted(knobs)
 
     def test_toml_value_used_without_env(self, tmp_path: Path, monkeypatch) -> None:
         for name in list(os.environ):
@@ -1988,7 +1986,7 @@ class TestCLIEffective:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 0
-        payload = json.loads(result.stdout)
+        payload = cli_payload(result)
         assert payload["config"]["llm_endpoint"] == "https://toml.example/v1"
         assert payload["config"]["llm_api_key"] == "***"
         assert payload["env_overrides"] == []
