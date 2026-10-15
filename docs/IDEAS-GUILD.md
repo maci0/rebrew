@@ -1699,3 +1699,31 @@ target images and linker inputs. Unassigned ambiguous files, unavailable owners,
 changed inputs and ambiguous same-target linker symbols still refuse. Native
 callee proof and subsequent comparisons remain project acceptance evidence;
 files containing references to both owners require a finer repair.
+
+## Review internal archive entry points within a complete function (2026-10-16)
+
+Problem: stock VC6 LIBC strstr.obj jumps to `___from_strstr_to_strchr`, an
+exported entry six bytes inside strchr. Both labels are marked as COFF functions.
+Guild Gold's complete 128-byte strstr at 0x5de800 resolves that operand to
+0x5df106; the complete 188-byte strchr at 0x5df100 equals its stock member.
+`object_function` correctly refuses to cross the next function-marked symbol
+without an explicit relationship, so selecting `_strchr` with the complete
+188-byte extent currently refuses at the internal label. A separate fake
+function/allocation or a guessed resolver alias would hide the relationship.
+
+Proposed capability: preview and apply an explicit reviewed internal-entry
+relationship, with a covering function, offset, exact archive/member hashes,
+complete native/object extents and operand proof. Let strict native review use
+that receipt without treating the entry as an independent body or double-counting
+its bytes. Preserve current fail-closed behavior for unreviewed adjacent labels,
+overlaps, changed inputs and ambiguous archive candidates. Keep native identity,
+library origin and actual raw-map provider evidence separate.
+
+Replay/evidence: guild-rebrew/.scratch/goal55/strstr-native-library-proof.json
+checks all 128+188 bytes and rejects a +1 internal-entry operand. The unmodified
+members are extracted through `formats.archives.parse_archive` from the pinned
+Processor Pack LIBC.LIB. `library match --stock-lib LIBC.LIB --va 0x5de800
+--resolve-callees --json --target Europa1400Gold.exe` reports the strstr member
+but leaves its callee resolution unresolved. No resolver trust or byte verdict
+was granted. The old 138-byte discovery extent also includes a separate 10-byte
+stub; its reviewed native correction is independent of this capability.
