@@ -700,21 +700,21 @@ def docker_available(runtime: str | None = None) -> bool:
     return ok
 
 
-#: Positive-only presence memo (tag → True).  Misses and inspect failures are
+#: Positive-only presence memo ((runtime, tag) → True).  Misses and inspect failures are
 #: never stored: caching ``False`` after a transient daemon blip / external
 #: ``docker pull`` would keep reporting absent until process exit.
 #: Mutated under :data:`_DOCKER_MEMO_LOCK` (verify/GA workers share it).
-_image_presence: dict[str, bool] = {}
+_image_presence: dict[tuple[str, str], bool] = {}
 _IMAGE_PRESENCE_MAX = 64
 
 #: Cached full docker image ids (``sha256:`` plus 64 hex) for compile-cache
-#: keys and pinned ``docker run`` (image tag → id).  Cleared by
+#: keys and pinned ``docker run`` ((runtime, image tag) → id).  Cleared by
 #: :func:`invalidate_toolchain_digest` after a tag swap/rebuild so objects
 #: compiled against the previous image are never served under the new one.
 #: Empty and malformed inspect results are never stored: a transient docker
 #: outage is not an identity.
 #: Mutated under :data:`_DOCKER_MEMO_LOCK` (verify/GA workers share it).
-_toolchain_digest_cache: dict[str, str] = {}
+_toolchain_digest_cache: dict[tuple[str, str], str] = {}
 _TOOLCHAIN_DIGEST_CACHE_MAX = 64
 #: Bumped by :func:`invalidate_toolchain_digest`.  An inspect that started
 #: before an invalidation must not store its (pre-swap) digest afterwards.
@@ -737,7 +737,7 @@ def invalidate_toolchain_digest(image: str | None = None) -> None:
             _toolchain_digest_cache.clear()
         else:
             for key in list(_toolchain_digest_cache):
-                if key == image or key.endswith(":" + image):
+                if key[1] == image:
                     _toolchain_digest_cache.pop(key, None)
 
 
@@ -764,7 +764,7 @@ def _drop_image_presence(tag: str) -> None:
     """Drop a positive presence memo for *tag* (locked)."""
     with _DOCKER_MEMO_LOCK:
         for key in list(_image_presence):
-            if key == tag or key.endswith(":" + tag):
+            if key[1] == tag:
                 _image_presence.pop(key, None)
 
 
@@ -790,7 +790,8 @@ def cached_image_digest(image: str, *, runtime: str | None = None) -> str:
     is not a full content digest.  The image tag is not a substitute.
     Failures and malformed ids are not memoized: the next call retries.
     """
-    key = image if runtime is None else container_runtime(runtime) + ":" + image
+    selected_runtime = container_runtime() if runtime is None else container_runtime(runtime)
+    key = (selected_runtime, image)
     with _DOCKER_MEMO_LOCK:
         cached = _toolchain_digest_cache.get(key)
         if cached is not None:
@@ -803,7 +804,7 @@ def cached_image_digest(image: str, *, runtime: str | None = None) -> str:
     try:
         r = subprocess.run(
             [
-                (container_runtime() if runtime is None else container_runtime(runtime)),
+                selected_runtime,
                 "image",
                 "inspect",
                 "--format",
@@ -906,7 +907,8 @@ def image_present(tag: str, use_cache: bool = True, *, runtime: str | None = Non
     on the next call so an external ``docker pull`` (or a daemon that was
     briefly down) is not frozen as absent for the process lifetime.
     """
-    key = tag if runtime is None else container_runtime(runtime) + ":" + tag
+    selected_runtime = container_runtime() if runtime is None else container_runtime(runtime)
+    key = (selected_runtime, tag)
     if use_cache:
         with _DOCKER_MEMO_LOCK:
             if _image_presence.get(key):
@@ -916,7 +918,7 @@ def image_present(tag: str, use_cache: bool = True, *, runtime: str | None = Non
     try:
         r = subprocess.run(
             [
-                (container_runtime() if runtime is None else container_runtime(runtime)),
+                selected_runtime,
                 "image",
                 "inspect",
                 tag,

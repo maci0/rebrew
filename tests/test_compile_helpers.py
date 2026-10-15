@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from rebrew.compiler.compile import resolve_cl_command, resolve_include_flags
+from rebrew.utils import container_runtime
 
 
 def _cfg(root: Path, **overrides: object) -> SimpleNamespace:
@@ -389,11 +390,16 @@ class TestInvalidateToolchainDigest:
         )
 
         _toolchain_digest_cache.clear()
-        _toolchain_digest_cache["rebrew/msvc:6.0-win32"] = "aaaaaaaaaaaa"
-        _toolchain_digest_cache["rebrew/gcc:14.2.0-linux-x64"] = "bbbbbbbbbbbb"
+        _toolchain_digest_cache[(container_runtime(), "rebrew/msvc:6.0-win32")] = "aaaaaaaaaaaa"
+        _toolchain_digest_cache[(container_runtime(), "rebrew/gcc:14.2.0-linux-x64")] = (
+            "bbbbbbbbbbbb"
+        )
         invalidate_toolchain_digest("rebrew/msvc:6.0-win32")
-        assert "rebrew/msvc:6.0-win32" not in _toolchain_digest_cache
-        assert _toolchain_digest_cache["rebrew/gcc:14.2.0-linux-x64"] == "bbbbbbbbbbbb"
+        assert (container_runtime(), "rebrew/msvc:6.0-win32") not in _toolchain_digest_cache
+        assert (
+            _toolchain_digest_cache[(container_runtime(), "rebrew/gcc:14.2.0-linux-x64")]
+            == "bbbbbbbbbbbb"
+        )
         invalidate_toolchain_digest()
         assert _toolchain_digest_cache == {}
 
@@ -411,7 +417,10 @@ class TestInvalidateToolchainDigest:
 
         monkeypatch.setattr(toolchain_mod.subprocess, "run", _fail)
         assert cached_image_digest("rebrew/msvc:6.0-win32") == ""
-        assert "rebrew/msvc:6.0-win32" not in toolchain_mod._toolchain_digest_cache
+        assert (
+            container_runtime(),
+            "rebrew/msvc:6.0-win32",
+        ) not in toolchain_mod._toolchain_digest_cache
         assert cached_image_digest("rebrew/msvc:6.0-win32") == ""
         assert calls["n"] == 2  # retried — not memoized
 
@@ -451,7 +460,10 @@ class TestInvalidateToolchainDigest:
 
         monkeypatch.setattr(toolchain_mod.subprocess, "run", _swap_mid_inspect)
         assert cached_image_digest("rebrew/msvc:6.0-win32") == ""
-        assert "rebrew/msvc:6.0-win32" not in toolchain_mod._toolchain_digest_cache
+        assert (
+            container_runtime(),
+            "rebrew/msvc:6.0-win32",
+        ) not in toolchain_mod._toolchain_digest_cache
 
     def test_invalidate_during_inspect_prefers_post_swap_refill(self, monkeypatch) -> None:
         """A worker that already re-inspected wins over returning empty."""
@@ -464,7 +476,9 @@ class TestInvalidateToolchainDigest:
         def _swap_then_refill(*_a, **_k):
             invalidate_toolchain_digest("rebrew/msvc:6.0-win32")
             # Another worker post-swap refilled the memo.
-            toolchain_mod._toolchain_digest_cache["rebrew/msvc:6.0-win32"] = refilled
+            toolchain_mod._toolchain_digest_cache[
+                (container_runtime(), "rebrew/msvc:6.0-win32")
+            ] = refilled
             return SimpleNamespace(returncode=0, stdout="sha256:" + "ab" * 32 + "\n", stderr="")
 
         monkeypatch.setattr(toolchain_mod.subprocess, "run", _swap_then_refill)
@@ -478,12 +492,17 @@ class TestInvalidateToolchainDigest:
 
         def _swap_then_refill(*_a, **_k):
             invalidate_toolchain_digest("rebrew/msvc:6.0-win32")
-            toolchain_mod._toolchain_digest_cache["rebrew/msvc:6.0-win32"] = "newnewnewnew"
+            toolchain_mod._toolchain_digest_cache[
+                (container_runtime(), "rebrew/msvc:6.0-win32")
+            ] = "newnewnewnew"
             return SimpleNamespace(returncode=0, stdout="sha256:" + "ab" * 32 + "\n", stderr="")
 
         monkeypatch.setattr(toolchain_mod.subprocess, "run", _swap_then_refill)
         assert cached_image_digest("rebrew/msvc:6.0-win32") == ""
-        assert "rebrew/msvc:6.0-win32" not in toolchain_mod._toolchain_digest_cache
+        assert (
+            container_runtime(),
+            "rebrew/msvc:6.0-win32",
+        ) not in toolchain_mod._toolchain_digest_cache
 
     @pytest.mark.parametrize(
         "stdout",
@@ -511,7 +530,7 @@ class TestInvalidateToolchainDigest:
         monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
         tag = "rebrew/msvc:6.0-win32"
         assert cached_image_digest(tag) == ""
-        assert tag not in toolchain_mod._toolchain_digest_cache
+        assert (container_runtime(), tag) not in toolchain_mod._toolchain_digest_cache
         assert cached_image_digest(tag) == ""
         assert calls["n"] == 2
 
@@ -535,7 +554,7 @@ class TestInvalidateToolchainDigest:
         assert cached_image_digest(tag) == ""
         assert cached_image_digest(tag) == ""
         assert calls["n"] == 2
-        assert tag not in toolchain_mod._toolchain_digest_cache
+        assert (container_runtime(), tag) not in toolchain_mod._toolchain_digest_cache
 
     def test_short_memo_is_dropped_and_reinspected(self, monkeypatch) -> None:
         import rebrew.compiler.toolchain as toolchain_mod
@@ -544,7 +563,7 @@ class TestInvalidateToolchainDigest:
         tag = "rebrew/msvc:6.0-win32"
         image_id = "sha256:" + "ef" * 32
         toolchain_mod._toolchain_digest_cache.clear()
-        toolchain_mod._toolchain_digest_cache[tag] = "abcdef012345"
+        toolchain_mod._toolchain_digest_cache[(container_runtime(), tag)] = "abcdef012345"
         calls = {"n": 0}
 
         def _ok(*_a, **_k):
@@ -554,7 +573,7 @@ class TestInvalidateToolchainDigest:
         monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
         assert cached_image_digest(tag) == image_id
         assert calls["n"] == 1
-        assert toolchain_mod._toolchain_digest_cache[tag] == image_id
+        assert toolchain_mod._toolchain_digest_cache[(container_runtime(), tag)] == image_id
 
     def test_full_ids_sharing_a_12_hex_prefix_do_not_collide(self, monkeypatch) -> None:
         import rebrew.compiler.toolchain as toolchain_mod
@@ -606,9 +625,9 @@ class TestInvalidateToolchainDigest:
 
         monkeypatch.setattr(toolchain_mod.subprocess, "run", _inspect)
         assert image_present("rebrew/msvc:6.0-win32") is False
-        assert "rebrew/msvc:6.0-win32" not in toolchain_mod._image_presence
+        assert (container_runtime(), "rebrew/msvc:6.0-win32") not in toolchain_mod._image_presence
         assert image_present("rebrew/msvc:6.0-win32") is True
-        assert toolchain_mod._image_presence["rebrew/msvc:6.0-win32"] is True
+        assert toolchain_mod._image_presence[(container_runtime(), "rebrew/msvc:6.0-win32")] is True
         assert calls["n"] == 2
 
     def test_image_present_inspect_timeout_is_retryable(self, monkeypatch) -> None:

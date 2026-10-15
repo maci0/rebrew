@@ -1032,15 +1032,20 @@ class TestSwapToolchainImage:
         from rebrew.compiler.toolchain import swap_toolchain_image
 
         state, _calls = self._fake_docker(monkeypatch, "sha256:OLD")
-        toolchain_mod._image_presence[self.TAG] = True
-        toolchain_mod._toolchain_digest_cache[self.TAG] = "deadbeef0000"
+        toolchain_mod._image_presence[(toolchain_mod.container_runtime(), self.TAG)] = True
+        toolchain_mod._toolchain_digest_cache[(toolchain_mod.container_runtime(), self.TAG)] = (
+            "deadbeef0000"
+        )
 
         def _ok_op() -> None:
             state["id"] = "sha256:NEW"
 
         assert swap_toolchain_image(self.TAG, _ok_op) == "sha256:NEW"
-        assert self.TAG not in toolchain_mod._image_presence
-        assert self.TAG not in toolchain_mod._toolchain_digest_cache
+        assert (toolchain_mod.container_runtime(), self.TAG) not in toolchain_mod._image_presence
+        assert (
+            toolchain_mod.container_runtime(),
+            self.TAG,
+        ) not in toolchain_mod._toolchain_digest_cache
 
 
 class TestResolveBinaryCaseInsensitive:

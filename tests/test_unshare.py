@@ -588,6 +588,29 @@ class TestExecutionBackendConfig:
         tc.invalidate_toolchain_digest("same:tag")
         assert not tc._toolchain_digest_cache
 
+    def test_runtime_like_image_name_cannot_collide(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import rebrew.compiler.toolchain as tc
+
+        monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "docker")
+        monkeypatch.setattr(tc, "_toolchain_digest_cache", {})
+        monkeypatch.setattr(tc, "_image_presence", {})
+        monkeypatch.setattr(tc, "docker_available", lambda runtime=None: True)
+
+        def inspect(args: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+            named = args[-1] == "docker:tag"
+            digest = "sha256:" + ("a" if named else "b") * 64
+            return subprocess.CompletedProcess(
+                args, 0 if "--format" in args or named else 1, digest, ""
+            )
+
+        monkeypatch.setattr(tc.subprocess, "run", inspect)
+        assert tc.cached_image_digest("docker:tag") == "sha256:" + "a" * 64
+        assert tc.cached_image_digest("tag", runtime="docker") == "sha256:" + "b" * 64
+        assert tc.image_present("docker:tag")
+        assert not tc.image_present("tag", runtime="docker")
+        tc.invalidate_toolchain_digest("tag")
+        assert tc.cached_image_digest("docker:tag") == "sha256:" + "a" * 64
+
 
 class TestUnshareCleanup:
     def test_interruption_removes_private_bundle(
