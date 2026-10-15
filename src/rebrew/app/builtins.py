@@ -369,7 +369,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         CliComponent(
             name="repair-extents",
             module="rebrew.inventory_repair",
-            help="Repair selected native inventory sizes without replacing the catalog.",
+            help="Repair native inventory extents or explicitly admit reviewed missing entries.",
             panel="",
         ),
         CliComponent(

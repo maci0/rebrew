@@ -11,7 +11,7 @@ app = typer.Typer(
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew binary repair-extents 0x401000=16 --reason proof --dry-run\n\n"
-        "  rebrew binary repair-extents 0x401010=3 --add-missing --reason proof --dry-run"
+        "  rebrew binary repair-extents 0x401010=3 --add-missing --reason proof"
     ),
 )
 
