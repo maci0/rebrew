@@ -1551,10 +1551,15 @@ units. Do not remove the guard or infer declarations from equal x86 widths.
 
 Replay from guild-rebrew: `rebrew types reconcile fcn_004e8240
 src/Develop/DieGildeAddOn/game/aemter.h --prototype 'int __cdecl
-fcn_004e8240(int, char*, char*, int, int);' --dry-run --json`. Earlier preview
+fcn_004e8240(unsigned char, unsigned char*, unsigned char*, int, int);'
+--dry-run --json`. Earlier preview
 receipt: `.scratch/goal46/office-message-reconcile-preview.json`; full unknown
-contexts: `contracts-office-helper-all.json`. The earlier unsigned-char-ID
-proposal is not accepted: native wrappers preserve full-width arguments.
+contexts: `contracts-office-helper-all.json`. Follow-up all-caller measurements
+in `.scratch/goal47` support an unsigned-char ID with integer flags: an integer
+ID preserves the helper's 129 bytes but grows two TL callers from 414/65 to
+430/67 bytes. Restoring the unsigned-char ID preserves both callers. DWORD
+forwarding alone does not establish the C parameter width; the earlier rejection
+of that ID type from push width alone was too strong.
 
 Proposed capability: obtain complete target-specific declaration/include
 contexts from the pinned compiler image, with image/source/flag hashes and
