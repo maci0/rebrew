@@ -1086,7 +1086,7 @@ def select_annotation(
         project_root=getattr(cfg, "root", None),
     )
     if not annos:
-        error_exit("No // FUNCTION annotation found in the source", json_mode=json_mode)
+        error_exit("No function binding found in the source", json_mode=json_mode)
     requested_va = va
     if (
         requested_va is None

@@ -14,6 +14,7 @@ __pycache__/
 
 # IDE / tool caches
 .pytest_cache/
+.pytest-tmp/
 .hypothesis/
 .ruff_cache/
 .mypy_cache/

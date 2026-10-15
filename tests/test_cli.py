@@ -743,7 +743,7 @@ class TestSelectAnnotation:
         with pytest.raises(typer.Exit) as exc_info:
             select_annotation(self._cfg(tmp_path), str(src), None)
         assert exc_info.value.exit_code == EXIT_ERROR
-        assert "No // FUNCTION annotation found" in capsys.readouterr().err
+        assert "No function binding found" in capsys.readouterr().err
 
     def test_decorated_symbol_selects_the_c_name(self, tmp_path: Path) -> None:
         """Asking for ``foo`` selects ``foo``, not the earlier ``_foo``.

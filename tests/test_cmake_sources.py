@@ -236,3 +236,32 @@ def test_migrated_library_sources_keep_target_scope(tmp_path: Path, metadata_in_
         assert {f.relative_to(tmp_path).as_posix() for f in foreign} == {
             "src/shared/client_lib.c" if target == "server_dll" else "src/shared/server_lib.c"
         }
+
+
+@pytest.mark.parametrize("purpose_module", [None, "SERVER", "CLIENT"])
+def test_shared_helper_outside_metadata_root(tmp_path: Path, purpose_module: str | None) -> None:
+    """Unbound shared helpers need not be descendants of the metadata directory."""
+    from rebrew.metadata.functions import record_function_identity
+
+    source = tmp_path / "src" / "game"
+    source.mkdir(parents=True)
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    helper = shared / "helper.c"
+    helper.write_text("int helper(void) { return 1; }\n")
+    owner = source / "owner.c"
+    owner.write_text("int owner(void) { return 2; }\n")
+    record_function_identity(
+        source.parent,
+        module="SERVER",
+        va=0x401000,
+        file="game/owner.c",
+        kind="FUNCTION",
+        name="owner",
+        symbol="_owner",
+        size=8,
+    )
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=source, shared_dir=shared, marker="SERVER")
+    assert cfg.metadata_dir == source.parent
+    own, foreign = collect_target_sources(cfg, "SERVER")
+    assert helper in own and helper not in foreign

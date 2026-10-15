@@ -54,3 +54,7 @@ def main_entry() -> None:
     from rebrew.cli import run_standalone
 
     run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

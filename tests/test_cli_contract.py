@@ -710,3 +710,33 @@ class TestComposedHelp:
                     failures.append(f"{path}: rebrew {example}: {exc.format_message()}")
         assert failures == [], "\n".join(failures)
         assert list(tmp_path.iterdir()) == []
+
+
+class TestStandaloneEvidenceCommands:
+    @pytest.mark.parametrize(
+        "module,expected",
+        [
+            ("types_cli", ["contracts", "reconcile"]),
+            ("source_binding", ["retire", "rebind"]),
+            ("source_organize", ["review", "check"]),
+            ("inventory_repair", ["--reason", "--dry-run"]),
+        ],
+    )
+    def test_module_execution_registers_complete_commands(
+        self, tmp_path: Path, module: str, expected: list[str]
+    ) -> None:
+        """Standalone execution must print useful help without project state."""
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "-m", f"rebrew.{module}", "--help"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert all(word in result.stdout for word in expected), result.stdout
+        assert list(tmp_path.iterdir()) == []

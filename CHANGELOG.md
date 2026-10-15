@@ -142,6 +142,13 @@
 
 
 ### Fixed
+- Report incomplete C syntax in contract and organization audits, including an
+  unused canonical header before reconciliation. Determine void returns from the
+  AST independently of calling conventions; preserve pointer-return distinctions.
+- Include unbound shared helpers outside the metadata directory without a path
+  exception. Standalone evidence commands print complete help, including type
+  contracts/reconcile, and
+  missing source identities report function bindings rather than removed markers.
 - Preserve source-binding history when inline-C artifacts replace providers.
   Former address anchors stay inactive, repeated bulk generation excludes its
   own outputs, and source-backed library code retains its library origin.

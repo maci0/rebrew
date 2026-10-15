@@ -1,5 +1,6 @@
 """Source contract contradictions are independent of matching object bytes."""
 
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -283,3 +284,61 @@ class TestAdversarialContracts:
         with pytest.raises(ValueError):
             reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
         assert owner.read_bytes() == before
+
+
+class TestReleaseContractControls:
+    @pytest.mark.parametrize("header", [False, True])
+    def test_parse_recovery_is_unknown_and_blocks_writes(
+        self, tmp_path: Path, header: bool
+    ) -> None:
+        cfg = _project(tmp_path)
+        malformed = cfg.reversed_dir / ("api.h" if header else "owner.c")
+        malformed.write_text("int queue(int x) { if (\n")
+        if header:
+            (cfg.reversed_dir / "user.c").write_text('#include "api.h"\n')
+        before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        report = audit_contracts(cfg, name="queue")
+        assert any(
+            row["file"] == str(malformed) and "parse errors" in row["reason"]
+            for row in report["unknown"]
+        )
+        from typer.testing import CliRunner
+
+        from rebrew.types_cli import app
+
+        with patch("rebrew.types_cli.require_config", return_value=cfg):
+            result = CliRunner().invoke(app, ["contracts", "--name", "queue", "--json"])
+        assert result.exit_code == 1, result.output
+        assert json.loads(result.stdout)["unknown"]
+        with pytest.raises(ValueError, match="incomplete"):
+            reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+        assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+    def test_unused_canonical_header_parse_errors_block_writes(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "api.h").write_text("int queue(int value);\nint broken(\n")
+        before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        with pytest.raises(ValueError, match="canonical header.*parse errors"):
+            reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+        assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+    @pytest.mark.parametrize("convention", ["", "__cdecl", "__stdcall", "__fastcall", "WINAPI"])
+    @pytest.mark.parametrize("return_type", ["int", "void", "void *"])
+    def test_void_return_validation_is_independent_of_calling_convention(
+        self, tmp_path: Path, convention: str, return_type: str
+    ) -> None:
+        cfg = _project(tmp_path)
+        body = "" if return_type == "void" else "return 0;"
+        (cfg.reversed_dir / "owner.c").write_text(
+            f"{return_type} {convention} queue(int id) {{ {body} }}\n"
+        )
+        proposed_return = "void *" if return_type == "void *" else "void"
+        prototype = f"{proposed_return} {convention} queue(int value)"
+        before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        if return_type == "int":
+            with pytest.raises(ValueError, match="return statements"):
+                reconcile_contract([cfg], "queue", Path("src/api.h"), prototype, dry_run=True)
+        else:
+            preview = reconcile_contract([cfg], "queue", Path("src/api.h"), prototype, dry_run=True)
+            assert preview["verification_required"]
+        assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}

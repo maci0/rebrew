@@ -272,3 +272,7 @@ def main_entry() -> None:
     from rebrew.cli import run_cli
 
     run_cli(app)
+
+
+if __name__ == "__main__":
+    main_entry()

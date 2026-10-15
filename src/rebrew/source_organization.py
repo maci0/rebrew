@@ -123,6 +123,10 @@ def review_organization(
             item["sources"].append(str(path))
             ids.append(identifier)
         parsed_source = ParsedSource.parse(text)
+        if parsed_source.tree.root_node.has_error:
+            unknown.append(
+                {"file": str(path), "reason": "C syntax contains parse errors or missing tokens"}
+            )
         for variable in find_extern_variables(text, include_definitions=True):
             if variable.is_definition:
                 owner_definitions = source_definitions(parsed_source, variable.name)
@@ -183,6 +187,13 @@ def review_organization(
             raw = inputs[header]
             text = raw.decode(detect_source_encoding(raw))
             parsed_header = ParsedSource.parse(text)
+            if parsed_header.tree.root_node.has_error:
+                unknown.append(
+                    {
+                        "file": str(header),
+                        "reason": "C syntax contains parse errors or missing tokens",
+                    }
+                )
             local_names = {
                 variable.name
                 for variable in find_extern_variables(text, include_definitions=True)

@@ -6278,8 +6278,9 @@ function declarations/definitions, unmarked global declarations and return-using
 calls separately from STATUS. Static symbols belong to their own translation
 units. Return/value/pointer, argument-count and calling-convention disagreements
 are distinct findings; opaque pointer views are review findings. Simple typedefs
-resolve in each source context. Missing/ambiguous aliases, unresolved includes and
-unsupported declarations remain explicit uncertainty. This is a syntax/context
+resolve in each source context. Parse errors/missing C tokens, missing or
+ambiguous aliases, unresolved includes and unsupported declarations remain explicit
+uncertainty. This is a syntax/context
 audit, not a preprocessor or compiler proof. Errors or uncertainty exit 1.
 
 `rebrew types reconcile queue src/api.h --prototype 'int queue(int id)' --dry-run`

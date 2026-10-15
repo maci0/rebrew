@@ -33,7 +33,7 @@ unchecked item does not describe a shipped command.
   compilation providers and original TU context. Report raw-link/text/data
   consequences and conflicting target orders; object matches alone do not prove
   a safe move.
-- [ ] Update the current ideas ledger, CLI reference, migration notes, packaged
+- [x] Update the current ideas ledger, CLI reference, migration notes, packaged
   skills and agent templates; refresh/check all discovered decomp projects.
 - [ ] Run focused rejecting-control regressions per capability, then CLI/help,
   metadata, docs/skills, lint/type/layering and full-suite gates; review changes
@@ -52,63 +52,41 @@ Project migrations preserve customized rules and native sources. Generated
 coverage exports can move, but authoritative metadata is changed only through
 its owning APIs. Existing experiments and receipt files stay ignored.
 
-## Established checks (first two capabilities)
+## Established checks
 
-Live views and full-body validation have focused rejecting controls and adversarial
-reviews. Recoverage backend: 2,261 passed, one optional skip; seven-route smoke
-passed. Rebrew full-suite baseline: 12,036 passed, 36 skipped; the three failures
-were YAML wrapping and new-error export snapshots, all repaired and rechecked.
-Full-body controls additionally cover inert fallback comments, attributes hidden
-behind string delimiters, destination-name capture, selected Kuna prototypes and
-post-rename seed-budget expansion. Static typing, lint and import boundaries pass.
+Each delivered capability has focused rejecting controls and a bounded adversarial
+review. The source/binding/data batches cover stale-input refusal, failed-write
+rollback, native/source identity separation, retained history and independent
+counterparts. Literal and reviewed-name controls cover complete extents, partial
+COFF parses, typed operands, ambiguous names, native-selected pools and full input
+hashes. Contract/header controls cover external SDK protection, parsed-byte races,
+conditional/linkage/ABI differences, context-specific typedefs and variadic bodies.
+Organization controls cover target-order cycles, providers and TU settings, local
+storage/helper instances, raw data drift, truncated PE tables and replacement races.
 
-All 46 project guidance refresh/checks passed, preserving custom rules and 19,661
-protected source/config/metadata files during refresh. Two active `db_dir` settings
-and obsolete commented settings were removed; existing exports remain. Guild’s
-3,033 exported status events were imported idempotently through the metadata owner.
+The full-body/live-view baseline passed 12,036 Rebrew tests with three failures
+subsequently repaired; later focused batches and commit hooks pass. The initial
+Recoverage backend batch passed 2,261 tests with one optional skip, and a seven-route
+smoke passed. These are bounded results, not the final publication gate.
 
-Before final publication, align Recoverage’s dependency floor and immutable CI pin
-with a Rebrew release containing the live reader. The old v3.0.0 CI pin cannot
-provide this new API. Preserve concurrent brand edits and project compiler changes
-when committing task-owned changes. Remaining capabilities and final cross-project
-release/checks above stay open; these notes are not a completion claim for them.
+The final 46-project guidance refresh/check passed after the last skill corrections.
+Custom rules and 19,661 protected source/config/metadata files were unchanged by
+refresh. Two active `db_dir` settings and obsolete comments were removed earlier;
+existing exports remain. Guild's 3,033 exported status events were imported
+idempotently through the metadata owner. All six installed runtime origins and
+configured Rebrew/Recoverage dependency paths resolve to the canonical checkouts.
+Guild's latest guidance-only commit is separate from its active reversing changes.
 
-Source-scoped sweeps and atomic data patches now have focused and adversarial
-controls. The target/compiler/binding checks passed 423 tests; the broader
-CLI/data/docs/skills batch passed 636. A separate 24-control data-patch suite
-covers one-publication batches, rejected later rows, no-write previews, locked
-digest rechecks, verdict injection rejection and historical evidence retention.
-Root-aware library binding and invalid counterpart tests exercise both direct
-comparison and catalog scan paths. Final full-suite checks remain pending.
+Canonical main includes the optional-root/VA-help and inline-C provider-history
+repairs. The first final coverage run was interrupted for three review corrections; its
+partial result is not a full-suite pass. Rejecting controls cover shared helpers
+outside the metadata root, malformed C/headers, calling-convention-independent
+void returns and standalone command registration. Restart the full suite under
+the unchanged 85% floor after the isolated objdiff fixtures are integrated.
+Final all-file hooks and package/reproducibility gates, coordinated immutable
+Recoverage dependency pin, clean task-only Recoverage commit and publication remain
+pending. No running suite is claimed passing before completion.
 
-Binding retirement/rebinding and selected inventory repairs have rejecting controls
-for historical-anchor resurrection, unchanged counterparts, stale native/source
-inputs, same-target duplicate claims, parsed-byte races, library ancestry and
-build discovery. Initial source/metadata/pruning batch: 248 passed. Boundary,
-binding and discovery batch: 85 passed. Full publication gates remain pending.
-
-Final bounded identity/extent review is clean after repairing parsed-byte races,
-static-vs-external symbol scope, alias paths, undiscoverable replacements, lost
-library ancestry, actual EOF bounds and rediscovery history loss. The broad
-capability batch passed 828 tests; final focused rejecting controls passed 38.
-Full-suite and cross-project refresh/publication checks remain pending.
-
-Complete literals and reviewed library identities now have rejecting controls for
-embedded NULs, wrong values/callees, native-selected equal pools, interior addends,
-truncated spans, partial LIEF tables, data-only object sections and stale reviews.
-The metadata/relocation/help batch passed 250 tests before final parser controls;
-full-suite and final cross-project release checks remain pending.
-
-Declaration contracts and canonical-header reconciliation now have controls for
-external SDK protection, exact parsed-byte snapshots, unused headers, real includes,
-matching header guards, ABI/linkage disagreements, context-specific typedefs,
-variadic bodies and stale reviews. The focused API/CLI/cache batch passed 216 tests;
-publication gates remain pending.
-
-Link-aware source organization now has read-only all-target review and independent
-PE raw artifact checks. Rejecting controls cover target-order cycles, foreign TUs,
-settings, source/helper/storage collisions, guarded-header static instances,
-initialized-data-only drift, truncated PE tables/raw spans and replacement races.
-Fourteen focused organization tests pass; type/layering/full-publication gates and
-final project refresh remain pending. The separate newly recorded independent
-bound-name caller-ownership rename capability remains an open ideas-ledger item.
+The separately recorded independent already-bound same-name caller-ownership
+rename capability remains an open ideas-ledger item. These deliveries neither
+weaken ambiguous operand validation nor claim that new capability is implemented.

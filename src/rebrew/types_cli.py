@@ -268,10 +268,6 @@ def _first_function_name(text: str) -> str:
     return names[0] if names else ""
 
 
-if __name__ == "__main__":
-    main_entry()
-
-
 @app.command(
     "contracts",
     epilog="[bold]Examples:[/bold]\n\n  rebrew types contracts --name queue --all-targets --json",
@@ -352,3 +348,7 @@ def reconcile_cmd(
         json_print(report)
     else:
         console.print(report)
+
+
+if __name__ == "__main__":
+    main_entry()

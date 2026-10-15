@@ -221,3 +221,20 @@ class TestOrganizationRejectingControls:
             pytest.raises(ValueError, match="changed after"),
         ):
             check_reorganization(before, after)
+
+
+class TestIncompleteOrganizationSources:
+    @pytest.mark.parametrize("header", [False, True])
+    def test_parse_recovery_is_reported_as_unknown(self, tmp_path: Path, header: bool) -> None:
+        cfg, _other, files = _project(tmp_path)
+        malformed = files[0]
+        if header:
+            malformed = cfg.reversed_dir / "broken.h"
+            files[0].write_text('#include "broken.h"\nint a(void) { return 1; }\n')
+        malformed.write_text("int broken(void) { if (\n")
+        report = review_organization([cfg], files)
+        assert any(
+            row.get("file") == str(malformed) and "parse errors" in row["reason"]
+            for row in report["unknown"]
+        )
+        assert not report["safe_to_reorganize"]

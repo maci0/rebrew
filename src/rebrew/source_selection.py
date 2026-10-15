@@ -5,7 +5,7 @@ from pathlib import Path
 from rebrew.config import ProjectConfig
 from rebrew.function_providers import bind_library_source
 from rebrew.metadata.bindings import SourceBinding, read_source_bindings
-from rebrew.metadata.functions import load_metadata
+from rebrew.metadata.functions import identity_file, load_metadata
 from rebrew.sources import iter_sources
 from rebrew.utils import preset_module_key
 
@@ -52,7 +52,7 @@ def collect_target_sources(cfg: ProjectConfig, marker: str) -> tuple[list[Path],
         ]
         anns.extend(library_entries.get(src.resolve(), []))
         if not anns:
-            relative = src.resolve().relative_to(cfg.metadata_dir.resolve()).as_posix()
+            relative = identity_file(src.resolve(), cfg.metadata_dir.resolve())
             modules = {
                 record.module
                 for record in load_source_files(cfg.metadata_dir)

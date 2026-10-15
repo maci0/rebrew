@@ -85,3 +85,7 @@ def check_cmd(
 def main_entry() -> None:
     """Run the Typer CLI application."""
     run_cli(app)
+
+
+if __name__ == "__main__":
+    main_entry()

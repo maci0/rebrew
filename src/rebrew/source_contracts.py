@@ -379,6 +379,14 @@ def audit_contracts(cfg: ProjectConfig, *, name: str | None = None) -> dict[str,
         for unit in sorted(units):
             sites.extend(_functions(path, unit, text))
             parsed = ParsedSource.parse(text)
+            if parsed.tree.root_node.has_error:
+                unknown.append(
+                    {
+                        "context": str(unit),
+                        "file": str(path),
+                        "reason": "C syntax contains parse errors or missing tokens",
+                    }
+                )
             if name and non_external_function_declarations(parsed, name):
                 unknown.append(
                     {
@@ -639,6 +647,8 @@ def reconcile_contract(
         if site["kind"] == "function"
     }
     header_raw, header_text, _header_encoding = _read_text(header)
+    if ParsedSource.parse(header_text).tree.root_node.has_error:
+        raise ValueError("canonical header contains C parse errors or missing tokens")
     for header_site in _functions(header, header, header_text):
         if header_site.name == name:
             sites[(header_site.file, header_site.start, header_site.end)] = asdict(header_site)
@@ -706,6 +716,15 @@ def reconcile_contract(
     if "(" in parameter_key:
         raise ValueError("function-pointer contracts require an explicit source repair")
     proposed_parameters = [] if not parameter_key else parameter_key.split(",")
+    proposed_declaration = parsed_prototype.tree.root_node.named_children[0]
+    return_type = proposed_declaration.child_by_field_name("type")
+    declarator = proposed_declaration.child_by_field_name("declarator")
+    returns_void = bool(
+        return_type is not None
+        and parsed_prototype.node_text(return_type) == "void"
+        and declarator is not None
+        and declarator.type == "function_declarator"
+    )
     for audit in reports:
         if any(len(call["arguments"]) != len(proposed_parameters) for call in audit["calls"]):
             raise ValueError("reviewed signature contradicts a caller argument count")
@@ -724,7 +743,6 @@ def reconcile_contract(
             for node in _nodes(definition.child_by_field_name("body"))
             if node.type == "return_statement"
         ]
-        returns_void = proposed_key.partition("(")[0].strip() == "void"
         if (returns_void and any(node.named_children for node in returns)) or (
             not returns_void and (not returns or any(not node.named_children for node in returns))
         ):
