@@ -1616,3 +1616,31 @@ reviewed-split --target Europa1400Gold.exe --dry-run --json` currently rejects
 The five complete wrapper/caller bodies agree across321 bytes, with18 rejecting
 symbol controls and separate complete literal audits. Unknown operand bases
 remain comparison hypotheses; this request does not bless linked providers.
+
+
+## Explain two-stage MSVC switch selectors (2026-10-15)
+
+Problem: `binary switches` finds physical dispatch tables but does not trace an
+8-bit selector lookup back to its bounded input. Its cases0..5/0..2 and null
+bounds describe table slots, not the original input values. Preserve that
+uncertainty explicitly and expose the lookup/bias when native instructions
+prove them; do not present physical slots as recovered source-case values.
+
+Guild TL allocator502fe0 has two complete examples. At0x50319a, EDI is type minus0xb8;
+the unsigned bound0xa6 precede zeroing EAX, loading AL from0x50360c+EDI and dispatching
+through0x5035f4+EAX*4. Inputs0xb8,0x12c,0x12d,0x134/0x135/0x136,0x15e reach the five
+nondefault handlers. The second uses type minus0x174, unsigned bound0xf2, lookup0x5036c0
+and dispatch0x5036b4. Nondefaults are0x174/0x176 and0x24b/0x256/0x266. Six/three dispatch
+slots are not those semantic input values. The nearby separately handled0x160
+case must stay separate. Native map bytes and input/reference hashes are in
+guild-rebrew/.scratch/goal50/switch-maps.json; CLI output is switches-cli-tl.json.
+
+Proposed capability: report physical slots separately from bounded selector
+inputs, recover supported byte-map/bias chains through existing loaders and
+instruction analysis, and retain unresolved/unsupported chains explicitly.
+Validate the complete lookup and target tables, range bounds, target addresses
+and file-backed extents; do not decode lookup bytes as instructions or infer
+source names. Cover rejecting changed-selector/bounds/table controls in tests.
+Replay: `rebrew binary switches 0x502fe0 --window 2016 --json --target
+Europa1400Gold_TL.exe` in guild-rebrew. Kuna also loses the indirect arms in this
+case, so preserving the distinction materially helps ordinary-C reconstruction.
