@@ -49,7 +49,7 @@ class TestDecompDevReport:
         monkeypatch.setattr(
             report,
             "iter_source_bindings",
-            lambda sources, target=None, metadata_dir=None: [(src_file, annos)],
+            lambda sources, target=None, metadata_dir=None, project_root=None: [(src_file, annos)],
         )
         monkeypatch.setattr("rebrew.sections.get_text_section_size", lambda _p: 0x1000)
         monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: None)
@@ -258,7 +258,7 @@ class TestDecompDevDataMeasure:
         monkeypatch.setattr(
             report,
             "iter_source_bindings",
-            lambda sources, target=None, metadata_dir=None: [
+            lambda sources, target=None, metadata_dir=None, project_root=None: [
                 (src_file, [_fake_ann(0x1000, 64, "f", "EXACT")])
             ],
         )

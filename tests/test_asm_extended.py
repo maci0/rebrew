@@ -269,7 +269,8 @@ class TestGenerateInlineC:
             assert entry["symbol"] == f"_{name}"
             assert entry["size"] == len(code)
             assert entry["file"] == f"naked/{filename}"
-            assert entry["status"] == "STUB"
+            assert "status" not in entry  # A changed provider has no fresh byte verdict.
+            assert entry["binding_history"][-1]["previous"]["status"] == "STUB"
         store = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
         assert "SERVER.0x10001000" in store
         assert "SERVER.0x10002000" in store

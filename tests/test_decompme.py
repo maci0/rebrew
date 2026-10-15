@@ -690,7 +690,7 @@ class TestCli:
         )
         monkeypatch.setattr(
             "rebrew.metadata.bindings.read_source_bindings",
-            lambda p, target_name=None, metadata_dir=None: [_ann()],
+            lambda p, target_name=None, metadata_dir=None, project_root=None: [_ann()],
         )
         monkeypatch.setattr(
             "rebrew.compiler.overrides.resolve_compile_overrides",
@@ -752,7 +752,7 @@ class TestCli:
         cfg, src = self._patch(tmp_path, monkeypatch)
         monkeypatch.setattr(
             "rebrew.metadata.bindings.read_source_bindings",
-            lambda p, target_name=None, metadata_dir=None: [_ann(size=0)],
+            lambda p, target_name=None, metadata_dir=None, project_root=None: [_ann(size=0)],
         )
         r = runner.invoke(decompme.app, ["--dry-run", "--size", "32", str(src)])
         assert r.exit_code == 0

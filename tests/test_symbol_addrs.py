@@ -66,7 +66,7 @@ def _patch(
     monkeypatch.setattr(
         symbol_addrs,
         "iter_source_bindings",
-        lambda sources, target=None, metadata_dir=None: [(Path("a.c"), annos)],
+        lambda sources, target=None, metadata_dir=None, project_root=None: [(Path("a.c"), annos)],
     )
     return cfg
 

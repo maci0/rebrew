@@ -680,10 +680,20 @@ def _read_layouts(
         try:
             from rebrew.metadata.bindings import source_bindings
 
-            source_bindings(text, file_path, None, None, meta)
+            validation_lines = text.splitlines(keepends=True)
+            if prior_output:
+                # --force explicitly reuses inputs whose rows moved to this output.
+                for anchor in parse_address_anchors(text):
+                    store = data_entries if anchor.kind == "DATA" else entries
+                    row = store.get((anchor.module, anchor.va), {})
+                    if stored_file_matches(str(row.get("file") or ""), prior_output) and (
+                        anchor.name in row_labels(row)
+                    ):
+                        validation_lines[anchor.line - 1] = "\n"
+            source_bindings("".join(validation_lines), file_path, None, None, meta)
             raw, spans = source_layout(text)
         except (ImportError, ValueError) as exc:
-            error_exit(str(exc), json_mode=json_output)
+            error_exit(f"{exc}. Nothing was written.", json_mode=json_output)
         layout, layout_problems = _layout_one(
             file_path,
             raw,

@@ -5,11 +5,11 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from bin_util import append_pe_section, make_pe
 
 from rebrew.config import ProjectConfig
 from rebrew.metadata.functions import record_function_identity, set_fields
 from rebrew.source_organization import check_reorganization, review_organization
-from tests.bin_util import append_pe_section, make_pe
 
 
 def _project(tmp_path: Path) -> tuple[ProjectConfig, ProjectConfig, list[Path]]:

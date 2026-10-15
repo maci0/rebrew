@@ -926,7 +926,6 @@ class TestForceStatus:
             cflags="",
         )
         monkeypatch.setattr("rebrew.test.read_source_bindings", lambda *a, **k: [ann])
-        monkeypatch.setattr("rebrew.test.read_function_fields", lambda *a, **k: {})
         cmp = CompareResult(
             matched=False,
             status=result_status,
@@ -1088,7 +1087,6 @@ class TestSinglePathExitCodes:
         monkeypatch.setattr("rebrew.test.require_source_arg", lambda cfg, s, **_kw: s)
         monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg: {"_f": 0x1000})
         monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
-        monkeypatch.setattr("rebrew.test.read_function_fields", lambda *a, **k: {})
         monkeypatch.setattr(
             "rebrew.compiler.overrides.resolve_compile_overrides", lambda *a, **k: (None, "/O2")
         )

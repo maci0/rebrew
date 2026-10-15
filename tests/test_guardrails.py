@@ -7,6 +7,7 @@ Covers: parser consolidation, CFLAGS validation, safe file write-back,
 import re
 from pathlib import Path
 
+import pytest
 from source_util import SourceFixture, write_source
 
 from rebrew.metadata.bindings import (
@@ -334,19 +335,15 @@ class TestSanitizeName:
 class TestDuplicateVADetection:
     """Verify find_all_stubs detects duplicate VAs."""
 
-    def test_duplicate_va_deduped(self, tmp_path: Path, capsys) -> None:
+    def test_duplicate_va_rejected(self, tmp_path: Path) -> None:
         # Create two STUB files with the same VA
         for name in ("func_a.c", "func_b.c"):
             write_source(tmp_path / name, STUB_HEADER, encoding="utf-8")
 
         from rebrew.match_batch import find_all_stubs
 
-        stubs = find_all_stubs(tmp_path)
-        # Should only keep one
-        assert len(stubs) == 1
-
-        captured = capsys.readouterr()
-        assert "Duplicate VA" in captured.err
+        with pytest.raises(ValueError, match="address anchor conflicts"):
+            find_all_stubs(tmp_path)
 
     def test_different_vas_both_kept(self, tmp_path: Path) -> None:
         header_a = STUB_HEADER

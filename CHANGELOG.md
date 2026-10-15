@@ -152,6 +152,12 @@
 ### Fixed
 - Accept existing project configurations whose mtime is the Unix epoch in live
   coverage; distinguish the complete missing-file sentinel from a zero timestamp.
+- Permit explicit `source merge --force` reruns after the first merge moved
+  bindings to that output. Retained input anchors remain checked against the
+  selected output and symbol; conflicting bindings fail before writes.
+- Refresh root-aware source-binding test doubles, exact metadata-relative path
+  fixtures and changed-provider verdict expectations. Keep contradictory anchors
+  rejected, and use the test tree's direct helper imports.
 - Report incomplete C syntax in contract and organization audits, including an
   unused canonical header before reconciliation. Determine void returns from the
   AST independently of calling conventions; preserve pointer-return distinctions.

@@ -583,9 +583,33 @@ class TestMergeInputScanning:
         )
         first = runner.invoke(app, ["--output", str(out), "--force", str(sub)])
         assert first.exit_code == 0, first.output
+        inputs = {path: path.read_bytes() for path in (sub / "a.c", sub / "b.c")}
+        original_output = out.read_bytes()
         second = runner.invoke(app, ["--output", str(out), "--force", str(sub)])
         assert second.exit_code == 0, second.output
-        assert out.exists()
+        assert out.read_bytes() == original_output
+        assert {path: path.read_bytes() for path in inputs} == inputs
+
+    def test_force_rerun_rejects_binding_moved_to_another_output(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew.metadata.functions import record_function_rows
+
+        a = _write(tmp_path / "a.c", _single(0x1000, "_a"))
+        b = _write(tmp_path / "b.c", _single(0x2000, "_b"))
+        first, out = _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
+        assert first.exit_code == 0, first.output
+        record_function_rows(
+            tmp_path, [{"module": "SERVER", "va": 0x1000, "identity": {"file": "other.c"}}]
+        )
+        original_output = out.read_bytes()
+        metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
+        second, _ = _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
+        assert second.exit_code != 0
+        assert "address anchor conflicts" in second.output
+        assert "Nothing was written" in second.output
+        assert out.read_bytes() == original_output
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata
 
     def test_foreign_file_preserves_encoding_in_merged_output(
         self, tmp_path: Path, monkeypatch: Any

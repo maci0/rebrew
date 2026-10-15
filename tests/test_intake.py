@@ -168,7 +168,7 @@ class TestIntake:
         argv = ["game.exe", "--json"]
         _run_main(tmp_path, monkeypatch, argv=argv)
         src_dir = tmp_path / "src" / "game"
-        metadata_dir = tmp_path / "src"
+        metadata_dir = tmp_path
         original = src_dir / "fcn_00401000.c"
         nested = src_dir / "render"
         nested.mkdir()
@@ -182,7 +182,7 @@ class TestIntake:
                 {
                     "module": "GAME",
                     "va": 0x401000,
-                    "identity": {"file": "game/render/render_frame.c"},
+                    "identity": {"file": "src/game/render/render_frame.c"},
                     "fields": {},
                 }
             ],
@@ -210,7 +210,7 @@ class TestIntake:
             assert entry["status"] == status
             assert entry["blocker"] == "Needs float math"
             assert entry["size"] == 30
-            assert entry["file"] == "game/render/render_frame.c"
+            assert entry["file"] == "src/game/render/render_frame.c"
 
     def test_binary_missing_fails(self, tmp_path: Path, monkeypatch) -> None:
         from typer.testing import CliRunner

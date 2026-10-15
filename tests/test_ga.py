@@ -171,7 +171,7 @@ class TestFindAllStubs:
         assert stubs == []
 
     def test_duplicate_va_warning(self, tmp_path: Path) -> None:
-        """Duplicate VAs should be detected — only first kept."""
+        """Contradictory address anchors fail before batch matching."""
         self._make_stub(tmp_path, 0x10001000, "_dup_a")
         # Create second file with same VA
         f2 = tmp_path / "dup_file.c"
@@ -188,7 +188,8 @@ class TestFindAllStubs:
                 }
             },
         )
-        assert len(find_all_stubs(tmp_path)) == 1
+        with pytest.raises(ValueError, match="address anchor conflicts"):
+            find_all_stubs(tmp_path)
 
     def test_filters_ignored(self, tmp_path: Path) -> None:
         self._make_stub(tmp_path, 0x10001000, "_asm_builtin")
@@ -358,7 +359,8 @@ class TestFindAllMatching:
                 }
             },
         )
-        assert len(find_all_matching(tmp_path, warn_duplicates=False)) == 1
+        with pytest.raises(ValueError, match="address anchor conflicts"):
+            find_all_matching(tmp_path, warn_duplicates=False)
 
 
 # -------------------------------------------------------------------------

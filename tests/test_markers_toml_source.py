@@ -48,7 +48,7 @@ class TestTomlSynthesis:
         assert ann.status == "EXACT"
         assert ann.kind == "FUNCTION"
 
-    def test_bare_filename_entry_matches(self, tmp_path: Path) -> None:
+    def test_bare_filename_does_not_match_nested_source(self, tmp_path: Path) -> None:
         src = tmp_path / "reversed"
         src.mkdir()
         (src / "f.c").write_text("int x(void) { return 0; }\n", encoding="utf-8")
@@ -56,6 +56,8 @@ class TestTomlSynthesis:
             tmp_path,
             {("S", 0x1000): {"file": "f.c", "symbol": "x"}},
         )
+        assert read_source_bindings(src / "f.c", metadata_dir=tmp_path) == []
+        _write_metadata(tmp_path, {("S", 0x1000): {"file": "reversed/f.c", "symbol": "x"}})
         (annos,) = read_source_bindings(src / "f.c", metadata_dir=tmp_path)
         assert annos.va == 0x1000
 

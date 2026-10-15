@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from bin_util import make_coff_obj, make_pe
 
 from rebrew.coff_reloc import build_name_to_va
 from rebrew.config import ProjectConfig
@@ -13,7 +14,6 @@ from rebrew.formats.binary_loader import load_binary
 from rebrew.metadata.functions import get_entry, record_function_identity, set_fields
 from rebrew.native_review import review_native_identity
 from rebrew.object_evidence import audit_literals, literal_size, native_span, object_function
-from tests.bin_util import make_coff_obj, make_pe
 
 
 def _object(

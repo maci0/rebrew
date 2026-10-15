@@ -182,9 +182,13 @@ class TestLintFileEdgeCases:
                 },
             ),
         )
-        lint_file(f1, seen_vas=seen_vas)
+        result1 = lint_file(f1, seen_vas=seen_vas)
+        assert any(
+            code == "E001" and "address anchor conflicts" in message
+            for _, code, message in result1.errors
+        )
         result2 = lint_file(f2, seen_vas=seen_vas)
-        assert any((code == "E013" for _, code, _ in result2.errors))
+        assert result2.errors == []
 
     def test_struct_without_size_comment(self, tmp_path: Path) -> None:
         f = _write(
