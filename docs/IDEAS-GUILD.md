@@ -1462,3 +1462,31 @@ closes the selected extent-edit workflow above; it does not implement automatic
 CFG-boundary inference or earn a source comparison verdict. Compiler literal
 audits, reviewed native library identities, declaration contract reconciliation
 and link-aware source reorganization remain in the active implementation plan.
+
+## Resolve references between independent same-named functions (2026-10-15)
+
+Problem: imported target-local placeholders can give unrelated definitions the
+same C symbol in one reconstructed target. The strict native-name resolver
+correctly refuses a conflicting binding, but a reviewed rename cannot currently
+identify which definition an otherwise ambiguous caller uses. Existing
+`source rename PLACEHOLDER MODULE.0xVA` deliberately handles unbound names only;
+`--all-modules` would rename both independent definitions and retain the collision.
+
+Concrete case: guild-rebrew has `fcn_0047dd60` for TL47d220/Gold47dd60 (a32-byte
+kind predicate) and TL47dd60/Gold47e8a0 (a137-byte entity-link helper). Previewing
+`rebrew source rename GOLD.0x0047dd60 gm_IsEntityKind2To5 --shared-definition
+--dry-run --json` refuses the shared caller `src/GOLDTL.fcn_0047de50.c` as
+ambiguous, without writes. Its native call must be checked against the137-byte
+helper in each target before selecting that owner. Client verification currently
+stops at `ambiguous native function name: _fcn_0047dd60`; other same-symbol groups
+also require review. Receipts: guild-rebrew/.scratch/goal45/rename-kind-preview.json
+and the two kind-native disassemblies. No ambiguous caller was renamed or hidden.
+
+Proposed capability: accept explicit, reviewed reference ownership for selected
+caller definitions or physical call/declaration sites, keyed by target identity.
+Preview both selected and excluded references, require current-input digests,
+reject contradictory cross-target ownership, and apply through existing syntax
+and metadata writers atomically. Keep distinct bodies, native extents and verdict
+history; affected definitions and callers must earn fresh comparisons. Do not
+pick the first definition, weaken global validation, treat a byte match as a
+declaration contract, or invent forwarding aliases to escape the collision.
