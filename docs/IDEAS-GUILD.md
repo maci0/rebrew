@@ -1454,7 +1454,7 @@ Europa1400Gold_TL.exe`. The full scan and direct archive comparison remain the
 supported read-only audit; this request concerns discovery/composition parity.
 
 
-## Implemented evidence workflow updates (unreleased)
+## Implemented evidence workflow updates (Rebrew 4.1.0)
 
 Local coverage views now read canonical inputs directly; portable coverage is an
 explicit export. `test FILE --source-targets` and `verify FILE --source-targets`
@@ -1514,3 +1514,27 @@ a separate open capability. The initial library-accounting suspicion was merged
 native extents in the project, handled by reviewed `binary repair-extents`, not a
 separate upstream library-accounting defect. No Guild caller/source edits were
 made during this coordination.
+
+
+## Expose the complete unstarted-function lane for byte-focused triage (2026-10-15)
+
+Problem: `todo --category start-function --limit 3000 --json` still returns only
+50 candidates. `_collect_new_functions` stops at 50 entries while traversing the
+native inventory, before the global ROI sort and final display limit. On
+Guild TL all 50 entries are below 0x41a000, while the target has 1,225 game
+functions without source. Larger bodies elsewhere never enter this selection.
+This is a candidate-discovery limit, not evidence of incorrect coverage accounting.
+
+Replay from guild-rebrew: `uv run --frozen rebrew todo --target
+Europa1400Gold_TL.exe --category start-function --limit 3000 --json`.
+Receipt: guild-rebrew/.scratch/goal46/todo-start.json (total_items/count both 50).
+`rebrew binary extract list --min-size 1024 --max-size 8192 --json` provides a
+separate inventory path; its candidates still need library and boundary review.
+
+Proposed capability: rank or page the complete eligible lane, and make any
+performance budget explicit in JSON/help rather than silently discarding later
+addresses. Support selection by potential new matched bytes as well as effort.
+Keep existing filters for libraries, interior/pseudo-functions, IAT thunks and
+other non-targets; a later large function or high-value candidate must remain
+reachable when more than 50 lower-address entries precede it. Source placement
+still requires evidence, and selecting a candidate earns no comparison verdict.

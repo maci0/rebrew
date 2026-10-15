@@ -35,7 +35,7 @@ unchecked item does not describe a shipped command.
   a safe move.
 - [x] Update the current ideas ledger, CLI reference, migration notes, packaged
   skills and agent templates; refresh/check all discovered decomp projects.
-- [ ] Run focused rejecting-control regressions per capability, then CLI/help,
+- [x] Run focused rejecting-control regressions per capability, then CLI/help,
   metadata, docs/skills, lint/type/layering and full-suite gates; review changes
   and commit the completed work.
 
@@ -64,10 +64,20 @@ conditional/linkage/ABI differences, context-specific typedefs and variadic bodi
 Organization controls cover target-order cycles, providers and TU settings, local
 storage/helper instances, raw data drift, truncated PE tables and replacement races.
 
-The full-body/live-view baseline passed 12,036 Rebrew tests with three failures
-subsequently repaired; later focused batches and commit hooks pass. The initial
-Recoverage backend batch passed 2,261 tests with one optional skip, and a seven-route
-smoke passed. These are bounded results, not the final publication gate.
+Canonical Rebrew passed 12,252 tests with 36 skips under Slipcover: 89%
+coverage against the unchanged 85% floor. The separately frozen Guild repair
+suite passed 12,250 tests with 36 skips; the epoch-config fix adds two controls.
+Release version, packaging and public-surface controls passed 93 tests with two
+skips. All-file hooks, CLI/skill contracts, lint, mypy, dependency audit, fixture
+generation, cycle/layer checks and read/write idempotency checks passed.
+
+The Rebrew 4.1.0 candidate passed installed-wheel smoke, independent sdist/wheel
+member equality, reproducible wheel/sdist/SBOM/buildinfo and provenance checks.
+Recoverage's clean task-only checkout passed 2,292 backend tests with one optional
+skip, strict typing over 38 files and its complete local build/lint/smoke gates.
+Its 8.0.0 preparation merges the published 7.0.1 fixes and preserves released
+notes. A target-scoped file route supports configured source/binary roots and
+explicit portable binary references, with encoding and containment controls.
 
 The final 46-project guidance refresh/check passed after the last skill corrections.
 Custom rules and 19,661 protected source/config/metadata files were unchanged by
@@ -77,15 +87,15 @@ idempotently through the metadata owner. All six installed runtime origins and
 configured Rebrew/Recoverage dependency paths resolve to the canonical checkouts.
 Guild's latest guidance-only commit is separate from its active reversing changes.
 
-Canonical main includes the optional-root/VA-help and inline-C provider-history
-repairs. The first final coverage run was interrupted for three review corrections; its
-partial result is not a full-suite pass. Rejecting controls cover shared helpers
-outside the metadata root, malformed C/headers, calling-convention-independent
-void returns and standalone command registration. Restart the full suite under
-the unchanged 85% floor after the isolated objdiff fixtures are integrated.
-Final all-file hooks and package/reproducibility gates, coordinated immutable
-Recoverage dependency pin, clean task-only Recoverage commit and publication remain
-pending. No running suite is claimed passing before completion.
+Canonical main includes the optional-root/VA-help, inline-C provider-history
+and forced-merge rerun repairs. Rejecting controls cover shared helpers outside
+the metadata root, malformed C/headers, calling-convention-independent void
+returns, standalone command registration and existing epoch-timestamp configs.
+The earlier interrupted/failed runs remain receipts, not publication evidence.
+
+Publication uses the exact artifacts from green CI on each release commit,
+including immutable Recoverage dependency pins and an isolated task-only tree.
+Unrelated branding and native reversing work remain outside these changes.
 
 The separately recorded independent already-bound same-name caller-ownership
 rename capability remains an open ideas-ledger item. These deliveries neither
