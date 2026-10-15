@@ -117,6 +117,55 @@ class TestFlirtCli:
         assert data["match_count"] == 0
         assert data["skipped_ambiguous"] >= 1
 
+    @pytest.mark.parametrize("show_ambiguous", [False, True])
+    def test_broad_signature_name_dedup_is_linear(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, show_ambiguous: bool
+    ) -> None:
+        class CountedName(str):
+            __slots__ = ()
+            comparisons = 0
+            __hash__ = str.__hash__
+
+            def __eq__(self, other: object) -> bool:
+                type(self).comparisons += 1
+                return str.__eq__(self, other)
+
+        labels = [CountedName(f"candidate_{i}") for i in range(2000)]
+
+        class Matcher:
+            def match(self, data):
+                return [
+                    SimpleNamespace(names=[("", 0, 0)] + [(n, 0, 0) for n in labels[:1000]]),
+                    SimpleNamespace(names=[(n, 0, 0) for n in labels]),
+                ]
+
+        _patch(tmp_path, monkeypatch, sigs=["sig1"], text_bytes=b"\x90" * 32)
+        monkeypatch.setattr("rebrew.flirt.flirt.compile", lambda sigs: Matcher())
+        args = ["--json"]
+        if show_ambiguous:
+            args.append("--show-ambiguous")
+        args.append(str(tmp_path))
+        result = CliRunner().invoke(app, args)
+        comparisons = CountedName.comparisons
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert data["match_count"] == 0
+        assert data["skipped_ambiguous"] == 1
+        if show_ambiguous:
+            from rebrew.flirt import _MAX_AMBIGUOUS_REPORT
+
+            assert data["ambiguous_matches"] == [
+                {
+                    "va": "0x00001000",
+                    "size": 32,
+                    "names": [f"candidate_{i}" for i in range(_MAX_AMBIGUOUS_REPORT)],
+                    "more": True,
+                }
+            ]
+        else:
+            assert data["ambiguous_matches"] == []
+        assert comparisons < len(labels) * 4
+
 
 class TestFlirtSigsDirEnv:
     def test_missing_env_dir_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

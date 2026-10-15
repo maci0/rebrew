@@ -640,11 +640,13 @@ def main(
         if not hits:
             return
         names: list[str] = []
+        seen_names: set[str] = set()
         for m in hits:
             for n in m.names:
                 # n is (name, type, offset) tuple
                 label = n[0] if isinstance(n, tuple) else str(n)
-                if label and label not in names:
+                if label and label not in seen_names:
+                    seen_names.add(label)
                     names.append(label)
         if not names:
             return

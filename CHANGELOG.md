@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Performance
+- Deduplicate FLIRT candidate names in linear time while preserving their order
+  and ambiguity reports. Large shared signature databases no longer spend
+  quadratic work collecting names at each matching offset.
+
 ## [4.0.0] - 2026-10-15
 
 ### Performance
