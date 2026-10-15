@@ -361,11 +361,11 @@ _CHECKOUT = Path(__file__).resolve().parents[2]
 #: neither searched for vendored tools nor written to.
 SOURCE_CHECKOUT: Path | None = _CHECKOUT if (_CHECKOUT / "pyproject.toml").is_file() else None
 
-# Process-lifetime source text memo keyed by (resolved path, mtime_ns, size, inode).
+# Process-lifetime source text memo keyed by (resolved path, mtime_ns, size, inode, ctime_ns).
 # verify/test/catalog re-read the same tree multiple times per run; a bounded
 # LRU collapses those duplicate syscalls without pinning unbounded content.
 # Guarded: verify -j N reads the same sources from worker threads.
-_SOURCE_TEXT_MEMO: OrderedDict[tuple[str, int, int, int], tuple[str, str]] = OrderedDict()
+_SOURCE_TEXT_MEMO: OrderedDict[tuple[str, int, int, int, int], tuple[str, str]] = OrderedDict()
 # A game tree is thousands of sources, and verify/status re-read each one.
 # 512 evicted the head of a 4000-file scan before the scan finished, so the
 # second pass re-read every file (78 ms vs 31 ms). 8192 small bodies is the
@@ -374,7 +374,7 @@ _SOURCE_TEXT_MEMO_MAX = 8192
 _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 # resolved path -> its live memo keys, so a write invalidates in O(1)
 # instead of scanning the whole LRU.
-_SOURCE_TEXT_MEMO_BY_PATH: dict[str, set[tuple[str, int, int, int]]] = {}
+_SOURCE_TEXT_MEMO_BY_PATH: dict[str, set[tuple[str, int, int, int, int]]] = {}
 
 # ``str(path)`` -> its resolved path, for :func:`read_source_text`.  The body
 # memo is keyed by the resolved path, but producing it walks every component
@@ -472,10 +472,10 @@ def path_is_relative_to(path: Path, other: Path) -> bool:
 
 # Raw bytes from the same read as the text memo, so source_hash does not
 # open the file again. Dropped with the text entry.
-_SOURCE_RAW: dict[tuple[str, int, int, int], bytes] = {}
+_SOURCE_RAW: dict[tuple[str, int, int, int, int], bytes] = {}
 
 
-def _memo_forget(memo_key: tuple[str, int, int, int]) -> None:
+def _memo_forget(memo_key: tuple[str, int, int, int, int]) -> None:
     """Unlink *memo_key*'s path from the index, dropping an emptied entry."""
     _SOURCE_RAW.pop(memo_key, None)
     keys = _SOURCE_TEXT_MEMO_BY_PATH.get(memo_key[0])
@@ -485,13 +485,13 @@ def _memo_forget(memo_key: tuple[str, int, int, int]) -> None:
             del _SOURCE_TEXT_MEMO_BY_PATH[memo_key[0]]
 
 
-def _memo_drop(memo_key: tuple[str, int, int, int]) -> None:
+def _memo_drop(memo_key: tuple[str, int, int, int, int]) -> None:
     """Remove one entry from the source text memo and its path index."""
     _SOURCE_TEXT_MEMO.pop(memo_key, None)
     _memo_forget(memo_key)
 
 
-def _memo_store(memo_key: tuple[str, int, int, int], value: tuple[str, str]) -> None:
+def _memo_store(memo_key: tuple[str, int, int, int, int], value: tuple[str, str]) -> None:
     """Insert an entry, evicting the LRU tail until there is room."""
     if memo_key in _SOURCE_TEXT_MEMO:
         _SOURCE_TEXT_MEMO.move_to_end(memo_key)
@@ -759,7 +759,7 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
         data = filepath.read_bytes()
         encoding = detect_source_encoding(data)
         return data.decode(encoding, errors="replace"), encoding
-    memo_key = (str(resolved), st.st_mtime_ns, st.st_size, st.st_ino)
+    memo_key = (str(resolved), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
     with _SOURCE_TEXT_MEMO_LOCK:
         hit = _SOURCE_TEXT_MEMO.get(memo_key)
         if hit is not None:
@@ -784,13 +784,15 @@ def clear_source_text_memo() -> None:
         _RESOLVED_SOURCE_PATHS.clear()
 
 
-def cached_source_bytes(filepath: Path, mtime_ns: int, size: int, ino: int) -> bytes | None:
+def cached_source_bytes(
+    filepath: Path, mtime_ns: int, size: int, ino: int, ctime_ns: int
+) -> bytes | None:
     """File bytes just read by :func:`read_source_text`, or ``None``.
 
     Keyed by the resolved path and the same stat identity as the text memo.
     """
     resolved = _resolved_source_path(filepath)
-    return _SOURCE_RAW.get((str(resolved), mtime_ns, size, ino))
+    return _SOURCE_RAW.get((str(resolved), mtime_ns, size, ino, ctime_ns))
 
 
 def read_toml_text(path: Path) -> str:

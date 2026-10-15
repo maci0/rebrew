@@ -1936,3 +1936,22 @@ class TestPathIsRelativeTo:
         monkeypatch.setattr(Path, "is_relative_to", refuse)
         for child, parent, answer in expected:
             assert path_is_relative_to(child, parent) is answer
+
+
+class TestSourceMemoPreservedMtime:
+    def test_text_and_hash_notice_in_place_edit_with_restored_mtime(self, tmp_path: Path) -> None:
+        import os
+
+        from rebrew.verify_hash import clear_source_memo, source_hash
+
+        path = tmp_path / "body.c"
+        path.write_text("int f(void) { return 1; }\n")
+        clear_source_text_memo()
+        clear_source_memo()
+        first_text = read_source_text(path)[0]
+        first_hash = source_hash(path)
+        stat = path.stat()
+        path.write_text(first_text.replace("return 1", "return 2"))
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        assert "return 2" in read_source_text(path)[0]
+        assert source_hash(path) != first_hash

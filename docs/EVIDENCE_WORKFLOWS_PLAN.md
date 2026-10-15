@@ -26,7 +26,7 @@ unchecked item does not describe a shipped command.
 - [x] Audit compiler-literal contents through object sections, typed relocations
   and complete native spans. Allow reviewed native library identities only with
   explicit, binary-bound evidence; keep provider attribution separate.
-- [ ] Audit target-scoped declaration/definition contracts and support reviewed
+- [x] Audit target-scoped declaration/definition contracts and support reviewed
   canonical-header reconciliation. Distinguish opaque pointer views from return,
   value-width and argument contradictions; enumerate affected source contexts.
 - [ ] Add link-aware source-reorganization previews and validation, preserving
@@ -98,3 +98,9 @@ embedded NULs, wrong values/callees, native-selected equal pools, interior adden
 truncated spans, partial LIEF tables, data-only object sections and stale reviews.
 The metadata/relocation/help batch passed 250 tests before final parser controls;
 full-suite and final cross-project release checks remain pending.
+
+Declaration contracts and canonical-header reconciliation now have controls for
+external SDK protection, exact parsed-byte snapshots, unused headers, real includes,
+matching header guards, ABI/linkage disagreements, context-specific typedefs,
+variadic bodies and stale reviews. The focused API/CLI/cache batch passed 216 tests;
+publication gates and source-reorganization capability remain pending.

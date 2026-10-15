@@ -1,0 +1,285 @@
+"""Source contract contradictions are independent of matching object bytes."""
+
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
+import pytest
+
+from rebrew.config import ProjectConfig
+from rebrew.metadata.functions import record_function_identity
+from rebrew.rename_ops import RenameError
+from rebrew.source_contracts import audit_contracts, reconcile_contract
+
+
+def _project(tmp_path: Path) -> ProjectConfig:
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "api.h").write_text("#ifndef API_H\n#define API_H\n#endif\n")
+    (source / "owner.c").write_text("int queue(int id) { return id; }\n")
+    (source / "user.c").write_text(
+        "extern void queue(int value);\nint wrapper(void) { queue(1); return 0; }\n"
+    )
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=source, marker="GAME")
+    for filename, name, va in [("owner.c", "queue", 0x401000), ("user.c", "wrapper", 0x401100)]:
+        record_function_identity(
+            cfg.metadata_dir,
+            module="GAME",
+            va=va,
+            file=f"src/{filename}",
+            name=name,
+            symbol=f"_{name}",
+            kind="FUNCTION",
+            size=8,
+        )
+    return cfg
+
+
+class TestContracts:
+    def test_return_mismatch_and_return_use_are_independent(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "other.c").write_text(
+            "int queue(int q); int consume(void) { return queue(3); }\n"
+        )
+        report = audit_contracts(cfg, name="queue")
+        assert report["findings"][0]["differences"] == ["return_value_type"]
+        assert {call["return_used"] for call in report["calls"]} == {False, True}
+        assert not report["verdicts_changed"] and not report["preprocessed"]
+
+    def test_unmarked_globals_do_not_hide_behind_marked_types(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "one.c").write_text("extern int g;\n")
+        (cfg.reversed_dir / "two.c").write_text("extern char *g;\n")
+        findings = audit_contracts(cfg, name="g")["findings"]
+        assert findings[0]["differences"] == ["pointer_value"]
+        assert len(findings[0]["sites"]) == 2
+
+    def test_opaque_pointer_views_are_reported_separately(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "one.c").write_text("extern struct Opaque *g;\n")
+        (cfg.reversed_dir / "two.c").write_text("extern void *g;\n")
+        report = audit_contracts(cfg, name="g")
+        assert report["findings"][0]["severity"] == "review"
+        assert report["findings"][0]["differences"] == ["pointer_view"]
+
+    def test_static_definitions_in_distinct_units_are_independent(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "one.c").write_text("static int f(void) { return 1; }\n")
+        (cfg.reversed_dir / "two.c").write_text("static void f(int x) {}\n")
+        assert not audit_contracts(cfg, name="f")["findings"]
+
+    def test_foreign_target_providers_do_not_participate(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "foreign.c").write_text("void queue(char *x) {}\n")
+        record_function_identity(
+            cfg.metadata_dir,
+            module="OTHER",
+            va=0x501000,
+            file="src/foreign.c",
+            name="queue",
+            symbol="_queue",
+            kind="FUNCTION",
+            size=8,
+        )
+        report = audit_contracts(cfg, name="queue")
+        assert all(not site["file"].endswith("foreign.c") for site in report["sites"])
+
+    def test_header_declaration_is_attributed_to_each_real_context(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "api.h").write_text("int queue(int id);\n")
+        (cfg.reversed_dir / "user.c").write_text(
+            '#include "api.h"\nint wrapper(void) { return queue(1); }\n'
+        )
+        assert any(
+            site["file"].endswith("api.h") and site["context"].endswith("user.c")
+            for site in audit_contracts(cfg, name="queue")["sites"]
+        )
+
+
+class TestContractReconciliation:
+    def test_preview_no_write_apply_preserves_parameter_names_and_metadata(
+        self, tmp_path: Path
+    ) -> None:
+        cfg = _project(tmp_path)
+        before = {p: (p.read_bytes(), p.stat()) for p in tmp_path.rglob("*") if p.is_file()}
+        preview = reconcile_contract(
+            [cfg], "queue", Path("src/api.h"), "int queue(int value)", dry_run=True
+        )
+        assert before == {p: (p.read_bytes(), p.stat()) for p in tmp_path.rglob("*") if p.is_file()}
+        assert preview["verification_required"] and len(preview["calls"]) == 1
+        metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
+        reconcile_contract(
+            [cfg],
+            "queue",
+            Path("src/api.h"),
+            "int queue(int value)",
+            expected_digest=preview["input_digest"],
+        )
+        owner = (cfg.reversed_dir / "owner.c").read_text()
+        assert "queue(int id)" in owner and "return id;" in owner
+        user = (cfg.reversed_dir / "user.c").read_text()
+        assert '#include "api.h"' in user and "extern void queue" not in user
+        assert "int queue(int value);\n#endif" in (cfg.reversed_dir / "api.h").read_text()
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata
+        assert not audit_contracts(cfg, name="queue")["findings"]
+
+    @pytest.mark.parametrize(
+        "prototype",
+        [
+            "int queue(int x, int y)",
+            "int other(int x)",
+            "int queue(int x); int evil;",
+            "static int queue(int x)",
+            "int queue(...)",
+        ],
+    )
+    def test_bad_replacement_writes_nothing(self, tmp_path: Path, prototype: str) -> None:
+        cfg = _project(tmp_path)
+        before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        with pytest.raises(ValueError):
+            reconcile_contract([cfg], "queue", Path("src/api.h"), prototype)
+        assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+    def test_stale_preview_rejected(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        preview = reconcile_contract(
+            [cfg], "queue", Path("src/api.h"), "int queue(int value)", dry_run=True
+        )
+        (cfg.reversed_dir / "user.c").write_text("/* changed */\n")
+        with pytest.raises(ValueError, match="changed"):
+            reconcile_contract(
+                [cfg],
+                "queue",
+                Path("src/api.h"),
+                "int queue(int value)",
+                expected_digest=preview["input_digest"],
+            )
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "#ifdef FLAG\nvoid queue(int x);\n#endif\n",
+            '#include "missing.h"\nvoid queue(int x);\n',
+            "int queue(int), other(void);\n",
+        ],
+    )
+    def test_uncertain_context_requires_explicit_repair(self, tmp_path: Path, source: str) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "user.c").write_text(source)
+        with pytest.raises(ValueError):
+            reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+
+    def test_failed_publication_restores_earlier_source(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        before = {p: p.read_bytes() for p in cfg.reversed_dir.iterdir()}
+        from rebrew.utils import atomic_write_text
+
+        def write(path: Path, text: str, **kwargs: Any) -> None:
+            if path.name == "owner.c":
+                raise OSError("cannot write")
+            atomic_write_text(path, text, **kwargs)
+
+        with (
+            patch("rebrew.rename_ops.atomic_write_text", side_effect=write),
+            pytest.raises(RenameError, match="failed"),
+        ):
+            reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+        assert before == {p: p.read_bytes() for p in cfg.reversed_dir.iterdir()}
+
+
+class TestAdversarialContracts:
+    def test_external_sdk_header_is_never_rewritten(self, tmp_path: Path) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        cfg = _project(project)
+        sdk = tmp_path / "sdk"
+        sdk.mkdir()
+        external = sdk / "api_sdk.h"
+        external.write_text("void queue(int id);\n")
+        (cfg.reversed_dir / "user.c").write_text(
+            '#include "../../sdk/api_sdk.h"\nint wrapper(void) { queue(1); return 0; }\n'
+        )
+        before = external.read_bytes()
+        with pytest.raises(ValueError, match="external"):
+            reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+        assert external.read_bytes() == before
+
+    def test_calling_convention_conflict_is_an_error(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "user.c").write_text("int __stdcall queue(int value);\n")
+        report = audit_contracts(cfg, name="queue")
+        assert "calling_convention" in report["findings"][0]["differences"]
+        assert report["findings"][0]["severity"] == "error"
+
+    def test_c_file_ifndef_is_not_a_header_guard(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "user.c").write_text(
+            "#ifndef FEATURE\n#define SOMETHING\nvoid queue(int x);\n#endif\n"
+        )
+        with pytest.raises(ValueError, match="conditional"):
+            reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+
+    def test_existing_unused_header_signature_is_replaced(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        header = cfg.reversed_dir / "api.h"
+        header.write_text("#ifndef API_H\n#define API_H\nvoid queue(int id);\n#endif\n")
+        reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+        assert "void queue" not in header.read_text()
+        assert header.read_text().count("queue(") == 1
+
+    def test_fresh_snapshot_cannot_use_stale_decoded_source(self, tmp_path: Path) -> None:
+        import os
+
+        from rebrew.utils import read_source_text
+
+        cfg = _project(tmp_path)
+        owner = cfg.reversed_dir / "owner.c"
+        read_source_text(owner)
+        stat = owner.stat()
+        owner.write_text(owner.read_text().replace("return id", "return 99"))
+        os.utime(owner, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+        assert "return 99" in owner.read_text()
+
+    def test_comment_cannot_suppress_include_insertion(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        user = cfg.reversed_dir / "user.c"
+        user.write_text('// #include "api.h"\n' + user.read_text())
+        reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+        assert '\n#include "api.h"\n' in user.read_text()
+
+    def test_conflicting_same_tu_linkage_is_reported(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "owner.c").write_text(
+            "extern int queue(int x);\nstatic int queue(int x) { return x; }\n"
+        )
+        report = audit_contracts(cfg, name="queue")
+        assert any(finding["differences"] == ["linkage"] for finding in report["findings"])
+
+    def test_context_specific_typedef_meanings_cannot_look_equal(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "owner.c").write_text(
+            "typedef int Handle;\nint queue(Handle id) { return id; }\n"
+        )
+        (cfg.reversed_dir / "user.c").write_text(
+            'typedef char *Handle;\nextern int queue(Handle id);\nint wrapper(void) { return queue("x"); }\n'
+        )
+        report = audit_contracts(cfg, name="queue")
+        assert report["findings"][0]["differences"] == ["argument_0_pointer_value"]
+
+    def test_unresolved_equal_aliases_are_explicitly_unknown(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "owner.c").write_text("int queue(Handle id) { return 1; }\n")
+        (cfg.reversed_dir / "user.c").write_text("int queue(Handle value);\n")
+        assert any(
+            row.get("types") == ["Handle"] for row in audit_contracts(cfg, name="queue")["unknown"]
+        )
+
+    def test_existing_variadic_definition_cannot_lose_ellipsis(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        owner = cfg.reversed_dir / "owner.c"
+        owner.write_text("int queue(int id, ...) { __builtin_va_start(ap, id); return id; }\n")
+        before = owner.read_bytes()
+        with pytest.raises(ValueError):
+            reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+        assert owner.read_bytes() == before

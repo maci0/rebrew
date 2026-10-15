@@ -6,6 +6,18 @@
   quadratic work collecting names at each matching offset.
 
 ### Changed
+- Add `types contracts` with target-isolated sweeps, definition/declaration sites,
+  context-specific typedef resolution, caller return uses and separate ABI/value,
+  pointer-view and unknown findings. Unmarked globals participate independently
+  of metadata-preferred data inventory types.
+- Add `types reconcile` for reviewed canonical subsystem-header signatures across
+  every target. Preserve definition parameter names and bodies; preview full diffs
+  and caller conversions, guard exact inputs, reject uncertain/external/static/
+  conditional/variadic cases and retain existing source/provenance rollback.
+  Source edits earn no comparison verdicts; affected callers require verification.
+- Source-text/raw-body/hash memos include ctime, so same-size in-place edits with
+  restored mtime cannot reuse stale source bytes. **Breaking:** public
+  `utils.cached_source_bytes` requires the additional `ctime_ns` argument.
 - **Breaking:** Build provider selection moves from `cmake_sources.collect` to
   shared `source_selection.collect_target_sources`; include-closure scans move
   from private `compiler.cache._scan_include_closure` to public

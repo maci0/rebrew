@@ -65,6 +65,21 @@ only the exact native symbol, independently of source/archive providers. Changed
 binary, source claim, extent or operand dependencies disable the stored trust.
 Do not turn an attribution name or a masked body into a trusted native identity.
 
+## Source contracts and canonical headers
+
+`rebrew types contracts --name queue --all-targets --json` audits definition,
+declaration and caller contexts separately from byte matches. It includes unmarked
+globals, context-specific typedefs and return/argument/ABI disagreements. Pointer
+views and unresolved evidence are distinct; it does not preprocess or compile C.
+
+`rebrew types reconcile queue src/api.h --prototype 'int queue(int id)' --dry-run`
+previews one reviewed canonical signature across every target, preserving definition
+parameter names and bodies. Review full diffs, caller conversion expressions and
+all affected contexts. Apply with `--expected-digest`, then compile/test/verify
+those definitions and callers. External headers, conditional/static/variadic or
+unresolved contracts, incompatible calls and bodies needing return edits require
+explicit repair; the command never guesses an argument conversion or earns STATUS.
+
 ## Commands
 
 Run from the project root (config discovery walks up to `rebrew-project.toml`). Add

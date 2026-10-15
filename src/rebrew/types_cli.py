@@ -9,7 +9,7 @@ import typer
 from rebrew.cli import SOURCE_HELP, TargetOption, console, error_exit, json_print, require_config
 
 app = typer.Typer(
-    help="Manage type identities; check layouts; apply types to C signatures.",
+    help="Manage types, audit contracts, reconcile headers, and check layouts.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
@@ -17,7 +17,7 @@ app = typer.Typer(
         "  rebrew types check --compile\n\n"
         "  rebrew types bind obj t.h T --size 4 --native-size 4 --evidence alloc\n\n"
         "  rebrew types apply src/f.c --param 2 --type MAT4 --dry-run\n\n"
-        "[dim]check compares declared layouts with decompiler evidence. bind records a stable type identity after compiler checks. apply rewrites a C parameter type; preview it, then verify affected functions.[/dim]\n\n"
+        "[dim]check compares layouts with evidence. contracts audits declaration and definition contracts; reconcile previews one reviewed canonical header signature across every target. bind records a checked type identity; apply edits a parameter. Verify affected functions after source edits.[/dim]\n\n"
     ),
 )
 
@@ -270,3 +270,85 @@ def _first_function_name(text: str) -> str:
 
 if __name__ == "__main__":
     main_entry()
+
+
+@app.command(
+    "contracts",
+    epilog="[bold]Examples:[/bold]\n\n  rebrew types contracts --name queue --all-targets --json",
+)
+def contracts_cmd(
+    name: str | None = typer.Option(
+        None, "--name", help="Audit one C name; defaults to every declaration"
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+    all_targets: bool = typer.Option(
+        False, "--all-targets", help="Audit every configured target independently"
+    ),
+) -> None:
+    """Audit C declaration contracts separately from native byte matches."""
+    from rebrew.cli import all_targets_run
+    from rebrew.source_contracts import audit_contracts
+
+    if all_targets_run(
+        target=target,
+        all_targets=all_targets,
+        json_mode=json_output,
+        run_one=lambda selected: contracts_cmd(
+            name=name, json_output=json_output, target=selected, all_targets=False
+        ),
+    ):
+        return
+    cfg = require_config(target=target, json_mode=json_output)
+    try:
+        report = audit_contracts(cfg, name=name)
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), json_mode=json_output)
+    if json_output:
+        json_print(report)
+    else:
+        console.print(report)
+    if report["unknown"] or any(f["severity"] == "error" for f in report["findings"]):
+        raise typer.Exit(1)
+
+
+@app.command(
+    "reconcile",
+    epilog="[bold]Examples:[/bold]\n\n  rebrew types reconcile queue api.h --prototype 'int queue(void)' --dry-run",
+)
+def reconcile_cmd(
+    name: str = typer.Argument(..., help="C function name to reconcile across every target"),
+    header: Path = typer.Argument(..., help="Existing canonical subsystem header"),
+    prototype: str = typer.Option(..., "--prototype", help="Complete reviewed C prototype"),
+    expected_digest: str | None = typer.Option(
+        None, "--expected-digest", help="Require input digest from a reviewed preview"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
+    """Reconcile one reviewed signature and enumerate all caller verification contexts."""
+    from rebrew.config import load_config
+    from rebrew.rename_ops import RenameError
+    from rebrew.source_contracts import reconcile_contract
+    from rebrew.workspace.config import read_config, targets_table
+
+    cfg = require_config(json_mode=json_output)
+    try:
+        configs = [
+            load_config(target=target_name, root=cfg.root)
+            for target_name in targets_table(read_config(cfg.root))
+        ]
+        report = reconcile_contract(
+            configs or [cfg],
+            name,
+            header,
+            prototype,
+            dry_run=dry_run,
+            expected_digest=expected_digest,
+        )
+    except (OSError, ValueError, RenameError) as exc:
+        error_exit(str(exc), json_mode=json_output)
+    if json_output:
+        json_print(report)
+    else:
+        console.print(report)

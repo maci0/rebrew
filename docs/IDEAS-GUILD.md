@@ -1138,6 +1138,13 @@ Receipts: guild-rebrew `.scratch/goal23/production-callback/kuna-review.json`,
 
 ## Audit C return contracts even when object bytes match
 
+Implemented: `types contracts` audits target-scoped source/include contexts,
+including return/value, ABI, unmarked globals and context-specific typedefs.
+`types reconcile --dry-run` previews one reviewed canonical-header signature,
+caller argument conversions and all affected targets while preserving parameter
+names, bodies and metadata verdicts. Unsupported/uncertain cases require explicit
+source repair. The motivating project evidence follows.
+
 The production callback at TL0x00571870 consumes EAX from packet wrappers
 0x004c51f0 and0x004c5250, storing their returned queue ID in its state.
 Existing shared C defines those wrappers as void and declares their queue
@@ -1460,8 +1467,9 @@ Selected native inventory repairs use `binary repair-extents`, retaining unrelat
 rows and evidence while validating full executable spans and input digests. This
 closes the selected extent-edit workflow above; it does not implement automatic
 CFG-boundary inference or earn a source comparison verdict. Compiler literal
-audits, reviewed native library identities, declaration contract reconciliation
-and link-aware source reorganization remain in the active implementation plan.
+audits and reviewed native library identities are implemented. Declaration
+contracts/header reconciliation are implemented; link-aware source reorganization
+remains in the active implementation plan.
 
 ## Resolve references between independent same-named functions (2026-10-15)
 
@@ -1490,3 +1498,13 @@ and metadata writers atomically. Keep distinct bodies, native extents and verdic
 history; affected definitions and callers must earn fresh comparisons. Do not
 pick the first definition, weaken global validation, treat a byte match as a
 declaration contract, or invent forwarding aliases to escape the collision.
+
+Coordination update: main 319071e0 removes the target-wide catalog abort. Conflicting
+callee spellings now fail only operands using them and report AMBIGUOUS in both
+comparison modes; unrelated functions can still be tested. The concrete caller
+at TL0x0047de50 calls the 137-byte TL0x0047dd60 helper; that caller source has no
+Gold binding. Caller-ownership input for independent-bound-name rename remains
+a separate open capability. The initial library-accounting suspicion was merged
+native extents in the project, handled by reviewed `binary repair-extents`, not a
+separate upstream library-accounting defect. No Guild caller/source edits were
+made during this coordination.

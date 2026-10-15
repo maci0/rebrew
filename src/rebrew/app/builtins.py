@@ -814,7 +814,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     CliComponent(
         name="types",
         module="rebrew.app.builtins",
-        help="Manage type identities; check layouts; apply types to C signatures.",
+        help="Manage types, audit contracts, reconcile headers, and check layouts.",
         panel=Panel.ANALYSIS,
         is_group=True,
         attr="types_app",

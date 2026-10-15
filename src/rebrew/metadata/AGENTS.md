@@ -29,3 +29,8 @@ Externals (the only packages this one may import): `c_parser`, `compiler.toolcha
   history. `import_status_history` imports reviewed portable history without
   changing current verdicts, identities, edit stamps or verification; dry runs
   read through the strict metadata loader and create no files.
+
+- **Reviewed identity is separate from provider attribution.** `native_identity`
+  is written only by `record_native_identity` after a strict complete code,
+  operand and compiler-literal proof. Generic field writers cannot forge it;
+  stale binary/claim/extent/dependency receipts contribute no trusted name.

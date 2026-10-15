@@ -6,6 +6,7 @@ Executable, object and archive file parsers: the layer every analysis, compile a
 
 | Module | Role |
 |--------|------|
+| `coff.py` | LIEF COFF parsing and canonical symbol names; retain the parsed owner while using symbol views |
 | `binary_loader.py` | `load_binary` and the `rebrew.binary_loaders` plugin group; PE/ELF/Mach-O through LIEF |
 | `binary_model.py` | `BinaryInfo`, `SectionInfo`: the format-agnostic model the loaders fill |
 | `dfm.py` | Bounded Delphi 1 form codec with lossless property order/wire types |

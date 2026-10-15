@@ -147,3 +147,9 @@ No `conftest.py`: use `tmp_path` + inline helpers. Group by class; helpers `_`-p
 - **Accounting**: status/todo share one frame. File agreement, accounted `.text`, and stored initialized-data verdict bytes have separate denominators; library/padding contributions are visible, data overlaps count once, and BSS is not file bytes. See [status accounting](docs/CLI.md#rebrew-status).
 - **Compile result**: `CompareResult`; use `.matched`, `.status`, `.delta`, `.match_percent`; never tuple-unpack
 - **Compile backends**: local docker image by default; `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` → `rebrew.compiler.recompile_client`. Cache id pins the backend. Only a plugin toolchain without `image` runs as a host binary. See ADR 015
+
+Source contract audits reuse `source_selection.collect_target_sources` and public
+`compiler.cache.scan_include_closure`. Keep per-TU typedef meanings, static scope,
+ABI/value contradictions and uncertain evidence distinct. Canonical-header edits
+use exact snapshotted bytes and the existing source/provenance rollback writer;
+never edit external SDK files or manufacture comparison verdicts.

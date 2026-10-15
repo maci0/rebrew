@@ -320,3 +320,10 @@ a complete i386 COFF function extent. Content agreement does not establish layou
 or storage ownership. `rebrew library review-native --dry-run` requires strict
 complete object/operand/literal proof before an exact library callee name enters
 the resolver. Reviewed native identity is separate from provider attribution.
+
+`rebrew types contracts --all-targets` audits source contracts separately from
+byte matches, including unmarked globals, return uses and per-context typedefs.
+`rebrew types reconcile --dry-run` previews a reviewed canonical header signature
+and all affected caller/target contexts. Preserve game/CRT header ownership and
+compiler-sensitive declaration order. Review exact inputs, apply with the digest,
+then verify affected definitions and callers; no source edit earns STATUS.

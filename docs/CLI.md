@@ -6257,3 +6257,33 @@ the source claim and size, named operand dependencies, reason and review time.
 Changed binaries, claims, extents or dependency bindings disable that trust.
 Unreviewed LIBRARY names remain excluded. Provider selection and raw-link archive
 ownership are independent; no source provider, STATUS or verification is changed.
+
+### Declaration contracts and canonical headers
+
+`rebrew types contracts --name queue --all-targets --json` inventories each
+selected target's build providers and actual include closure. It compares
+function declarations/definitions, unmarked global declarations and return-using
+calls separately from STATUS. Static symbols belong to their own translation
+units. Return/value/pointer, argument-count and calling-convention disagreements
+are distinct findings; opaque pointer views are review findings. Simple typedefs
+resolve in each source context. Missing/ambiguous aliases, unresolved includes and
+unsupported declarations remain explicit uncertainty. This is a syntax/context
+audit, not a preprocessor or compiler proof. Errors or uncertainty exit 1.
+
+`rebrew types reconcile queue src/api.h --prototype 'int queue(int id)' --dry-run`
+previews one reviewed signature across every configured target. The existing
+canonical project header is checked even when no current source includes it.
+Definitions retain their parameter names and bodies; conflicting per-file
+prototypes are removed, and actual header includes are added at the declaration
+position. The report includes complete source diffs, caller argument expressions,
+proposed parameter types and every affected target/source context. Conversion
+semantics still require compiler checks and affected-function verification.
+
+Use the preview's `input_digest` as `--expected-digest` to apply the same reviewed
+inputs. Exact snapshotted bytes drive the edits; the source/provenance writer
+rolls earlier source edits back after a failed publication. No comparison verdict
+is assigned. External SDK files, static or target-conditional signatures,
+variadic definitions, unknown contexts, incompatible argument counts and return
+statements that need a body repair are refused. Repair those explicitly before
+canonical-header reconciliation. Whole-header matching include guards are kept;
+comments and disabled includes cannot suppress insertion of a real declaration.

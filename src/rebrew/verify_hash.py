@@ -94,7 +94,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
         return None
     try:
         source_bytes, source_digest = _source_body(
-            str(resolved_path(filepath)), st.st_mtime_ns, st.st_size, st.st_ino
+            str(resolved_path(filepath)), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns
         )
     except OSError:
         return None
@@ -548,7 +548,7 @@ def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int, int],
 #: let the total grow with the length of the session.
 #: Guarded: ``verify -j N`` fingerprints entries from worker threads.
 _SOURCE_MEMO_MAX_BYTES = 64 * BYTES_PER_MIB
-_SOURCE_MEMO: OrderedDict[tuple[str, int, int, int], tuple[bytes, str]] = OrderedDict()
+_SOURCE_MEMO: OrderedDict[tuple[str, int, int, int, int], tuple[bytes, str]] = OrderedDict()
 _SOURCE_MEMO_BYTES = 0
 _SOURCE_MEMO_LOCK = threading.Lock()
 
@@ -561,7 +561,9 @@ def clear_source_memo() -> None:
         _SOURCE_MEMO_BYTES = 0
 
 
-def _source_body(path_str: str, mtime_ns: int, size: int, ino: int) -> tuple[bytes, str]:
+def _source_body(
+    path_str: str, mtime_ns: int, size: int, ino: int, ctime_ns: int
+) -> tuple[bytes, str]:
     """``(bytes, sha256)`` for *path_str*, memoized per stat identity.
 
     *mtime_ns* and *size* are part of the key so an edit within the process
@@ -572,7 +574,7 @@ def _source_body(path_str: str, mtime_ns: int, size: int, ino: int) -> tuple[byt
     landing in the same mtime tick.
     """
     global _SOURCE_MEMO_BYTES
-    key = (path_str, mtime_ns, size, ino)
+    key = (path_str, mtime_ns, size, ino, ctime_ns)
     with _SOURCE_MEMO_LOCK:
         hit = _SOURCE_MEMO.get(key)
         if hit is not None:
@@ -582,7 +584,7 @@ def _source_body(path_str: str, mtime_ns: int, size: int, ino: int) -> tuple[byt
 
     # The annotation scan just read these bytes. Reuse them instead of a
     # second open. 2000 files: 21 ms → the hash alone.
-    data = cached_source_bytes(Path(path_str), mtime_ns, size, ino)
+    data = cached_source_bytes(Path(path_str), mtime_ns, size, ino, ctime_ns)
     if data is None:
         data = Path(path_str).read_bytes()
     digest = hashlib.sha256(data).hexdigest()
@@ -601,13 +603,15 @@ def _source_body(path_str: str, mtime_ns: int, size: int, ino: int) -> tuple[byt
 
 
 def source_hash(filepath: Path) -> str:
-    """SHA-256 of a source file's body, memoized on (path, mtime, size, inode).
+    """SHA-256 of a source file's body, memoized on (path, mtime, size, inode, ctime).
 
     Callers already catch OSError.  A failed stat almost always means
     read_bytes would fail too — do not pretend a fallback hash exists.
     """
     st = filepath.stat()
-    return _source_body(str(resolved_path(filepath)), st.st_mtime_ns, st.st_size, st.st_ino)[1]
+    return _source_body(
+        str(resolved_path(filepath)), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns
+    )[1]
 
 
 @lru_cache(maxsize=_FLAG_SPLIT_CACHE_MAX)
