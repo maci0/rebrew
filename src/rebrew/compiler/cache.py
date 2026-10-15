@@ -868,7 +868,7 @@ def _resolve_include_paths(
     ):
         return cached[0], cached[1]
     misses: list[tuple[str, tuple[str, ...]]] = []
-    paths, fallback, observed, consistent = _scan_include_closure(
+    paths, fallback, observed, consistent = scan_include_closure(
         source_content, source_dir, include_dirs, unresolved=misses
     )
     if not consistent or _header_stats(paths) != observed or not _unresolved_still_missing(misses):
@@ -950,7 +950,7 @@ def _header_stats(paths: tuple[str, ...]) -> tuple[tuple[int, int, int], ...]:
     return tuple(out)
 
 
-def _scan_include_closure(
+def scan_include_closure(
     source_content: str,
     source_dir: str | None,
     include_dirs: tuple[str, ...],

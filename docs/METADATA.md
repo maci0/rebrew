@@ -375,3 +375,9 @@ size, object hash, named dependencies, current source claim, reason and UTC revi
 time. Resolver reads validate the receipt and current binary/claim/size/dependencies;
 stale receipts remain historical evidence but contribute no trusted name. Library
 attribution and selected build providers do not establish this identity themselves.
+
+The callee map retains conflicting function names as `coff_reloc.AMBIGUOUS_VA`
+(a negative non-address). This is separate from an absent/unidentified symbol.
+An ambiguous operand fails both tolerant and strict comparison and reports
+`AMBIGUOUS`; it does not fail construction of the entire target catalog. The
+symbol resolver never exposes the sentinel as a relocation destination.

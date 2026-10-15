@@ -18,8 +18,9 @@ import pytest
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
-from rebrew.cmake_sources import app, collect
+from rebrew.cmake_sources import app
 from rebrew.config import ProjectConfig, load_config
+from rebrew.source_selection import collect_target_sources
 
 TOML = """\
 [project]
@@ -73,7 +74,7 @@ def test_stacked_file_belongs_to_both_targets(tmp_path: Path) -> None:
 
     for target, count in (("server_dll", 1), ("client_exe", 1)):
         cfg = _load(root=tmp_path, target=target)
-        own, foreign = collect(cfg, cfg.marker)
+        own, foreign = collect_target_sources(cfg, cfg.marker)
         assert len(own) == count, (target, own, foreign)
 
 
@@ -96,7 +97,7 @@ def test_foreign_only_file_excluded(tmp_path: Path) -> None:
             ),
         },
     )
-    own, foreign = collect(cfg, "SERVER")
+    own, foreign = collect_target_sources(cfg, "SERVER")
     assert [p.name for p in own] == ["common.c"]
     assert [p.name for p in foreign] == ["only_client.c"]
 
@@ -109,7 +110,7 @@ def test_unannotated_helper_included(tmp_path: Path) -> None:
             "src/shared/help.c": "int help(void){return 0;}\n",
         },
     )
-    own, foreign = collect(cfg, "SERVER")
+    own, foreign = collect_target_sources(cfg, "SERVER")
     assert [p.name for p in own] == ["help.c"]
     assert foreign == []
 
@@ -230,7 +231,7 @@ def test_migrated_library_sources_keep_target_scope(tmp_path: Path, metadata_in_
     ]:
         cfg = load_config(root=tmp_path, target=target)
         assert cfg.metadata_dir == metadata
-        own, foreign = collect(cfg, cfg.marker)
+        own, foreign = collect_target_sources(cfg, cfg.marker)
         assert {f.relative_to(tmp_path).as_posix() for f in own} == expected
         assert {f.relative_to(tmp_path).as_posix() for f in foreign} == {
             "src/shared/client_lib.c" if target == "server_dll" else "src/shared/server_lib.c"

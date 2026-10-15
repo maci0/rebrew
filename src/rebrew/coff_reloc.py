@@ -29,6 +29,9 @@ _REL_ABSOLUTE = 0x0000
 _REL_DIR32 = 0x0006
 _REL_REL32 = 0x0014
 
+# A conflicting identity is present but cannot resolve to a native address.
+AMBIGUOUS_VA = -1
+
 # Per-format/arch relocation semantics (multi-arch P0): a reloc type maps to
 # how its patched value is computed.  ``abs32`` = target VA + addend;
 # ``rel32`` = target VA + addend - pc; ``none`` = a no-op entry (ABSOLUTE) that
@@ -150,17 +153,19 @@ def build_symbol_resolver(
         # _resolve_exact_then_stripped, so test/verify and round-trip agree).
         va = _resolve_exact_then_stripped(by_name, symbol)
         if va is not None:
-            return va
+            return va if va != AMBIGUOUS_VA else None
         va = _resolve_exact_then_stripped(data_by_name, symbol)
         if va is not None:
-            return va
+            return va if va != AMBIGUOUS_VA else None
         # Names indexed only under a stripped spelling (MSVC adds a second
         # leading underscore for some __cdecl variants) are a last resort.
         stripped = symbol.lstrip("_")
         if stripped in by_stripped:
-            return by_stripped[stripped]
+            return by_stripped[stripped] if by_stripped[stripped] != AMBIGUOUS_VA else None
         if stripped in data_by_stripped:
-            return data_by_stripped[stripped]
+            return (
+                data_by_stripped[stripped] if data_by_stripped[stripped] != AMBIGUOUS_VA else None
+            )
         return None
 
     return resolve
@@ -313,6 +318,7 @@ def build_name_to_va(
                 )
             ]
         selected, _duplicates = select_source_bindings(cfg, annotations)
+        ambiguous_names: set[str] = set()
         for ann in selected:
             # Library identifications can have swapped attribution names;
             # provider selection does not establish a trusted native callee.
@@ -323,8 +329,30 @@ def build_name_to_va(
             if isinstance(ann_name, str) and ann_name and isinstance(ann_va, int) and ann_va:
                 for name in {ann_name, getattr(ann, "symbol", "")} - {""}:
                     if name in name_to_va and name_to_va[name] != ann_va:
-                        raise ValueError(f"ambiguous native function name: {name}")
-                    name_to_va[name] = ann_va
+                        ambiguous_names.add(name)
+                    else:
+                        name_to_va[name] = ann_va
+        from rebrew.rename_ops import c_name_from_symbol
+
+        ambiguous_keys = {
+            spelling
+            for name in ambiguous_names
+            for spelling in {
+                name,
+                c_name_from_symbol(name),
+                name.lstrip("_"),
+                c_name_from_symbol(name).lstrip("_"),
+            }
+            if spelling
+        }
+        for name in set(name_to_va) | ambiguous_keys:
+            if {
+                name,
+                c_name_from_symbol(name),
+                name.lstrip("_"),
+                c_name_from_symbol(name).lstrip("_"),
+            } & ambiguous_keys:
+                name_to_va[name] = AMBIGUOUS_VA
         # Only explicit, binary-bound full-object reviews establish library names.
         from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, load_metadata
         from rebrew.metadata.native_identity import validate_native_identity
@@ -500,6 +528,8 @@ def _validate_dir32(
     # ordinal import names) must not demote a RELOC match.  Mask by position.
     if iat_region and actual in iat_region:
         return True
+    if target_va == AMBIGUOUS_VA:
+        return False
     if target_va is None:
         return not strict  # uncatalogued — agreement only, never a bound proof
     expected = (target_va + addend) & 0xFFFFFFFF
@@ -528,6 +558,8 @@ def _validate_rel32(
 ) -> bool:
     """Return True if the REL32 slot matches ``symbol_va + addend - pc``."""
     target_va = _resolve_exact_then_stripped(name_to_va, symbol)
+    if target_va == AMBIGUOUS_VA:
+        return False
     if target_va is None:
         return not strict  # uncatalogued — agreement only, never a bound proof
     fmt = _reloc_fmt(reloc_table)
@@ -607,7 +639,11 @@ def relocation_binding_evidence(
             row.update(
                 {"addend": addend, "bound_va": bound, "byte_order": reloc_byte_order(reloc_table)}
             )
-            if bound is not None and (kind == "abs32" or section_va is not None):
+            if (
+                bound is not None
+                and bound != AMBIGUOUS_VA
+                and (kind == "abs32" or section_va is not None)
+            ):
                 expected = (bound + addend) & 0xFFFFFFFF
                 if kind == "rel32" and section_va is not None:
                     expected = (expected - section_va - offset - 4) & 0xFFFFFFFF
@@ -622,6 +658,9 @@ def relocation_binding_evidence(
                 row["status"] = "IAT_POLICY"
             elif bound is None or (kind == "rel32" and section_va is None):
                 row["status"] = "UNRESOLVED"
+            elif bound == AMBIGUOUS_VA:
+                row["status"] = "AMBIGUOUS"
+                row.pop("expected_value", None)
             else:
                 row["status"] = "VALIDATED" if actual == row["expected_value"] else "CONFLICT"
         evidence.append(row)
@@ -887,6 +926,24 @@ def smart_reloc_compare(
             else:
                 i += 1
 
+    # Ambiguous claims cannot inherit the tolerant policy for unknown names.
+    claimed_records = (
+        coff_relocs.items()
+        if isinstance(coff_relocs, dict)
+        else (
+            (r.offset, r.symbol)
+            for r in coff_relocs or []
+            if isinstance(r, CoffRelocRecord) and r.type
+        )
+    )
+    ambiguous_offsets = {
+        offset
+        for offset, name in claimed_records
+        if _resolve_exact_then_stripped(name_to_va or {}, name) == AMBIGUOUS_VA
+    }
+    if ambiguous_offsets:
+        valid_relocs = [offset for offset in valid_relocs if offset not in ambiguous_offsets]
+        invalid_relocs = sorted(set(invalid_relocs) | ambiguous_offsets)
     # Vectorized comparison: build a boolean relocation mask and use NumPy
     # for the byte-level match instead of a Python-level per-byte loop.
     import numpy as np  # deferred: ~60 ms of startup for non-compile commands
@@ -904,6 +961,8 @@ def smart_reloc_compare(
     has_mismatch = not np.all(match_mask)
 
     masked_match = (
-        not has_mismatch and len(obj_bytes) == len(target_bytes) and not (strict and invalid_relocs)
+        not has_mismatch
+        and len(obj_bytes) == len(target_bytes)
+        and not ((strict or ambiguous_offsets) and invalid_relocs)
     )
     return masked_match, match_count, max_len, valid_relocs, invalid_relocs

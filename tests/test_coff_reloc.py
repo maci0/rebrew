@@ -437,3 +437,50 @@ class TestStrictOperandProof:
         assert smart_reloc_compare(bytes(4), bytes(4), records, {"_table": 0})[0]
         result = smart_reloc_compare(bytes(4), bytes(4), records, {"_table": 0}, strict=True)
         assert not result[0] and result[4] == [offset]
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_ambiguous_callee_blocks_only_its_own_operand(tmp_path: Path, strict: bool) -> None:
+    """Independent same-symbol providers must not disable unrelated comparisons."""
+    from rebrew.coff_reloc import (
+        AMBIGUOUS_VA,
+        CoffRelocRecord,
+        relocation_binding_evidence,
+        smart_reloc_compare,
+    )
+    from rebrew.metadata.bindings import SourceBinding
+
+    (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    cfg = load_config(root=tmp_path)
+    annotations = [
+        SourceBinding(
+            module="GAME", va=0x401000, name="predicate", symbol="_helper", filepath="predicate.c"
+        ),
+        SourceBinding(
+            module="GAME", va=0x401100, name="helper", symbol="_helper", filepath="helper.c"
+        ),
+        SourceBinding(
+            module="GAME", va=0x401200, name="unique", symbol="_unique", filepath="unique.c"
+        ),
+    ]
+    names = build_name_to_va(cfg, annotations=annotations)
+    assert names["_helper"] == names["helper"] == AMBIGUOUS_VA
+    assert names["predicate"] == 0x401000
+    assert names["_unique"] == 0x401200
+    code = bytes(4)
+    # Ambiguous remains invalid even when raw bytes happen to agree.
+    for kind in (6, 20):
+        relocs = [CoffRelocRecord(0, kind, "_helper")]
+        assert not smart_reloc_compare(
+            code, code, relocs, names, section_va=0x400000, strict=strict
+        )[0]
+        evidence = relocation_binding_evidence(code, code, relocs, names, section_va=0x400000)
+        assert evidence[0]["status"] == "AMBIGUOUS"
+    assert smart_reloc_compare(
+        code,
+        (0x401200).to_bytes(4, "little"),
+        [CoffRelocRecord(0, 6, "_unique")],
+        names,
+        strict=strict,
+    )[0]

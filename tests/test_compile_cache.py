@@ -960,13 +960,13 @@ class TestHeaderDependencyHash:
         inc.mkdir()
         (inc / "a.h").write_text("int a;\n")
         src = '#include "a.h"\nint f(void){return a;}\n'
-        real = cc._scan_include_closure
+        real = cc.scan_include_closure
 
         def _raced(*args: object, **kwargs: object) -> tuple[object, ...]:
             paths, fallback, stats, _consistent = real(*args, **kwargs)
             return paths, fallback, tuple((-1, -1) for _ in stats), False
 
-        monkeypatch.setattr(cc, "_scan_include_closure", _raced)
+        monkeypatch.setattr(cc, "scan_include_closure", _raced)
         cc._INCLUDE_CLOSURE_MEMO.clear()
         paths, fallback = cc._resolve_include_paths(src, str(inc), ())
         assert paths
@@ -989,7 +989,7 @@ class TestHeaderDependencyHash:
         def _stale(*_args: object, **_kwargs: object) -> tuple[object, ...]:
             return (), False, (), True
 
-        monkeypatch.setattr(cc, "_scan_include_closure", _stale)
+        monkeypatch.setattr(cc, "scan_include_closure", _stale)
         # Force the fast path to miss so publish runs, while the peer entry
         # is still valid when re-checked under the lock.
         real_stats = cc._header_stats

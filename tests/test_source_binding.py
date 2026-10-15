@@ -99,13 +99,13 @@ class TestSourceBindingHistory:
             )
 
     def test_retired_tu_is_inactive_and_history_is_not_pruned(self, tmp_path: Path) -> None:
-        from rebrew.cmake_sources import collect
         from rebrew.lint import lint_file
         from rebrew.orphans import split_prunable
+        from rebrew.source_selection import collect_target_sources
 
         cfg = _project(tmp_path)
         change_source_binding(cfg.metadata_dir, "GAME", 0x401000, reason="wrong identity")
-        own, foreign = collect(cfg, "GAME")
+        own, foreign = collect_target_sources(cfg, "GAME")
         assert cfg.reversed_dir / "f.c" in foreign
         assert cfg.reversed_dir / "g.c" in own
         assert not lint_file(cfg.reversed_dir / "f.c", cfg=cfg).errors
@@ -284,8 +284,8 @@ class TestRebindRejectingControls:
         assert (cfg.metadata_dir / "rebrew-functions.toml").read_bytes() == before
 
     def test_rebind_after_retire_keeps_library_ancestry(self, tmp_path: Path) -> None:
-        from rebrew.cmake_sources import collect
         from rebrew.source_binding import app
+        from rebrew.source_selection import collect_target_sources
 
         cfg = _project(tmp_path)
         record_function_identity(
@@ -318,7 +318,7 @@ class TestRebindRejectingControls:
         assert result.exit_code == 0, result.output
         row = get_entry(cfg.metadata_dir, 0x401000, "GAME")
         assert row["kind"] == "LIBRARY"
-        assert source in collect(cfg, "GAME")[0]
+        assert source in collect_target_sources(cfg, "GAME")[0]
         assert "status" not in row
 
     def test_change_between_parse_and_hash_is_rejected(self, tmp_path: Path) -> None:

@@ -21,7 +21,7 @@ reuses the module that owns the check, never reimplements it):
   backfills from the binary.
 * **lint-errors**: E-code findings need human fixes (``rebrew lint`` shows).
 * **foreign-sources**: files carrying no marker for this target are excluded
-  from the build (:func:`rebrew.cmake_sources.collect`).
+  from the build (:func:`rebrew.source_selection.collect_target_sources`).
 
 ``--apply`` executes only the safe mechanical fixes (``lint --fix``,
 ``build link-order --apply``, ``orphans prune`` of the prunable subset,
@@ -1085,12 +1085,12 @@ def _collect_hygiene(
                 recs.append(rec)
 
     with _lane("foreign-sources"):
-        from rebrew.cmake_sources import collect as collect_sources
+        from rebrew.source_selection import collect_target_sources
         from rebrew.sources import target_marker
         from rebrew.utils import rel_display_path
 
         marker = target_marker(cfg) or cfg.target_name
-        _own, foreign = collect_sources(cfg, marker)
+        _own, foreign = collect_target_sources(cfg, marker)
         rels = []
         for p in foreign:
             try:
