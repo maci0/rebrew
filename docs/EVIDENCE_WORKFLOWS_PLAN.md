@@ -20,7 +20,7 @@ unchecked item does not describe a shipped command.
   for test/verify, with per-target results, skipped reasons and failure isolation.
 - [x] Expose atomic multi-field non-verdict data patches through the locked
   metadata owner, with complete validation, previews and input-change guards.
-- [ ] Add reviewed source-binding retirement/rebinding and selected inventory
+- [x] Add reviewed source-binding retirement/rebinding and selected inventory
   extent repairs. Preserve native identities, unrelated rows, existing valid
   counterpart measurements, provenance and historical evidence.
 - [ ] Audit compiler-literal contents through object sections, typed relocations
@@ -80,3 +80,15 @@ covers one-publication batches, rejected later rows, no-write previews, locked
 digest rechecks, verdict injection rejection and historical evidence retention.
 Root-aware library binding and invalid counterpart tests exercise both direct
 comparison and catalog scan paths. Final full-suite checks remain pending.
+
+Binding retirement/rebinding and selected inventory repairs have rejecting controls
+for historical-anchor resurrection, unchanged counterparts, stale native/source
+inputs, same-target duplicate claims, parsed-byte races, library ancestry and
+build discovery. Initial source/metadata/pruning batch: 248 passed. Boundary,
+binding and discovery batch: 85 passed. Full publication gates remain pending.
+
+Final bounded identity/extent review is clean after repairing parsed-byte races,
+static-vs-external symbol scope, alias paths, undiscoverable replacements, lost
+library ancestry, actual EOF bounds and rediscovery history loss. The broad
+capability batch passed 828 tests; final focused rejecting controls passed 38.
+Full-suite and cross-project refresh/publication checks remain pending.

@@ -101,3 +101,8 @@ writer, and stage only named, reviewed paths.
 without the extra-seed population limit. Rejected bodies name the specific C gate
 and stay as comments. Additional GA seeds retain their separate 8K-character
 budget; it never truncates the user's translation unit.
+
+Reviewed identity retirement/replacement: `rebrew source binding retire` /
+`rebrew source binding rebind`. Selected native inventory boundary repairs:
+`rebrew binary repair-extents`. See the file-organization reference for previews,
+guarded apply, historical evidence and fresh-verdict requirements.

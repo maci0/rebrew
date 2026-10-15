@@ -2112,6 +2112,20 @@ def lint_file(
         if preloaded_data_metadata is not None
         else load_data_metadata(_metadata_dir)
     )
+    if not all_headers:
+        from rebrew.metadata.binding_history import historical_source_files
+        from rebrew.metadata.functions import resolve_metadata_dir
+        from rebrew.workspace.config import walk_up_to_root
+
+        directory = resolve_metadata_dir(cfg.metadata_dir if cfg else filepath.parent)
+        project_root = cfg.root if cfg else walk_up_to_root(directory) or directory
+        if any(
+            filepath.resolve() in historical_source_files(row, directory, project_root)
+            for row in _metadata_entries.values()
+        ):
+            # Explicitly retired TUs remain reviewable source, outside compilation.
+            result._marker_counts["INACTIVE"] += 1
+            return result
     # A pure-C file whose row names this path is annotated. A marker-less
     # file with no row is still E001.
     metadata_backed = False

@@ -6163,3 +6163,70 @@ have no standalone owner. Owner, users and declarations remain separate.
 Enable target `check_known_bindings` for operand diagnostics in test/verify/import;
 see [CONFIG.md](CONFIG.md#known-operand-bindings). Size repair checks every mapped
 operand across the extended native window before writing metadata.
+
+
+### `rebrew source binding`
+
+Review source-claim changes while retaining native inventory and comparison history.
+The subcommands are `retire` and `rebind`. They never copy a counterpart verdict or
+rewrite referring C identifiers. `source_references` lists syntax references for
+review, including declarations and uses; it does not prove native callee identity.
+
+### `rebrew source binding retire`
+
+`rebrew source binding retire VA --reason TEXT [--counterpart VA] [--dry-run]`
+
+Retire a proved-wrong source claim. The native row, size, provenance, verification
+record and comparison history survive. Its current source identity and verdict
+are removed, with the previous claim and reason recorded in `binding_history`.
+An existing same-target counterpart can be recorded explicitly; its metadata and
+verdict remain unchanged. Source bytes are retained. Old optional address anchors
+in the reviewed former definition become historical and cannot resurrect it.
+A TU with only historical claims is inactive, rather than an unbound shared helper.
+
+Preview with `--dry-run --json`; repeat with `--expected-digest HASH` from the
+preview's `input_digest`. The digest includes metadata, binary and reviewed source
+inputs. Inputs are rechecked under the metadata write lock. `--target` selects the
+native address space; `--json` outputs one document.
+
+```bash
+rebrew source binding retire 0x401000 --reason proof --dry-run --json
+```
+
+### `rebrew source binding rebind`
+
+`rebrew source binding rebind VA SOURCE --reason TEXT [--name NAME] [--symbol SYMBOL]`
+
+Bind one unambiguous definition in the configured source universe. Names default
+to the current or last retired claim; the symbol defaults to the definition's
+calling convention. Library ancestry is retained; explicit compiled-library
+providers may live elsewhere inside the project and enter source collection.
+Reject duplicate same-target definitions/symbols and undiscoverable destinations.
+The replacement must earn its own verdict. Other targets' valid claims survive.
+Preview/apply guards, `--dry-run`, `--json` and `--target` follow `retire`.
+
+```bash
+rebrew source binding rebind 0x401000 src/f.c --reason proof --dry-run
+```
+
+### `rebrew binary repair-extents`
+
+`rebrew binary repair-extents 0xVA=SIZE... --reason TEXT [--dry-run]`
+
+Repair selected sizes in the configured native inventory, preserving unrelated
+rows and their extra fields. Every selected span must fit file-backed executable
+bytes and stop before the next recorded native start. Unknown addresses,
+conflicting repetitions, derived coverage rows and malformed inputs fail before
+any write. This is reviewed boundary evidence; no comparison verdict is earned.
+An `extent_history` event records the old/new sizes, reason and binary hash.
+Source metadata sizes, provenance and verdicts are left untouched.
+
+Preview with `--dry-run --json`, then repeat with `--expected-digest HASH` to guard
+the complete inventory/binary inputs under the inventory lock. `--target` selects
+the inventory and binary; `--json` emits one result document. Native inventory
+regeneration and selected repairs share the output-file lock. Regeneration refuses
+to replace reviewed extent history; reconcile the inventory or choose a new output.
+
+```bash
+rebrew binary repair-extents 0x401000=16 --reason proof --dry-run
+```

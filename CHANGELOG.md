@@ -6,6 +6,22 @@
   quadratic work collecting names at each matching offset.
 
 ### Changed
+- Add reviewed `source binding retire` / `source binding rebind` operations and
+  the locked `metadata.binding_history.change_source_binding` owner. Preserve
+  native sizes, previous claims, verification and comparison history; replacements
+  earn fresh verdicts and counterparts retain theirs. Guard complete review inputs,
+  reject duplicate/undiscoverable definitions, preserve library ancestry, and keep
+  former-only TUs inactive. Retired claims resist registration, delayed comparison
+  writes and automatic pruning. Historical source addresses cannot resurrect them.
+- Add `binary repair-extents` and `catalog.inventory.repair_inventory_extents` for
+  selected evidence-backed native boundary repairs. Validate full executable spans,
+  preserve unrelated rows/fields and source verdicts, record binary-bound boundary
+  history, and guard stale inventory/binary inputs. Regeneration shares its lock
+  and refuses to replace reviewed extent history. Actual file bounds reject
+  truncated images; distinct static symbols retain their TU-local identity.
+- Metadata adds managed `binding_history`; generic field writers cannot forge or
+  discard it. Compiled library providers outside ordinary source discovery enter
+  CMake source collection; missing providers report a clear error.
 - Add `test FILE --source-targets` and `verify FILE --source-targets`: preflight
   exact function/provider bindings, report unbound targets as skipped, isolate
   target failures and refuse a wholly empty scope. Paths are explicit, relative

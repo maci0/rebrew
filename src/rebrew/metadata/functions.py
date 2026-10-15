@@ -396,6 +396,7 @@ METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "origins": dict,
     "verification": dict,
     "status_history": list,
+    "binding_history": list,
 }
 """Lower-case TOML key → accepted value type(s) for :func:`update_field`.
 
@@ -493,6 +494,10 @@ def validate_metadata_field(key: str, value: Any) -> Any:
         )
     if key == "status_history":
         return _merge_status_history(value, [])
+    if key == "binding_history":
+        from rebrew.metadata.binding_history import validate_binding_history
+
+        return validate_binding_history(value)
     if key == "size":
         if isinstance(value, bool):
             raise ValueError(f"size must be an int, got {value!r}")
@@ -696,8 +701,10 @@ def set_fields(
         changed = False
         for key, value in fields.items():
             key = key.lower()
-            if key == "status_history":
-                raise ValueError("Use import_status_history() for historical evidence")
+            if key in {"status_history", "binding_history"}:
+                raise ValueError(
+                    "Use import_status_history() for comparison history; change_source_binding() for binding history"
+                )
             if key == "status":
                 raise ValueError(
                     "Use update_source_status() for STATUS changes — it enforces promotion rules"
@@ -771,8 +778,10 @@ def set_fields_batch(
             changed = False
             for key, value in fields.items():
                 key = key.lower()
-                if key == "status_history":
-                    raise ValueError("Use import_status_history() for historical evidence")
+                if key in {"status_history", "binding_history"}:
+                    raise ValueError(
+                        "Use import_status_history() for comparison history; change_source_binding() for binding history"
+                    )
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
                 safe = toml_safe(validate_metadata_field(key, value))
@@ -949,11 +958,17 @@ def record_function_rows(
             updates: dict[str, Any] = {}
             for key, value in (row.get("fields") or {}).items():
                 key = key.lower()
-                if key == "status_history":
-                    raise ValueError("Use import_status_history() for historical evidence")
+                if key in {"status_history", "binding_history"}:
+                    raise ValueError(
+                        "Use import_status_history() for comparison history; change_source_binding() for binding history"
+                    )
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
                 updates[key] = toml_safe(validate_metadata_field(key, value))
+            from rebrew.metadata.binding_history import retired_binding
+
+            if row.get("identity") and retired_binding(entry):
+                raise ValueError("retired source bindings require an explicit reviewed rebind")
             for key, value in (row.get("identity") or {}).items():
                 if key not in FUNCTION_IDENTITY_FIELDS:
                     raise ValueError(f"unknown function identity field {key!r}")
@@ -1112,8 +1127,10 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
             changed = False
             for key in keys:
                 key = key.lower() if isinstance(key, str) else key
-                if key == "status_history":
-                    raise ValueError("Use import_status_history() for historical evidence")
+                if key in {"status_history", "binding_history"}:
+                    raise ValueError(
+                        "Use import_status_history() for comparison history; change_source_binding() for binding history"
+                    )
                 if key == "status":
                     raise ValueError("Cannot delete STATUS directly")
                 if not isinstance(key, str) or key.upper() not in METADATA_FIELDS:
@@ -1231,7 +1248,7 @@ def delete_metadata_entry(directory: Path | str | Any, va: int, module: str) -> 
     """
 
     def _drop_entry(doc_dict: dict[str, Any], toml_key: str) -> bool:
-        if doc_dict[toml_key].get("status_history"):
+        if doc_dict[toml_key].get("status_history") or doc_dict[toml_key].get("binding_history"):
             return False
         del doc_dict[toml_key]
         return True
@@ -1280,8 +1297,10 @@ def update_field(
 
     """
     key = key.lower()
-    if key == "status_history":
-        raise ValueError("Use import_status_history() for historical evidence")
+    if key in {"status_history", "binding_history"}:
+        raise ValueError(
+            "Use import_status_history() for comparison history; change_source_binding() for binding history"
+        )
     if key == "status":
         raise ValueError(
             "Use update_source_status() for STATUS changes — it enforces promotion rules"
@@ -1317,8 +1336,10 @@ def remove_field(directory: Path | str | Any, va: int, key: str, module: str) ->
 
     """
     key = key.lower()
-    if key == "status_history":
-        raise ValueError("Use import_status_history() for historical evidence")
+    if key in {"status_history", "binding_history"}:
+        raise ValueError(
+            "Use import_status_history() for comparison history; change_source_binding() for binding history"
+        )
     if key == "status":
         raise ValueError("Cannot delete STATUS directly")
     if key not in _LOWER_METADATA_FIELDS:
@@ -1544,6 +1565,11 @@ def update_statuses_batch(
             va_int = int(va)
             _, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
 
+            from rebrew.metadata.binding_history import retired_binding
+
+            if retired_binding(entry):
+                raise ValueError("a retired source binding cannot receive a comparison verdict")
+
             clear_blockers = u.get("clear_blockers", True)
             force = u.get("force", False)
 
@@ -1578,8 +1604,10 @@ def update_statuses_batch(
                     entry.pop("blocker_delta", None)
             for key, value in (u.get("fields") or {}).items():
                 key = key.lower()
-                if key == "status_history":
-                    raise ValueError("Use import_status_history() for historical evidence")
+                if key in {"status_history", "binding_history"}:
+                    raise ValueError(
+                        "Use import_status_history() for comparison history; change_source_binding() for binding history"
+                    )
                 if key == "status":
                     raise ValueError("Use new_status for STATUS changes")
                 safe = toml_safe(validate_metadata_field(key, value))

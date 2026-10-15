@@ -1043,6 +1043,24 @@ def source_bindings(
             continue
         is_data = anchor.kind == "DATA"
         key = (preset_module_key(anchor.module), anchor.va, is_data)
+        if not is_data and metadata_dir is not None:
+            from rebrew.metadata.binding_history import historical_source_anchor, retired_binding
+
+            if functions is None:
+                functions = load_metadata(metadata_dir, deepcopy=False)
+            stored = functions.get((anchor.module, anchor.va), {})
+            if stored.get("binding_history") and historical_source_anchor(
+                stored,
+                filepath,
+                anchor.name,
+                metadata_dir,
+                project_root or _binding_project_root(metadata_dir),
+            ):
+                continue
+            if retired_binding(stored):
+                raise ValueError(
+                    "native source binding is retired; use an explicit reviewed rebind"
+                )
         existing = (
             indexed.get(key)
             if not is_data

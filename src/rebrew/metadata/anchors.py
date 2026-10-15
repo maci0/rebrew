@@ -188,6 +188,7 @@ def metadata_comments(source: str) -> list[tuple[int, str]]:
         "SUPPORT",
         "STATUS",
         "STATUS_HISTORY",
+        "BINDING_HISTORY",
         "SIZE",
         "CFLAGS",
         "TOOLCHAIN",

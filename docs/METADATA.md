@@ -350,3 +350,17 @@ validate all fields, merge equal repetitions, reject contradictions and report
 can require that digest; it is checked again under the same metadata write lock.
 Identity/definition/placement changes remove current `status` while retaining
 `verification`; notes and unchanged fields preserve the verdict.
+
+
+Reviewed source identity changes use `metadata.binding_history.change_source_binding`.
+The managed `binding_history` array retains prior identities and their last measured
+status/verification. Generic setters cannot edit it. Retirement removes the current
+source claim and verdict, preserving the native row/size and all existing evidence.
+Only a reviewed rebind can reactivate it; a delayed comparison cannot promote a
+retired row. Ordinary registration and historical ADDRESS comments cannot resurrect
+it. A replacement drops its own current verdict; an explicit existing counterpart
+is validated and left unchanged. Automatic pruning preserves binding history.
+
+`catalog.inventory.repair_inventory_extents` edits only selected native inventory
+sizes. Its complete-input digest and one-publication batch are independent from
+function/data metadata, and boundary evidence does not earn a comparison verdict.

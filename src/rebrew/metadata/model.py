@@ -78,7 +78,7 @@ def _coerce(key: str, value: Any) -> Any:
     if key in _STR_FIELDS and not isinstance(value, str):
         # Left uncoerced, `status = 5` crashed `problems()` on `.upper()`.
         raise MetadataValidationError(f"{key} must be a str, got {value!r}")
-    if key == "status_history":
+    if key in {"status_history", "binding_history"}:
         try:
             return validate_metadata_field(key, value)
         except ValueError as exc:
@@ -123,6 +123,7 @@ class MetadataEntry:
     """
 
     status_history: list[dict[str, str]] | None = None
+    binding_history: list[dict[str, Any]] | None = None
 
     @classmethod
     def load(cls, directory: Path, va: int, module: str) -> MetadataEntry:

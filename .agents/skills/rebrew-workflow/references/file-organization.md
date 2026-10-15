@@ -70,3 +70,17 @@ rebrew source graph --cu-map --json            # infer compilation unit boundari
 `--cu-map` clusters functions into inferred translation units from gap
 analysis plus call-graph signals; high-confidence clusters are the merge
 candidates. `rebrew-intake` runs the same pass during onboarding.
+
+
+For a proved-wrong native identity, preview `rebrew source binding retire VA
+--reason TEXT --dry-run --json`. An optional `--counterpart VA` records an existing
+same-target counterpart without changing its verdict. Rebind with `rebrew source
+binding rebind VA SOURCE --name NAME --reason TEXT --dry-run --json`. Repeat a
+reviewed request with `--expected-digest HASH`. History and native sizes survive;
+references are reported, not rewritten, and the replacement earns a fresh verdict.
+Former-only TUs stay inactive. Historical address comments do not reactivate them.
+
+For selected stale discovery extents, preview `rebrew binary repair-extents
+0xVA=SIZE --reason TEXT --dry-run --json`, then guard apply with the preview digest.
+Use complete native boundary evidence; the command does not promote a match or
+replace unrelated inventory rows.

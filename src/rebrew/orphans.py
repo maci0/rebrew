@@ -177,7 +177,9 @@ def orphan_dicts(
             "store": store,
             "status": status,
         }
-        history = entries.get((module, va), {}).get("status_history", [])
+        history = entries.get((module, va), {}).get("status_history", []) + entries.get(
+            (module, va), {}
+        ).get("binding_history", [])
         if history:
             row["history_count"] = len(history)
         dicts.append(row)

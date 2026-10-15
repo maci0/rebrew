@@ -363,6 +363,16 @@ def scan_globals(
 
     data_entries = load_data_metadata(metadata_dir)
     function_entries = load_metadata(metadata_dir, deepcopy=False) if metadata_dir else {}
+    from rebrew.metadata.binding_history import historical_source_files
+    from rebrew.workspace.config import walk_up_to_root
+
+    project_root = getattr(cfg, "root", None) or walk_up_to_root(metadata_dir) or metadata_dir
+    inactive_sources = set().union(
+        *(
+            historical_source_files(row, metadata_dir, project_root)
+            for row in function_entries.values()
+        )
+    )
     for cfile in iter_sources_and_headers(src_dir, cfg):
         is_header = cfile.suffix.lower() == ".h"
         try:
@@ -397,6 +407,8 @@ def scan_globals(
             if metadata_dir
             else ()
         )
+        if not stored_modules and not is_header and cfile.resolve() in inactive_sources:
+            continue
         if not _source_visible_to_target(lines, cfg, stored_modules):
             continue
 

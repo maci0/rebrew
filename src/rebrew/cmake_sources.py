@@ -26,6 +26,7 @@ import typer
 from rebrew.cli import (
     TargetOption,
     console,
+    error_exit,
     json_print,
     require_config,
 )
@@ -83,8 +84,12 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[list[Path], list[Path]]:
     # Explicit compiled-library bindings are project-root relative. The pure-C
     # parser uses metadata-relative paths, so retain every module's bindings
     # before deciding a body is an unannotated helper shared by all targets.
+    from rebrew.metadata.binding_history import historical_source_files
+
+    retired_sources: set[Path] = set()
     library_entries: dict[Path, list[SourceBinding]] = {}
     for (module, va), row in load_metadata(cfg.metadata_dir, deepcopy=False).items():
+        retired_sources.update(historical_source_files(row, cfg.metadata_dir, cfg.root))
         stored = str(row.get("file", ""))
         if (
             not va
@@ -94,8 +99,11 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[list[Path], list[Path]]:
             continue
         bound = bind_library_source(cfg, SourceBinding(module=module, va=va, kind="LIBRARY"), row)
         source = (cfg.reversed_dir / bound.filepath).resolve()
+        if not source.is_file():
+            raise ValueError(f"compiled library source is missing: {source}")
         library_entries.setdefault(source, []).append(bound)
-    for src in iter_sources(cfg.reversed_dir, cfg):
+    source_files = set(iter_sources(cfg.reversed_dir, cfg)) | set(library_entries)
+    for src in sorted(source_files):
         anns = [
             a
             for a in read_source_bindings(
@@ -111,7 +119,9 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[list[Path], list[Path]]:
                 for record in load_source_files(cfg.metadata_dir)
                 if record.file == relative
             }
-            if not modules or preset_module_key(marker) in modules:
+            if not modules and src.resolve() in retired_sources:
+                foreign.append(src.resolve())
+            elif not modules or preset_module_key(marker) in modules:
                 own.append(src.resolve())
             else:
                 foreign.append(src.resolve())
@@ -138,7 +148,10 @@ def main(
     """Write the target's source list as a CMake include."""
     cfg = require_config(target=target, json_mode=json_output)
     marker = target_marker(cfg) or cfg.target_name
-    own, foreign = collect(cfg, marker)
+    try:
+        own, foreign = collect(cfg, marker)
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     rels = [p.relative_to(cfg.root).as_posix() for p in own]
     # Config order IS link order ("link it at the right place" — e.g. a

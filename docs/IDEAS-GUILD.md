@@ -1433,3 +1433,26 @@ other library functions; references/dxsdk8/lib/d3dx8.lib is configured. Replay
 and `rebrew library scan-signatures --show-ambiguous --json --target
 Europa1400Gold_TL.exe`. The full scan and direct archive comparison remain the
 supported read-only audit; this request concerns discovery/composition parity.
+
+
+## Implemented evidence workflow updates (unreleased)
+
+Local coverage views now read canonical inputs directly; portable coverage is an
+explicit export. `test FILE --source-targets` and `verify FILE --source-targets`
+select eligible target contexts with explicit skips and isolated errors. Data
+inventories accept `--all-targets`; `data set` applies multi-field/row patches
+atomically with strict previews and reviewed-input digests. Complete decompiler
+bodies no longer inherit GA seed size limits.
+
+Reviewed identity retirement/replacement is `source binding retire` / `rebind`.
+Native sizes and previous measurements survive in managed history; counterparts
+retain their valid verdicts, and replacements earn fresh ones. Old ADDRESS
+comments cannot resurrect a retired claim. Ordinary registration and delayed
+comparison writes cannot reactivate one; former-only TUs are inactive.
+
+Selected native inventory repairs use `binary repair-extents`, retaining unrelated
+rows and evidence while validating full executable spans and input digests. This
+closes the selected extent-edit workflow above; it does not implement automatic
+CFG-boundary inference or earn a source comparison verdict. Compiler literal
+audits, reviewed native library identities, declaration contract reconciliation
+and link-aware source reorganization remain in the active implementation plan.

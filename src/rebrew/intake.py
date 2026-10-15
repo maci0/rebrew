@@ -382,7 +382,8 @@ def prune_stale_stubs(
         if m is None or m.group(1) != marker:
             continue
         va = int(m.group(2), 16)
-        if va in valid_vas or get_entry(meta_base, va, marker).get("status_history"):
+        entry = get_entry(meta_base, va, marker)
+        if va in valid_vas or entry.get("status_history") or entry.get("binding_history"):
             continue
         try:
             path.unlink()

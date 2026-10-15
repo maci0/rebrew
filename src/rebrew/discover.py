@@ -42,9 +42,9 @@ import typer
 from typer.models import TyperPath
 
 from rebrew.analysis import direct_call_target, iter_instructions
-from rebrew.cli import TargetOption, console, json_print, resolve_binary_arg
+from rebrew.cli import TargetOption, console, error_exit, json_print, resolve_binary_arg
 from rebrew.formats.binary_loader import load_binary
-from rebrew.utils import atomic_write_text, run_process_group
+from rebrew.utils import atomic_write_text, file_lock, read_json_text, run_process_group
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -1062,15 +1062,30 @@ def main(
     if output:
         import json
 
-        Path(output).parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(
-            Path(output),
-            json.dumps(
-                [{"va": va, "size": size, "name": name} for va, size, name in d.functions],
-                indent=2,
-            )
-            + "\n",
-        )
+        destination = Path(output)
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with file_lock(destination.with_suffix(destination.suffix + ".lock")):
+                if destination.exists():
+                    previous = json.loads(read_json_text(destination))
+                    if not isinstance(previous, list) or any(
+                        not isinstance(row, dict) for row in previous
+                    ):
+                        raise ValueError("existing output is not a native function inventory")
+                    if any(row.get("extent_history") for row in previous):
+                        raise ValueError(
+                            "inventory contains reviewed extent history; reconcile it or choose a new output path"
+                        )
+                atomic_write_text(
+                    destination,
+                    json.dumps(
+                        [{"va": va, "size": size, "name": name} for va, size, name in d.functions],
+                        indent=2,
+                    )
+                    + "\n",
+                )
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            error_exit(str(exc), json_mode=json_output)
 
     if json_output:
         json_print(

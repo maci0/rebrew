@@ -37,6 +37,13 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             panel="",
         ),
         CliComponent(
+            name="binding",
+            module="rebrew.source_binding",
+            is_group=True,
+            help="Review and change source bindings while retaining native inventory and evidence.",
+            panel="",
+        ),
+        CliComponent(
             name="register",
             module="rebrew.source_register",
             help="Register address-only source bindings, or a support file purpose, in metadata.",
@@ -351,6 +358,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             help="Extract compiler version, flags, and function names from a PDB.",
             panel="",
             is_group=True,
+        ),
+        CliComponent(
+            name="repair-extents",
+            module="rebrew.inventory_repair",
+            help="Repair selected native inventory sizes without replacing the catalog.",
+            panel="",
         ),
         CliComponent(
             name="functions",
