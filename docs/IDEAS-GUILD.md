@@ -1583,3 +1583,36 @@ compiler-failure diagnostics, and never report unexecuted targets as checked.
 Current composition uses the public `check_types` API once per configuration;
 guild's three positive sizeof/offset binds and wrong-offset compiler rejection
 remain separate evidence. Receipt: `.scratch/goal48/types-all-targets.json`.
+
+
+## Add reviewed native entries when splitting coalesced discovery (2026-10-15)
+
+Problem: `binary repair-extents` safely repairs existing starts but explicitly
+rejects starts absent from the native inventory. A reviewed split can therefore
+shorten the first function while leaving the second native function absent.
+`source register` can bind a reconstructed body there and earn a comparison,
+but source identity and native discovery inventory remain separate facts.
+Rerunning whole-binary discovery is not a selective, history-preserving repair.
+
+Guild Gold example: discovery recorded0x00504e00 with size120. Complete native
+instructions and compiled C prove a29-byte integer wrapper ending in a tail
+jump at0x00504e18, three NOPs, then a distinct88-byte paired wrapper at0x00504e20
+ending with RET0x00504e77. The former already had a29-byte RELOC source binding;
+the latter now has its own shared-source identity. The reviewed existing extent
+repair120→29 preserves history. Native inventory still lacks0x00504e20.
+
+Proposed capability: preview/apply selected reviewed native-entry insertions or
+splits through the inventory owner, with current binary/inventory digests,
+complete executable-span validation, explicit overlap/neighbor handling and
+provenance/history. Preserve unrelated rows and all source verdicts; adding a
+native boundary must not award a byte match or infer source/library ownership.
+Keep heuristic discovery separate from acceptance of explicit native evidence.
+
+Replay in guild-rebrew: `rebrew binary repair-extents 0x504e20=88 --reason
+reviewed-split --target Europa1400Gold.exe --dry-run --json` currently rejects
+`selected addresses are absent from inventory: [5262880]`. Evidence:
+`.scratch/goal49/skill-wrappers-gold-native.json`, `wrapper-proof.json`,
+`wrapper-extent-{preview,applied}.json` and `missing-native-entry-preview.stderr`.
+The five complete wrapper/caller bodies agree across321 bytes, with18 rejecting
+symbol controls and separate complete literal audits. Unknown operand bases
+remain comparison hypotheses; this request does not bless linked providers.
