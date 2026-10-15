@@ -6,11 +6,12 @@ from rebrew.catalog.inventory import repair_inventory_extents
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 
 app = typer.Typer(
-    help="Repair selected native inventory sizes without replacing the catalog.",
+    help="Repair native inventory extents or explicitly admit reviewed missing entries.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary repair-extents 0x401000=16 --reason proof --dry-run"
+        "  rebrew binary repair-extents 0x401000=16 --reason proof --dry-run\n\n"
+        "  rebrew binary repair-extents 0x401010=3 --add-missing --reason proof --dry-run"
     ),
 )
 
@@ -21,6 +22,9 @@ def main(
     reason: str = typer.Option(..., "--reason", help="Reviewed native boundary evidence"),
     expected_digest: str | None = typer.Option(
         None, "--expected-digest", help="Require the input digest from a reviewed preview"
+    ),
+    add_missing: bool = typer.Option(
+        False, "--add-missing", help="Explicitly admit reviewed functions absent from the inventory"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -39,7 +43,12 @@ def main(
                 raise ValueError(f"conflicting sizes for 0x{va:x}")
             updates[va] = size
         report = repair_inventory_extents(
-            cfg, updates, reason=reason, dry_run=dry_run, expected_digest=expected_digest
+            cfg,
+            updates,
+            reason=reason,
+            dry_run=dry_run,
+            expected_digest=expected_digest,
+            add_missing=add_missing,
         )
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)

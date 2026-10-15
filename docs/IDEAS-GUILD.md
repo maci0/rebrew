@@ -1751,3 +1751,25 @@ native-gold-registration.json show the PreloadSitMesh operand at Gold49dee0;
 the TL native-40e1a0.json registration points to40dac0. native-40dac0.json shows
 the complete three executable bytes before alignment. No Gold game identity,
 library retirement or linked-provider claim should be inferred from this equality.
+
+## Admit selected native functions omitted by discovery (2026-10-16)
+
+Problem: Guild's TL40dac0 is a three-byte callback referenced by the character
+command registrar. Complete source comparison is EXACT, but lint correctly emits
+W028 because discovery's default minimum size of eight omitted the native entry.
+A fresh `binary functions --min-size 1` scan finds the entry, but replacing the
+whole reviewed inventory would discard unrelated extents/history. Existing
+repair-extents refuses absent addresses; source registration deliberately does
+not establish native inventory.
+
+Proposed capability: explicit selected admission with executable-span and overlap
+checks, reviewed reason, input/operation digest, unchanged metadata/verdicts and
+one locked atomic publication. Preserve every unrelated row and its order; never
+turn admission into an automatic byte match. Replay: guild's
+`.scratch/goal56/native-40dac0.json`, stub-production-tl.json, lint-first.json and
+discovered-min1.json. The separate Gold shared-body ownership remains unresolved.
+
+Implemented through `binary repair-extents --add-missing`. Default missing-address
+refusal remains. Admission rejects retained overlapping extents, permits a reviewed
+predecessor shrink in the same batch, and records absence as old_size:null.
+Preview/apply binds updates, reason and policy alongside the full binary/inventory.

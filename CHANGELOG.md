@@ -1,6 +1,11 @@
 ## [Unreleased]
 
 ### Added
+- `binary repair-extents --add-missing` explicitly admits reviewed native functions
+  omitted by discovery, preserving other inventory rows and earned measurements.
+  Preview/apply digests now bind the selected updates, reason and admission policy
+  as well as the complete inventory/binary inputs. Interior/overlapping admissions
+  and non-executable spans fail before writes; native admission earns no STATUS.
 - Explicit `[compiler] execution_backend` selection (`docker`, `podman`,
   `unshare`), including target overrides. The experimental rootless `unshare`
   backend runs pinned 32-bit MSVC/Wine image filesystems directly with disposable

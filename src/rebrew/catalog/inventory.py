@@ -20,13 +20,15 @@ def repair_inventory_extents(
     reason: str,
     dry_run: bool = False,
     expected_digest: str | None = None,
+    add_missing: bool = False,
 ) -> dict[str, Any]:
     """Repair selected sizes without replacing unrelated rows or earned measurements.
 
     Reasons record reviewed native evidence, not an inferred byte match. Every
     selected span must fit file-backed executable bytes and stop before the next
     inventory start. Preview creates no files; apply rechecks both full inputs
-    under the inventory lock before one atomic publication.
+    under the inventory lock before one atomic publication. Explicit admission
+    may add reviewed missing entries, but cannot overlap any retained extent.
     """
     if not updates or any(
         not isinstance(va, int)
@@ -40,6 +42,8 @@ def repair_inventory_extents(
         raise ValueError("extent repairs require non-negative addresses and positive sizes")
     if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
         raise ValueError("extent repair reason must contain 1–2000 characters")
+    if not isinstance(add_missing, bool):
+        raise ValueError("add_missing must be a Boolean")
     inventory = inventory_path_for(cfg.reversed_dir, cfg)
 
     def prepare() -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -57,6 +61,9 @@ def repair_inventory_extents(
                     "binary": str(cfg.target_binary.resolve()),
                     "inventory_hash": inventory_hash,
                     "binary_hash": binary_hash,
+                    "updates": sorted(updates.items()),
+                    "reason": reason.strip(),
+                    "add_missing": add_missing,
                 },
                 sort_keys=True,
             ).encode()
@@ -73,8 +80,17 @@ def repair_inventory_extents(
                 raise ValueError("native inventory has duplicate addresses or negative extents")
             rows[entry.va] = row
         unknown = set(updates) - rows.keys()
-        if unknown:
+        if unknown and not add_missing:
             raise ValueError(f"selected addresses are absent from inventory: {sorted(unknown)}")
+        for va in sorted(unknown):
+            row = {"va": va, "size": 0, "name": f"fcn.{va:08x}"}
+            rows[va] = row
+            # Preserve the relative order and contents of every pre-existing row.
+            index = next(
+                (i for i, item in enumerate(document) if FunctionEntry.from_dict(item).va > va),
+                len(document),
+            )
+            document.insert(index, row)
         binary = load_binary(cfg.target_binary)
         starts = sorted(rows)
         following = dict(zip(starts, [*starts[1:], None], strict=True))
@@ -97,7 +113,14 @@ def repair_inventory_extents(
             next_va = following[va]
             if next_va is not None and va + size > next_va:
                 raise ValueError(f"0x{va:x}+{size} overlaps next inventory start 0x{next_va:x}")
-            old_size = FunctionEntry.from_dict(row).size
+            if va in unknown:
+                for other_va, other in rows.items():
+                    other_size = updates.get(other_va, FunctionEntry.from_dict(other).size)
+                    if other_va != va and va < other_va + other_size and other_va < va + size:
+                        raise ValueError(
+                            f"0x{va:x}+{size} overlaps inventory extent 0x{other_va:x}"
+                        )
+            old_size = None if va in unknown else FunctionEntry.from_dict(row).size
             if old_size == size:
                 continue
             event = {

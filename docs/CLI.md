@@ -6271,24 +6271,33 @@ rebrew source binding rebind 0x401000 src/f.c --reason proof --dry-run
 
 ### `rebrew binary repair-extents`
 
-`rebrew binary repair-extents 0xVA=SIZE... --reason TEXT [--dry-run]`
+`rebrew binary repair-extents 0xVA=SIZE... --reason TEXT [--add-missing] [--dry-run]`
 
 Repair selected sizes in the configured native inventory, preserving unrelated
 rows and their extra fields. Every selected span must fit file-backed executable
-bytes and stop before the next recorded native start. Unknown addresses,
+bytes and stop before the next recorded native start. Unknown addresses by default,
 conflicting repetitions, derived coverage rows and malformed inputs fail before
 any write. This is reviewed boundary evidence; no comparison verdict is earned.
 An `extent_history` event records the old/new sizes, reason and binary hash.
 Source metadata sizes, provenance and verdicts are left untouched.
 
-Preview with `--dry-run --json`, then repeat with `--expected-digest HASH` to guard
-the complete inventory/binary inputs under the inventory lock. `--target` selects
+Use `--add-missing` to explicitly admit reviewed functions omitted by discovery
+(for example, a three-byte callback below its default minimum size). A new entry
+cannot overlap any retained inventory extent; shrink an overextended predecessor
+in the same reviewed operation when the native evidence requires it. Existing
+rows retain their fields and relative order. Admission records `old_size: null`
+in the extent history and does not change source identity, ownership or STATUS.
+
+Preview with `--dry-run --json`, then repeat the same operation with
+`--expected-digest HASH` to guard its updates, reason, admission policy and complete
+inventory/binary inputs under the inventory lock. `--target` selects
 the inventory and binary; `--json` emits one result document. Native inventory
 regeneration and selected repairs share the output-file lock. Regeneration refuses
 to replace reviewed extent history; reconcile the inventory or choose a new output.
 
 ```bash
 rebrew binary repair-extents 0x401000=16 --reason proof --dry-run
+rebrew binary repair-extents 0x401010=3 --add-missing --reason proof --dry-run
 ```
 
 ### Complete literal audits and reviewed native library names
