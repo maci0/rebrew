@@ -1,6 +1,15 @@
 ## [Unreleased]
 
+### Changed
+- **Breaking:** Remove the incidental
+  `rebrew.matcher.compiler.parse_obj_symbol_bytes` import. Import it from
+  `rebrew.matcher.parsers` instead; matcher compilation now preserves typed
+  relocations through `parse_obj_symbol_and_relocs`.
+
 ### Fixed
+- Build-integrity checks compare generated compiler arguments with CMake's active
+  compiler record. Generated profile pins no longer look like hand edits;
+  altered defaults and unrecorded later pins still fail.
 - `rebrew diff` now validates native relocation operands with the same catalog
   and binding policy as test/verify. Ambiguous or contradictory bindings produce
   `XX`, a failing exit and a blocker instead of a clean masked diff. Typed COFF

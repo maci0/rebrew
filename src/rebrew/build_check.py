@@ -28,6 +28,8 @@ So every codegen flag token in ``build.make``'s compile line must appear in the
 corresponding ``Custom`` comment.  A token in one and not the other was added by
 hand.  Objects with no ``Custom`` comment have no per-file flags -- they compile
 with the global ``C_FLAGS`` -- and are not drift.
+Compiler-prefix arguments are checked against CMake's active compiler record
+before comparing the remaining per-file tokens.
 
 **A flag comparison cannot see a wrong object list.**  ``rebrew source rename`` rewrites
 the source and its cross-references but not the gitignored ``build/``, so
@@ -212,6 +214,21 @@ def parse_sources(build_text: str) -> list[str]:
     return out
 
 
+def _compiler_args(build_dir: Path) -> str:
+    """Read the active compiler prefix, not stale CMake version directories."""
+    dependencies = build_dir / "CMakeFiles/Makefile.cmake"
+    if not dependencies.exists():
+        return ""
+    for record in re.findall(
+        r'"([^"\n]*/CMakeCCompiler\.cmake)"', dependencies.read_text(encoding="utf-8")
+    ):
+        text = (build_dir / record).read_text(encoding="utf-8")
+        match = re.search(r'^set\(CMAKE_C_COMPILER_ARG1 "([^"\n]*)"\)', text, re.M)
+        if match:
+            return match.group(1)
+    return ""
+
+
 def check(
     build_dir: Path = DEFAULT_BUILD_DIR,
     project_root: Path | None = None,
@@ -264,6 +281,7 @@ def check(
         }
 
     recorded = parse_recorded(flags_make.read_text(encoding="utf-8", errors="replace"))
+    compiler_args = _compiler_args(build_dir)
     drift: list[dict[str, str]] = []
     checked = 0
     compile_lines = parse_compile_lines(build_text)
@@ -275,6 +293,12 @@ def check(
             continue
         checked += 1
         known = recorded[obj]
+        if compiler_args:
+            head, found, tail = line.partition(compiler_args)
+            if not found:
+                drift.append({"obj": obj, "flag": "CMAKE_C_COMPILER_ARG1"})
+                continue
+            line = head + tail
         for token in line.split():
             if not _FLAG.match(token) or token in BOILERPLATE:
                 continue

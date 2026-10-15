@@ -129,6 +129,28 @@ def test_clean_tree_is_ok(tmp_path):
     assert result["drift"] == []
 
 
+@pytest.mark.parametrize("mutation", ["none", "compiler", "append"])
+def test_generated_compiler_pin_uses_active_cmake_record(tmp_path: Path, mutation: str) -> None:
+    prefix = "build driver cl -- /REBREW_TOOLCHAIN:msvc-6.0-sp5"
+    text = BUILD_MAKE.replace("\tcl ", "\trebrew " + prefix + " ")
+    if mutation == "compiler":
+        text = text.replace(prefix, prefix.replace("sp5", "sp6"), 1)
+    elif mutation == "append":
+        text = text.replace(" /Fo", " /REBREW_TOOLCHAIN:msvc-6.0-sp5 /Fo", 1)
+    build = _tree(tmp_path, text)
+    record = build / "CMakeFiles/current/CMakeCCompiler.cmake"
+    record.parent.mkdir()
+    record.write_text(f'set(CMAKE_C_COMPILER_ARG1 "{prefix}")\n')
+    (build / "CMakeFiles/Makefile.cmake").write_text(
+        'set(CMAKE_MAKEFILE_DEPENDS\n "CMakeFiles/current/CMakeCCompiler.cmake"\n)\n'
+    )
+    stale = build / "CMakeFiles/old/CMakeCCompiler.cmake"
+    stale.parent.mkdir()
+    stale.write_text('set(CMAKE_C_COMPILER_ARG1 "unrelated old arguments")\n')
+    result = check(build)
+    assert result["status"] == ("ok" if mutation == "none" else "drift")
+
+
 def test_non_ascii_source_path_decodes_as_utf8(tmp_path: Path) -> None:
     """build.make may name a UTF-8 path; platform-default decode must not be used.
 

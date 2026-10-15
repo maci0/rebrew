@@ -1662,3 +1662,32 @@ Replay in guild-rebrew: `rebrew library scan-signatures --va 0x403880 --target
 Europa1400Gold_TL.exe --json > result.json 2> progress.log`; compare stderr size
 and verify the same signature count and zero matches. The native constructor is
 separately identified by `ch_CreateMesh()` diagnostics, not by a signature miss.
+
+## Review reference ownership when renaming independent same-target definitions (2026-10-15)
+
+Problem: guild has two independent source definitions named
+`gm_ResetAllEntities`, each with TL and Gold identities. The table walkers differ:
+TL4297c0 walks 128 records at stride0xc98; TL5012b0 clears the logical entity
+table and has the server counterpart. The existing city loader TL5392a0 calls
+TL5012b0, but the shared spelling is ambiguous and correctly fails comparison.
+`source rename GOLDTL.0x004297c0 fcn_004297c0 --shared-definition --dry-run --json`
+correctly refuses to guess ownership of entity.h, loadsave.c, server.c and the
+city loader. Module-only reference selection cannot distinguish two providers
+present in the same target; renaming both would preserve the ambiguity.
+
+Proposed capability: preview an explicit, reviewed reference-ownership plan for
+a selected definition and its related-target identities. Use complete native
+call operands and source context where available; allow a guarded review of
+retained declarations/callers separately from rewritten ones. Keep unresolved
+references explicit, preserve the other definition and its users, snapshot exact
+source/store inputs, and apply through the existing rollback and metadata
+writers. Test changed-input, wrong-callee, common-header and same-target controls.
+Do not resolve this by a global text replacement or by weakening known bindings.
+
+Replay in guild-rebrew: the rename command above with
+`--target Europa1400Gold_TL.exe`; `rebrew test 0x5392a0 --no-promote --json
+--target Europa1400Gold_TL.exe` reports `_gm_ResetAllEntities` as AMBIGUOUS at
+operand +0x88. Receipts: `.scratch/goal52/reset-name-preview.json`,
+`external-5392a0-test.json` and `external-5392a0-diff-fixed.json`. The repaired
+diff diagnostic reports XX and exit1; this separate ownership capability remains
+open. Neither native walker nor its byte-match history should be retired.
