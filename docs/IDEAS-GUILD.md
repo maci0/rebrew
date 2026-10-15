@@ -1644,3 +1644,21 @@ source names. Cover rejecting changed-selector/bounds/table controls in tests.
 Replay: `rebrew binary switches 0x502fe0 --window 2016 --json --target
 Europa1400Gold_TL.exe` in guild-rebrew. Kuna also loses the indirect arms in this
 case, so preserving the distinction materially helps ordinary-C reconstruction.
+
+## Bound FLIRT progress output for large databases (2026-10-15)
+
+Problem: `_parse_sig_files` prints one `Loaded ... signatures from ...` line per
+file through the shared console, including JSON scans. Guild's 7,102,296-pattern
+merged database makes this diagnostic stream dominate a single-address scan;
+the machine-readable result can be only a zero-match summary. This obscures real
+warnings and makes remote tool output unnecessarily expensive. Valid JSON on
+stdout remains useful; the issue is the unbounded per-file progress on stderr.
+
+Proposed capability: emit a bounded aggregate loading/progress summary normally,
+make per-file successful loads available at debug verbosity, and preserve parse
+warnings and failures. Respect CLI verbosity without coupling library parsing
+to terminal rendering. Keep signature selection and match results unchanged.
+Replay in guild-rebrew: `rebrew library scan-signatures --va 0x403880 --target
+Europa1400Gold_TL.exe --json > result.json 2> progress.log`; compare stderr size
+and verify the same signature count and zero matches. The native constructor is
+separately identified by `ch_CreateMesh()` diagnostics, not by a signature miss.
