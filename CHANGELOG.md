@@ -23,6 +23,9 @@
   with explicit owners require the reviewed digest.
 
 ### Changed
+- **Breaking:** Regenerate `binary repair-extents` previews after upgrading:
+  digests now include updates, reason and admission policy. The exported
+  `rebrew.app.builtins.DOMAIN_COMPONENTS` summary now describes native admission.
 - **Breaking:** `rebrew.compiler.cache.CACHE_SCHEMA_VERSION` is now 9. Existing
   compile-cache entries are cold after this update; unshare helper/profile
   identity participates in the replacement keys.
