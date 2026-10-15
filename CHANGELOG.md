@@ -27,6 +27,8 @@
   relocations through `parse_obj_symbol_and_relocs`.
 
 ### Fixed
+- Scaffold lint uses the configured default target, matching `init --refresh-agents`
+  even when another target is declared first or selected for lint.
 - `init --refresh-agents --dry-run` previews scaffold drift without writing files,
   pruning obsolete skills or rewriting the scaffold manifest.
 - Type extraction rejects malformed tree-sitter definitions instead of forwarding

@@ -1146,12 +1146,14 @@ def _check_W033_agent_scaffold(cfg: ProjectConfig) -> list[LintResult]:
     """
     from rebrew.init import agent_skill_files
 
-    # init --refresh-agents renders the first declared target for this shared
-    # project scaffold, independently of the target selected for lint.
+    # The shared scaffold follows the configured default, independently of
+    # the target selected for lint. Programmatic configs may have no TOML.
     targets = getattr(cfg, "all_targets", [])
     target_name = str((targets[0] if targets else getattr(cfg, "target_name", "")) or "")
     if not target_name or not getattr(cfg, "root", None):
         return []
+    if (Path(cfg.root) / "rebrew-project.toml").is_file():
+        target_name = load_config(Path(cfg.root)).target_name
 
     expected = {
         f".agents/skills/{rel}": data for rel, data in agent_skill_files(target_name).items()

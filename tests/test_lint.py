@@ -3481,11 +3481,20 @@ class TestW033AgentScaffold:
         assert "refresh-agents" in self._messages(self._cfg(tmp_path))
 
     @pytest.mark.parametrize("selected_target", ["bench", "client"])
-    def test_fresh_scaffold_is_silent(self, tmp_path: Path, selected_target: str) -> None:
+    @pytest.mark.parametrize("default_target", ["bench", "client"])
+    def test_fresh_scaffold_is_silent(
+        self, tmp_path: Path, selected_target: str, default_target: str
+    ) -> None:
         """A project rendered from the packaged sources passes."""
         from rebrew.init import agent_skill_files
 
-        for rel, data in agent_skill_files("bench").items():
+        (tmp_path / "rebrew-project.toml").write_text(
+            f'[project]\ndefault_target = "{default_target}"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n'
+            '[targets.bench]\nbinary = "bench.exe"\n'
+            '[targets.client]\nbinary = "client.exe"\n'
+        )
+        for rel, data in agent_skill_files(default_target).items():
             path = tmp_path / ".agents" / "skills" / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
