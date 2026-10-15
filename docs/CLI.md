@@ -653,7 +653,7 @@ consumers can learn whether the blocker landed (mirrors `near-diag`'s
 | `--install-wibo` | flag | `False` | Download optional tools/wibo for host-only plugin toolchains |
 | `--write-completions` | flag | `False` | Write bash/zsh/fish completion scripts into completions/ |
 | `--link-tools-from` | path | — | Master toolchain directory to symlink tools/<profile> from (e.g. /opt/toolchains). Skips profiles with no host tree to link (GCC, MinGW, and Clang run inside their Docker images) |
-| `--refresh-agents` | flag | `False` | Rewrite the generated scaffold (AGENTS.md, PRINCIPLES.md, .agents/skills/) from rebrew-project.toml and exit |
+| `--refresh-agents` | flag | `False` | Rewrite the generated scaffold (AGENTS.md, PRINCIPLES.md, .agents/skills/) from rebrew-project.toml and exit; `--dry-run` previews drift without writing or pruning |
 | `--check` | flag | `False` | Report generated-scaffold drift (AGENTS.md, PRINCIPLES.md, .agents/skills/) against the packaged sources instead of writing; exit 1 when any file differs |
 | `--wizard` / `--no-wizard` | flag | `True` | Run the interactive onboarding wizard (TTY only, off under --json).  Only parameters not passed on the CLI are prompted |
 | `--dry-run` | flag | `False` | Preview changes without writing |

@@ -27,6 +27,8 @@
   relocations through `parse_obj_symbol_and_relocs`.
 
 ### Fixed
+- `init --refresh-agents --dry-run` previews scaffold drift without writing files,
+  pruning obsolete skills or rewriting the scaffold manifest.
 - Type extraction rejects malformed tree-sitter definitions instead of forwarding
   recovered junk as a typedef or struct to Ghidra.
 - Build-integrity checks compare generated compiler arguments with CMake's active

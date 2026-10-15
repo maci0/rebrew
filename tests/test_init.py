@@ -1536,6 +1536,41 @@ class TestRegistryDerivedProfiles:
 
 
 class TestRefreshAgents:
+    @pytest.mark.parametrize("json_output", [False, True])
+    @pytest.mark.parametrize("state", ["fresh", "stale"])
+    def test_dry_run_preserves_entire_scaffold(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        json_output: bool,
+        state: str,
+    ) -> None:
+        from rebrew import init as init_mod
+
+        root = self._project(tmp_path, "msvc-5.0")
+        monkeypatch.setattr(init_mod, "agent_skill_files", lambda _target: {"old/SKILL.md": b"old"})
+        if state == "stale":
+            init_mod._refresh_agents(root, root / "rebrew-project.toml", json_output=False)
+            (root / "AGENTS.md").write_text("stale instructions")
+        monkeypatch.setattr(init_mod, "agent_skill_files", lambda _target: {"new/SKILL.md": b"new"})
+        monkeypatch.chdir(root)
+        capsys.readouterr()
+
+        def snapshot() -> dict[str, tuple[bytes, int]]:
+            return {
+                str(p.relative_to(root)): (p.read_bytes(), p.stat().st_mtime_ns)
+                for p in root.rglob("*")
+                if p.is_file()
+            }
+
+        before = snapshot()
+        main(refresh_agents=True, dry_run=True, json_output=json_output, wizard=False)
+        assert snapshot() == before
+        if json_output:
+            report = json.loads(capsys.readouterr().out)
+            assert report["dry_run"] is True and report["count"] > 0
+
     def test_uses_default_targets_compiler_override(self, tmp_path: Path) -> None:
         from rebrew.init import _refresh_agents
 

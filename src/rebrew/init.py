@@ -840,7 +840,9 @@ def _docker_only(profile: dict[str, Any], profile_name: str) -> dict[str, Any]:
     return profile
 
 
-def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: bool = False) -> None:
+def _refresh_agents(
+    cwd: Path, toml_path: Path, *, json_output: bool, check: bool = False, dry_run: bool = False
+) -> None:
     """Rewrite (or check) the generated scaffold for an existing project.
 
     Covers AGENTS.md, PRINCIPLES.md and .agents/skills/ from the packaged
@@ -850,7 +852,7 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
     the packaged set instead of accumulating stale skills; a file edited since
     the last render is reported and kept.  Reads only the config; never
     rewrites it.  With *check*, report drift and exit non-zero instead of
-    writing anything.
+    writing anything. With *dry_run*, preview that drift without a mismatch exit.
     """
     import tomllib
 
@@ -901,7 +903,7 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
     manifest = _load_scaffold_manifest(cwd)
     stale = _stale_scaffold_files(cwd, expected, manifest)
 
-    if check:
+    if check or dry_run:
         drift: list[dict[str, str]] = [
             {"path": rel, "reason": "missing" if not (cwd / rel).is_file() else "differs"}
             for rel, want in expected.items()
@@ -909,14 +911,19 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
         ]
         drift += [{"path": rel, "reason": reason} for rel, reason in stale]
         if json_output:
-            json_print({"drift": drift, "count": len(drift)})
+            report: dict[str, Any] = {"drift": drift, "count": len(drift)}
+            if dry_run:
+                report["dry_run"] = True
+            json_print(report)
         elif drift:
             console.print(f"[yellow]{len(drift)} generated file(s) drifted:[/yellow]")
             for item in drift:
                 console.print(f"  {item['path']} ({item['reason']})")
         else:
             console.print("[green]Generated scaffold matches the packaged sources.[/green]")
-        raise typer.Exit(code=EXIT_MISMATCH if drift else EXIT_OK)
+        if check:
+            raise typer.Exit(code=EXIT_MISMATCH if drift else EXIT_OK)
+        return
 
     written = 0
     for rel, data_bytes in expected.items():
@@ -1124,7 +1131,7 @@ def main(
         binary_name = binary_name[len("original/") :]
 
     if refresh_agents or check:
-        _refresh_agents(cwd, toml_path, json_output=json_output, check=check)
+        _refresh_agents(cwd, toml_path, json_output=json_output, check=check, dry_run=dry_run)
         return
 
     if toml_path.exists():
