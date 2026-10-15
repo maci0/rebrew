@@ -13,6 +13,7 @@ from rebrew.c_parser import (
     array_type_shape,
     declares_function,
     find_extern_variables,
+    prototype_name_span,
     prototype_type_key,
     replace_function_prototype,
     type_from_declaration,
@@ -266,6 +267,7 @@ def _resolved_contract_sites(
     sites: list[ContractSite], contexts: dict[Path, set[Path]], texts: dict[Path, str]
 ) -> tuple[list[ContractSite], list[dict[str, Any]]]:
     aliases: dict[str, dict[str, set[str]]] = {}
+    callbacks: dict[tuple[str, str, str], tuple[bytes, int, int]] = {}
     for path, units in contexts.items():
         parsed = ParsedSource.parse(texts[path])
         for node in _nodes(parsed.tree.root_node):
@@ -280,10 +282,9 @@ def _resolved_contract_sites(
                 name = declarator_name(declarator, parsed)
                 if not name:
                     continue
-                value = (
-                    type_from_declaration(parsed.node_text(node).removeprefix("typedef "), name)
-                    or ""
-                )
+                declaration = parsed.node_text(node).removeprefix("typedef").lstrip().rstrip(";")
+                value = type_from_declaration(declaration, name) or ""
+                callback = None
                 kind = node.child_by_field_name("type")
                 if kind is not None and kind.type in {
                     "struct_specifier",
@@ -291,15 +292,37 @@ def _resolved_contract_sites(
                     "enum_specifier",
                 }:
                     tag = kind.child_by_field_name("name")
-                    value = (
-                        kind.type.removesuffix("_specifier") + " " + parsed.node_text(tag)
-                        if tag is not None
-                        else ""
-                    )
-                if _conditional(node, path) or any(token in value for token in ("[", "(", "{")):
+                    if tag is not None:
+                        record = kind.type.removesuffix("_specifier") + " " + parsed.node_text(tag)
+                        declaration = (
+                            parsed.data[node.start_byte : kind.start_byte]
+                            + record.encode("utf-8")
+                            + parsed.data[kind.end_byte : node.end_byte]
+                        ).decode("utf-8")
+                        declaration = declaration.removeprefix("typedef").lstrip().rstrip(";")
+                        value = type_from_declaration(declaration, name) or ""
+                    else:
+                        value = ""
+                if "(" in value:
+                    span = prototype_name_span(declaration)
+                    key = prototype_type_key(f"void callback_type({declaration});")
+                    if (
+                        span is not None
+                        and span[0] == name
+                        and key is not None
+                        and not declares_function(declarator)
+                        and any(n.type == "pointer_declarator" for n in _nodes(declarator))
+                    ):
+                        value = key[len("void(") : -1]
+                        callback = (declaration.encode("utf-8"), span[1], span[2])
+                    else:
+                        value = ""
+                if _conditional(node, path) or any(token in value for token in ("[", "{")):
                     value = ""
                 for unit in units:
                     aliases.setdefault(str(unit), {}).setdefault(name, set()).add(value)
+                    if callback is not None and value:
+                        callbacks.setdefault((str(unit), name, value), callback)
     resolved = []
     unknown = []
     for site in sites:
@@ -307,6 +330,10 @@ def _resolved_contract_sites(
         seen: set[str] = set()
         uncertain: set[str] = set()
         for _depth in range(16):
+            if source in seen:
+                uncertain.add("cyclic typedef")
+                break
+            seen.add(source)
             parsed = ParsedSource.parse(source.rstrip(";") + ";")
             edits = []
             for node in _nodes(parsed.tree.root_node):
@@ -318,18 +345,29 @@ def _resolved_contract_sites(
                     continue
                 name = parsed.node_text(node)
                 values = aliases.get(site.context, {}).get(name, set())
-                if len(values) != 1 or not next(iter(values), "") or name in seen:
+                if len(values) != 1 or not next(iter(values), ""):
                     uncertain.add(name)
                     continue
                 value = next(iter(values))
-                edits.append((node.start_byte, node.end_byte, value.encode("utf-8")))
+                callback = callbacks.get((site.context, name, value))
+                if callback is not None:
+                    parent = node.parent
+                    declarator = parent.child_by_field_name("declarator")
+                    if (
+                        parent.type != "parameter_declaration"
+                        or declarator is None
+                        or declarator.type != "identifier"
+                        or any(c.type == "type_qualifier" for c in parent.named_children)
+                    ):
+                        uncertain.add(name)
+                        continue
+                    template, start, end = callback
+                    replacement = template[:start] + declarator.text + template[end:]
+                    edits.append((parent.start_byte, parent.end_byte, replacement))
+                else:
+                    edits.append((node.start_byte, node.end_byte, value.encode("utf-8")))
             if not edits:
                 break
-            seen.update(
-                parsed.node_text(node)
-                for node in _nodes(parsed.tree.root_node)
-                if node.type == "type_identifier"
-            )
             raw = parsed.data
             for start, end, replacement_bytes in sorted(edits, reverse=True):
                 raw = raw[:start] + replacement_bytes + raw[end:]

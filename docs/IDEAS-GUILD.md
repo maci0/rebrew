@@ -1773,3 +1773,29 @@ Implemented through `binary repair-extents --add-missing`. Default missing-addre
 refusal remains. Admission rejects retained overlapping extents, permits a reviewed
 predecessor shrink in the same batch, and records absence as old_size:null.
 Preview/apply binds updates, reason and policy alongside the full binary/inventory.
+
+## Resolve callback typedef parameters in source contracts (2026-10-16)
+
+Problem: ordinary `typedef int (__cdecl* EVENT_CHECK)(char* event)` parameters
+remain `unresolved context-specific typedef` in `types contracts`. The resolver
+rejects every alias containing `(`. Substituting its abstract type as a word
+would instead create invalid C, and nested callback parameter names currently
+survive `prototype_type_key`, producing false differences against inline forms.
+
+Proposed capability: compose supported callback parameter declarators through the
+existing C AST, normalize nested parameter names, preserve callback ABI/return/
+argument differences and per-TU meanings, and retain conditional, ambiguous or
+unsupported uses as unknown. Do not erase callbacks to `void*` or bless a verdict.
+Replay: in guild-rebrew, `rebrew types contracts --name fcn_004e7160 --all-targets
+--json`; `src/Develop/DieGildeAddOn/game/event_callbacks.h` is the canonical
+header. Native callback storage and full-EAX consumer evidence, complete paired
+objects and rejecting controls are in `.scratch/goal57/native-proof.json`.
+
+Implemented for ordinary named callback parameters: AST declarator composition,
+chained/per-TU aliases and nested parameter-name normalization. Conditional,
+qualified, object and other unsupported callback uses remain explicitly unknown;
+this does not establish their compatibility or any native byte verdict.
+
+Regression coverage also preserves pointer/function declarators when a typedef's
+return/base type is a named record; replacing the entire type with its tag had
+lost those declarators. Anonymous records remain unresolved.

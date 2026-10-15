@@ -342,3 +342,124 @@ class TestReleaseContractControls:
             preview = reconcile_contract([cfg], "queue", Path("src/api.h"), prototype, dry_run=True)
             assert preview["verification_required"]
         assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+
+class TestCallbackTypedefContracts:
+    @pytest.mark.parametrize("chained", [False, True])
+    def test_callback_parameter_equals_inline_form(self, tmp_path: Path, chained: bool) -> None:
+        cfg = _project(tmp_path)
+        alias = "Chained" if chained else "Callback"
+        header = "typedef\nint (__cdecl* Callback)(char* event);\n"
+        if chained:
+            header += "typedef Callback Chained;\n"
+        (cfg.reversed_dir / "api.h").write_text(header)
+        (cfg.reversed_dir / "owner.c").write_text(
+            f'#include "api.h"\nint queue({alias} check) {{ return 1; }}\n'
+        )
+        (cfg.reversed_dir / "user.c").write_text(
+            "int queue(int (__cdecl* handler)(char* value));\nint wrapper(void) { return 0; }\n"
+        )
+        report = audit_contracts(cfg, name="queue")
+        assert not report["unknown"]
+        assert not report["findings"]
+        assert {site["key"] for site in report["sites"]} == {"int(int(*)(char*))"}
+
+    @pytest.mark.parametrize(
+        "other_callback",
+        [
+            "void (__cdecl* Callback)(char* value)",
+            "int (__stdcall* Callback)(char* value)",
+            "int (__cdecl* Callback)(int* value)",
+            "int (__cdecl* Callback)(char* value, ...)",
+        ],
+    )
+    def test_callback_contract_changes_stay_distinct(
+        self, tmp_path: Path, other_callback: str
+    ) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "owner.c").write_text(
+            "typedef int (__cdecl* Callback)(char* event);\n"
+            "int queue(Callback check) { return 1; }\n"
+        )
+        (cfg.reversed_dir / "user.c").write_text(
+            f"typedef {other_callback};\nint queue(Callback handler);\n"
+            "int wrapper(void) { return 0; }\n"
+        )
+        report = audit_contracts(cfg, name="queue")
+        assert not report["unknown"]
+        assert report["findings"][0]["severity"] == "error"
+        assert report["findings"][0]["differences"] == ["signature"]
+
+    def test_conditional_callback_remains_unknown(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "owner.c").write_text(
+            "#if OTHER_ABI\ntypedef int (__stdcall* Callback)(char* event);\n"
+            "#else\ntypedef int (__cdecl* Callback)(char* event);\n#endif\n"
+            "int queue(Callback check) { return 1; }\n"
+        )
+        report = audit_contracts(cfg, name="queue")
+        assert any(row.get("types") == ["Callback"] for row in report["unknown"])
+
+    def test_qualified_callback_parameter_remains_unknown(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "owner.c").write_text(
+            "typedef int (*Callback)(char* event);\nint queue(Callback const check) { return 1; }\n"
+        )
+        report = audit_contracts(cfg, name="queue")
+        assert any(row.get("types") == ["Callback"] for row in report["unknown"])
+
+    def test_callback_object_remains_unknown(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "owner.c").write_text(
+            "typedef int (*Callback)(char* event);\nextern Callback check;\n"
+            "int queue(int value) { return value; }\n"
+        )
+        report = audit_contracts(cfg, name="check")
+        assert any(row.get("types") == ["Callback"] for row in report["unknown"])
+
+    def test_nested_alias_is_resolved_after_callback_expansion(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "owner.c").write_text(
+            "typedef int Value; typedef int (*Callback)(Value inner);\n"
+            "int queue(Callback check, Value id) { return id; }\n"
+        )
+        (cfg.reversed_dir / "user.c").write_text(
+            "int queue(int (*handler)(int value), int id);\nint wrapper(void) { return 0; }\n"
+        )
+        report = audit_contracts(cfg, name="queue")
+        assert not report["unknown"] and not report["findings"]
+
+    def test_alias_cycle_remains_unknown(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "owner.c").write_text(
+            "typedef Second First; typedef First Second;\nint queue(First value) { return 1; }\n"
+        )
+        report = audit_contracts(cfg, name="queue")
+        assert any("cyclic typedef" in row.get("types", []) for row in report["unknown"])
+
+    def test_named_record_pointer_alias_keeps_its_declarator(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "owner.c").write_text(
+            "typedef struct Event { int id; } *EventPtr;\nint queue(EventPtr event) { return 1; }\n"
+        )
+        (cfg.reversed_dir / "user.c").write_text(
+            "struct Event; int queue(struct Event *value);\nint wrapper(void) { return 0; }\n"
+        )
+        report = audit_contracts(cfg, name="queue")
+        assert not report["unknown"] and not report["findings"]
+        assert {site["key"] for site in report["sites"]} == {"int(struct Event*)"}
+
+    def test_record_returning_callback_keeps_its_declarator(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "owner.c").write_text(
+            "struct Event { int id; };\n"
+            "typedef struct Event (*Callback)(int id);\n"
+            "int queue(Callback check) { return 1; }\n"
+        )
+        (cfg.reversed_dir / "user.c").write_text(
+            "struct Event; int queue(struct Event (*handler)(int value));\n"
+            "int wrapper(void) { return 0; }\n"
+        )
+        report = audit_contracts(cfg, name="queue")
+        assert not report["unknown"] and not report["findings"]
+        assert {site["key"] for site in report["sites"]} == {"int(struct Event(*)(int))"}

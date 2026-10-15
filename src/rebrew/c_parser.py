@@ -2310,14 +2310,13 @@ def prototype_type_key(prototype: str) -> str | None:
                     and node_text(inner, source) == name
                 ):
                     drop.append((inner.start_byte, inner.end_byte))
-                    params = node.child_by_field_name("parameters")
-                    for param in params.children if params is not None else ():
-                        if param.type != "parameter_declaration":
-                            continue
-                        ident = _declarator_identifier(param.child_by_field_name("declarator"))
-                        if ident is not None:
-                            drop.append((ident.start_byte, ident.end_byte))
-                    break
+                params = node.child_by_field_name("parameters")
+                for param in params.children if params is not None else ():
+                    if param.type != "parameter_declaration":
+                        continue
+                    ident = _declarator_identifier(param.child_by_field_name("declarator"))
+                    if ident is not None:
+                        drop.append((ident.start_byte, ident.end_byte))
             pending.extend(reversed(node.children))
         if not drop:
             return None
