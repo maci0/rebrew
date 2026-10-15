@@ -637,11 +637,16 @@ class TestSelectAnnotation:
         ("va", "want_anno_va", "want_va"),
         [(None, 0x1000, 0x1000), ("0x2000", 0x2000, 0x2000)],
     )
+    @pytest.mark.parametrize("with_root", [False, True])
     def test_selects_by_va(
-        self, tmp_path: Path, va: str | None, want_anno_va: int, want_va: int
+        self, tmp_path: Path, va: str | None, want_anno_va: int, want_va: int, with_root: bool
     ) -> None:
+        """Source selection supports both minimal and root-aware configurations."""
         src = self._write_two(tmp_path)
-        path, anno, va_int = select_annotation(self._cfg(tmp_path), str(src), va)
+        cfg = self._cfg(tmp_path)
+        if with_root:
+            cfg.root = tmp_path.parent
+        path, anno, va_int = select_annotation(cfg, str(src), va)
         assert path == src
         assert anno.va == want_anno_va
         assert va_int == want_va

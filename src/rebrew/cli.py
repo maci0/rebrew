@@ -277,7 +277,7 @@ def source_targets_run(
                 path,
                 target_name=target_marker(cfg),
                 metadata_dir=cfg.metadata_dir,
-                project_root=cfg.root,
+                project_root=resolved,
             )
             bound = any(row.is_function for row in bindings)
             plans[name] = (
@@ -1080,7 +1080,10 @@ def select_annotation(
     path = require_source_arg(cfg, source_arg, json_mode=json_mode)
 
     annos = read_source_bindings(
-        path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir, project_root=cfg.root
+        path,
+        target_name=target_marker(cfg),
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
     )
     if not annos:
         error_exit("No // FUNCTION annotation found in the source", json_mode=json_mode)

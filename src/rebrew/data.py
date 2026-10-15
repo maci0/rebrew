@@ -748,7 +748,7 @@ def execute_data(
 )
 def audit_literals_cmd(
     obj: Path = typer.Argument(..., help="Compiled i386 COFF object"),
-    va: str = typer.Option(..., "--va", help="Native function start address"),
+    va: str = typer.Option(..., "--va", help="VA in hex (e.g. 0x10009310)"),
     symbol: str = typer.Option(..., "--symbol", help="Exact defined object function symbol"),
     size: int = typer.Option(..., "--size", min=1, help="Complete native function extent in bytes"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
