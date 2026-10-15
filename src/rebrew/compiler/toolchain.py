@@ -63,6 +63,7 @@ _RUN_TIMEOUT = 300
 _DOCKER_MEMO_LOCK = threading.Lock()
 
 _docker_available_cache: bool | None = None
+_runtime_availability: set[str] = set()
 #: Positive-only memo for the ``PATH`` lookup of the container runtime.
 _runtime_on_path_cache: bool = False
 
@@ -109,7 +110,7 @@ class RunResult:
     returncode: int
     stdout: str
     stderr: str
-    backend: str  # "docker" | "native" (host wine/dosbox execution removed)
+    backend: str  # Selected container frontend, "unshare", or plugin "native".
 
     @property
     def ok(self) -> bool:
@@ -665,7 +666,7 @@ def toolchain_link_candidates(profile: str) -> list[str]:
     return ["/".join(cl.split("/")[1:3]) for cl, _, _ in _MSVC_LAYOUTS.get(profile, ())]
 
 
-def docker_available() -> bool:
+def docker_available(runtime: str | None = None) -> bool:
     """True when docker is installed and its daemon responds.
 
     Only a positive result is memoized.  A miss / daemon blip is rechecked
@@ -674,11 +675,13 @@ def docker_available() -> bool:
     """
     global _docker_available_cache
     with _DOCKER_MEMO_LOCK:
-        if _docker_available_cache is True:
+        if (
+            runtime is None and _docker_available_cache is True
+        ) or runtime in _runtime_availability:
             return True
     try:
         r = subprocess.run(
-            [container_runtime(), "info"],
+            [(container_runtime() if runtime is None else container_runtime(runtime)), "info"],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -690,7 +693,10 @@ def docker_available() -> bool:
         ok = False
     if ok:
         with _DOCKER_MEMO_LOCK:
-            _docker_available_cache = True
+            if runtime is None:
+                _docker_available_cache = True
+            else:
+                _runtime_availability.add(runtime)
     return ok
 
 
@@ -730,7 +736,9 @@ def invalidate_toolchain_digest(image: str | None = None) -> None:
         if image is None:
             _toolchain_digest_cache.clear()
         else:
-            _toolchain_digest_cache.pop(image, None)
+            for key in list(_toolchain_digest_cache):
+                if key == image or key.endswith(":" + image):
+                    _toolchain_digest_cache.pop(key, None)
 
 
 def runtime_on_path() -> bool:
@@ -755,7 +763,9 @@ def runtime_on_path() -> bool:
 def _drop_image_presence(tag: str) -> None:
     """Drop a positive presence memo for *tag* (locked)."""
     with _DOCKER_MEMO_LOCK:
-        _image_presence.pop(tag, None)
+        for key in list(_image_presence):
+            if key == tag or key.endswith(":" + tag):
+                _image_presence.pop(key, None)
 
 
 def image_content_id(raw: str) -> str:
@@ -772,7 +782,7 @@ def image_content_id(raw: str) -> str:
     return ""
 
 
-def cached_image_digest(image: str) -> str:
+def cached_image_digest(image: str, *, runtime: str | None = None) -> str:
     """Full docker image id for *image* (cached per process), or ``""``.
 
     The id is ``sha256:`` plus 64 lowercase hex (:func:`image_content_id`).
@@ -780,18 +790,26 @@ def cached_image_digest(image: str) -> str:
     is not a full content digest.  The image tag is not a substitute.
     Failures and malformed ids are not memoized: the next call retries.
     """
+    key = image if runtime is None else container_runtime(runtime) + ":" + image
     with _DOCKER_MEMO_LOCK:
-        cached = _toolchain_digest_cache.get(image)
+        cached = _toolchain_digest_cache.get(key)
         if cached is not None:
             valid = image_content_id(cached)
             if valid:
                 return valid
-            _toolchain_digest_cache.pop(image, None)
+            _toolchain_digest_cache.pop(key, None)
         generation = _toolchain_digest_generation
     digest = ""
     try:
         r = subprocess.run(
-            [container_runtime(), "image", "inspect", "--format", "{{.Id}}", image],
+            [
+                (container_runtime() if runtime is None else container_runtime(runtime)),
+                "image",
+                "inspect",
+                "--format",
+                "{{.Id}}",
+                image,
+            ],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -809,22 +827,22 @@ def cached_image_digest(image: str) -> str:
                 # store it and do not return it.  A worker that re-inspected
                 # after the swap may already have refilled the cache; prefer
                 # that when it is a full id, and otherwise return empty.
-                refilled = image_content_id(_toolchain_digest_cache.get(image, ""))
+                refilled = image_content_id(_toolchain_digest_cache.get(key, ""))
                 if not refilled:
-                    _toolchain_digest_cache.pop(image, None)
+                    _toolchain_digest_cache.pop(key, None)
                 return refilled
             # Another worker may have filled it while we inspected.
-            if image not in _toolchain_digest_cache:
+            if key not in _toolchain_digest_cache:
                 if len(_toolchain_digest_cache) >= _TOOLCHAIN_DIGEST_CACHE_MAX:
                     oldest = next(iter(_toolchain_digest_cache))
                     _toolchain_digest_cache.pop(oldest, None)
-                _toolchain_digest_cache[image] = digest
+                _toolchain_digest_cache[key] = digest
             else:
-                stored = image_content_id(_toolchain_digest_cache[image])
+                stored = image_content_id(_toolchain_digest_cache[key])
                 if stored:
                     digest = stored
                 else:
-                    _toolchain_digest_cache[image] = digest
+                    _toolchain_digest_cache[key] = digest
     return digest
 
 
@@ -833,7 +851,7 @@ def cached_image_digest(image: str) -> str:
 _ALREADY_GONE_RE = re.compile(r"no such (?:container|object)", re.IGNORECASE)
 
 
-def kill_container(name: str, timeout: int = 30) -> None:
+def kill_container(name: str, timeout: int = 30, *, runtime: str | None = None) -> None:
     """Best-effort ``docker kill`` of a timed-out run container.
 
     The container was started with ``--rm``, so killing it also removes it.
@@ -853,7 +871,7 @@ def kill_container(name: str, timeout: int = 30) -> None:
     """
     log = logging.getLogger(__name__)
     try:
-        runtime = container_runtime()
+        runtime = container_runtime() if runtime is None else container_runtime(runtime)
         r = subprocess.run(
             [runtime, "kill", name],
             capture_output=True,
@@ -881,22 +899,28 @@ def kill_container(name: str, timeout: int = 30) -> None:
     )
 
 
-def image_present(tag: str, use_cache: bool = True) -> bool:
+def image_present(tag: str, use_cache: bool = True, *, runtime: str | None = None) -> bool:
     """True when a docker image for *tag* is present locally (cached).
 
     Only positive hits are memoized.  A miss / inspect failure is rechecked
     on the next call so an external ``docker pull`` (or a daemon that was
     briefly down) is not frozen as absent for the process lifetime.
     """
+    key = tag if runtime is None else container_runtime(runtime) + ":" + tag
     if use_cache:
         with _DOCKER_MEMO_LOCK:
-            if _image_presence.get(tag):
+            if _image_presence.get(key):
                 return True
-    if not docker_available():
+    if not (docker_available() if runtime is None else docker_available(runtime)):
         return False
     try:
         r = subprocess.run(
-            [container_runtime(), "image", "inspect", tag],
+            [
+                (container_runtime() if runtime is None else container_runtime(runtime)),
+                "image",
+                "inspect",
+                tag,
+            ],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -916,13 +940,13 @@ def image_present(tag: str, use_cache: bool = True) -> bool:
     present = r.returncode == 0
     with _DOCKER_MEMO_LOCK:
         if present:
-            if len(_image_presence) >= _IMAGE_PRESENCE_MAX and tag not in _image_presence:
+            if len(_image_presence) >= _IMAGE_PRESENCE_MAX and key not in _image_presence:
                 oldest = next(iter(_image_presence))
                 _image_presence.pop(oldest, None)
-            _image_presence[tag] = True
+            _image_presence[key] = True
         else:
             # Drop a stale positive if the image vanished under us.
-            _image_presence.pop(tag, None)
+            _image_presence.pop(key, None)
     return present
 
 
@@ -1182,6 +1206,7 @@ def run_toolchain(
     timeout: int = _RUN_TIMEOUT,
     mounts: list[tuple[str, str]] | None = None,
     image_id: str | None = None,
+    execution_backend: str | None = None,
 ) -> RunResult:
     """Invoke a toolchain's compiler through its docker image (uniform backend).
 
@@ -1216,11 +1241,58 @@ def run_toolchain(
             after :func:`image_present`.  Both paths pass ``--pull=never``.
             The tag remains the name in errors on the unpinned path.
 
+        execution_backend: docker, podman, or experimental unshare. None uses
+            the runtime environment. Unsupported setup never falls back.
+
     Raises:
         ToolchainError: no docker daemon/image for a docker toolchain, or no
             native binary for a native-runtime toolchain.
     """
     workdir = Path(workdir) if workdir is not None else Path.cwd()
+    if execution_backend == "unshare":
+        from rebrew.compiler.unshare import UnshareError, run_unshare
+
+        if not (
+            spec.image
+            and spec.family == "msvc"
+            and spec.runtime == "wine"
+            and spec.bits in (None, 32)
+            and spec.image.endswith("-win32")
+        ):
+            raise ToolchainError(
+                "--experimental-unshare supports image-backed 32-bit MSVC/Wine profiles only",
+                kind="validation",
+                name=spec.name,
+            )
+        admitted = image_content_id(image_id or "")
+        if not admitted:
+            raise ToolchainError(
+                "--experimental-unshare requires an admitted immutable image id",
+                kind="validation",
+                name=spec.name,
+            )
+        try:
+            env = image_msvc_env(spec)
+            epoch = source_date_epoch()
+            if epoch is not None:
+                env["SOURCE_DATE_EPOCH"] = epoch
+            workdir.mkdir(parents=True, exist_ok=True)
+            result = run_unshare(
+                admitted,
+                args,
+                entrypoint=spec.image_entrypoint,
+                workdir=workdir,
+                mounts=mounts or [],
+                env=env,
+                timeout=timeout,
+            )
+        except (UnshareError, ConfigError, OSError) as exc:
+            raise ToolchainError(str(exc), kind="invocation", name=spec.name) from exc
+        return RunResult(result.returncode, result.stdout, result.stderr, backend="unshare")
+    runtime = (
+        container_runtime() if execution_backend is None else container_runtime(execution_backend)
+    )
+    runtime_options: dict[str, Any] = {"runtime": execution_backend} if execution_backend else {}
     try:
         workdir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -1243,14 +1315,14 @@ def run_toolchain(
                     name=spec.name,
                 )
             target = pinned
-        if not docker_available():
+        if not docker_available(**runtime_options):
             raise ToolchainError(
                 "docker is not available — cannot run toolchain images",
                 kind="docker",
                 name=spec.name,
                 retryable=True,
             )
-        if image_id is None and not image_present(spec.image):
+        if image_id is None and not image_present(spec.image, **runtime_options):
             raise ToolchainError(
                 f"toolchain {spec.name!r}: docker image {spec.image} not built — "
                 f"run `rebrew toolchain build {spec.name}`",
@@ -1258,7 +1330,7 @@ def run_toolchain(
                 name=spec.name,
             )
         cmd = [
-            container_runtime(),
+            runtime,
             "run",
             "--rm",
             "--network=none",  # compile-only containers — no egress needed
@@ -1305,7 +1377,7 @@ def run_toolchain(
             )
         except subprocess.TimeoutExpired as exc:
             if "--name" in cmd:
-                kill_container(str(cmd[cmd.index("--name") + 1]))
+                kill_container(str(cmd[cmd.index("--name") + 1]), **runtime_options)
             raise ToolchainError(
                 f"docker invocation failed: {exc}",
                 kind="invocation",
@@ -1323,9 +1395,9 @@ def run_toolchain(
             # Ctrl+C: subprocess.run SIGKILLs the docker CLI, which leaves
             # the container running under dockerd.
             if "--name" in cmd:
-                kill_container(str(cmd[cmd.index("--name") + 1]))
+                kill_container(str(cmd[cmd.index("--name") + 1]), **runtime_options)
             raise
-        return RunResult(r.returncode, r.stdout, r.stderr, backend="docker")
+        return RunResult(r.returncode, r.stdout, r.stderr, backend=runtime)
 
     if spec.runtime == "native":
         # Image-less compiler (plugin/overlay spec) — vendored/PATH binary
@@ -1450,6 +1522,28 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
     return image, False
 
 
+def check_experimental_unshare(spec: ToolchainSpec) -> None:
+    """Admit the image and probe namespaces before verify can write verdicts."""
+    from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir
+
+    image_id = cached_image_digest(spec.image) if spec.image else None
+    workdir = writable_temp_dir("rebrew_unshare_probe_")
+    try:
+        result = run_toolchain(
+            replace(spec, image_entrypoint="/bin/true"),
+            [],
+            workdir=workdir,
+            image_id=image_id,
+            execution_backend="unshare",
+        )
+        if not result.ok:
+            raise ToolchainError(
+                result.stderr or "experimental namespace probe failed", name=spec.name
+            )
+    finally:
+        remove_temp_dir(workdir)
+
+
 __all__ = [
     "RunResult",
     "TOOLCHAINS",
@@ -1459,6 +1553,7 @@ __all__ = [
     "bind_mount",
     "build_toolchain_registry",
     "cached_image_digest",
+    "check_experimental_unshare",
     "docker_available",
     "get_toolchain",
     "image_content_id",

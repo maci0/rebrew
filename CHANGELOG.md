@@ -1,6 +1,17 @@
 ## [Unreleased]
 
+### Added
+- Explicit `[compiler] execution_backend` selection (`docker`, `podman`,
+  `unshare`), including target overrides. The experimental rootless `unshare`
+  backend runs pinned 32-bit MSVC/Wine image filesystems directly with disposable
+  overlays, namespace teardown and separate cache identity. Opt into one verify
+  run with `--experimental-unshare`; see the toolchain guide for requirements
+  and isolation limits. `runner` remains the separate compiler-loader setting.
+
 ### Changed
+- **Breaking:** `rebrew.compiler.cache.CACHE_SCHEMA_VERSION` is now 9. Existing
+  compile-cache entries are cold after this update; unshare helper/profile
+  identity participates in the replacement keys.
 - **Breaking:** Remove the incidental
   `rebrew.matcher.compiler.parse_obj_symbol_bytes` import. Import it from
   `rebrew.matcher.parsers` instead; matcher compilation now preserves typed

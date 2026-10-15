@@ -211,6 +211,13 @@ def sweep_stale_temp_dirs(
         if touched is None or now - touched < age_s:
             continue
         try:
+            if entry.name.startswith("rebrew_unshare_"):
+                # A killed overlay leaves mode-000 work directories in this owned scratch tree.
+                for parent, directories, _ in os.walk(entry, followlinks=False):
+                    for name in directories:
+                        directory = Path(parent) / name
+                        if not directory.is_symlink() and directory.stat().st_uid == os.getuid():
+                            directory.chmod(directory.stat().st_mode | 0o700)
             shutil.rmtree(entry)
         except OSError as exc:
             # Busy mount, or a peer that recreated it: leave it for the next

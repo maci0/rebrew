@@ -527,6 +527,7 @@ class ProjectConfig:
     compiler_profile: str = "msvc-6.0"
     compiler_command: str = "wine CL.EXE"
     compiler_runner: str = ""
+    execution_backend: str = ""  # Empty on programmatic configs inherits the runtime environment.
     compiler_includes: Path = field(default_factory=lambda: Path())
     compiler_libs: Path = field(default_factory=lambda: Path())
     cflags: str = ""  # Default compiler flags (from [compiler] or per-target override)
@@ -833,6 +834,9 @@ class ProjectConfig:
             "compiler_profile": self.compiler_profile,
             "compiler_command": self.compiler_command,
             "compiler_runner": self.compiler_runner,
+            "execution_backend": self.execution_backend
+            or os.environ.get("REBREW_CONTAINER_RUNTIME", "").strip()
+            or "docker",
             "compiler_includes": str(self.compiler_includes),
             "compiler_libs": str(self.compiler_libs),
             "cflags": self.cflags,
@@ -2212,6 +2216,7 @@ KNOWN_TARGET_KEYS = {
 _KNOWN_COMPILER_KEYS = {
     "command",
     "runner",
+    "execution_backend",
     "includes",
     "libs",
     "cflags",
@@ -2401,6 +2406,12 @@ def load_config(
     target_compiler = _as_table(tgt.get("compiler", {}), f"targets.{target}.compiler")
     compiler = {**global_compiler, **target_compiler}
     compiler_runner, compiler_command = _split_compiler_runner(compiler)
+    execution_backend = compiler.get("execution_backend", "")
+    if "execution_backend" in compiler and (
+        not isinstance(execution_backend, str)
+        or execution_backend not in ("docker", "podman", "unshare")
+    ):
+        raise ConfigError("compiler.execution_backend must be docker, podman, or unshare")
 
     sources = tgt
 
@@ -2532,6 +2543,8 @@ def load_config(
         recompile_raw = _as_str(compiler.get("recompile_url"), "", "compiler.recompile_url").strip()
         recompile_label = "compiler.recompile_url"
     recompile_url_val = validate_http_url(recompile_raw, recompile_label) if recompile_raw else ""
+    if execution_backend == "unshare" and recompile_url_val:
+        raise ConfigError("compiler.execution_backend = unshare conflicts with remote recompile")
 
     # Every target, not just the active one: a bad marker on a sibling
     # target would otherwise wait until ``--target`` switched to it, and
@@ -2594,6 +2607,7 @@ def load_config(
         compiler_profile=profile_val,
         compiler_command=compiler_command,
         compiler_runner=compiler_runner,
+        execution_backend=execution_backend,
         compiler_includes=compiler_includes,
         compiler_libs=compiler_libs,
         # User-facing defaults (optimization/codegen). base_cflags are always-on

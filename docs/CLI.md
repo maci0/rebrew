@@ -295,6 +295,11 @@ VA/symbol/size/byte-slice overrides. Compiler flags/context still apply explicit
 
 ### `rebrew verify`
 
+`--experimental-unshare` opts one invocation into the experimental rootless
+MSVC/Wine backend. For a project default, set `[compiler] execution_backend =
+"unshare"`; `"docker"` and `"podman"` select those frontends explicitly. See
+[prerequisites and cleanup](TOOLCHAIN.md#experimental-unshare-backend).
+
 `rebrew verify [OPTIONS] [FILE]`
 
 ```mermaid

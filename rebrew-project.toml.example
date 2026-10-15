@@ -145,6 +145,11 @@ source_ext = ".c"
 # -----------------------------------------------------------------------------
 
 [compiler]
+# Local verification/test/diff/matching execution: docker, podman, or experimental unshare.
+# Omitted: REBREW_CONTAINER_RUNTIME, normally docker. runner below is a compiler loader.
+# execution_backend = "docker"
+# unshare requires unprivileged Linux x86_64, rootless overlayfs, cc/pkg-config/json-c
+# and an admitted 32-bit MSVC/Wine image. See docs/TOOLCHAIN.md for cleanup/limits.
 # Toolchain profile name (see `rebrew toolchain list`).
 # Default: "msvc-6.0"
 profile = "msvc-6.0"

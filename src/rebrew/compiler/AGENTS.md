@@ -10,9 +10,10 @@ Compile execution and the compile cache: resolve a toolchain profile, run its do
 | `cache.py` | Compile cache keys and storage (`CACHE_SCHEMA_VERSION`, diskcache backend, `rebrew.cache_backends` plugins) |
 | `context.py` | `CompileContext`: the declarations document a compile is pinned to |
 | `overrides.py` | Effective `TOOLCHAIN` / `CFLAGS` per source (function → `rebrew-libraries.toml` → project) |
-| `toolchain.py` | Toolchain registry, image id admission, `run_toolchain` (docker-only for shipped profiles) |
+| `toolchain.py` | Toolchain registry, image id admission, `run_toolchain` (image-backed for shipped profiles) |
 | `toolchain_spec.py` / `toolchain_data.py` | `ToolchainSpec` value types and the packaged profile table |
 | `toolchain_paths.py` | Location of the sibling recompile-toolchains checkout (`REBREW_TOOLCHAINS_DIR`) |
+| `unshare.py` / `unshare_runner.c` | Experimental rootless OCI-profile execution, immutable image export and disposable overlay cleanup |
 | `recompile_client.py` | HTTP client for the remote recompile service |
 | `msvc_env.py` / `headless.py` | Compiler environment and headless X for wine invocations |
 | `temp_dirs.py` | Compile sandbox placement that survives a hard-killed run |
@@ -26,3 +27,10 @@ Externals (the only packages this one may import): `coff_reloc`, `config`, `erro
 - **One admitted image id.** A local compile's cache key, `docker run`, and publish share one full `sha256:` + 64 hex image id (`toolchain.image_content_id`). A missing or malformed id still compiles against the tag but the cache is neither read nor written. Remote results are never cached: the service response carries no image id.
 - **Compile runs never pull.** `run_toolchain` passes `--pull=never` and `--network=none`; a missing image is a local error, not a fetch. Build and pull stay explicit (`rebrew toolchain build` / `pull`).
 - **Bump `CACHE_SCHEMA_VERSION` in `cache.py`** when what a compile result depends on changes, so an upgrade reads a cold cache instead of a wrong hit.
+
+- **Execution selection stays explicit.** `cfg.execution_backend` selects Docker,
+  Podman or experimental unshare. Image admission, compile and timeout cleanup
+  use the same frontend. Unshare requires a pinned image ID and supported
+  MSVC/Wine profile; never fall back after setup failure. Every invocation owns
+  its private overlay; PID-namespace teardown kills detached Wine descendants.
+  Helper and profile content participate in object and verification cache keys.

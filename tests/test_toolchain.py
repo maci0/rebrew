@@ -108,6 +108,7 @@ class TestRegistry:
             "bind_mount",
             "build_toolchain_registry",
             "cached_image_digest",
+            "check_experimental_unshare",
             "docker_available",
             "get_toolchain",
             "image_content_id",

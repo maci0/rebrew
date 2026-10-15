@@ -800,6 +800,12 @@ def main(
             "each result records the context hash it was earned under"
         ),
     ),
+    experimental_unshare: bool = typer.Option(
+        False,
+        "--experimental-unshare",
+        help="Experimental Linux namespace runner for 32-bit MSVC/Wine; no Docker fallback",
+        rich_help_panel="Compilation",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
     all_targets: bool = AllTargetsOption,
@@ -813,6 +819,7 @@ def main(
     # An OptionInfo reaching the jobs bound is truthy, so a direct callback
     # call from a test would feed min(jobs, fresh_count) an object.
     jobs = option_default(jobs, None)
+    experimental_unshare = option_default(experimental_unshare, False)
     if all_targets:
         # Per-target artifacts would collide: one watch loop blocks the
         # sweep, one --output file is overwritten by every target, one
@@ -874,6 +881,7 @@ def main(
             text=text,
             whole_binary=whole_binary,
             context=context,
+            experimental_unshare=experimental_unshare,
             json_output=json_output,
             target=n,
             all_targets=False,
@@ -899,6 +907,30 @@ def main(
     ):
         return
     cfg = require_config(target=target, json_mode=json_output, root=root)
+    if experimental_unshare or getattr(cfg, "execution_backend", "") == "unshare":
+        import copy
+
+        from rebrew.compiler.compile import recompile_url
+        from rebrew.compiler.toolchain import (
+            TOOLCHAINS,
+            ToolchainError,
+            check_experimental_unshare,
+        )
+
+        if recompile_url(cfg):
+            error_exit(
+                "--experimental-unshare cannot be combined with the remote recompile backend",
+                json_mode=json_output,
+            )
+        spec = TOOLCHAINS.get(cfg.compiler_profile)
+        if spec is None:
+            error_exit("unknown experimental compiler profile", json_mode=json_output)
+        try:
+            check_experimental_unshare(spec)
+        except (ToolchainError, OSError) as exc:
+            error_exit(str(exc), json_mode=json_output)
+        cfg = copy.copy(cfg)
+        cfg.execution_backend = "unshare"
     if jobs is None:
         jobs = cfg.default_jobs
 
@@ -1004,6 +1036,7 @@ def main(
                 text=text,
                 whole_binary=whole_binary,
                 context=context,
+                experimental_unshare=experimental_unshare,
                 batch_dir=batch_dir,
                 origin=origin,
                 file=file,

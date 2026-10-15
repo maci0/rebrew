@@ -1555,6 +1555,12 @@ def _cache_key_for(
     A batch-built object must hit on the next single-file lookup and vice
     versa, so both paths pass the same admitted id.
     """
+    if (
+        getattr(cfg, "execution_backend", "") == "unshare"
+        and spec is not None
+        and spec.image is None
+    ):
+        return None
     # Remote results are not cached.  A local Docker id is not the identity
     # of the service's runner, and the response has no image id of its own.
     if spec is not None and recompile_url(cfg) is not None:
@@ -1563,6 +1569,10 @@ def _cache_key_for(
         toolchain_id = _toolchain_cache_id(spec, image_id)
         if toolchain_id is None:
             return None
+        if getattr(cfg, "execution_backend", "") == "unshare":
+            from rebrew.compiler.unshare import backend_identity
+
+            toolchain_id += ":" + backend_identity()
     elif spec is not None:
         # Native (host) spec: the compiler binary is the toolchain.  Two
         # native compilers must never share a cache entry, and neither may
@@ -1691,6 +1701,8 @@ def compile_to_obj(
     Returns:
         (obj_path, error_msg) - obj_path is ``None`` on failure;
         error_msg is an empty string on success."""
+    if getattr(cfg, "execution_backend", "") == "unshare" and recompile_url(cfg):
+        return None, "execution_backend = unshare conflicts with remote recompile"
     source_path = Path(source_path)
     workdir = Path(workdir)
 
@@ -1770,7 +1782,9 @@ def compile_to_obj(
     # and a local Docker id is not that runner.
     admitted_image_id: str | None = None
     if spec is not None and spec.image is not None and recompile_url(cfg) is None:
-        admitted_image_id = cached_image_digest(spec.image) or None
+        runtime = getattr(cfg, "execution_backend", "")
+        options = {"runtime": runtime} if runtime and runtime != "unshare" else {}
+        admitted_image_id = cached_image_digest(spec.image, **options) or None
 
     def cache_key_now() -> str | None:
         """The key for the current on-disk state of the compile unit."""
@@ -1900,6 +1914,8 @@ def compile_to_obj(
         else:
             args = all_flags + [f"/Fo{obj_name}", src_name]
         try:
+            backend = getattr(cfg, "execution_backend", "")
+            execution_options = {"execution_backend": backend} if backend else {}
             tr = run_toolchain(
                 spec,
                 args,
@@ -1907,6 +1923,7 @@ def compile_to_obj(
                 timeout=use_timeout,
                 mounts=mounts,
                 image_id=admitted_image_id,
+                **execution_options,
             )
         except ToolchainError as exc:
             return None, str(exc)
@@ -1954,6 +1971,7 @@ def compile_batch_objs(
     timeout: int,
     *,
     image_id: str | None = None,
+    execution_backend: str | None = None,
 ) -> tuple[dict[str, str], str]:
     """Compile N sources already staged in *workdir* with one container run.
 
@@ -1984,7 +2002,13 @@ def compile_batch_objs(
     args = all_flags + (["-c", *argv_srcs] if style == "posix" else ["/c", *argv_srcs])
     try:
         tr = run_toolchain(
-            spec, args, workdir=workdir, timeout=timeout, mounts=mounts, image_id=image_id
+            spec,
+            args,
+            workdir=workdir,
+            timeout=timeout,
+            mounts=mounts,
+            image_id=image_id,
+            **({"execution_backend": execution_backend} if execution_backend else {}),
         )
     except ToolchainError as exc:
         return {}, str(exc)
@@ -2131,7 +2155,11 @@ def precompile_batch(
     from rebrew.compiler.overrides import resolve_compile_overrides
 
     log = logging.getLogger(__name__)
-    if len(entries) < 2 or recompile_url(cfg) is not None:
+    if (
+        len(entries) < 2
+        or recompile_url(cfg) is not None
+        or getattr(cfg, "execution_backend", "") == "unshare"
+    ):
         return {}
     try:
         spec_profile = getattr(cfg, "compiler_profile", "")
@@ -2162,7 +2190,9 @@ def precompile_batch(
         with pins_lock:
             if image in pins:
                 return pins[image]
-        admitted = cached_image_digest(image) or None
+        runtime = getattr(cfg, "execution_backend", "")
+        options = {"runtime": runtime} if runtime and runtime != "unshare" else {}
+        admitted = cached_image_digest(image, **options) or None
         with pins_lock:
             return pins.setdefault(image, admitted)
 
@@ -2415,6 +2445,11 @@ def precompile_batch(
                 batch_mounts,
                 cfg.compile_timeout,
                 image_id=admitted,
+                **(
+                    {"execution_backend": cfg.execution_backend}
+                    if getattr(cfg, "execution_backend", "")
+                    else {}
+                ),
             )
             if err and not objs:
                 log.debug("batch group failed, falling back per file: %s", err[:120])
@@ -2965,6 +3000,10 @@ def _link_obj_docker(
     symbols outside the shell, which only the object-level catalog compare
     can validate).
     """
+    backend = getattr(cfg, "execution_backend", "")
+    cleanup_options: dict[str, Any] = {"runtime": backend} if backend else {}
+    if backend == "unshare":
+        return False, "execution_backend = unshare does not support linked comparison yet"
     cmd, _script = build_linked_link_cmd(
         spec,
         base=base,
@@ -2972,6 +3011,8 @@ def _link_obj_docker(
         out_name=Path(dll_path).name,
         workdir=workdir,
     )
+    if backend:
+        cmd[0] = container_runtime(backend)
     timeout = getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or DEFAULT_COMPILE_TIMEOUT
     try:
         r = subprocess.run(
@@ -2989,7 +3030,7 @@ def _link_obj_docker(
 
             # kill_container never raises: a failed kill is logged, so a
             # timeout is still reported as the timeout.
-            kill_container(container_name)
+            kill_container(container_name, **cleanup_options)
         return False, f"LINK.EXE timed out after {timeout}s"
     except OSError as exc:
         return False, str(exc)
@@ -2999,7 +3040,7 @@ def _link_obj_docker(
         if container_name is not None:
             from rebrew.compiler.toolchain import kill_container
 
-            kill_container(container_name)
+            kill_container(container_name, **cleanup_options)
         raise
     if r.returncode != 0 or not Path(dll_path).exists():
         err = (r.stdout + "\n" + r.stderr).strip()

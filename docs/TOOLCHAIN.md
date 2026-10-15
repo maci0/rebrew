@@ -30,6 +30,67 @@ registered without an `image` runs as a host binary. See ADR 015.
 
 ---
 
+### Explicit local backend
+
+Select local compiler execution in `rebrew-project.toml`:
+
+```toml
+[compiler]
+execution_backend = "docker" # docker | podman | unshare
+```
+
+The same key under `[targets.<name>.compiler]` overrides the project choice.
+An explicit value wins over `REBREW_CONTAINER_RUNTIME`. Omitting it preserves
+that environment setting, whose default is Docker. `runner` is the separate
+compiler-loader setting; it does not select a container backend. Image build and
+pull commands continue to use `REBREW_CONTAINER_RUNTIME`; set that variable to
+`podman` when preparing images for Podman execution. CMake build drivers also
+continue to use that variable; this project key currently controls verification,
+test, diff and matching compiles.
+
+### Experimental unshare backend
+
+```toml
+[compiler]
+execution_backend = "unshare"
+```
+
+For one verification invocation, use `rebrew verify --experimental-unshare`.
+The project setting also applies to ordinary compiler calls from test, diff and
+matching. This opt-in currently supports image-backed **32-bit MSVC/Wine**
+profiles on **unprivileged Linux x86_64**. Unsupported profiles, kernel policy,
+missing prerequisites and remote recompile conflicts fail without fallback.
+Linked comparison is currently unsupported and fails explicitly.
+
+Install a C compiler (`cc`), `pkg-config`, and json-c development files
+(`libjson-c-dev` on Debian/Ubuntu). The kernel must permit unprivileged user
+namespaces and rootless overlayfs, and provide `openat2`, `pidfd_open` and
+`close_range`. No root, setuid helper, crun or runc is required. The packaged
+native C helper is built locally on first use.
+
+Docker (or the `REBREW_CONTAINER_RUNTIME` frontend) must initially have the
+profile's image. Rebrew admits its immutable SHA-256 image ID and exports its
+filesystem once. Compiler runs then use that cached filesystem directly: a new
+user/PID namespace, private mount/network/IPC/UTS/cgroup namespaces, a disposable
+writable overlay, read-only include mounts and a writable `/work`. The image's
+Wine prefix and home are writable only in that invocation's overlay. Capabilities
+are dropped and no-new-privileges is set before executing the compiler.
+
+Each run kills its PID namespace and removes its private overlay on success,
+compiler failure, timeout and interruption. Parent-death signals prevent a lost
+caller or launcher from leaving Wine descendants running. SIGKILL or power loss
+can leave scratch files; the existing 24-hour stale-scratch sweep reclaims them,
+including overlayfs mode-000 work directories. The exported image and compiled
+helper are intentional persistent caches under
+`$XDG_CACHE_HOME/rebrew/experimental-unshare` (normally `~/.cache/...`).
+
+This is a limited OCI-profile consumer, **not a general OCI runtime**. It does
+not implement Docker's seccomp policy or cgroup resource limits. Use it for
+trusted local projects and toolchain images. It currently starts one compiler
+invocation at a time per job; persistent Wine workers remain a separate
+prototype. Compile and verification caches include the backend/helper identity,
+so measurements from this experiment cannot reuse Docker verdicts.
+
 ## MSVC6 Toolchain (Compile Backend)
 
 Executed only through the docker image `rebrew/msvc:6.0-win32` (the image

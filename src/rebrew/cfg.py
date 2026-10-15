@@ -1052,6 +1052,14 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
 
     leaf = key.rsplit(".", 1)[-1]
     parts = key.split(".")
+    if (
+        leaf == "execution_backend"
+        and "compiler" in parts
+        and parsed_value not in ("docker", "podman", "unshare")
+    ):
+        error_exit(
+            "compiler.execution_backend must be docker, podman, or unshare", json_mode=json_mode
+        )
     if (key == "llm.model" or (leaf == "model" and "llm" in parts)) and parsed_value:
         try:
             from rebrew.config import validate_llm_model

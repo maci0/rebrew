@@ -17,7 +17,16 @@ Two prohibitions come first because breaking either loses data a later run canno
 
 Names are `"<image-family>-<version>"` (lowercase, version dots kept), e.g. `msvc-6.0`, `gcc-14.2.0`, `mingw-16.2.0`. Append a target suffix only when one family+version spans more than one target (`watcom-2.0-win32` / `watcom-2.0-win16` / `msvc-6.0-win9x`). Service-pack and variant markers keep their words (`msvc-6.0-sp1`, `msvc-7.0-rtm`, `msvc-6.0-sp5-pp`). See ADR 017; old names are gone, not aliased. Default profile: `msvc-6.0`.
 
-**Docker-only for every shipped toolchain** (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `ido-*`, `gcc-*`, `clang-*`, `mingw-*`): the image wraps wine / DOSBox / a native Linux compiler. No host wine/wibo/dosbox fallback. Missing image → hard error; run `rebrew toolchain build <name>` or `rebrew toolchain pull <name>`. Inventory and image tags: `rebrew toolchain list` (pins/smoke: `docs/TOOLCHAIN.md`).
+**Image-backed for every shipped toolchain** (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `ido-*`, `gcc-*`, `clang-*`, `mingw-*`): the image wraps wine / DOSBox / a native Linux compiler. No host wine/wibo/dosbox fallback. Missing image → hard error; run `rebrew toolchain build <name>` or `rebrew toolchain pull <name>`. Inventory and image tags: `rebrew toolchain list` (pins/smoke: `docs/TOOLCHAIN.md`).
+
+
+Local compiler execution is selected with `[compiler] execution_backend =
+"docker" | "podman" | "unshare"` (per-target compiler overrides apply).
+The default uses `REBREW_CONTAINER_RUNTIME`, normally Docker. `unshare` is an
+experimental opt-in for trusted 32-bit MSVC/Wine images on unprivileged Linux
+x86_64; it still uses the immutable toolchain image filesystem, with no host Wine
+fallback. `rebrew verify --experimental-unshare` selects it for one run.
+See `docs/TOOLCHAIN.md` for prerequisites, cleanup and isolation limits.
 
 Docker build source lives in the sibling **recompile-toolchains** checkout (`REBREW_TOOLCHAINS_DIR` override). Resolve via `rebrew.compiler.toolchain_paths.toolchains_repo()`; commands that need it call `rebrew.compiler.toolchain.require_toolchains_repo()`.
 

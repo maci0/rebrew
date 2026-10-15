@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from rebrew.compiler.tc16 import Tc16Error as Tc16Error
     from rebrew.compiler.toolchain import ToolchainError as ToolchainError
     from rebrew.compiler.toolchain import ToolchainErrorKind as ToolchainErrorKind
+    from rebrew.compiler.unshare import UnshareError as UnshareError
     from rebrew.config import ConfigError as ConfigError
     from rebrew.config import ConfigKeyError as ConfigKeyError
     from rebrew.config import ConfigNotFoundError as ConfigNotFoundError
@@ -260,6 +261,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "SimilarityUnavailable": ("rebrew.matcher.scoring", "SimilarityUnavailable"),
     "Tc16Error": ("rebrew.compiler.tc16", "Tc16Error"),
     "ToolchainError": ("rebrew.compiler.toolchain", "ToolchainError"),
+    "UnshareError": ("rebrew.compiler.unshare", "UnshareError"),
     "UnresolvedSymbolError": ("rebrew.coff_reloc", "UnresolvedSymbolError"),
     "CoverageTomlError": ("rebrew.coverage_toml", "CoverageTomlError"),
     "ProjectCoverageError": ("rebrew.coverage_project", "ProjectCoverageError"),
@@ -365,6 +367,7 @@ __all__ = [
     "Tc16Error",
     "ToolchainError",
     "ToolchainErrorKind",
+    "UnshareError",
     "UnresolvedSymbolError",
     "VendorError",
     "WorkspaceConfigError",

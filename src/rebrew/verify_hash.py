@@ -331,6 +331,12 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
     # every run that touches the binary even when nothing relevant changed.
     from rebrew.compiler.compile import recompile_url as _recompile_url
 
+    experimental_backend = ""
+    if getattr(cfg, "execution_backend", "") == "unshare":
+        from rebrew.compiler.unshare import backend_identity
+
+        experimental_backend = backend_identity()
+
     parts = [
         cfg.compiler_command,
         getattr(cfg, "compiler_runner", ""),
@@ -349,6 +355,8 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
         # Remote objects are not stored in the compile cache; this hash still
         # changes when the recompile URL changes so verify results do not either.
         _recompile_url(cfg) or "",
+        experimental_backend,
+        getattr(cfg, "execution_backend", ""),
         # Content hash of the comparison/extraction logic: a code change that
         # alters results for the SAME source+compiler (e.g. the EXTRACT_ERROR
         # / STUB-symbol fixes) must invalidate cached results.  The package

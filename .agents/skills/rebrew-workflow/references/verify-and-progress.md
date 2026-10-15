@@ -51,6 +51,15 @@ evidence writes unless `--raw-link` acknowledges the built image, or configured
 `raw_link` selects it. Existing stored verdicts remain unchanged without that
 acknowledgment. Compare the raw link to avoid counting postlink-copied bytes.
 
+For an explicitly requested rootless experiment, use
+`rebrew verify --experimental-unshare`, or set `[compiler] execution_backend =
+"unshare"` in the project. `"docker"` and `"podman"` select those frontends.
+Unshare requires unprivileged Linux x86_64, rootless overlayfs, cc/pkg-config/json-c
+and a prepared 32-bit MSVC/Wine image. It has no automatic fallback, persistent
+Wine worker, seccomp policy or cgroup limits. Ordinary projects keep the default
+container backend. CMake build drivers still use `REBREW_CONTAINER_RUNTIME`;
+the project key currently controls verification/test/diff/matching compiles.
+
 ## Coverage / interchange
 
 ```bash

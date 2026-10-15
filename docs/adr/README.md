@@ -56,3 +56,4 @@ itself, and the consequences (including trade-offs accepted).
 | 029 | [Managed type identities and target layout evidence](029-managed-type-identities.md) |
 | 030 | [Address-only source bindings and dedicated metadata](030-address-only-source.md) |
 | 031 | [Live coverage views and explicit portable exports](031-live-coverage-views.md) |
+| 032 | [Explicit local execution and experimental rootless namespaces](032-experimental-unshare.md) |

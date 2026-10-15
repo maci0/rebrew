@@ -92,7 +92,7 @@ version = { attr = "rebrew.__version__" }
 # only matches the package root and would drop nested PEP 561 markers.
 # ``agent-skills/**/*`` ships every skill asset (not only ``*.md``) so a
 # future non-markdown reference file cannot silently drop out of the wheel.
-rebrew = ["agent-skills/**/*", "*.template", "PRINCIPLES.md", "**/py.typed", "py.typed"]
+rebrew = ["agent-skills/**/*", "*.template", "PRINCIPLES.md", "compiler/*.c", "**/py.typed", "py.typed"]
 
 # Contributor-only AGENTS.md under subpackages (app/, matcher/, compiler/, formats/, metadata/, catalog/, ghidra/,
 # binsync/, workspace/) must not
