@@ -6,6 +6,15 @@
   quadratic work collecting names at each matching offset.
 
 ### Changed
+- Add read-only `source organize review` across all targets: original build
+  providers, compiler/include contexts, configured archives, source storage and
+  static header instances, proposed-merge collisions/foreign bodies, combined
+  native order constraints and explicit cycles. A common order is not link proof.
+- Add `source organize check` for independent complete PE raw artifacts. Compare
+  full files and code/data region bytes/placement while retaining import/export,
+  relocation/resource/header differences. Reject partial parser results, missing
+  declared tables/raw spans, same-artifact checks and changed comparison bytes;
+  never promote source verdicts. Other formats fail explicitly as unsupported.
 - Add `types contracts` with target-isolated sweeps, definition/declaration sites,
   context-specific typedef resolution, caller return uses and separate ABI/value,
   pointer-view and unknown findings. Unmarked globals participate independently

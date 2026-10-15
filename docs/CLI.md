@@ -6287,3 +6287,33 @@ variadic definitions, unknown contexts, incompatible argument counts and return
 statements that need a body repair are refused. Repair those explicitly before
 canonical-header reconciliation. Whole-header matching include guards are kept;
 comments and disabled includes cannot suppress insertion of a real declaration.
+
+### Link-aware source organization
+
+`rebrew source organize review src/a.c src/b.c --destination src/merged.c --json`
+is a read-only preflight across every configured target. Explicit source and
+destination paths are relative to the current directory. It records actual
+source providers, original TU compiler settings/includes, configured archive order,
+source storage definitions, static header instances and available raw-link hashes.
+Proposed merges expose foreign definitions, namespace/storage collisions and
+incompatible compiler settings. A guarded header's per-TU static counter must not
+silently become one allocation after merging.
+
+Native VA order constraints are combined across targets. A common order is only
+a constraint result; a cycle names the conflicting definitions and requires a
+reviewed source split or binding repair. `--shared` models same-named body-sharing
+candidates while keeping their distinct native bindings. No definition, attached
+comment, ADDRESS anchor, preprocessor directive, inventory or metadata is moved.
+Problems/unknown inputs exit 1; clean input analysis still does not prove a safe
+reorganization. Review COMDAT/linker policies and every affected target.
+
+Preserve each target's raw pre-change image, then use existing source split/merge/
+rename commands and rebuild with the original compiler/provider context.
+`rebrew source organize check old-raw.dll build/raw.dll --json` compares complete
+PE raw files and their code/data regions, including file alignment and section
+placement. Header, import/export, relocation and resource drift remain visible;
+identical `.text` cannot hide initialized-data changes. Independent artifacts,
+complete declared PE tables/raw spans and unchanged comparison inputs are required.
+Other executable formats are explicitly unsupported by this check. Invalid inputs
+exit 2; raw drift exits 1. An unchanged raw link does not earn source STATUS or
+prove equality to the reference; run affected function/data verification too.

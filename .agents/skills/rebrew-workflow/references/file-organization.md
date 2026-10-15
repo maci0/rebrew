@@ -5,6 +5,24 @@ when functions share a translation unit (file statics or file-scope globals).
 Every writer here accepts `--dry-run` except `layout-map` and `graph`, which
 only read: preview the mutating ones first.
 
+## Review every target before moving source
+
+`rebrew source organize review a.c b.c --destination merged.c --json` reads all
+configured targets. Review provider participation, original compiler/header
+contexts, storage/namespace collisions, static header instances and native order
+cycles. A header guard can collapse separate per-TU statics after a merge. Preserve
+source comments, ADDRESS anchors, file-scope state and preprocessor boundaries;
+do not choose one target's order when another contradicts it. `--shared` models
+body-sharing candidates; it does not establish common storage ownership.
+
+Preserve each pre-change raw link, make the reviewed source change, and rebuild
+every affected target. `rebrew source organize check old.dll build/raw.dll --json`
+compares independent complete PE images, full code/data bytes and placement.
+Unsupported formats, incomplete tables/spans and changed inputs fail explicitly.
+Object matches and a common order do not prove raw-link agreement. This check earns
+no source STATUS and does not establish reference equality: verify functions and
+data as well. The review is read-only and never automatically reorders definitions.
+
 ## Split / merge / rename
 
 ```bash

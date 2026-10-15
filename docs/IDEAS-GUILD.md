@@ -1237,6 +1237,12 @@ reusable value/trust policy should live upstream.
 
 ## Reorder existing definitions with all-target constraints
 
+Implemented preflight: `source organize review` reports all-target definition
+orders and cycles with original provider/TU/storage context; it does not rewrite
+one target's order into shared source. `source organize check` compares independent
+complete PE raw builds, including initialized data and placement. Actual automatic
+definition reordering and ownership/outlier inference remain distinct proposals.
+
 Pain: function-order lint now locates metadata-only definitions accurately.
 A project with shared server/client source can consequently reveal ordering
 inversions that were hidden by absent ADDRESS anchors. `build order-sources`
@@ -1468,8 +1474,8 @@ rows and evidence while validating full executable spans and input digests. This
 closes the selected extent-edit workflow above; it does not implement automatic
 CFG-boundary inference or earn a source comparison verdict. Compiler literal
 audits and reviewed native library identities are implemented. Declaration
-contracts/header reconciliation are implemented; link-aware source reorganization
-remains in the active implementation plan.
+contracts/header reconciliation and link-aware organization preflight/raw checks
+are implemented. Automatic source reordering remains a separate proposal.
 
 ## Resolve references between independent same-named functions (2026-10-15)
 

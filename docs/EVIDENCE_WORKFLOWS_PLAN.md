@@ -29,7 +29,7 @@ unchecked item does not describe a shipped command.
 - [x] Audit target-scoped declaration/definition contracts and support reviewed
   canonical-header reconciliation. Distinguish opaque pointer views from return,
   value-width and argument contradictions; enumerate affected source contexts.
-- [ ] Add link-aware source-reorganization previews and validation, preserving
+- [x] Add link-aware source-reorganization previews and validation, preserving
   compilation providers and original TU context. Report raw-link/text/data
   consequences and conflicting target orders; object matches alone do not prove
   a safe move.
@@ -104,3 +104,11 @@ external SDK protection, exact parsed-byte snapshots, unused headers, real inclu
 matching header guards, ABI/linkage disagreements, context-specific typedefs,
 variadic bodies and stale reviews. The focused API/CLI/cache batch passed 216 tests;
 publication gates and source-reorganization capability remain pending.
+
+Link-aware source organization now has read-only all-target review and independent
+PE raw artifact checks. Rejecting controls cover target-order cycles, foreign TUs,
+settings, source/helper/storage collisions, guarded-header static instances,
+initialized-data-only drift, truncated PE tables/raw spans and replacement races.
+Fourteen focused organization tests pass; type/layering/full-publication gates and
+final project refresh remain pending. The separate newly recorded independent
+bound-name caller-ownership rename capability remains an open ideas-ledger item.

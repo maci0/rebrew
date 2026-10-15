@@ -25,6 +25,13 @@ from rebrew.cli import console
 DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     "source": (
         CliComponent(
+            name="organize",
+            module="rebrew.source_organize",
+            is_group=True,
+            help="Review target providers, TU contexts and native orders before reorganizing source.",
+            panel="",
+        ),
+        CliComponent(
             name="units",
             module="rebrew.source_units",
             help="Inventory native source-path strings and bounded direct references.",

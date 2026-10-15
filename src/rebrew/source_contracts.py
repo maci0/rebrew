@@ -141,9 +141,13 @@ def _functions(path: Path, context: Path, text: str) -> list[ContractSite]:
     return sites
 
 
-def contract_contexts(cfg: ProjectConfig) -> tuple[dict[Path, set[Path]], list[dict[str, Any]]]:
+def contract_contexts(
+    cfg: ProjectConfig, *, selected_sources: set[Path] | None = None
+) -> tuple[dict[Path, set[Path]], list[dict[str, Any]]]:
     """Read actual target providers and their include closure, reporting uncertainty."""
     sources, _foreign = collect_target_sources(cfg, module_marker(cfg))
+    if selected_sources is not None:
+        sources = [source for source in sources if source.resolve() in selected_sources]
     contexts: dict[Path, set[Path]] = {}
     unknown = []
     for source in sources:

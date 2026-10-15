@@ -106,3 +106,8 @@ Reviewed identity retirement/replacement: `rebrew source binding retire` /
 `rebrew source binding rebind`. Selected native inventory boundary repairs:
 `rebrew binary repair-extents`. See the file-organization reference for previews,
 guarded apply, historical evidence and fresh-verdict requirements.
+
+Before merging/splitting source, use `rebrew source organize review a.c b.c --json`
+for all-target providers, original TU context and native-order conflicts. Preserve
+raw baselines and compare rebuilt PE artifacts with `rebrew source organize check`
+afterward; object matches do not verify initialized data or linked placement.

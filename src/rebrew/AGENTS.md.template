@@ -327,3 +327,9 @@ byte matches, including unmarked globals, return uses and per-context typedefs.
 and all affected caller/target contexts. Preserve game/CRT header ownership and
 compiler-sensitive declaration order. Review exact inputs, apply with the digest,
 then verify affected definitions and callers; no source edit earns STATUS.
+
+Before merging or splitting source, use `rebrew source organize review` to inspect
+all-target providers, original TU context, storage instances and native-order
+cycles. Preserve raw baselines, rebuild every affected target, and compare complete
+PE artifacts with `rebrew source organize check`. A common source order or matching
+objects does not verify linked placement/data; these checks never earn STATUS.
