@@ -1411,3 +1411,25 @@ receipts. Coarse related-import scores were95–97 for the false identities; rep
 `rebrew source import-related --from server.dll --source-va 0x1000f680
 --target Europa1400Gold_TL.exe --dry-run --candidates-only --json` and inspect the
 reported TL0x57c7b0 against its one-argument daily-update body.
+
+## Use the shared signature database in library identification
+
+`library identify` currently scans only `<project>/flirt_sigs` independently by
+file, while `library scan-signatures` merges that directory with the configured
+shared recondb database and applies architecture selection. The difference is
+not visible in identify's JSON summary. A project with millions of configured
+signatures can therefore run identify without using its shared DirectX/CRT
+signatures. Reuse a common signature-source resolver, retain per-file provenance
+and cross-file ambiguity, and report the actual directories/counts. Preserve
+whole-body/callee validation and keep ambiguous short signatures as candidates;
+never improve coverage by blindly assigning the first plausible library name.
+
+Evidence: guild-rebrew `.scratch/goal43/library-identify-audit.json` reports790
+candidates (mostly generic short patterns/import thunks) from local signatures;
+`library scan-signatures` loads7,102,296 signatures from project plus shared
+recondb. Existing TL accounting already credits1,008 D3DX8 functions and455
+other library functions; references/dxsdk8/lib/d3dx8.lib is configured. Replay
+`rebrew library identify --dry-run --json --target Europa1400Gold_TL.exe`
+and `rebrew library scan-signatures --show-ambiguous --json --target
+Europa1400Gold_TL.exe`. The full scan and direct archive comparison remain the
+supported read-only audit; this request concerns discovery/composition parity.
