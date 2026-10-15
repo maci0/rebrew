@@ -103,7 +103,7 @@ Declaration contracts and canonical-header reconciliation now have controls for
 external SDK protection, exact parsed-byte snapshots, unused headers, real includes,
 matching header guards, ABI/linkage disagreements, context-specific typedefs,
 variadic bodies and stale reviews. The focused API/CLI/cache batch passed 216 tests;
-publication gates and source-reorganization capability remain pending.
+publication gates remain pending.
 
 Link-aware source organization now has read-only all-target review and independent
 PE raw artifact checks. Rejecting controls cover target-order cycles, foreign TUs,

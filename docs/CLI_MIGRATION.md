@@ -196,8 +196,10 @@ The current option names below are breaking changes; no aliases are retained.
   Compiler/linker/archive calls use `rebrew build driver MODE -- ARG...`.
 - Regenerate objdiff files with `rebrew export objdiff`; `custom_args` starts with
   `build`, `objdiff-driver`, and the target name.
-- Recoverage's in-process generator and coverage document format are unchanged.
-  CLI generation is now `rebrew coverage export --output snapshots/`.
+- Recoverage reads canonical project inputs directly; refresh no longer generates
+  coverage documents. The portable document format remains available through
+  `rebrew coverage export --output snapshots/`. Import old exported history before
+  retiring exports, and use `RECOVERAGE_SNAPSHOTS` only for offline Recoverage.
 
 Historical changelog and ADR examples describe their releases; current guidance
 uses the routes above.

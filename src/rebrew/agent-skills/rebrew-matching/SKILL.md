@@ -113,7 +113,7 @@ rebrew match run src/<target>/<file>.c --generations 200 --pop-size 64 --jobs 16
 
 Key flags: `-g/--generations` (default 100), `-p/--pop-size` (64), `-j/--jobs`,
 `--seed`, `--seed-file`, `--no-seeds`, `--mutation-focus register|equivalent|structural|auto`,
-`--seed-solved/--no-seed-solved`, `--output` (single-function only; default
+`--output` (single-function only; default
 `output/ga_runs`), `--compare-obj`, `--ignore-lint`, `--collect-pairs`.
 Best source → `best.c` under `--output` and back into the `.c` when it wins.
 Exit: `0` match · `1` no match · `2` build/config error.

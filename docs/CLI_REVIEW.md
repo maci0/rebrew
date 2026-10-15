@@ -6,8 +6,8 @@ entries, 150 routes including the root and groups, and 139 distinct callbacks**.
 All 150 help and 150 version invocations returned exit 0. Third-party extension APIs remain
 subject to the existing [component registration contract](CLI.md#component-registration-plugins).
 
-The current CLI has **33 root entries and 213 surfaces**, including the root,
-30 groups, and 185 distinct callbacks. The earlier organization pass produced
+The current CLI has **33 root entries and 225 surfaces**, including the root,
+32 groups, and 195 distinct callbacks. The earlier organization pass produced
 196 routes; the original route disposition below records that historical pass.
 The accepted organization is [ADR 028](adr/028-cli-domains-and-explicit-operations.md).
 See [CLI.md](CLI.md) for current commands and [CLI_MIGRATION.md](CLI_MIGRATION.md)
@@ -34,10 +34,11 @@ explanatory comments move above commands when needed. Callback paragraphs flow
 at the terminal width; unavailable-command summaries match the live first
 paragraph. Dedicated contracts check these properties across every surface.
 
-Coverage generation has one mode: scan the project and replace the complete
-coverage document while retaining its history. The inert `coverage build
---force` and `--regen` options and their ignored Python arguments are removed;
-they now fail before a coverage document can be created or rewritten.
+Coverage reads use canonical project inputs by default. Explicit portable exports
+use `coverage export --output`; `coverage import-history` preserves old exported
+transitions in canonical metadata. Live dashboard reads and refreshes generate no
+coverage documents. The old `coverage build` route and its inert `--force` and
+`--regen` options are removed.
 
 Current inventory by root entry (counts include each entry's own landing page):
 
@@ -57,21 +58,21 @@ Current inventory by root entry (counts include each entry's own landing page):
 | `rebrew prove` | 1 | 0 |
 | `rebrew recommend` | 1 | 0 |
 | `rebrew sync` | 8 | 1 |
-| `rebrew data` | 16 | 2 |
+| `rebrew data` | 17 | 2 |
 | `rebrew blocker` | 4 | 1 |
 | `rebrew orphans` | 4 | 1 |
-| `rebrew types` | 5 | 1 |
+| `rebrew types` | 7 | 1 |
 | `rebrew cfg` | 18 | 4 |
 | `rebrew cache` | 3 | 1 |
 | `rebrew skills` | 3 | 1 |
-| `rebrew library` | 14 | 1 |
+| `rebrew library` | 15 | 1 |
 | `rebrew toolchain` | 11 | 1 |
 | `rebrew binsync` | 9 | 1 |
-| `rebrew source` | 17 | 1 |
+| `rebrew source` | 23 | 3 |
 | `rebrew build` | 24 | 1 |
 | `rebrew diagnose` | 7 | 1 |
-| `rebrew binary` | 30 | 6 |
-| `rebrew coverage` | 5 | 1 |
+| `rebrew binary` | 31 | 6 |
+| `rebrew coverage` | 6 | 1 |
 | `rebrew match` | 10 | 1 |
 | `rebrew similarity` | 3 | 1 |
 | `rebrew dev` | 2 | 1 |

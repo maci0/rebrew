@@ -294,7 +294,7 @@ rebrew binary asm show 0x10003da0 --size 160 --json| jq '.instructions[] | .mnem
 | `rebrew skeleton` | Generated skeleton output |
 | `rebrew source rename` | Change list (`files[].edits[]`, `rows[]`, `move`, `notes`) and `files_updated` |
 | `rebrew source graph` | Dependency graph (nodes, edges, by-status) |
-| `rebrew coverage export --output snapshots/` | Build database results (paths, targets) |
+| `rebrew coverage export --output snapshots/` | Portable coverage export results (paths, targets) |
 | `rebrew init` | Project initialization results |
 
 ---

@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI exposes 213 surfaces: 183 leaf commands and 30 groups, including the
+The CLI exposes 225 surfaces: 193 leaf commands and 32 groups, including the
 root. They are registered under the unified `rebrew` entry point in `app/main.py`
 (`CliComponent` rows in `app/builtins.py`).
 Only `rebrew` is installed. Invoke tools as subcommands:
@@ -99,7 +99,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 
 The 33 root entries lead to the daily workflow and focused domain scopes.
 Counts include each entry's landing page and all of its nested operations;
-the root adds one surface to the 212 listed here. Each operation below has a
+the root adds one surface to the 224 listed here. Each operation below has a
 reference section with its current arguments, options, and defaults.
 
 | Entry | Surfaces | Purpose |
@@ -118,21 +118,21 @@ reference section with its current arguments, options, and defaults.
 | [`rebrew prove`](#rebrew-prove) | 1 | Prove semantic equivalence of NEAR_MATCHING/SIZE_MISMATCH functions via symbolic execution. |
 | [`rebrew recommend`](#rebrew-recommend) | 1 | Deterministic project advice: TU layout, hygiene, next steps. |
 | [`rebrew sync`](#rebrew-sync) | 8 | Exchange metadata with Ghidra through BinSync and perform structural operations. |
-| [`rebrew data`](#rebrew-data) | 16 | Inspect global data, edit metadata, and generate declarations and layout repairs. |
+| [`rebrew data`](#rebrew-data) | 17 | Inspect global data, edit metadata, and generate declarations and layout repairs. |
 | [`rebrew blocker`](#rebrew-blocker) | 4 | Record, inspect, and clear function blockers in dedicated metadata. |
 | [`rebrew orphans`](#rebrew-orphans) | 4 | List or prune metadata rows without a live source binding. |
-| [`rebrew types`](#rebrew-types) | 5 | Manage type identities; check layouts; apply types to C signatures. |
+| [`rebrew types`](#rebrew-types) | 7 | Manage type identities; check layouts; apply types to C signatures. |
 | [`rebrew cfg`](#rebrew-cfg) | 18 | Read and edit rebrew-project.toml programmatically. |
 | [`rebrew cache`](#rebrew-cache) | 3 | Manage the compile result cache (.rebrew/compile_cache/). |
 | [`rebrew skills`](#rebrew-skills) | 3 | Discover and display agent skills bundled with rebrew. |
-| [`rebrew library`](#rebrew-library) | 14 | Identify libraries, compare code, and manage source providers and compiler settings. |
+| [`rebrew library`](#rebrew-library) | 15 | Identify libraries, compare code, and manage source providers and compiler settings. |
 | [`rebrew toolchain`](#rebrew-toolchain) | 11 | Manage compiler profiles and Docker images for shipped toolchains. |
 | [`rebrew binsync`](#rebrew-binsync) | 9 | Synchronize Git-backed state or exchange raw BinSync artifacts. |
-| [`rebrew source`](#rebrew-source) | 17 | Organize, import, and inspect C sources. |
+| [`rebrew source`](#rebrew-source) | 23 | Organize, import, and inspect C sources. |
 | [`rebrew build`](#rebrew-build) | 24 | Generate build inputs and inspect linked artifacts. |
 | [`rebrew diagnose`](#rebrew-diagnose) | 7 | Explain compiler configuration and locate byte mismatches. |
-| [`rebrew binary`](#rebrew-binary) | 30 | Inspect binaries and extract functions or resources. |
-| [`rebrew coverage`](#rebrew-coverage) | 5 | Inspect the catalog, write coverage documents, and serve reports. |
+| [`rebrew binary`](#rebrew-binary) | 31 | Inspect binaries and extract functions or resources. |
+| [`rebrew coverage`](#rebrew-coverage) | 6 | Inspect live coverage, manage portable exports/history, and serve reports. |
 | [`rebrew match`](#rebrew-match) | 10 | Search source mutations, compiler flags, and toolchains for byte matches. |
 | [`rebrew similarity`](#rebrew-similarity) | 3 | Compare function structure within or between binaries. |
 | [`rebrew dev`](#rebrew-dev) | 2 | Inspect the Python repository for contributor maintenance. |
@@ -928,6 +928,8 @@ Use `rebrew source <operation> --help` for exact arguments and examples.
 | `rebrew source rehome` | Point function and data rows at the source file that now defines them. |
 | `rebrew source symbolize` | Rewrite raw (T *) 0xVA casts to the data symbols the reference relocates. |
 | `rebrew source document-assembly` | Record target-scoped original assembly evidence for a named C definition. |
+| `rebrew source binding` | Review and apply target-scoped source retirement or rebinding. |
+| `rebrew source organize` | Review all-target TU organization and compare complete PE raw artifacts. |
 
 ### `rebrew source units`
 
@@ -2013,6 +2015,7 @@ Use `rebrew binary <operation> --help` for exact arguments and examples.
 | `rebrew binary ne-compare` | Compare NE file/segment bytes and report separate content overlap. |
 | `rebrew binary forms` | Decode Delphi 1 form streams and verify lossless re-encoding. |
 | `rebrew binary switches` | Decode jump-table switch dispatches in a function (case → handler map). |
+| `rebrew binary repair-extents` | Repair selected native inventory extents from reviewed binary evidence. |
 | `rebrew binary functions` | Enumerate functions: rizin aaa/aap + capstone sweep, sizes validated. |
 | `rebrew binary unpack-lzexe` | Unpack an LZEXE 0.90/0.91 compressed DOS executable. |
 | `rebrew binary fingerprints` | Fingerprint a binary: file hashes, imphash, export hash, Rich-header hash, section entropy. |
@@ -2785,6 +2788,7 @@ Use `rebrew data <operation> --help` for exact arguments and examples.
 | Operation | Purpose |
 | --- | --- |
 | `rebrew data list` | Inventory globals and report section summaries or conflicts. |
+| `rebrew data audit-literals` | Compare complete compiler literals at operand-selected native locations. |
 | `rebrew data set` | Set one metadata field through the locked data writers. |
 | `rebrew data move` | Re-address one data row, refusing an occupied target address. |
 | `rebrew data mark-literals` | Mark rows the link map shows to be compiler literals (storage_kind=literal). |
@@ -3117,6 +3121,8 @@ Use `rebrew types <operation> --help` for exact arguments and examples.
 | --- | --- |
 | `rebrew types check` | Check declared structs against decompiler offset evidence. |
 | `rebrew types bind` | Bind a type to a target layout after sizeof/offsetof compiler checks. |
+| `rebrew types contracts` | Audit declarations, definitions and callers in actual target/include contexts. |
+| `rebrew types reconcile` | Review and apply a canonical subsystem-header signature across targets. |
 | `rebrew types apply` | Rewrite one parameter's type in project C source (recovered types reach the compiler). |
 | `rebrew types recover` | Recover struct definitions from decompiler output. |
 
@@ -3902,7 +3908,11 @@ cannot be read. `--link-map` defaults to the active target's
 
 `rebrew coverage [OPTIONS] COMMAND [ARGS]…`
 
-`catalog` inspects the source/binary catalog, `build` writes `coverage-<target>.toml`, `report` renders a static report directory, and `serve` reads coverage documents over HTTP. Recoverage uses the same document reader and in-process generation APIs.
+`catalog` inspects the source/binary catalog, `export` writes explicit portable
+documents, `import-history` preserves old exported status transitions, and `report`
+renders a static report directory. `serve` and Recoverage read canonical project
+inputs through the shared live reader by default; `--snapshots` selects offline
+exports for `serve`. Live refresh writes no coverage documents.
 
 
 Use `rebrew coverage <operation> --help` for exact arguments and examples.
@@ -3911,8 +3921,9 @@ Use `rebrew coverage <operation> --help` for exact arguments and examples.
 | Operation | Purpose |
 | --- | --- |
 | `rebrew coverage report` | Generate a static HTML documentation site for a decomp project. |
-| `rebrew coverage export --output snapshots/` | Build clear-text coverage documents from the project tree. |
-| `rebrew coverage serve` | Serve a read-only web dashboard over the coverage documents. |
+| `rebrew coverage export --output snapshots/` | Write explicit portable coverage documents from project inputs. |
+| `rebrew coverage import-history` | Import exported status history without changing current verdicts. |
+| `rebrew coverage serve` | Serve live project coverage or explicitly selected offline snapshots. |
 | `rebrew coverage catalog` | Validate source bindings and summarize function catalog and coverage data. |
 
 ### `rebrew coverage report`
@@ -4705,6 +4716,7 @@ cflags = "/O2 /Gd /MT"       # compiler flags
 | Operation | Purpose |
 | --- | --- |
 | `rebrew library bind-source` | Bind an identified library function to a source file we compile ourselves. |
+| `rebrew library review-native` | Establish exact library callee identities through binary-bound strict proof. |
 | `rebrew library show` | Show the effective library override for a directory (nearest rebrew-libraries.toml walking up toward the project root). |
 | `rebrew library list` | List every rebrew-libraries.toml under root (all library overrides). |
 | `rebrew library set` | Declare (or update) the per-library toolchain/flags override. |

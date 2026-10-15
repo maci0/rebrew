@@ -1,10 +1,5 @@
 ## [Unreleased]
 
-### Fixed
-- Keep source selection compatible with minimal configuration objects that omit
-  the optional project root, while preserving explicit root-aware bindings.
-- Use the canonical hexadecimal VA help text for compiler-literal audits.
-
 ### Performance
 - Deduplicate FLIRT candidate names in linear time while preserving their order
   and ambiguity reports. Large shared signature databases no longer spend
@@ -147,6 +142,9 @@
 
 
 ### Fixed
+- Keep source selection compatible with minimal configuration objects that omit
+  the optional project root, while preserving explicit root-aware bindings.
+- Use the canonical hexadecimal VA help text for compiler-literal audits.
 - Rejected or comment-only decompiler output is now escaped inside actual C89
   comments. Closed banner comments alone left that output active, including
   rejected directives and definitions. Identifier renaming refuses destination
