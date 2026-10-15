@@ -6,6 +6,14 @@
   quadratic work collecting names at each matching offset.
 
 ### Changed
+- **Breaking:** Remove incidental `cmake_sources` re-exports. Import
+  `cmake_sources.ProjectConfig` from `config`, `cmake_sources.SourceBinding` and
+  `cmake_sources.read_source_bindings` from `metadata.bindings`,
+  `cmake_sources.bind_library_source` from `function_providers`,
+  `cmake_sources.iter_sources` from `sources`, `cmake_sources.load_metadata` from
+  `metadata.functions`, and `cmake_sources.preset_module_key` from `utils`.
+  Import `gen_flirt_pat.load_coff` and `lib_match.load_coff` from `formats.coff`,
+  and `test.read_function_fields` from `metadata.bindings`.
 - Add read-only `source organize review` across all targets: original build
   providers, compiler/include contexts, configured archives, source storage and
   static header instances, proposed-merge collisions/foreign bodies, combined

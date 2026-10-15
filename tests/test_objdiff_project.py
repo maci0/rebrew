@@ -5,6 +5,7 @@ import struct
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from source_util import write_source
@@ -132,13 +133,8 @@ class TestObjdiffProject:
         monkeypatch.setattr(
             objdiff_project, "require_config", lambda target=None, json_mode=False: cfg
         )
-        monkeypatch.setattr(
-            objdiff_project,
-            "iter_source_bindings",
-            lambda sources, target=None, metadata_dir=None: [
-                (src_file, [_fake_ann(0x1000, 5, "a", "_a")])
-            ],
-        )
+        bindings = Mock(return_value=[(src_file, [_fake_ann(0x1000, 5, "a", "_a")])])
+        monkeypatch.setattr(objdiff_project, "iter_source_bindings", bindings)
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.extract_raw_bytes",
             lambda p, va, size: b"\x55\x8b\xec\x5d\xc3",
@@ -149,6 +145,12 @@ class TestObjdiffProject:
             ["--output", str(out), "--target-dir", str(tmp_path / "target")],
         )
         assert r.exit_code == 0
+        bindings.assert_called_once_with(
+            [src_file],
+            target="T",
+            metadata_dir=cfg.metadata_dir,
+            project_root=getattr(cfg, "root", None),
+        )
         doc = json.loads(out.read_text(encoding="utf-8"))
         assert doc["custom_make"] == "rebrew"
         assert doc["custom_args"] == ["build", "objdiff-driver", "T"]
@@ -180,7 +182,7 @@ class TestObjdiffProject:
         monkeypatch.setattr(
             objdiff_project,
             "iter_source_bindings",
-            lambda sources, target=None, metadata_dir=None: [
+            lambda sources, target=None, metadata_dir=None, project_root=None: [
                 (
                     src_file,
                     [
@@ -370,7 +372,7 @@ class TestObjdiffProject:
         monkeypatch.setattr(
             objdiff_project,
             "iter_source_bindings",
-            lambda sources, target=None, metadata_dir=None: [
+            lambda sources, target=None, metadata_dir=None, project_root=None: [
                 (src_file, [_fake_ann(0x1000, 5, "a", "_a")])
             ],
         )
@@ -411,7 +413,7 @@ class TestSynthesizeOrdering(TestObjdiffProject):
         monkeypatch.setattr(
             objdiff_project,
             "iter_source_bindings",
-            lambda sources, target=None, metadata_dir=None: [
+            lambda sources, target=None, metadata_dir=None, project_root=None: [
                 (
                     src_file,
                     [_fake_ann(0x2000, 5, "b", "_b"), _fake_ann(0x1000, 5, "a", "_a")],
