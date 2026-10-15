@@ -1538,3 +1538,27 @@ Keep existing filters for libraries, interior/pseudo-functions, IAT thunks and
 other non-targets; a later large function or high-value candidate must remain
 reachable when more than 50 lower-address entries precede it. Source placement
 still requires evidence, and selecting a candidate earns no comparison verdict.
+
+## Complete Docker SDK contexts for source-contract reconciliation (2026-10-15)
+
+Problem: the shipped Docker-only MSVC workflow can compile the project, while
+`types reconcile` refuses a selected function because host include-closure scans
+cannot resolve CRT/SDK headers inside the pinned image. The guard correctly
+keeps uncertain contexts explicit, but the supported workflow has no complete
+context to review. Guild's office-helper preview reports incomplete contexts
+including stdio.h, stdlib.h, windows.h and sys/types.h in unrelated translation
+units. Do not remove the guard or infer declarations from equal x86 widths.
+
+Replay from guild-rebrew: `rebrew types reconcile fcn_004e8240
+src/Develop/DieGildeAddOn/game/aemter.h --prototype 'int __cdecl
+fcn_004e8240(int, char*, char*, int, int);' --dry-run --json`. Earlier preview
+receipt: `.scratch/goal46/office-message-reconcile-preview.json`; full unknown
+contexts: `contracts-office-helper-all.json`. The earlier unsigned-char-ID
+proposal is not accepted: native wrappers preserve full-width arguments.
+
+Proposed capability: obtain complete target-specific declaration/include
+contexts from the pinned compiler image, with image/source/flag hashes and
+missing or conditional inputs reported explicitly. Preserve per-target header
+ownership and declaration order, enumerate every affected caller, and fail
+closed on unresolved contexts. No reconciliation operation should earn a byte
+verdict; validate source edits separately with the target compiler and raw link.
