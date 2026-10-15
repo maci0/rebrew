@@ -26,6 +26,8 @@ file compiled into both) refuses the rename before any write.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import logging
 import re
 from collections.abc import Sequence
@@ -237,6 +239,26 @@ class RenamePlan:
     rows: list[RowChange] = field(default_factory=list)
     move: tuple[Path, Path] | None = None
     notes: list[str] = field(default_factory=list)
+    reference_owners: dict[Path, Selection] = field(default_factory=dict)
+    input_hashes: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def input_digest(self) -> str:
+        """Guard the reviewed operation, ownership decisions and exact inputs."""
+        payload = {
+            "kind": self.kind,
+            "old_name": self.old_name,
+            "new_name": self.new_name,
+            "move": [str(p) for p in self.move] if self.move else None,
+            "owners": {str(p): [s.store, s.module, s.va] for p, s in self.reference_owners.items()},
+            "inputs": self.input_hashes,
+            "edits": {
+                str(c.path): hashlib.sha256(c.new_text.encode(c.encoding)).hexdigest()
+                for c in self.files
+            },
+            "rows": [[r.store, r.module, r.va, r.old, r.new] for r in self.rows],
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
     def as_dict(self, root: Path | None) -> dict[str, Any]:
         """JSON-ready change list; paths relative to *root* when given."""
@@ -270,6 +292,18 @@ class RenamePlan:
             ],
             "move": [show(self.move[0]), show(self.move[1])] if self.move else None,
             "notes": list(self.notes),
+            **(
+                {
+                    "input_digest": self.input_digest,
+                    "input_hashes": self.input_hashes,
+                    "reference_owners": [
+                        {"file": show(p), "owner": f"{s.module}.0x{s.va:08x}"}
+                        for p, s in sorted(self.reference_owners.items())
+                    ],
+                }
+                if self.input_hashes
+                else {}
+            ),
         }
 
 
@@ -501,7 +535,9 @@ class Selection:
 
 
 def _linker_reference_changes(
-    cfg: ProjectConfig, symbols: dict[str, dict[str, str]]
+    cfg: ProjectConfig,
+    symbols: dict[str, dict[str, str]],
+    ambiguous_symbols: set[tuple[str, str]] | None = None,
 ) -> list[FileChange]:
     """Plan exact MSVC symbol references in each affected target's layout response files."""
     from rebrew.config import load_config
@@ -539,12 +575,24 @@ def _linker_reference_changes(
                 mapping: dict[str, str] = mapping,
                 text: str = text,
                 edits: list[SourceEdit] = edits,
+                marker: str = preset_module_key(target.marker),
+                path: Path = path,
             ) -> str:
                 """Change internal symbols while preserving export names and other options."""
                 option, value = match.groups()
                 quote = '"' if value.startswith('"') else ""
                 body = value[1:-1] if quote else value
                 binding, separator, qualifiers = body.partition(",")
+                referred = (
+                    binding.split("=")
+                    if option.upper() == "ALTERNATENAME"
+                    else [binding.rsplit("=", 1)[-1]]
+                )
+                if any((marker, name) in (ambiguous_symbols or set()) for name in referred):
+                    raise RenameError(
+                        "ambiguous linker reference to independent same-target definitions; review linker ownership",
+                        files=[path],
+                    )
                 if option.upper() == "INCLUDE":
                     updated = mapping.get(binding, binding)
                 elif option.upper() == "ALTERNATENAME":
@@ -674,6 +722,7 @@ def plan_symbol_rename(
     rename_file: bool = False,
     new_filename: str | None = None,
     dry_run: bool = False,
+    reference_owners: dict[Path, Selection] | None = None,
 ) -> RenamePlan:
     """Plan renaming the function or global *old_name* to *new_name*.
 
@@ -685,6 +734,11 @@ def plan_symbol_rename(
         raise ValueError("cannot rename: the old name is empty (no marker, name or symbol)")
     if not is_valid_new_name(new_name):
         raise ValueError(f"target name {new_name!r} is not a valid C identifier")
+    if reference_owners and (
+        store != KIND_FUNCTION or selected is None or definition_file is None or all_modules
+    ):
+        raise ValueError("reference ownership requires one selected function definition")
+    context_inputs = _rename_context_inputs(cfg) if reference_owners else {}
     if definition_file is not None and not dry_run:
         read_source_text(definition_file)  # a missing definition is reported as itself
     project = _Project(cfg, [definition_file] if definition_file is not None else [])
@@ -695,6 +749,11 @@ def plan_symbol_rename(
     defs = {p: definitions(project.parsed(p), old_name) for p in hits}
     external = {p for p, found in defs.items() if any(not d.static for d in found)}
     statics = {p for p, found in defs.items() if found and all(d.static for d in found)}
+    if reference_owners and definition_file not in external:
+        raise RenameError(
+            "reference ownership requires an external function definition",
+            files=[definition_file] if definition_file else [],
+        )
 
     if definition_file is not None and definition_file in statics:
         chosen: set[Path] = {definition_file}
@@ -716,7 +775,37 @@ def plan_symbol_rename(
         rename_set = set(chosen) | (
             {definition_file} if definition_file is not None and definition_file in hits else set()
         )
-        rename_set |= _attributed_references(project, hits, chosen, external - chosen, statics)
+        owner_files: dict[Path, Path] = {}
+        for reference, owner in (reference_owners or {}).items():
+            from rebrew.metadata.functions import get_entry
+
+            reference = reference.resolve()
+            if reference in plan.reference_owners:
+                raise ValueError(f"duplicate reference-owner selection: {reference}")
+            if reference not in hits or reference in external | statics:
+                raise RenameError(
+                    "reference owner must select a reference file, not a definition",
+                    files=[reference],
+                )
+            owner_row = get_entry(project.metadata_dir, owner.va, owner.module)
+            owner_file = project.path_for_stored(str(owner_row.get("file") or ""))
+            if (
+                owner.store != KIND_FUNCTION
+                or owner_file not in external
+                or rename_source_name(
+                    str(owner_row.get("name") or ""), str(owner_row.get("symbol") or "")
+                )
+                != old_name
+            ):
+                raise RenameError(
+                    "reference owner is not a definition of the selected name", files=[reference]
+                )
+            assert owner_file is not None
+            owner_files[reference] = owner_file
+            plan.reference_owners[reference] = owner
+        rename_set |= _attributed_references(
+            project, hits, chosen, external - chosen, statics, owner_files, old_name
+        )
 
     for path in sorted(rename_set, key=str):
         roles = ORDINARY_ROLES | ({ROLE_COMMENT} if comments else set())
@@ -768,7 +857,22 @@ def plan_symbol_rename(
             row.new.get("symbol") or row.new.get("link_symbol") or redecorated_symbol(old, new_name)
         )
         symbols.setdefault(row.module, {})[old] = new
-    plan.files.extend(_linker_reference_changes(cfg, symbols))
+    ambiguous_symbols: set[tuple[str, str]] = set()
+    if reference_owners:
+        from rebrew.utils import preset_module_key
+
+        for other in external - chosen:
+            for ann in project.annotations(other):
+                native = ann.symbol or "_" + ann.name
+                if rename_source_name(ann.name, ann.symbol) == old_name:
+                    ambiguous_symbols.add((preset_module_key(ann.module), native))
+    plan.files.extend(_linker_reference_changes(cfg, symbols, ambiguous_symbols))
+    if reference_owners:
+        plan.notes.append(
+            "Explicit reference ownership is a reviewed source claim, not native call proof; reverify every affected target."
+        )
+        plan.input_hashes = _rename_source_inputs(project, plan) | context_inputs
+        _check_rename_inputs(cfg, plan)
     return plan
 
 
@@ -778,6 +882,8 @@ def _attributed_references(
     chosen: set[Path],
     others: set[Path],
     statics: set[Path],
+    owners: dict[Path, Path] | None = None,
+    old_name: str | None = None,
 ) -> set[Path]:
     """Reference files that belong to the chosen definitions.
 
@@ -811,6 +917,21 @@ def _attributed_references(
             selected.add(path)
             continue
         mods = project.modules(path)
+        if path in (owners or {}):
+            from rebrew.utils import preset_module_key
+
+            owner = (owners or {})[path]
+            owner_mods = frozenset(
+                preset_module_key(a.module)
+                for a in project.annotations(owner)
+                if a.kind in {"FUNCTION", "STUB", "LIBRARY"}
+                and rename_source_name(a.name, a.symbol) == old_name
+            )
+            if mods is not None and not mods <= owner_mods:
+                raise RenameError("reference owner is unavailable in a caller target", files=[path])
+            if owner in chosen:
+                selected.add(path)
+            continue
         if mods is None:
             ambiguous.append(path)
             continue
@@ -830,6 +951,55 @@ def _attributed_references(
             files=sorted(ambiguous),
         )
     return selected
+
+
+def _rename_context_inputs(cfg: ProjectConfig) -> dict[str, str]:
+    from rebrew.config import load_config
+
+    metadata = Path(getattr(cfg, "metadata_dir", None) or cfg.reversed_dir)
+    paths = set(metadata.glob("rebrew-*.toml"))
+    root = _root(cfg)
+    if root is not None and (root / "rebrew-project.toml").exists():
+        paths.add(root / "rebrew-project.toml")
+    if root is not None:
+        paths.update((root / "layout").rglob("*.rsp"))
+    targets = [load_config(root, target=name) for name in getattr(cfg, "all_targets", [])] or [cfg]
+    for target in targets:
+        binary = getattr(target, "target_binary", None)
+        if binary is not None:
+            paths.add(Path(binary))
+    return {str(p.resolve()): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
+
+
+def _rename_source_inputs(project: _Project, plan: RenamePlan) -> dict[str, str]:
+    inputs = {
+        str(p.resolve()): hashlib.sha256(text.encode(encoding)).hexdigest()
+        for p, (text, encoding, _raw) in project.texts.items()
+    }
+    inputs.update(
+        {
+            str(c.path.resolve()): hashlib.sha256(c.old_text.encode(c.encoding)).hexdigest()
+            for c in plan.files
+        }
+    )
+    return inputs
+
+
+def _check_rename_inputs(cfg: ProjectConfig, plan: RenamePlan) -> None:
+    try:
+        project = _Project(cfg, [c.path for c in plan.files])
+        current = _rename_source_inputs(project, plan) | _rename_context_inputs(cfg)
+        # FileChange.old_text belongs to the old plan; compare those paths to disk too.
+        current.update(
+            {
+                str(c.path.resolve()): hashlib.sha256(c.path.read_bytes()).hexdigest()
+                for c in plan.files
+            }
+        )
+    except (OSError, ValueError, RenameError) as exc:
+        raise RenameError(f"rename inputs changed; review a new preview ({exc})", files=[]) from exc
+    if current != plan.input_hashes:
+        raise RenameError("rename inputs changed; review a new preview", files=[])
 
 
 def _plan_symbol_rows(
@@ -1277,6 +1447,8 @@ def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
     :class:`RenameError`; the stores are written only after every source
     landed.
     """
+    if plan.input_hashes:
+        _check_rename_inputs(cfg, plan)
     from rebrew.metadata.source_provenance import (
         SOURCE_PROVENANCE_FILENAME,
         rename_source_provenance,

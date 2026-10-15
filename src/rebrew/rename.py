@@ -19,6 +19,7 @@ from rebrew.cli import (
     console,
     error_exit,
     json_print,
+    option_default,
     require_config,
 )
 from rebrew.rename_ops import (
@@ -156,6 +157,16 @@ def main(
         "--shared-definition",
         help="Rename every function row bound to one definition; requires MODULE.0xVA; excludes --all-modules, --data, --type, and --field",
     ),
+    reference_owner: list[str] | None = typer.Option(
+        None,
+        "--reference-owner",
+        help="Reviewed owner for all references in a project-relative FILE=MODULE.0xVA; requires --shared-definition",
+    ),
+    expected_digest: str | None = typer.Option(
+        None,
+        "--expected-digest",
+        help="Require the input digest from a reviewed reference-ownership preview",
+    ),
     comments: bool = typer.Option(
         False, "--comments", help="Also rewrite whole-word occurrences inside comments"
     ),
@@ -165,6 +176,23 @@ def main(
 ) -> None:
     """Rename a function, global, type or struct member and update every reference."""
     cfg = require_config(target=target, json_mode=json_output)
+    reference_owner = option_default(reference_owner, None) or []
+    expected_digest = option_default(expected_digest, None)
+    if (reference_owner or expected_digest) and not shared_definition:
+        error_exit(
+            "--reference-owner and --expected-digest require --shared-definition",
+            json_mode=json_output,
+        )
+    if expected_digest and not reference_owner:
+        error_exit(
+            "--expected-digest requires reviewed --reference-owner selections",
+            json_mode=json_output,
+        )
+    if reference_owner and not dry_run and not expected_digest:
+        error_exit(
+            "review --reference-owner with --dry-run, then apply with --expected-digest",
+            json_mode=json_output,
+        )
     if shared_definition and (
         all_modules or data or type_rename or field_rename or _parse_identity(target_ident) is None
     ):
@@ -193,6 +221,11 @@ def main(
             error_exit(str(exc), json_mode=json_output)
         except RenameError as exc:
             error_exit(_rename_failure(exc, getattr(cfg, "root", None)), json_mode=json_output)
+    if reference_owner and header_plan is not None:
+        error_exit(
+            "reference ownership requires a source-defined function, not a header identity",
+            json_mode=json_output,
+        )
     if binding is None and header_plan is None and not is_valid_new_name(new_name):
         error_exit(_INVALID_NAME.format(name=new_name), json_mode=json_output)
 
@@ -228,6 +261,7 @@ def main(
                 dry_run,
                 json_output,
                 shared_definition=shared_definition,
+                reference_owners=_parse_reference_owners(cfg, reference_owner),
             )
     except (FileExistsError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
@@ -235,6 +269,11 @@ def main(
         error_exit(_rename_failure(exc, getattr(cfg, "root", None)), json_mode=json_output)
 
     updated = len(plan.files)
+    if expected_digest is not None and expected_digest != plan.input_digest:
+        error_exit(
+            "rename inputs or ownership decisions changed; review a new preview",
+            json_mode=json_output,
+        )
     if not dry_run:
         try:
             updated = apply_rename_plan(cfg, plan)
@@ -272,11 +311,33 @@ def _report(
         )
     for note in plan.notes:
         console.print(f"  [yellow]note:[/yellow] {note}")
+    for path, owner in sorted(plan.reference_owners.items()):
+        console.print(
+            f"  reviewed references {rel_display_path(path, root)} → {owner.module}.0x{owner.va:08x}"
+        )
+    if plan.input_hashes:
+        console.print(f"  input digest: {plan.input_digest}")
     if dry_run:
         console.print(f"[dim]Would update {updated} files.[/dim]")
     else:
         console.print(f"Updated {updated} files.")
         console.print("[green]Done![/green]")
+
+
+def _parse_reference_owners(cfg: Any, values: list[str]) -> dict[Path, Selection]:
+    owners = {}
+    root = Path(getattr(cfg, "root", None) or cfg.reversed_dir)
+    for value in values:
+        file, sep, ident = value.rpartition("=")
+        identity = _parse_identity(ident)
+        if not sep or not file or identity is None:
+            raise ValueError("--reference-owner takes FILE=MODULE.0xVA")
+        path = Path(file)
+        path = (path if path.is_absolute() else root / path).resolve()
+        if path in owners:
+            raise ValueError(f"duplicate reference-owner selection: {file}")
+        owners[path] = Selection(KIND_FUNCTION, *identity)
+    return owners
 
 
 def _check_scan_collision(entries: list[Any], skip: Any, new_name: str, json_output: bool) -> None:
@@ -309,6 +370,7 @@ def _plan_function(
     json_output: bool,
     *,
     shared_definition: bool = False,
+    reference_owners: dict[Path, Selection] | None = None,
 ) -> tuple[RenamePlan, dict[str, Any]]:
     """Resolve the function identity, then plan its rename."""
     from rebrew.metadata.functions import get_entry
@@ -371,6 +433,7 @@ def _plan_function(
         rename_file=True,
         new_filename=new_file,
         dry_run=dry_run,
+        reference_owners=reference_owners,
     )
     return plan, {
         "module": selected.module,

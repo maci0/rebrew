@@ -1111,10 +1111,32 @@ Writes and output:
 | `--field` | flag | `False` | Rename a struct/union member given as STRUCT.MEMBER; excludes --data and --type |
 | `--all-modules` | flag | `False` | Rename the rows of every module bound to the definition, and every other definition of the name |
 | `--shared-definition` | flag | `False` | Rename every function row bound to one definition; requires MODULE.0xVA; excludes --all-modules, --data, --type, and --field |
+| `--reference-owner` | str, repeatable | — | Reviewed owner of all references in project-relative `FILE=MODULE.0xVA`; requires `--shared-definition` |
+| `--expected-digest` | str | — | Digest from the reviewed reference-ownership preview; required when applying explicit owners |
 | `--comments` | flag | `False` | Also rewrite whole-word occurrences inside comments |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+
+When independent definitions coexist in the same target, module membership cannot
+attribute shared declarations or callers. Use `--reference-owner` only after
+reviewing every occurrence in that file across its targets. The selected identity
+must name an existing definition of the old symbol; its related-target rows define
+the owner. References assigned to a different definition are retained. References
+assigned to the renamed definition follow it. Unassigned ambiguous files still
+refuse the operation. A file containing references to both definitions needs a
+finer ownership repair; one file-level owner cannot describe it.
+
+Preview with `--dry-run --json`, review `reference_owners`, edited files and rows,
+then repeat with `--expected-digest DIGEST`. The digest covers the operation,
+decisions, source/header inventory and bytes, metadata/configuration, target
+binaries and linker edits. Changed or newly discovered inputs refuse before
+writes. The existing source rollback and locked metadata writers remain in use.
+Ownership is an explicit reviewed source claim; it does not prove native callees
+or earn STATUS. Reverify all affected definitions and callers in every target.
+The decisions cover C sources and headers. If independent definitions still
+share a native linker symbol, ambiguous response-file references refuse the
+rename; a C reference owner does not establish export or linker ownership.
 
 ### `rebrew source fix`
 

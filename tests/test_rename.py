@@ -1691,3 +1691,136 @@ class TestRenameDoesNotTouchLiterals:
         text = (tmp_path / "renamed_fn.c").read_text(encoding="utf-8")
         assert "int renamed_fn(void)" in text
         assert 'puts("func_a")' in text  # literal untouched
+
+
+def _ownership_project(tmp_path: Path) -> tuple[SimpleNamespace, Path, Path, Path, Path]:
+    a = _src(
+        tmp_path,
+        "a.c",
+        SourceFixture(
+            "/* ADDRESS: TL 0x1000 */\nint old_fn(void) { return 1; }\n",
+            {"TL.0x1000": {"kind": "FUNCTION", "name": "old_fn", "symbol": "_old_fn"}},
+        ),
+    )
+    b = _src(
+        tmp_path,
+        "b.c",
+        SourceFixture(
+            "/* ADDRESS: TL 0x2000 */\nint old_fn(void) { return 2; }\n",
+            {"TL.0x2000": {"kind": "FUNCTION", "name": "old_fn", "symbol": "_old_fn"}},
+        ),
+    )
+    caller = _src(
+        tmp_path,
+        "caller.c",
+        SourceFixture(
+            "extern int old_fn(void);\n/* ADDRESS: TL 0x3000 */\nint caller(void) { return old_fn(); }\n",
+            {"TL.0x3000": {"kind": "FUNCTION", "name": "caller", "symbol": "_caller"}},
+        ),
+    )
+    header = _src(tmp_path, "api.h", "extern int old_fn(void);\n")
+    cfg = _cfg(tmp_path)
+    cfg.target_binary = tmp_path / "native.bin"
+    cfg.target_binary.write_bytes(b"native")
+    return cfg, a, b, caller, header
+
+
+class TestReviewedReferenceOwners:
+    @pytest.mark.parametrize(
+        "issue", ["missing-owner", "wrong-name", "definition", "unused-file", "unassigned-header"]
+    )
+    def test_invalid_or_incomplete_ownership_refuses_without_writes(
+        self, tmp_path: Path, issue: str
+    ) -> None:
+        cfg, a, b, caller, header = _ownership_project(tmp_path)
+        owner = rename_ops.Selection("function", "TL", 0x2000)
+        owners = {caller: owner, header: owner}
+        if issue in {"missing-owner", "wrong-name"}:
+            owners[caller] = rename_ops.Selection(
+                "function", "TL", 0x9999 if issue == "missing-owner" else 0x3000
+            )
+        elif issue == "definition":
+            owners[a] = owner
+        elif issue == "unused-file":
+            owners[_src(tmp_path, "unused.c", "int other;\n")] = owner
+        else:
+            del owners[header]
+        before = {p: p.read_bytes() for p in tmp_path.iterdir() if p.is_file()}
+        with pytest.raises(rename_ops.RenameError):
+            rename_ops.plan_symbol_rename(
+                cfg,
+                "old_fn",
+                "new_fn",
+                store="function",
+                selected=rename_ops.Selection("function", "TL", 0x1000),
+                definition_file=a,
+                reference_owners=owners,
+            )
+        assert before == {p: p.read_bytes() for p in tmp_path.iterdir() if p.is_file()}
+
+    @pytest.mark.parametrize("keep", [False, True])
+    def test_same_target_definition_uses_explicit_reference_owner(
+        self, tmp_path: Path, keep: bool
+    ) -> None:
+        from rebrew.metadata.functions import get_entry
+
+        cfg, a, b, caller, header = _ownership_project(tmp_path)
+        owner = rename_ops.Selection("function", "TL", 0x2000 if keep else 0x1000)
+        plan = rename_ops.plan_symbol_rename(
+            cfg,
+            "old_fn",
+            "new_fn",
+            store="function",
+            selected=rename_ops.Selection("function", "TL", 0x1000),
+            definition_file=a,
+            reference_owners={caller: owner, header: owner},
+        )
+        assert plan.input_digest and plan.as_dict(tmp_path)["reference_owners"]
+        rename_ops.apply_rename_plan(cfg, plan)
+        assert "new_fn" in a.read_text()
+        assert "old_fn" in b.read_text()
+        for path in (caller, header):
+            assert ("old_fn" if keep else "new_fn") in path.read_text()
+        assert get_entry(tmp_path, 0x1000, "TL")["name"] == "new_fn"
+        assert get_entry(tmp_path, 0x2000, "TL")["name"] == "old_fn"
+
+    @pytest.mark.parametrize(
+        "changed",
+        ["caller", "header", "definition", "metadata", "binary", "new-source", "new-linker"],
+    )
+    def test_changed_review_inputs_refuse_before_writing(
+        self, tmp_path: Path, changed: str
+    ) -> None:
+        from rebrew.metadata.functions import update_field
+
+        cfg, a, b, caller, header = _ownership_project(tmp_path)
+        cfg.root = tmp_path
+        owner = rename_ops.Selection("function", "TL", 0x2000)
+        plan = rename_ops.plan_symbol_rename(
+            cfg,
+            "old_fn",
+            "new_fn",
+            store="function",
+            selected=rename_ops.Selection("function", "TL", 0x1000),
+            definition_file=a,
+            reference_owners={caller: owner, header: owner},
+        )
+        if changed == "metadata":
+            update_field(tmp_path, 0x2000, "note", "concurrent edit", module="TL")
+        elif changed == "new-linker":
+            path = tmp_path / "layout/client/game.rsp"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"/INCLUDE:_old_fn\n")
+        else:
+            path = {
+                "caller": caller,
+                "header": header,
+                "definition": a,
+                "binary": cfg.target_binary,
+                "new-source": tmp_path / "new.c",
+            }[changed]
+            path.write_bytes((path.read_bytes() if path.exists() else b"") + b"\n/* changed */\n")
+        before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        with pytest.raises(rename_ops.RenameError, match="inputs changed"):
+            rename_ops.apply_rename_plan(cfg, plan)
+        assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}

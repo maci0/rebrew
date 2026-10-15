@@ -1104,3 +1104,117 @@ class TestSelectedFunctionAliases:
         assert result.exit_code == 2, result.output
         assert "duplicate symbol" in result.output
         assert _snapshot(root) == before
+
+
+class TestReviewedReferenceOwnership:
+    @pytest.mark.parametrize(
+        "option",
+        [
+            "/INCLUDE:_cm_ExCreateCitizen",
+            "/EXPORT:Public=_cm_ExCreateCitizen",
+            "/ALTERNATENAME:Alias=_cm_ExCreateCitizen",
+        ],
+    )
+    def test_ambiguous_native_linker_symbol_is_not_guessed(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        option: str,
+    ) -> None:
+        from rebrew.metadata.functions import record_function_identity
+
+        root = _project(tmp_path)
+        record_function_identity(
+            root,
+            module="GOLDTL",
+            va=0x403000,
+            file="src/command.c",
+            name="cm_ExCreateCitizen",
+            symbol="_cm_ExCreateCitizen",
+            kind="FUNCTION",
+        )
+        (root / "src/common.h").write_text("void cm_ExCreateCitizen(void);\n")
+        _response(root, "tl.exe", option + "\n")
+        before = _snapshot(root)
+        result = _run(
+            root,
+            monkeypatch,
+            "GOLDTL.0x00402000",
+            "ProcessActiveContexts",
+            "--shared-definition",
+            "--reference-owner",
+            "src/common.h=SERVER.0x10004000",
+            "--dry-run",
+            "--json",
+        )
+        assert result.exit_code == 2 and "ambiguous linker reference" in result.output
+        assert _snapshot(root) == before
+
+    @pytest.mark.parametrize(
+        "owner",
+        ["src/common.h=bad", "src/common.h=SERVER.0x10003000", "src/missing.h=SERVER.0x10004000"],
+    )
+    def test_invalid_owner_has_no_side_effects(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        owner: str,
+    ) -> None:
+        root = _project(tmp_path)
+        (root / "src/common.h").write_text("void cm_ExCreateCitizen(void);\n")
+        before = _snapshot(root)
+        result = _run(
+            root,
+            monkeypatch,
+            "GOLDTL.0x00402000",
+            "ProcessActiveContexts",
+            "--shared-definition",
+            "--reference-owner",
+            owner,
+            "--dry-run",
+            "--json",
+        )
+        assert result.exit_code == 2, result.output
+        assert _snapshot(root) == before
+
+    @pytest.mark.parametrize("stale", ["none", "header", "other-binary"])
+    def test_preview_digest_guards_retained_common_header(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        stale: str,
+    ) -> None:
+        root = _project(tmp_path)
+        header = root / "src/common.h"
+        header.write_text("void cm_ExCreateCitizen(void);\n")
+        args = (
+            "GOLDTL.0x00402000",
+            "ProcessActiveContexts",
+            "--shared-definition",
+            "--reference-owner",
+            "src/common.h=SERVER.0x10004000",
+            "--json",
+        )
+        before = _snapshot(root)
+        preview = _run(root, monkeypatch, *args, "--dry-run")
+        assert preview.exit_code == 0, preview.output
+        report = cli_payload(preview)
+        assert report["reference_owners"] == [
+            {"file": "src/common.h", "owner": "SERVER.0x10004000"}
+        ]
+        assert _snapshot(root) == before
+        unguarded = _run(root, monkeypatch, *args)
+        assert unguarded.exit_code == 2 and _snapshot(root) == before
+        if stale != "none":
+            changed = header if stale == "header" else root / "gold.exe"
+            changed.write_bytes(changed.read_bytes() + b"/* concurrent edit */\n")
+        current = _snapshot(root)
+        applied = _run(root, monkeypatch, *args, "--expected-digest", report["input_digest"])
+        if stale != "none":
+            assert applied.exit_code == 2 and "changed" in applied.output
+            assert _snapshot(root) == current
+        else:
+            assert applied.exit_code == 0, applied.output
+            assert "ProcessActiveContexts" in _text(root, "GOLDTL.citizen.c")
+            assert header.read_text() == "void cm_ExCreateCitizen(void);\n"
+            assert _text(root, "command.c") == _COMMAND_C

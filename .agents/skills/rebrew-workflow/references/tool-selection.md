@@ -87,6 +87,13 @@ to rename all rows bound to one source definition while preserving independent
 twins. `--all-modules` deliberately has wider scope. Ambiguous users still need
 explicit binding.
 
+For independent definitions in the same target, review every reference in a file
+and preview `source rename MODULE.0xVA NEW --shared-definition --reference-owner
+FILE=OWNER_MODULE.0xVA --dry-run --json`. Repeat the owner option for each ambiguous
+file, then apply with its `--expected-digest`. Ownership is a reviewed claim, not
+native call proof. A file with mixed owners or ambiguous linker references needs
+a finer repair; reverify every affected target after the rename.
+
 Delphi public mechanics are `compiler.delphi16.compile_ne`, `formats.dfm`, and
 `formats.ne_analysis.NeImage`. Form encoding preserves property order and wire
 types; unsupported candidates are errors. NE fixup inventories reject truncated

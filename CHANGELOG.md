@@ -7,6 +7,15 @@
   overlays, namespace teardown and separate cache identity. Opt into one verify
   run with `--experimental-unshare`; see the toolchain guide for requirements
   and isolation limits. `runner` remains the separate compiler-loader setting.
+- Reviewed `source rename --shared-definition --reference-owner FILE=MODULE.0xVA`
+  decisions for independent definitions in the same target. Preview retained and
+  rewritten references, then apply with `--expected-digest`; changed sources,
+  inventories, metadata, configuration, binaries or decisions fail before writes.
+  Owners are reviewed claims, not native operand proof; comparisons remain separate.
+- **Breaking:** The public `rebrew.rename.main` and
+  `rebrew.rename_ops.plan_symbol_rename` signatures include optional reference-owner
+  inputs. Programmatic plans expose their guarded inputs and digest; CLI applies
+  with explicit owners require the reviewed digest.
 
 ### Changed
 - **Breaking:** `rebrew.compiler.cache.CACHE_SCHEMA_VERSION` is now 9. Existing

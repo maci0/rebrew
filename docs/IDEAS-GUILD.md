@@ -1691,3 +1691,11 @@ operand +0x88. Receipts: `.scratch/goal52/reset-name-preview.json`,
 `external-5392a0-test.json` and `external-5392a0-diff-fixed.json`. The repaired
 diff diagnostic reports XX and exit1; this separate ownership capability remains
 open. Neither native walker nor its byte-match history should be retired.
+
+Implemented for reviewed file-level ownership through `source rename
+--shared-definition --reference-owner FILE=MODULE.0xVA`, with a preview/apply digest.
+The plan snapshots source/header inventory and bytes, metadata/configuration,
+target images and linker inputs. Unassigned ambiguous files, unavailable owners,
+changed inputs and ambiguous same-target linker symbols still refuse. Native
+callee proof and subsequent comparisons remain project acceptance evidence;
+files containing references to both owners require a finer repair.
