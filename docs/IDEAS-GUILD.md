@@ -1727,3 +1727,27 @@ Processor Pack LIBC.LIB. `library match --stock-lib LIBC.LIB --va 0x5de800
 but leaves its callee resolution unresolved. No resolver trust or byte verdict
 was granted. The old 138-byte discovery extent also includes a separate 10-byte
 stub; its reviewed native correction is independent of this capability.
+
+## Distinguish logical callbacks sharing an indistinguishable native body (2026-10-16)
+
+Problem: Guild's character command registration names PreloadSitMesh. TL points
+to 0x40dac0, a three-byte return-zero body. Gold's corresponding registration
+points to 0x49dee0, already identified as Lua default_panic. The registration
+recipes otherwise agree. Identical tiny bodies cannot establish original source
+ownership, a Lua provider for a game callback, or whether the linker folded
+separate logical definitions. Replacing the library identity or creating a second
+physical function would claim more than the native bytes show.
+
+Proposed capability: represent reviewed logical callback/source relationships
+separately from physical native identity, keeping folding/provider hypotheses
+explicit until independent source or raw-map evidence resolves them. Permit an
+acknowledged shared physical extent without double-counting bytes or silently
+binding every identical stub to the same source name. Snapshot recipes, complete
+native bodies and existing identity/history; refuse conflicting or changed inputs.
+This is separate from internal entry-point offsets within one function.
+
+Evidence: guild-rebrew/.scratch/goal56/kuna-gold-registration.json and
+native-gold-registration.json show the PreloadSitMesh operand at Gold49dee0;
+the TL native-40e1a0.json registration points to40dac0. native-40dac0.json shows
+the complete three executable bytes before alignment. No Gold game identity,
+library retirement or linked-provider claim should be inferred from this equality.
