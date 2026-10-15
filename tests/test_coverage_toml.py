@@ -31,7 +31,6 @@ from rebrew.coverage_db import (
     dedupe_cell_rows,
     normalize_cell_row,
     parse_int,
-    resolve_db_dir,
 )
 from rebrew.coverage_toml import (
     _FUNCTION_COLUMNS,
@@ -43,8 +42,8 @@ from rebrew.coverage_toml import (
     Function,
     Global,
     _read_previous,
-    load_all_coverage,
-    load_coverage,
+    load_all_coverage_from,
+    load_coverage_from,
     render_coverage_toml,
     write_coverage_toml,
 )
@@ -193,7 +192,7 @@ def write(
             lambda *a, **k: [(TARGET, target_data)],
             raising=True,
         )
-        return write_coverage_toml(tmp_path)
+        return write_coverage_toml(tmp_path, tmp_path / "db")
 
     return _write
 
@@ -212,6 +211,13 @@ def written(write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any])
 
 
 class TestParityWithBuildDb:
+    def test_direct_and_serialized_views_share_normalization(self, tmp_path: Path) -> None:
+        document = coverage_toml.coverage_document(TARGET, SAMPLE_DATA)
+        serialized = tomllib.loads(render_coverage_toml(TARGET, SAMPLE_DATA))
+        assert coverage_toml.snapshot_from_document(
+            tmp_path, document, TARGET
+        ) == coverage_toml.snapshot_from_document(tmp_path, serialized, TARGET)
+
     def test_top_level_and_metadata(self, written: dict[str, Any]) -> None:
         assert written["version"] == _TOML_VERSION
         assert written["target"] == TARGET
@@ -535,7 +541,7 @@ class TestVerifyResults:
         assert row["verified_at"] == _cache_stamp(cache)
 
         # And the reader the dashboards use sees them.
-        assert len(load_coverage(tmp_path, TARGET).verify_results) == 1
+        assert len(load_coverage_from(tmp_path / "db", TARGET).verify_results) == 1
 
     def test_absent_values_are_empty_not_zero(
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
@@ -597,7 +603,7 @@ class TestVerifyResults:
 
         _write_cache(tmp_path, TARGET, {})
         assert tomllib.loads(write(data)[0].read_text(encoding="utf-8"))["verify_results"] == []
-        assert load_coverage(tmp_path, TARGET).verify_results == ()
+        assert load_coverage_from(tmp_path / "db", TARGET).verify_results == ()
 
     def test_unchanged_measurements_keep_the_earlier_stamp(
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
@@ -756,10 +762,6 @@ def _reference_cell_rows(cells: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
     )
 
 
-def test_resolve_db_dir_is_the_source_of_the_output_dir(tmp_path: Path) -> None:
-    assert resolve_db_dir(tmp_path) == tmp_path / "db"
-
-
 def test_parse_int_is_not_reimplemented() -> None:
     """The writer borrows build_db's integer parsing, including its 64-bit cap."""
     assert parse_int("0x10") == 16
@@ -797,7 +799,7 @@ class TestRoundTrip:
     ) -> None:
         path = write(data)[0]
         doc = tomllib.loads(path.read_text(encoding="utf-8"))
-        snap = load_coverage(tmp_path, TARGET)
+        snap = load_coverage_from(tmp_path / "db", TARGET)
 
         assert snap.target == TARGET
         assert snap.version == _TOML_VERSION
@@ -849,7 +851,7 @@ class TestRoundTrip:
     ) -> None:
         path = write(data)[0]
         doc = tomllib.loads(path.read_text(encoding="utf-8"))
-        snap = load_coverage(tmp_path, TARGET)
+        snap = load_coverage_from(tmp_path / "db", TARGET)
 
         # The class IS the writer's column list: a column added, dropped or
         # renamed there fails here rather than being silently omitted.
@@ -908,7 +910,7 @@ class TestRoundTrip:
     ) -> None:
         path = write(data)[0]
         doc = tomllib.loads(path.read_text(encoding="utf-8"))
-        snap = load_coverage(tmp_path, TARGET)
+        snap = load_coverage_from(tmp_path / "db", TARGET)
 
         assert tuple(Global.__slots__) == _GLOBAL_COLUMNS
         assert len(snap.globals) == len(doc["globals"])
@@ -940,7 +942,7 @@ class TestRoundTrip:
         path = write(data)[0]
         doc = tomllib.loads(path.read_text(encoding="utf-8"))
         assert "function_stats" not in doc["metadata"]
-        snap = load_coverage(tmp_path, TARGET)
+        snap = load_coverage_from(tmp_path / "db", TARGET)
         assert snap.function_stats["total"] == 4
         assert snap.function_stats["matched_bytes"] == 260
         assert dict(snap.paths) == doc["metadata"]["paths"]
@@ -959,7 +961,7 @@ class TestDerivedAtLoad:
             {"start": 32, "end": 64, "span": 2, "state": "none", "functions": []}
         )
         write(data)
-        snap = load_coverage(tmp_path, TARGET)
+        snap = load_coverage_from(tmp_path / "db", TARGET)
         section = snap.sections[".data"]
 
         expected_buckets: dict[str, int] = {}
@@ -989,7 +991,7 @@ class TestDerivedAtLoad:
         cells.append({"start": 0, "end": 19999, "span": 20000, "state": "exact", "functions": []})
         cells.append({"start": 19999, "end": 20000, "span": 1, "state": "none", "functions": []})
         write(data)
-        section = load_coverage(tmp_path, TARGET).sections[".data"]
+        section = load_coverage_from(tmp_path / "db", TARGET).sections[".data"]
         assert section.covered_bytes == 19999
         assert round(19999 / 20000 * 100, 2) == 100.0
         assert section.coverage_pct == 99.99
@@ -1003,7 +1005,7 @@ class TestDerivedAtLoad:
     ) -> None:
         write(data)
         assert written["sections"][".bss"]["cells"] == []
-        section = load_coverage(tmp_path, TARGET).sections[".bss"]
+        section = load_coverage_from(tmp_path / "db", TARGET).sections[".bss"]
         assert section.cells == ()
         assert dict(section.buckets) == {}
         assert (section.covered_bytes, section.coverage_pct, section.cell_count) == (0, 0.0, 0)
@@ -1023,7 +1025,7 @@ class TestDerivedAtLoad:
         it contributes 256 and the other three contribute their stored sizes.
         """
         write(data)
-        stats = load_coverage(tmp_path, TARGET).function_stats
+        stats = load_coverage_from(tmp_path / "db", TARGET).function_stats
 
         assert stats["total"] == 4  # adler32, crc32, a_lib, a_nope
         assert dict(stats["by_status"]) == {"EXACT": 1, "RELOC": 1, "STUB": 2}
@@ -1042,7 +1044,7 @@ class TestDerivedAtLoad:
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
     ) -> None:
         write(data)
-        snap = load_coverage(tmp_path, TARGET)
+        snap = load_coverage_from(tmp_path / "db", TARGET)
         assert set(snap.functions_by_va) == {fn.va for fn in snap.functions}
         for fn in snap.functions:
             assert snap.functions_by_va[fn.va] is fn
@@ -1055,7 +1057,7 @@ class TestImmutability:
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
     ) -> CoverageSnapshot:
         write(data)
-        return load_coverage(tmp_path, TARGET)
+        return load_coverage_from(tmp_path / "db", TARGET)
 
     def test_cells_tuple_is_immutable(
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
@@ -1102,17 +1104,17 @@ class TestMemo:
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
     ) -> None:
         write(data)
-        first = load_all_coverage(tmp_path)
-        second = load_all_coverage(tmp_path)
+        first = load_all_coverage_from(tmp_path / "db")
+        second = load_all_coverage_from(tmp_path / "db")
         assert first is second
         assert first[TARGET] is second[TARGET]
-        assert load_coverage(tmp_path, TARGET).target == TARGET
+        assert load_coverage_from(tmp_path / "db", TARGET).target == TARGET
 
     def test_rewrite_loads_the_new_content(
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
     ) -> None:
         path = write(data)[0]
-        before = load_all_coverage(tmp_path)
+        before = load_all_coverage_from(tmp_path / "db")
         assert before[TARGET].functions_by_va[0x10001000].status == "EXACT"
 
         data["functions"]["0x10001000"]["status"] = "RELOC"
@@ -1122,7 +1124,7 @@ class TestMemo:
         st = path.stat()
         os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
 
-        after = load_all_coverage(tmp_path)
+        after = load_all_coverage_from(tmp_path / "db")
         assert after is not before
         assert after[TARGET] is not before[TARGET]
         assert after[TARGET].functions_by_va[0x10001000].status == "RELOC"
@@ -1132,7 +1134,7 @@ class TestMemo:
     ) -> None:
         """A rewrite that keeps the byte count only moves mtime_ns."""
         path = write(data)[0]
-        before = load_coverage(tmp_path, TARGET)
+        before = load_coverage_from(tmp_path / "db", TARGET)
         assert before.sections[".data"].buckets == {"exact": 16, "thunk": 16}
 
         text = path.read_text(encoding="utf-8")
@@ -1144,7 +1146,7 @@ class TestMemo:
         st = path.stat()
         os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
 
-        after = load_coverage(tmp_path, TARGET)
+        after = load_coverage_from(tmp_path / "db", TARGET)
         assert after is not before
         assert after.sections[".data"].buckets == {"reloc": 16, "thunk": 16}
 
@@ -1159,7 +1161,7 @@ class TestMemo:
         distinguishes the two documents, so it is part of the key.
         """
         path = write(data)[0]
-        before = load_all_coverage(tmp_path)
+        before = load_all_coverage_from(tmp_path / "db")
         assert before[TARGET].sections[".data"].buckets == {"exact": 16, "thunk": 16}
 
         text = path.read_text(encoding="utf-8")
@@ -1176,7 +1178,7 @@ class TestMemo:
         assert path.stat().st_mtime_ns == st.st_mtime_ns
         assert path.stat().st_size == st.st_size
 
-        after = load_all_coverage(tmp_path)
+        after = load_all_coverage_from(tmp_path / "db")
         assert after is not before
         assert after[TARGET].sections[".data"].buckets == {"reloc": 16, "thunk": 16}
 
@@ -1189,11 +1191,11 @@ class TestMemo:
             return [(TARGET, copy.deepcopy(data)), ("other.dll", copy.deepcopy(data))]
 
         monkeypatch.setattr(coverage_toml, "load_coverage_datasets", two, raising=True)
-        write_coverage_toml(tmp_path)
-        assert sorted(load_all_coverage(tmp_path)) == ["other.dll", TARGET]
+        write_coverage_toml(tmp_path, tmp_path / "db")
+        assert sorted(load_all_coverage_from(tmp_path / "db")) == ["other.dll", TARGET]
 
         (tmp_path / "db" / "coverage-other.dll.toml").unlink()
-        assert sorted(load_all_coverage(tmp_path)) == [TARGET]
+        assert sorted(load_all_coverage_from(tmp_path / "db")) == [TARGET]
 
     def test_nfd_filename_keys_the_snapshot_nfc(
         self, monkeypatch: pytest.MonkeyPatch, data: dict[str, Any], tmp_path: Path
@@ -1215,19 +1217,19 @@ class TestMemo:
             lambda *a, **k: [(nfc, copy.deepcopy(data))],
             raising=True,
         )
-        write_coverage_toml(tmp_path)
+        write_coverage_toml(tmp_path, tmp_path / "db")
         doc = tmp_path / "db" / f"coverage-{nfc}.toml"
         # Spell the file the way a decomposing filesystem stores it.
         doc.rename(tmp_path / "db" / f"coverage-{nfd}.toml")
         coverage_toml._ALL_CACHE = None
 
-        assert list(load_all_coverage(tmp_path)) == [nfc]
+        assert list(load_all_coverage_from(tmp_path / "db")) == [nfc]
 
 
 class TestReaderFailures:
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         with pytest.raises(CoverageTomlError, match="cannot read"):
-            load_coverage(tmp_path, TARGET)
+            load_coverage_from(tmp_path / "db", TARGET)
 
     def test_wrong_version_raises(
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
@@ -1241,7 +1243,7 @@ class TestReaderFailures:
             newline="\n",
         )
         with pytest.raises(CoverageTomlError, match="version is"):
-            load_coverage(tmp_path, TARGET)
+            load_coverage_from(tmp_path / "db", TARGET)
 
     def test_non_int_version_raises(
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
@@ -1255,7 +1257,7 @@ class TestReaderFailures:
             newline="\n",
         )
         with pytest.raises(CoverageTomlError, match="version is"):
-            load_coverage(tmp_path, TARGET)
+            load_coverage_from(tmp_path / "db", TARGET)
 
     def test_malformed_toml_raises(self, tmp_path: Path) -> None:
         (tmp_path / "db").mkdir()
@@ -1263,13 +1265,13 @@ class TestReaderFailures:
             "this is not = = toml\n", encoding="utf-8"
         )
         with pytest.raises(CoverageTomlError, match="malformed TOML"):
-            load_coverage(tmp_path, TARGET)
+            load_coverage_from(tmp_path / "db", TARGET)
 
     def test_empty_file_raises(self, tmp_path: Path) -> None:
         (tmp_path / "db").mkdir()
         (tmp_path / "db" / f"coverage-{TARGET}.toml").write_text("", encoding="utf-8")
         with pytest.raises(CoverageTomlError, match="version is"):
-            load_coverage(tmp_path, TARGET)
+            load_coverage_from(tmp_path / "db", TARGET)
 
     def test_renamed_document_raises(self, data: dict[str, Any], tmp_path: Path) -> None:
         """A document naming another target is not this target's coverage."""
@@ -1278,7 +1280,7 @@ class TestReaderFailures:
             render_coverage_toml("client.dll", data), encoding="utf-8"
         )
         with pytest.raises(CoverageTomlError, match="target is"):
-            load_coverage(tmp_path, TARGET)
+            load_coverage_from(tmp_path / "db", TARGET)
 
     def test_load_all_skips_a_corrupt_file(
         self,
@@ -1294,11 +1296,11 @@ class TestReaderFailures:
             lambda *a, **k: [(TARGET, copy.deepcopy(data)), ("other.dll", copy.deepcopy(data))],
             raising=True,
         )
-        write_coverage_toml(tmp_path)
+        write_coverage_toml(tmp_path, tmp_path / "db")
         (tmp_path / "db" / "coverage-other.dll.toml").write_text("not = = toml\n", encoding="utf-8")
 
         with caplog.at_level(logging.WARNING, logger="rebrew.coverage_toml"):
-            snapshots = load_all_coverage(tmp_path)
+            snapshots = load_all_coverage_from(tmp_path / "db")
         # Two of three targets beats a 500: the healthy one still loads.
         assert sorted(snapshots) == [TARGET]
         assert snapshots[TARGET].functions
@@ -1307,53 +1309,8 @@ class TestReaderFailures:
 
     def test_no_coverage_files_returns_empty(self, tmp_path: Path) -> None:
         (tmp_path / "db").mkdir()
-        assert load_all_coverage(tmp_path) == {}
-        assert load_all_coverage(tmp_path / "absent") == {}
-
-    def test_malformed_project_config_raises_instead_of_exiting_the_process(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """Both readers run inside a WSGI request; a broken config is a 4xx/500
-        page, not a ``SystemExit`` that takes the whole server down.
-
-        ``build_db.resolve_db_dir`` calls typer's ``error_exit`` here, so this
-        pins the reader path against the resolver a CLI is allowed to use.
-        """
-        (tmp_path / "rebrew-project.toml").write_text("this is not = = toml\n", encoding="utf-8")
-
-        for reader in (
-            lambda: load_coverage(tmp_path, TARGET),
-            lambda: load_all_coverage(tmp_path),
-        ):
-            with pytest.raises(CoverageTomlError, match="rebrew-project.toml"):
-                reader()
-        # Nothing on stdout: a dashboard must not print a config error into the
-        # response it is still building.
-        assert capsys.readouterr().out == ""
-
-    def test_target_none_needs_exactly_one_file(
-        self, monkeypatch: pytest.MonkeyPatch, data: dict[str, Any], tmp_path: Path
-    ) -> None:
-        (tmp_path / "db").mkdir()
-        monkeypatch.setattr(
-            coverage_toml,
-            "load_coverage_datasets",
-            lambda *a, **k: [(TARGET, data)],
-            raising=True,
-        )
-        write_coverage_toml(tmp_path)
-        assert load_coverage(tmp_path).target == TARGET
-
-        other = copy.deepcopy(data)
-        monkeypatch.setattr(
-            coverage_toml,
-            "load_coverage_datasets",
-            lambda *a, **k: [(TARGET, data), ("other.dll", other)],
-            raising=True,
-        )
-        write_coverage_toml(tmp_path)
-        with pytest.raises(CoverageTomlError, match="expected exactly one"):
-            load_coverage(tmp_path)
+        assert load_all_coverage_from(tmp_path / "db") == {}
+        assert load_all_coverage_from(tmp_path / "absent") == {}
 
     def test_target_with_a_path_separator_is_refused(
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
@@ -1363,7 +1320,7 @@ class TestReaderFailures:
         write(data)
         for bad in ("../coverage-server.dll", "sub/server.dll", "", "."):
             with pytest.raises(CoverageTomlError, match="is not a target name"):
-                load_coverage(tmp_path, bad)
+                load_coverage_from(tmp_path / "db", bad)
 
 
 def test_lone_surrogate_in_a_name_still_renders_a_parsable_document() -> None:
@@ -1390,7 +1347,9 @@ def test_global_ownership_round_trips_and_old_rows_do_not_become_owners(
         owners=["owner.c", "LIBCMT:heap.obj"], referenced_in=["use.c"], declared_in=["globals.h"]
     )
     write(data)
-    symbol = next(g for g in load_coverage(tmp_path, TARGET).globals if g.va == 0x10030000)
+    symbol = next(
+        g for g in load_coverage_from(tmp_path / "db", TARGET).globals if g.va == 0x10030000
+    )
     assert symbol.owners == ("owner.c", "LIBCMT:heap.obj")
     assert symbol.referenced_in == ("use.c",)
     assert symbol.declared_in == ("globals.h",)

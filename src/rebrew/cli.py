@@ -237,7 +237,7 @@ def require_root(root: Path | None = None, *, json_mode: bool = False) -> Path:
     thing across the umbrella.  The commands that used to default to the current
     directory answered differently from the ones that went through
     :func:`require_config`: ``rebrew verify`` found the project from a
-    subdirectory while ``rebrew coverage build`` reported a missing
+    subdirectory while ``rebrew coverage export --output snapshots/`` reported a missing
     ``rebrew-project.toml`` there and created a stray ``db/`` beside it.
 
     An explicit *root* is checked for being an existing directory before any

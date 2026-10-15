@@ -672,6 +672,8 @@ def _annotations_from_metadata(
     metadata_dir: Path | None,
     *,
     text: str | None = None,
+    prototypes_needed: bool = True,
+    anchored_prototypes: dict[str, str] | None = None,
 ) -> list[SourceBinding]:
     """Build source bindings from canonical rows for this file.
 
@@ -681,7 +683,13 @@ def _annotations_from_metadata(
     if metadata_dir is None:
         return []
     results = _function_annotations_from_metadata(
-        filepath, target_name, base_dir, metadata_dir, text=text
+        filepath,
+        target_name,
+        base_dir,
+        metadata_dir,
+        text=text,
+        prototypes_needed=prototypes_needed,
+        anchored_prototypes=anchored_prototypes,
     )
     results.extend(_data_annotations_from_metadata(filepath, target_name, base_dir, metadata_dir))
     results.sort(key=lambda ann: ann.va)
@@ -695,6 +703,8 @@ def _function_annotations_from_metadata(
     metadata_dir: Path,
     *,
     text: str | None = None,
+    prototypes_needed: bool = True,
+    anchored_prototypes: dict[str, str] | None = None,
 ) -> list[SourceBinding]:
     """Function rows from ``rebrew-functions.toml`` whose ``file`` matches."""
     from rebrew.metadata.functions import apply_metadata_entry, load_metadata
@@ -730,9 +740,13 @@ def _function_annotations_from_metadata(
             filepath=rel,
         )
         apply_metadata_entry(ann, entry)
-        if prototypes is None:
-            prototypes = _DefinitionPrototypes(filepath, text)
-        ann.prototype = prototypes.get(ann.name)
+        if prototypes_needed:
+            if anchored_prototypes is not None and ann.name in anchored_prototypes:
+                ann.prototype = anchored_prototypes[ann.name]
+            else:
+                if prototypes is None:
+                    prototypes = _DefinitionPrototypes(filepath, text)
+                ann.prototype = prototypes.get(ann.name)
         results.append(ann)
     return results
 
@@ -994,6 +1008,8 @@ def source_bindings(
     target_name: str | None,
     base_dir: Path | None,
     metadata_dir: Path | None,
+    *,
+    with_prototypes: bool = True,
 ) -> list[SourceBinding]:
     """Join the pre-read source's address bindings with both metadata stores."""
     from rebrew.metadata.data import get_data_entry
@@ -1005,7 +1021,18 @@ def source_bindings(
         raise ValueError(
             f"{filepath}:{line}: {forbidden_key} is not a source field; use dedicated metadata"
         )
-    rows = _annotations_from_metadata(filepath, target_name, base_dir, metadata_dir, text=text)
+    anchors = parse_address_anchors(text)
+    rows = _annotations_from_metadata(
+        filepath,
+        target_name,
+        base_dir,
+        metadata_dir,
+        text=text,
+        prototypes_needed=with_prototypes,
+        anchored_prototypes={
+            anchor.name: anchor.prototype for anchor in anchors if anchor.kind == "FUNCTION"
+        },
+    )
     indexed = {(preset_module_key(a.module), a.va, a.is_data): a for a in rows}
     data_rows: dict[tuple[str, int], list[SourceBinding]] = {}
     for row in rows:
@@ -1013,7 +1040,7 @@ def source_bindings(
             data_rows.setdefault((row.module, row.va), []).append(row)
     functions: dict[tuple[str, int], dict[str, Any]] | None = None
     target = preset_module_key(target_name) if target_name else ""
-    for anchor in parse_address_anchors(text):
+    for anchor in anchors:
         if target and preset_module_key(anchor.module) != target:
             continue
         is_data = anchor.kind == "DATA"

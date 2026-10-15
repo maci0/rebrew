@@ -1,25 +1,8 @@
-"""coverage_db.py – the coverage pipeline's normalizers.
+"""Shared coverage normalizers, catalog inputs and stored comparison imports.
 
-The coverage snapshot is clear-text per-target TOML (``db/coverage-<target>.toml``);
-:mod:`rebrew.coverage_toml` renders and writes it, and :mod:`rebrew.build_db` is
-a thin typer front over :func:`build_db` here.
-
-What lives here is everything the reader and the writer share and neither may
-restate: the catalog loaders (``load_coverage_datasets``), the value normalizers
-the writer imports (``parse_int``, ``normalize_cell_row``, ``dedupe_by_va``, …),
-and the verify-cache import (``import_verify_rows``).  A second copy of the cell
-clamp or the verify row mapping is exactly the drift the TOML module exists to
-remove, so they are here rather than beside either consumer.  The command half
-owns the Typer app and nothing imports it, so a reader like
-``coverage_toml`` depends on this module rather than on a console script.
-
-The SQLite writer that used to live here is gone: schema DDL, the version gate,
-the ``--force`` unlink/restore, the zstd section-cell cache and the
-``function_stats`` reference aggregate all existed to serve a database file, and
-there is no database file.  The aggregate survives as
-:func:`rebrew.coverage_toml._derive_function_stats`, and
-``tests/test_coverage_toml.py`` now derives its expected numbers by hand from
-the fixture rather than running a second implementation of the same arithmetic.
+There is no database. Live views and optional portable exports reuse these
+normalizers and the same immutable schema in coverage_toml. Output directories
+are explicit export arguments; project configuration contains no coverage path.
 """
 
 import contextlib
@@ -46,7 +29,6 @@ from rebrew.metadata.data import (
     DATA_STATUS_UNCHECKED,
     DATA_STATUS_VERIFIED,
 )
-from rebrew.workspace import db_dir
 from rebrew.workspace.status import COVERAGE_DB_STATUSES, KNOWN_STATUSES
 
 log = logging.getLogger(__name__)
@@ -355,23 +337,6 @@ def dedupe_by_va(
     return list(by_va.values())
 
 
-def resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
-    """Return the configured database directory, falling back when no config exists.
-
-    The path comes from the shared ``rebrew.workspace.db_dir`` resolver, so a
-    dashboard and this writer never disagree on where ``coverage-<target>.toml``
-    lives.  A config that is present but broken still fails loud here rather
-    than silently falling back to ``db/``.
-    """
-    if not (root_dir / "rebrew-project.toml").exists():
-        return root_dir / "db"
-    try:
-        load_config(root_dir)
-    except (FileNotFoundError, KeyError, ValueError, TypeError) as exc:
-        error_exit(f"Config error: {exc}", json_mode=json_output)
-    return db_dir(root_dir)
-
-
 def load_coverage_datasets(
     root_dir: Path,
     *,
@@ -412,6 +377,7 @@ def load_coverage_datasets(
 
 def write_coverage(
     root_dir: Path,
+    output_dir: Path,
     *,
     target: str | None,
     json_output: bool,
@@ -424,9 +390,7 @@ def write_coverage(
     """
     from rebrew.coverage_toml import write_coverage_toml
 
-    db_directory = resolve_db_dir(root_dir, json_output=json_output)
-    db_directory.mkdir(parents=True, exist_ok=True)
-    written = write_coverage_toml(root_dir, target=target, json_output=json_output)
+    written = write_coverage_toml(root_dir, output_dir, target=target, json_output=json_output)
     # The filename IS the target name (coverage_toml resolves one from the
     # other in both directions), so the stem is the only place a caller of the
     # writer can read back which datasets it wrote.
@@ -439,21 +403,6 @@ def write_coverage(
         for path in written:
             console.print(f"[green]Wrote {path}[/green]")
     return written
-
-
-def build_db(
-    project_root: Path | None = None,
-    target: str | None = None,
-    json_output: bool = False,
-) -> None:
-    """Write the configured project's ``coverage-<target>.toml`` documents.
-
-    The in-process twin of ``rebrew coverage build``, kept as a function so a
-    tool that writes coverage inside its own process (recoverage's ``regen``)
-    has a call to make.  It is the same code path the command runs.
-    """
-    root_dir = Path(project_root).resolve() if project_root else Path.cwd().resolve()
-    write_coverage(root_dir, target=target, json_output=json_output)
 
 
 def _verify_cache_belongs_to_project(root_dir: Path, target_name: str, raw: dict[str, Any]) -> bool:
@@ -498,7 +447,7 @@ def import_verify_rows(
 
     *previous_measured* is keyed by VA: ``(its five measurement fields, the
     stamp it was measured at)``, which
-    :func:`rebrew.coverage_toml._previous_measured` reads out of the previous
+    :func:`rebrew.coverage_toml.previous_measurements` reads out of the previous
     document.  *now_iso* is only the fallback stamp for when the cache file's
     mtime cannot be read.
     """

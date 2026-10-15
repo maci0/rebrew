@@ -2461,3 +2461,162 @@ def pointer_cast_literals(source: str) -> list[PointerCastLiteral]:
         else:
             pending.extend(reversed(node.children))
     return found
+
+
+# ---------------------------------------------------------------------------
+# Complete function-source validation
+# ---------------------------------------------------------------------------
+
+# Seeds must be self-contained; any preprocessor line (#include, #define,
+# pragma, #line, …) lets model output change the TU trust boundary.
+_PREPROC_RE = re.compile(r"^\s*#", re.MULTILINE)
+# Pragma operators (C99 ``_Pragma``, MSVC ``__pragma``) act like ``#pragma``
+# without a ``#`` line: an ``optimize``/``pack`` pragma fakes a byte match.
+_PRAGMA_OP_RE = re.compile(r"\b(?:_Pragma|__pragma)\s*\(")
+# Inline asm (GNU ``asm``/``__asm__``, MSVC ``__asm``/``_asm``/``_emit``,
+# Borland ``__emit__`` / ``__emit``) lets model output emit the target bytes verbatim: a
+# faked match, not a C seed.
+_INLINE_ASM_RE = re.compile(r"\b(?:asm|_asm|__asm|__asm__|_emit|__emit|__emit__)\b")
+# Compiler extensions (declspecs, GCC attributes) that alter codegen, section
+# placement, or function entry/exit (naked functions) to fake matches.
+_COMPILER_EXT_RE = re.compile(r"\b(?:__declspec|_declspec|__attribute__|__attribute)\s*\(")
+# Phase 1 trigraphs.  ``??/`` is ``\``, so it must be replaced before line splicing.
+_TRIGRAPH_RE = re.compile(r"\?\?([=/\'()!<>-])")
+_TRIGRAPH_MAP = {
+    "=": "#",
+    "/": "\\",
+    "'": "^",
+    "(": "[",
+    ")": "]",
+    "!": "|",
+    "<": "{",
+    ">": "}",
+    "-": "~",
+}
+# C99 digraph for ``#`` when it is the first token on a logical line (a directive).
+_DIGRAPH_DIRECTIVE_RE = re.compile(r"(?m)^([ \t]*)%:")
+
+
+def _trigraph_repl(match: re.Match[str]) -> str:
+    """Replace one trigraph; the regex only captures the nine standard spellings."""
+    return _TRIGRAPH_MAP[match.group(1)]
+
+
+def _splice_logical_lines(src: str) -> str:
+    """C translation phases 1–2: trigraphs, then backslash-newline deletion.
+
+    Keyword gates must see this text.  A model seed can split ``_Pragma(``,
+    ``__declspec(``, ``__attribute__(``, or ``__asm__`` across a line splice
+    (or a ``??/`` trigraph) so the raw spelling misses the regex and the
+    compiler still sees the operator.
+    """
+    src = _TRIGRAPH_RE.sub(_trigraph_repl, src)
+    return src.replace("\\\n", "")
+
+
+def _spell_digraph_directives(src: str) -> str:
+    """Spell a line-start ``%:`` as ``#`` so the directive gate sees it.
+
+    Digraphs are tokens, not phase-1 characters, so this runs after comment
+    stripping.  A ``%:`` buried in a comment is not a directive.
+    """
+    return _DIGRAPH_DIRECTIVE_RE.sub(r"\1#", src)
+
+
+def normalize_function_prototype(proto: str) -> str:
+    """Collapse insignificant prototype whitespace for equality checks."""
+    text = " ".join(proto.split())
+    return re.sub(r"\s*([(),*])\s*", r"\1", text)
+
+
+def _code_tokens(code: bytes, root: Any) -> str:
+    """Mask AST comments and literals while preserving token and line boundaries."""
+    masked = bytearray(code)
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        if node.type in {"comment", "string_literal", "char_literal", "system_lib_string"}:
+            masked[node.start_byte : node.end_byte] = bytes(
+                byte if byte in (10, 13) else 32 for byte in code[node.start_byte : node.end_byte]
+            )
+        else:
+            pending.extend(node.children)
+    return masked.decode("utf-8", errors="replace")
+
+
+def function_source_error(
+    src: str,
+    *,
+    expect_name: str | None = None,
+    expect_proto: str | None = None,
+    allow_declarations: bool = False,
+) -> str | None:
+    """Return a concrete rejection reason, or None for a complete C function.
+
+    No population size budget applies. Require one definition, validate its
+    identity/prototype, and reject directives, pragma operators, inline assembly
+    and unexpected compiler attributes. Optional declarations support the
+    external object declarations and function prototypes emitted by backends.
+    Additional file-scope storage definitions require separate ownership review.
+    """
+    src = src.replace("\r\n", "\n").replace("\r", "\n")
+    allowed = {"function_definition", "comment"}
+    if allow_declarations:
+        allowed.add("declaration")
+    try:
+        parser_pair = get_ts_parser()
+        if parser_pair is None:
+            return "C parser is unavailable"
+        parser, _ = parser_pair
+        logical = _splice_logical_lines(src).encode("utf-8")
+        raw_tree = parser.parse(logical)
+        tokens = _spell_digraph_directives(_code_tokens(logical, raw_tree.root_node))
+        if _PREPROC_RE.search(tokens):
+            return "preprocessor directives are not allowed"
+        if _PRAGMA_OP_RE.search(tokens):
+            return "pragma operators are not allowed"
+        if _INLINE_ASM_RE.search(tokens):
+            return "inline assembly is not allowed"
+        if _COMPILER_EXT_RE.search(tokens):
+            if expect_proto is None or not _COMPILER_EXT_RE.search(expect_proto):
+                return "unexpected compiler attributes"
+            proto_end = tokens.find("{")
+            if proto_end != -1 and _COMPILER_EXT_RE.search(tokens[proto_end:]):
+                return "compiler attributes inside the body are not allowed"
+        code = strip_cc(src).encode("utf-8")
+        tree = parser.parse(code)
+        if tree.root_node.has_error:
+            return "C syntax contains parser errors"
+        top = list(tree.root_node.children)
+        if any(child.type not in allowed for child in top):
+            return "unexpected top-level code beside the function"
+        if sum(child.type == "function_definition" for child in top) != 1:
+            return "expected exactly one function definition"
+        for declaration in (child for child in top if child.type == "declaration"):
+            extern = any(
+                node_text(c, code) == "extern"
+                for c in declaration.children
+                if c.type == "storage_class_specifier"
+            )
+            for declarator in declaration.children_by_field_name("declarator"):
+                if declarator.type == "init_declarator" or (
+                    not extern and not declares_function(declarator)
+                ):
+                    return "additional storage definitions are not allowed; use extern declarations"
+        result = extract_function_name_and_proto(src)
+        if result is None:
+            return "function signature could not be read"
+        name, proto = result
+        defined = find_c_function_definitions(src)
+        if len(defined) != 1:
+            return "expected exactly one function definition"
+        if expect_name is not None and not (name == expect_name and defined[0][0] == expect_name):
+            return f"expected function {expect_name!r}, got {name!r}"
+        if expect_proto is not None and (
+            normalize_function_prototype(proto) != normalize_function_prototype(expect_proto)
+        ):
+            return "function prototype does not match the expected prototype"
+    except Exception as exc:  # malformed external text must fail closed
+        logger.debug("function source validation failed (%s)", type(exc).__name__)
+        return f"C parser failed ({type(exc).__name__})"
+    return None

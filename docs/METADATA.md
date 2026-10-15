@@ -13,7 +13,7 @@ same tiers and the data/globals/layout pipeline.
 |---|---|---|
 | **Canonical (durable)** | pure C sources, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-source.toml`, `rebrew-types.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | Source/config are editable; identity and other non-derivable evidence are CLI/API-managed. Optional ADDRESS anchors bind declarations; old inline blocks and earlier schemas are rejected. Derived views are rebuilt from these plus the binary; recorded history is identified separately below. |
 | **Derived, VCS-intended** | `src/<target>/function_structure.json` (discovery inventory), `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (`rebrew build layout`, `rebrew binary functions`, `rebrew coverage catalog`, `rebrew build link-stubs`, `rebrew data fix-bss`, `rebrew data header`, signature tools).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
-| **Derived, gitignored (build output)** | `db/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew coverage build` / `rebrew verify` / `rebrew binary extract` / `rebrew coverage report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.toml` (the old `db/verify_results.json` snapshot was unguarded and is no longer written; see `verify_cache.load_baseline`). |
+| **Derived, gitignored (build output)** | `snapshots/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew coverage export --output snapshots/` / `rebrew verify` / `rebrew binary extract` / `rebrew coverage report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.toml` (the old `db/verify_results.json` snapshot was unguarded and is no longer written; see `verify_cache.load_baseline`). |
 | **Cache (delete-safe)** | `.rebrew/verify_cache.toml`, `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, `.rebrew/source-backups/*.orig`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache; it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce, each record is fsynced before `rebrew match run` reports the run so a host that loses power does not take the win with it, and only the non-winning lines are capped (newest `_LOSS_RECORD_RETENTION`, wins kept forever).  `.rebrew/source-backups/` holds a copy of a `.c` that `rebrew match climb` / `rebrew match qualifiers` is about to rewrite in place: it exists only while that run is in flight, is removed when the run finishes, and is the way back to the pre-run bytes after a kill that runs no cleanup (SIGKILL, OOM, power cut).  `rebrew skeleton --force` keeps its backup after a clean replacement (`*.pre-skeleton.*.orig`).  They accumulate one file per rewrite; prune the directory when the migration or the overwrite is confirmed good.  There is no per-run build diskcache: same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
 
 ## Who owns which fact
@@ -52,7 +52,7 @@ and cannot exempt W020. See [the CLI contract](CLI.md#rebrew-source-document-ass
 | **BLOCKER / BLOCKER_DELTA** | `rebrew-functions.toml`: `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, and `rebrew source document-unmatched`. Never hand-edited | the coverage document's `functions[].blocker`/`blockerDelta`; `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
 | **cflags / toolchain** | `rebrew-functions.toml` (per-function) → `rebrew-libraries.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | the coverage document's `functions[].cflags` |
 | **Data symbols (globals)** | `rebrew-data.toml` (`file`/`kind` identity, plus `name`/`type`/`size`/`section`/`note`, verify-written data STATUS `VERIFIED`/`DRIFT`/`UNCHECKED`, and the `updated_by`/`updated_at` write stamp) | the coverage document's `globals[]`; `src/<target>/rebrew_globals.h` (`rebrew data header`; extern declarations for the build); `rebrew status` data counts + `rebrew todo --category data-drift` |
-| Coverage presence | the project tree | the coverage document (`rebrew coverage build` renders it in-process) |
+| Coverage presence | the project tree | the coverage document (`rebrew coverage export --output snapshots/` renders it in-process) |
 | **Layout / PE normalization** | `layout/<target>/` package: `rebrew-layout.toml` (sections, exports, imports, export_stamp, link_options, image_base), `header.hex` (full PE header block: SizeOfImage/CheckSum/TimeDateStamp/section table), `iat.hex`, `prefix.hex`, `bookkeeping.hex`, `data.hex`, `reloc.hex`, `operands.txt`, `calls.txt` | `[link]` block (`file_align`, `stack_*`, `tsaware`, `timestamp`) consumed by `rebrew build round-trip --fix-headers` |
 | **Import order / IAT** | original binary (IAT order), captured into `layout/<target>/` | `crt_region/crt_imports.c` (`#pragma comment(linker, "/include:__imp_...")`), `layout/<target>/rebrew-layout.toml` `imports[]` |
 | **`.data` / BSS layout** | `rebrew-data.toml` (symbols) + `layout/<target>/data.hex` (reference bytes) | `src/link_stubs.c` (`g_bss_tail` pad, mutated by `rebrew build calibrate-bss`), `src/<target>/bss_padding.c` (`rebrew data fix-bss`; `gap_<va:08x>[N]` dummy arrays for detected gaps), `_dpad_<addr>[N]` pads inserted into `.c` files by `rebrew data layout fill` (byte-exact from the reference in the raw region, zero-init for BSS), `rebrew-layout.toml` `sections[.data].vs` |
@@ -81,10 +81,9 @@ supplies its own tag.
   rather than letting "who wrote this" be answerable only by grepping the
   writers.
 - **Each store carries a format stamp.**  The top-level `format`
-  (`rebrew.metadata.functions.FORMAT_VERSION`, currently `1`) is added by the first write
-  to a file that has none and never rewritten, including when a file carries a
-  foreign value: silently upgrading the stamp would hide the mismatch it exists
-  to report.  Readers ignore it; W031 reports a missing or foreign one.
+  (`rebrew.metadata.functions.FORMAT_VERSION`, currently `2`) is mandatory.
+  Readers and writers reject missing or foreign versions; they never silently
+  upgrade a store. W031 also reports malformed metadata.
 - **The pair means "last changed", not "last checked".**  A writer that sets a
   field to the value it already holds returns without a write, so a re-run of
   `verify --data` that finds the same `VERIFIED` / `DRIFT` / `UNCHECKED` verdict
@@ -117,16 +116,20 @@ supplies its own tag.
   The coverage document's `verify_results[]` row
   (`verified_at`, `byte_delta`, `diff_lines`, `similarity`, `reg_delta`,
   `effective_match`) is derived and a rebuild only carries it forward.
-- **Coverage document.** It mirrors the function store's
-  `functions[].updated_by` / `updated_at` and keeps a change log: `history[]`
-  (`va`, `old_status`, `new_status`, `changed_at`, `updated_by`), retained
-  newest-last across rebuilds and bounded by `HISTORY_RETENTION`.
+- **Status history is durable.** The function metadata owner appends
+  `status_history` (`old_status`, `new_status`, `changed_at`, `updated_by`)
+  atomically with each accepted status transition. It validates, deduplicates and
+  retains the newest 10,000 events per native identity. Live views and portable
+  documents expose that history with each identity's `va`. Generic field setters
+  cannot forge history. `rebrew coverage import-history --snapshots <directory>`
+  preserves existing exported events without changing verdicts, bindings, edit
+  stamps or measurement evidence; `--dry-run` creates no files or locks.
 - **No generation stamp.** The document deliberately carries no "written at"
   field: a rebuild of unchanged input must be byte-identical, and a timestamp is
   the one value that would move on every run.  Freshness is read from the inputs:
-  `[metadata] paths` (`originalDll`, `sourceRoot`), and the dashboards key
-  their snapshot cache on the document's own stat.  `version` is the schema
-  stamp, not a build stamp.
+  live readers fingerprint metadata, inventory, source, binary and link inputs.
+  Explicit offline readers key their cache on portable document file identity.
+  `version` is the schema stamp, not a build stamp.
 
 ### External origin and measurement evidence
 
@@ -215,12 +218,12 @@ whenever the reference binary changes: the layout files carry
 
 A store **rebrew owns** is clear-text TOML, one format for all of them:
 `rebrew-project.toml`, `rebrew-functions.toml`, `rebrew-data.toml`,
-`rebrew-libraries.toml`, `db/coverage-<target>.toml`, `.rebrew/verify_cache.toml`
-and `.rebrew/verify_baseline.toml` (the last two replaced JSON files of the same
-name, and `rebrew lint` reports a leftover as a stale artifact, W032).  The
-verify cache's rows are the report's rows, so `status`, `todo`, `report`,
-`rebrew coverage build` and the dashboards decode one document with `tomllib` and write it
-back with `tomlkit`.
+`rebrew-libraries.toml`, `snapshots/coverage-<target>.toml`, `.rebrew/verify_cache.toml`
+and `.rebrew/verify_baseline.toml`. Normal dashboards read canonical project
+inputs through `load_project_coverage`; no generated coverage store or project
+`db_dir` is required. `coverage export --output <directory>` creates portable
+TOML snapshots for explicit offline use. Readers use `tomllib`; owning writers
+preserve documents with `tomlkit`.
 
 The stores that stay in another tool's format are that tool's contract, not
 rebrew's to rename:
@@ -270,11 +273,11 @@ until that program changes with it.
 4. Caches must be invalidation-correct: mtime-keyed or content-keyed, and
    written with the shared `atomic_write_text` / `metadata_write_lock`
    machinery (tool-owned TOML uses `atomic_write_locked` so the file stays
-   mode 0444).  The coverage document is derived output but has history to
-   carry forward, so `write_coverage_toml` holds `_coverage_write_lock`
-   across its read of the previous document and its replace; without it two
-   builders for one target each carry their own delta rows and the second
-   write drops the first's history.
+   mode 0444). `write_coverage_toml` holds `_coverage_write_lock` across
+   validation and replacement of an explicit export. Malformed existing snapshots
+   and unimported historical events block overwrite, preserving old evidence.
+   Import the events through the metadata owner before re-exporting. Live reads
+   never write snapshots or acquire writer locks.
 5. Generated scaffolding that must survive without `original/` (layout
    package, `.def`, `crt_region/`, `link_stubs.c`, toolchain files) is
    **VCS-intended**: derive it once, commit it, rebuild only on binary

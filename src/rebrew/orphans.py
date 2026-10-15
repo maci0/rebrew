@@ -137,6 +137,9 @@ def split_prunable(
     *include_matched*.
     """
     orphans = orphan_dicts(cfg, fn_orphans, data_orphans)
+    # Historical transitions survive source retirement; explicit drop is the
+    # operation for intentionally discarding that evidence.
+    orphans = [row for row in orphans if not row.get("history_count")]
     if include_matched:
         return orphans
     return [
@@ -168,7 +171,16 @@ def orphan_dicts(
     for module, va, store in fn_orphans + data_orphans:
         entries = data_entries if store == "rebrew-data.toml" else fn_entries
         status = str(entries.get((module, va), {}).get("status") or "")
-        dicts.append({"module": module, "va": f"0x{va:x}", "store": store, "status": status})
+        row: dict[str, Any] = {
+            "module": module,
+            "va": f"0x{va:x}",
+            "store": store,
+            "status": status,
+        }
+        history = entries.get((module, va), {}).get("status_history", [])
+        if history:
+            row["history_count"] = len(history)
+        dicts.append(row)
     return dicts
 
 

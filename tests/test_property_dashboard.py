@@ -217,7 +217,7 @@ def dashboard(tmp_path_factory: pytest.TempPathFactory) -> Dashboard:
     # this fixture does not have, and the reader only ever sees the file.
     document = render_coverage_toml("server_dll", data)
     (db_dir / "coverage-server_dll.toml").write_text(document, encoding="utf-8")
-    return Dashboard(db_dir)
+    return Dashboard(db_dir, snapshots=True)
 
 
 class TestNumericQueryParams:

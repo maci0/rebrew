@@ -493,21 +493,27 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     ),
     "coverage": (
         CliComponent(
+            name="import-history",
+            module="rebrew.coverage_history",
+            help="Import status history from portable snapshots without changing verdicts.",
+            panel="",
+        ),
+        CliComponent(
             name="report",
             module="rebrew.report",
             help="Generate a static HTML documentation site for a decomp project.",
             panel="",
         ),
         CliComponent(
-            name="build",
+            name="export",
             module="rebrew.build_db",
-            help="Build clear-text coverage documents from the project tree.",
+            help="Export portable coverage snapshots for offline viewing.",
             panel="",
         ),
         CliComponent(
             name="serve",
             module="rebrew.dashboard",
-            help="Serve a read-only web dashboard over the coverage documents.",
+            help="Serve a read-only dashboard from live project metadata or portable snapshots.",
             panel="",
         ),
         CliComponent(
@@ -633,8 +639,8 @@ _DOMAIN_GUIDANCE = {
         "rebrew binary pe original/game.exe --json",
     ),
     "coverage": (
-        "Inspect the catalog, write coverage documents, and serve reports.",
-        "rebrew coverage build",
+        "View live project coverage, export portable snapshots, and serve reports.",
+        "rebrew coverage serve",
     ),
     "similarity": (
         "Compare function structure within or between binaries.",
@@ -880,7 +886,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
         name="coverage",
         module="rebrew.app.builtins",
         attr="coverage_app",
-        help="Inspect the catalog, write coverage documents, and serve reports.",
+        help="View live project coverage, export portable snapshots, and serve reports.",
         panel=Panel.DEVELOPMENT,
         is_group=True,
     ),

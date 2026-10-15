@@ -343,7 +343,7 @@ def prune_stale_stubs(
     An :class:`_UnreadableInventory` there means the guard has no baseline to
     compare, and the prune is skipped for the same reason.
     """
-    from rebrew.metadata.functions import delete_metadata_entry
+    from rebrew.metadata.functions import delete_metadata_entry, get_entry
 
     previous = _read_prior_inventory(src_dir) if prior_inventory is None else prior_inventory
     if isinstance(previous, _UnreadableInventory):
@@ -382,7 +382,7 @@ def prune_stale_stubs(
         if m is None or m.group(1) != marker:
             continue
         va = int(m.group(2), 16)
-        if va in valid_vas:
+        if va in valid_vas or get_entry(meta_base, va, marker).get("status_history"):
             continue
         try:
             path.unlink()

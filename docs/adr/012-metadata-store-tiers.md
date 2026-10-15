@@ -1,6 +1,7 @@
 # ADR-012: Metadata store tiers (canonical vs derived vs cache)
 
-- **Status**: Amended by [ADR-023](023-markers-toml-single-source.md)
+- **Status**: Amended by [ADR-031](031-live-coverage-views.md)
+  (live coverage and durable history; earlier identity amendment: [ADR-023](023-markers-toml-single-source.md))
   (function identity and `SIZE`/`CFLAGS` move to `rebrew-functions.toml`;
   a migrated `.c` carries no marker lines, so the canonical-tier `.c`
   identity and inline `SIZE`/`CFLAGS` co-read below apply only to

@@ -1,6 +1,6 @@
 """catalog/pipeline.py — Build catalog scan/registry/coverage data.
 
-Domain orchestration shared by ``rebrew coverage catalog`` and ``rebrew coverage build
+Domain orchestration shared by ``rebrew coverage catalog`` and ``rebrew coverage export --output snapshots/
 --regen``.  Lives outside ``cli.py`` so library callers do not import the
 Typer entry module.
 """
@@ -17,19 +17,22 @@ from rebrew.sections import get_text_section_size
 from rebrew.utils import console
 
 
-def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
+def build_catalog_data(
+    cfg: Any, *, with_data: bool = True, progress: bool = True
+) -> dict[str, Any]:
     """Scan, registry, and coverage-grid dict for one target (no disk writes).
 
     Shared by ``run_catalog`` (which then writes the requested artifacts)
-    and ``rebrew coverage build`` (which renders the dict into
-    ``db/coverage-<target>.toml``).  With *with_data* False the (expensive)
+    and ``rebrew coverage export --output snapshots/`` (which renders the dict into
+    ``snapshots/coverage-<target>.toml``).  With *with_data* False the (expensive)
     grid generation is skipped — the ``data`` value is None.
     """
     bin_path = cfg.target_binary
     reversed_dir = cfg.reversed_dir
     ghidra_json_path = inventory_path_for(reversed_dir, cfg)
 
-    console.print(f"Scanning {reversed_dir}...", style="dim")
+    if progress:
+        console.print(f"Scanning {reversed_dir}...", style="dim")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
 
     funcs = cached_function_list(cfg)
@@ -38,11 +41,12 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
     # is no real denominator, so report 0 (coverage_pct -> 0.0) and say so.
     binary_missing = bin_path is None or not bin_path.exists()
     if binary_missing:
-        console.print(
-            f"[yellow]warning:[/yellow] target binary missing ({bin_path}) — "
-            "text_size=0, identified bytes reported as 0%",
-            style="dim",
-        )
+        if progress:
+            console.print(
+                f"[yellow]warning:[/yellow] target binary missing ({bin_path}) — "
+                "text_size=0, identified bytes reported as 0%",
+                style="dim",
+            )
         text_size = 0
     else:
         text_size = get_text_section_size(bin_path)
@@ -56,13 +60,14 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
 
     unique_vas = {e["va"] for e in entries}
     ghidra_count, list_count, both_count, thunk_count = count_detection_sources(registry)
-    console.print(
-        f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs); "
-        f"inventory: {len(registry)} functions "
-        f"(list: {list_count}, ghidra: {ghidra_count}, both: {both_count}, "
-        f"thunks: {thunk_count})",
-        style="dim",
-    )
+    if progress:
+        console.print(
+            f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs); "
+            f"inventory: {len(registry)} functions "
+            f"(list: {list_count}, ghidra: {ghidra_count}, both: {both_count}, "
+            f"thunks: {thunk_count})",
+            style="dim",
+        )
     data = (
         build_coverage_data(
             entries,

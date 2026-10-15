@@ -1,7 +1,7 @@
 """data_scan.py – Global data scanning library behind ``rebrew data list``.
 
-Scans reversed .c files for ``// GLOBAL: MODULE 0xVA`` and ``// DATA: MODULE 0xVA``
-annotations (reccmp standard) and ``extern`` data declarations, detects dispatch
+Joins dedicated data metadata with optional ADDRESS anchors and AST-derived
+``extern`` declarations, detects dispatch
 tables / vtables in data sections, and verifies ``.bss`` layout.  Holds no CLI
 code, so compile-time callers (``coff_reloc``) and analysis commands import it
 without pulling in the ``rebrew data list`` Typer app (``rebrew.data``).
@@ -52,43 +52,19 @@ def _target_pointer_size(info: Any) -> int:
     return arch_pointer_size(arch) if arch else _DEFAULT_PTR_SIZE
 
 
-# ---------------------------------------------------------------------------
-# Regexes
-# ---------------------------------------------------------------------------
-
-# reccmp-compatible GLOBAL annotation:  // GLOBAL: SERVER 0x10031ae8
-#
-# `DATA:` is the same marker for this scan's purpose.  `VTABLE:` / `STRING:`
-# are data markers too (annotation.DATA_KINDS) but name layout rather than a
-# plain global, and _ANY_MARKER_RE below is what recognises them.
-# Any annotation marker, so a file that only carries another target's
-# FUNCTION/STUB lines is that target's source even when its externs have
-# no GLOBAL line of their own.
-
-# extern data declarations are parsed by c_parser.find_extern_variables()
-# via tree-sitter AST walking — see scan_globals().
-
-# The identifier of a declaration the tree-sitter pass did not return.  It must
-# accept a *definition with an initialiser* and not just a `;`-terminated
-# declaration: `char s_msg[] = "...";` and `char g_blob[568] = {` are how a
-# reversed source spells a global it actually defines.  Array extents may
-# repeat (`char g_t[4][8]`), and the initialiser may open a brace on the same
-# line or run to a `;`.
-
-
 @dataclass
 class GlobalEntry:
     """A single discovered global variable."""
 
     name: str
-    va: int = 0  # 0 = no annotation
+    va: int = 0  # 0 = no bound address
     type_str: str = ""
     section: str = ""  # .data, .rdata, .bss, or ""
     declared_in: list[str] = field(default_factory=list)
     defined_in: list[str] = field(default_factory=list)
     referenced_in: list[str] = field(default_factory=list)
     library_owners: list[dict[str, str]] = field(default_factory=list)
-    annotated: bool = False  # True if has a // GLOBAL: annotation
+    annotated: bool = False  # True if bound through canonical metadata or an address
     module: str = ""
     declaration: str = ""
     storage_kind: str = "object"
@@ -258,7 +234,7 @@ def _bind_stored_data_rows(
 ) -> None:
     """Attach ``rebrew-data.toml`` rows whose ``file`` matches *cfile*.
 
-    Called only when the source has no inline data marker.  Names are added
+    Called only when the source has no address-bound data declaration.  Names are added
     to *annotated_names* before the extern pass so a ``(name, 0)`` entry is
     not created for a global the store already placed.  An existing
     ``(name, 0)`` entry is adopted.  A header does not take a ``.c`` row,
@@ -321,28 +297,20 @@ def scan_globals(
 ) -> ScanResult:
     """Scan reversed source files for global declarations.
 
-    Collects:
-    1. ``// GLOBAL: MODULE 0xVA`` reccmp annotations (+ next line for declaration)
-    2. ``extern <type> <name>;`` data globals (via tree-sitter, filtering functions)
+    Join canonical data identities with declarations and optional ADDRESS
+    anchors. Externs are declarations; definitions and linked-library owners
+    are recorded separately. Target filtering excludes identities and source
+    contexts belonging only to a different configured target.
 
-    Returns a ScanResult with all discovered globals and type conflicts;
+    Returns a ScanResult with discovered globals and type conflicts;
     every entry of a conflicting name has ``conflict`` set.
-
-    With *cfg*, another target's ``// GLOBAL:`` / ``// DATA:`` marker is
-    omitted, and the declaration under it is not re-listed as an extern.
-    A file whose markers are all another target's contributes nothing.
-    Library-module markers stay: they are not targets.
-
-    A file with no inline data marker binds ``rebrew-data.toml`` rows whose
-    ``file`` matches it.  A file that still has one is read from that line
-    and does not also take stored rows.
 
     Headers are scanned after sources. A header redeclaration does not
     conflict with a ``.c`` declaration of the same name, and the ``.c``
     type is the one kept for size: ``extern int g[]`` in a header beside
     ``unsigned int g[4]`` in a source is one global. Two headers that
     disagree, with no ``.c`` declaration, still conflict, and so do two
-    ``.c`` markers that spell the same global differently.
+    ``.c`` bindings that spell the same global differently.
 
     *record_roles* fills ``defined_in`` and ``referenced_in``. The reloc
     name map only reads names and VAs, so it passes False and skips that walk.
@@ -376,7 +344,7 @@ def scan_globals(
         if not any(e is entry for e in bucket):
             bucket.append(entry)
 
-    # Types spelled on a .c GLOBAL/DATA marker's own declaration line, in file
+    # Types spelled on a .c data binding's own declaration line, in file
     # order.  These are the reference descriptions of the global, and the first
     # is the one the size ruler uses.  An unmarked spelling of the same name
     # (a link stand-in, or a header's incomplete redeclaration) is not compared
@@ -400,7 +368,7 @@ def scan_globals(
         try:
             # Tolerant read: a legacy-encoded source must not have its
             # non-ASCII bytes silently deleted, which would corrupt string
-            # literals, comments, and GLOBAL:/DATA: scans.
+            # literals, comments, and address-binding scans.
             text, _ = read_source_text(cfile)
         except OSError as exc:
             # The scan still returns an inventory, just one missing every
@@ -430,7 +398,7 @@ def scan_globals(
         from rebrew.c_parser import find_c_function_definitions
         from rebrew.metadata.bindings import source_bindings
 
-        bindings = source_bindings(text, cfile, None, None, metadata_dir)
+        bindings = source_bindings(text, cfile, None, None, metadata_dir, with_prototypes=False)
         function_modules: dict[str, set[str]] = defaultdict(set)
         data_modules: dict[str, set[str]] = defaultdict(set)
         anchored_data_names: set[str] = set()
@@ -487,7 +455,7 @@ def scan_globals(
         visible_vars = [v for v in parsed_vars if variable_visible(v.name, v.is_definition)]
         extern_vars = {v.name: v for v in visible_vars}
 
-        # Track which names are already handled via GLOBAL annotation
+        # Track which names are already handled via a data binding
         annotated_names: set[str] = set()
 
         _bind_stored_data_rows(

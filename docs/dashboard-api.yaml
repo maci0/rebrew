@@ -163,7 +163,7 @@ paths:
         The exception to the caching rules: served `no-store` with no `ETag`
         at all, so a probe that reported "ok" cannot be cached or
         revalidated into a stale "healthy" for a coverage directory that has
-        since gone unreadable.  `coverage_dir` is the absolute path of the
+        since gone unreadable.  `coverage_source` is the absolute path of the
         coverage DIRECTORY being served, holding one
         `coverage-<target>.toml` per target, and is present only when the
         bound host is a loopback address.
@@ -788,6 +788,12 @@ components:
       description: "The target list envelope.  It carries no `target` field, since it names no one target."
       required: [targets, count, total, limit, offset, paged]
       properties:
+        failures:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            Failed live targets; absent when every target is readable.
+            Detailed reasons are withheld off loopback.
         targets:
           type: array
           items: { type: string }
@@ -804,6 +810,12 @@ components:
         and first page of functions.
       required: [targets, count, total, limit, offset, paged, target, summary, functions]
       properties:
+        failures:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            Failed live targets; absent when every target is readable.
+            Detailed reasons are withheld off loopback.
         targets:
           type: array
           items: { type: string }
@@ -845,8 +857,14 @@ components:
         - slowest_ms
         - active_connections
       properties:
-        status: { type: string, const: ok }
-        coverage_dir:
+        failures:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            Failed live targets; absent when every target is readable.
+            Detailed reasons are withheld off loopback.
+        status: { type: string, enum: [ok, degraded] }
+        coverage_source:
           type: string
           description: >-
             Absolute path of the coverage directory being served.  Absent when

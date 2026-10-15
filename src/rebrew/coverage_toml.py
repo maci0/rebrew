@@ -53,13 +53,11 @@ from rebrew.coverage_db import (
     normalize_cell_row,
     parse_int,
     positive_int_or,
-    resolve_db_dir,
 )
 from rebrew.errors import RebrewError
 from rebrew.metadata.bindings import FUNCTION_KINDS, SYMBOL_KINDS
 from rebrew.metadata.functions import canonical_status
 from rebrew.utils import atomic_write_text, clip_span, file_lock, floor_pct, toml_safe
-from rebrew.workspace import WorkspaceConfigError, db_dir
 from rebrew.workspace.status import MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
@@ -67,17 +65,19 @@ log = logging.getLogger(__name__)
 #: What ``import *`` from this module means.  Everything else below is
 #: coverage_db's helper borrowed for reuse, not this module's to re-export.
 __all__ = [
+    "BUCKET_OF_STATE",
     "Cell",
     "CoverageSnapshot",
     "CoverageTomlError",
     "Function",
     "Global",
     "Section",
-    "load_all_coverage",
+    "coverage_document",
     "load_all_coverage_from",
-    "load_coverage",
     "load_coverage_from",
+    "previous_measurements",
     "render_coverage_toml",
+    "snapshot_from_document",
     "write_coverage_toml",
 ]
 
@@ -478,14 +478,8 @@ def _global_rows(target_name: str, data: dict[str, Any]) -> list[tuple[Any, ...]
     return rows
 
 
-def _section_table(target_name: str, sec_name: str, sec: dict[str, Any]) -> list[str]:
-    """Render one ``[sections."<name>"]`` table: the scalars, then the cells.
-
-    The section's name is the table's key, not a field inside it, so the five
-    scalars here are the ``sections`` row's other columns.  *target_name* is
-    separate: it names the target in the duplicate-cell warning, where the
-    section name already follows.
-    """
+def _section_document(target_name: str, sec_name: str, sec: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one section for both live views and portable snapshots."""
     values = (
         clamp_nonneg_int(sec.get("va")),
         clamp_nonneg_int(sec.get("size")),
@@ -495,8 +489,7 @@ def _section_table(target_name: str, sec_name: str, sec: dict[str, Any]) -> list
         positive_int_or(sec.get("unitBytes"), DEFAULT_GRID_GEOMETRY),
         positive_int_or(sec.get("columns"), DEFAULT_GRID_GEOMETRY),
     )
-    lines = [f"[sections.{_key(sec_name)}]"]
-    lines.extend(_kv(name, value) for name, value in zip(_SECTION_COLUMNS, values, strict=True))
+    document: dict[str, Any] = dict(zip(_SECTION_COLUMNS, values, strict=True))
     cell_rows = dedupe_cell_rows(
         [
             normalize_cell_row("", sec_name, cell)
@@ -506,8 +499,8 @@ def _section_table(target_name: str, sec_name: str, sec: dict[str, Any]) -> list
         target_name=target_name,
         sec_name=sec_name,
     )
-    lines.extend(_kv_block("cells", [_rows_from(_CELL_COLUMNS, r) for r in cell_rows]))
-    return lines
+    document["cells"] = [_rows_from(_CELL_COLUMNS, row) for row in cell_rows]
+    return document
 
 
 def _merge_history(
@@ -584,7 +577,7 @@ def _measurement(value: Any) -> Any:
     return None if value == "" else value
 
 
-def _previous_measured(previous: dict[str, Any]) -> dict[int, tuple[Any, ...]]:
+def previous_measurements(previous: dict[str, Any]) -> dict[int, tuple[Any, ...]]:
     """The previous document's ``verify_results`` as :func:`import_verify_rows` wants them.
 
     The removed SQLite writer read the same mapping from its own query over
@@ -672,15 +665,16 @@ def _coverage_write_lock(root_dir: Path, target_name: str) -> Iterator[None]:
 # ---------------------------------------------------------------------------
 
 
-def render_coverage_toml(
+def coverage_document(
     target_name: str,
     data: dict[str, Any],
     *,
     previous: dict[str, Any] | None = None,
     verify_rows: Sequence[tuple[Any, ...]] | None = None,
     now: datetime | None = None,
-) -> str:
-    """Return the whole TOML document for one target, as a string.
+    history: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Return normalized coverage facts without serialization or filesystem I/O.
 
     *data* is one catalog snapshot as ``load_coverage_datasets`` returns it.
     *previous* is the prior document for the same target (see
@@ -738,33 +732,64 @@ def render_coverage_toml(
         )
     else:
         verify_list = [_rows_from(_VERIFY_RESULTS_COLUMNS, row) for row in verify_rows]
-    history = _merge_history(prev.get("functions"), prev.get("history"), fn_rows, now=now)
+    history_rows = (
+        [dict(row) for row in history]
+        if history is not None
+        else _merge_history(prev.get("functions"), prev.get("history"), fn_rows, now=now)
+    )
 
-    lines: list[str] = [_HEADER]
-    lines.append(f"version = {_TOML_VERSION}")
-    lines.append(_kv("target", target_name))
+    return {
+        "version": _TOML_VERSION,
+        "target": target_name,
+        "functions": [_rows_from(_FUNCTION_COLUMNS, row) for row in fn_rows],
+        "globals": [_rows_from(_GLOBAL_COLUMNS, row) for row in g_rows],
+        "verify_results": verify_list,
+        "history": history_rows,
+        "metadata": {"paths": dict(data.get("paths", {}))},
+        "sections": {
+            name: _section_document(target_name, name, section)
+            for name, section in sections.items()
+        },
+    }
+
+
+def render_coverage_toml(
+    target_name: str,
+    data: dict[str, Any],
+    *,
+    previous: dict[str, Any] | None = None,
+    verify_rows: Sequence[tuple[Any, ...]] | None = None,
+    now: datetime | None = None,
+    history: Sequence[Mapping[str, Any]] | None = None,
+) -> str:
+    """Render the same normalized facts live dashboards consume as portable TOML."""
+    document = coverage_document(
+        target_name, data, previous=previous, verify_rows=verify_rows, now=now, history=history
+    )
+    lines: list[str] = [_HEADER, f"version = {_TOML_VERSION}", _kv("target", target_name)]
     # Bulk arrays first: a bare key after a table header belongs to THAT table.
-    lines.extend(_kv_block("functions", [_rows_from(_FUNCTION_COLUMNS, r) for r in fn_rows]))
-    lines.extend(_kv_block("globals", [_rows_from(_GLOBAL_COLUMNS, r) for r in g_rows]))
-    lines.extend(_kv_block("verify_results", verify_list))
-    lines.extend(_kv_block("history", history))
+    for name in ("functions", "globals", "verify_results", "history"):
+        lines.extend(_kv_block(name, document[name]))
     lines.append("")
     lines.append("[metadata]")
-    lines.append(_kv("paths", data.get("paths", {})))
-    for sec_name, sec in sections.items():
+    lines.append(_kv("paths", document["metadata"]["paths"]))
+    for sec_name, sec in document["sections"].items():
         lines.append("")
-        lines.extend(_section_table(target_name, sec_name, sec))
+        lines.append(f"[sections.{_key(sec_name)}]")
+        lines.extend(_kv(name, sec[name]) for name in _SECTION_COLUMNS)
+        lines.extend(_kv_block("cells", sec["cells"]))
     return "\n".join(lines) + "\n"
 
 
 def write_coverage_toml(
     root_dir: Path,
+    output_dir: Path,
     *,
     target: str | None = None,
     json_output: bool = False,
     now: datetime | None = None,
 ) -> list[Path]:
-    """Write ``db/coverage-<target>.toml`` for each dataset; return the paths written.
+    """Write ``coverage-<target>.toml`` in the explicit output directory for each dataset; return the paths written.
 
     The catalog inputs and every normalization come from
     :func:`rebrew.coverage_db.load_coverage_datasets` and its helpers, so this
@@ -778,7 +803,10 @@ def write_coverage_toml(
     Returns the paths written, in dataset order.  Writes nothing else — the
     caller reports.
     """
-    db_directory = resolve_db_dir(root_dir, json_output=json_output)
+    from rebrew.config import load_config, module_marker
+
+    db_directory = output_dir.resolve()
+    db_directory.mkdir(parents=True, exist_ok=True)
     datasets = load_coverage_datasets(
         root_dir,
         target=target,
@@ -788,6 +816,13 @@ def write_coverage_toml(
     written: list[Path] = []
     for target_name, data in datasets:
         path = db_directory / f"coverage-{target_name}.toml"
+        history = None
+        cfg = None
+        if (root_dir / "rebrew-project.toml").exists():
+            from rebrew.metadata.functions import load_status_history
+
+            cfg = load_config(root_dir, target=target_name)
+            history = load_status_history(cfg, module_marker(cfg))
         # The whole read-modify-write holds one write lock per target, like the
         # other tool-owned stores.  atomic_write_text alone stops a torn file
         # but not a lost update: two builders for one target (the dashboard
@@ -798,6 +833,19 @@ def write_coverage_toml(
         # retention window rolls the rows off.  The lock is per target, so
         # builds of different targets still run concurrently.
         with _coverage_write_lock(root_dir, target_name):
+            if path.exists():
+                # Explicit export must not destroy retained evidence from an old view.
+                prior = load_coverage_from(db_directory, target_name)
+                if cfg is not None:
+                    from rebrew.metadata.functions import import_status_history
+
+                    if import_status_history(
+                        cfg, module_marker(cfg), [dict(row) for row in prior.history], dry_run=True
+                    ):
+                        raise CoverageTomlError(
+                            f"{path}: history has not been imported; run "
+                            f"rebrew coverage import-history --snapshots '{db_directory}' --target '{target_name}' first"
+                        )
             previous = _read_previous(path)
             # The verify cache is read here, not inside render: render stays a
             # pure function of its arguments (see its docstring), and the
@@ -806,7 +854,7 @@ def write_coverage_toml(
             verify_rows = import_verify_rows(
                 root_dir,
                 target_name,
-                _previous_measured(previous),
+                previous_measurements(previous),
                 # Only the fallback stamp: a cache file whose mtime cannot be
                 # read still has to be dateable, and the moment of this build
                 # is the honest answer.
@@ -820,6 +868,7 @@ def write_coverage_toml(
                     previous=previous,
                     verify_rows=verify_rows,
                     now=now,
+                    history=history,
                 ),
             )
         written.append(path)
@@ -841,26 +890,6 @@ def write_coverage_toml(
 
 class CoverageTomlError(RebrewError):
     """A coverage TOML document is missing, malformed, or of another version."""
-
-
-def _db_directory(root_dir: Path) -> Path:
-    """The directory this reader globs, resolved without ever exiting.
-
-    ``coverage_db.resolve_db_dir`` is the writer's resolver and calls typer's
-    ``error_exit`` on a broken ``rebrew-project.toml``; that is right for a CLI
-    and wrong here, because both dashboards call these readers inside a WSGI
-    request and a ``SystemExit`` there takes the server down instead of
-    answering one target with an error page.  ``rebrew.workspace.db_dir`` is the
-    same path computation without the exit — the two share it, so they cannot
-    disagree on where the file lives — and its one failure is converted into
-    this module's own error type, which every caller already handles.
-    """
-    try:
-        return db_dir(root_dir)
-    except WorkspaceConfigError as exc:
-        # read_config's message already names the file and says what is wrong
-        # with it; re-adding the path would print it twice.
-        raise CoverageTomlError(str(exc)) from exc
 
 
 #: The one cell state a section's byte coverage excludes.  This is not a new
@@ -953,7 +982,7 @@ class Section:
 #: and a second copy would be a second answer.  ``verified`` is an exact match,
 #: ``near_matching`` is the near-match bucket, and a state with no name of its
 #: own lands in ``other``.
-_BUCKET_OF_STATE: Mapping[str, str] = MappingProxyType(
+BUCKET_OF_STATE: Mapping[str, str] = MappingProxyType(
     {
         "exact": "exact",
         "verified": "exact",
@@ -999,7 +1028,7 @@ def _bucket_counts(cells: tuple[Cell, ...]) -> dict[str, int]:
     counts = dict.fromkeys(_BUCKET_KEYS, 0)
     counts["total_cells"] = len(cells)
     for cell in cells:
-        counts[_BUCKET_OF_STATE.get(cell.state, "other")] += 1
+        counts[BUCKET_OF_STATE.get(cell.state, "other")] += 1
     return counts
 
 
@@ -1197,7 +1226,7 @@ def _function(row: dict[str, Any], path: Path) -> Function:
         fileOffset=_opt_int(row.get("fileOffset")),
         status=_text(row.get("status")),
         module=_text(row.get("module")),
-        cflags=_freeze(row.get("cflags")),
+        cflags=_freeze(row.get("cflags") if row.get("cflags") is not None else ""),
         symbol=_text(row.get("symbol")),
         markerType=_text(row.get("markerType")),
         ghidra_name=_text(row.get("ghidra_name")),
@@ -1289,7 +1318,7 @@ def _derive_function_stats(
     )
 
 
-def _snapshot(path: Path, doc: dict[str, Any], target: str) -> CoverageSnapshot:
+def snapshot_from_document(path: Path, doc: dict[str, Any], target: str) -> CoverageSnapshot:
     """Build the snapshot from a parsed document, checking both target names.
 
     The document names its target twice (top level and the filename), and the
@@ -1352,10 +1381,10 @@ def _read_document(path: Path, target: str) -> CoverageSnapshot:
     except tomllib.TOMLDecodeError as exc:
         # A file torn by anything other than atomic_write_text lands here too.
         raise CoverageTomlError(f"{path}: malformed TOML ({exc})") from exc
-    return _snapshot(path, doc, target)
+    return snapshot_from_document(path, doc, target)
 
 
-# Memoized directory scan: ((db_dir, ((name, mtime_ns, size, ino), ...)), snapshots).
+# Memoized directory scan: ((directory, ((name, mtime_ns, size, ino, ctime_ns), ...)), snapshots).
 # The key is every input the answer has — the directory and the stat of every
 # file in it — so a rebuilt file, an added target and a removed one all
 # invalidate.  load_all_coverage runs on the request path and re-reading and
@@ -1366,12 +1395,13 @@ def _read_document(path: Path, target: str) -> CoverageSnapshot:
 # Callers use the returned object's identity as their own cache key, so an
 # unchanged directory returns THE SAME snapshots, not equal copies.
 _ALL_CACHE: (
-    tuple[tuple[Path, tuple[tuple[str, int, int, int], ...]], dict[str, CoverageSnapshot]] | None
+    tuple[tuple[Path, tuple[tuple[str, int, int, int, int], ...]], dict[str, CoverageSnapshot]]
+    | None
 ) = None
 
 
-def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int], ...]:
-    """``(name, mtime_ns, size, ino)`` for every ``coverage-*.toml`` in the directory.
+def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int, int], ...]:
+    """``(name, mtime_ns, size, ino, ctime_ns)`` for every ``coverage-*.toml`` in the directory.
 
     Sorted, because a directory listing's order is not a fact about the files.
     A file that vanishes between the listing and the stat is skipped: the next
@@ -1383,27 +1413,22 @@ def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int], ...]:
     see; this matches every other per-file memo in the tree
     (``verify_hash._SOURCE_MEMO``, ``metadata.document``, ``utils.read_source_text``).
     """
-    entries: list[tuple[str, int, int, int]] = []
+    entries: list[tuple[str, int, int, int, int]] = []
     for path in db_directory.glob(f"{_FILENAME_PREFIX}*{_FILENAME_SUFFIX}"):
         try:
             st = path.stat()
         except OSError:
             continue
-        entries.append((path.name, st.st_mtime_ns, st.st_size, st.st_ino))
+        entries.append((path.name, st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns))
     entries.sort()
     return tuple(entries)
 
 
 def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
-    """``load_all_coverage`` for a caller that already holds the directory.
+    """Read every valid portable snapshot from an explicit directory.
 
-    ``load_all_coverage`` takes a project ROOT and resolves ``[project].db_dir``
-    (or ``<root>/db``) itself, which is the right call for a tool started in a
-    project.  A dashboard can also be pointed straight at a directory — the
-    recoverage ``RECOVERAGE_DB`` override names one — and deriving a root from
-    that path to let this module derive the directory back loses whenever the
-    parent directory has its own ``rebrew-project.toml`` naming a different db
-    dir.  One glob, keyed on the files themselves, is the whole difference.
+    Unreadable documents are logged and skipped. Unchanged directories reuse
+    the same immutable snapshots; normal project readers use coverage_project.
     """
     global _ALL_CACHE
     db_directory = Path(db_directory)
@@ -1412,7 +1437,7 @@ def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
     if cached is not None and cached[0] == key:
         return cached[1]
     snapshots: dict[str, CoverageSnapshot] = {}
-    for name, _mtime_ns, _size, _ino in key[1]:
+    for name, _mtime_ns, _size, _ino, _ctime_ns in key[1]:
         # NFC: lookups and the writer use the NFC config target name, but a
         # decomposing filesystem (HFS+/APFS) lists the file NFD.
         target = unicodedata.normalize("NFC", name[len(_FILENAME_PREFIX) : -len(_FILENAME_SUFFIX)])
@@ -1426,57 +1451,8 @@ def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
 
 
 def load_coverage_from(db_directory: Path, target: str) -> CoverageSnapshot:
-    """One target's snapshot from an explicit *db_directory*.
-
-    The directory-taking twin of :func:`load_coverage`, for the same caller:
-    a dashboard whose database location is configuration, not a project root.
-    """
+    """Read one portable snapshot from an explicit directory and target name."""
     if not target or Path(target).name != target:
         raise CoverageTomlError(f"{target!r} is not a target name")
     path = Path(db_directory) / f"{_FILENAME_PREFIX}{target}{_FILENAME_SUFFIX}"
     return _read_document(path, target)
-
-
-def load_all_coverage(root_dir: Path) -> dict[str, CoverageSnapshot]:
-    """Every target in *root_dir*'s db directory, keyed by target name.
-
-    Returns ``{}`` when the directory holds no ``coverage-*.toml``.  One
-    unreadable document is skipped with a warning naming the file and the
-    reason, never raised: a dashboard showing two of three targets beats a 500.
-    An unchanged directory returns the previously built mapping, so callers can
-    use ``is`` as their own cache key.
-    """
-    return load_all_coverage_from(_db_directory(root_dir))
-
-
-def load_coverage(root_dir: Path, target: str | None = None) -> CoverageSnapshot:
-    """Load one target's snapshot from ``db/coverage-<target>.toml``.
-
-    Raises :class:`CoverageTomlError` when the file is missing, when its
-    ``version`` is not :data:`_TOML_VERSION`, when the TOML is malformed, and
-    when the document is not shaped like this schema.
-
-    *target* ``None`` means the project has exactly one target: the sole
-    ``coverage-*.toml`` is returned and any other number is an error naming the
-    candidates.  Resolving a default out of ``rebrew-project.toml`` instead
-    would answer with a target the caller did not name, which is the one thing a
-    per-target reader must not do.
-
-    A *target* carrying a path separator is refused rather than resolved: the
-    dashboards take a target id from the request path, and the SQLite reader
-    could not be made to read a foreign database by spelling a VA or a target
-    oddly.  A filename can.
-    """
-    db_directory = _db_directory(root_dir)
-    if target is None:
-        snapshots = load_all_coverage(root_dir)
-        if len(snapshots) != 1:
-            found = ", ".join(sorted(snapshots)) or "none"
-            raise CoverageTomlError(
-                f"{db_directory}: expected exactly one coverage file for target=None, "
-                f"found {len(snapshots)} ({found})"
-            )
-        return next(iter(snapshots.values()))
-    if not target or Path(target).name != target:
-        raise CoverageTomlError(f"{target!r} is not a target name")
-    return _read_document(db_directory / f"{_FILENAME_PREFIX}{target}{_FILENAME_SUFFIX}", target)

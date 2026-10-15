@@ -1,7 +1,7 @@
 # PRD 08: Agent Skills
 
 - **Status**: Shipped
-- **Date**: 2026-05 (updated 2026-09)
+- **Date**: 2026-05 (updated 2026-10)
 - **Owner**: rebrew team
 
 **Feature name:** Agent-Facing Workflow Skills
@@ -93,19 +93,19 @@ Ghidra sync.
 
 Trigger keywords: `intake`, `onboard`, `onboard binary`, `new binary`,
 `new target`, `import binary`, `binary recon`, `FLIRT scan`, `first triage`,
-`coverage catalog`, `coverage build`, `cfg detect-crt`, `build layout`.
+`coverage catalog`, `coverage export`, `cfg detect-crt`, `build layout`.
 
 Scope:
 
 - `rebrew intake <binary>`: the one-shot onboarding command (init +
   enumerate + STUB document). It runs `rebrew init` in-process when no
   `rebrew-project.toml` exists, so it also covers the bare-directory case.
-  It does not run FLIRT, catalog, or `rebrew coverage build`; the skill's procedure
+  It does not run FLIRT or catalog; the skill's procedure
   continues from there. `rebrew-init` remains the path for teaching
   `rebrew init`, profile selection, and target naming.
 - Multi-target file layout.
 - Ordered intake procedure: doctor → FLIRT (`rebrew cfg detect-crt apply`,
-  `rebrew library scan-signatures`) → `rebrew library crt-match` → `rebrew coverage catalog` → `rebrew coverage build` → triage.
+  `rebrew library scan-signatures`) → `rebrew library crt-match` → `rebrew coverage catalog` → triage.
 - Outputs and post-intake hand-off to other skills.
 
 Excludes: day-to-day work, deep matching, individual function reversing.

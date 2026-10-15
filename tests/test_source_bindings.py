@@ -71,6 +71,7 @@ class TestSourceBindings:
             "STRUCT: State",
             "CALLERS: send",
             "STATUS: EXACT",
+            "STATUS_HISTORY: forged",
             "SUPPORT: S link shim",
         ],
     )
@@ -237,3 +238,26 @@ class TestReviewedReplacement:
         with pytest.raises(ValueError, match="changed since"):
             replace_source_metadata(tmp_path, [], [], expected_hash=None)
         assert (tmp_path / "rebrew-source.toml").read_bytes() == before
+
+
+class TestIdentityOnlyScan:
+    def test_identity_scan_skips_unneeded_prototypes_but_validates_anchors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import bindings
+
+        source = tmp_path / "identity.c"
+        text = "int f(void) { return 1; }\n"
+        source.write_text(text)
+        _record(tmp_path, "S", 0x1000, "identity.c", "f")
+
+        def _unexpected(*args: object, **kwargs: object) -> None:
+            raise AssertionError("identity-only scan extracted a prototype")
+
+        monkeypatch.setattr(bindings, "_DefinitionPrototypes", _unexpected)
+        rows = source_bindings(text, source, "S", None, tmp_path, with_prototypes=False)
+        assert [(row.name, row.va, row.size) for row in rows] == [("f", 0x1000, 7)]
+        with pytest.raises(ValueError, match="exactly one"):
+            source_bindings(
+                "// ADDRESS: S 0x1000\nint a,b;", source, "S", None, tmp_path, with_prototypes=False
+            )

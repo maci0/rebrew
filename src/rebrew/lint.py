@@ -875,29 +875,6 @@ def _check_W035_unknown_modules(cfg: ProjectConfig) -> list[LintResult]:
     return [res]
 
 
-#: Old-store artifacts the coverage document replaced.  A tree that still
-#: carries one has coverage the dashboards do not read, which is the failure
-#: this check exists to make visible (the readers glob coverage-*.toml only).
-_STALE_COVERAGE_ARTIFACTS: dict[str, str] = {
-    "coverage.db": (
-        "leftover SQLite coverage database — the store is now one clear-text "
-        "db/coverage-<target>.toml per target; re-run rebrew coverage build and delete this"
-    ),
-    # The verify cache and its --compare baseline moved from JSON to TOML with
-    # the other stores.  A leftover JSON file is not read any more, so the
-    # verdicts it holds are invisible: name it rather than let the next verify
-    # silently start from a cold cache.
-    "verify_cache.json": (
-        "leftover JSON verify cache — the store is .rebrew/verify_cache.toml now "
-        "(same rows, TOML); re-run rebrew verify and delete this"
-    ),
-    "verify_baseline.json": (
-        "leftover JSON compare baseline — the --compare baseline is "
-        ".rebrew/verify_baseline.toml now; re-run rebrew verify --compare and delete this"
-    ),
-}
-
-
 def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     """W036: a metadata store living outside the directory the readers use.
 
@@ -1153,56 +1130,6 @@ def _check_W038_data_row_overlap(cfg: ProjectConfig) -> list[LintResult]:
     for problem in problems:
         res.warning(1, "W038", problem)
     return [res]
-
-
-def _check_W032_coverage_store(cfg: ProjectConfig) -> list[LintResult]:
-    """W032: the coverage store's own hygiene.
-
-    Two failures the readers hide: an artifact from a store that no longer
-    exists (`coverage.db`, the grid JSON, the catalog CSV) sitting beside the
-    documents, and a `coverage-<target>.toml` the dashboards cannot serve —
-    malformed, a foreign `version`, or a `target` key that disagrees with the
-    filename, so that target answers with another's data.
-    """
-    from rebrew.coverage_toml import CoverageTomlError, load_coverage_from
-    from rebrew.workspace import db_dir
-
-    directory = db_dir(cfg.root)
-    if not directory.is_dir():
-        return []
-    results: list[LintResult] = []
-    for path in sorted(directory.iterdir()):
-        if not path.is_file():
-            continue
-        name = path.name
-        message = ""
-        if name in _STALE_COVERAGE_ARTIFACTS:
-            message = _STALE_COVERAGE_ARTIFACTS[name]
-        elif name.startswith("data_") and path.suffix == ".json":
-            message = (
-                "leftover catalog grid JSON — rebrew coverage build renders the "
-                "document in process now; delete this"
-            )
-        elif path.suffix == ".csv":
-            message = "leftover catalog CSV export — rebrew no longer writes it; delete this"
-        elif name.startswith("coverage-") and path.suffix == ".toml":
-            # The documented filename pattern; the reader's own prefix/suffix
-            # constants are private to coverage_toml.  The loader already
-            # refuses a foreign `version`, malformed TOML, and a `target` key
-            # that disagrees with the filename, so one read covers all three.
-            target = name[len("coverage-") : -len(".toml")]
-            try:
-                load_coverage_from(directory, target)
-            except CoverageTomlError as exc:
-                message = (
-                    f"coverage document the dashboards cannot serve ({exc}) — "
-                    "re-run rebrew coverage build"
-                )
-        if message:
-            res = LintResult(path)
-            res.warning(1, "W032", message)
-            results.append(res)
-    return results
 
 
 def _check_W033_agent_scaffold(cfg: ProjectConfig) -> list[LintResult]:
@@ -2710,7 +2637,6 @@ def main(
             *_check_W031_metadata_store(cfg),
             *_check_W031_source_provenance(cfg),
             *_check_W031_type_metadata(cfg),
-            *_check_W032_coverage_store(cfg),
             *_check_W036_stray_metadata_store(cfg),
             *_check_W034_identity_paths(cfg),
             *_check_W035_unknown_modules(cfg),

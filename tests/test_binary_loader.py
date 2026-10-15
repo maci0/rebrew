@@ -486,7 +486,7 @@ class TestLoadBinaryCache:
         # The fingerprint is part of the key, so the pre-replace entry stays
         # until eviction but is not the one a lookup of the new inode hits.
         st2 = f.stat()
-        live_key = f"{f.resolve()}:{st2.st_mtime_ns}:{st2.st_size}:{st2.st_ino}"
+        live_key = f"{f.resolve()}:{st2.st_mtime_ns}:{st2.st_ctime_ns}:{st2.st_size}:{st2.st_ino}"
         assert live_key != old_key
         assert live_key in _iat_slot_cache
         assert _iat_slot_cache[live_key] == set()

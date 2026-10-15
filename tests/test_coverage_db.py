@@ -13,10 +13,8 @@ them.
 
 import json
 import logging
-from pathlib import Path
 
 import pytest
-import typer
 
 from rebrew.coverage_db import (
     _clamp_verify_similarity,
@@ -25,7 +23,6 @@ from rebrew.coverage_db import (
     dedupe_cell_rows,
     normalize_cell_row,
     parse_int,
-    resolve_db_dir,
 )
 
 
@@ -192,34 +189,6 @@ class TestNormalizeCellRow:
         a = normalize_cell_row("T", ".text", {"start": 0, "end": 8})
         b = normalize_cell_row("T", ".text", {"start": 8, "end": 16})
         assert dedupe_cell_rows([a, b], target_name="T", sec_name=".text") == [a, b]
-
-
-class TestResolveDbDir:
-    def test_no_config_falls_back_to_db(self, tmp_path: Path) -> None:
-        assert resolve_db_dir(tmp_path) == tmp_path / "db"
-
-    def test_config_db_dir(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-project.toml").write_text(
-            "\n".join(
-                [
-                    "[project]",
-                    'default_target = "main"',
-                    'db_dir = "custom_db"',
-                    "",
-                    "[targets.main]",
-                    'binary = "x.exe"',
-                    'reversed_dir = "src"',
-                ]
-            ),
-            encoding="utf-8",
-        )
-        assert resolve_db_dir(tmp_path) == tmp_path / "custom_db"
-
-    def test_broken_config_fails_loud_rather_than_falling_back(self, tmp_path: Path) -> None:
-        """A config that exists but does not parse must not silently write to db/."""
-        (tmp_path / "rebrew-project.toml").write_text("[project\n", encoding="utf-8")
-        with pytest.raises(typer.Exit):
-            resolve_db_dir(tmp_path)
 
 
 def test_normalized_cells_are_the_documents_row_shape() -> None:

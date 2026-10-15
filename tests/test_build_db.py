@@ -185,7 +185,7 @@ def _json_payload(output: str) -> dict[str, Any]:
 
 
 def _build(runner: CliRunner, root_dir: Path, *args: str):
-    return runner.invoke(app, ["--root", str(root_dir), *args])
+    return runner.invoke(app, ["--root", str(root_dir), "--output", str(root_dir / "db"), *args])
 
 
 # ---------------------------------------------------------------------------
@@ -508,28 +508,17 @@ class TestBuildDbCommand:
         # `end` is raised to `start`, so the span is empty rather than inverted.
         assert [(cell["start"], cell["end"]) for cell in section["cells"]] == [(64, 64)]
 
-    def test_configured_db_dir_is_used(
-        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
-    ) -> None:
-        """The output directory is the project's ``[project].db_dir``."""
-        configured = tmp_path / "coverage"
-        configured.mkdir()
-        (tmp_path / "rebrew-project.toml").write_text(
-            """\
-[project]
-default_target = "main"
-db_dir = "coverage"
+    def test_output_is_explicit(self, runner: CliRunner, project_root: Path) -> None:
+        result = runner.invoke(app, ["--root", str(project_root)])
+        assert result.exit_code == 2
+        assert "--output" in result.output
 
-[targets.main]
-binary = "test.exe"
-""",
-            encoding="utf-8",
-        )
-
-        assert _build(runner, tmp_path).exit_code == 0
-
-        assert (configured / "coverage-main.toml").is_file()
-        assert not (tmp_path / "db" / "coverage-main.toml").exists()
+    def test_selected_output_directory(self, runner: CliRunner, project_root: Path) -> None:
+        output = project_root / "offline"
+        result = runner.invoke(app, ["--root", str(project_root), "--output", str(output)])
+        assert result.exit_code == 0, result.output
+        assert (output / "coverage-testbin.toml").is_file()
+        assert not (project_root / "db" / "coverage-testbin.toml").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -553,7 +542,7 @@ class TestRootResolution:
         nested.mkdir(parents=True)
         monkeypatch.chdir(nested)
 
-        result = runner.invoke(app, [])
+        result = runner.invoke(app, ["--output", str(project_root / "db")])
 
         assert result.exit_code == 0, result.output
         assert (project_root / "db" / "coverage-testbin.toml").is_file()
@@ -566,7 +555,7 @@ class TestRootResolution:
         outside.mkdir()
         monkeypatch.chdir(outside)
 
-        result = runner.invoke(app, [])
+        result = runner.invoke(app, ["--output", "snapshots"])
 
         assert result.exit_code == 2, result.output
         assert "rebrew-project.toml" in result.output
@@ -579,7 +568,7 @@ class TestRootResolution:
         attempt to create the missing parent — an errno pointing inside rebrew's
         own output layout, with no mention of the flag that caused it.
         """
-        result = runner.invoke(app, ["--root", str(tmp_path / "nowhere")])
+        result = runner.invoke(app, ["--root", str(tmp_path / "nowhere"), "--output", "snapshots"])
 
         assert result.exit_code == 2, result.output
         assert "--root does not exist" in result.output
@@ -590,7 +579,7 @@ class TestRootResolution:
         as_file = tmp_path / "rebrew-project.toml"
         as_file.write_text("[project]\n", encoding="utf-8")
 
-        result = runner.invoke(app, ["--root", str(as_file)])
+        result = runner.invoke(app, ["--root", str(as_file), "--output", "snapshots"])
 
         assert result.exit_code == 2, result.output
         assert "must be a directory" in result.output
@@ -599,7 +588,9 @@ class TestRootResolution:
     def test_root_errors_keep_the_json_envelope(self, runner: CliRunner, tmp_path: Path) -> None:
         import json
 
-        result = runner.invoke(app, ["--root", str(tmp_path / "nowhere"), "--json"])
+        result = runner.invoke(
+            app, ["--root", str(tmp_path / "nowhere"), "--output", "snapshots", "--json"]
+        )
 
         assert result.exit_code == 2, result.output
         assert json.loads(result.stdout)["code"] == 2
@@ -776,6 +767,10 @@ class TestJsonAndOptions:
     ) -> None:
         assert _build(runner, project_root).exit_code == 0
 
+        from rebrew.metadata.functions import update_source_status
+
+        update_source_status(project_root, "EXACT", "GAME", 0x10001000)
+        update_source_status(project_root, "RELOC", "GAME", 0x10001000, updated_by="verify")
         catalog.data["functions"]["func_a"]["status"] = "RELOC"
         _write_config(project_root, "testbin")
 

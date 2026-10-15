@@ -23,3 +23,9 @@ Externals (the only packages this one may import): `c_parser`, `compiler.toolcha
 - **`type_metadata.py` stays outside.** The type store compiles probes and hashes headers, so it imports the compile path this package must not.
 
 - **Current format only.** Format 2 is mandatory. No inline metadata block parser or migration reader. All state, including reconstruction source, STRUCT/CALLERS and support purposes, belongs in the stores.
+
+- **History is comparison evidence.** Accepted STATUS transitions append
+  `status_history` in the same locked write. Generic field setters cannot forge
+  history. `import_status_history` imports reviewed portable history without
+  changing current verdicts, identities, edit stamps or verification; dry runs
+  read through the strict metadata loader and create no files.

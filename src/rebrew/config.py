@@ -518,7 +518,6 @@ class ProjectConfig:
     # --- project-level defaults ---
     project_name: str = ""
     default_jobs: int = DEFAULT_PROJECT_JOBS  # see DEFAULT_PROJECT_JOBS
-    db_dir: Path = field(default_factory=lambda: Path())
     output_dir: Path = field(default_factory=lambda: Path())
     # Image the linker wrote, before postlink copies reference bytes.
     # None: status scores only build/<target>.
@@ -806,8 +805,6 @@ class ProjectConfig:
             self.shared_dir = Path(self.shared_dir)
         if self.bin_dir is not None and not isinstance(self.bin_dir, Path):
             self.bin_dir = Path(self.bin_dir)
-        if self.db_dir is not None and not isinstance(self.db_dir, Path):
-            self.db_dir = Path(self.db_dir)
         if self.output_dir is not None and not isinstance(self.output_dir, Path):
             self.output_dir = Path(self.output_dir)
         if self.compiler_includes is not None and not isinstance(self.compiler_includes, Path):
@@ -832,7 +829,6 @@ class ProjectConfig:
             "check_known_bindings": self.check_known_bindings,
             "project_name": self.project_name,
             "default_jobs": self.default_jobs,
-            "db_dir": str(self.db_dir),
             "output_dir": str(self.output_dir),
             "compiler_profile": self.compiler_profile,
             "compiler_command": self.compiler_command,
@@ -2231,7 +2227,6 @@ _KNOWN_COMPILER_KEYS = {
 KNOWN_PROJECT_KEYS = {
     "name",
     "jobs",
-    "db_dir",
     "output_dir",
     "default_target",
     "shared_dir",  # project-level shared sources root (multi-version)
@@ -2464,7 +2459,6 @@ def load_config(
     bin_dir = _required_path(
         root, sources.get("bin_dir"), f"bin/{target}", f"[targets.{target}].bin_dir"
     )
-    db_dir = _required_path(root, project_raw.get("db_dir"), "db", "[project].db_dir")
     output_dir = _required_path(
         root, project_raw.get("output_dir"), "output", "[project].output_dir"
     )
@@ -2586,7 +2580,6 @@ def load_config(
         default_jobs=_positive_int(
             project_raw.get("jobs", DEFAULT_PROJECT_JOBS), DEFAULT_PROJECT_JOBS, "project.jobs"
         ),
-        db_dir=db_dir,
         output_dir=output_dir,
         raw_link=(
             _required_path(root, tgt.get("raw_link"), "", f"targets.{target}.raw_link")

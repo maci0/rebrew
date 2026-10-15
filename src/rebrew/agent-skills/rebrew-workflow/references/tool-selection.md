@@ -9,7 +9,7 @@ and user-overridden skills.
 
 | Need | Use first |
 | --- | --- |
-| Progress, inventory, next action | `rebrew status --json`, `rebrew todo --json`, `rebrew coverage catalog --json`; regenerate served documents with `rebrew coverage build --json` |
+| Progress, inventory, next action | `rebrew status --json`, `rebrew todo --json`, `rebrew coverage catalog --json`; dashboards read live inputs; export portable snapshots with `rebrew coverage export --output snapshots/ --json` |
 | Address-keyed notebooks | `rebrew source findings 0x<VA> --json` |
 | Native source-unit paths | `rebrew source units --json`; complete reference extents and direct operands, no automatic moves |
 | Native linker anchors | `rebrew build anchors --dry-run --json`; explicit data sources and native symbols |
@@ -96,3 +96,8 @@ For concurrent work, agree on explicit ownership of source/header/layout edits.
 Metadata locks protect store writes, not simultaneous C edits or links in one
 build directory. Give measurements separate build directories or one linker
 writer, and stage only named, reviewed paths.
+
+`rebrew skeleton --decomp --decomp-body` validates the complete implementation
+without the extra-seed population limit. Rejected bodies name the specific C gate
+and stay as comments. Additional GA seeds retain their separate 8K-character
+budget; it never truncates the user's translation unit.

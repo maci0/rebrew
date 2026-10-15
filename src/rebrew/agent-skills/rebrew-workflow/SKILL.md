@@ -146,7 +146,7 @@ Rebrew filters source bindings by the active `--target`. Several targets may sha
 > **Volatile metadata lives only in `rebrew-functions.toml` at `cfg.metadata_dir`.
 > Never hand-edit the TOML or inline volatile fields in `.c`.** Keys: STATUS, SIZE, CFLAGS,
 > TOOLCHAIN, BLOCKER/BLOCKER_DELTA, NOTE, GHIDRA, ANALYSIS, SOURCE, SKIP, GLOBALS,
-> LOCALS, COMMENTS, PROVE_CONSTRAINTS, ORIGINS, VERIFICATION, UPDATED_BY/UPDATED_AT (SECTION lives in
+> LOCALS, COMMENTS, PROVE_CONSTRAINTS, ORIGINS, VERIFICATION, STATUS_HISTORY, UPDATED_BY/UPDATED_AT (SECTION lives in
 > `rebrew-data.toml`). STATUS via `rebrew test`/`verify` only; use `rebrew blocker
 > set/clear`, the locked owner APIs for metadata changes. Files are mode 0444
 > (`atomic_write_locked`). SIZE and CFLAGS are metadata-owned;
@@ -228,7 +228,7 @@ Splitting/merging source files and reading the call graph:
 `rebrew doctor` for health, `rebrew verify --compare` as the CI regression gate
 against `.rebrew/verify_baseline.toml`, `rebrew lint --json` (with `--fix` to
 reject forbidden inline metadata). Full flag set, `orphans`/`types`/`text-audit`,
-`catalog` / `build-db` refresh, and decomp.me: `references/verify-and-progress.md`.
+live coverage / optional snapshot export, and decomp.me: `references/verify-and-progress.md`.
 `rebrew coverage serve` serves the same coverage data read-only at
 http://127.0.0.1:8000 (`--port` rebinds); start it only when the user asks for
 the UI, and stop it when they are done: it blocks until then.

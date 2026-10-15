@@ -25,7 +25,6 @@ def test_workspace_public_api_snapshot() -> None:
     """Gating: prevent accidental removal or breaking rename of workspace exports."""
     expected = {
         "CONFIG_NAME",
-        "DEFAULT_DB_DIR",
         "DEFAULT_REVERSED_ROOT",
         "EARNED_STATUSES",
         "KNOWN_STATUSES",
@@ -33,7 +32,6 @@ def test_workspace_public_api_snapshot() -> None:
         "VA_MAX",
         "WorkspaceConfigError",
         "WorkspaceNotFound",
-        "db_dir",
         "default_target",
         "find_root",
         "parse_va_candidates",

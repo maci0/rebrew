@@ -701,7 +701,7 @@ def _render_index(
             over_text_html = (
                 f"<p class='note'>Byte coverage counts {counted}, more than the "
                 f"{report.total_text_bytes}-byte .text section, so byte coverage "
-                "is shown as 100%+. Re-run <code>rebrew coverage build</code> if the "
+                "is shown as 100%+. Re-run <code>rebrew coverage export --output snapshots/</code> if the "
                 "SIZE fields are stale.</p>"
             )
         else:

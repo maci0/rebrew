@@ -814,27 +814,46 @@ class TestDecompBody:
             decomp_backend="ghidra",
             decomp_body=False,
         )
-        assert (
-            "*/\n"
-            not in content.split("/* === End decompilation === */")[0].split(
-                "/* === Decompilation (ghidra) === */"
-            )[1]
-        )
+        from rebrew.c_parser import find_c_function_definitions
+
+        assert [name for name, _line in find_c_function_definitions(content)] == ["my_func"]
         assert "* /" in content  # the breakout is defused, not deleted
 
-    def test_oversize_decomp_reports_seed_budget(self, tmp_path: Path) -> None:
-        """A full Kuna body can parse correctly while exceeding the GA budget."""
+    def test_complete_decomp_body_exceeds_only_the_ga_budget(self, tmp_path: Path) -> None:
+        from rebrew.c_parser import function_source_error
+        from rebrew.llm_seed import valid_c_source
+
         code = "int orig(void) { int n = 0;" + "n += 1;" * 1500 + "return n; }"
-        with pytest.warns(UserWarning, match="seed size budget"):
-            content = generate_skeleton(
-                self._cfg(tmp_path),
-                0x1000,
-                "my_func",
-                decomp_code=code,
-                decomp_backend="kuna",
-                decomp_body=True,
-            )
-        assert "=== Decompilation (kuna) ===" in content
+        assert function_source_error(code) is None
+        assert not valid_c_source(code)
+        content = generate_skeleton(
+            self._cfg(tmp_path),
+            0x1000,
+            "my_func",
+            decomp_code=code,
+            decomp_backend="kuna",
+            decomp_body=True,
+        )
+        assert "=== Decompilation (kuna) ===" not in content
+        assert content.count("n += 1;") == 1500
+        assert "int my_func(void)" in content
+
+    def test_body_rename_uses_identifiers_and_preserves_comments_literals(
+        self, tmp_path: Path
+    ) -> None:
+        code = '/* orig is recursive */\nint orig(int n) { const char *s="orig"; return n ? orig(n-1) : 0; }'
+        content = generate_skeleton(
+            self._cfg(tmp_path),
+            0x1000,
+            "my_func",
+            decomp_code=code,
+            decomp_backend="kuna",
+            decomp_body=True,
+        )
+        assert "/* orig is recursive */" in content
+        assert '"orig"' in content
+        assert "my_func(n-1)" in content
+        assert "int my_func(int n)" in content
 
     def test_decomp_body_rejects_unvalidated_code(self, tmp_path: Path) -> None:
         """A body carrying a preprocessor directive is not written as code:
@@ -1480,3 +1499,36 @@ class TestAppendCrlfSource:
         )
 
         assert b"\r" not in target.read_bytes()
+
+
+class TestInertDecompilerFallback:
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "#error rejected\nint orig(void) { return 0; }",
+            'int orig(void) { __pragma(optimize("", off)); return 0; }',
+            "int orig(void) { __asm nop }",
+            "int orig(void) { return 0; }\nint injected(void) { return 7; }",
+            "int my_func(int n);\nint orig(int n) { return my_func(n); }",
+            "int orig(int n) { return my_func(n); }",
+        ],
+    )
+    def test_rejected_body_is_inert(self, body: str) -> None:
+        from rebrew.c_parser import find_c_function_definitions, parse_c_source
+        from rebrew.skeleton import _render_skeleton
+
+        with pytest.warns(UserWarning, match="failed the C gate:"):
+            content = _render_skeleton(
+                "FUNCTION", "GAME", 0x1000, None, body, "kuna", "my_func", "orig", decomp_body=True
+            )
+        assert [name for name, _line in find_c_function_definitions(content)] == ["my_func"]
+        tree, _ = parse_c_source(content)
+        assert not tree.root_node.has_error
+        assert {node.type for node in tree.root_node.children} <= {"comment", "function_definition"}
+
+    def test_recursive_prototype_and_calls_rename_together(self) -> None:
+        from rebrew.c_rename import rename_function_source
+
+        source = "int orig(int n);\nint orig(int n) { return n ? orig(n-1) : 0; }"
+        changed = rename_function_source(source, "target")
+        assert changed == source.replace("orig", "target")

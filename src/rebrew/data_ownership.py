@@ -126,6 +126,39 @@ def _library_key(name: str) -> str:
     return PureWindowsPath(name).stem.casefold()
 
 
+def ownership_inputs(cfg: ProjectConfig) -> set[Path]:
+    """Paths that can change link-map storage attribution, including absent inputs."""
+    from rebrew.formats.archives import stock_lib_cache
+
+    paths: set[Path] = set()
+    for spec in (getattr(cfg, "external_libs", None) or {}).values():
+        if not spec:
+            continue
+        if "/" in spec or "\\" in spec:
+            path = Path(spec.replace("\\", "/"))
+            paths.add(path if path.is_absolute() else cfg.root / path)
+        else:
+            paths.update(
+                (
+                    stock_lib_cache(cfg.root, spec, cfg.compiler_profile),
+                    stock_lib_cache(cfg.root, spec.upper(), cfg.compiler_profile),
+                )
+            )
+    if cfg.raw_link is not None:
+        commands = cfg.raw_link.parent / "compile_commands.json"
+        paths.add(commands)
+        if commands.is_file():
+            try:
+                rows = json.loads(commands.read_text())
+                for row in rows:
+                    source = Path(row["file"])
+                    paths.add(source if source.is_absolute() else Path(row["directory"]) / source)
+            except (OSError, ValueError, KeyError, TypeError):
+                # The ownership scanner reports malformed compile commands.
+                pass
+    return paths
+
+
 def _cached_archives(cfg: ProjectConfig) -> dict[str, Path]:
     """Configured archives already on disk; never extract or pull during a scan."""
     from rebrew.formats.archives import stock_lib_cache

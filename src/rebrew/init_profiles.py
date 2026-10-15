@@ -21,7 +21,6 @@ DEFAULT_REBREW_TOML = """# rebrew project configuration
 name = "{project_name}"
 default_target = "{target_name}"   # target used when --target is not passed
 jobs = {default_jobs}              # default parallelism for verify/batch/GA
-# db_dir = "db"                    # coverage document output
 # output_dir = "output"            # GA run output
 # shared_dir = "src/shared"        # sources scanned for every target; "" disables
 

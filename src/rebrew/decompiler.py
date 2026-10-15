@@ -907,12 +907,12 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     Without them the seed never compiles and is discarded from the GA.
 
     Returns the fixup'd C — a GA seed candidate — or ``None`` when kuna is
-    unavailable, fails, or the output is not valid C.
+    unavailable or fails. Invalid C raises ValueError with the rejection reason.
     """
     raw = fetch_kuna(binary, va, root)
     if not raw:
         return None
-    from rebrew.llm_seed import valid_c_source
+    from rebrew.c_parser import function_source_error
     from rebrew.pseudo_c import sanitize_tokens
 
     fixed, _ = sanitize_tokens(raw)
@@ -923,7 +923,10 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     declarations = _kuna_declarations(fixed)
     if declarations:
         fixed = "\n".join(declarations) + "\n\n" + fixed
-    return fixed if valid_c_source(fixed, allow_declarations=True) else None
+    reason = function_source_error(fixed, allow_declarations=True)
+    if reason is not None:
+        raise ValueError(f"Kuna output rejected: {reason}")
+    return fixed
 
 
 # ---------------------------------------------------------------------------

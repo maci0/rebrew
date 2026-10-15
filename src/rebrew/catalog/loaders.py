@@ -198,7 +198,7 @@ def _inventory_fingerprint(path: str) -> str:
         st = Path(path).stat()
     except OSError:
         return ""
-    return f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
+    return f"{st.st_mtime_ns}:{st.st_ctime_ns}:{st.st_size}:{st.st_ino}"
 
 
 def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:

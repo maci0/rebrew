@@ -64,7 +64,6 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `marker` | `[targets.<name>].marker` | Module name in `MODULE.0xVA` keys (default: target name uppercased, characters other than letters, digits, and `_` stripped) |
 | `target_binary` | `[targets.<name>].binary` | Resolved path to the target executable/DLL |
 | `default_jobs` | `[project].jobs` | Default parallelism for batch commands (default `4`) |
-| `db_dir` | `[project].db_dir` | Where `rebrew coverage build` writes `coverage-<target>.toml` (verify reports are no longer written here by default; the `--compare` baseline lives in `.rebrew/`) |
 | `output_dir` | `[project].output_dir` | Default output directory for generated artifacts |
 | `image_base` | Auto-detected from PE | `0x10000000` for example DLL |
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
@@ -598,7 +597,7 @@ The config loader fail-fasts on missing/invalid structure:
   project.
 - Non-string or empty `project.default_target`.
 - Explicitly empty required path fields (`reversed_dir`, `bin_dir`,
-  `db_dir`, `output_dir`) or an empty `compiler.command` on a native (non-image)
+  `output_dir`) or an empty `compiler.command` on a native (non-image)
   profile (these otherwise resolve to the project root or fail only when a compiler
   subprocess is launched). `includes`/`libs` may be empty: that means "no extra
   dir" (e.g. `mingw-16.2.0` ships its own headers).
@@ -659,7 +658,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 
 | Tool | Config Values Used |
 |------|--------------------|
-| `verify.py` | `target_binary`, `reversed_dir`, `root`, `marker`, `metadata_dir`, `default_jobs` (no longer writes reports into `db_dir`; `text_raw_offset` and `image_base` live on `binary_loader.BinaryInfo`, not the config) |
+| `verify.py` | `target_binary`, `reversed_dir`, `root`, `marker`, `metadata_dir`, `default_jobs` (writes default reports into `.rebrew/`; `text_raw_offset` and `image_base` live on `binary_loader.BinaryInfo`, not the config) |
 | `test.py` | `target_binary`, `reversed_dir`, `metadata_dir`, `default_jobs` (compiler settings are resolved in `compiler/compile.py`) |
 | `match.py` | `root`, `metadata_dir` (the GA reads `reversed_dir` / `target_binary` / `compiler.*` via `matcher/`) |
 | `ghidra/cli.py` | `reversed_dir` |
@@ -672,7 +671,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `matcher/scoring.py` | none directly: takes `cs_arch` / `cs_mode` ints from the caller (`match`/`diff` pass `cfg.capstone_arch` / `capstone_mode`) |
 | `matcher/compiler.py` | `compiler_profile` (drives flag axes) |
 | `matcher/parsers.py` | `padding_bytes` |
-| `catalog/` | `text_va`, `db_dir`, `reversed_dir`, `target_binary`, `metadata_dir`, `shared_dir`, `iat_thunks`, `dll_exports` (`image_base` comes from `binary_loader.BinaryInfo`) |
+| `catalog/` | `text_va`, `reversed_dir`, `target_binary`, `metadata_dir`, `shared_dir`, `iat_thunks`, `dll_exports` (`image_base` comes from `binary_loader.BinaryInfo`) |
 | `data.py` | `reversed_dir`, `target_binary`, `marker`, `root`, `metadata_dir` |
 | `depgraph.py` | `reversed_dir` |
 | `lint.py` | `reversed_dir`, `source_ext`, `target_binary`, `metadata_dir`, `cflags`, `base_cflags`, `library_modules` |
@@ -681,7 +680,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `doctor.py` | `target_binary`, `reversed_dir`, `bin_dir`, compiler paths, `arch`, `binary_format` |
 | `flirt.py` | `target_binary`, `root` |
 | `crt_match.py` | `crt_sources`, `reversed_dir`, `source_ext`, `root` |
-| `coverage_db.py` | `root`, `db_dir` |
+| `coverage_db.py` | `root`; portable export output is explicit |
 | `cache_cli.py` | `root` (cache directory location) |
 | `cfg.py` | `rebrew-project.toml` (tomlkit read/write) |
 | `split.py` | `marker`, `source_ext`, `reversed_dir` |

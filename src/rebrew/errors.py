@@ -67,6 +67,7 @@ if TYPE_CHECKING:
     from rebrew.config import ConfigError as ConfigError
     from rebrew.config import ConfigKeyError as ConfigKeyError
     from rebrew.config import ConfigNotFoundError as ConfigNotFoundError
+    from rebrew.coverage_project import ProjectCoverageError as ProjectCoverageError
     from rebrew.coverage_toml import CoverageTomlError as CoverageTomlError
     from rebrew.decompme import DecompmeError as DecompmeError
     from rebrew.decompme import DecompmeErrorKind as DecompmeErrorKind
@@ -261,6 +262,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "ToolchainError": ("rebrew.compiler.toolchain", "ToolchainError"),
     "UnresolvedSymbolError": ("rebrew.coff_reloc", "UnresolvedSymbolError"),
     "CoverageTomlError": ("rebrew.coverage_toml", "CoverageTomlError"),
+    "ProjectCoverageError": ("rebrew.coverage_project", "ProjectCoverageError"),
     "VendorError": ("rebrew.vendor", "VendorError"),
     "WorkspaceConfigError": ("rebrew.workspace.config", "WorkspaceConfigError"),
     "WorkspaceNotFound": ("rebrew.workspace.config", "WorkspaceNotFound"),
@@ -351,6 +353,7 @@ __all__ = [
     "Omf16Error",
     "OrphanInventoryError",
     "PdbExportError",
+    "ProjectCoverageError",
     "RebrewError",
     "RecompileError",
     "RecompileErrorKind",

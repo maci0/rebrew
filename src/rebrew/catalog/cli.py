@@ -8,9 +8,9 @@ Typer callback is a thin wrapper that resolves config, validates CLI-only
 option combinations, and prints the result.  Scan/registry/grid data comes
 from :func:`rebrew.catalog.pipeline.build_catalog_data`.
 
-The catalog writes no coverage document itself: ``rebrew coverage build`` calls
+The catalog writes no coverage document itself: ``rebrew coverage export --output snapshots/`` calls
 :func:`rebrew.catalog.pipeline.build_catalog_data` and renders
-``db/coverage-<target>.toml`` from the returned dict.
+``snapshots/coverage-<target>.toml`` from the returned dict.
 ``--json`` emits a machine-readable summary to stdout, like all other tools.
 """
 
@@ -47,7 +47,7 @@ app = typer.Typer(
         "  rebrew coverage catalog\n\n"
         "  rebrew coverage catalog --json\n\n"
         "  rebrew coverage catalog --target mygame\n\n"
-        "[dim]Combines source bindings and dedicated function metadata with discovery inventory and binary evidence. Builds the function registry and .text coverage grid, then prints a summary. It does not write coverage documents; use rebrew coverage build for db/coverage-<target>.toml. Explicit export/fix options write their requested artifacts.[/dim]\n\n"
+        "[dim]Combines source bindings and dedicated function metadata with discovery inventory and binary evidence. Builds the function registry and .text coverage grid, then prints a summary. It does not write coverage documents; use rebrew coverage export --output snapshots/ for snapshots/coverage-<target>.toml. Explicit export/fix options write their requested artifacts.[/dim]\n\n"
     ),
 )
 

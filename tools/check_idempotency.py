@@ -390,7 +390,7 @@ WRITE_COMMANDS = [
     # Renders db/coverage-<target>.toml by scanning the tree in-process.
     # `rebrew coverage catalog` left this list when it stopped writing: it reports the
     # catalog and nothing else, so it is a read-only command now.
-    "coverage build",
+    "coverage export --output snapshots/",
     # Rewrites the splat-style symbol_addrs file from source bindings.
     "export symbols",
     # The CL/LINK/LIB bridge needs MSVC; this fixture defaults to MinGW.

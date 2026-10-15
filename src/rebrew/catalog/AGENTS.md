@@ -1,6 +1,6 @@
 # AGENTS.md: catalog/
 
-Merges function sources (discovery inventory, Ghidra JSON, binary exports) into a unified registry and builds the cell-level coverage grid the `db/coverage-<target>.toml` document is rendered from.
+Merges function sources (discovery inventory, Ghidra JSON, binary exports) into a unified registry and builds the cell-level view shared by live dashboards and explicit portable exports.
 
 ## Modules
 
@@ -17,7 +17,7 @@ Externals (the only packages this one may import): `cli`, `config`, `function_pr
 
 ## Data flow
 
-Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery/Ghidra JSON → `load_function_structure`; binary → `load_binary`. Then `build_function_registry` (merge by VA, canonical size) → `build_coverage_data` → the dict `rebrew coverage build` renders into `db/coverage-{target}.toml`.
+Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery/Ghidra JSON → `load_function_structure`; binary → `load_binary`. Then `build_function_registry` (merge by VA, canonical size) → `build_coverage_data` → the dict shared by live project views and `rebrew coverage export --output <directory>`.
 
 ## Invariants
 

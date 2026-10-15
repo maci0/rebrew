@@ -125,7 +125,7 @@ _METADATA_DOC_CACHE_MAX = 64
 #: ``(st_mtime_ns, st_size, st_ino)`` of a metadata TOML.  mtime alone misses
 #: another process's rewrite inside one timestamp tick (coarse filesystems,
 #: ``cp -p``); the atomic-rename writers always produce a new inode.
-MetadataDocFingerprint = tuple[int, int, int]
+MetadataDocFingerprint = tuple[int, int, int, int]
 MetadataDocCache = dict[Path, tuple[MetadataDocFingerprint, dict[tuple[str, int], dict[str, Any]]]]
 
 
@@ -183,7 +183,7 @@ def load_metadata_doc(
     except OSError:
         pop_metadata_doc_cache(cache, path)
         raise
-    current_fp: MetadataDocFingerprint = (st.st_mtime_ns, st.st_size, st.st_ino)
+    current_fp: MetadataDocFingerprint = (st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino)
     with _METADATA_DOC_CACHE_LOCK:
         cached = cache.get(path)
         if cached is not None and cached[0] == current_fp:

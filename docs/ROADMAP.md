@@ -616,7 +616,7 @@ rebrew library identify --all --fix-source   # merges FLIRT + imports + toolchai
 ```bash
 rebrew verify --json --all > verify.json
 rebrew verify --compare                       # regression check
-rebrew coverage build                               # rewrite coverage-<target>.toml (now overlay-aware)
+rebrew coverage export --output snapshots/                               # rewrite coverage-<target>.toml (now overlay-aware)
 rebrew coverage report --serve                         # PR artifact
 ```
 

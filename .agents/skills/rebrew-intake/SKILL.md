@@ -15,7 +15,7 @@ graph TD
     Doctor -->|pass| Flirt[FLIRT library scan<br/>rebrew cfg detect-crt apply<br/>rebrew library scan-signatures --json]
     Flirt --> CrtMatch[Annotate library sources<br/>rebrew library crt-match --all --fix-source]
     CrtMatch --> Catalog[Build function catalog<br/>rebrew coverage catalog --export-ghidra-labels]
-    Catalog --> BuildDb[Build coverage document<br/>rebrew coverage build]
+    Catalog --> BuildDb[Build coverage document<br/>rebrew coverage export --output snapshots/]
     BuildDb --> Triage[Initial triage<br/>rebrew status --json / rebrew todo --json]
     Triage --> CuMap[Infer compilation units<br/>rebrew source graph --cu-map]
     CuMap --> Skeleton[Generate first skeletons<br/>rebrew skeleton --batch 10]
@@ -31,7 +31,7 @@ Onboard a binary and run the first recon pass (library ID → catalog → triage
 - Teaching bare-dir `rebrew init` / profile / target naming only → use `rebrew-init`
 - Day-to-day reversing on an already-onboarded target → use `rebrew-workflow`
 - `rebrew binary analyze` / `describe` / `xrefs` recon on an already-onboarded target → use `rebrew-workflow`
-- A later catalog / build-db refresh, or the coverage dashboard → use `rebrew-workflow`
+- A later catalog / live coverage refresh, or the coverage dashboard → use `rebrew-workflow`
 - Deep matching for a single function → use `rebrew-matching`
 
 Use once per new target (or when re-running initial recon). Re-run individual
@@ -52,7 +52,7 @@ rebrew init --target <name> --binary <filename> --guess-compiler
 rebrew toolchain pull <profile>           # docker image for the profile (required; no host wine/wibo)
 ```
 
-`rebrew intake` does **not** run FLIRT, catalog, or `build-db`; continue with
+`rebrew intake` does **not** run FLIRT or catalog; continue with
 §1–§8 below after it (or after a manual `rebrew init`). Shipped toolchains are
 docker-only.
 
@@ -132,12 +132,12 @@ Needs `rebrew cfg detect-crt apply` first or `rebrew library crt-match --all` fi
 ### 3. Build Function Catalog + Coverage Document
 
 ```bash
-rebrew coverage build                         # write db/coverage-bench.toml (one per target)
+rebrew coverage export --output snapshots/                         # optional portable snapshots for offline use
 rebrew coverage catalog --export-ghidra-labels   # write ghidra_data_labels.json (switch tables etc.)
 rebrew coverage catalog --fix-sizes              # backfill SIZE in rebrew-functions.toml from catalog
 ```
 
-`build-db` scans the tree itself; `function_structure.json` is used when a
+Live coverage scans the tree itself; `function_structure.json` is used when a
 Ghidra export is present. `--fix-sizes` prompts unless `--force` (required with
 `--json`).
 
@@ -224,7 +224,7 @@ Conflicts, the git-backed `rebrew binsync` group, and pull semantics are in
 ### 10. Coverage Dashboard (optional, ask first)
 
 ```bash
-rebrew coverage build                         # refresh db/coverage-bench.toml after any changes
+rebrew coverage export --output snapshots/                         # optional portable snapshots; local dashboards update directly
 rebrew coverage serve                        # read-only UI at http://127.0.0.1:8000 (blocks the shell)
 ```
 

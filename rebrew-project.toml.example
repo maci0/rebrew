@@ -20,10 +20,6 @@ default_target = "game"
 # Default: 4
 jobs = 4
 
-# Directory for coverage databases and SQLite reports.
-# Default: "db"
-db_dir = "db"
-
 # Directory for generated artifacts and search outputs.
 # Default: "output"
 output_dir = "output"

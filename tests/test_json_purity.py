@@ -92,7 +92,7 @@ _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ("match solutions --json", {0}),
     ("export symbols --json", {0}),
     ("diagnose stack --json src/SERVER/fcn.c", {0, 2}),
-    ("coverage build --json", {0, 2}),
+    ("coverage export --output snapshots/ --json", {0, 2}),
     ("build postlink --json build/x.dll original/mini_pe.exe", {0, 2}),
     ("build round-trip --json", {0}),
     ("prove --json src/SERVER/fcn.c", {0, 2}),

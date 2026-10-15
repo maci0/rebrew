@@ -405,7 +405,6 @@ def bench_status_aggregation() -> dict[str, Any]:
             reversed_dir=src_dir,
             marker="SERVER",
             source_ext=".c",
-            db_dir=root / "db",
         )
 
         def run() -> None:

@@ -314,11 +314,11 @@ class TestSetScalarCLI:
     def test_bare_project_scoped_key_routes_name(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set", "db_dir", "db2"])
+        result = runner.invoke(cfg_app, ["set", "output_dir", "out2"])
         assert result.exit_code == 0
         doc, _ = load_toml(tmp_path)
-        assert doc["project"]["db_dir"] == "db2"
-        assert "db_dir" not in doc
+        assert doc["project"]["output_dir"] == "out2"
+        assert "output_dir" not in doc
 
 
 class TestCommentsPreserved:

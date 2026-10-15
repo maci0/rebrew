@@ -1,182 +1,47 @@
-"""dashboard.py – Read-only web dashboard over the coverage documents.
+"""Read-only HTTP dashboard over live project coverage or portable snapshots.
 
-Serves the per-target ``db/coverage-<target>.toml`` written by ``rebrew
-build-db`` over a tiny HTTP server with no dependencies beyond the stdlib.
-Every endpoint is read-only: a document is only ever read, and non-GET/HEAD
-requests are rejected with 405.
+Live views derive from canonical metadata, source bindings, inventory, binaries
+and link evidence. No coverage export or database configuration is required.
+Portable mode is explicit (Dashboard(..., snapshots=True) / --snapshots).
+Every response pins immutable snapshots and failed-target diagnostics together.
+Healthy targets remain readable when siblings fail; health then says degraded.
 
 Endpoints
 ---------
-``GET /``                      → HTML shell (functions, sections, globals, history)
-``GET /app.js``                → deferred dashboard client (preloaded + ``defer``)
-``GET /favicon.svg``           → the rebrew mark (served, not inlined; hashed URL)
-``GET /api/bootstrap``         → targets + first target's summary/functions (one RTT)
-``GET /api/health``            → liveness probe (one real read of the target list)
-``GET /api/targets``           → list of targets (includes count/total)
-``GET /api/summary?target=``   → function stats + coverage % (target required)
-``GET /api/functions?target=`` → function rows as arrays under ``cols`` (filters: status, module, q, limit, offset)
-``GET /api/sections?target=``  → per-section cell stats (rows as arrays under ``cols``; includes count/total/limit/offset)
-``GET /api/globals?target=``   → global data rows (filters: module, q, limit, offset; includes total)
-``GET /api/history?target=``   → status-change history (filters: limit, offset; includes total)
+``GET /``                       → accessible HTML shell
+``GET /app.js``                 → deferred dashboard client
+``GET /favicon.svg``            → content-hashed favicon
+``GET /api/bootstrap``          → targets, failures and first target summary/functions
+``GET /api/health``             → uncached liveness, readable target count and server totals
+``GET /api/targets``            → readable targets and per-target failures
+``GET /api/summary?target=``    → function stats and coverage
+``GET /api/functions?target=``  → functions (status/module/q/limit/offset)
+``GET /api/sections?target=``    → section cells and byte buckets
+``GET /api/globals?target=``    → data rows (module/q/limit/offset)
+``GET /api/history?target=``    → durable status transitions (limit/offset)
 
-``q`` matches a name or symbol substring on functions, and a name substring
-on globals. A term of four or more hex digits, with an optional ``0x``
-prefix, also matches that virtual address exactly. ``0x401000`` and
-``00401000`` are the same address.
+Target-scoped routes require a target (400 when absent, 404 when unknown).
+Status filters use the shared vocabulary. A present empty module matches blank
+module fields. Search matches names/symbols literally or a hexadecimal address.
+Functions, globals and history use count/total/limit/offset/paged envelopes;
+section/target lists are unpaged. Limits default to 100, clamp to 5000; invalid
+or negative offsets become zero. Rows use shared cols arrays and compact JSON.
 
-A present empty ``module=`` on ``/api/functions`` and ``/api/globals`` matches
-rows whose module is blank. Omitting ``module`` does not filter.  The value and
-the stored module are both put through ``preset_module_key`` (NFC, then upper)
-before the equality, so a hand-typed ``?module=server`` selects the ``SERVER``
-rows instead of silently matching none. Summary
-``by_module_counts`` keys are those stored strings (``""`` when unset).  A
-repeated parameter takes its first value, and an unrecognised one is ignored.
-Target-scoped endpoints return 400 when ``target`` is missing/empty and 404 when
-the target is unknown, and a target IS a document: one readable
-``coverage-<target>.toml`` in the configured directory.  A missing or
-unparseable document is therefore an unknown target rather than a 500 — the
-reader skips it with a log line and serves the rest, and ``function_stats`` is
-DERIVED from the stored function rows, so the unreadable-metadata-row case the
-SQLite dashboard answered 500 ``corrupt_function_stats`` for cannot arise.
-``/api/bootstrap`` embeds the first target and degrades instead of failing: its
-``summary`` and ``functions`` are ``null`` when the directory holds no readable
-target, so an empty directory costs the target list and nothing else.
-Non-GET/HEAD methods on a served path (including ones http.server does not
-know) return 405 with ``Allow: GET, HEAD``; a path the server does not serve
-returns 404 ``not_found`` whatever method it was asked for, since there is no
-resource to list methods for.  Every error body is
-``{"error": "<message>", "code": "<machine-readable code>"}``; branch on
-``code`` (``missing_target``, ``unknown_target``, ``invalid_status``,
-``not_found``, ``method_not_allowed``, ``host_not_allowed``,
-``database_error`` (the whole directory yielded no readable document),
-``internal_error``,
-``server_busy`` for a connection refused because every handler slot is taken,
-and ``bad_request`` / ``uri_too_long`` / ``header_fields_too_large`` /
-``http_version_not_supported`` for malformed requests rejected before
-routing, plus ``request_error`` for any other status raised there) and
-show ``error`` to the reader.  Every response carries
-``X-Request-Id: r<N>``, the same id the access and error log lines use, so
-a reported failure is one grep away.
-A ``status`` filter outside the STATUS vocabulary is 400
-``invalid_status`` rather than an empty page, which would read as "this
-target has no functions in that status".
-A request that carries a body is answered with ``Connection: close`` (no
-route reads one).  Requests whose ``Host`` header
-does not match the bound host (or a loopback alias) are rejected with 403, so
-a web page the analyst visits cannot reach the server via DNS rebinding.
-List endpoints expose ``count`` (rows in this page), ``total`` (matching rows),
-and the applied ``limit`` / ``offset``, plus ``paged`` so a client never has to
-infer whether ``limit`` is a page size or a row count: it is ``true`` on
-``/api/functions``, ``/api/globals``, and ``/api/history``, and ``false`` on
-``/api/sections``, ``/api/targets``, and the top level of ``/api/bootstrap``,
-which have no page (``offset`` is 0 and ``limit`` is the row count there).
-A client that pages on ``limit`` steps by ``count``, not by ``limit``.
-A missing, malformed, or non-positive ``limit`` uses 100 and larger values clamp
-to 5000; a missing, malformed, or negative ``offset`` uses 0 and values past
-rebrew's ``VA_MAX`` clamp to it.  Malformed is anything but ASCII digits under
-an optional minus sign, so ``limit=1_0`` falls back rather than answering a page
-of ten the client never asked for.  Clients read the applied values back.
-Successful 200 responses negotiate ``zstd`` then ``gzip`` (``Accept-Encoding``
-quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
-or ``/app.js`` content hash, or a hash of every coverage document's stat plus
-a hash of the request's path and query, so one validator never stands for two
-different routes, targets, or filter selections), and use ``Cache-Control:
-private,
-no-cache`` so browsers can 304 without serving a stale body after ``build-db``;
-the shell links ``/app.js?v=<content hash>``, which is ``immutable``.
-``/api/health`` is the exception: it reads the documents, so it answers
-``no-store`` with no ``ETag`` at all (see ``_UNCACHEABLE_ROUTES``).  It
-also reports the running request, 5xx, 4xx, revalidation, and timeout totals,
-the slow-request count, the worst latency, and the in-flight connection count,
-so a probe can watch the error rate (both ends of it) and the saturation
-behind it while the server is up.
-The server's own output is one stream: an access line per request (id, request
-line, status, size, handler milliseconds), a WARNING for a request past
-``_SLOW_REQUEST_MS``, for a refused ``Host``, or for a connection dropped
-after a read or write ran past the keep-alive timeout (each timeout also
-counts toward the ``timeouts`` total the probe and the shutdown line report),
-an ERROR with an escaped
-traceback for a failure, and
-every warning a route raises about its own data, each stamped with the id of
-the request in flight.  A route-level warning reports a response the access
-line shows as a plain 200 (a byte count past the section), so it carries the
-id rather than leaving the operator to grep the message.  Off the server, the CLI reaches the same ``Dashboard`` with no
-request in flight and those warnings report ``-``.
-The rebrew mark is served from ``/favicon.svg`` rather than inlined as a data
-URI: a linked icon still stops the per-load ``/favicon.ico`` 404, and keeps
-443 B of near-incompressible payload out of the document the cold flight
-budgets.  It is a tab icon, not first paint, so it fetches off the critical
-path, and the shell links it content-hashed, so the browser fetches it once
-and serves every later load from disk.
-A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
-would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
-a readable document; ``/api/functions`` a ``status`` inside the vocabulary),
-without running the route's query.
-The static HTML shell and ``/app.js`` are zstd- and
-gzip-precompressed at import time (gzip ``mtime=0``, so a restart serves the
-same bytes) so entry assets skip per-request compression CPU.  Their combined
-wire size stays inside the RFC 6928 initial congestion window minus a
-per-response header reserve, so a cold connection paints without an extra
-round trip; a test pins that budget, and a change that does not fit pays for
-itself in the client's own comment prose rather than in the budget.  As
-measured: 12690 B zstd and 13317 B gzip against a 13320 B budget, so gzip has
-3 B of room and zstd 630 B — a client-side edit budgets against gzip, and gzip
-is the binding encoding.  The
-reserve is what makes gzip the tight one, not the encoder: the two responses
-send 560 and 592 B of headers as served, against the 640 B each is given; with
-those real headers the gzip entry flight totals 14471 B of the 14600 B window,
-129 B under it.
-The preloaded ``/api/bootstrap`` is a third cold-flight response (774 B gzip
-plus 562 B of headers) and is deliberately outside that reserve, so the whole
-three-response flight is budgeted against the entry assets alone: they carry
-the first paint, and the bootstrap's tail
-rides the second.  Remaining
-JSON compresses per request at mid effort, except ``/api/bootstrap``: the cold
-start needs it to paint, a client sends it once per load and 304s after that,
-so it takes the same max effort the static blobs do.  The shell
-``<head>`` preloads ``/api/bootstrap`` (``as=fetch`` + ``crossorigin`` +
-``fetchpriority=high``) and ``/app.js`` (``as=script``); the deferred client
-fetches with the default ``same-origin`` credentials, the mode ``crossorigin``
-(anonymous) preloads with, so the cold-start payload reuses that preload.  Keeping JS out of the document lets the browser paint the loading
-chrome before the script finishes downloading.
-The shell carries the boot guard inline and runs it on ``DOMContentLoaded``,
-which every deferred client precedes: a client that never reached its first
-statement (aborted transfer, 5xx from a proxy, a syntax error) leaves a message
-and a reload prompt instead of a permanent "Loading coverage…".  The policy
-stays ``script-src 'self'`` plus that one script's ``sha256`` hash, never
-``'unsafe-inline'``.  A
-permanent Reload control re-runs the bootstrap in place, so an analyst picks up
-a fresh ``build-db`` without a browser reload; the empty states name that
-control instead of telling the reader to reload the page.  The clear-search
-link they carry is padded rather than left at the inherited 16px line box,
-which measured under the 24px target minimum (WCAG 2.5.8); the padding is six
-characters of CSS, and the rationale lives here because a comment in the shell
-would spend the gzip headroom the entry budget leaves.  A status mark is one
-quoted ``class`` attribute holding ``st`` plus the per-status class: unquoted,
-the value would end at the space and every status in the tables would render in
-the default ink.  Two more rationales live here for the same reason.  The
-table cell rule is ``overflow-wrap: anywhere``, which lowers a cell's intrinsic
-minimum so a long demangled name wraps instead of pushing the Status column
-away from its VA; the VA opts out with ``white-space: nowrap``, and every
-``th`` is nowrap too, so the header row alone sets the minimum table width and
-the panel scrolls instead.  And a Back or Forward navigation rebuilds every
-control from the restored hash, so the one the reader was on is gone and the
-browser drops focus to ``<body>`` (WCAG 2.4.3); ``onpopstate`` moves it back to
-``main``, and only when it was actually lost.  JSON
-uses compact separators; function/global/history/section rows are arrays under
-``cols``.  Every text column in those rows is a JSON string: a NULL in the
-database (a history row's ``old_status``/``new_status`` for a VA's first
-recorded transition, a function with no module) is sent as ``""``, so a client
-never has to null-check one route and not the next.  The handler speaks
-HTTP/1.1 so browsers reuse one TCP connection for the shell, ``/app.js``,
-bootstrap payload, and later filter fetches.
-Every non-entry 200 carries ``Server-Timing: route;dur=<ms>`` so the browser's
-Network panel separates query time from transfer time; the entry assets
-omit it, since their cold flight is budgeted against the initial congestion
-window and the value is a constant there.
+Methods are GET/HEAD only: known paths reject other methods with 405 and Allow;
+unknown paths return 404. All errors have error/code fields. Host validation,
+CSP, no-sniff headers and escaped correlated logs protect the loopback service.
+Non-loopback binds warn at startup; source paths and detailed input errors are
+withheld from remote clients. There is no authentication. Connections have a
+30-second keep-alive deadline and a 64-handler cap; overload returns 503 with
+Retry-After. Request bodies are never read and force connection closure.
 
-The query layer (``Dashboard``) is separated from the HTTP plumbing so tests
-exercise it without opening a socket.
+Successful responses negotiate zstd then gzip with quality weights. ETags key
+on the live input version or portable file state plus the exact route/query;
+health is no-store. Static assets are content-hashed and precompressed. The
+entry pair measures 12609 B zstd / 13215 B gzip against a 13320 B budget.
+Reload re-reads the live view; view/target/filter navigation is stored in the
+URL hash. Details, API schema and transfer measurements live in
+COVERAGE_DOCUMENT.md, dashboard-api.yaml and PERFORMANCE.md.
 """
 
 from __future__ import annotations
@@ -212,7 +77,7 @@ from rich.markup import escape
 from rebrew import theme
 from rebrew.cli import RootOption, console, error_exit, json_print, option_default, require_root
 from rebrew.compression import precompress
-from rebrew.coverage_db import resolve_db_dir
+from rebrew.coverage_project import ProjectCoverageError, ProjectCoverageView, load_project_coverage
 from rebrew.coverage_toml import (
     CoverageSnapshot,
     CoverageTomlError,
@@ -443,7 +308,6 @@ let retryAppend = false;
 let retryGlobalsAppend = false;
 let retryHistoryAppend = false;
 let currentView = "functions";
-// Filters restored from the URL hash before their options exist.
 let pendingStatus = "";
 let pendingModule = "";
 // Hash ``module=`` (present, empty) restores the blank-module filter.
@@ -462,8 +326,6 @@ const loadErrors = { summary: "", functions: "", view: "" };
 const busyCounts = new Map();
 const viewLoaded = { functions: false, sections: false, globals: false, history: false };
 async function get(path, signal) {
-  // Default credentials ("same-origin") match the anonymous crossorigin
-  // preload, so the cold-start bootstrap reuses it.
   let r;
   try {
     r = await fetch(path, { signal });
@@ -539,7 +401,7 @@ function setFunctionsEmptyMessage() {
     }
     bindEmptyClear("empty-clear-fn", "q");
   } else {
-    el.innerHTML = "No functions recorded for this target yet. Run <code>rebrew coverage build</code>, then choose Reload.";
+    el.innerHTML = "No functions recorded for this target yet. Register their source bindings, then choose Reload.";
   }
 }
 function bindEmptyClear(btnId, inputId) {
@@ -552,7 +414,7 @@ function setGlobalsEmptyMessage() {
     el.innerHTML = "No globals match this search. <button type='button' id='empty-clear-gq' class='link-button'>Clear search</button> or try another name.";
     bindEmptyClear("empty-clear-gq", "gq");
   } else {
-    el.innerHTML = "No globals recorded for this target. Annotate globals, run <code>rebrew coverage build</code>, then choose Reload.";
+    el.innerHTML = "No globals recorded for this target. Register globals in data metadata, then choose Reload.";
   }
 }
 function syncError() {
@@ -1340,10 +1202,13 @@ function bindControls() {
 async function init() {
   const boot = await get("/api/bootstrap");
   $("boot-status").hidden = true;
-  // A reload re-reads the documents, so nothing already painted counts as loaded.
   VIEWS.forEach((name) => (viewLoaded[name] = false));
   $("reload").hidden = false;
   targets = boot.targets || [];
+  if (boot.failures) {
+    $("boot-status").textContent = Object.entries(boot.failures).map(([target, error]) => target + ": " + error).join("; ");
+    $("boot-status").hidden = false;
+  }
   bindControls();
   $("no-targets").hidden = !!targets.length;
   if (!targets.length) {
@@ -1585,8 +1450,7 @@ __STATUS_FORCED__
 <p id="boot-status" role="status">Loading coverage…</p>
 <noscript><p id="no-script">The dashboard needs JavaScript to load coverage data.
   Enable it for this page, then reload.</p></noscript>
-<p id="no-targets" hidden>No targets found in the coverage documents. Run
-  <code>rebrew coverage build</code> for this project, then choose Reload.</p>
+<p id="no-targets" hidden>No readable targets. Check project inputs or the selected snapshots, then choose Reload.</p>
 <div id="views" class="views" hidden role="tablist" aria-label="Coverage views">
 <button type="button" role="tab" id="tab-functions" data-view="functions"
   aria-controls="view-functions" class="btn active" aria-selected="true" tabindex="0">Functions</button>
@@ -1653,8 +1517,7 @@ __STATUS_FORCED__
 <div id="view-sections" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-sections" hidden>
 <h2 class="visually-hidden">Sections</h2>
 <p id="sections-hint" hidden></p>
-<p id="sections-empty" hidden>No section stats for this target. Run
-  <code>rebrew coverage build</code> for this project, then choose Reload.</p>
+<p id="sections-empty" hidden>No section stats. Check the target binary, then choose Reload.</p>
 <div id="sections-results" class="table-scroll" tabindex="0" role="region"
   aria-label="Section results" aria-busy="false" hidden>
 <table id="sections-rows"><caption class="visually-hidden">Per-section cell stats</caption><thead><tr>
@@ -1684,8 +1547,7 @@ __STATUS_FORCED__
 <div id="view-history" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-history" hidden>
 <h2 class="visually-hidden">Status history</h2>
 <p id="history-hint" hidden></p>
-<p id="history-empty" hidden>No status changes recorded yet. History appears after
-  <code>rebrew coverage build</code> when function statuses change.</p>
+<p id="history-empty" hidden>No status changes recorded yet. Comparisons record history.</p>
 <div id="history-results" class="table-scroll" tabindex="0" role="region"
   aria-label="History results" aria-busy="false" hidden>
 <table id="history-rows"><caption class="visually-hidden">Recent status changes</caption><thead><tr>
@@ -2041,6 +1903,11 @@ _CURRENT_SNAPSHOTS: ContextVar[Mapping[str, CoverageSnapshot] | None] = ContextV
 )
 
 
+_CURRENT_PROJECT: ContextVar[ProjectCoverageView | None] = ContextVar(
+    "rebrew_dashboard_project", default=None
+)
+
+
 def _readable_snapshots(dashboard: Dashboard) -> Mapping[str, CoverageSnapshot]:
     """The dashboard's snapshots, refusing a directory that yields none.
 
@@ -2053,9 +1920,12 @@ def _readable_snapshots(dashboard: Dashboard) -> Mapping[str, CoverageSnapshot]:
     """
     snapshots = dashboard.snapshots()
     if not snapshots:
-        raise CoverageTomlError(
-            f"{dashboard.db_dir}: no readable coverage document (run 'rebrew coverage build' first)"
-        )
+        failures = dashboard.failures()
+        if failures:
+            raise CoverageTomlError(
+                "; ".join(f"{target}: {reason}" for target, reason in failures.items())
+            )
+        raise CoverageTomlError(f"{dashboard.source}: no readable coverage targets")
     return snapshots
 
 
@@ -2082,7 +1952,7 @@ def _history_text(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _coverage_etag(db_dir: Path) -> str:
+def _coverage_etag(source: Path) -> str:
     """A short tag for the coverage documents' current bytes.
 
     The old validator was ``mtime_ns``-``size`` of ``coverage.db``.  The
@@ -2103,37 +1973,44 @@ def _coverage_etag(db_dir: Path) -> str:
     ``catalog.loaders._inventory_fingerprint``).
     """
     parts: list[str] = []
-    for path in sorted(db_dir.glob(_COVERAGE_GLOB)):
+    for path in sorted(source.glob(_COVERAGE_GLOB)):
         try:
             st = path.stat()
         except OSError:
             continue
-        parts.append(f"{path.name}:{st.st_mtime_ns:x}:{st.st_size:x}:{st.st_ino:x}")
+        parts.append(
+            f"{path.name}:{st.st_mtime_ns:x}:{st.st_size:x}:{st.st_ino:x}:{st.st_ctime_ns:x}"
+        )
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
-class Dashboard:
-    """Read-only view over one project's coverage documents.
+def _project_snapshots(root: Path) -> Mapping[str, CoverageSnapshot]:
+    try:
+        return load_project_coverage(root).snapshots
+    except ProjectCoverageError as exc:
+        raise CoverageTomlError(str(exc)) from exc
 
-    *db_dir* is the DIRECTORY holding ``coverage-<target>.toml``, not a database
-    file: the reader resolves one document per target from it, and it is also
-    what the validator and the liveness probe stat.  *load* defaults to
-    :func:`rebrew.coverage_toml.load_all_coverage_from`, which memoizes on the
-    stat of every document in the directory and returns THE SAME mapping while
-    none of them moved, so a request that changes nothing costs one stat per
-    document and no parse.
+
+class Dashboard:
+    """Read a live project by default, or explicit portable documents.
+
+    ``load`` is an optional injected reader; snapshots=True selects the portable
+    file reader. Responses pin one immutable view, including target failures.
     """
 
     def __init__(
         self,
-        db_dir: Path,
+        source: Path,
         *,
-        load: Callable[[Path], Mapping[str, CoverageSnapshot]] = load_all_coverage_from,
+        snapshots: bool = False,
+        load: Callable[[Path], Mapping[str, CoverageSnapshot]] | None = None,
         served: Callable[[], dict[str, Any]] | None = None,
         expose_paths: bool = True,
     ) -> None:
-        self.db_dir = Path(db_dir)
-        self._load = load
+        self.source = Path(source)
+        self.portable = snapshots
+        self.live = not snapshots and load is None
+        self._load = load or (load_all_coverage_from if snapshots else _project_snapshots)
         #: Running server totals the probe reports; ``None`` off the HTTP
         #: server (tests, direct queries), where no request has been served.
         self.served = served
@@ -2152,7 +2029,7 @@ class Dashboard:
         pinned = _CURRENT_SNAPSHOTS.get()
         if pinned is not None:
             return pinned
-        return self._load(self.db_dir)
+        return self._load(self.source)
 
     @contextmanager
     def _snapshot_scope(self) -> Iterator[None]:
@@ -2160,11 +2037,31 @@ class Dashboard:
         if _CURRENT_SNAPSHOTS.get() is not None:
             yield
             return
-        token = _CURRENT_SNAPSHOTS.set(self._load(self.db_dir))
+        try:
+            view = load_project_coverage(self.source) if self.live else None
+        except ProjectCoverageError as exc:
+            raise CoverageTomlError(str(exc)) from exc
+        project_token = _CURRENT_PROJECT.set(view)
+        token = _CURRENT_SNAPSHOTS.set(
+            view.snapshots if view is not None else self._load(self.source)
+        )
         try:
             yield
         finally:
             _CURRENT_SNAPSHOTS.reset(token)
+            _CURRENT_PROJECT.reset(project_token)
+
+    def failures(self) -> dict[str, str]:
+        """Failed live targets, pinned with the healthy snapshots in a response."""
+        if not self.live:
+            return {}
+        view = _CURRENT_PROJECT.get() or load_project_coverage(self.source)
+        return {
+            target: reason
+            if self.expose_paths
+            else "Project inputs could not be read; inspect the server log"
+            for target, reason in view.failures.items()
+        }
 
     def targets(self) -> list[str]:
         """The readable targets, in the order the SQL ``ORDER BY target`` gave.
@@ -2196,6 +2093,8 @@ class Dashboard:
                 "summary": None,
                 "functions": None,
             }
+            if failures := self.failures():
+                payload["failures"] = failures
             if not targets:
                 return payload
             target = targets[0]
@@ -2470,7 +2369,14 @@ class Dashboard:
         if parsed.path == _FAVICON_PATH:
             return _FAVICON_ETAG
         scope = _query_scope(f"{parsed.path}?{parsed.query}" if parsed.query else "")
-        return f'W/"{_coverage_etag(self.db_dir)}{scope}"'
+        stamp = (
+            _coverage_etag(self.source)
+            if self.portable
+            else hashlib.sha256(
+                repr(load_project_coverage(self.source).versions).encode()
+            ).hexdigest()
+        )
+        return f'W/"{stamp}{scope}"'
 
     def handle(self, method: str, path: str, query: dict[str, list[str]]) -> tuple[int, str, str]:
         """Route a request.  Returns (status, content-type, body)."""
@@ -2509,10 +2415,12 @@ class Dashboard:
                 "status": "ok",
                 "targets": len(_readable_snapshots(self)),
             }
+            if failures := self.failures():
+                payload.update(status="degraded", failures=failures)
             if self.expose_paths:
                 # Named for what it is: a directory of coverage documents.
                 # The old key was `db`, from the SQLite store this replaced.
-                payload["coverage_dir"] = str(self.db_dir)
+                payload["coverage_source"] = str(self.source)
             if self.served is not None:
                 payload.update(self.served())
             return self._json(200, payload)
@@ -2522,6 +2430,7 @@ class Dashboard:
                 200,
                 {
                     "targets": targets,
+                    **({"failures": self.failures()} if self.failures() else {}),
                     "count": len(targets),
                     "total": len(targets),
                     "limit": len(targets),
@@ -3356,7 +3265,7 @@ class _Handler(BaseHTTPRequestHandler):
         """Browser hardening shared by every response, including early 403s.
 
         Successful GETs may be stored but must revalidate (ETag → 304) so a
-        ``rebrew coverage build`` rebuild is never served as a silent stale page; the
+        ``rebrew coverage export --output snapshots/`` rebuild is never served as a silent stale page; the
         content-hashed /app.js URL is immutable.  Errors stay no-store so a
         failed probe is not sticky.
         """
@@ -3739,14 +3648,14 @@ class _DashboardServer(ThreadingHTTPServer):
 
 
 app = typer.Typer(
-    help="Serve a read-only web dashboard over the coverage documents.",
+    help="Serve a read-only dashboard from live project metadata or portable snapshots.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew coverage build  # Write db/coverage-<target>.toml first\n\n"
+        "  rebrew coverage serve --snapshots snapshots/  # Offline exports\n\n"
         "  rebrew coverage serve  # Serve on http://127.0.0.1:8000\n\n"
         "  rebrew coverage serve --port 9000  # Custom port\n\n"
-        "  # Print bind URL + db path, then exit\n"
+        "  # Print bind URL + coverage source, then exit\n"
         "  rebrew coverage serve --print-url --json\n\n"
         "[bold]Endpoints:[/bold]\n\n"
         "  / · · · · · · · · · · · · · HTML shell (targets, summary, function search)\n\n"
@@ -3770,6 +3679,9 @@ def main(
     host: str = typer.Option("127.0.0.1", "--host", help="Bind host"),
     port: int = typer.Option(8000, "--port", "-p", help="Bind port"),
     root: Path | None = RootOption,
+    snapshots: Path | None = typer.Option(
+        None, "--snapshots", help="Serve portable exports instead of a live project"
+    ),
     print_url: bool = typer.Option(
         False, "--print-url", help="Print the dashboard URL without serving; required with --json"
     ),
@@ -3779,13 +3691,16 @@ def main(
     print_url = option_default(print_url, False)
     if json_output and not print_url:
         error_exit("--json requires --print-url; omit --json to start the server", json_mode=True)
-    root_dir = require_root(root, json_mode=json_output)
-    db_dir = resolve_db_dir(root_dir, json_output=json_output)
+    if snapshots is not None and root is not None:
+        error_exit("--root and --snapshots are mutually exclusive", json_mode=json_output)
+    source = (
+        snapshots.resolve() if snapshots is not None else require_root(root, json_mode=json_output)
+    )
 
     # Fail fast on a directory with nothing readable in it: the same rule
     # /api/health probes, so a run that starts is a run whose probe can answer.
     try:
-        _readable_snapshots(Dashboard(db_dir))
+        _readable_snapshots(Dashboard(source, snapshots=snapshots is not None))
     except CoverageTomlError as exc:
         error_exit(str(exc), json_mode=json_output)
 
@@ -3793,7 +3708,7 @@ def main(
         url_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
         url = f"http://{url_host}:{port}"
         if json_output:
-            json_print({"url": url, "coverage_dir": str(db_dir)})
+            json_print({"url": url, "coverage_source": str(source)})
         else:
             print(url)
         return
@@ -3823,7 +3738,8 @@ def main(
     # still up; block_on_close is deliberately not set either.
     server.daemon_threads = True
     _Handler.dashboard = Dashboard(
-        db_dir,
+        source,
+        snapshots=snapshots is not None,
         served=served_totals,
         expose_paths=host in ("127.0.0.1", "localhost", "::1"),
     )
@@ -3832,7 +3748,7 @@ def main(
     _server_notice(
         "INFO",
         f"[green]Rebrew dashboard on http://{escape(host)}:{port}[/] — "
-        f"[dim]serving {escape(str(db_dir))} (Ctrl+C to stop)[/dim]",
+        f"[dim]serving {escape(str(source))} (Ctrl+C to stop)[/dim]",
     )
     restore_log: Callable[[], None] | None = None
     try:

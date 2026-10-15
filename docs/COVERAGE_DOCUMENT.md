@@ -1,63 +1,44 @@
-# Rebrew Coverage Document Format
+# Rebrew Coverage Views and Portable Snapshots
 
-> **Scope:** the `db/coverage-<target>.toml` documents `rebrew coverage build` writes
-> and the coverage dashboards read, and the `rebrew coverage serve` REST API.  For
-> `verify` / `status` flag semantics see
-> [CLI.md](CLI.md#rebrew-status).
-
-Coverage is clear text.  `rebrew coverage build` writes one TOML document per target,
-`db/coverage-<target>.toml`, by scanning the project in-process, and
-the dashboards read those documents directly.  There is no database file, no
-schema version to gate a build on, and no cache tier between the catalog and the
-reader: `rebrew.coverage_toml` owns the writer and the reader both, so the two
-cannot disagree about the shape of a document.
-
----
-
-## Data Pipeline Overview
+Local dashboards read the project directly. Canonical function/data metadata,
+source bindings, binary sections, discovery inventory and link evidence feed
+`rebrew.coverage_project.load_project_coverage`. Both dashboards use its immutable
+views; they do not need generated coverage files or a project `db_dir` setting.
 
 ```mermaid
 flowchart LR
-    A["*.c annotations"] -->|rebrew coverage build| C["db/coverage-&lt;target&gt;.toml<br/>one document per target"]
-    LH["library_*.h headers"] -->|rebrew coverage build| C
-    FL["function_structure.json"] -->|rebrew coverage build| C
-    BIN["target binary"] -->|rebrew coverage build| C
-    A -->|rebrew coverage catalog --export-ghidra-labels| GH["ghidra_data_labels.json"]
-    C -->|rebrew coverage serve| D["Read-only REST API + dashboard UI"]
-    C -->|recoverage| E["Sibling coverage dashboard"]
+    M["Canonical metadata and source bindings"] --> C["Shared catalog and coverage model"]
+    I["Inventory, binary sections and link evidence"] --> C
+    C --> L["Live dashboards"]
+    C --> E["Explicit portable export"]
+    E --> O["Offline dashboards"]
 ```
 
-### Pipeline Steps
+Views are cached by project and target. Input changes invalidate affected targets;
+a failed target remains visible as a diagnostic without hiding healthy siblings.
+Reads do not compile or write project files. Status/todo byte accounting has its
+own denominators; coverage grid cells remain presentation data.
 
-| Step | Tool | Input | Output |
-|------|------|-------|--------|
-| 1. Build | `rebrew coverage build [--target T]` | `*.c` annotations, `library_*.h` headers, `function_structure.json`, target binary | `db/coverage-<target>.toml`, one document per target |
-| 1b. Export Labels | `rebrew coverage catalog --export-ghidra-labels` | (same as above) | `ghidra_data_labels.json` (detected data labels/thunks for Ghidra round-trip) |
-| 3. Serve | `rebrew coverage serve [--host H] [--port P]` | `db/coverage-<target>.toml` | Read-only HTTP API and UI at `localhost:8000` |
+| Operation | Command | Result |
+| --- | --- | --- |
+| View live project | `rebrew coverage serve` or `recoverage serve` | Reads project inputs directly |
+| Export for offline use | `rebrew coverage export --output snapshots/` | `snapshots/coverage-<target>.toml` |
+| View offline exports | `rebrew coverage serve --snapshots snapshots/` | Read-only exported state |
+| View offline in Recoverage | Set `RECOVERAGE_SNAPSHOTS` to the export directory | Read-only exported state |
+| Preserve older history | `rebrew coverage import-history --snapshots db/ --dry-run` | Preview import; repeat without `--dry-run` to apply |
 
-A document has one writer, `rebrew coverage build`, and the dashboards are its readers.
-`rebrew coverage serve` has no regeneration endpoint: re-run `rebrew coverage build`
-to refresh a document, and the running dashboard serves the new content on the
-next request, because the reader keys its snapshot cache on the documents' own
-stat.  A project that never ran `build-db` has no documents, and `rebrew coverage serve`
-refuses to start on a directory that yields no readable document.
+Comparison writers append status transitions atomically in
+`rebrew-functions.toml`. History survives dashboard restarts, source retirement
+and export removal. Importing existing snapshot history never changes a current
+STATUS, binding, edit stamp or verification record. Existing directories may also
+hold configured inventory JSON: retain those files when retiring exports.
 
-Every run replaces each document whole (a temporary
-sibling file moved over the old one) so there is no stale schema to migrate past
-and no partial state to recover. The catalog analysis always runs in-process
-against the current project tree.
+## 1. Portable `coverage-<target>.toml`
 
----
-
-## 1. `db/coverage-<target>.toml`
-
-One document holds a derived coverage view: sections/cells, functions, globals,
-verify results, and recent status history. Canonical identity, external origins,
-and durable verification evidence remain in the function/data stores; this
-document does not mirror their nested `origins` / `verification` tables.
-Deleting it loses its retained history, but not canonical evidence.  `rebrew coverage build` is a thin front over
-`rebrew.coverage_toml.write_coverage_toml`, and the same module's reader is what
-the dashboards import.
+An export contains sections/cells, functions, globals, comparison measurements
+and canonical status history. It excludes nested origins/verification tables;
+those remain in the metadata stores. Exporting never changes the metadata.
+The explicit directory can be copied and served without a project checkout.
 
 ### Document Shape
 
@@ -196,7 +177,7 @@ document never holds a function no reader can key.
 | `reg_delta` | integer or `""` | Register-encoding-only differing instructions; `""` when the cache has no value. |
 | `effective_match` | `0` / `1` or `""` | `1` when the whole byte delta is register allocation. |
 
-The rows come from `.rebrew/verify_cache.toml`, imported by `rebrew coverage build`;
+The rows come from `.rebrew/verify_cache.toml`, imported by `rebrew coverage export --output snapshots/`;
 `rebrew verify` writes no document.  A cache that says nothing about the target
 keeps the document's previous rows, and a row whose measurements did not move
 keeps its earlier `verified_at`: a rebuild re-measures the same verdicts, and
@@ -212,10 +193,10 @@ the cache file's own mtime is not when a verdict was first measured.
 | `changed_at` | string | ISO 8601 stamp of the change. |
 | `updated_by` | string | Provenance tag of the write that caused it. |
 
-`rebrew coverage build` compares this build's function statuses against the previous
-document's `functions` array, appends one row per transition, and keeps only the
-newest 10,000 rows (`HISTORY_RETENTION`).  A text file has no row id, so
-retention and ordering sort by `changed_at`.
+The exporter reads durable transitions from function metadata. Comparison writers
+record each accepted STATUS change in the same locked write as its verdict;
+unchanged or refused updates add no event. Imports deduplicate existing events
+and retain at most 10,000 transitions per native identity.
 
 #### `[sections."<name>"]`
 
@@ -375,7 +356,7 @@ stamp of a verdict whose measurements did not move.
 
 ## 2. The In-Process Catalog Dict
 
-`rebrew coverage build` calls `rebrew.catalog.pipeline.build_catalog_data`, which
+`rebrew coverage export --output snapshots/` calls `rebrew.catalog.pipeline.build_catalog_data`, which
 returns this dict for one target and is rendered into the document.  It is
 never written to disk; it is an intermediate value, not a format.
 
@@ -413,7 +394,7 @@ never written to disk; it is an intermediate value, not a format.
 }
 ```
 
-Functions and globals are keyed by **hex VA**.  `rebrew coverage build` turns that key
+Functions and globals are keyed by **hex VA**.  `rebrew coverage export --output snapshots/` turns that key
 into the document's integer `va`, falling back to the row's `vaStart` (or `va`),
 sorting each array by the result.  A row where neither parses is dropped with a
 warning naming the target and the count.
@@ -456,7 +437,7 @@ human summary, and both are checked against the code by
 | `GET`, `HEAD` | `/app.js` | `v` | Dashboard client; `?v=<content hash>` is served `immutable` |
 | `GET`, `HEAD` | `/favicon.svg` | `v` | The rebrew mark, served as its own asset rather than inlined; `?v=<content hash>` is served `immutable` |
 | `GET`, `HEAD` | `/api/bootstrap` | | Targets plus the first target's summary and functions, in one round trip |
-| `GET`, `HEAD` | `/api/health` | | `{"status": "ok", "coverage_dir": "<coverage directory>", "targets": <n>, "requests": <n>, "server_errors": <n>, "client_errors": <n>, "not_modified": <n>, "timeouts": <n>, "slow_requests": <n>, "slowest_ms": <ms>, "active_connections": <n>}` after one real read of the documents (`coverage_dir` is served only on a loopback bind, since a LAN client has no use for the analyst's absolute path; the next seven are the running server totals and the last is the in-flight connection gauge, all absent off the HTTP server), so a directory that yields no readable document answers 500 `database_error`; served `no-store` with no `ETag`, so a probe cannot be cached or revalidated into a stale "healthy" |
+| `GET`, `HEAD` | `/api/health` | | `{"status": "ok", "coverage_source": "<coverage directory>", "targets": <n>, "requests": <n>, "server_errors": <n>, "client_errors": <n>, "not_modified": <n>, "timeouts": <n>, "slow_requests": <n>, "slowest_ms": <ms>, "active_connections": <n>}` after one real read of the documents (`coverage_source` is served only on a loopback bind, since a LAN client has no use for the analyst's absolute path; the next seven are the running server totals and the last is the in-flight connection gauge, all absent off the HTTP server), so a directory that yields no readable document answers 500 `database_error`; served `no-store` with no `ETag`, so a probe cannot be cached or revalidated into a stale "healthy" |
 | `GET`, `HEAD` | `/api/targets` | | Every target with a readable document |
 | `GET`, `HEAD` | `/api/summary` | `target` | Coverage percentages plus the derived `function_stats` object |
 | `GET`, `HEAD` | `/api/functions` | `target`, `status`, `module`, `q`, `limit`, `offset` | Paged function rows |
@@ -531,5 +512,5 @@ Clients read the applied values back from the envelope.
 
 Global ownership fields are optional additions to version 1. Readers of older
 documents leave owners empty and retain `files` as declaration sites; they never
-guess ownership from those files. Regenerate with `rebrew coverage build` to populate
+guess ownership from those files. Regenerate with `rebrew coverage export --output snapshots/` to populate
 the roles from the shared scanner.

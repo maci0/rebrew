@@ -108,6 +108,7 @@ class BinaryInfo:
     # in one mtime tick changes the inode and not the size, and mtime+size
     # alone would keep serving the previous image's section map and bytes.
     _cache_mtime_ns: int = field(default=0, repr=False)
+    _cache_ctime_ns: int = field(default=0, repr=False)
     _cache_fsize: int = field(default=0, repr=False)
     _cache_ino: int = field(default=0, repr=False)
 

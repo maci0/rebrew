@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import threading
 import unicodedata
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from rebrew.c_parser import (
@@ -50,7 +52,44 @@ def _declarations(source: str) -> dict[int, list[tuple[str, str, str]]]:
     return declarations
 
 
+# Reused by function/data scans and related targets; retain values, never ASTs.
+_ANCHOR_CACHE: OrderedDict[str, tuple[AddressAnchor, ...]] = OrderedDict()
+_ANCHOR_CACHE_CHARS = 0
+_ANCHOR_CACHE_MAX_CHARS = 8 * 1024 * 1024
+_ANCHOR_CACHE_MAX_ENTRIES = 8192
+_ANCHOR_LOCK = threading.RLock()
+
+
 def parse_address_anchors(source: str) -> list[AddressAnchor]:
+    """Bind optional ADDRESS comments to declarations, cached by complete content.
+
+    Results are immutable records returned in a fresh list. Edits invalidate by
+    content; invalid input is never cached. Retention is bounded by characters
+    and entries so repeated scans do not retain unbounded source or AST state.
+    """
+    global _ANCHOR_CACHE_CHARS
+    if "ADDRESS:" not in source:
+        return []
+    with _ANCHOR_LOCK:
+        if source in _ANCHOR_CACHE:
+            _ANCHOR_CACHE.move_to_end(source)
+            return list(_ANCHOR_CACHE[source])
+    result = _parse_address_anchors(source)
+    if len(source) <= _ANCHOR_CACHE_MAX_CHARS:
+        with _ANCHOR_LOCK:
+            if source not in _ANCHOR_CACHE:
+                _ANCHOR_CACHE[source] = tuple(result)
+                _ANCHOR_CACHE_CHARS += len(source)
+                while (
+                    len(_ANCHOR_CACHE) > _ANCHOR_CACHE_MAX_ENTRIES
+                    or _ANCHOR_CACHE_CHARS > _ANCHOR_CACHE_MAX_CHARS
+                ):
+                    evicted, _ = _ANCHOR_CACHE.popitem(last=False)
+                    _ANCHOR_CACHE_CHARS -= len(evicted)
+    return list(result)
+
+
+def _parse_address_anchors(source: str) -> list[AddressAnchor]:
     """Bind full-line ADDRESS comments to exactly the next C declaration.
 
     Stacked addresses can identify one declaration in several targets. Comments
@@ -148,6 +187,7 @@ def metadata_comments(source: str) -> list[tuple[int, str]]:
         "STRING",
         "SUPPORT",
         "STATUS",
+        "STATUS_HISTORY",
         "SIZE",
         "CFLAGS",
         "TOOLCHAIN",

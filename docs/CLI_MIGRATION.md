@@ -63,7 +63,7 @@ incorrect. Entries that now have explicit operations are expanded below.
 | `merge` | `rebrew source merge` |
 | `solutions` | `rebrew match solutions` |
 | `round-trip` | `rebrew build round-trip` |
-| `build-db` | `rebrew coverage build` |
+| `build-db` | `rebrew coverage export --output snapshots/` |
 | `dashboard` | `rebrew coverage serve` |
 | `binsync-export` | `rebrew binsync export` |
 | `binsync-import` | `rebrew binsync import` |
@@ -197,7 +197,7 @@ The current option names below are breaking changes; no aliases are retained.
 - Regenerate objdiff files with `rebrew export objdiff`; `custom_args` starts with
   `build`, `objdiff-driver`, and the target name.
 - Recoverage's in-process generator and coverage document format are unchanged.
-  CLI generation is now `rebrew coverage build`.
+  CLI generation is now `rebrew coverage export --output snapshots/`.
 
 Historical changelog and ADR examples describe their releases; current guidance
 uses the routes above.

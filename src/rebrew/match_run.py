@@ -235,15 +235,53 @@ def run_single_ga(
     # (rebrew source fix), and inject it into the GA's initial population.  Off by
     # default; degrades to a warning when kuna is unavailable.
     if kuna_seed and not no_seed:
+        from rebrew.c_parser import (
+            extract_function_name_and_proto,
+            function_signatures,
+            prototype_type_key,
+        )
+        from rebrew.c_rename import rename_function_source
         from rebrew.decompiler import kuna_seed_source
+        from rebrew.llm_seed import MAX_SEED_CHARS
+        from rebrew.rename_ops import c_name_from_symbol
 
-        kuna_snippet = kuna_seed_source(p.cfg.target_binary, p.va_int, p.cfg.root)
+        rejection = ""
+        try:
+            kuna_snippet = kuna_seed_source(p.cfg.target_binary, p.va_int, p.cfg.root)
+            if kuna_snippet is not None:
+                if len(kuna_snippet) > MAX_SEED_CHARS:
+                    raise ValueError(
+                        "Kuna body exceeds the GA seed size budget; "
+                        "use rebrew skeleton --decomp --decomp-body for the complete body"
+                    )
+                name = c_name_from_symbol(p.symbol)
+                expected = function_signatures(p.seed_src).get(name)
+                if expected is None:
+                    raise ValueError(f"selected source signature for {name!r} is unavailable")
+                kuna_snippet = rename_function_source(kuna_snippet, name)
+                if len(kuna_snippet) > MAX_SEED_CHARS:
+                    raise ValueError("adapted Kuna body exceeds the GA seed size budget")
+                actual = extract_function_name_and_proto(kuna_snippet)
+                expected_types = prototype_type_key(expected)
+                if (
+                    actual is None
+                    or expected_types is None
+                    or (prototype_type_key(actual[1]) != expected_types)
+                ):
+                    raise ValueError("Kuna prototype differs from the selected source function")
+        except ValueError as exc:
+            rejection = str(exc)
+            kuna_snippet = None
         if kuna_snippet is None:
-            console.print(
-                "[yellow]warning:[/yellow] --seed-kuna set but kuna produced no "
-                "compilable C (install the kuna binary — "
-                "github.com/Noelo-Lab/kuna); running without the kuna seed"
-            )
+            if rejection:
+                console.print(
+                    f"[yellow]warning:[/yellow] {escape(rejection)}; running without the Kuna seed"
+                )
+            else:
+                console.print(
+                    "[yellow]warning:[/yellow] Kuna returned no decompilation; "
+                    "check the provider and run without --seed-kuna if it is unavailable"
+                )
             if dry_run:
                 console.print(
                     "\n[bold]Dry run:[/bold] no kuna seed available — "

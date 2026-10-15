@@ -95,7 +95,7 @@ src/rebrew/          # package; discover modules there; do not rely on an inline
 ├── catalog/         # function registry + coverage grid: src/rebrew/catalog/AGENTS.md
 ├── ghidra/          # BinSync-primary field sync + MCP structural ops: src/rebrew/ghidra/AGENTS.md
 ├── binsync/         # declib BinSync state I/O: src/rebrew/binsync/AGENTS.md
-├── workspace/       # project root / coverage-dir resolution + shared STATUS & VA vocabulary: src/rebrew/workspace/AGENTS.md
+├── workspace/       # project root / target resolution + shared STATUS & VA vocabulary: src/rebrew/workspace/AGENTS.md
 └── agent-skills/    # packaged skill source of truth (rebrew skills list/show)
 tests/               # pytest; typically test_<module>.py
 ```
@@ -140,6 +140,10 @@ No `conftest.py`: use `tmp_path` + inline helpers. Group by class; helpers `_`-p
 - **Dedicated metadata**: All identity and state live in format-2 `rebrew-functions.toml`, `rebrew-data.toml`, and `rebrew-source.toml`. Optional `ADDRESS: MODULE 0xVA` comments bind exactly the next C definition or variable declaration; stack one per target. New source generators include anchors. No inline state, legacy block parser, migration reader, or older data schema is supported. Identity uses `file`, `symbol`, `name`, `kind`; reconstruction source, STRUCT/CALLERS and support purposes are metadata-only. `rebrew source register` validates current addresses and preserves stored fields. STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field`. Writers lock and write **mode 0444**. BinSync files remain 0644 because its client rewrites them.
 - **STATUS is earned**: only the byte comparison writes it. `PROVEN` (from `rebrew prove`) is not a byte match and not protected: the next test/verify records the byte result over it. `SKIP` stays parked, and a `STUB` is not replaced by `SIZE_MISMATCH` or `MISSING_SIZE`, unless the writer is called with `force=True`
 - **Evidence and integrations**: `METADATA_FIELD_TYPES` owns function field shapes; data validation derives its shared shapes. `origins` records accepted external fields, `verification` records comparison inputs/time, and `updated_by` / `updated_at` describe ordinary edits. Keep those independent. BinSync push/pull/diff share `SYNC_FIELD_RULES` and a binary-scoped baseline; previews/failures never advance it. See [metadata ownership](docs/METADATA.md) and [BinSync reconciliation](docs/BINSYNC_INTEGRATION.md).
+- **Live coverage**: dashboards use `coverage_project.load_project_coverage`; no
+  project `db_dir` or generated snapshot is required. `coverage export --output`
+  creates optional portable documents. Comparison writers own `status_history`;
+  preserve older exports with `coverage import-history` before retiring them.
 - **Accounting**: status/todo share one frame. File agreement, accounted `.text`, and stored initialized-data verdict bytes have separate denominators; library/padding contributions are visible, data overlaps count once, and BSS is not file bytes. See [status accounting](docs/CLI.md#rebrew-status).
 - **Compile result**: `CompareResult`; use `.matched`, `.status`, `.delta`, `.match_percent`; never tuple-unpack
 - **Compile backends**: local docker image by default; `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` → `rebrew.compiler.recompile_client`. Cache id pins the backend. Only a plugin toolchain without `image` runs as a host binary. See ADR 015

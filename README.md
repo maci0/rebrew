@@ -67,7 +67,7 @@ rebrew test src/server/func_10003da0.c --json
 rebrew diff src/server/func_10003da0.c --json
 rebrew verify --compare --json
 rebrew lint --json
-rebrew coverage build                          # refresh the coverage dashboard's documents
+rebrew coverage export --output snapshots/                          # optional portable snapshots for offline viewing
 ```
 
 Check library attribution before implementing a function. `test` and `verify`

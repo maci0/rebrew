@@ -508,10 +508,12 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     try:
         stat = path.stat()
         mtime_ns = stat.st_mtime_ns
+        ctime_ns = stat.st_ctime_ns
         fsize = stat.st_size
         ino = stat.st_ino
     except OSError:
         mtime_ns = 0
+        ctime_ns = 0
         fsize = 0
         ino = 0
     with _load_binary_lock:
@@ -520,7 +522,12 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
             cached_mtime = getattr(cached, "_cache_mtime_ns", None)
             cached_fsize = getattr(cached, "_cache_fsize", None)
             cached_ino = getattr(cached, "_cache_ino", None)
-            if cached_mtime == mtime_ns and cached_fsize == fsize and cached_ino == ino:
+            if (
+                cached_mtime == mtime_ns
+                and cached_fsize == fsize
+                and cached_ino == ino
+                and cached._cache_ctime_ns == ctime_ns
+            ):
                 _load_binary_cache[cache_key] = _load_binary_cache.pop(cache_key)
                 return cached
             _load_binary_cache.pop(cache_key, None)
@@ -575,6 +582,7 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
 
     # Tag with mtime, size, and inode for the stale-check on next lookup.
     result._cache_mtime_ns = mtime_ns
+    result._cache_ctime_ns = ctime_ns
     result._cache_fsize = fsize
     result._cache_ino = ino
     with _load_binary_lock:
@@ -588,6 +596,7 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         if (
             existing is not None
             and getattr(existing, "_cache_mtime_ns", None) == mtime_ns
+            and existing._cache_ctime_ns == ctime_ns
             and getattr(existing, "_cache_fsize", None) == fsize
             and getattr(existing, "_cache_ino", None) == ino
         ):
@@ -1037,13 +1046,15 @@ def iat_slot_vas(binary_path: Path | str) -> frozenset[int]:
     try:
         st = path.stat()
         mtime_ns = st.st_mtime_ns
+        ctime_ns = st.st_ctime_ns
         fsize = st.st_size
         ino = st.st_ino
     except OSError:
         mtime_ns = 0
+        ctime_ns = 0
         fsize = 0
         ino = 0
-    cache_key = f"{path.resolve()}:{mtime_ns}:{fsize}:{ino}"
+    cache_key = f"{path.resolve()}:{mtime_ns}:{ctime_ns}:{fsize}:{ino}"
     with _iat_slot_lock:
         cached = _iat_slot_cache.get(cache_key)
         if cached is not None:

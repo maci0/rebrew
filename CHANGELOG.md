@@ -5,6 +5,78 @@
   and ambiguity reports. Large shared signature databases no longer spend
   quadratic work collecting names at each matching offset.
 
+### Changed
+- Complete decompiler implementations use `c_parser.function_source_error`, with
+  concrete structural/identity rejection reasons and no GA population size cap.
+  `skeleton --decomp-body` preserves large valid bodies and renames C identifiers,
+  including recursive calls, while preserving comments and string literals.
+  Extra GA seeds retain the separate `llm_seed.MAX_SEED_CHARS` admission budget;
+  `valid_c_source` checks it before parsing. Kuna body preparation and GA admission
+  are separate, so an oversized candidate is reported explicitly.
+- **Breaking:** `decompiler.kuna_seed_source` raises `ValueError` with a concrete
+  reason for invalid C; unavailable providers still return `None`. Top-level
+  storage definitions require separate ownership review. Kuna admission adapts
+  identifiers safely and checks the selected function prototype.
+- **Breaking:** Local dashboards derive coverage directly from project inputs through
+  `rebrew.coverage_project.load_project_coverage`; no generated coverage directory is
+  required. Removed `ProjectConfig.db_dir`, `rebrew.workspace.db_dir`,
+  `rebrew.workspace.DEFAULT_DB_DIR`, `rebrew.coverage_db.resolve_db_dir`,
+  `rebrew.coverage_db.build_db`, `rebrew.coverage_toml.load_all_coverage` and
+  `rebrew.coverage_toml.load_coverage`. Use live project views or explicit
+  `load_all_coverage_from` / `load_coverage_from` for portable snapshots.
+- **Breaking:** `rebrew coverage build` is replaced by `rebrew coverage export --output
+  <directory>`. `rebrew.coverage_db.write_coverage` and
+  `rebrew.coverage_toml.write_coverage_toml` require an explicit output directory;
+  `rebrew.build_db.main` exposes that required option. Existing unimported snapshot
+  history blocks an overwrite; preserve it with `coverage import-history` first.
+- **Breaking:** `rebrew.dashboard.Dashboard` takes a project source by default;
+  select portable documents with `snapshots=True` or CLI `--snapshots`. Its source
+  attribute and health/URL field are `source` / `coverage_source`. Live responses
+  expose per-target failures and report degraded health beside healthy siblings.
+- **Breaking:** The shared coverage model exposes `rebrew.coverage_toml.coverage_document`,
+  `snapshot_from_document`, `previous_measurements` and `BUCKET_OF_STATE` instead of
+  private imports. `coverage_document` and `render_coverage_toml` accept canonical
+  history, and `rebrew.catalog.pipeline.build_catalog_data` accepts `progress=False`
+  for quiet live reads.
+- **Breaking:** Removed accidental coverage-directory re-exports
+  `coverage_db.db_dir`, `coverage_toml.db_dir`, `coverage_toml.resolve_db_dir`,
+  `coverage_toml.WorkspaceConfigError` and `dashboard.resolve_db_dir`, along with
+  `workspace.config.db_dir` / `workspace.config.DEFAULT_DB_DIR`. The project-key
+  inventories `config.KNOWN_PROJECT_KEYS` / `cfg.KNOWN_PROJECT_KEYS`, generated
+  defaults `init_profiles.DEFAULT_REBREW_TOML` / `init.DEFAULT_REBREW_TOML`, and
+  `app.builtins.DOMAIN_COMPONENTS`, `app.builtins.BUILTIN_COMPONENTS` and
+  `app.main.BUILTIN_COMPONENTS` now describe live coverage and explicit exports.
+  `build_db.write_coverage` requires the export output directory too.
+- **Breaking:** `metadata.functions.METADATA_FIELD_TYPES` and
+  `metadata.functions.METADATA_FIELDS` include comparison-owned history;
+  `metadata.model.MetadataEntry` exposes its typed `status_history` field.
+  Comparison writers record durable `status_history` in the same locked transaction
+  as STATUS. `rebrew.metadata.functions.load_status_history` and
+  `import_status_history` preserve exported transitions without changing current
+  verdicts, bindings, edit stamps or verification. Preview imports write nothing;
+  imports are validated and idempotent.
+- **Breaking:** `metadata.bindings.source_bindings` accepts `with_prototypes=False`
+  for inventories that need identities without full function signatures. Address
+  validation remains mandatory; complete-content anchor caching retains immutable
+  records with bounded storage.
+- Automatic orphan and intake-stub cleanup preserve historical transitions,
+  including retired identities. `metadata.functions.delete_metadata_entry` refuses
+  history-bearing rows; deliberate deletion remains the explicit orphan drop operation.
+- Live view caches track inventory, metadata, binary, source, configured archives,
+  link-map and compile-command inputs, isolate failed targets, deduplicate shared
+  tree scans and serialize independent projects separately. Underlying inventory,
+  metadata and binary caches also detect same-size rewrites with restored mtimes.
+
+
+### Fixed
+- Rejected or comment-only decompiler output is now escaped inside actual C89
+  comments. Closed banner comments alone left that output active, including
+  rejected directives and definitions. Identifier renaming refuses destination
+  capture, including implicit external calls. Function-source trust checks use
+  AST tokens so string comment delimiters cannot hide compiler attributes and
+  ordinary literals do not become pragma or assembly operators.
+
+
 ## [4.0.0] - 2026-10-15
 
 ### Performance

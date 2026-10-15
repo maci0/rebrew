@@ -55,3 +55,4 @@ itself, and the consequences (including trade-offs accepted).
 | 028 | [CLI domains and explicit operations](028-cli-domains-and-explicit-operations.md) |
 | 029 | [Managed type identities and target layout evidence](029-managed-type-identities.md) |
 | 030 | [Address-only source bindings and dedicated metadata](030-address-only-source.md) |
+| 031 | [Live coverage views and explicit portable exports](031-live-coverage-views.md) |

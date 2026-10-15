@@ -671,7 +671,24 @@ class TestMatchCliLink:
 
 
 class TestKunaSeed:
-    def test_kuna_seed_injected_into_ga(self, tmp_path: Path, monkeypatch) -> None:
+    @pytest.mark.parametrize(
+        ("candidate", "expected", "selected_name"),
+        [
+            ("int FUN_00401000(void) { return 1; }\n", ["int f(void) { return 1; }\n"], "f"),
+            ("int FUN_00401000(int n) { return n; }\n", None, "f"),
+            ("int FUN_00401000(void) { return f(); }\n", None, "f"),
+            ("int FUN_00401000(void) { return 1; }" + " " * 8000, None, "f"),
+            ("int orig(void) {" + "orig();" * 600 + "return 1; }", None, "selected_" + "x" * 70),
+        ],
+    )
+    def test_kuna_seed_injected_into_ga(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+        candidate: str,
+        expected: list[str] | None,
+        selected_name: str,
+    ) -> None:
         """--seed-kuna fetches Kuna's decompilation, fixes it, and injects it
         into the GA's initial population (extra_seeds)."""
         from types import SimpleNamespace
@@ -700,7 +717,7 @@ class TestKunaSeed:
         monkeypatch.setattr(
             dc_mod,
             "kuna_seed_source",
-            lambda b, va, root: "int FUN_00401000(void) { return 1; }\n",
+            lambda b, va, root: candidate,
         )
 
         cfg = SimpleNamespace(
@@ -712,13 +729,13 @@ class TestKunaSeed:
         )
         p = SimpleNamespace(
             cfg=cfg,
-            seed_src="int f(void) { return 0; }\n",
+            seed_src=f"int {selected_name}(void) {{ return 0; }}\n",
             seed_c=tmp_path / "f.c",
             target_bytes=b"\x90" * 8,
             cl="cl",
             inc="",
             cflags="/O2",
-            symbol="_f",
+            symbol="_" + selected_name,
             va_int=0x401000,
             msvc_env=None,
             cc=None,
@@ -744,7 +761,7 @@ class TestKunaSeed:
                 no_seed=False,
                 kuna_seed=True,
             )
-        assert seen.get("extra_seeds") == ["int FUN_00401000(void) { return 1; }\n"]
+        assert seen.get("extra_seeds") == expected
 
     def test_kuna_seed_dry_run_skips_ga(self, tmp_path: Path, monkeypatch) -> None:
         """--seed-kuna --dry-run prints the fixed decompilation and returns
@@ -766,7 +783,8 @@ class TestKunaSeed:
         )
         p = SimpleNamespace(
             cfg=SimpleNamespace(target_binary=tmp_path / "x.exe", root=tmp_path),
-            seed_src="x",
+            seed_src="int f(void) { return 0; }",
+            symbol="_f",
             va_int=0x401000,
         )
         match_mod.run_single_ga(

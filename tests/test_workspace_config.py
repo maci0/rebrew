@@ -10,7 +10,6 @@ from rebrew.workspace.config import (
     CONFIG_NAME,
     WorkspaceConfigError,
     WorkspaceNotFound,
-    db_dir,
     default_target,
     find_root,
     project_table,
@@ -189,25 +188,3 @@ def test_target_binary_relative_and_absolute(tmp_path: Path) -> None:
     )
     absolute = tmp_path / "elsewhere" / "server.exe"
     assert target_binary(tmp_path, {"binary": str(absolute)}) == absolute
-
-
-def test_db_dir_default_and_override(tmp_path: Path) -> None:
-    assert db_dir(tmp_path) == (tmp_path / "db").resolve()
-    write_config(tmp_path, '[project]\ndb_dir = "artifacts/coverage"\n')
-    assert db_dir(tmp_path) == (tmp_path / "artifacts" / "coverage").resolve()
-
-
-def test_db_dir_empty_override_falls_back(tmp_path: Path) -> None:
-    write_config(tmp_path, '[project]\ndb_dir = "  "\n')
-    assert db_dir(tmp_path) == (tmp_path / "db").resolve()
-
-
-def test_db_dir_invalid_config_fails_loud(tmp_path: Path) -> None:
-    """A broken config must not resolve to a default database path.
-
-    Falling back to ``<root>/db`` here reads as a workspace whose coverage is
-    zero, when the project actually stores its database somewhere else.
-    """
-    write_config(tmp_path, "not toml =")
-    with pytest.raises(WorkspaceConfigError):
-        db_dir(tmp_path)

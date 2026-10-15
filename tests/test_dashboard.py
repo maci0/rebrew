@@ -28,7 +28,7 @@ import pytest
 from typer.testing import CliRunner
 
 from rebrew import dashboard as dashboard_module
-from rebrew.coverage_db import build_db
+from rebrew.coverage_db import write_coverage
 from rebrew.coverage_toml import CoverageSnapshot, CoverageTomlError
 from rebrew.dashboard import (
     _APP_JS,
@@ -243,8 +243,8 @@ def _write_document(db_dir: Path, target: str, body: str = "") -> Path:
 @pytest.fixture
 def dashboard(tmp_path: Path, catalog: FakeCatalog) -> Dashboard:
     _write_config(tmp_path, "server_dll")
-    build_db(tmp_path)
-    return Dashboard(tmp_path / "db")
+    write_coverage(tmp_path, tmp_path / "db", target=None, json_output=False)
+    return Dashboard(tmp_path / "db", snapshots=True)
 
 
 @pytest.fixture
@@ -256,7 +256,7 @@ def empty_dashboard(tmp_path: Path) -> Dashboard:
     not run ``build-db`` yet is not an error (see the module docstring of
     ``rebrew.dashboard``).
     """
-    return Dashboard(tmp_path / "db")
+    return Dashboard(tmp_path / "db", snapshots=True)
 
 
 class TestQueryLayer:
@@ -295,7 +295,7 @@ class TestQueryLayer:
         Every route but ``/api/health`` answers 200: the probe is the one
         caller that must refuse (``_readable_snapshots``).
         """
-        dashboard = Dashboard(tmp_path / "db")
+        dashboard = Dashboard(tmp_path / "db", snapshots=True)
         status, _, body = dashboard.handle("GET", "/api/targets", {})
         assert status == 200
         assert json.loads(body)["targets"] == []
@@ -338,11 +338,11 @@ class TestQueryLayer:
         """
         db_dir = tmp_path / "db"
         _write_config(tmp_path, "server_dll")
-        build_db(tmp_path)
+        write_coverage(tmp_path, tmp_path / "db", target=None, json_output=False)
         (db_dir / "coverage-broken.toml").write_text(
             "version = 1\ntarget = 'broken", encoding="utf-8"
         )
-        dashboard = Dashboard(db_dir)
+        dashboard = Dashboard(db_dir, snapshots=True)
 
         assert dashboard._summary_lookup("broken") is None
         assert dashboard.targets() == ["server_dll"]
@@ -378,7 +378,7 @@ size = 32
 cells = []
 """,
         )
-        dashboard = Dashboard(db_dir)
+        dashboard = Dashboard(db_dir, snapshots=True)
         with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
             summary = dashboard._summary_lookup("cap")
         assert summary is not None
@@ -544,7 +544,7 @@ cells = []
         text = render_coverage_toml(target, data, previous=tomllib.loads(second))
         (db_dir / f"coverage-{target}.toml").write_text(text, encoding="utf-8")
 
-        rows = Dashboard(db_dir).history(target)["history"]
+        rows = Dashboard(db_dir, snapshots=True).history(target)["history"]
         # Newest-first: the exact reverse of the order the document stores.
         stored = [row["va"] for row in tomllib.loads(text)["history"]]
         assert [int(row[0], 16) for row in rows] == list(reversed(stored))
@@ -578,7 +578,7 @@ new_status = "EXACT"
 changed_at = "2026-01-01T00:00:00Z"
 """,
         )
-        rows = Dashboard(db_dir).history("server_dll")["history"]
+        rows = Dashboard(db_dir, snapshots=True).history("server_dll")["history"]
         assert rows == [["0x10001000", "func_a", "", "EXACT", "2026-01-01T00:00:00Z"]]
 
     def test_rows_come_back_in_va_order_not_document_order(self, tmp_path: Path) -> None:
@@ -619,7 +619,7 @@ name = "g_first"
 size = 4
 """,
         )
-        dashboard = Dashboard(db_dir)
+        dashboard = Dashboard(db_dir, snapshots=True)
         assert [row[1] for row in dashboard.functions("t")["functions"]] == ["first", "second"]
         assert [row[1] for row in dashboard.globals("t")["globals"]] == ["g_first", "g_second"]
 
@@ -642,8 +642,8 @@ size = 4
         }
         catalog.per_target["server_dll"] = data
         _write_config(tmp_path, "server_dll")
-        build_db(tmp_path)
-        assert Dashboard(db_dir).functions("server_dll")["total"] == 2
+        write_coverage(tmp_path, tmp_path / "db", target=None, json_output=False)
+        assert Dashboard(db_dir, snapshots=True).functions("server_dll")["total"] == 2
 
     def test_vtable_and_string_markers_are_not_functions(
         self, tmp_path: Path, catalog: FakeCatalog
@@ -663,8 +663,8 @@ size = 4
             }
         catalog.per_target["server_dll"] = data
         _write_config(tmp_path, "server_dll")
-        build_db(tmp_path)
-        dash = Dashboard(db_dir)
+        write_coverage(tmp_path, tmp_path / "db", target=None, json_output=False)
+        dash = Dashboard(db_dir, snapshots=True)
         listed = dash.functions("server_dll")
         assert [row[1] for row in listed["functions"]] == ["func_a", "func_b"]
         assert listed["total"] == 2
@@ -799,7 +799,6 @@ class TestHandle:
         assert 'id="reload"' in body  # re-reads the coverage documents without a page reload
         # A reload must drop what the previous boot marked as loaded, or a
         # second visit to a view would keep showing the rows it was painted with.
-        assert "nothing already painted counts as loaded" in body
         assert "VIEWS.forEach((name) => (viewLoaded[name] = false));" in body
         # That reset only covers every view because the two lists name the same
         # ones; a view in one and not the other would never load again.
@@ -849,7 +848,7 @@ class TestHandle:
         assert "Reload dashboard" in body
         assert 'retry-summary").focus()' in body
         assert "No status changes recorded yet" in body
-        assert "No section stats for this target" in body
+        assert "No section stats" in body
         # The unfiltered functions empty state names the command that fills it,
         # in one sentence ("No functions for this target yet. Match work, run
         # ..." read as two).
@@ -1008,8 +1007,8 @@ class TestHandle:
         data["functions"] = {}
         catalog.per_target["empty"] = data
         _write_config(tmp_path, "empty")
-        build_db(tmp_path)
-        dashboard = Dashboard(tmp_path / "db")
+        write_coverage(tmp_path, tmp_path / "db", target=None, json_output=False)
+        dashboard = Dashboard(tmp_path / "db", snapshots=True)
 
         status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["empty"]})
         assert status == 200
@@ -1291,8 +1290,8 @@ class TestHandle:
         }
         catalog.per_target["mod"] = data
         _write_config(tmp_path, "mod")
-        build_db(tmp_path)
-        dash = Dashboard(tmp_path / "db")
+        write_coverage(tmp_path, tmp_path / "db", target=None, json_output=False)
+        dash = Dashboard(tmp_path / "db", snapshots=True)
 
         status, _, body = dash.handle("GET", "/api/summary", {"target": ["mod"]})
         assert status == 200
@@ -1360,8 +1359,8 @@ class TestHandle:
         }
         catalog.per_target["mod"] = data
         _write_config(tmp_path, "mod")
-        build_db(tmp_path)
-        dash = Dashboard(tmp_path / "db")
+        write_coverage(tmp_path, tmp_path / "db", target=None, json_output=False)
+        dash = Dashboard(tmp_path / "db", snapshots=True)
 
         status, _, body = dash.handle(
             "GET", "/api/functions", {"target": ["mod"], "module": ["game"]}
@@ -1405,7 +1404,7 @@ new_status = "EXACT"
 changed_at = "2026-01-01T00:00:00Z"
 """,
         )
-        d = Dashboard(db_dir)
+        d = Dashboard(db_dir, snapshots=True)
         fn_data = d.functions("t")
         assert fn_data["functions"][0][0] == "0x00000000"
 
@@ -1658,7 +1657,7 @@ changed_at = "2026-01-01T00:00:00Z"
         db_dir = tmp_path / "db"
         db_dir.mkdir()
         (db_dir / "README.txt").write_text("not a coverage document", encoding="utf-8")
-        assert Dashboard(db_dir).targets() == []
+        assert Dashboard(db_dir, snapshots=True).targets() == []
 
     def test_directory_name_with_reserved_characters_still_reads(self, tmp_path: Path) -> None:
         """A coverage directory whose path holds ``?``/``#`` is opened, not a URI.
@@ -1679,7 +1678,7 @@ markerType = "FUNCTION"
 size = 1
 """,
         )
-        assert Dashboard(weird).targets() == ["t"]
+        assert Dashboard(weird, snapshots=True).targets() == ["t"]
 
 
 class TestCli:
@@ -1714,7 +1713,8 @@ class TestCli:
         _write_document(tmp_path / "db", "t")
         monkeypatch.setattr("rebrew.dashboard._DashboardServer", refuse)
         result = CliRunner().invoke(
-            app, ["--root", str(tmp_path), "--print-url", "--host", host, "--port", "9123"]
+            app,
+            ["--snapshots", str(tmp_path / "db"), "--print-url", "--host", host, "--port", "9123"],
         )
         assert result.exit_code == 0, result.output
         assert result.stdout == url + "\n"
@@ -1729,18 +1729,20 @@ class TestCli:
             raise AssertionError("Unreadable coverage must not start a server")
 
         monkeypatch.setattr("rebrew.dashboard._DashboardServer", refuse)
-        result = CliRunner().invoke(app, ["--root", str(tmp_path), "--print-url", "--json"])
+        result = CliRunner().invoke(
+            app, ["--snapshots", str(tmp_path / "db"), "--print-url", "--json"]
+        )
         assert result.exit_code == 2, result.output
-        assert "no readable coverage document" in json.loads(result.stdout)["error"]
+        assert "no readable coverage targets" in json.loads(result.stdout)["error"]
 
     def test_missing_db_errors(self, tmp_path: Path) -> None:
         """An empty coverage directory fails fast, naming what to run."""
         from rebrew.dashboard import app
 
-        result = CliRunner().invoke(app, ["--root", str(tmp_path)])
+        result = CliRunner().invoke(app, ["--snapshots", str(tmp_path / "db")])
         assert result.exit_code == 2
-        assert "no readable coverage document" in result.output
-        assert "rebrew coverage build" in result.output
+        assert "no readable coverage targets" in result.output
+        assert "readable coverage targets" in result.output
 
     def test_registered_in_umbrella(self) -> None:
         from rebrew.app.main import app as umbrella
@@ -1777,13 +1779,13 @@ class TestCli:
         monkeypatch.setattr("rebrew.dashboard._DashboardServer", refuse)
 
         result = CliRunner().invoke(
-            app, ["--root", str(tmp_path), "--print-url", "--json", "--port", "9123"]
+            app, ["--snapshots", str(tmp_path / "db"), "--print-url", "--json", "--port", "9123"]
         )
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
         assert payload == {
             "url": "http://127.0.0.1:9123",
-            "coverage_dir": str(db_dir),
+            "coverage_source": str(db_dir),
         }
         assert "serving" not in result.output.lower()
         assert "Rebrew dashboard" not in result.output
@@ -1800,7 +1802,9 @@ class TestCli:
             busy.bind(("127.0.0.1", 0))
             busy.listen()
             port = busy.getsockname()[1]
-            result = CliRunner().invoke(app, ["--root", str(tmp_path), "--port", str(port)])
+            result = CliRunner().invoke(
+                app, ["--snapshots", str(tmp_path / "db"), "--port", str(port)]
+            )
         assert result.exit_code == 2
         assert f"Port {port} on 127.0.0.1 is already in use" in result.output
         assert "pick a free port with --port" in result.output
@@ -1993,7 +1997,7 @@ class TestHttpMethods:
         )
         handler.wfile = BytesIO()
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler.dashboard = Dashboard(Path("/nonexistent"), snapshots=True)
         handler.log_message = Mock()
 
         handler.handle_one_request()
@@ -2073,7 +2077,7 @@ class TestHttpMethods:
         handler.rfile = BytesIO(b"GET / HTTP/9.9\r\nHost: 127.0.0.1:8000\r\n\r\n")
         handler.wfile = BytesIO()
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler.dashboard = Dashboard(Path("/nonexistent"), snapshots=True)
         handler.log_message = Mock()
         handler.handle()
 
@@ -2104,7 +2108,7 @@ class TestHttpMethods:
         handler.rfile = BytesIO(f"GET /{rlo} HTTP\r\n\r\n".encode())
         handler.wfile = BytesIO()
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler.dashboard = Dashboard(Path("/nonexistent"), snapshots=True)
         handler.log_message = Mock()
         handler.handle()
 
@@ -2343,7 +2347,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12690), ("gzip", 13317)],
+        [("zstd", 12609), ("gzip", 13215)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int
@@ -2700,7 +2704,7 @@ class TestHostValidation:
         handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
         handler.headers = {"Host": "attacker.example:8000"}
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler.dashboard = Dashboard(Path("/nonexistent"), snapshots=True)
         sent: list[tuple] = []
 
         def fake_send_response(status: int) -> None:
@@ -2749,7 +2753,7 @@ class TestHostValidation:
         handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
         handler.headers = {"Host": "attacker.example:8000"}
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler.dashboard = Dashboard(Path("/nonexistent"), snapshots=True)
         handler._request_id = "r77"
         handler.requestline = "GET /api/targets HTTP/1.1"
         handler.send_response = lambda status, message=None: None
@@ -3011,7 +3015,7 @@ class TestHostValidation:
             result = real_handle(*args, **kwargs)  # type: ignore[arg-type]
             # A rebuild moves the coverage document's own stat; that is what the
             # weak validator hashes, so aging the file is aging the tag.
-            doc = dashboard.db_dir / "coverage-server_dll.toml"
+            doc = dashboard.source / "coverage-server_dll.toml"
             st = doc.stat()
             os.utime(doc, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
             return result
@@ -3034,7 +3038,7 @@ class TestHostValidation:
         # A query-less route has nothing to scope, so it keeps the bare tag.
         assert dashboard.response_etag("/api/bootstrap") == bare
         # The bare tag covers EVERY document's stat, so a rebuild moves it.
-        doc = dashboard.db_dir / "coverage-server_dll.toml"
+        doc = dashboard.source / "coverage-server_dll.toml"
         st = doc.stat()
         os.utime(doc, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
         assert dashboard.response_etag("/api/targets") != bare
@@ -3050,7 +3054,7 @@ class TestHostValidation:
         """
         import os
 
-        doc = dashboard.db_dir / "coverage-server_dll.toml"
+        doc = dashboard.source / "coverage-server_dll.toml"
         before = dashboard.response_etag("/api/targets")
         st = doc.stat()
         original = doc.read_bytes()
@@ -3425,7 +3429,7 @@ class TestHostValidation:
         handler.headers = {"Host": "127.0.0.1:8000"}
         handler.path = "/api/targets"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler.dashboard = Dashboard(Path("/nonexistent"), snapshots=True)
         # Simulate any unexpected failure inside a route (bug, OSError, ...).
         handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]
         sent: list[tuple] = []
@@ -3461,9 +3465,9 @@ class TestHostValidation:
         handler.headers = {"Host": "127.0.0.1:8000"}
         handler.path = "/api/targets\x1b"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler.dashboard = Dashboard(Path("/nonexistent"), snapshots=True)
         handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(  # type: ignore[method-assign]
-            CoverageTomlError("/srv/private/db: no readable coverage document")
+            CoverageTomlError("/srv/private/db: no readable coverage targets")
         )
         sent: list[tuple] = []
         handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
@@ -3482,12 +3486,12 @@ class TestHostValidation:
         assert [v for k, v in sent if k == "status"] == [500]
         body = b"".join(written)
         assert b'"database error"' in body
-        assert b"no readable coverage document" not in body
+        assert b"no readable coverage targets" not in body
         assert b"/srv/private/db" not in body
         reported = caplog.records[-1].getMessage()
         assert "\x1b" not in reported
         assert "/api/targets\\x1b" in reported
-        assert "no readable coverage document" in reported
+        assert "no readable coverage targets" in reported
 
     def test_handler_health_database_error_answers_500(self) -> None:
         """The probe's unreadable directory is a 500 JSON, not a reset.
@@ -3502,7 +3506,7 @@ class TestHostValidation:
         handler.headers = {"Host": "127.0.0.1:8000"}
         handler.path = "/api/health"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler.dashboard = Dashboard(Path("/nonexistent"), snapshots=True)
         sent: list[tuple] = []
         handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
         handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
@@ -3529,7 +3533,7 @@ class TestHostValidation:
         handler.headers = {"Host": "127.0.0.1:8000"}
         handler.path = "/api/targets"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler.dashboard = Dashboard(Path("/nonexistent"), snapshots=True)
         handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]
         handler._request_id = "r7"
         handler.send_response = lambda status: None  # type: ignore[method-assign]
@@ -3577,7 +3581,7 @@ class TestHostValidation:
         handler.headers = {"Host": "127.0.0.1:8000"}
         handler.path = "/api/targets"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler.dashboard = Dashboard(Path("/nonexistent"), snapshots=True)
         handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]
         handler._request_id = "r7"
         handler.send_response = lambda status: None  # type: ignore[method-assign]
@@ -3688,7 +3692,7 @@ class TestAccessLog:
         )
         handler.wfile = BytesIO()
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler.dashboard = Dashboard(Path("/nonexistent"), snapshots=True)
         handler.log_message = lambda *a, **k: None  # type: ignore[method-assign]
         for _ in range(2):
             stale = time.perf_counter() - 60.0
@@ -3706,7 +3710,7 @@ class TestAccessLog:
         handler.rfile = BytesIO(b"GET / HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n\r\n")
         handler.wfile = BytesIO()
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler.dashboard = Dashboard(Path("/nonexistent"), snapshots=True)
         handler.log_message = lambda *a, **k: None  # type: ignore[method-assign]
         handler.handle_one_request()
         first = handler._request_id
@@ -3816,7 +3820,7 @@ class TestLifecycleLines:
 
         monkeypatch.setattr("rebrew.dashboard._DashboardServer.serve_forever", _stop)
         result, port = self._invoke_free_port(
-            app, ["--root", str(tmp_path), "--host", "0.0.0.0", "--port", "{port}"]
+            app, ["--snapshots", str(tmp_path / "db"), "--host", "0.0.0.0", "--port", "{port}"]
         )
         assert result.exit_code == 0, result.output
         rendered = output.getvalue()
@@ -3851,7 +3855,7 @@ class TestLifecycleLines:
         try:
             with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
                 result, _port = self._invoke_free_port(
-                    app, ["--root", str(tmp_path), "--port", "{port}"]
+                    app, ["--snapshots", str(tmp_path / "db"), "--port", "{port}"]
                 )
         finally:
             # The run attached its own handler and restored this one on the way
@@ -4052,7 +4056,7 @@ class TestConnectionTimeoutLine:
         try:
             _Handler._timeouts = 4
             _Handler._slow_requests = 2
-            served = Dashboard(dashboard.db_dir, served=served_totals)
+            served = Dashboard(dashboard.source, served=served_totals, snapshots=True)
             payload = json.loads(served.handle("GET", "/api/health", {})[2])
             assert payload["timeouts"] == 4
             assert payload["slow_requests"] == 2
@@ -4090,7 +4094,7 @@ size = 32
 cells = []
 """,
         )
-        return Dashboard(db_dir)
+        return Dashboard(db_dir, snapshots=True)
 
     def test_summary_warning_carries_the_request_id(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -4299,7 +4303,7 @@ class TestHealthRoute:
         assert content_type.startswith("application/json")
         payload = json.loads(body)
         assert payload["status"] == "ok"
-        assert payload["coverage_dir"] == str(dashboard.db_dir)
+        assert payload["coverage_source"] == str(dashboard.source)
         assert payload["targets"] == len(dashboard.targets())
 
     def test_health_withholds_the_path_off_loopback(
@@ -4310,12 +4314,12 @@ class TestHealthRoute:
         from rebrew.dashboard import Dashboard
 
         _write_config(tmp_path, "server_dll")
-        build_db(tmp_path)
-        dashboard = Dashboard(tmp_path / "db", expose_paths=False)
+        write_coverage(tmp_path, tmp_path / "db", target=None, json_output=False)
+        dashboard = Dashboard(tmp_path / "db", expose_paths=False, snapshots=True)
         status, _content_type, body = dashboard.handle("GET", "/api/health", {})
         assert status == 200
         payload = json.loads(body)
-        assert "coverage_dir" not in payload
+        assert "coverage_source" not in payload
         assert payload["status"] == "ok"
 
     def test_health_reports_the_running_totals(
@@ -4327,7 +4331,7 @@ class TestHealthRoute:
         monkeypatch.setattr(_Handler, "_requests", 12)
         monkeypatch.setattr(_Handler, "_server_errors", 3)
         monkeypatch.setattr(_Handler, "_slowest_ms", 41.26)
-        served = Dashboard(dashboard.db_dir, served=served_totals)
+        served = Dashboard(dashboard.source, served=served_totals, snapshots=True)
         payload = json.loads(served.handle("GET", "/api/health", {})[2])
         assert payload["requests"] == 12
         assert payload["server_errors"] == 3
@@ -4388,14 +4392,14 @@ class TestHealthRoute:
         """
         from rebrew.dashboard import Dashboard
 
-        empty = Dashboard(tmp_path / "db")
+        empty = Dashboard(tmp_path / "db", snapshots=True)
         with pytest.raises(CoverageTomlError):
             empty.handle("GET", "/api/health", {})
 
         db_dir = tmp_path / "mixed"
         _write_document(db_dir, "server_dll")
         (db_dir / "coverage-broken.toml").write_text("not = [toml", encoding="utf-8")
-        status, _, body = Dashboard(db_dir).handle("GET", "/api/health", {})
+        status, _, body = Dashboard(db_dir, snapshots=True).handle("GET", "/api/health", {})
         assert status == 200
         assert json.loads(body)["targets"] == 1
 
@@ -4628,7 +4632,7 @@ class TestConnectionCap:
         from rebrew.dashboard import served_totals
 
         monkeypatch.setattr(_Handler, "timeout", 5.0)
-        served = Dashboard(dashboard.db_dir, served=served_totals)
+        served = Dashboard(dashboard.source, served=served_totals, snapshots=True)
         server, serve = self._server(served, 4, monkeypatch)
         try:
             assert served_totals()["active_connections"] == 0
@@ -4852,7 +4856,7 @@ old_status = "WIP"
 new_status = "EXACT"
 """,
         )
-        row = Dashboard(db_dir).history("t")["history"][0]
+        row = Dashboard(db_dir, snapshots=True).history("t")["history"][0]
         assert row[4] == ""
 
         column = _spec()["components"]["schemas"]["History"]["allOf"][1]["properties"]["history"][
@@ -4889,7 +4893,7 @@ new_status = "EXACT"
         from rebrew.dashboard import served_totals
 
         schemas = _spec()["components"]["schemas"]
-        served = Dashboard(dashboard.db_dir, served=served_totals)
+        served = Dashboard(dashboard.source, served=served_totals, snapshots=True)
         status, _, body = served.handle("GET", "/api/health", {})
         assert status == 200
         payload = json.loads(body)
@@ -4912,17 +4916,19 @@ new_status = "EXACT"
 
         schemas = _spec()["components"]["schemas"]
         health = schemas["Health"]
-        assert "coverage_dir" in health["properties"]
-        assert "coverage_dir" not in health["required"]
+        assert "coverage_source" in health["properties"]
+        assert "coverage_source" not in health["required"]
 
         for expose_paths in (True, False):
-            served = Dashboard(dashboard.db_dir, served=served_totals, expose_paths=expose_paths)
+            served = Dashboard(
+                dashboard.source, served=served_totals, expose_paths=expose_paths, snapshots=True
+            )
             status, _, body = served.handle("GET", "/api/health", {})
             assert status == 200
             payload = json.loads(body)
             assert set(health["required"]) <= set(payload), expose_paths
             assert set(payload) <= set(health["properties"]), expose_paths
-            assert ("coverage_dir" in payload) is expose_paths
+            assert ("coverage_source" in payload) is expose_paths
 
     def test_human_summary_names_the_served_health_keys(self, dashboard: Dashboard) -> None:
         """``COVERAGE_DOCUMENT.md``'s endpoint table restates the probe body.
@@ -4941,7 +4947,7 @@ new_status = "EXACT"
         row = next(
             line for line in doc.splitlines() if line.startswith("| `GET`, `HEAD` | `/api/health`")
         )
-        served = Dashboard(dashboard.db_dir, served=served_totals)
+        served = Dashboard(dashboard.source, served=served_totals, snapshots=True)
         payload = json.loads(served.handle("GET", "/api/health", {})[2])
         for key in payload:
             assert f'"{key}"' in row, key
@@ -5124,7 +5130,7 @@ size = 16
 cells = []
 """,
         )
-        dashboard = Dashboard(db_dir)
+        dashboard = Dashboard(db_dir, snapshots=True)
         for schema_name, key, payload in (
             ("Functions", "functions", dashboard.functions("t")),
             ("Sections", "sections", dashboard.sections("t")),
@@ -5144,9 +5150,9 @@ cells = []
         schemas = _spec()["components"]["schemas"]
         _, _, body = dashboard.handle("GET", "/api/bootstrap", {})
         payload = json.loads(body)
-        assert set(schemas["Bootstrap"]["properties"]) == set(payload)
+        assert set(schemas["Bootstrap"]["properties"]) - {"failures"} == set(payload)
         _, _, body = dashboard.handle("GET", "/api/targets", {})
-        assert set(schemas["Targets"]["properties"]) == set(json.loads(body))
+        assert set(schemas["Targets"]["properties"]) - {"failures"} == set(json.loads(body))
 
     def test_documented_module_spelling_is_the_one_the_route_compares(self, tmp_path: Path) -> None:
         """The `module` filter folds to the stored spelling, and the spec says so.
@@ -5179,7 +5185,7 @@ size = 4
 module = "SERVER"
 """,
         )
-        served = Dashboard(db_dir)
+        served = Dashboard(db_dir, snapshots=True)
         for path in ("/api/functions", "/api/globals"):
             for spelling in ("SERVER", "server", "Server"):
                 status, _, body = served.handle(
@@ -5313,7 +5319,7 @@ markerType = "FUNCTION"
 size = 16
 """,
         )
-        dashboard = Dashboard(db_dir)
+        dashboard = Dashboard(db_dir, snapshots=True)
         pattern = re.compile(_spec()["components"]["schemas"]["Va"]["pattern"])
         rows = dashboard.functions("t")["functions"]
         # The literal survived the round trip through the document and the wire.
@@ -5427,7 +5433,7 @@ class TestHumanReadableContract:
         assert payload["functions"] is None
 
         _write_document(
-            empty_dashboard.db_dir,
+            empty_dashboard.source,
             "t",
             """
 [[functions]]

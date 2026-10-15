@@ -143,6 +143,8 @@ __all__ = [
     "library_presets_generation",
     "is_table_field",
     "load_metadata",
+    "load_status_history",
+    "import_status_history",
     "merge_into_binding",
     "metadata_path",
     "nearest_library_metadata_path",
@@ -393,6 +395,7 @@ METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "updated_at": str,
     "origins": dict,
     "verification": dict,
+    "status_history": list,
 }
 """Lower-case TOML key → accepted value type(s) for :func:`update_field`.
 
@@ -488,6 +491,8 @@ def validate_metadata_field(key: str, value: Any) -> Any:
         raise ValueError(
             f"unknown metadata field {key!r} (expected one of {sorted(METADATA_FIELDS)})"
         )
+    if key == "status_history":
+        return _merge_status_history(value, [])
     if key == "size":
         if isinstance(value, bool):
             raise ValueError(f"size must be an int, got {value!r}")
@@ -691,6 +696,8 @@ def set_fields(
         changed = False
         for key, value in fields.items():
             key = key.lower()
+            if key == "status_history":
+                raise ValueError("Use import_status_history() for historical evidence")
             if key == "status":
                 raise ValueError(
                     "Use update_source_status() for STATUS changes — it enforces promotion rules"
@@ -764,6 +771,8 @@ def set_fields_batch(
             changed = False
             for key, value in fields.items():
                 key = key.lower()
+                if key == "status_history":
+                    raise ValueError("Use import_status_history() for historical evidence")
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
                 safe = toml_safe(validate_metadata_field(key, value))
@@ -793,6 +802,111 @@ FUNCTION_IDENTITY_FIELDS: tuple[str, ...] = ("file", "symbol", "name", "kind")
 _KNOWN_METADATA_FIELDS: frozenset[str] = METADATA_FIELDS | {
     f.upper() for f in FUNCTION_IDENTITY_FIELDS
 }
+
+
+# History is comparison-owned evidence, deliberately absent from generic setters.
+_HISTORY_RETENTION = 10000
+
+
+def _history_event(row: Any) -> dict[str, str]:
+    if not isinstance(row, dict) or set(row) != {
+        "old_status",
+        "new_status",
+        "changed_at",
+        "updated_by",
+    }:
+        raise ValueError(
+            "status history requires old_status, new_status, changed_at and updated_by"
+        )
+    if any(not isinstance(value, str) for value in row.values()):
+        raise ValueError("status history facts must be strings")
+    row = {
+        key: ("UNKNOWN" if key in {"old_status", "new_status"} and value == "" else value)
+        for key, value in row.items()
+    }
+    for key in ("old_status", "new_status"):
+        if row[key] not in KNOWN_STATUSES | {"UNKNOWN"}:
+            raise ValueError(f"unknown history status {row[key]!r}")
+    stamp = datetime.fromisoformat(row["changed_at"])
+    if stamp.tzinfo is None or stamp.utcoffset() is None:
+        raise ValueError("status history changed_at requires a timezone")
+    return {**row, "changed_at": stamp.astimezone(UTC).isoformat()}
+
+
+def _merge_status_history(old: Any, new: list[dict[str, str]]) -> list[dict[str, str]]:
+    if not isinstance(old, list):
+        raise ValueError("status_history must be an array")
+    events = [_history_event(row) for row in [*old, *new]]
+    unique = {tuple(sorted(row.items())): row for row in events}
+    return sorted(unique.values(), key=lambda row: (row["changed_at"], tuple(sorted(row.items()))))[
+        -_HISTORY_RETENTION:
+    ]
+
+
+def load_status_history(directory: Path | str | Any, module: str) -> list[dict[str, Any]]:
+    """Read durable comparison transitions, including retired source identities."""
+    module = unicodedata.normalize("NFC", module)
+    rows = [
+        {"va": va, **event}
+        for (owner, va), entry in load_metadata(directory, deepcopy=False).items()
+        if owner == module
+        for event in _merge_status_history(entry.get("status_history", []), [])
+    ]
+    return sorted(rows, key=lambda row: (row["changed_at"], row["va"]))
+
+
+def import_status_history(
+    directory: Path | str | Any, module: str, rows: list[dict[str, Any]], *, dry_run: bool = False
+) -> int:
+    """Import reviewed snapshot history without changing identity, STATUS or provenance.
+
+    The complete batch is validated before publication; repeating an import is
+    idempotent. Historical rows without source bindings remain evidence only.
+    """
+    _require_module(module)
+    prepared: dict[int, list[dict[str, str]]] = {}
+    for row in rows:
+        if (
+            not isinstance(row, dict)
+            or isinstance(row.get("va"), bool)
+            or not isinstance(row.get("va"), int)
+            or row["va"] < 0
+        ):
+            raise ValueError("history row requires a nonnegative integer va")
+        prepared.setdefault(row["va"], []).append(
+            _history_event({k: v for k, v in row.items() if k != "va"})
+        )
+    if not prepared:
+        return 0
+    if dry_run:
+        stored = load_metadata(directory, deepcopy=False)
+        module = unicodedata.normalize("NFC", module)
+        return sum(
+            _merge_status_history(
+                old := stored.get((module, va), {}).get("status_history", []), events
+            )
+            != old
+            for va, events in prepared.items()
+        )
+    root = resolve_metadata_dir(directory)
+    path = (root / METADATA_FILENAME).resolve()
+    changed = 0
+    with metadata_write_lock(root, METADATA_FILENAME):
+        doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
+        doc_dict = typing.cast(dict[str, Any], doc)
+        index = build_metadata_key_index(doc_dict)
+        for va, events in prepared.items():
+            _, entry = _ensure_entry_table(doc_dict, module, va, index)
+            old = entry.get("status_history", [])
+            merged = _merge_status_history(old, events)
+            if old != merged:
+                entry["status_history"] = merged
+                changed += 1
+        if changed and not dry_run:
+            stamp_format(doc)
+            atomic_write_locked(path, tomlkit.dumps(doc))
+            pop_metadata_doc_cache(_metadata_cache, path)
+    return changed
 
 
 def record_function_rows(
@@ -835,6 +949,8 @@ def record_function_rows(
             updates: dict[str, Any] = {}
             for key, value in (row.get("fields") or {}).items():
                 key = key.lower()
+                if key == "status_history":
+                    raise ValueError("Use import_status_history() for historical evidence")
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
                 updates[key] = toml_safe(validate_metadata_field(key, value))
@@ -1000,6 +1116,8 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
             changed = False
             for key in keys:
                 key = key.lower() if isinstance(key, str) else key
+                if key == "status_history":
+                    raise ValueError("Use import_status_history() for historical evidence")
                 if key == "status":
                     raise ValueError("Cannot delete STATUS directly")
                 if not isinstance(key, str) or key.upper() not in METADATA_FIELDS:
@@ -1109,7 +1227,7 @@ def _delete_field(directory: Path | str | Any, va: int, key: str, module: str) -
 
 
 def delete_metadata_entry(directory: Path | str | Any, va: int, module: str) -> bool:
-    """Remove the entire metadata entry for *(module, va)*.
+    """Remove an entry without historical transitions for *(module, va)*.
 
     Used when a function disappears from the target on re-discovery (e.g.
     ``rebrew intake`` stale-stub pruning after an enumeration fix).  Only
@@ -1117,6 +1235,8 @@ def delete_metadata_entry(directory: Path | str | Any, va: int, module: str) -> 
     """
 
     def _drop_entry(doc_dict: dict[str, Any], toml_key: str) -> bool:
+        if doc_dict[toml_key].get("status_history"):
+            return False
         del doc_dict[toml_key]
         return True
 
@@ -1164,6 +1284,8 @@ def update_field(
 
     """
     key = key.lower()
+    if key == "status_history":
+        raise ValueError("Use import_status_history() for historical evidence")
     if key == "status":
         raise ValueError(
             "Use update_source_status() for STATUS changes — it enforces promotion rules"
@@ -1199,6 +1321,8 @@ def remove_field(directory: Path | str | Any, va: int, key: str, module: str) ->
 
     """
     key = key.lower()
+    if key == "status_history":
+        raise ValueError("Use import_status_history() for historical evidence")
     if key == "status":
         raise ValueError("Cannot delete STATUS directly")
     if key not in _LOWER_METADATA_FIELDS:
@@ -1440,12 +1564,26 @@ def update_statuses_batch(
             )
             row_changed = bool(status_change)
             if status_change:
+                if current_status and current_status != new_status:
+                    event = _history_event(
+                        {
+                            "old_status": current_status,
+                            "new_status": new_status,
+                            "changed_at": (now or datetime.now(UTC)).isoformat(),
+                            "updated_by": str(u.get("updated_by") or ""),
+                        }
+                    )
+                    entry["status_history"] = _merge_status_history(
+                        entry.get("status_history", []), [event]
+                    )
                 entry["status"] = new_status
                 if clear_blockers:
                     entry.pop("blocker", None)
                     entry.pop("blocker_delta", None)
             for key, value in (u.get("fields") or {}).items():
                 key = key.lower()
+                if key == "status_history":
+                    raise ValueError("Use import_status_history() for historical evidence")
                 if key == "status":
                     raise ValueError("Use new_status for STATUS changes")
                 safe = toml_safe(validate_metadata_field(key, value))

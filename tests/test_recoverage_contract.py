@@ -37,8 +37,8 @@ from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
-from rebrew.coverage_db import FUNCTION_DB_STATUSES, build_db
-from rebrew.coverage_toml import load_coverage
+from rebrew.coverage_db import FUNCTION_DB_STATUSES, write_coverage
+from rebrew.coverage_toml import load_coverage_from
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -103,7 +103,7 @@ def _build_fixture_project(tmp_path: Path, monkeypatch) -> Path:
 def _run_pipeline(tmp_path: Path, monkeypatch) -> Path:
     """``rebrew coverage build`` over a fixture project; returns the root."""
     root = _build_fixture_project(tmp_path, monkeypatch)
-    result = CliRunner().invoke(app, ["coverage", "build"])
+    result = CliRunner().invoke(app, ["coverage", "export", "--output", str(root / "db")])
     assert result.exit_code == 0, result.output
     return root
 
@@ -129,7 +129,7 @@ class TestRecoverageContract:
         # and the reader refuses the document when the two disagree.
         assert isinstance(doc["version"], int)
         assert doc["target"] == "SERVER"
-        snapshot = load_coverage(root, "SERVER")
+        snapshot = load_coverage_from(root / "db", "SERVER")
         assert snapshot.target == "SERVER"
         assert snapshot.version == doc["version"]
 
@@ -155,7 +155,7 @@ class TestRecoverageContract:
         linked = [va for cell in cells for va in cell["functions"]]
         assert "0x00401000" in linked
 
-        cell = load_coverage(root, "SERVER").sections[".text"].cells[0]
+        cell = load_coverage_from(root / "db", "SERVER").sections[".text"].cells[0]
         assert isinstance(cell.state, str)
         assert isinstance(cell.functions, tuple)
         assert isinstance(cell.label, str)
@@ -174,7 +174,7 @@ class TestRecoverageContract:
         assert func1["size"] == 11
         assert func1["files"] == ["fcn.c"]
 
-        stored = load_coverage(root, "SERVER").functions[0]
+        stored = load_coverage_from(root / "db", "SERVER").functions[0]
         assert stored.files == ("fcn.c",)
         assert stored.size == 11
 
@@ -193,7 +193,7 @@ class TestRecoverageContract:
         assert row["decl"] == "int g_flag;"
         assert row["size"] == 4
         assert row["module"] == "SERVER"
-        (item,) = load_coverage(root, "SERVER").globals
+        (item,) = load_coverage_from(root / "db", "SERVER").globals
         assert (item.decl, item.size, item.module) == ("int g_flag;", 4, "SERVER")
 
     def test_verify_results_carry_their_measurement_columns(self, tmp_path, monkeypatch) -> None:
@@ -240,7 +240,7 @@ class TestRecoverageContract:
             }
         ]
         vc.save_verify_cache(cache_path, cfg, results, entries)
-        build_db(root)
+        write_coverage(root, root / "db", target=None, json_output=False)
 
         (row,) = _document(root)["verify_results"]
         assert {
@@ -257,7 +257,7 @@ class TestRecoverageContract:
         # TOML has no null, and the reader documents that the writer stores an
         # absent measurement as "": a reader must not read it as 0.
         assert row["diff_lines"] == ""
-        assert load_coverage(root, "SERVER").verify_results[0]["byte_delta"] == 0
+        assert load_coverage_from(root / "db", "SERVER").verify_results[0]["byte_delta"] == 0
 
     def test_pipeline_writes_no_intermediate_file(self, tmp_path, monkeypatch) -> None:
         """The document is built in-process; nothing else lands in db/."""
@@ -280,6 +280,6 @@ class TestRecoverageContract:
         root = _run_pipeline(tmp_path, monkeypatch)
         path = root / "db" / "coverage-SERVER.toml"
         before = path.read_bytes()
-        build_db(root)
+        write_coverage(root, root / "db", target=None, json_output=False)
         assert path.read_bytes() == before
-        assert load_coverage(root, "SERVER").functions
+        assert load_coverage_from(root / "db", "SERVER").functions

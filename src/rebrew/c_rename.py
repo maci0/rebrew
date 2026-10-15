@@ -708,3 +708,32 @@ def file_scope_type(src: ParsedSource, path: str, name: str) -> list[str | None]
                 if declarator_name(declarator, src) == name:
                     tokens.append(type_token(node.child_by_field_name("type"), src, anon_key))
     return tokens
+
+
+def rename_function_source(source: str, new_name: str) -> str:
+    """Rename one complete function and its references without capturing a name.
+
+    Comments/literals and other namespaces stay intact. Refuse shadowing or a
+    destination already used by the source, including an implicit external call.
+    """
+    from rebrew.c_parser import extract_function_name_and_proto, function_source_error
+
+    reason = function_source_error(source, allow_declarations=True)
+    if reason is not None:
+        raise ValueError(reason)
+    signature = extract_function_name_and_proto(source)
+    assert signature is not None
+    old_name = signature[0]
+    if old_name == new_name:
+        return source
+    parsed = ParsedSource.parse(source)
+    if non_external_function_declarations(parsed, old_name) or any(
+        occurrence.role in ORDINARY_ROLES for occurrence in occurrences(parsed, new_name)
+    ):
+        raise ValueError("renaming the function would capture an existing name")
+    spans = [(o.start, o.end) for o in occurrences(parsed, old_name) if o.role == ROLE_IDENT]
+    result = rewrite(parsed, spans, new_name)
+    reason = function_source_error(result, expect_name=new_name, allow_declarations=True)
+    if reason is not None:
+        raise ValueError(reason)
+    return result

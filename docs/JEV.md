@@ -268,7 +268,7 @@ cookbooks + 4 patterns + smart-home demo + agent skill):
 ### 5.1 Init / intake (once per target)
 
 `rebrew init` → `rebrew doctor` → `rebrew library scan-signatures` →
-`rebrew library crt-match` → `rebrew coverage catalog` → `rebrew coverage build`
+`rebrew library crt-match` → `rebrew coverage catalog` → `rebrew coverage export --output snapshots/`
 → first `rebrew todo`. Almost all of this is already
 deterministic (`--guess-compiler`, FLIRT, CRT).
 

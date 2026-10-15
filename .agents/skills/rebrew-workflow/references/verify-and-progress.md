@@ -54,7 +54,7 @@ acknowledgment. Compare the raw link to avoid counting postlink-copied bytes.
 ## Coverage / interchange
 
 ```bash
-rebrew coverage build                          # write db/coverage-bench.toml (one per target)
+rebrew coverage export --output snapshots/                          # optional portable snapshots for offline use
 rebrew export symbols --output symbol_addrs.csv
 rebrew export context --output ctx.c
 rebrew coverage report --decomp-dev report.json
@@ -69,16 +69,17 @@ third-party site. Run it only when the user asks for a decomp.me scratch, and
 `rebrew verify --compare` uses `.rebrew/verify_baseline.toml` (exit 1 on
 regression). First run warns and skips the diff.
 
-`db/coverage-bench.toml` is the progress document the dashboards and the
-sibling `recovery` UI read: functions with their `updated_by` / `updated_at`
-stamp, globals, `verify_results` rows and the `history` change log. It is
-gitignored build output: regenerate it with `rebrew coverage build`, never edit it,
-and delete any older `db/coverage.db`, `db/data_bench.json` or `db/*.csv`
-(`rebrew lint` reports them, W032). The canonical provenance lives in the
-TOML stores: `UPDATED_BY` / `UPDATED_AT` describe ordinary changes, `ORIGINS`
-records accepted external fields, and `VERIFICATION` records comparison inputs
-and measurement time. The coverage document does not mirror those nested
-provenance tables. Deleting derived coverage/cache files does not delete them.
+Local dashboards read canonical project metadata, inventory and binaries directly.
+Run `rebrew coverage serve` or `recoverage serve` inside the project; there is no
+`db_dir` setting or prerequisite export. Optional portable snapshots are generated
+with `rebrew coverage export --output snapshots/`; serve them with
+`rebrew coverage serve --snapshots snapshots/` or set
+`RECOVERAGE_SNAPSHOTS` for Recoverage. Comparison writers record durable status
+transitions in function metadata. Preview and run
+`rebrew coverage import-history --snapshots db/ --dry-run` before retiring older
+exports, then repeat without `--dry-run`. Keep inventory JSON if configured there.
+Ordinary edit stamps, external origins and verification evidence remain separate
+canonical facts; deleting derived views never deletes them.
 
 ## Library origin and the build provider
 
@@ -102,3 +103,8 @@ Bind a header to source with
 `rebrew library bind-source 0x<VA> references/library/file.c --symbol _native`.
 The writer records the source and native symbol. Sources may live outside
 `reversed_dir`.
+
+`STATUS_HISTORY` is comparison evidence: accepted verdict transitions record it
+atomically. Generic metadata setters cannot edit it. Import older portable events
+with `coverage import-history` before retiring exports; automatic source cleanup
+preserves identities carrying this history.

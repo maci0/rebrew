@@ -1044,7 +1044,8 @@ class TestKunaBackend:
         import rebrew.decompiler as dc
 
         monkeypatch.setattr(dc, "fetch_kuna", lambda b, va, root: "#### not c ####")
-        assert dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path) is None
+        with pytest.raises(ValueError, match="Kuna output rejected"):
+            dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
 
     def test_kuna_seed_source_none_when_fetch_fails(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.decompiler as dc
@@ -1096,7 +1097,7 @@ class TestKunaBackend:
         assert seed is not None
         assert seed.count("extern int dat_401100;") == 1
 
-    def test_kuna_seed_keeps_a_pointer_array_definition(
+    def test_kuna_seed_keeps_external_pointer_array_declarations(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
         """A pointer array named ``dat_`` is already a declaration.
@@ -1108,10 +1109,10 @@ class TestKunaBackend:
         import rebrew.decompiler as dc
 
         samples = [
-            "char (__cdecl *dat_00401100)[4];\nint sub_401000(void) { return dat_00401100[0][0]; }\n",
-            "int (*dat_00401100[2])[3];\nint sub_401000(void) { return dat_00401100[0][0]; }\n",
-            "int (* const dat_00401100[2])[3];\nint sub_401000(void) { return 0; }\n",
-            "void (__cdecl *sub_00401200)(int);\nint sub_401000(void) { return 0; }\n",
+            "extern char (__cdecl *dat_00401100)[4];\nint sub_401000(void) { return dat_00401100[0][0]; }\n",
+            "extern int (*dat_00401100[2])[3];\nint sub_401000(void) { return dat_00401100[0][0]; }\n",
+            "extern int (* const dat_00401100[2])[3];\nint sub_401000(void) { return 0; }\n",
+            "extern void (__cdecl *sub_00401200)(int);\nint sub_401000(void) { return 0; }\n",
         ]
         for source in samples:
             monkeypatch.setattr(dc, "fetch_kuna", lambda b, va, root, source=source: source)

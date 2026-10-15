@@ -50,3 +50,30 @@ class TestAddressAnchors:
         assert "\n" not in both.replace("\r\n", "")
         assert [a.module for a in parse_address_anchors(both)] == ["S", "C"]
         assert add_address_anchor(both, "S", 0x1000, "f") == both
+
+
+class TestAnchorCache:
+    def test_cached_results_are_isolated_and_edits_revalidated(self) -> None:
+        source = "// ADDRESS: CACHE 0x1000\nint cache_identity;\n"
+        first = parse_address_anchors(source)
+        first.clear()
+        assert parse_address_anchors(source)[0].name == "cache_identity"
+        changed = source.replace("cache_identity", "changed_identity")
+        assert parse_address_anchors(changed)[0].name == "changed_identity"
+        with pytest.raises(ValueError, match="exactly one"):
+            parse_address_anchors(source.replace("int cache_identity;", "int a, b;"))
+
+    def test_cache_retention_is_bounded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.metadata import anchors
+
+        monkeypatch.setattr(anchors, "_ANCHOR_CACHE", anchors.OrderedDict())
+        monkeypatch.setattr(anchors, "_ANCHOR_CACHE_CHARS", 0)
+        monkeypatch.setattr(anchors, "_ANCHOR_CACHE_MAX_CHARS", 100)
+        monkeypatch.setattr(anchors, "_ANCHOR_CACHE_MAX_ENTRIES", 2)
+        for i in range(10):
+            parse_address_anchors(f"// ADDRESS: CACHE 0x{i:04x}\nint value_{i};\n")
+            assert len(anchors._ANCHOR_CACHE) <= 2
+            assert anchors._ANCHOR_CACHE_CHARS <= 100
+        oversized = "// ADDRESS: CACHE 0x1000\nint value;\n" + " " * 101
+        assert parse_address_anchors(oversized)[0].name == "value"
+        assert oversized not in anchors._ANCHOR_CACHE

@@ -3347,74 +3347,6 @@ class TestW031MetadataStore:
         assert self._warnings(self._cfg(tmp_path)) == ""
 
 
-class TestW032CoverageStore:
-    """W032: stale artifacts and documents the dashboards cannot serve."""
-
-    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
-        return SimpleNamespace(root=tmp_path, db_dir="db")
-
-    def _messages(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
-        from rebrew.lint import _check_W032_coverage_store
-
-        return "\n".join(
-            m for res in _check_W032_coverage_store(self._cfg(tmp_path)) for _, _, m in res.warnings
-        )
-
-    def test_leftover_sqlite_store_is_reported(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        (tmp_path / "db").mkdir()
-        (tmp_path / "db" / "coverage.db").write_bytes(b"SQLite format 3\x00")
-        assert "SQLite coverage database" in self._messages(tmp_path, monkeypatch)
-
-    def test_leftover_catalog_artifacts_are_reported(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        (tmp_path / "db").mkdir()
-        (tmp_path / "db" / "data_T.json").write_text("{}", encoding="utf-8")
-        (tmp_path / "db" / "T_functions.csv").write_text("address\n", encoding="utf-8")
-        messages = self._messages(tmp_path, monkeypatch)
-        assert "grid JSON" in messages
-        assert "CSV export" in messages
-
-    def test_unreadable_document_is_reported(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        (tmp_path / "db").mkdir()
-        (tmp_path / "db" / "coverage-T.toml").write_text("not toml = = =\n", encoding="utf-8")
-        assert "cannot serve" in self._messages(tmp_path, monkeypatch)
-
-    def test_document_naming_another_target_is_reported(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The dashboards key a document by its FILENAME, so a `target` key
-        that disagrees serves another target's data under this name."""
-        import rebrew.coverage_toml as coverage_toml
-        from rebrew.coverage_toml import write_coverage_toml
-
-        (tmp_path / "db").mkdir()
-        payload = {"sections": {}, "globals": {}, "paths": {}, "functions": {}}
-        monkeypatch.setattr(
-            coverage_toml,
-            "load_coverage_datasets",
-            lambda *a, **k: [("T", payload)],
-            raising=True,
-        )
-        paths = write_coverage_toml(tmp_path)
-        # Rename the document, leaving its own `target` key naming T.
-        (tmp_path / "db" / "coverage-T.toml").rename(tmp_path / "db" / "coverage-OTHER.toml")
-        assert paths  # the write happened; the mismatch is what W032 reads
-        messages = self._messages(tmp_path, monkeypatch)
-        assert "cannot serve" in messages
-        assert "target is 'T'" in messages
-
-    def test_clean_directory_is_silent(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        (tmp_path / "db").mkdir()
-        assert self._messages(tmp_path, monkeypatch) == ""
-
-
 class TestW036StrayMetadataStoreSingleDir:
     """W036 with one configured directory (no ``shared_dir``/``reversed_dir`` pair)."""
 
@@ -3462,7 +3394,7 @@ class TestW036StrayMetadataStoreSingleDir:
         assert self._messages(tmp_path, src) == ""
 
 
-class TestW031W032Cli:
+class TestW031Cli:
     """End-to-end: the store checks ride the normal lint report and count."""
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
@@ -3500,14 +3432,14 @@ class TestW031W032Cli:
             result = CliRunner().invoke(app, [])
         assert result.exit_code == 0, result.output
         assert "W031" in result.output
-        assert "W032" in result.output
+        assert "W032" not in result.output
         # The bare tmp project has no rendered scaffold either (W033).
         assert "W033" in result.output
         # Every store check is a warning, so it never fails the run.
         assert "0 errors" in result.output
         # W031 reports the hand-edited status plus the missing format stamp,
         # W032 the leftover SQLite store, W033 the absent scaffold.
-        assert "3 warnings" in result.output
+        assert "2 warnings" in result.output
 
     def test_json_lists_the_offending_artifacts(self, tmp_path: Path) -> None:
         import json
@@ -3518,13 +3450,17 @@ class TestW031W032Cli:
         from rebrew.lint import app
 
         cfg = self._cfg(tmp_path)
-        (tmp_path / "db" / "data_SERVER.json").write_text("{}", encoding="utf-8")
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["SERVER.0x1000"]\nstatus = "TYPO"\n',
+            encoding="utf-8",
+        )
         with patch("rebrew.lint.load_config", return_value=cfg):
             result = CliRunner().invoke(app, ["--json"])
         payload = json.loads(result.stdout)
         assert payload["warnings"] >= 1
         files = {entry["file"] for entry in payload["files"]}
-        assert "data_SERVER.json" in files
+        assert "rebrew-data.toml" in files
 
 
 class TestW033AgentScaffold:
@@ -3787,34 +3723,6 @@ class TestW036StrayMetadataStore:
         src.mkdir()
         (tmp_path / "rebrew-project.toml").write_text("[project]\n", encoding="utf-8")
         assert self._warnings(tmp_path, metadata_dir=src, reversed_dir=src) == ""
-
-
-class TestW032OldJsonStores:
-    """A store that moved from JSON to TOML is named, not silently ignored."""
-
-    def _messages(self, tmp_path: Path) -> str:
-        from rebrew.lint import _check_W032_coverage_store
-
-        cfg = SimpleNamespace(root=tmp_path, db_dir="db")
-        return "\n".join(m for res in _check_W032_coverage_store(cfg) for _, _, m in res.warnings)
-
-    def test_a_leftover_verify_cache_is_reported(self, tmp_path: Path) -> None:
-        db = tmp_path / "db"
-        db.mkdir()
-        (db / "verify_cache.json").write_text('{"version": 2}', encoding="utf-8")
-        assert "verify_cache.toml" in self._messages(tmp_path)
-
-    def test_a_leftover_compare_baseline_is_reported(self, tmp_path: Path) -> None:
-        db = tmp_path / "db"
-        db.mkdir()
-        (db / "verify_baseline.json").write_text('{"version": 2}', encoding="utf-8")
-        assert "verify_baseline.toml" in self._messages(tmp_path)
-
-    def test_the_toml_store_is_not_reported(self, tmp_path: Path) -> None:
-        db = tmp_path / "db"
-        db.mkdir()
-        (db / "verify_cache.toml").write_text("version = 2\n", encoding="utf-8")
-        assert self._messages(tmp_path) == ""
 
 
 @pytest.mark.parametrize("metadata_in_src", [False, True])

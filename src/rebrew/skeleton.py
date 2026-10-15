@@ -87,21 +87,9 @@ def _decomp_comment_lines(decomp_code: str, decomp_backend: str) -> list[str]:
     """
     return [
         f"/* === Decompilation ({c_comment_safe(decomp_backend)}) === */\n",
-        *(f"{c_comment_safe(line)}\n" for line in decomp_code.splitlines()),
+        *(f"/* {c_comment_safe(line)} */\n" for line in decomp_code.splitlines()),
         "/* === End decompilation === */\n",
     ]
-
-
-def _decompiled_body_usable(body: str, func_name: str) -> bool:
-    """True when decompiler output is safe to embed as the function body.
-
-    Delegates to the seed C gate, so a body that reaches the compiler has the
-    same shape the GA population requires: one function definition, named for
-    the marker.  Gate failures are the caller's to report, not swallowed here.
-    """
-    from rebrew.llm_seed import valid_c_source
-
-    return valid_c_source(body, expect_name=func_name, allow_declarations=True)
 
 
 def _render_skeleton(
@@ -128,29 +116,19 @@ def _render_skeleton(
     if xref_context:
         lines.append(f"{xref_context}\n")
     if decomp_code and decomp_body:
-        # Use the decompiled C as the implementation — a real GA seed, not a
-        # comment.  Rename its function to the marker's name so the GA can
-        # find the symbol in the compiled object.
-        from rebrew.c_parser import extract_function_name_and_proto
+        # Validate the complete implementation before embedding it; population
+        # budgets apply only when a matcher later admits it as an extra seed.
+        from rebrew.c_rename import rename_function_source
 
-        body = decomp_code.strip()
-        result = extract_function_name_and_proto(body)
-        if result and result[0] != func_name:
-            body = body.replace(result[0], func_name, 1)
-        if _decompiled_body_usable(body, func_name):
+        try:
+            body = rename_function_source(decomp_code.strip(), func_name)
+        except ValueError as exc:
+            reason = str(exc)
+        else:
             lines.append(f"{body}\n")
             return "".join(lines)
-        # The body is the one place decompiler output becomes live code that
-        # `rebrew test` compiles and runs, so it passes the same C gate the
-        # LLM and Kuna seeds pass: one function definition, the marker's
-        # name, no preprocessor directives, pragma operators, or inline asm.
-        # Refused output lands in the comment block below instead, so the
-        # decompilation is still on the page, just not compiled.
         warnings.warn(
-            f"decompiled body for {func_name} failed the C gate "
-            "(exceeds the seed size budget, is not a single function definition "
-            "with the expected name, or it "
-            "carries a preprocessor directive, pragma, or inline asm); "
+            f"decompiled body for {func_name} failed the C gate: {reason}; "
             "embedded it as a comment instead of as code",
             stacklevel=2,
         )
@@ -1523,8 +1501,7 @@ def main(
     decomp_body: bool = typer.Option(
         False,
         "--decomp-body",
-        help="With --decomp: write the decompiled C as the function BODY (a real "
-        "GA seed) instead of a comment block",
+        help="With --decomp: embed the complete validated C implementation",
     ),
     decomp_backend: str = typer.Option(
         "auto",

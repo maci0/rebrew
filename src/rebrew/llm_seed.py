@@ -94,6 +94,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+from rebrew.c_parser import normalize_function_prototype
 from rebrew.config import (
     LLM_PROJECT_ENDPOINT_TRUST_ENV,
     insecure_endpoint_message,
@@ -110,7 +111,7 @@ from rebrew.utils import retry_backoff_delay, strip_bidi_format
 # Cost / injection caps at the single LLM call site.
 _MAX_SOURCE_CHARS = 16_000  # ~4k tokens of C; larger functions truncate
 _MAX_RESPONSE_CHARS = 32_000
-_MAX_SEED_CHARS = 8_000
+MAX_SEED_CHARS = 8_000
 _MAX_HTTP_BODY_BYTES = 256_000  # reject before json.loads blows memory/budget
 #: Validated seeds kept per process, keyed by the exact prompt that produced
 #: them.  A ``--watch`` run re-runs the whole match on every save, and a save
@@ -167,34 +168,6 @@ _CONNECT_ATTEMPTS = 3
 #: and ``ConnectTimeout`` is doing the waiting; without it three attempts could
 #: stretch past the single-request budget ``REBREW_LLM_TIMEOUT`` documents.
 _CONNECT_RETRY_WINDOW_S = 30.0
-# Seeds must be self-contained; any preprocessor line (#include, #define,
-# pragma, #line, …) lets model output change the TU trust boundary.
-_PREPROC_RE = re.compile(r"^\s*#", re.MULTILINE)
-# Pragma operators (C99 ``_Pragma``, MSVC ``__pragma``) act like ``#pragma``
-# without a ``#`` line: an ``optimize``/``pack`` pragma fakes a byte match.
-_PRAGMA_OP_RE = re.compile(r"\b(?:_Pragma|__pragma)\s*\(")
-# Inline asm (GNU ``asm``/``__asm__``, MSVC ``__asm``/``_asm``/``_emit``,
-# Borland ``__emit__`` / ``__emit``) lets model output emit the target bytes verbatim: a
-# faked match, not a C seed.
-_INLINE_ASM_RE = re.compile(r"\b(?:asm|_asm|__asm|__asm__|_emit|__emit|__emit__)\b")
-# Compiler extensions (declspecs, GCC attributes) that alter codegen, section
-# placement, or function entry/exit (naked functions) to fake matches.
-_COMPILER_EXT_RE = re.compile(r"\b(?:__declspec|_declspec|__attribute__|__attribute)\s*\(")
-# Phase 1 trigraphs.  ``??/`` is ``\``, so it must be replaced before line splicing.
-_TRIGRAPH_RE = re.compile(r"\?\?([=/\'()!<>-])")
-_TRIGRAPH_MAP = {
-    "=": "#",
-    "/": "\\",
-    "'": "^",
-    "(": "[",
-    ")": "]",
-    "!": "|",
-    "<": "{",
-    ">": "}",
-    "-": "~",
-}
-# C99 digraph for ``#`` when it is the first token on a logical line (a directive).
-_DIGRAPH_DIRECTIVE_RE = re.compile(r"(?m)^([ \t]*)%:")
 # Chat template control tokens that could switch roles in LLM provider engines
 # (covers ChatML, Llama 3, Qwen/FIM, Mistral/Llama 2 [INST], Gemma <start_of_turn>, etc.).
 _CONTROL_TOKENS_RE = re.compile(
@@ -219,8 +192,6 @@ _ROLE_HEADER_RE = re.compile(
     r"(?m)^[ \t]*\[(?:system|user|assistant|tool|developer)\][ \t]*$",
     re.IGNORECASE,
 )
-# Root children allowed beside the single function_definition.
-_ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
 
 _request_count = 0
 _request_lock = threading.Lock()
@@ -891,7 +862,7 @@ def extract_seeds(text: str) -> list[str]:
 
     Only blocks the fence tag claims are C are returned, and only whole ones:
     an unterminated fence, an empty block, and a block past
-    :data:`_MAX_SEED_CHARS` are dropped here rather than spending one of the
+    :data:`MAX_SEED_CHARS` are dropped here rather than spending one of the
     :data:`_MAX_SEED_ATTEMPTS` tree-sitter parses the response budget allows.
     """
     if len(text) > _MAX_RESPONSE_CHARS:
@@ -899,64 +870,9 @@ def extract_seeds(text: str) -> list[str]:
     seeds = []
     for block in _fenced_c_blocks(text):
         seed = block.strip()
-        if seed and len(seed) <= _MAX_SEED_CHARS:
+        if seed and len(seed) <= MAX_SEED_CHARS:
             seeds.append(seed)
     return seeds
-
-
-def _trigraph_repl(match: re.Match[str]) -> str:
-    """Replace one trigraph; the regex only captures the nine standard spellings."""
-    return _TRIGRAPH_MAP[match.group(1)]
-
-
-def _splice_logical_lines(src: str) -> str:
-    """C translation phases 1–2: trigraphs, then backslash-newline deletion.
-
-    Keyword gates must see this text.  A model seed can split ``_Pragma(``,
-    ``__declspec(``, ``__attribute__(``, or ``__asm__`` across a line splice
-    (or a ``??/`` trigraph) so the raw spelling misses the regex and the
-    compiler still sees the operator.
-    """
-    src = _TRIGRAPH_RE.sub(_trigraph_repl, src)
-    return src.replace("\\\n", "")
-
-
-def _spell_digraph_directives(src: str) -> str:
-    """Spell a line-start ``%:`` as ``#`` so the directive gate sees it.
-
-    Digraphs are tokens, not phase-1 characters, so this runs after comment
-    stripping.  A ``%:`` buried in a comment is not a directive.
-    """
-    return _DIGRAPH_DIRECTIVE_RE.sub(r"\1#", src)
-
-
-def _normalize_proto(proto: str) -> str:
-    """Collapse insignificant prototype whitespace for equality checks."""
-    text = " ".join(proto.split())
-    return re.sub(r"\s*([(),*])\s*", r"\1", text)
-
-
-def _without_comments(code: bytes, root: Any) -> str:
-    """*code* with each comment node replaced by one space (C translation phase 3).
-
-    A comment ahead of ``#`` still leaves a directive (``/* x */ #define``), so
-    the preprocessor check must run on this text, not the raw snippet.
-    """
-    spans: list[tuple[int, int]] = []
-    stack = [root]
-    while stack:
-        node = stack.pop()
-        if node.type == "comment":
-            spans.append((node.start_byte, node.end_byte))
-        else:
-            stack.extend(node.children)
-    out = bytearray()
-    pos = 0
-    for start, end in sorted(spans):
-        out += code[pos:start] + b" "
-        pos = end
-    out += code[pos:]
-    return out.decode("utf-8", errors="replace")
 
 
 def valid_c_source(
@@ -966,88 +882,23 @@ def valid_c_source(
     expect_proto: str | None = None,
     allow_declarations: bool = False,
 ) -> bool:
-    """True when *src* parses without recovery and is a lone function def.
+    """Admit a structurally valid function within the GA seed size budget.
 
-    Known calling conventions are stripped only for syntax validation.
-    Snippets must contain exactly one ``function_definition`` at the
-    translation-unit root (comments allowed; no globals, typedefs, structs,
-    preprocessor directives (including ones hidden behind a comment, a
-    trigraph, a line-start ``%:`` digraph, or a backslash-newline), or
-    ``_Pragma`` / ``__pragma`` operators, or inline asm or ``__emit__``).  When *expect_name* / *expect_proto* are set, both must
-    match — so a hallucinated helper, wrong arity, or Trojan second
-    definition cannot ride into the GA population.
-
-    *allow_declarations* opts in ``declaration`` root children (``extern``
-    labels / forward decls).  LLM seeds keep the default off; Kuna seeds
-    need it because ``kuna_seed_source`` injects address-label declarations
-    before the single function definition.
+    Full decompiler bodies use c_parser.function_source_error without this
+    population limit. Check the budget before parsing cached or generated seeds.
     """
-    from rebrew.c_parser import (
-        extract_function_name_and_proto,
-        find_c_function_definitions,
-        get_ts_parser,
-        strip_cc,
-    )
+    from rebrew.c_parser import function_source_error
 
-    if len(src) > _MAX_SEED_CHARS:
-        return False
-    src = src.replace("\r\n", "\n").replace("\r", "\n")
-    # Phases 1–2 before any keyword gate; comment stripping (phase 3) after.
-    logical = _splice_logical_lines(src)
-    if _PREPROC_RE.search(logical):
-        return False
-    no_comments = re.sub(r"/\*.*?\*/|//[^\n]*", " ", logical, flags=re.DOTALL)
-    if _PREPROC_RE.search(_spell_digraph_directives(no_comments)):
-        return False
-    if _PRAGMA_OP_RE.search(no_comments) or _INLINE_ASM_RE.search(no_comments):
-        return False
-    if _COMPILER_EXT_RE.search(no_comments):
-        if expect_proto is None or not _COMPILER_EXT_RE.search(expect_proto):
-            return False
-        proto_end = no_comments.find("{")
-        if proto_end != -1 and _COMPILER_EXT_RE.search(no_comments[proto_end:]):
-            return False
-    allowed = _ALLOWED_TOP_LEVEL | {"declaration"} if allow_declarations else _ALLOWED_TOP_LEVEL
-    try:
-        parser_pair = get_ts_parser()
-        if parser_pair is None:
-            return False
-        parser, _ = parser_pair
-        code = strip_cc(src).encode("utf-8")
-        tree = parser.parse(code)
-        if tree.root_node.has_error:
-            return False
-        uncommented = _spell_digraph_directives(
-            _splice_logical_lines(_without_comments(code, tree.root_node))
+    return (
+        len(src) <= MAX_SEED_CHARS
+        and function_source_error(
+            src,
+            expect_name=expect_name,
+            expect_proto=expect_proto,
+            allow_declarations=allow_declarations,
         )
-        if (
-            _PREPROC_RE.search(uncommented)
-            or _PRAGMA_OP_RE.search(uncommented)
-            or _INLINE_ASM_RE.search(uncommented)
-        ):
-            return False
-        top = list(tree.root_node.children)
-        if any(c.type not in allowed for c in top):
-            return False
-        if sum(1 for c in top if c.type == "function_definition") != 1:
-            return False
-        result = extract_function_name_and_proto(src)
-    except Exception as exc:  # garbage must never break seeding
-        # The parse error can quote the snippet being checked, which is model
-        # output: sanitize before it lands in a log.
-        logging.getLogger(__name__).debug("seed parse failed: %s", sanitize_log_value(exc))
-        return False
-    if result is None:
-        return False
-    name, proto = result
-    defined = find_c_function_definitions(src)
-    if len(defined) != 1:
-        return False
-    if expect_name is not None and not (name == expect_name and defined[0][0] == expect_name):
-        return False
-    if expect_proto is None:
-        return True
-    return _normalize_proto(proto) == _normalize_proto(expect_proto)
+        is None
+    )
 
 
 def _expected_signature(source: str) -> tuple[str, str] | None:
@@ -1226,7 +1077,7 @@ def _cache_key(
             _PROMPT_VERSION,
             str(count),
             expect[0],
-            _normalize_proto(expect[1]),
+            normalize_function_prototype(expect[1]),
             _sanitize_source(source),
         )
     )

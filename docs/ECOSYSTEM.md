@@ -23,13 +23,13 @@ flowchart TB
     end
 
     subgraph L1["Core workbench"]
-        RB["rebrew<br/>compile → compare → STATUS<br/>GA engine · FLIRT · catalog<br/>db/coverage-*.toml · rebrew-functions.toml"]
+        RB["rebrew<br/>compile → compare → STATUS<br/>GA engine · FLIRT · catalog<br/>canonical metadata · optional snapshots"]
         PRJ["Project workspaces<br/>target binary + C sources +<br/>rebrew-project.toml"]
     end
 
     subgraph L2["Intelligence & visualization"]
         RES["resembl<br/>MinHash + LSH asm similarity<br/>own DB (SQLite/Postgres/…)"]
-        RECOV["recoverage<br/>Bottle + Preact coverage SPA<br/>reads db/coverage-*.toml"]
+        RECOV["recoverage<br/>Bottle + Preact coverage SPA<br/>live canonical project views"]
         REPORTAL["reportal<br/>self-hosted portal: binaries ·<br/>functions · matches · scans · reports"]
         REAGENT["reagent<br/>autonomous LLM RE agent<br/>imports Rebrew internals"]
     end
@@ -50,7 +50,7 @@ flowchart TB
     RB -->|"reads Dockerfiles via<br/>REBREW_TOOLCHAINS_DIR"| RT
     RB -->|"docker run"| IMG
     RB -->|"similarity group:<br/>resembl/scoring.py"| RES
-    RB -->|"rebrew coverage catalog + rebrew coverage build"| RECOV
+    RB -->|"shared live coverage model"| RECOV
     RB -->|"rebrew CLI: analyze · asm · decompile ·<br/>fingerprints · crypto-scan · xrefs"| REPORTAL
     RECOV -.->|"coverage document format"| REPORTAL
     RES -.->|"scoring core (similarity group)"| REPORTAL
@@ -140,7 +140,7 @@ Preact SPA display per-byte section coverage, function and data details, and
 server-rendered Potato Mode. `recoverage check` supplies a coverage gate.
 
 The shared contract is [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md):
-`rebrew coverage build` writes `db/coverage-<target>.toml`, and
+`rebrew coverage export --output snapshots/` writes `db/coverage-<target>.toml`, and
 `recoverage serve` reads it through `rebrew.coverage_toml`.
 `rebrew.workspace` resolves project configuration and the coverage directory;
 Recoverage regeneration calls `write_coverage_toml` in process. Serving existing
@@ -329,7 +329,7 @@ flowchart LR
     CMP --> MET["rebrew-functions.toml<br/>STATUS promotion"]
     CMP --> VFY["rebrew verify<br/>similarity column"]
     RES["resembl scoring core"] --> VFY
-    CMP --> BDB["rebrew coverage build"]
+    CMP --> BDB["rebrew coverage export --output snapshots/"]
     BDB --> DB[("db/coverage-<target>.toml")]
     DB --> DASH["recoverage serve<br/>defrag grid SPA"]
 ```

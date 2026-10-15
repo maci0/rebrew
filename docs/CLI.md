@@ -359,7 +359,7 @@ to load or parse, which counts as drift).
 Per-function result rows carry `diff_lines` (structural diff count),
 `similarity`, `reg_delta` (register-encoding-only diff count), and
 `effective_match` (true when the entire delta is register allocation);
-all consumed by the coverage documents `rebrew coverage build` writes.
+all consumed by the coverage documents `rebrew coverage export --output snapshots/` writes.
 
 A function that fails to byte-match whose source is fenced behind
 `#ifdef REBREW_ALLOW_NAKED` is reported with an explanatory note: the
@@ -471,7 +471,7 @@ Strict source/data proof callers can use `rebrew.coff_reloc.smart_reloc_compare(
 | `--force` | flag | `False` | Overwrite existing files |
 | `--append` | path | — | Append function to an existing .c file (multi-function file) |
 | `--decomp` | flag | `False` | Embed decompilation in skeleton |
-| `--decomp-body` | flag | `False` | With --decomp: write the decompiled C as the function BODY (a real GA seed) instead of a comment block |
+| `--decomp-body` | flag | `False` | With --decomp: embed the complete validated C implementation |
 | `--decompiler` | str | `auto` | Decompiler backend: auto, r2ghidra, r2dec, ghidra, kuna, m2c |
 | `--xrefs` | flag | `False` | Fetch cross-references from Ghidra and embed in skeleton |
 | `--endpoint` | str | `http://localhost:8080/mcp/message` | ReVa MCP endpoint URL |
@@ -479,6 +479,13 @@ Strict source/data proof callers can use `rebrew.coff_reloc.smart_reloc_compare(
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+
+Complete decompiler bodies have no GA population size limit. The shared C gate
+checks syntax, one definition, identity, declarations, directives, pragmas and
+inline assembly. Rejections name the failing rule and preserve the output as a
+comment. Function renaming uses identifiers, preserving comments and literals
+and updating recursive calls. Extra GA seeds retain their 8K-character budget;
+the original user translation unit is never truncated by that budget.
 
 ### `rebrew lint`
 
@@ -631,7 +638,7 @@ consumers can learn whether the blocker landed (mirrors `near-diag`'s
 
 One-shot binary onboarding: FLIRT scan, function catalog, triage; the
 automated version of the `rebrew-intake` skill's steps.  It writes no coverage
-document; `rebrew coverage build` does, afterwards.
+document; `rebrew coverage export --output snapshots/` does, afterwards.
 
 
 Intake fails (exit 2) when no discoverer yields **any** function: a missing
@@ -3880,7 +3887,7 @@ Use `rebrew coverage <operation> --help` for exact arguments and examples.
 | Operation | Purpose |
 | --- | --- |
 | `rebrew coverage report` | Generate a static HTML documentation site for a decomp project. |
-| `rebrew coverage build` | Build clear-text coverage documents from the project tree. |
+| `rebrew coverage export --output snapshots/` | Build clear-text coverage documents from the project tree. |
 | `rebrew coverage serve` | Serve a read-only web dashboard over the coverage documents. |
 | `rebrew coverage catalog` | Validate source bindings and summarize function catalog and coverage data. |
 
@@ -3932,42 +3939,44 @@ at decomp.dev/manage/new.
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 
-### `rebrew coverage build`
+### `rebrew coverage export`
 
-`rebrew coverage build [OPTIONS]`
+`rebrew coverage export --output <directory> [--root <project>] [--target T] [--json]`
 
-Every build runs the catalog analysis on the current project tree in-process.
-`db/coverage-<target>.toml` holds facts only: the sections and their cells, the
-functions, the globals, the verify results and the status history, and every
-aggregate (per-section buckets, byte coverage, `function_stats`) is derived when
-a reader loads it.  A rebuild carries the previous document's history and verify
-stamps forward, so history survives without a database to migrate.
+Export portable `coverage-<target>.toml` snapshots for offline viewing. Output is
+required and never comes from project configuration. Normal local dashboards read
+metadata, inventory, binaries and sources directly and need no export step.
+Exports include durable status history and stored comparison measurements.
 
-| Argument or option | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `--json` | flag | `False` | Output results as JSON |
-| `--root` | path | — | Project root directory (default: auto-detected from rebrew-project.toml). |
-| `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+### `rebrew coverage import-history`
+
+`rebrew coverage import-history --snapshots <directory> [--root <project>] [--target T] [--dry-run] [--json]`
+
+Preserve existing exported status history in canonical function metadata before
+retiring generated snapshots. Preview first, then repeat without `--dry-run`.
+The entire input is validated before writing; repeated imports are idempotent.
+Current STATUS, verification, identity and provenance remain unchanged. Keep
+configured inventory files even if they live beside old coverage exports.
 
 ### `rebrew coverage serve`
 
 `rebrew coverage serve [OPTIONS]`
 
-Read-only stdlib `ThreadingHTTPServer` dashboard over the
-`db/coverage-<target>.toml` documents for triaging large binaries. GET/HEAD
-only; bind defaults to `127.0.0.1`.  `--root` points at the project root
-holding the documents (auto-detected from `rebrew-project.toml` by default, as
-every other `--root` in the CLI is); a target is one
-readable document, so a missing or unparseable one is 404 `unknown_target`
-and the rest still serve. `--print-url` reports the URL without serving;
-`--print-url --json` prints `{"url", "coverage_dir"}` for scripts. JSON without
-`--print-url` is rejected before project loading or server startup.  The full JSON contract, kept against
-the code, is [dashboard-api.yaml](dashboard-api.yaml).
+Read-only dashboard derived directly from project metadata, source bindings,
+sections, inventory and link evidence. GET/HEAD only; bind defaults to
+`127.0.0.1`. `--root` selects the live project (auto-detected when omitted).
+`--snapshots <directory>` explicitly serves portable exports instead; it is
+mutually exclusive with `--root`. No export step or `db_dir` setting is needed.
+Failed live targets appear in `failures` beside healthy targets, and health says
+`degraded`. Detailed reasons and source paths are withheld off loopback.
+`--print-url` reports the URL without serving; `--print-url --json` returns
+`{"url", "coverage_source"}`. JSON without `--print-url` is rejected before
+project loading. The full contract is [dashboard-api.yaml](dashboard-api.yaml).
 
 Endpoints: `/`, `/app.js`, `/favicon.svg`, `/api/bootstrap`, `/api/targets`,
 `/api/health` (liveness plus one real read of the target list, so a
 directory yielding no readable document answers 500 `database_error`; reports
-`coverage_dir`, the running `requests`, `server_errors`, `client_errors`,
+`coverage_source`, the running `requests`, `server_errors`, `client_errors`,
 `not_modified`, `timeouts`, `slow_requests`, and `slowest_ms`
 totals, and the `active_connections` gauge (the count the in-flight cap
 refuses on), so a probe can watch the error rate (4xx and 5xx alike) and the
@@ -4022,10 +4031,10 @@ transition) arrives as `""`, never `null`.
 A request that carries a body gets its response with `Connection: close`.
 The page keeps the selected target, view, and filters in the URL hash
 (`#target=…&view=globals&status=EXACT&q=…`), so a reload after
-`rebrew coverage build` or a shared link opens the same view. A `Reload` control
+a project edit or a shared link opens the same view. A `Reload` control
 re-runs the bootstrap in place (dropping the per-view loaded flags, so a view
-already visited comes back with fresh rows), which is how a `rebrew coverage build`
-run from another terminal is picked up without reloading the tab.
+already visited comes back with fresh rows). Live views follow canonical project
+inputs; explicit snapshot mode follows files in its selected directory.
 
 Its stderr is one log stream: each access line reads
 `HH:MM:SS INFO    <addr> r<N> "<request line>" <status> <bytes> <ms>` and
@@ -4055,11 +4064,11 @@ library identified, and `Of .text` when the section size is known) are
 `rebrew status`'s own figures.  `identified_bytes` / `identified_pct` in
 `--json` are the `.text` bytes claimed by any bound function, stubs and
 library code included; `registry` is the inventory size.  The coverage
-document `rebrew coverage build` writes stores the same globals: this target's
+document `rebrew coverage export --output snapshots/` writes stores the same globals: this target's
 module's metadata plus library modules.
 
 `rebrew coverage catalog` writes no artifact of its own: the coverage document is
-`rebrew coverage build`'s, and that command generates the catalog dict in-process.
+`rebrew coverage export --output snapshots/`'s, and that command generates the catalog dict in-process.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -5954,7 +5963,7 @@ rebrew verify --output /tmp/verify_report.json           # Write report to file 
 rebrew lint --fix && rebrew lint                   # Fix then re-lint
 rebrew status                                      # Reversing progress overview
 rebrew coverage catalog                      # build catalog and show summary
-rebrew coverage build                      # write db/coverage-<target>.toml
+rebrew coverage export --output snapshots/                      # write portable snapshots/coverage-<target>.toml
 
 # Data analysis
 rebrew data list # Inventory globals

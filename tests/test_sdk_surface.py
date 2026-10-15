@@ -148,6 +148,7 @@ class TestErrorsLazyExports:
             "Omf16Error",
             "OrphanInventoryError",
             "PdbExportError",
+            "ProjectCoverageError",
             "RecompileError",
             "RegistryError",
             "RenameError",
@@ -204,6 +205,7 @@ class TestErrorsLazyExports:
             "Omf16Error",
             "OrphanInventoryError",
             "PdbExportError",
+            "ProjectCoverageError",
             "RebrewError",
             "RecompileError",
             "RecompileErrorKind",
@@ -526,7 +528,6 @@ class TestProjectConfigValidation:
             reversed_dir="src/game",
             shared_dir="src/shared",
             bin_dir="bin",
-            db_dir=".rebrew",
             output_dir="out",
             compiler_includes="include",
             compiler_libs="lib",
@@ -536,7 +537,6 @@ class TestProjectConfigValidation:
         assert isinstance(cfg.reversed_dir, Path)
         assert isinstance(cfg.shared_dir, Path)
         assert isinstance(cfg.bin_dir, Path)
-        assert isinstance(cfg.db_dir, Path)
         assert isinstance(cfg.output_dir, Path)
         assert isinstance(cfg.compiler_includes, Path)
         assert isinstance(cfg.compiler_libs, Path)
