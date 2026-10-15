@@ -1034,7 +1034,7 @@ class TestMatchOptionContracts:
         monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
         result = CliRunner().invoke(app, ["toolchains", "f.c", *options, "--json"])
         assert result.exit_code == 2, result.output
-        assert "requires --flags" in result.stdout
+        assert "requires --flags" in cli_payload(result)["error"]
 
     def test_toolchain_flag_sweep_forwards_tuning_to_driver(
         self, monkeypatch: pytest.MonkeyPatch

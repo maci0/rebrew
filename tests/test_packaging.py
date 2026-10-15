@@ -1647,7 +1647,7 @@ class TestInstalledWheelAssetRuntime:
             f"Wheel runtime probe failed:\n{run_proc.stderr}\n{run_proc.stdout}"
         )
         data = cli_payload(run_proc)
-        skills = data.get("skills", [])
+        skills = data.get("items", [])
         assert len(skills) >= 6, f"Expected >= 6 packaged skills, got {len(skills)}"
         names = {s["name"] for s in skills}
         assert "rebrew-workflow" in names

@@ -52,6 +52,8 @@ TARGETLESS_EXEMPT: set[tuple[str, str]] = {
     ("toolchain", "update"),
     ("skills", "list"),
     ("skills", "show"),
+    # schema prints the CLI document and never reads a project.
+    ("schema", "main"),
     ("library", "show"),
     ("library", "list"),
     ("library", "set"),
