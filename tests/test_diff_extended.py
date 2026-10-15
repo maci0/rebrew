@@ -99,6 +99,115 @@ def _call_run_diff(
 
 
 class TestRunDiff:
+    def test_noop_relocation_does_not_hide_different_bytes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        from rebrew.coff_reloc import CoffRelocRecord
+        from rebrew.diff import run_diff
+        from rebrew.matcher import compiler
+
+        monkeypatch.setattr(
+            compiler,
+            "build_candidate_obj_only",
+            lambda *a, **k: SimpleNamespace(
+                ok=True,
+                obj_bytes=b"\xb8\0\0\0\0\xc3",
+                reloc_offsets={1: "_data"},
+                typed_relocs=[CoffRelocRecord(1, 0, "_data")],
+            ),
+        )
+        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {"_data": 0x2000})
+        with pytest.raises(typer.Exit) as exc:
+            run_diff(False, False, False, False, True, _params(target_bytes=b"\xb8\x01\0\0\0\xc3"))
+        assert exc.value.exit_code == EXIT_MISMATCH
+        report = json.loads(capsys.readouterr().out)
+        assert report["summary"]["structural"] == 1
+        assert report["summary"]["reloc"] == 0
+
+    @pytest.mark.parametrize("output_format", ["human", "json", "csv"])
+    @pytest.mark.parametrize(
+        ("kind", "bound", "invalid", "iat"),
+        [
+            (0x14, -1, True, False),
+            (0x14, 0x3000, True, False),
+            (0x14, 0x2000, False, False),
+            (0x14, None, False, False),
+            (0x06, 0x3000, True, False),
+            (0x06, 0x3000, False, True),
+        ],
+    )
+    def test_diff_checks_native_operand_bindings(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+        output_format: str,
+        kind: int,
+        bound: int | None,
+        invalid: bool,
+        iat: bool,
+    ) -> None:
+        from rebrew.coff_reloc import CoffRelocRecord
+        from rebrew.diff import run_diff
+        from rebrew.matcher import compiler
+
+        opcode = b"\xe8" if kind == 0x14 else b"\xa1"
+        value = 0x2000 - 0x1005 if kind == 0x14 else 0x2000
+        target = opcode + value.to_bytes(4, "little") + b"\xc3"
+        candidate = opcode + b"\0" * 4 + b"\xc3"
+        monkeypatch.setattr(
+            compiler,
+            "build_candidate_obj_only",
+            lambda *a, **k: SimpleNamespace(
+                ok=True,
+                obj_bytes=candidate,
+                reloc_offsets={1: "_callee"},
+                typed_relocs=[CoffRelocRecord(1, kind, "_callee")],
+            ),
+        )
+        monkeypatch.setattr(
+            "rebrew.coff_reloc.build_name_to_va",
+            lambda cfg: {"unrelated": 0x4000} if bound is None else {"_callee": bound},
+        )
+        monkeypatch.setattr(
+            "rebrew.coff_reloc.build_iat_region",
+            lambda cfg: frozenset({0x2000}) if iat else frozenset(),
+        )
+        writes = []
+
+        def record_blocker(params, blockers, *args, **kwargs):
+            writes.append(blockers)
+            return {"written": True, "cleared": False}
+
+        monkeypatch.setattr("rebrew.diff._write_blocker", record_blocker)
+        json_output = output_format == "json"
+        csv_output = output_format == "csv"
+        params = _params(
+            target_bytes=target,
+            cfg=SimpleNamespace(
+                metadata_dir=Path("/tmp/meta"), compile_timeout=30, check_known_bindings=True
+            ),
+        )
+        if invalid:
+            with pytest.raises(typer.Exit) as exc:
+                run_diff(True, False, csv_output, True, json_output, params)
+            assert exc.value.exit_code == EXIT_MISMATCH
+            assert writes == [["invalid relocation binding"]]
+        else:
+            run_diff(True, False, csv_output, False, json_output, params)
+        output = capsys.readouterr()
+        if json_output:
+            report = json.loads(output.out)
+            assert bool(report["summary"]["invalid"]) is invalid
+            assert bool("invalid relocation binding" in report.get("blockers", [])) is invalid
+            if invalid:
+                assert report["structural_similarity"]["flag_sensitive"] is False
+        elif csv_output and invalid:
+            assert "XX" in output.out
+        elif invalid:
+            assert "XX" in output.err
+
     @pytest.mark.parametrize("candidate_size", [3, 8, 100])
     def test_json_reports_unclipped_candidate_size(
         self,

@@ -56,6 +56,9 @@ def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
         if not isinstance(row, dict):
             continue
         match_char = row.get("match")
+        if match_char == "XX":
+            blockers.add("invalid relocation binding")
+            continue
         if match_char not in ("**", "RR"):
             continue
 
@@ -298,6 +301,42 @@ def run_diff(
     if len(obj_bytes) > len(p.target_bytes):
         obj_bytes = obj_bytes[: len(p.target_bytes)]
 
+    invalid_relocs: list[int] = []
+    bindings: list[dict[str, Any]] = []
+    reloc_offsets: dict[int, str] | list[int] | None = res.reloc_offsets
+    relocs = getattr(res, "typed_relocs", None) or res.reloc_offsets
+    if relocs:
+        from rebrew.coff_reloc import (
+            build_iat_region,
+            build_name_to_va,
+            relocation_binding_evidence,
+            smart_reloc_compare,
+        )
+
+        names = build_name_to_va(p.cfg)
+        iat = build_iat_region(p.cfg)
+        reloc_table = getattr(p.cfg, "reloc_table", "coff-i386")
+        _, _, _, valid_relocs, invalid_relocs = smart_reloc_compare(
+            res.obj_bytes,
+            p.target_bytes,
+            relocs,
+            names,
+            section_va=p.va_int,
+            iat_region=iat,
+            reloc_table=reloc_table,
+            check_known_bindings=getattr(p.cfg, "check_known_bindings", False),
+        )
+        reloc_offsets = sorted(set(valid_relocs) | set(invalid_relocs))
+        bindings = relocation_binding_evidence(
+            res.obj_bytes,
+            p.target_bytes,
+            relocs,
+            names,
+            section_va=p.va_int,
+            iat_region=iat,
+            reloc_table=reloc_table,
+        )
+
     # Both halves of the capstone engine: the mode alone still decodes with
     # the x86 architecture, so a MIPS/PPC/ARM/SH target disassembles as
     # garbage and every row below (and the structural exit code) is wrong.
@@ -307,7 +346,8 @@ def run_diff(
     summary = diff_functions(
         p.target_bytes,
         obj_bytes,
-        res.reloc_offsets,
+        reloc_offsets,
+        invalid_relocs=invalid_relocs,
         mismatches_only=mismatches_only,
         register_aware=register_aware,
         as_dict=True,
@@ -317,6 +357,8 @@ def run_diff(
     )
     if isinstance(summary, dict):
         summary["candidate_size"] = full_obj_size
+        if bindings:
+            summary["relocation_bindings"] = bindings
     if not json_output and not csv_output and isinstance(summary, dict):
         from rebrew.matcher.scoring import print_diff_summary
 
@@ -344,11 +386,11 @@ def run_diff(
         sim = structural_similarity(
             p.target_bytes,
             obj_bytes,
-            res.reloc_offsets,
+            reloc_offsets,
             cs_arch=cs_arch,
             cs_mode=cs_mode,
             pointer_size=ptr_size,
-            _summary=summary if register_aware else None,
+            _summary=summary if register_aware or invalid_relocs else None,
         )
 
         # Short-candidate triage: target instructions with no compiled
@@ -402,7 +444,7 @@ def run_diff(
                 if not isinstance(row, dict):
                     continue
                 m_char = row.get("match") or ""
-                if mismatches_only and m_char != "**":
+                if mismatches_only and m_char not in ("**", "XX"):
                     continue
                 t_obj = row.get("target") or {}
                 c_obj = row.get("candidate") or {}

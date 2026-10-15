@@ -96,7 +96,7 @@ def parse_obj_relocs_full(obj_path: str | Path, symbol: str) -> list[CoffRelocRe
 def parse_obj_symbol_and_relocs(
     obj_path: str | Path, symbol: str
 ) -> tuple[bytes | None, dict[int, str] | None, list[CoffRelocRecord]]:
-    """Parse a COFF .obj ONCE, returning (code_bytes, reloc_offsets, typed_records).
+    """Parse an object ONCE, returning (code_bytes, reloc_offsets, typed_records).
 
     ``compile_and_compare``/``_test_multi`` previously called
     ``parse_obj_symbol_bytes`` then ``parse_obj_relocs_full`` — two
@@ -115,7 +115,14 @@ def parse_obj_symbol_and_relocs(
     except OSError as exc:
         log.debug("cannot read object %s: %s", obj_path, exc)
         return None, None, []
-    if _detect_obj_format_data(magic) == "omf":
+    fmt = _detect_obj_format_data(magic)
+    if fmt == "elf":
+        code, relocs = _parse_elf_symbol_bytes(str(obj_path), symbol)
+        return code, relocs, []
+    if fmt == "macho":
+        code, relocs = _parse_macho_symbol_bytes(str(obj_path), symbol)
+        return code, relocs, []
+    if fmt == "omf":
         from rebrew.formats.omf16 import is_omf16, parse_obj_omf16
 
         data = Path(obj_path).read_bytes()

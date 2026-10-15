@@ -9,6 +9,7 @@ import pytest
 from rebrew.matcher.parsers import (
     list_obj_symbols,
     parse_obj_relocs_full,
+    parse_obj_symbol_and_relocs,
     parse_obj_symbol_bytes,
 )
 
@@ -29,6 +30,13 @@ def _compile(tmp_path: Path) -> Path:
 
 
 class TestElfObjParsing:
+    def test_combined_parser_preserves_non_coff_objects(self, tmp_path: Path) -> None:
+        obj = _compile(tmp_path)
+        code, relocs = parse_obj_symbol_bytes(obj, "caller")
+        full_code, full_relocs, typed = parse_obj_symbol_and_relocs(obj, "caller")
+        assert full_code == code and full_relocs == relocs
+        assert typed == []
+
     def test_symbol_bytes_extracted(self, tmp_path: Path) -> None:
         obj = _compile(tmp_path)
         code, relocs = parse_obj_symbol_bytes(str(obj), "helper")

@@ -902,7 +902,8 @@ def diff_functions(
             if i < len(target_insns):
                 t_a, t_s, _, _, t_b = target_insns[i]
                 if t_b == c_b:
-                    match_char = "=="
+                    is_invalid = bool(invalid_mask) and any(invalid_mask[t_a : t_a + t_s])
+                    match_char = "XX" if is_invalid else "=="
                 else:
                     t_norm = norm_target[t_a : t_a + t_s]
                     c_norm = norm_cand[c_a : c_a + c_s]
@@ -976,9 +977,7 @@ def diff_functions(
 
     print(f"\nTarget ({len(target_bytes)}B) vs Candidate ({len(candidate_bytes)}B)")
     if mismatches_only:
-        # `structural` also counts XX (invalid-reloc overlap) rows, which this
-        # filter skips, so name the marker class rather than print the count.
-        print("Showing ** lines only (structural mismatches, excluding XX)")
+        print("Showing ** and XX lines only (structural and invalid-relocation mismatches)")
     print("-" * 80)
     print(
         f"{'Target bytes':20} {'Target disassembly':30} | MS | "
@@ -987,7 +986,7 @@ def diff_functions(
     print("-" * 80)
 
     for match_char, line in rows:
-        if mismatches_only and match_char != "**":
+        if mismatches_only and match_char not in ("**", "XX"):
             continue
         print(line)
 
@@ -1036,9 +1035,7 @@ def print_diff_summary(
         f"\nTarget ({summary.get('target_size', '?')}B) vs Candidate ({summary.get('candidate_size', '?')}B)"
     )
     if mismatches_only:
-        # `structural` also counts XX (invalid-reloc overlap) rows, which this
-        # filter skips, so name the marker class rather than print the count.
-        write("Showing ** lines only (structural mismatches, excluding XX)")
+        write("Showing ** and XX lines only (structural and invalid-relocation mismatches)")
     write("-" * 80)
     write(
         f"{'Target bytes':20} {'Target disassembly':30} | MS | "
@@ -1049,7 +1046,7 @@ def print_diff_summary(
     for row in summary.get("instructions") or []:
         match = row.get("match")
         match_char = match if match in ("==", "~~", "XX", "RR", "**") else "  "
-        if mismatches_only and match_char != "**":
+        if mismatches_only and match_char not in ("**", "XX"):
             continue
         t = row.get("target") or {}
         c = row.get("candidate") or {}
@@ -1149,6 +1146,7 @@ def structural_similarity(
     # wildly different mnemonics won't be fixed by flags alone.
     flag_sensitive = (
         structural > 0
+        and not s.get("invalid", 0)
         and structural_stored < _FLAG_SENSITIVE_STRUCTURAL
         and mnemonic_stored > _FLAG_SENSITIVE_MNEMONIC
     )

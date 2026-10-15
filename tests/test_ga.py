@@ -2852,7 +2852,7 @@ class TestToolchainRoutedBuildCandidate:
         # test asserts — without the mock, a missing vendored objconv (CI)
         # raises FileNotFoundError instead of the graceful "not found" path.
         monkeypatch.setattr(
-            "rebrew.matcher.compiler.parse_obj_symbol_bytes", lambda *a, **k: (None, [])
+            "rebrew.matcher.compiler.parse_obj_symbol_and_relocs", lambda *a, **k: (None, None, [])
         )
         # OMF-ish magic so parse_obj_symbol_bytes tries omf16 and fails
         # gracefully on the fake payload — we only assert routing happened.

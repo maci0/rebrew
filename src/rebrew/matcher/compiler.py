@@ -50,7 +50,7 @@ from rebrew.utils import (
 )
 
 from .core import BuildResult
-from .parsers import extract_function_from_binary, parse_obj_symbol_bytes
+from .parsers import extract_function_from_binary, parse_obj_symbol_and_relocs
 
 log = logging.getLogger(__name__)
 
@@ -442,10 +442,10 @@ def _run_compiler(
 
 def _obj_result(obj_path: Path | str, symbol: str) -> BuildResult:
     """BuildResult carrying *symbol*'s bytes from the .obj at *obj_path*."""
-    code, relocs = parse_obj_symbol_bytes(str(obj_path), symbol)
+    code, relocs, typed = parse_obj_symbol_and_relocs(obj_path, symbol)
     if code is None:
         return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
-    return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
+    return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs, typed_relocs=typed)
 
 
 def _get_pe_symbol_size(exe_path: Path, symbol: str) -> int | None:

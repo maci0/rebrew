@@ -278,6 +278,13 @@ def test_score_empty_candidate() -> None:
 
 
 class TestDiffFunctionsEdges:
+    def test_identical_bytes_do_not_override_an_invalid_binding(self) -> None:
+        code = b"\xe8\0\0\0\0\xc3"
+        result = diff_functions(code, code, {1: "_callee"}, invalid_relocs=[1], as_dict=True)
+        assert result is not None
+        assert result["instructions"][0]["match"] == "XX"
+        assert result["summary"]["structural"] == result["summary"]["invalid"] == 1
+
     def test_invalid_reloc_xx(self, capsys) -> None:
         from rebrew.matcher.scoring import diff_functions
 
@@ -290,7 +297,8 @@ class TestDiffFunctionsEdges:
         assert "| XX |" in out
         result = diff_functions(target, cand, reloc_offsets=[0], invalid_relocs=[0], as_dict=True)
         assert result is not None
-        assert result["summary"]["structural"] == 1
+        # All three instructions overlap the invalid four-byte window.
+        assert result["summary"]["structural"] == 3
 
     def test_reloc_normalized_not_invalid(self, capsys) -> None:
         """A differing reloc slot WITHOUT an invalid reloc marker shows the
@@ -353,7 +361,7 @@ class TestDiffFunctionsEdges:
 
         diff_functions(b"\x55\xc3", b"\x90\xc3", mismatches_only=True)
         out = capsys.readouterr().out
-        assert "** lines only" in out
+        assert "** and XX lines only" in out
 
 
 class TestDockerPathForwardsExtraIncludes:
@@ -408,8 +416,8 @@ class TestDockerPathForwardsExtraIncludes:
 
         monkeypatch.setattr("rebrew.compiler.compile.compile_to_obj", _fake_compile_to_obj)
         monkeypatch.setattr(
-            "rebrew.matcher.compiler.parse_obj_symbol_bytes",
-            lambda obj, sym: (b"\x00" * 8, {}),
+            "rebrew.matcher.compiler.parse_obj_symbol_and_relocs",
+            lambda obj, sym: (b"\x00" * 8, {}, []),
         )
         res = build_candidate_obj_only(
             "int f(void){return 1;}",
@@ -442,8 +450,8 @@ class TestRawCompilerCacheKey:
                 raise AssertionError("cache hit expected")
 
         monkeypatch.setattr(
-            "rebrew.matcher.compiler.parse_obj_symbol_bytes",
-            lambda obj, sym: (b"\xc3", []),
+            "rebrew.matcher.compiler.parse_obj_symbol_and_relocs",
+            lambda obj, sym: (b"\xc3", {}, []),
         )
 
         def _build() -> None:

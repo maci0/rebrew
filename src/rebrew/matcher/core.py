@@ -8,7 +8,10 @@ persistence is the shared compile cache.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rebrew.coff_reloc import CoffRelocRecord
 
 #: A total below this is a byte-exact (or reloc-only) match.  Any non-reloc
 #: byte difference costs >= 1000 while the prologue bonus is -100, so every
@@ -84,6 +87,7 @@ class BuildResult:
     #: rebrew.match_ga's _compute_fitness; a warm-cache rerun of the same stub
     #: skips re-scoring.  ``None`` = not scored yet.
     fitness: float | None = None
+    typed_relocs: list[CoffRelocRecord] | None = None
 
 
 @dataclass

@@ -1,6 +1,11 @@
 ## [Unreleased]
 
 ### Fixed
+- `rebrew diff` now validates native relocation operands with the same catalog
+  and binding policy as test/verify. Ambiguous or contradictory bindings produce
+  `XX`, a failing exit and a blocker instead of a clean masked diff. Typed COFF
+  relocations survive the matcher compile path; unresolved names remain explicit
+  and IAT policy remains separate.
 - Generated CMake toolchains now pin the selected compiler, linker and librarian
   profile instead of silently using the project or environment default. Later
   per-file toolchain pins override that default, and all selection flags are

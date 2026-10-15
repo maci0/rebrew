@@ -15,6 +15,16 @@ from rebrew.matcher.parsers import (
 )
 
 
+def test_matcher_build_preserves_typed_relocations(tmp_path: Path) -> None:
+    from rebrew.matcher.compiler import _obj_result
+
+    obj = tmp_path / "call.obj"
+    obj.write_bytes(_make_coff_blob(b"\xe8\0\0\0\0\xc3", 1, 0x14, "_extern_var"))
+    result = _obj_result(obj, "_myfunc")
+    assert result.ok
+    assert result.typed_relocs == [CoffRelocRecord(1, 0x14, "_extern_var")]
+
+
 def _make_coff_blob(code: bytes, reloc_offset: int, reloc_type: int, sym: str) -> bytes:
     """Build a minimal valid COFF .obj blob in memory.
 
