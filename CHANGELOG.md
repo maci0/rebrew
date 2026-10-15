@@ -142,6 +142,9 @@
 
 
 ### Fixed
+- Preserve source-binding history when inline-C artifacts replace providers.
+  Former address anchors stay inactive, repeated bulk generation excludes its
+  own outputs, and source-backed library code retains its library origin.
 - Keep source selection compatible with minimal configuration objects that omit
   the optional project root, while preserving explicit root-aware bindings.
 - Use the canonical hexadecimal VA help text for compiler-literal audits.

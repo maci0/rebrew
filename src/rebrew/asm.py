@@ -1435,17 +1435,43 @@ def _record_inline_c_identity(
     cfg: ProjectConfig, path: Path, va: int, code: bytes, symbol: str | None
 ) -> None:
     """Record the written naked skeleton. The reconstruction source lives only in metadata."""
-    from rebrew.metadata.functions import identity_file, record_function_identity
+    from rebrew.metadata.binding_history import change_source_binding, retired_binding
+    from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
 
     sym = symbol or f"_func_{va:08x}"
+    module = cfg.marker or "TARGET"
+    previous = get_entry(cfg.metadata_dir, va, module)
+    kind = "LIBRARY" if previous.get("kind") == "LIBRARY" else "FUNCTION"
+    root = (
+        (getattr(cfg, "root", None) or cfg.metadata_dir) if kind == "LIBRARY" else cfg.metadata_dir
+    )
+    identity = {
+        "file": identity_file(path.resolve(), root),
+        "kind": kind,
+        "name": c_name_from_symbol(sym),
+        "symbol": sym,
+    }
+    if (
+        previous.get("file")
+        and not retired_binding(previous)
+        and any(previous.get(key) != value for key, value in identity.items())
+    ):
+        change_source_binding(
+            cfg.metadata_dir,
+            module,
+            va,
+            identity=identity,
+            reason="Requested inline-C artifact replaces the current source provider",
+            project_root=getattr(cfg, "root", None),
+        )
     record_function_identity(
         cfg.metadata_dir,
-        module=cfg.marker or "TARGET",
+        module=module,
         va=va,
-        file=identity_file(path, cfg.metadata_dir),
-        kind="FUNCTION",
-        name=c_name_from_symbol(sym),
-        symbol=sym,
+        file=identity["file"],
+        kind=identity["kind"],
+        name=identity["name"],
+        symbol=identity["symbol"],
         size=len(code),
         source="naked",
     )

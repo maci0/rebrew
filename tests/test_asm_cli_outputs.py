@@ -157,6 +157,7 @@ class TestBatchArtifacts:
     def test_repeated_inline_generation_does_not_ingest_its_output(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, alias: bool
     ) -> None:
+        from rebrew.metadata.bindings import read_source_bindings
         from rebrew.metadata.functions import load_metadata
 
         cfg = _project(tmp_path, monkeypatch)
@@ -171,16 +172,56 @@ class TestBatchArtifacts:
         first = CliRunner().invoke(app, args)
         assert first.exit_code == 0, first.output
         metadata = load_metadata(tmp_path)
+        assert json.loads(first.stdout)["total"] == 1
+        history = metadata[("SERVER", 0x1000)]["binding_history"]
+        assert history[-1]["previous"]["file"] == "src/f.c"
+        assert history[-1]["replacement"]["kind"] == "FUNCTION"
+        assert (
+            read_source_bindings(
+                cfg.reversed_dir / "f.c",
+                target_name="SERVER",
+                metadata_dir=tmp_path,
+                project_root=tmp_path,
+            )
+            == []
+        )
         metadata_bytes = (tmp_path / "rebrew-functions.toml").read_bytes()
         generated_files = _state(generated)
         second = CliRunner().invoke(app, args)
         assert second.exit_code == 0, second.output
-        assert json.loads(second.stdout)["total"] == 1
-        assert json.loads(second.stdout)["files"] == json.loads(first.stdout)["files"]
+        assert json.loads(second.stdout)["total"] == 0
+        assert json.loads(second.stdout)["files"] == []
         assert load_metadata(tmp_path) == metadata
         assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata_bytes
         assert _state(generated) == generated_files
         assert list(generated.iterdir()) == [generated / "f.c.00001000.c"]
+
+    def test_inline_provider_replacement_preserves_library_origin(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata.functions import record_function_identity
+
+        _project(tmp_path, monkeypatch)
+        record_function_identity(
+            tmp_path,
+            module="SERVER",
+            va=0x1000,
+            file="src/f.c",
+            kind="LIBRARY",
+            name="f",
+            symbol="_f",
+            size=len(_CODE),
+        )
+        monkeypatch.setattr("rebrew.asm.disassemble_to_nasm", _fake_nasm)
+        result = CliRunner().invoke(
+            app, ["batch", "--inline-c", "--output", str(tmp_path / "artifacts"), "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry["kind"] == "LIBRARY"
+        assert entry["source"] == "naked"
+        assert entry["binding_history"][-1]["previous"]["kind"] == "LIBRARY"
+        assert "status" not in entry
 
     @pytest.mark.parametrize(
         "destination", ["selected", "parent", "project", "alias", "shared", "other"]
