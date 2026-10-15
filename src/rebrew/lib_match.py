@@ -69,7 +69,8 @@ from rebrew.cli import (
 from rebrew.config import module_marker
 from rebrew.formats.archives import stock_lib_cache as stock_lib_cache
 from rebrew.formats.binary_loader import extract_raw_bytes
-from rebrew.gen_flirt_pat import load_coff, parse_archive, parse_coff_aliases, parse_coff_obj
+from rebrew.formats.coff import load_coff
+from rebrew.gen_flirt_pat import parse_archive, parse_coff_aliases, parse_coff_obj
 from rebrew.utils import container_runtime, read_json_text
 from rebrew.workspace.config import config_path
 

@@ -124,7 +124,8 @@ def inspect_coff(member: str, body: bytes) -> dict[str, Any]:
     """Describe a COFF object member: sections and external symbols."""
     import lief
 
-    from rebrew.gen_flirt_pat import load_coff, parse_coff_aliases
+    from rebrew.formats.coff import load_coff
+    from rebrew.gen_flirt_pat import parse_coff_aliases
 
     loaded = load_coff(body)
     if loaded is None:

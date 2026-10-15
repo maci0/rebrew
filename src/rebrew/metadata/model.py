@@ -124,6 +124,7 @@ class MetadataEntry:
 
     status_history: list[dict[str, str]] | None = None
     binding_history: list[dict[str, Any]] | None = None
+    native_identity: dict[str, Any] | None = None
 
     @classmethod
     def load(cls, directory: Path, va: int, module: str) -> MetadataEntry:

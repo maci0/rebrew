@@ -6230,3 +6230,30 @@ to replace reviewed extent history; reconcile the inventory or choose a new outp
 ```bash
 rebrew binary repair-extents 0x401000=16 --reason proof --dry-run
 ```
+
+### Complete literal audits and reviewed native library names
+
+`rebrew data audit-literals f.obj --va 0x401000 --symbol _f --size 24 --json`
+reads an i386 COFF object and the selected reference binary without writing files.
+Each compiler string/float reference reports its full object bytes and the bytes
+at the pool base selected by the native DIR32 operand, including interior addends.
+Embedded NULs do not truncate strings. Equal-value pools retain distinct addresses.
+Unknown extents, unsupported relocation kinds and unmapped/truncated spans are
+explicit failures (exit 1); invalid inputs exit 2. Value agreement proves neither
+raw-link placement nor storage ownership. This opt-in audit does not change STATUS.
+
+`rebrew library review-native 0x401000 f.obj --symbol _f --reason proof --dry-run`
+requires a LIBRARY metadata row with a complete positive SIZE. The complete code
+and every typed operand must pass strict comparison, and all referenced compiler
+literals must pass the content audit. Only up to 15 trailing NOP/INT3 alignment
+bytes may be excluded from the object, and that exclusion is reported. Incomplete
+COFF parses and non-executable function sections are rejected. An unsupported or
+unbound operand prevents publication. The preview returns an `input_digest`; pass
+it as `--expected-digest` when applying a reviewed preview.
+
+The resulting `native_identity` receipt establishes only the exact reviewed
+symbol for target-scoped callee validation. It retains full binary/object hashes,
+the source claim and size, named operand dependencies, reason and review time.
+Changed binaries, claims, extents or dependency bindings disable that trust.
+Unreviewed LIBRARY names remain excluded. Provider selection and raw-link archive
+ownership are independent; no source provider, STATUS or verification is changed.

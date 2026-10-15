@@ -397,6 +397,7 @@ METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "verification": dict,
     "status_history": list,
     "binding_history": list,
+    "native_identity": dict,
 }
 """Lower-case TOML key → accepted value type(s) for :func:`update_field`.
 
@@ -494,6 +495,10 @@ def validate_metadata_field(key: str, value: Any) -> Any:
         )
     if key == "status_history":
         return _merge_status_history(value, [])
+    if key == "native_identity":
+        from rebrew.metadata.native_identity import validate_native_identity
+
+        return validate_native_identity(value)
     if key == "binding_history":
         from rebrew.metadata.binding_history import validate_binding_history
 
@@ -701,9 +706,9 @@ def set_fields(
         changed = False
         for key, value in fields.items():
             key = key.lower()
-            if key in {"status_history", "binding_history"}:
+            if key in {"status_history", "binding_history", "native_identity"}:
                 raise ValueError(
-                    "Use import_status_history() for comparison history; change_source_binding() for binding history"
+                    "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
                 )
             if key == "status":
                 raise ValueError(
@@ -778,9 +783,9 @@ def set_fields_batch(
             changed = False
             for key, value in fields.items():
                 key = key.lower()
-                if key in {"status_history", "binding_history"}:
+                if key in {"status_history", "binding_history", "native_identity"}:
                     raise ValueError(
-                        "Use import_status_history() for comparison history; change_source_binding() for binding history"
+                        "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
                     )
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
@@ -958,9 +963,9 @@ def record_function_rows(
             updates: dict[str, Any] = {}
             for key, value in (row.get("fields") or {}).items():
                 key = key.lower()
-                if key in {"status_history", "binding_history"}:
+                if key in {"status_history", "binding_history", "native_identity"}:
                     raise ValueError(
-                        "Use import_status_history() for comparison history; change_source_binding() for binding history"
+                        "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
                     )
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
@@ -1127,9 +1132,9 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
             changed = False
             for key in keys:
                 key = key.lower() if isinstance(key, str) else key
-                if key in {"status_history", "binding_history"}:
+                if key in {"status_history", "binding_history", "native_identity"}:
                     raise ValueError(
-                        "Use import_status_history() for comparison history; change_source_binding() for binding history"
+                        "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
                     )
                 if key == "status":
                     raise ValueError("Cannot delete STATUS directly")
@@ -1297,9 +1302,9 @@ def update_field(
 
     """
     key = key.lower()
-    if key in {"status_history", "binding_history"}:
+    if key in {"status_history", "binding_history", "native_identity"}:
         raise ValueError(
-            "Use import_status_history() for comparison history; change_source_binding() for binding history"
+            "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
         )
     if key == "status":
         raise ValueError(
@@ -1336,9 +1341,9 @@ def remove_field(directory: Path | str | Any, va: int, key: str, module: str) ->
 
     """
     key = key.lower()
-    if key in {"status_history", "binding_history"}:
+    if key in {"status_history", "binding_history", "native_identity"}:
         raise ValueError(
-            "Use import_status_history() for comparison history; change_source_binding() for binding history"
+            "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
         )
     if key == "status":
         raise ValueError("Cannot delete STATUS directly")
@@ -1604,9 +1609,9 @@ def update_statuses_batch(
                     entry.pop("blocker_delta", None)
             for key, value in (u.get("fields") or {}).items():
                 key = key.lower()
-                if key in {"status_history", "binding_history"}:
+                if key in {"status_history", "binding_history", "native_identity"}:
                     raise ValueError(
-                        "Use import_status_history() for comparison history; change_source_binding() for binding history"
+                        "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
                     )
                 if key == "status":
                     raise ValueError("Use new_status for STATUS changes")

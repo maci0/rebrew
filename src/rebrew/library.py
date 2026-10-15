@@ -113,6 +113,45 @@ def bind_source_cmd(
         )
 
 
+@app.command(
+    "review-native",
+    epilog="[bold]Examples:[/bold]\n\n  rebrew library review-native 0x401000 f.obj --symbol _f --reason proof",
+)
+def review_native_cmd(
+    va: str = typer.Argument(..., help="Native library function address"),
+    obj: Path = typer.Argument(..., help="Compiled i386 COFF object with the complete function"),
+    symbol: str = typer.Option(..., "--symbol", help="Exact native object symbol to establish"),
+    reason: str = typer.Option(..., "--reason", help="Reviewed identity evidence"),
+    expected_digest: str | None = typer.Option(
+        None, "--expected-digest", help="Require input digest from a reviewed preview"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Establish a native library name using a strict complete object proof."""
+    from rebrew.native_review import review_native_identity
+
+    cfg = require_config(target=target, json_mode=json_output)
+    address = parse_va(va, json_mode=json_output)
+    try:
+        report = review_native_identity(
+            cfg,
+            address,
+            obj,
+            symbol,
+            reason=reason,
+            dry_run=dry_run,
+            expected_digest=expected_digest,
+        )
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), json_mode=json_output)
+    if json_output:
+        json_print(report)
+    else:
+        console.print(report)
+
+
 def _resolve_root(dir_arg: str | None) -> Path:
     """The directory argument (or CWD)."""
     return Path(dir_arg).resolve() if dir_arg else Path.cwd().resolve()

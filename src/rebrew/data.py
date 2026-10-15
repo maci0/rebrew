@@ -743,6 +743,39 @@ def execute_data(
 
 
 @app.command(
+    "audit-literals",
+    epilog="[bold]Examples:[/bold]\n\n  rebrew data audit-literals f.obj --va 0x401000 --symbol _f --size 24",
+)
+def audit_literals_cmd(
+    obj: Path = typer.Argument(..., help="Compiled i386 COFF object"),
+    va: str = typer.Option(..., "--va", help="Native function start address"),
+    symbol: str = typer.Option(..., "--symbol", help="Exact defined object function symbol"),
+    size: int = typer.Option(..., "--size", min=1, help="Complete native function extent in bytes"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Audit complete referenced compiler constants without changing verdicts."""
+    from rebrew.cli import parse_va
+    from rebrew.formats.binary_loader import load_binary
+    from rebrew.object_evidence import audit_literals, object_function
+
+    cfg = require_config(target=target, json_mode=json_output)
+    address = parse_va(va, json_mode=json_output)
+    try:
+        report = audit_literals(
+            object_function(obj.read_bytes(), symbol, size), load_binary(cfg.target_binary), address
+        )
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), json_mode=json_output)
+    if json_output:
+        json_print(report)
+    else:
+        console.print(report)
+    if not report["complete"]:
+        raise typer.Exit(1)
+
+
+@app.command(
     "list",
     epilog=(
         "[bold]Examples:[/bold]\n\n"

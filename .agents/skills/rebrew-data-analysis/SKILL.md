@@ -50,6 +50,21 @@ disk and a member selected by the map; scanning never pulls/extracts libraries.
 Owner evidence describes the linked build, whose `linked_va` can differ from the
 reference VA. DLL import slots and unresolved aliases are not static library owners.
 
+## Complete compiler literals and native names
+
+Use `rebrew data audit-literals f.obj --va 0x401000 --symbol _f --size 24 --json`
+for complete compiler string/float contents at the pool selected by each native
+operand. Embedded NULs and equal-value pools retain full extents and addresses.
+Unknown extents, malformed objects and unsupported fixups cannot become proof.
+Content agreement is separate from placement, ownership and STATUS.
+
+Use `rebrew library review-native 0x401000 f.obj --symbol _f --reason proof --dry-run`
+to preview strict complete code/operand/literal evidence for an existing LIBRARY
+row. Review its input digest, then apply with `--expected-digest`. This establishes
+only the exact native symbol, independently of source/archive providers. Changed
+binary, source claim, extent or operand dependencies disable the stored trust.
+Do not turn an attribution name or a masked body into a trusted native identity.
+
 ## Commands
 
 Run from the project root (config discovery walks up to `rebrew-project.toml`). Add

@@ -314,3 +314,9 @@ Native extent and historical evidence survive; replacement source earns a fresh
 verdict. Generic setters cannot edit `binding_history`. Historical ADDRESS
 comments cannot reactivate retired claims. Use `rebrew binary repair-extents`
 for reviewed selected native inventory boundaries, separately from source SIZE.
+
+Compiler literal contents can be checked with `rebrew data audit-literals` using
+a complete i386 COFF function extent. Content agreement does not establish layout
+or storage ownership. `rebrew library review-native --dry-run` requires strict
+complete object/operand/literal proof before an exact library callee name enters
+the resolver. Reviewed native identity is separate from provider attribution.

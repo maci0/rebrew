@@ -1191,6 +1191,12 @@ must not hide stale integer interfaces behind pointer-to-integer casts.
 
 ## Verify compiler literal values and distinguish reviewed library bindings
 
+Implemented: `data audit-literals` compares complete operand-selected compiler
+constants; `library review-native` establishes explicit binary-bound exact native
+names after strict full-object/operand/literal proof. Provider attribution remains
+separate. Unknown literal extents and unsupported objects/fixups fail explicitly.
+The original project evidence and motivation follow.
+
 With `check_known_bindings=true`, guild-rebrew's all-target corpus correctly
 rejects named data operands that reference the wrong offsets. Anonymous compiler
 literals remain UNRESOLVED, however: replacing a double literal 1.0 with2.0 can

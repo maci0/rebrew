@@ -6,6 +6,16 @@
   quadratic work collecting names at each matching offset.
 
 ### Changed
+- Add read-only `data audit-literals` for complete i386 COFF compiler constants
+  at operand-selected native pools, retaining embedded NULs, interior addends and
+  distinct equal-value pools. Unsupported, unmapped and incomplete evidence fails
+  explicitly; contents, placement, ownership and comparison STATUS stay separate.
+- Add `library review-native` with full strict object/operand/literal proof,
+  no-write previews and stale-input guards. Managed binary-bound `native_identity`
+  receipts establish exact reviewed callee names independently of provider
+  attribution. Changed binary/claim/size/dependencies disable trust; unreviewed
+  library names stay excluded. Canonical function object symbols join C names in
+  the resolver; conflicting native names fail closed.
 - Add reviewed `source binding retire` / `source binding rebind` operations and
   the locked `metadata.binding_history.change_source_binding` owner. Preserve
   native sizes, previous claims, verification and comparison history; replacements

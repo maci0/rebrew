@@ -6,6 +6,7 @@ with COFF relocation masking, using NumPy vectorization for performance.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import struct
 import threading
@@ -320,7 +321,50 @@ def build_name_to_va(
             ann_name = getattr(ann, "name", None)
             ann_va = getattr(ann, "va", None)
             if isinstance(ann_name, str) and ann_name and isinstance(ann_va, int) and ann_va:
-                name_to_va[ann_name] = ann_va
+                for name in {ann_name, getattr(ann, "symbol", "")} - {""}:
+                    if name in name_to_va and name_to_va[name] != ann_va:
+                        raise ValueError(f"ambiguous native function name: {name}")
+                    name_to_va[name] = ann_va
+        # Only explicit, binary-bound full-object reviews establish library names.
+        from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, load_metadata
+        from rebrew.metadata.native_identity import validate_native_identity
+
+        pending = []
+        native_binary_hash: str | None = None
+        for (owner, va), entry in load_metadata(cfg.metadata_dir).items():
+            if (
+                preset_module_key(owner) != preset_module_key(active_marker)
+                or entry.get("kind") != "LIBRARY"
+                or not entry.get("native_identity")
+            ):
+                continue
+            receipt = validate_native_identity(entry["native_identity"])
+            if native_binary_hash is None:
+                native_binary_hash = hashlib.sha256(cfg.target_binary.read_bytes()).hexdigest()
+            claim = {k: entry[k] for k in FUNCTION_IDENTITY_FIELDS if k in entry}
+            if (
+                receipt["binary_hash"] == native_binary_hash
+                and receipt["size"] == entry.get("size")
+                and receipt["claim"] == claim
+            ):
+                pending.append((va, receipt))
+        # Reject conflicting reviewed names, including ambiguous aliases.
+        claimed: dict[str, set[int]] = {}
+        for va, receipt in pending:
+            claimed.setdefault(receipt["symbol"], set()).add(va)
+        while pending:
+            remaining = []
+            for va, receipt in pending:
+                name = receipt["symbol"]
+                if len(claimed[name]) != 1 or (name in name_to_va and name_to_va[name] != va):
+                    continue
+                if all(name_to_va.get(k) == value for k, value in receipt["bindings"].items()):
+                    name_to_va[name] = va
+                else:
+                    remaining.append((va, receipt))
+            if len(remaining) == len(pending):
+                break
+            pending = remaining
     except (ImportError, OSError, ValueError, KeyError, AttributeError) as exc:
         # Fail closed: a scan failure is indistinguishable from "nothing to
         # validate" to every caller — verify/test would then silently skip

@@ -23,7 +23,7 @@ unchecked item does not describe a shipped command.
 - [x] Add reviewed source-binding retirement/rebinding and selected inventory
   extent repairs. Preserve native identities, unrelated rows, existing valid
   counterpart measurements, provenance and historical evidence.
-- [ ] Audit compiler-literal contents through object sections, typed relocations
+- [x] Audit compiler-literal contents through object sections, typed relocations
   and complete native spans. Allow reviewed native library identities only with
   explicit, binary-bound evidence; keep provider attribution separate.
 - [ ] Audit target-scoped declaration/definition contracts and support reviewed
@@ -92,3 +92,9 @@ static-vs-external symbol scope, alias paths, undiscoverable replacements, lost
 library ancestry, actual EOF bounds and rediscovery history loss. The broad
 capability batch passed 828 tests; final focused rejecting controls passed 38.
 Full-suite and cross-project refresh/publication checks remain pending.
+
+Complete literals and reviewed library identities now have rejecting controls for
+embedded NULs, wrong values/callees, native-selected equal pools, interior addends,
+truncated spans, partial LIEF tables, data-only object sections and stale reviews.
+The metadata/relocation/help batch passed 250 tests before final parser controls;
+full-suite and final cross-project release checks remain pending.

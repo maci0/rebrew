@@ -364,3 +364,14 @@ is validated and left unchanged. Automatic pruning preserves binding history.
 `catalog.inventory.repair_inventory_extents` edits only selected native inventory
 sizes. Its complete-input digest and one-publication batch are independent from
 function/data metadata, and boundary evidence does not earn a comparison verdict.
+
+### Reviewed native library identity
+
+`native_identity` is managed by `metadata.native_identity.record_native_identity`
+after `native_review.review_native_identity` proves the complete compiled function,
+typed fixups and compiler-literal values. Generic field writers cannot forge or
+remove it. The receipt is binary-bound and records the exact symbol, complete
+size, object hash, named dependencies, current source claim, reason and UTC review
+time. Resolver reads validate the receipt and current binary/claim/size/dependencies;
+stale receipts remain historical evidence but contribute no trusted name. Library
+attribution and selected build providers do not establish this identity themselves.
