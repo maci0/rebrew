@@ -1799,3 +1799,35 @@ this does not establish their compatibility or any native byte verdict.
 Regression coverage also preserves pointer/function declarators when a typedef's
 return/base type is a named record; replacing the entire type with its tag had
 lost those declarators. Anonymous records remain unresolved.
+
+## Bind non-record typedefs with compiler evidence (2026-10-16)
+
+Guild's event runner establishes a first-slot callback contract represented by
+`typedef void (__cdecl* EVENT_RUN)(char* event);`. The registry stores this
+four-byte value at the beginning of records with a 20-byte native stride.
+`types contracts` understands the callable typedef, but `types bind` accepts only
+parseable struct definitions and cannot retain an identity for this declaration.
+
+Replay in guild-rebrew:
+
+```sh
+uv run --frozen rebrew types bind event.run_callback \
+  src/Develop/DieGildeAddOn/game/event_callbacks.h EVENT_RUN \
+  --size 4 --native-size 20 --extent stride \
+  --evidence 'First callback field, one event pointer, registry stride20; not an allocation' \
+  --dry-run --json --target Europa1400Gold_TL.exe
+```
+
+Current rejection: `'EVENT_RUN' has no unique parseable struct definition`.
+Source inspection confirms the limitation is in `type_metadata`'s record-only
+lookup, rather than a target compiler failure. Do not introduce a wrapper struct
+or manually write a type row merely to satisfy that lookup.
+
+Proposed capability: select a unique scalar/pointer/callback typedef through the
+existing C AST and source-context machinery, compiler-check `sizeof`, retain its
+canonical ABI and input fingerprints through the locked type writer, and recheck
+it after source/header/target changes. Reject field-offset requests for non-record
+types. Keep C value size separate from enclosing native record stride, complete
+allocation extent and ownership. Existing record binding/checking must retain its
+current validation. Guild currently checks this callback width with a C89 compiler
+assertion and audits its signatures; these do not create a managed type identity.
