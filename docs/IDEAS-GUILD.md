@@ -1171,6 +1171,24 @@ Gold447190 needed one byte return and one D3_OBJECT pointer contract across
 `scope-audit-current.json`, `wrapper-native-proof.json` and six type receipts.
 
 
+Global-declaration follow-up: report incompatible unmarked users separately
+from the marked reference description. The current data scanner deliberately
+prefers marked types, so `data list --conflicts` can report zero while one
+extern object is declared as both `int` and `char*` in active translation units.
+Preserve reference/stand-in and incomplete-array policies, but expose a
+source-contract diagnostic with declaration sites and target participation;
+zero inventory conflicts must not imply compatible C declarations.
+
+Evidence: guild-rebrew main3122f9dd, `g_6b8014` at TL0x006b8014 /
+Gold0x00fc2dec; `.scratch/goal43/camera-declarations.txt` contains41 source
+files,34 integer and seven pointer declarations. The native setter at
+TL0x00439c60 / Gold0x0043cbe0 stores an art-3 object pointer. Replay
+`rebrew data list --conflicts --target Europa1400Gold_TL.exe --json`
+and compare `src/GOLDTL.fcn_00439b30.c` with
+`src/GOLDTL.fcn_00439c60.c`. Include raw-address users and affected pointer
+parameter/transport fields in the reviewed repair closure; declaration repair
+must not hide stale integer interfaces behind pointer-to-integer casts.
+
 ## Verify compiler literal values and distinguish reviewed library bindings
 
 With `check_known_bindings=true`, guild-rebrew's all-target corpus correctly
