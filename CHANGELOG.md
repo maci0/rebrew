@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [4.0.0] - 2026-10-15
+
 ### Performance
 - Reduce flag-normalization, verify-cache schema, binding lookup, integer parsing,
   text scanning and catalog aggregation work across twenty further measured

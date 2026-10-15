@@ -169,7 +169,7 @@ Python SDK examples belong in [PYTHON_API.md](docs/PYTHON_API.md), not the READM
 
 ## Versioning and releases
 
-Rebrew is 3.x.  From `1.0.0` the CLI command names and the config schema are
+Rebrew is 4.x.  From `1.0.0` the CLI command names and the config schema are
 frozen: removing or renaming a command/flag, or changing a config key's
 meaning, takes a major version bump and a `**Breaking:**` changelog entry.
 On-disk format bumps (`coverage-<target>.toml` `version`, compile-cache schema)
