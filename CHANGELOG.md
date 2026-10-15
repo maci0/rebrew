@@ -18,6 +18,8 @@
   relocations through `parse_obj_symbol_and_relocs`.
 
 ### Fixed
+- Type extraction rejects malformed tree-sitter definitions instead of forwarding
+  recovered junk as a typedef or struct to Ghidra.
 - Build-integrity checks compare generated compiler arguments with CMake's active
   compiler record. Generated profile pins no longer look like hand edits;
   altered defaults and unrecorded later pins still fail.

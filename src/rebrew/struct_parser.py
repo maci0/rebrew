@@ -62,6 +62,8 @@ def _iter_definitions(
 
     def walk(node: Any) -> Iterator[str]:
         if node.type == "type_definition":
+            if node.has_error:
+                return
             text = code_bytes[node.start_byte : node.end_byte]
             if not usable(text):
                 return
@@ -72,6 +74,8 @@ def _iter_definitions(
                 # not UnicodeDecodeError that skips the rest of the file.
                 yield text.decode(encoding, errors="replace")
         elif node.type == specifier_type:
+            if node.has_error:
+                return
             if node.parent and node.parent.type != "type_definition":
                 text = code_bytes[node.start_byte : node.end_byte]
                 if b"{" in text:

@@ -119,6 +119,14 @@ class TestExtractTypeDefinitions:
     def test_missing_file_yields_nothing(self, tmp_path: Path) -> None:
         assert list(extract_type_definitions(tmp_path / "missing.c")) == []
 
+    def test_malformed_typedef_does_not_emit_recovered_junk(self, tmp_path: Path) -> None:
+        f = self._write(
+            tmp_path,
+            "typedef int\nint ((( unbalanced;\nstruct A {  };\ntypedef struct A A_t;\n",
+        )
+        assert list(extract_structs_from_file(f)) == []
+        assert list(extract_type_definitions(f)) == []
+
     def test_cp1252_undefined_byte_in_comment_does_not_crash(self, tmp_path: Path) -> None:
         """0x81+space is not Shift-JIS and is undefined in cp1252; must not raise."""
         f = tmp_path / "legacy.c"
