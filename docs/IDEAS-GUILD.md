@@ -1567,3 +1567,19 @@ missing or conditional inputs reported explicitly. Preserve per-target header
 ownership and declaration order, enumerate every affected caller, and fail
 closed on unresolved contexts. No reconciliation operation should earn a byte
 verdict; validate source edits separately with the target compiler and raw link.
+
+## Audit managed type layouts across all configured targets (2026-10-15)
+
+Problem: `rebrew types check --all-targets --json` exits2 because the option is
+not supported, although `types contracts` already supports it. Guild's shared
+`amt.office_slot` layout has separate SERVER/GOLDTL/GOLD bindings and pinned
+compilers. A default-target success does not check either client binding.
+Replay/error: guild-rebrew/.scratch/goal48/types-check-all-targets-cli.stderr.
+
+Proposed capability: add the existing all-target dispatch/output convention to
+`types check`, including `--compile`, with independent per-target results and
+explicit skips when no managed layouts participate. Preserve stale-input and
+compiler-failure diagnostics, and never report unexecuted targets as checked.
+Current composition uses the public `check_types` API once per configuration;
+guild's three positive sizeof/offset binds and wrong-offset compiler rejection
+remain separate evidence. Receipt: `.scratch/goal48/types-all-targets.json`.
