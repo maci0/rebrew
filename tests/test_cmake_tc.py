@@ -427,6 +427,7 @@ def test_generated_toolchain_builds_with_only_umbrella_executable(
         "import json, os, sys\n"
         "from pathlib import Path\n"
         "assert sys.argv[1:3] == ['build', 'driver'] and sys.argv[4] == '--', sys.argv\n"
+        "assert sys.argv[5] == '/REBREW_TOOLCHAIN:msvc-6.0', sys.argv\n"
         "with open(os.environ['REBREW_FAKE_DRIVER_LOG'], 'a') as log:\n"
         "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
         "for arg in sys.argv[5:]:\n"
@@ -542,6 +543,39 @@ def test_driver_dispatch_and_run(
     result = CliRunner().invoke(app, ["build", "driver", mode, "--", *args])
     assert result.exit_code == 7, result.output
     assert calls == [(mode, args)]
+
+
+@pytest.mark.parametrize("mode", ["cl", "link", "lib"])
+@pytest.mark.parametrize("override", [False, True])
+def test_generated_profile_pin_precedes_environment_and_allows_file_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str, override: bool
+) -> None:
+    """The generated default wins over the environment; a later file pin wins over it."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "rebrew-project.toml").write_text('[compiler]\nprofile = "msvc-6.0"\n')
+    monkeypatch.chdir(proj)
+    monkeypatch.setenv("REBREW_TOOLCHAIN", "msvc-7.1")
+    calls: list[tuple[str, list[str]]] = []
+
+    def fake_docker_run(spec, selected_mode: str, args: list[str]) -> int:
+        calls.append((spec.name, args))
+        assert selected_mode == mode
+        return 0
+
+    monkeypatch.setattr("rebrew.cmake_tc._docker_run", fake_docker_run)
+    from typer.testing import CliRunner
+
+    from rebrew.app.main import app
+
+    arguments = ["/REBREW_TOOLCHAIN:msvc-6.0-sp5", "/O2"]
+    if override:
+        arguments.append("-REBREW_TOOLCHAIN:msvc-6.0-sp5-pp")
+    arguments.extend(["/c", "unit.c"])
+    result = CliRunner().invoke(app, ["build", "driver", mode, "--", *arguments])
+    assert result.exit_code == 0, result.output
+    expected = "msvc-6.0-sp5-pp" if override else "msvc-6.0-sp5"
+    assert calls == [(expected, ["/O2", "/c", "unit.c"])]
 
 
 def test_docker_run_rejects_relative_wineprefix(

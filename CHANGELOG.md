@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Fixed
+- Generated CMake toolchains now pin the selected compiler, linker and librarian
+  profile instead of silently using the project or environment default. Later
+  per-file toolchain pins override that default, and all selection flags are
+  removed before invoking the native tool.
+
 ## [4.2.0] - 2026-10-15
 
 ### Changed
