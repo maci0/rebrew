@@ -1,18 +1,18 @@
 """Single-file ``rebrew test`` reuses a target-scoped name map.
 
 The shipped preamble (``_lint_preamble``) must resolve a symbol defined in
-another file without walking a large reversed tree on every call, must not
+another file without parsing a large reversed tree on every call, must not
 borrow another target's VA, and must still fail closed when the scan cannot
-build a map.
+build a map. The speed gate counts C parses and global scans. Those counts
+do not move when the machine is busy.
 """
 
 from __future__ import annotations
 
 import json
-import statistics
-import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import typer
@@ -114,8 +114,44 @@ def _preamble(root: Path, source: str, *, target: str | None = None) -> dict[str
     return name_to_va
 
 
+def _measured_preamble(
+    monkeypatch: pytest.MonkeyPatch,
+    cfg: Any,
+    source: str,
+) -> tuple[dict[str, int], int, int]:
+    """Run the shipped preamble and count C parses and global scans."""
+    import rebrew.c_parser as c_parser
+    import rebrew.data_scan as data_scan
+
+    parses = 0
+    scans = 0
+    real_parse = c_parser.parse_c_source
+    real_scan = data_scan.scan_globals
+
+    def _parse(text: str | bytes) -> tuple[Any, bytes]:
+        nonlocal parses
+        parses += 1
+        return real_parse(text)
+
+    def _scan(*args: Any, **kwargs: Any) -> Any:
+        nonlocal scans
+        scans += 1
+        return real_scan(*args, **kwargs)
+
+    monkeypatch.setattr(c_parser, "parse_c_source", _parse)
+    monkeypatch.setattr(data_scan, "scan_globals", _scan)
+    try:
+        _annotations, name_to_va = _lint_preamble(cfg, source, size=None, json_output=True)
+    finally:
+        monkeypatch.setattr(c_parser, "parse_c_source", real_parse)
+        monkeypatch.setattr(data_scan, "scan_globals", real_scan)
+    return name_to_va, parses, scans
+
+
 class TestSingleFileNameMap:
-    def test_large_tree_matches_small_project_under_a_second(self, tmp_path: Path) -> None:
+    def test_large_tree_matches_small_project_parse_budget(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         small = tmp_path / "small"
         large = tmp_path / "large"
         small.mkdir()
@@ -129,17 +165,28 @@ class TestSingleFileNameMap:
         assert "0x2000" not in caller
         assert "helper" in helper
 
-        small_map = _preamble(small, "caller.c")
-        cfg = load_config(large)
-        source = str(large / "src" / "caller.c")
-        samples: list[float] = []
-        large_map: dict[str, int] = {}
-        for _ in range(3):
-            started = time.perf_counter()
-            _annotations, large_map = _lint_preamble(cfg, source, size=None, json_output=True)
-            samples.append(time.perf_counter() - started)
-        assert statistics.median(samples) < 1.0
+        small_cfg = load_config(small)
+        large_cfg = load_config(large)
+        small_source = str(small / "src" / "caller.c")
+        large_source = str(large / "src" / "caller.c")
+        cold_map, cold_parses, cold_scans = _measured_preamble(monkeypatch, large_cfg, large_source)
+        assert cold_scans == 1
+        assert cold_parses > _FILLER_COUNT
+        warm_map, warm_parses, warm_scans = _measured_preamble(monkeypatch, large_cfg, large_source)
+        import rebrew.test as test_mod
 
+        test_mod._name_map_cache.clear()
+        disk_map, disk_parses, disk_scans = _measured_preamble(monkeypatch, large_cfg, large_source)
+        _measured_preamble(monkeypatch, small_cfg, small_source)
+        small_map, small_parses, small_scans = _measured_preamble(
+            monkeypatch, small_cfg, small_source
+        )
+        assert warm_scans == disk_scans == small_scans == 0
+        assert warm_parses == disk_parses == small_parses
+        assert warm_parses < _FILLER_COUNT
+        assert disk_map["_helper"] == warm_map["_helper"] == cold_map["_helper"] == _HELPER_VA
+
+        large_map = warm_map
         small_helper = _binding(small_map, "_helper", _HELPER_VA)
         large_helper = _binding(large_map, "_helper", _HELPER_VA)
         small_foreign = _binding(small_map, "_only_other", _ONLY_OTHER_VA)

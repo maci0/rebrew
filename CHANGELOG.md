@@ -106,6 +106,9 @@
   `.rebrew/name_to_va_cache.json` when sources, metadata, exports, and the
   target binary are unchanged. A failed catalog scan is not cached.
   `rebrew test --all` still recompiles every selected file.
+- The single-file name-map check counts C parses and global scans. A warm
+  preamble on a 2000-file tree does no global scan and the same number of
+  parses as that file in a handful-file project.
 
 ## [4.3.0] - 2026-10-16
 
