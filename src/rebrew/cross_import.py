@@ -11,8 +11,8 @@ signature-compared from their **target bytes** via the ``rebrew.similar``
 machinery (mnemonic histogram + call/branch agreement — no compilation
 needed, so matching works even where the toolchain image is absent).  The
 best source match above ``--min-score``, clearly ahead of the runner-up
-(``--min-gap``), is imported: the .c marker is rewritten to the destination
-VA/SIZE, the file is written into the destination's ``reversed_dir``, then
+(``--min-gap``), is imported: the .c binding is rewritten to the destination
+VA/SIZE in metadata, the source is written into the destination's ``reversed_dir``, then
 the function is compiled + verified against the destination binary and
 STATUS is promoted through the standard verify flow — so a wrong match
 simply fails verification and stays untouched (reported as skipped).
@@ -268,7 +268,7 @@ def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
 
 
 def import_size(dst_size: int, src_code: bytes | None) -> int:
-    """The size an imported marker claims.
+    """The size an imported binding claims.
 
     The destination's registry size is whatever the tree last recorded, and a
     skeleton from an earlier round can leave it stale.  Verifying only that
@@ -632,7 +632,7 @@ def promote_to_shared(
 def _retarget_moved_identity(cfg: Any, old_path: Path, new_path: Path) -> None:
     """Point function and data rows from *old_path* at *new_path*.
 
-    Identity is the row's ``file``, not a marker that travels with the bytes.
+    Identity is the row's ``file``, not a binding that travels with the bytes.
     A path the store refuses (absolute, or a ``..`` segment) is left as it
     was: the move already landed, and a failed rewrite must not report the
     promote as a write error.
@@ -719,9 +719,8 @@ def import_shared_function(
     when the source already lives there, else in the source target's own
     tree). The function is compiled and verified against the destination
     binary through the standard verify flow. A match records
-    ``MODULE.0xVA`` in the destination store and, when the file still has
-    inline markers, migrates them into the source store first. The
-    destination metadata records the source's flags. The source directory
+    ``MODULE.0xVA`` in the destination store, preserving existing bindings and
+    their state. The destination metadata records the source's flags. The source directory
     is not added as an include path: the file stays in its own tree.
 
     The import is verified before STATUS promotion exactly like the copy
@@ -790,7 +789,7 @@ def import_shared_function(
         elif (module, dst_va) in claims:
             dst_elsewhere = True
     needs_move = dst_elsewhere and has_src
-    # A VA that is not already in this file, and whose marker is not already
+    # A VA that is not already in this file, and whose binding is not already
     # on the source body, is a new claim. A failed new claim must not write
     # STATUS: the file text no longer changes, so that is not the signal.
     new_claim = not superseded and not already_on_source
@@ -1058,7 +1057,7 @@ def import_function(
     # SOURCE file itself, holding this function's SERVER block plus every
     # co-resident function: a whole-file write there deletes them all and
     # duplicates the body (C2084).  Those cases need ``--shared``, which moves
-    # the marker onto the body already in the file.  Checked before the
+    # the binding onto the body already in the file.  Checked before the
     # dry-run return so the preview lists it.
     if dst_path.exists():
         from rebrew.metadata.bindings import read_source_bindings
@@ -1097,7 +1096,7 @@ def import_function(
                 )
             else:
                 why = (
-                    f"destination {rel_dst} exists without a marker for this VA "
+                    f"destination {rel_dst} exists without a binding for this VA "
                     "— copying would overwrite a file this VA does not own"
                 )
             return _import_result(
@@ -1163,7 +1162,7 @@ def import_function(
     cflags = f"{src_flags} {include}{src_path.parent}".strip()
     from rebrew.metadata.functions import identity_file, record_function_identity
 
-    # The row has to exist before verify: a marker-less file is invisible
+    # The row has to exist before verify: a binding-less file is invisible
     # until rebrew-functions.toml names it.
     record_function_identity(
         cfg_dst.metadata_dir,
@@ -1374,7 +1373,7 @@ def main(
     matches = cross_match(dest_sigs, src_sigs, min_score=min_score, min_gap=min_gap)
 
     # Destination VA -> (status, filepath) for choosing the write target and
-    # the destination canonical sizes for the rewritten marker.
+    # the destination canonical sizes for the rewritten binding.
     statuses = annotations_by_va(cfg)
     entries = registry(cfg)
 

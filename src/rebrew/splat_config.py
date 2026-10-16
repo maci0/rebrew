@@ -368,9 +368,6 @@ SEED_STATUS = "STUB"
 #: Blocker written for a seeded skeleton (lint W005 expects a reason on a STUB).
 SEED_BLOCKER = "seeded from a splat config, implementation pending"
 
-#: Characters the target module is built from (same rule as ``rebrew intake``).
-_MODULE_STRIP_RE = re.compile(r"[^A-Za-z0-9_]")
-
 app = typer.Typer(
     help="Seed a Rebrew project from splat YAML: names, layout, and metadata.",
     rich_markup_mode="rich",
@@ -908,7 +905,7 @@ def build_plan(cfg_splat: SplatConfig, target: str | None = None) -> ImportPlan:
 
     cfg = require_config(target=target)
     target_name = cfg.target_name
-    target_module_name = cfg.module or _MODULE_STRIP_RE.sub("", target_name).upper()
+    target_module_name = target_module(cfg)
 
     binary = cfg_splat.target_path
     if binary is None or not binary.is_file():

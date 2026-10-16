@@ -2,7 +2,7 @@
 
 Binds a data row's ``file`` to the declaration that owns it, applies declared
 global types, and generates ``rebrew_globals.h`` from the data metadata and
-source declarations. It does not write marker lines.
+source declarations. It does not write binding lines.
 """
 
 from __future__ import annotations
@@ -512,9 +512,9 @@ def set_data_sections(
 ) -> list[dict[str, str]]:
     """Set a global's PE section in rebrew-data.toml from ``0xVA=SECTION`` specs.
 
-    ``rebrew lint`` W016 wants a SECTION for every ``// GLOBAL:`` marker, but
+    ``rebrew lint`` W016 wants a SECTION for every ``// GLOBAL:`` binding, but
     the type setter never wrote one, so a global that exists only through an
-    annotation could not carry the marker without a warning.
+    annotation could not carry the binding without a warning.
     """
     return _set_global_field(
         cfg,
@@ -546,7 +546,7 @@ def _source_decls_by_va(
     covers spellings the grammar rejects.
 
     *extra_files* are scanned in addition to *src_dir* (e.g. the stub TU,
-    which lives outside the reversed tree but holds real markers).
+    which lives outside the reversed tree but holds real bindings).
     """
     from rebrew.c_parser import find_extern_variables, type_from_declaration
     from rebrew.sources import iter_sources
@@ -645,7 +645,7 @@ def gen_globals_header(
     # VA-anchored declaration in the tree beats the metadata guess.
     # The stub TU (src/link_stubs.c) is compiled into the link but lives
     # outside reversed_dir, so scan it too: stub-held globals (e.g. .rdata
-    # constants owned by the rdata_restore blob) have their markers and
+    # constants owned by the rdata_restore blob) have their bindings and
     # VA-anchored declarations only there.
     stub_path = cfg.root / "src" / "link_stubs.c"
     source_decls = _source_decls_by_va(src_dir, cfg, extra_files=[stub_path])

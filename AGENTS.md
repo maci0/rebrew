@@ -60,7 +60,7 @@ Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest confi
 
 - **One storage owner per global.** The owner is the source definition or linked
   library object that allocates its bytes. `extern` declarations, headers, DATA/GLOBAL
-  markers, and referring functions are declarations or users, not additional owners.
+  metadata rows, and referring functions are declarations or users, not additional owners.
   Keep definition owners, declaration sites, and users separate in inventories;
   an extern-only scan cannot establish a library owner. `rebrew data list` uses the
   raw link's MSVC map (`--link-map` overrides it) to identify archive members;
