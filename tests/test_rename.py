@@ -479,6 +479,44 @@ class TestRenameEdgeCases:
 
 
 class TestRenameCli:
+    @pytest.mark.parametrize("preview", [False, True])
+    @pytest.mark.parametrize("json_output", [False, True])
+    @pytest.mark.parametrize("stored_file", [None, ""])
+    def test_native_only_identity_reports_missing_source_binding(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        preview: bool,
+        json_output: bool,
+        stored_file: str | None,
+    ) -> None:
+        """A native name cannot select a C provider or be a path escape."""
+        source = tmp_path / "src" / "SERVER" / "provisional.c"
+        source.parent.mkdir(parents=True)
+        source.write_text("int NativeName(void) { return 1; }\n")
+        store = tmp_path / "rebrew-functions.toml"
+        write_store_fixture(
+            store,
+            'format = 2\n["SERVER.0x00001000"]\nname = "NativeName"\nsize = 8\n'
+            + ('file = ""\n' if stored_file is not None else ""),
+        )
+        before = {path: path.read_bytes() for path in (source, store)}
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            *(["--dry-run"] if preview else []),
+            *(["--json"] if json_output else []),
+            "SERVER.0x1000",
+            "Renamed",
+            entries=[],
+        )
+        assert result.exit_code == 2, result.output
+        assert "function row SERVER.0x1000 has no source binding" in result.output
+        assert "source register" in result.output
+        assert "escapes" not in result.output
+        for path, content in before.items():
+            assert path.read_bytes() == content
+
     def test_json_preserves_stdcall_suffix(self, tmp_path: Path, monkeypatch: Any) -> None:
 
         source = tmp_path / "src" / "SERVER" / "old_fn.c"

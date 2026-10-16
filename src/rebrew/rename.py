@@ -384,7 +384,14 @@ def _plan_function(
             error_exit(f"Could not find function row {target_ident}", json_mode=json_output)
         old_name, old_sym = str(row.get("name") or ""), str(row.get("symbol") or "")
         stored = str(row.get("file") or "")
-        filepath = _row_source(cfg, stored) if stored else None
+        if not stored:
+            error_exit(
+                f"function row {target_ident} has no source binding",
+                hint="Register a reviewed source definition with rebrew source register "
+                "before renaming this identity.",
+                json_mode=json_output,
+            )
+        filepath = _row_source(cfg, stored)
         if filepath is None:
             error_exit(f"function file escapes the source roots: {stored!r}", json_mode=json_output)
         selected = Selection(KIND_FUNCTION, module, va)

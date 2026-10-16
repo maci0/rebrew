@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Fixed
+- Renaming a native-only function identity now reports its missing source binding
+  and the registration step, rather than claiming an empty path escapes the source
+  roots. The command still refuses to invent a source provider or change the row.
 - Function dossiers now show target-scoped native-only managed names, extents and
   notes before a C provider exists, including caller/callee labels. Historical
   comparison state does not become a source verdict for an unbound identity.
