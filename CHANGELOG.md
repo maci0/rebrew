@@ -101,6 +101,12 @@
   notes before a C provider exists, including caller/callee labels. Historical
   comparison state does not become a source verdict for an unbound identity.
 
+### Performance
+- Single-file `rebrew test` reuses the active target's name-to-VA map from
+  `.rebrew/name_to_va_cache.json` when sources, metadata, exports, and the
+  target binary are unchanged. A failed catalog scan is not cached.
+  `rebrew test --all` still recompiles every selected file.
+
 ## [4.3.0] - 2026-10-16
 
 ### Added

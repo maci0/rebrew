@@ -6,6 +6,10 @@ recompiles the way this run did.  Pass --no-promote to measure without writing
 anything — use it whenever the run is a question, not a record, because the
 persisted CFLAGS is what every other tool resolves for that function.
 
+A repeated single-file run reuses that target's name-to-VA map from
+`.rebrew/name_to_va_cache.json` when the sources, metadata, and target binary
+are unchanged. `rebrew test --all` still recompiles every selected file.
+
 Usage:
     rebrew test <source.c> [--symbol NAME] [--va 0xHEX --size N] [--cflags ...]
     rebrew test <source.c> --no-promote   # skip STATUS update
@@ -19,6 +23,7 @@ import hashlib
 import json
 import logging
 import math
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -86,6 +91,17 @@ from rebrew.utils import floor_pct, untrusted_ident
 # At this match ratio, NEAR_MATCHING output is shown in bold yellow instead of
 # plain yellow — visually distinguishing "almost there" from "far off".
 _NEAR_MATCHING_BOLD_THRESHOLD = 0.97
+
+# Single-file `rebrew test` is one process per invocation. The name map is
+# remembered here and under the project `.rebrew` directory so the next
+# process does not parse the reversed tree again. `build_name_to_va` itself
+# stays uncached: a failed scan must not become a stored empty map, and a
+# read-only caller must not grow a file in the project.
+_NAME_MAP_CACHE_VERSION = 1
+_NAME_MAP_CACHE_MAX = 4
+_NAME_MAP_CACHE_FILENAME = "name_to_va_cache.json"
+_name_map_cache: dict[str, dict[str, int]] = {}
+_name_map_cache_lock = threading.Lock()
 
 
 def _cmake_pin_for(source: str | Path, cfg: ProjectConfig) -> tuple[str | None, str]:
@@ -877,6 +893,189 @@ def _status_skip_for_source(cfg: ProjectConfig, source: str, no_promote: bool) -
     return no_promote, ""
 
 
+def _stat_token(path: Path) -> tuple[str, int, int, int]:
+    """``(path, mtime_ns, size, ino)``, or ``-1`` when *path* cannot be stat'ed."""
+    try:
+        st = path.stat()
+    except OSError:
+        return (str(path), -1, -1, -1)
+    return (str(path), st.st_mtime_ns, st.st_size, st.st_ino)
+
+
+def _is_name_map_cache(path: Path) -> bool:
+    return path.name == _NAME_MAP_CACHE_FILENAME and path.parent.name == ".rebrew"
+
+
+def _feed(hasher: Any, text: str) -> None:
+    hasher.update(text.encode("utf-8", "surrogateescape"))
+    hasher.update(b"\n")
+
+
+def _feed_tree(hasher: Any, directory: Path) -> None:
+    """Hash one file stat per non-symlink file under *directory*.
+
+    ``scan_files`` is the same walk the source iterators use, without
+    resolving each path. The cache file is omitted so writing it does not
+    change the key.
+    """
+    from rebrew.sources import scan_files
+
+    root = directory if directory.is_absolute() else directory.absolute()
+    _feed(hasher, f"tree {root}")
+    for path in scan_files(root):
+        if _is_name_map_cache(path):
+            continue
+        _feed(hasher, repr(_stat_token(path)))
+
+
+def _shared_dir_outside_reversed(cfg: ProjectConfig) -> Path | None:
+    """Shared root that ``iter_sources`` adds beyond the reversed tree.
+
+    A shared directory inside ``reversed_dir`` is already in that walk.
+    """
+    shared = getattr(cfg, "shared_dir", None)
+    reversed_dir = getattr(cfg, "reversed_dir", None)
+    if shared is None or reversed_dir is None:
+        return None
+    shared_path = Path(shared)
+    reversed_path = Path(reversed_dir)
+    try:
+        if not shared_path.is_dir():
+            return None
+        shared_real = shared_path.resolve()
+        reversed_real = reversed_path.resolve()
+    except OSError:
+        return shared_path
+    if shared_real == reversed_real:
+        return None
+    try:
+        if shared_real.is_relative_to(reversed_real):
+            return None
+    except ValueError:
+        return shared_path
+    return shared_path
+
+
+def _name_map_fingerprint(cfg: ProjectConfig) -> str:
+    """Identity of every input ``build_name_to_va`` reads for *cfg*."""
+    from rebrew.config import METADATA_FILENAME, target_module
+    from rebrew.metadata.data import DATA_METADATA_FILENAME
+    from rebrew.sources import source_exts
+    from rebrew.utils import binary_fingerprint, preset_module_key
+
+    exports = getattr(cfg, "dll_exports", None) or {}
+    export_pairs = tuple(
+        sorted(
+            (va, name)
+            for va, name in exports.items()
+            if isinstance(name, str) and name and isinstance(va, int)
+        )
+    )
+    raw_modules = getattr(cfg, "target_modules", None) or ()
+    modules = tuple(sorted(str(module) for module in raw_modules))
+    binary = getattr(cfg, "target_binary", None)
+    metadata_dir = Path(cfg.metadata_dir)
+    hasher = hashlib.sha256()
+    _feed(hasher, f"v {_NAME_MAP_CACHE_VERSION}")
+    _feed(hasher, f"module {preset_module_key(target_module(cfg))}")
+    _feed(hasher, f"modules {modules!r}")
+    _feed(hasher, f"exports {export_pairs!r}")
+    _feed(hasher, f"exts {tuple(source_exts(cfg))!r}")
+    _feed(hasher, f"root {cfg.root}")
+    _feed(hasher, f"reversed {cfg.reversed_dir}")
+    _feed(hasher, f"metadata {metadata_dir}")
+    _feed(hasher, f"shared {getattr(cfg, 'shared_dir', '') or ''}")
+    _feed(hasher, f"binary {binary_fingerprint(binary) if binary else ''}")
+    _feed(hasher, f"functions {_stat_token(metadata_dir / METADATA_FILENAME)!r}")
+    _feed(hasher, f"data {_stat_token(metadata_dir / DATA_METADATA_FILENAME)!r}")
+    _feed_tree(hasher, Path(cfg.reversed_dir))
+    shared = _shared_dir_outside_reversed(cfg)
+    if shared is not None:
+        _feed_tree(hasher, shared)
+    return hasher.hexdigest()
+
+
+def _name_map_cache_path(cfg: ProjectConfig) -> Path:
+    return Path(cfg.root) / ".rebrew" / _NAME_MAP_CACHE_FILENAME
+
+
+def _remember_name_map(key: str, mapping: dict[str, int]) -> dict[str, int]:
+    stored = dict(mapping)
+    with _name_map_cache_lock:
+        _name_map_cache.pop(key, None)
+        _name_map_cache[key] = stored
+        while len(_name_map_cache) > _NAME_MAP_CACHE_MAX:
+            _name_map_cache.pop(next(iter(_name_map_cache)))
+    return dict(stored)
+
+
+def _cached_name_map(key: str) -> dict[str, int] | None:
+    with _name_map_cache_lock:
+        cached = _name_map_cache.get(key)
+        if cached is None:
+            return None
+        _name_map_cache[key] = _name_map_cache.pop(key)
+        return dict(cached)
+
+
+def _load_disk_name_map(path: Path, key: str) -> dict[str, int] | None:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    if raw.get("version") != _NAME_MAP_CACHE_VERSION or raw.get("key") != key:
+        return None
+    mapping = raw.get("map")
+    if not isinstance(mapping, dict):
+        return None
+    loaded: dict[str, int] = {}
+    for name, va in mapping.items():
+        if not isinstance(name, str) or isinstance(va, bool) or not isinstance(va, int):
+            return None
+        loaded[name] = va
+    return loaded
+
+
+def _store_disk_name_map(path: Path, key: str, mapping: dict[str, int]) -> None:
+    from rebrew.utils import atomic_write_text
+
+    payload = {"version": _NAME_MAP_CACHE_VERSION, "key": key, "map": mapping}
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(path, json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    except OSError:
+        return
+
+
+def _load_test_name_map(cfg: ProjectConfig) -> dict[str, int]:
+    """Return the active target's name-to-VA map for a single-file test.
+
+    The map is the one ``build_name_to_va`` built, reused when the active
+    module, exports, source extensions, metadata stores, target binary, and
+    reversed and shared trees still match. A copy is kept in this process
+    and in ``<root>/.rebrew/name_to_va_cache.json``. ``CatalogScanError`` is
+    not stored. A fingerprint that cannot be built scans again and does not
+    write a cache. Callers that must not write into the project keep calling
+    ``build_name_to_va`` directly.
+    """
+    try:
+        key = _name_map_fingerprint(cfg)
+    except (OSError, ValueError, KeyError, AttributeError, TypeError):
+        return build_name_to_va(cfg)
+    cached = _cached_name_map(key)
+    if cached is not None:
+        return cached
+    path = _name_map_cache_path(cfg)
+    loaded = _load_disk_name_map(path, key)
+    if loaded is not None:
+        return _remember_name_map(key, loaded)
+    mapping = build_name_to_va(cfg)
+    _store_disk_name_map(path, key, mapping)
+    return _remember_name_map(key, mapping)
+
+
 def _lint_preamble(
     cfg: ProjectConfig,
     source: str,
@@ -895,12 +1094,16 @@ def _lint_preamble(
     not report "Invalid SIZE: 0".  ``--va`` SELECTS an annotation in
     multi-function files, so it is not applied here.
 
+    The map is reused across single-file invocations while its inputs match.
+    A failed scan still exits: the relocations are not checked against an
+    empty map, and the failure is not cached.
+
     Raises:
         typer.Exit: The VA-map scan failed (fail closed, never mask the
             relocations against an empty map).
     """
     try:
-        name_to_va = build_name_to_va(cfg)
+        name_to_va = _load_test_name_map(cfg)
     except CatalogScanError as exc:
         error_exit(str(exc), json_mode=json_output, code=EXIT_ERROR)
 
