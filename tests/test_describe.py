@@ -227,6 +227,47 @@ class TestDescribeCli:
         assert "fcn_00401016" in result.output
         assert "8 bytes" in result.output
 
+    def test_native_only_metadata_names_without_source_claim(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Native names and notes survive before a source provider exists."""
+        from rebrew.metadata.functions import record_function_rows, update_source_status
+
+        _make_project(tmp_path, source="")
+        _make_binary(tmp_path)
+        record_function_rows(
+            tmp_path,
+            [
+                {
+                    "module": module,
+                    "va": va,
+                    "identity": {"name": name},
+                    "fields": {"size": size, "note": "Reviewed native role only"},
+                }
+                for module, va, name, size in [
+                    ("OTHER", PROBE_VA, "wrong_target", 1),
+                    ("GAME", PROBE_VA, "native_probe", 22),
+                    ("GAME", 0x401016, "native_caller", 8),
+                    ("GAME", 0x401034, "native_helper", 4),
+                ]
+            ],
+        )
+        update_source_status(tmp_path, "EXACT", "GAME", PROBE_VA, force=True)
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--json", f"0x{PROBE_VA:x}"])
+        assert result.exit_code == 0, result.output
+        data = cli_payload(result)
+        assert data["name"] == "native_probe"
+        assert data["size"] == 22
+        assert data["status"] is None
+        assert data["cflags"] is None
+        assert data["callers"] == [{"from_va": 0x401017, "name": "native_caller"}]
+        assert {"to_va": 0x401034, "name": "native_helper", "kind": "call"} in data["callees"]
+        result = CliRunner().invoke(app, [f"0x{PROBE_VA:x}"])
+        assert result.exit_code == 0, result.output
+        assert "native_probe" in result.output
+        assert "Reviewed native role only" in result.output
+
     @pytest.mark.parametrize("binding", ["absent", "unsized", "sized"])
     def test_inventory_extent_keeps_late_branch_without_neighbor_refs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, binding: str

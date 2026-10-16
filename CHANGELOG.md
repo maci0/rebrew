@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Fixed
+- Function dossiers now show target-scoped native-only managed names, extents and
+  notes before a C provider exists, including caller/callee labels. Historical
+  comparison state does not become a source verdict for an unbound identity.
+
 ## [4.3.0] - 2026-10-16
 
 ### Added

@@ -3,8 +3,8 @@
 Builds a one-screen intelligence summary for a single target function by
 merging source annotations with whole-binary cross-references:
 
-* Identity - name/status/size/cflags from source annotations (metadata-merged),
-  falling back to ``fcn_%08x`` and known inventory extents for unannotated functions.
+* Identity - source annotations (metadata-merged), or native-only managed
+  names/notes/extents without implying a source provider or comparison status.
 * Callers  - direct ``call``/``jmp`` sites targeting the function.
 * Callees  - direct calls plus IAT calls/jumps inside the function body,
   resolved to source names / import names.
@@ -54,6 +54,7 @@ from rebrew.formats.binary_loader import load_binary
 from rebrew.formats.binary_model import BinaryInfo
 from rebrew.formats.import_table import parse_import_table
 from rebrew.metadata.bindings import SourceBinding, read_source_bindings
+from rebrew.metadata.functions import as_metadata_int, get_entry, load_metadata
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.sources import (
     iter_sources,
@@ -137,6 +138,17 @@ def _build_lookup(
             names[ann.va] = name
             if ann.size > 0:
                 ranges.append((ann.va, ann.va + ann.size, name))
+    if cfg is not None:
+        marker = target_marker(cfg)
+        for (module, va), entry in load_metadata(cfg.metadata_dir, deepcopy=False).items():
+            if module != marker or va in annotations:
+                continue
+            name = entry.get("name") or c_name_from_symbol(entry.get("symbol", ""))
+            if name:
+                names[va] = name
+                size = as_metadata_int(entry.get("size", 0))
+                if size > 0:
+                    ranges.append((va, va + size, name))
     inventory = cached_function_list(cfg)
     for index, f in enumerate(inventory):
         try:
@@ -161,7 +173,7 @@ def _build_lookup(
             break
         names.setdefault(va, name)
         if size > 0:
-            ranges.append((va, va + size, name))
+            ranges.append((va, va + size, names[va]))
     ranges.sort(key=lambda r: r[0])
     return annotations, names, ranges
 
@@ -385,12 +397,14 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
         annotations, names, ranges = {}, {}, []
     ann = annotations.get(va)
     if ann is None:
-        name = f"fcn_{va:08x}"
-        size: int | None = None
+        marker = target_marker(cfg)
+        entry = get_entry(cfg.metadata_dir, va, marker) if marker else {}
+        name = entry.get("name") or c_name_from_symbol(entry.get("symbol", "")) or f"fcn_{va:08x}"
+        size: int | None = as_metadata_int(entry.get("size", 0)) or None
         status: str | None = None
         cflags: str | None = None
-        blocker: str | None = None
-        note: str | None = None
+        blocker: str | None = entry.get("blocker") or None
+        note: str | None = entry.get("note") or None
     else:
         name = ann.name or f"fcn_{va:08x}"
         size = ann.size if ann.size > 0 else None
