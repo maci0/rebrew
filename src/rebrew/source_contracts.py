@@ -22,7 +22,7 @@ from rebrew.c_rename import ParsedSource, declarator_name, non_external_function
 from rebrew.compiler.cache import scan_include_closure
 from rebrew.compiler.compile import extract_include_dirs, resolve_include_flags
 from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.config import ProjectConfig, module_marker
+from rebrew.config import ProjectConfig, target_module
 from rebrew.metadata.bindings import read_source_bindings
 from rebrew.metadata.document import metadata_write_lock
 from rebrew.rename_ops import FileChange, RenamePlan, SourceEdit, apply_rename_plan
@@ -146,7 +146,7 @@ def contract_contexts(
     cfg: ProjectConfig, *, selected_sources: set[Path] | None = None
 ) -> tuple[dict[Path, set[Path]], list[dict[str, Any]]]:
     """Read actual target providers and their include closure, reporting uncertainty."""
-    sources, _foreign = collect_target_sources(cfg, module_marker(cfg))
+    sources, _foreign = collect_target_sources(cfg, target_module(cfg))
     if selected_sources is not None:
         sources = [source for source in sources if source.resolve() in selected_sources]
     contexts: dict[Path, set[Path]] = {}
@@ -155,7 +155,7 @@ def contract_contexts(
         text = _read_text(source)[1]
         annotations = read_source_bindings(
             source,
-            target_name=module_marker(cfg),
+            target_name=target_module(cfg),
             metadata_dir=cfg.metadata_dir,
             project_root=cfg.root,
         )
@@ -168,7 +168,7 @@ def contract_contexts(
         }
         if not flags:
             flags = {
-                resolve_compile_overrides(cfg, source.parent, None, None, module_marker(cfg))[1]
+                resolve_compile_overrides(cfg, source.parent, None, None, target_module(cfg))[1]
             }
         headers: set[Path] = set()
         for cflags in flags:
@@ -884,7 +884,7 @@ def reconcile_contract(
             if any(path.read_bytes() != raw for path, raw in original.items()):
                 raise ValueError("contract inputs changed before publication")
             for cfg, audit in zip(cfgs, reports, strict=True):
-                current, _ = collect_target_sources(cfg, module_marker(cfg))
+                current, _ = collect_target_sources(cfg, target_module(cfg))
                 if sorted(str(p) for p in current) != audit["source_units"]:
                     raise ValueError("target provider scope changed before publication")
             apply_rename_plan(cfgs[0], RenamePlan("contract", name, name, files=changes))

@@ -34,7 +34,7 @@ class TestMatchCliWatch:
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             default_jobs=2,
         )
@@ -51,7 +51,7 @@ class TestMatchCliWatch:
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             default_jobs=2,
         )
@@ -84,7 +84,7 @@ class TestMatchAllTargets:
         return SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             ignored_symbols=[],
             default_jobs=2,
@@ -103,7 +103,7 @@ class TestMatchAllTargets:
             return SimpleNamespace(
                 metadata_dir=tmp_path,
                 reversed_dir=tmp_path / "src",
-                marker="SERVER",
+                module="SERVER",
                 source_ext=".c",
                 ignored_symbols=[],
                 default_jobs=2,
@@ -161,7 +161,7 @@ class TestMatchAllTargets:
             return SimpleNamespace(
                 metadata_dir=tmp_path,
                 reversed_dir=tmp_path / "src",
-                marker="SERVER",
+                module="SERVER",
                 source_ext=".c",
                 ignored_symbols=[],
                 default_jobs=2,
@@ -236,7 +236,7 @@ class TestResolveBuildParamsSymbol:
             '[project]\ndefault_target = "server"\n\n'
             "[targets.server]\n"
             'binary = "x.dll"\nformat = "pe"\narch = "x86_32"\n'
-            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n',
+            'reversed_dir = "src/SERVER"\nmodule = "SERVER"\n',
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)
@@ -267,7 +267,7 @@ class TestResolveBuildParamsSymbol:
             '[project]\ndefault_target = "server"\n\n'
             "[targets.server]\n"
             'binary = "x.dll"\nformat = "pe"\narch = "x86_32"\n'
-            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n',
+            'reversed_dir = "src/SERVER"\nmodule = "SERVER"\n',
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)
@@ -299,7 +299,7 @@ class TestResolveBuildParamsSymbol:
             '[project]\ndefault_target = "server"\n\n'
             "[targets.server]\n"
             'binary = "x.dll"\nformat = "pe"\narch = "x86_32"\n'
-            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n',
+            'reversed_dir = "src/SERVER"\nmodule = "SERVER"\n',
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)
@@ -481,7 +481,7 @@ class TestMatchCliDryRun:
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             default_jobs=2,
         )
@@ -517,7 +517,7 @@ class TestAllTargetsParallel:
         return SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             ignored_symbols=[],
             default_jobs=4,
@@ -536,7 +536,7 @@ class TestAllTargetsParallel:
             lambda root, target=None: SimpleNamespace(
                 metadata_dir=tmp_path,
                 reversed_dir=tmp_path / "src",
-                marker="SERVER",
+                module="SERVER",
                 source_ext=".c",
                 ignored_symbols=[],
                 default_jobs=4,
@@ -589,7 +589,7 @@ class TestAllTargetsParallel:
             lambda root, target=None: SimpleNamespace(
                 metadata_dir=tmp_path,
                 reversed_dir=tmp_path / "src",
-                marker="SERVER",
+                module="SERVER",
                 source_ext=".c",
                 ignored_symbols=[],
                 default_jobs=4,
@@ -629,7 +629,7 @@ class TestMatchCliLink:
         return SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             default_jobs=2,
             compile_timeout=30,

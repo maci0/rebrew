@@ -151,7 +151,7 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
             console.print("[dim]No type conflicts found.[/]")
         else:
             console.print(
-                "[dim]No globals found. Annotate sources with GLOBAL:/DATA: markers, "
+                "[dim]No globals found. Register globals in dedicated data metadata, "
                 "or record the global in rebrew-data.toml, then re-run.[/]"
             )
         return

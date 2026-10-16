@@ -4,7 +4,7 @@ Environment/setup health only (does not inspect the decompiled corpus):
 config file, target binary, arch/format, toolchain alignment, compiler
 image/executable, runner, include/lib paths, function-list existence,
 source-dir existence, metadata-file existence, and integration tooling
-(angr, FLIRT, Ghidra).  Source-corpus checks — annotation markers,
+(angr, FLIRT, Ghidra).  Source-corpus checks — metadata bindings,
 metadata placement, VA-vs-function-list consistency, and per-function
 settings like cflags redundancy — live in ``rebrew lint``.  Doctor answers
 "can this project work?", not "is the decompiled corpus internally
@@ -966,7 +966,7 @@ def check_shared_sources(cfg: ProjectConfig) -> CheckResult:
 
     Single-target projects need nothing.  Multi-target projects sharing one
     codebase (same game logic in several binaries) want ``src/shared`` with
-    one ``// FUNCTION: <target> <va>`` marker per target (ADR-010) plus
+    one ``// ADDRESS: <module> <va>`` anchor per target (ADR-010) plus
     ``cross-import --shared`` instead of per-target copies that drift apart.
     Warns when the project has several targets but no shared dir, or when the
     configured shared dir does not exist.
@@ -993,7 +993,7 @@ def check_shared_sources(cfg: ProjectConfig) -> CheckResult:
             status=_WARN,
             message=f"{len(targets)} targets sharing one codebase but {shared} is missing",
             fix=f"Create with: mkdir -p {shlex.quote(str(shared))} — then `rebrew source import-related "
-            "--from <src> --shared` stacks one marker per target on one file.",
+            "--from <src> --shared` stacks one address anchor per target on one file.",
         )
     return CheckResult(
         name="Shared sources",

@@ -21,7 +21,7 @@ def _project(tmp_path: Path) -> ProjectConfig:
     (source / "user.c").write_text(
         "extern void queue(int value);\nint wrapper(void) { queue(1); return 0; }\n"
     )
-    cfg = ProjectConfig(root=tmp_path, reversed_dir=source, marker="GAME")
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=source, module="GAME")
     for filename, name, va in [("owner.c", "queue", 0x401000), ("user.c", "wrapper", 0x401100)]:
         record_function_identity(
             cfg.metadata_dir,

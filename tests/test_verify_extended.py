@@ -49,7 +49,7 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "target_binary": tmp_path / "fake.dll",
         "reversed_dir": src,
         "metadata_dir": tmp_path,
-        "marker": "SERVER",
+        "module": "SERVER",
         "source_ext": ".c",
         "db_dir": tmp_path / "db",
         "default_jobs": 2,
@@ -661,7 +661,7 @@ class TestVerifyCli:
         from rebrew.metadata.data import get_data_entry, set_data_fields_batch
         from rebrew.verify import app
 
-        cfg = _cfg(tmp_path, all_markers={"SERVER", "OTHER"})
+        cfg = _cfg(tmp_path, target_modules={"SERVER", "OTHER"})
         cfg.target_binary.write_bytes(append_pe_section(make_pe(b"\xc3"), ".data", b"abcdefgh"))
         sec = load_binary(cfg.target_binary).sections[".data"]
         built = bytearray(cfg.target_binary.read_bytes())

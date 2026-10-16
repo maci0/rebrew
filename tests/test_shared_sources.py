@@ -45,7 +45,7 @@ def _cfg(
     return ProjectConfig(
         root=tmp_path,
         target_name=target,
-        marker=target,
+        module=target,
         reversed_dir=rev,
         shared_dir=tmp_path / shared if shared else None,
         defines=defines or [],
@@ -484,7 +484,7 @@ class TestGANativeEndToEnd:
         cfg = ProjectConfig(
             root=tmp_path,
             target_name="GAME",
-            marker="GAME",
+            module="GAME",
             target_binary=binary,
             reversed_dir=tmp_path / "src" / "GAME",
             shared_dir=None,
@@ -534,7 +534,7 @@ class TestVerifySharedFile:
         cfg = ProjectConfig(
             root=tmp_path,
             target_name="V2",
-            marker="V2",
+            module="V2",
             target_binary=binary,
             reversed_dir=tmp_path / "src_V2",
             shared_dir=tmp_path / "src" / "shared",

@@ -45,12 +45,12 @@ def min_valid_va_for(cfg: Any) -> int:
 
 
 def kind_for_module(module: str, status: str, library_modules: set[str] | None = None) -> str:
-    """Derive expected marker type from module name and status.
+    """Derive expected kind type from module name and status.
 
     Args:
-        module: Module identifier from the marker line (e.g. "SERVER", "MSVCRT").
+        module: Module identifier from metadata (e.g. "SERVER", "MSVCRT").
         status: Status string (e.g. "EXACT", "STUB").
-        library_modules: Set of module names that should use LIBRARY marker.
+        library_modules: Set of module names that should use LIBRARY kind.
                          Defaults to empty set if not provided.
 
     Returns:
@@ -173,7 +173,7 @@ class SourceBinding:
     locals: dict[str, Any] = field(default_factory=dict)
     comments: dict[str, Any] = field(default_factory=dict)
     section: str = ""  # .data, .rdata, .bss — used by DATA annotations
-    line: int = 0  # 1-based line number of the marker in the source file
+    line: int = 0  # 1-based line number of the kind in the source file
     prove_constraints: dict[str, Any] = field(default_factory=dict)
     updated_by: str = ""
     updated_at: str = ""
@@ -242,7 +242,7 @@ class SourceBinding:
 
     @property
     def is_data(self) -> bool:
-        """True for data annotations (GLOBAL/DATA/VTABLE/STRING markers) — never compiled."""
+        """True for data annotations (GLOBAL/DATA/VTABLE/STRING kinds) — never compiled."""
         return self.kind in DATA_KINDS
 
     @property
@@ -250,7 +250,7 @@ class SourceBinding:
         """True for compilable code annotations (FUNCTION/LIBRARY/STUB).
 
         An empty ``kind`` also counts, so a caller scanning raw records
-        can read this before the marker has been resolved.
+        can read this before the kind has been resolved.
         """
         if not self.kind:
             return True
@@ -304,15 +304,15 @@ class SourceBinding:
         warnings: list[str] = []
 
         if self.kind and self.kind not in SYMBOL_KINDS:
-            errors.append(f"Invalid marker type: {self.kind}")
+            errors.append(f"Invalid metadata kind: {self.kind}")
 
         if self.va < min_va:
             errors.append(f"VA 0x{self.va:x} is suspicious (below 0x{min_va:x})")
 
-        # Only code annotations carry a byte size.  A data marker
+        # Only code annotations carry a byte size.  A data kind
         # (GLOBAL/DATA/VTABLE/STRING, see DATA_KINDS) describes a global whose
         # extent lives in rebrew-data.toml, so demanding size > 0 here rejected
-        # files that `rebrew lint` accepts: one data marker in an
+        # files that `rebrew lint` accepts: one data kind in an
         # otherwise-valid source made `rebrew diff --fix-blocker` abort with
         # "Invalid SIZE: 0" and refuse to refresh that function's blocker.
         if not self.is_data and self.size <= 0:
@@ -334,24 +334,24 @@ class SourceBinding:
                 if _CFLAGS_GLUED_RE.match(flag)
             )
 
-        # Check marker consistency against module name.  A STUB-status function
-        # may keep either its STUB or FUNCTION marker (status lives in
+        # Check kind consistency against module name.  A STUB-status function
+        # may keep either its STUB or FUNCTION kind (status lives in
         # rebrew-functions.toml). LIBRARY may use the binary's target module:
         # vendored source is still target-scoped, even when attributed to a library.
         _lib = library_modules or set()
         if self.module in _lib or self.kind == "LIBRARY":
-            expected_marker = "LIBRARY"
-            marker_ok = self.kind == "LIBRARY"
+            expected_kind = "LIBRARY"
+            kind_ok = self.kind == "LIBRARY"
         elif self.status == "STUB":
-            expected_marker = "FUNCTION"
-            marker_ok = self.kind in ("FUNCTION", "STUB")
+            expected_kind = "FUNCTION"
+            kind_ok = self.kind in ("FUNCTION", "STUB")
         else:
-            expected_marker = "FUNCTION"
-            marker_ok = self.kind == "FUNCTION"
-        if self.kind and not marker_ok:
+            expected_kind = "FUNCTION"
+            kind_ok = self.kind == "FUNCTION"
+        if self.kind and not kind_ok:
             warnings.append(
-                f"Marker {self.kind} inconsistent with module {self.module!r} "
-                f"(expected {expected_marker})"
+                f"Kind {self.kind} inconsistent with module {self.module!r} "
+                f"(expected {expected_kind})"
             )
 
         if self.status == "STUB" and not self.blocker:
@@ -364,7 +364,7 @@ class SourceBinding:
             )
 
         if self.status == "NEAR_MATCHING" and self.kind == "STUB":
-            warnings.append(f"Contradictory: status is {self.status} but marker is STUB")
+            warnings.append(f"Contradictory: status is {self.status} but kind is STUB")
 
         return errors, warnings
 
@@ -621,7 +621,7 @@ def file_backed_by_metadata(
 ) -> bool:
     """True when a store row's ``file`` matches *filepath*.
 
-    A pure-C source has no marker line. Lint treats it as annotated when
+    A pure-C source has no kind line. Lint treats it as annotated when
     either store already names it, and ignores it when neither does.
     *function_entries* and *data_entries* are the caller's already-loaded
     maps; omitted maps are read from *metadata_dir*. Explicit LIBRARY source
@@ -797,17 +797,17 @@ def _data_annotations_from_metadata(
     for module, va, entry in rows:
         if target_name and module and preset_module_key(module) != preset_module_key(target_name):
             continue
-        raw_marker = entry.get("kind")
-        if raw_marker:
-            marker = str(raw_marker)
-            if marker not in DATA_KINDS:
+        raw_kind = entry.get("kind")
+        if raw_kind:
+            kind = str(raw_kind)
+            if kind not in DATA_KINDS:
                 continue
         else:
-            marker = "DATA"
+            kind = "DATA"
         ann = SourceBinding(
             va=va,
             module=module,
-            kind=marker,
+            kind=kind,
             name=str(entry.get("name") or ""),
             filepath=rel,
         )
@@ -845,8 +845,8 @@ def iter_source_bindings(
     :func:`read_source_bindings`.
 
     :param sources: List of paths returned by :func:`rebrew.sources.iter_sources`.
-    :param target:  Optional marker string passed through to
-        ``read_source_bindings`` (use :func:`rebrew.sources.target_marker` to obtain it).
+    :param target:  Optional module string passed through to
+        ``read_source_bindings`` (use :func:`rebrew.config.target_module` to obtain it).
     :param metadata_dir: Parent of ``reversed_dir`` where ``rebrew-functions.toml``
         lives.  When ``None``, metadata is not merged (only source annotations
         are parsed).
@@ -875,7 +875,7 @@ def read_function_fields(
 
     Delegates to the canonical ``read_source_bindings`` parser so that every tool
     agrees on what the annotations say, then reshapes the result into the
-    ``{KEY: value}`` dict format that callers expect. Marker entries map to
+    ``{KEY: value}`` dict format that callers expect. Kind entries map to
     the VA string only (for example ``{"FUNCTION": "0x10001a60"}``).
 
     Args:

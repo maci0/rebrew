@@ -10,8 +10,10 @@ from rebrew.sources import iter_sources
 from rebrew.utils import preset_module_key
 
 
-def collect_target_sources(cfg: ProjectConfig, marker: str) -> tuple[list[Path], list[Path]]:
-    """``(own, foreign)`` absolute source paths for *marker*.
+def collect_target_sources(
+    cfg: ProjectConfig, target_module_name: str
+) -> tuple[list[Path], list[Path]]:
+    """``(own, foreign)`` absolute source paths for *target_module_name*.
 
     *own* holds target-bound identities, target-scoped support files, and
     unbound helpers. *foreign* holds files bound only to other targets.
@@ -60,12 +62,12 @@ def collect_target_sources(cfg: ProjectConfig, marker: str) -> tuple[list[Path],
             }
             if not modules and src.resolve() in retired_sources:
                 foreign.append(src.resolve())
-            elif not modules or preset_module_key(marker) in modules:
+            elif not modules or preset_module_key(target_module_name) in modules:
                 own.append(src.resolve())
             else:
                 foreign.append(src.resolve())
             continue
-        if any(preset_module_key(a.module) == preset_module_key(marker) for a in anns):
+        if any(preset_module_key(a.module) == preset_module_key(target_module_name) for a in anns):
             own.append(src.resolve())
         else:
             foreign.append(src.resolve())

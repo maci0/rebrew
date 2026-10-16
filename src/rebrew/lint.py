@@ -1,16 +1,9 @@
-"""lint.py - SourceBinding linter for rebrew decomp C files.
+"""Validate source bindings, dedicated metadata, and C source conventions.
 
-Check that every reversed ``.c`` file is either pure C whose identity lives
-in ``rebrew-functions.toml`` / ``rebrew-data.toml``, or still carries a
-legacy marker line. Volatile metadata (STATUS, BLOCKER, NOTE, SIZE,
-CFLAGS, …) lives in the stores. An equal inline copy is migration debt;
-a disagreement warns and the store wins. Also cross-checks FUNCTION/STUB
-marker VAs against the target's function list (W028), flags redundant
-per-function / preset cflags that only repeat an inherited value (W029),
-and otherwise catches stale annotations at lint time instead of as
-confusing mismatches in ``rebrew test``.
-Supports ``--fix`` to migrate inline metadata keys to the TOML metadata file
-and to drop redundant per-function / preset cflags (W029).
+Identity, kind and state live in metadata; optional ADDRESS comments anchor the
+next definition or variable declaration. Legacy inline state is rejected. Check
+native function boundaries (W028), redundant compiler flags (W029), data extents
+and ownership. Fixes update dedicated metadata through its locked writers.
 """
 
 import bisect
@@ -121,7 +114,7 @@ class LintResult:
     """Accumulated lint errors and warnings for a single source file.
 
     Why a custom linter? Standard C linters don't understand rebrew's
-    annotation markers and metadata. We need strict validation to ensure
+    metadata bindings. We need strict validation to ensure
     the CI pipeline and other tools (like `rebrew test`) can parse them.
     """
 
@@ -129,13 +122,13 @@ class LintResult:
     errors: list[tuple[int, str, str]] = field(default_factory=list)
     warnings: list[tuple[int, str, str]] = field(default_factory=list)
     context_prefix: str = ""
-    marker_line: int = 1
+    binding_line: int = 1
     # Counters collected during lint for --summary (avoids re-reading files).
     _status_counts: Counter[str] = field(default_factory=Counter)
-    _marker_counts: Counter[str] = field(default_factory=Counter)
+    _kind_counts: Counter[str] = field(default_factory=Counter)
     # Lines of the file for style checks
     _lines: list[str] = field(default_factory=list)
-    # Marker headers parsed from _lines — reused by the batch W029 VA index
+    # Address anchors parsed from _lines — reused by the batch W029 VA index
     # instead of re-parsing every file (was a second full header pass).
     _headers: list[tuple[dict[str, str], dict[str, bool]]] | None = None
 
@@ -190,25 +183,25 @@ class LintResult:
 def _check_format_errors(result: LintResult, flags: dict[str, bool]) -> bool:
     """Check format-level errors (E001). Returns True if validation should proceed."""
     if not flags["has_new"]:
-        result.error(result.marker_line, "E001", "Missing FUNCTION/LIBRARY/STUB annotation")
+        result.error(result.binding_line, "E001", "Missing function metadata binding")
         return False
 
     return True
 
 
-def _check_E001_marker(result: LintResult, marker: str) -> None:
-    if marker not in SYMBOL_KINDS:
-        result.error(result.marker_line, "E001", f"Invalid marker type: {marker}")
+def _check_E001_kind(result: LintResult, kind: str) -> None:
+    if kind not in SYMBOL_KINDS:
+        result.error(result.binding_line, "E001", f"Invalid metadata kind: {kind}")
 
 
 def _check_E002_va(result: LintResult, va_str: str, min_va: int = MIN_VALID_VA) -> int | None:
     try:
         va_int = int(va_str, 16)
         if not (min_va <= va_int <= 0xFFFFFFFF):
-            result.error(result.marker_line, "E002", f"VA {va_str} is suspicious (outside range)")
+            result.error(result.binding_line, "E002", f"VA {va_str} is suspicious (outside range)")
         return va_int
     except ValueError:
-        result.error(result.marker_line, "E002", f"Invalid VA format: {va_str}")
+        result.error(result.binding_line, "E002", f"Invalid VA format: {va_str}")
         return None
 
 
@@ -219,9 +212,9 @@ def _check_E013_duplicate_va(
     filepath: Path,
     seen_vas: dict[Any, str] | None,
     module: str = "",
-    marker: str = "",
+    kind: str = "",
     lines: list[str] | None = None,
-    marker_line: int = 0,
+    binding_line: int = 0,
     seen_va_defines: dict[Any, bool] | None = None,
 ) -> None:
     if va_int is None or seen_vas is None:
@@ -230,35 +223,37 @@ def _check_E013_duplicate_va(
     # (a valid layout) is not flagged, while a true duplicate — same module
     # + VA, in the same or another file — is.
     key: Any = (module, va_int) if module else va_int
-    defines = _block_defines(lines, marker_line) if marker in DATA_KINDS else True
+    defines = _block_defines(lines, binding_line) if kind in DATA_KINDS else True
     if key in seen_vas:
-        # Data-marker duplicates collide only when BOTH sides define the
+        # Data-binding duplicates collide only when BOTH sides define the
         # symbol (two initializers = LNK4006 risk).  The normal
         # progressive-ownership shape — owner TU extern-declares (or bare
         # claim) while link scaffolding holds the single definition — is
         # unambiguous and must not fail the gate.
-        if marker in DATA_KINDS and not (defines and (seen_va_defines or {}).get(key, False)):
+        if kind in DATA_KINDS and not (defines and (seen_va_defines or {}).get(key, False)):
             if seen_va_defines is not None:
                 seen_va_defines[key] = seen_va_defines.get(key, False) or defines
             seen_vas[key] = f"{rel_display_path(filepath)}"
             return
-        result.error(result.marker_line, "E013", f"Duplicate VA {va_str} — also in {seen_vas[key]}")
+        result.error(
+            result.binding_line, "E013", f"Duplicate VA {va_str} — also in {seen_vas[key]}"
+        )
     else:
         if seen_va_defines is not None:
             seen_va_defines[key] = defines
         seen_vas[key] = rel_display_path(filepath)
 
 
-def _block_defines(lines: list[str] | None, marker_line: int) -> bool:
-    """True when the declaration after a marker line is a definition.
+def _block_defines(lines: list[str] | None, binding_line: int) -> bool:
+    """True when the declaration after a binding line is a definition.
 
     Skips blanks/comments; a first code line with an initializer (``=``)
     that is not ``extern`` counts as a definition.  Tentative definitions
-    (``int x;``) and pure markers (next marker follows) do not.
+    (``int x;``) and pure bindings (next binding follows) do not.
     """
-    if not lines or marker_line < 1:
+    if not lines or binding_line < 1:
         return False
-    for raw in lines[marker_line:]:
+    for raw in lines[binding_line:]:
         stripped = raw.strip()
         if not stripped or stripped.startswith(("//", "/*", "*")):
             continue
@@ -338,7 +333,7 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
     intake`` for the second case is wrong.  The binary-vs-list mtime
     comparison is a cheap proxy: a binary newer than the list means it
     plausibly changed after the list was written; a list at least as new as
-    the binary means the binary cannot have changed since, so the markers
+    the binary means the binary cannot have changed since, so the bindings
     (or a list regenerated from a different binary, e.g. a rebuild) are at
     fault.  Falls back to a cause-neutral message when either file's mtime
     is unavailable.
@@ -356,7 +351,7 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
     except OSError:
         binary_newer = None
 
-    annotate = "re-annotate the moved functions (`rebrew skeleton <new_va>` or edit the marker VA)"
+    annotate = "re-annotate the moved functions (`rebrew skeleton <new_va>` or edit the bound VA)"
     if binary_newer is True:
         return (
             "The target binary is newer than the function inventory — it likely changed: "
@@ -386,27 +381,27 @@ def _check_W028_stale_annotation(
     status: str = "",
     metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
 ) -> None:
-    """Warn when a FUNCTION/STUB marker VA matches no function start (W028).
+    """Warn when a FUNCTION/STUB kind VA matches no function start (W028).
 
-    A "stale annotation" is a ``// FUNCTION:``/``// STUB:`` marker whose VA
+    A stale FUNCTION/STUB metadata binding has a VA that
     no longer corresponds to a function in the current binary.  After a
-    binary update or a re-discovery the function either moved — the marker
+    binary update or a re-discovery the function either moved — the binding
     now points *inside* another function's span — or was removed (no
     function at that VA).  Either way ``rebrew test``/``verify`` compile
     against the wrong bytes and status/todo keep reporting phantom
     functions.
 
     Uses the target's discovery inventory (the same file ``rebrew intake`` /
-    ``discover`` write) as ground truth.  ``LIBRARY`` markers are excluded
-    (import stubs) and ``GLOBAL``/``DATA`` markers are data, not code;
-    markers of a different target module are filtered by the caller's
+    ``discover`` write) as ground truth.  ``LIBRARY`` bindings are excluded
+    (import stubs) and ``GLOBAL``/``DATA`` bindings are data, not code;
+    bindings of a different target module are filtered by the caller's
     config.  Silent when no function index is available.
     """
     if function_index is None:
         return
-    marker = getattr(cfg, "marker", None) if cfg is not None else None
-    if marker and module and module != marker:
-        return  # another target's marker — E012 already flags the module
+    target_module_name = getattr(cfg, "module", None) if cfg is not None else None
+    if target_module_name and module and module != target_module_name:
+        return  # another target's module — E012 already flags the module
     starts, spans = function_index
     if va_int in starts:
         return
@@ -416,14 +411,14 @@ def _check_W028_stale_annotation(
     # EXACT/RELOC means this VA already compiled and compared byte-for-byte
     # against the target there, which is strictly stronger evidence than a
     # sweep's guess.  Warning on those is a false positive that cannot be
-    # actioned -- "re-annotate the marker VA" would break a matched function.
+    # actioned -- "re-annotate the bound VA" would break a matched function.
     # guild-rebrew hit 15 of these at once, including an EXACT row whose
     # supposed host was split from it by `ret; nop; nop` at 0x1000d92d.
     if status.upper() in MATCHED_STATUSES:
         return
     host = _function_containing_va(spans, va_int)
     # The same merge, shown by the annotations themselves: the host's start is
-    # an annotated function whose SIZE ends at or before this marker, so the
+    # an annotated function whose SIZE ends at or before this binding, so the
     # two annotations tile the host's range and discovery joined them.
     if host is not None and metadata is not None:
         try:
@@ -432,23 +427,23 @@ def _check_W028_stale_annotation(
             host_size = 0
         if host_size and host[0] + host_size <= va_int:
             return
-    # Append the mtime-aware fix hint only to the first stale marker in the
-    # file — repeating it per marker would drown the signal.
+    # Append the mtime-aware fix hint only to the first stale address in the
+    # file — repeating it per binding would drown the signal.
     hint = _staleness_fix(cfg) if not any(c == "W028" for _, c, _ in result.warnings) else ""
     if host is not None:
         result.warning(
-            result.marker_line,
+            result.binding_line,
             "W028",
             f"annotation VA 0x{va_int:x} points inside function "
             f"'{host[2] or 'a function'}' (moved/merged) — re-annotate the "
-            "marker VA or refresh the function inventory (`rebrew binary functions`)" + hint,
+            "bound VA or refresh the function inventory (`rebrew binary functions`)" + hint,
         )
     else:
         result.warning(
-            result.marker_line,
+            result.binding_line,
             "W028",
             f"annotation VA 0x{va_int:x} has no function in the current "
-            "function inventory (removed or shifted) — re-annotate the marker VA "
+            "function inventory (removed or shifted) — re-annotate the bound VA "
             "or refresh the function inventory (`rebrew binary functions`)" + hint,
         )
 
@@ -458,16 +453,16 @@ def _check_W030_va_order(result: LintResult, all_headers: list[Any], lines: list
 
     The linker lays out a translation unit's functions in source order, so a
     definition placed above a lower-VA one links at the wrong address and
-    displaces every function between them.  Markers with only comments or
+    displaces every function between them.  Bindings with only comments or
     blank lines between them share one body (identical copies at several VAs)
     and count as one definition, placed by its lowest VA.  Each module is
-    checked on its own: a marker for another build carries that build's VA.
+    checked on its own: a binding for another build carries that build's VA.
     """
     groups: list[dict[str, tuple[int, int]]] = []
     prev_line = -1
     prev_definition = 0
     for found_keys, _flags in all_headers:
-        if found_keys.get("MARKER", "") not in ("FUNCTION", "STUB"):
+        if found_keys.get("KIND", "") not in ("FUNCTION", "STUB"):
             continue
         try:
             va = int(found_keys.get("VA", ""), 16)
@@ -516,7 +511,7 @@ def _check_W018_cflags(
     has_config_default = bool(getattr(cfg, "cflags", "") if cfg else "")
     if not has_config_default:
         result.warning(
-            result.marker_line,
+            result.binding_line,
             "W018",
             "Missing CFLAGS in metadata and no default cflags in project config",
         )
@@ -536,30 +531,30 @@ _FIXABLE_UNKNOWN_KEYS = frozenset({"SYMBOL", "PROTOTYPE"})
 _UNCLAIMED_STATUSES = frozenset({"STUB", "SKIP"})
 
 
-def _check_E015_marker_consistency(
-    result: LintResult, marker: str, module: str, status: str, cfg: ProjectConfig | None = None
+def _check_E015_kind_consistency(
+    result: LintResult, kind: str, module: str, status: str, cfg: ProjectConfig | None = None
 ) -> None:
-    # E015's intent is library-module attribution: a FUNCTION marker on a
+    # E015's intent is library-module attribution: a FUNCTION kind on a
     # module configured as library should be LIBRARY.  A STUB-status function
-    # may legitimately keep either its STUB marker or the FUNCTION marker
+    # may legitimately keep either its STUB kind or the FUNCTION kind
     # (status lives in rebrew-functions.toml per the metadata convention), so
-    # both are allowed. Explicit LIBRARY markers may use the target module
+    # both are allowed. Explicit LIBRARY bindings may use the target module
     # for vendored source.
     lib_modules = cfg.library_modules if cfg and cfg.library_modules is not None else set()
-    if module in lib_modules or marker == "LIBRARY":
-        expected_marker = "LIBRARY"
+    if module in lib_modules or kind == "LIBRARY":
+        expected_kind = "LIBRARY"
         allowed = {"LIBRARY"}
     elif status == "STUB":
-        expected_marker = "FUNCTION"
+        expected_kind = "FUNCTION"
         allowed = {"FUNCTION", "STUB"}
     else:
-        expected_marker = "FUNCTION"
+        expected_kind = "FUNCTION"
         allowed = {"FUNCTION"}
-    if marker not in allowed and marker in SYMBOL_KINDS and marker not in DATA_KINDS:
+    if kind not in allowed and kind in SYMBOL_KINDS and kind not in DATA_KINDS:
         result.error(
-            result.marker_line,
+            result.binding_line,
             "E015",
-            f"Marker {marker} inconsistent with module {module!r} (expected {expected_marker})",
+            f"Kind {kind} inconsistent with module {module!r} (expected {expected_kind})",
         )
 
 
@@ -572,7 +567,7 @@ def _check_E004_status_value(result: LintResult, status: str) -> None:
     """
     if status and canonical_status(status) not in KNOWN_STATUSES:
         result.error(
-            result.marker_line,
+            result.binding_line,
             "E004",
             f"Unknown STATUS {status!r}; known values: {', '.join(sorted(KNOWN_STATUSES))}",
         )
@@ -592,24 +587,24 @@ def _check_E008_size_value(result: LintResult, metadata_size: str | None) -> Non
         int(metadata_size, 0)
     except ValueError:
         result.error(
-            result.marker_line, "E008", f"metadata SIZE {metadata_size!r} is not an integer"
+            result.binding_line, "E008", f"metadata SIZE {metadata_size!r} is not an integer"
         )
 
 
-def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> None:
-    if status == "NEAR_MATCHING" and marker == "STUB":
+def _check_E017_contradictory(result: LintResult, status: str, kind: str) -> None:
+    if status == "NEAR_MATCHING" and kind == "STUB":
         result.error(
-            result.marker_line, "E017", f"Contradictory: status is {status} but marker is STUB"
+            result.binding_line, "E017", f"Contradictory: status is {status} but kind is STUB"
         )
-    elif marker == "STUB" and status in EARNED_STATUSES:
-        # A byte-matched or proven function marked STUB (stale marker from
-        # stub generation, metadata later promoted).  The STUB marker hides a
+    elif kind == "STUB" and status in EARNED_STATUSES:
+        # A byte-matched or proven function marked STUB (stale address from
+        # stub generation, metadata later promoted).  The STUB kind hides a
         # developed function from status/todo and misleads reversers.
         result.error(
-            result.marker_line,
+            result.binding_line,
             "E017",
-            f"Contradictory: status is {status} but marker is STUB — "
-            "remove the stale STUB marker (function is developed)",
+            f"Contradictory: status is {status} but kind is STUB — "
+            "remove the stale STUB kind (function is developed)",
         )
 
 
@@ -618,7 +613,7 @@ def _check_W005_blocker(result: LintResult, status: str, found_keys: dict[str, s
     # into found_keys before this check runs, so this fires only when absent from both.
     if status == "STUB" and "BLOCKER" not in found_keys:
         result.warning(
-            result.marker_line,
+            result.binding_line,
             "W005",
             "STUB function missing 'blocker' explanation "
             '(run: rebrew blocker set <file|0xVA> "<reason>" — or: rebrew diff --fix-blocker)',
@@ -631,7 +626,7 @@ def _check_W006_source(
     lib_modules = cfg.library_modules if cfg and cfg.library_modules is not None else set()
     if module in lib_modules and "SOURCE" not in found_keys:
         result.warning(
-            result.marker_line,
+            result.binding_line,
             "W006",
             f"Library module {module!r} missing source metadata "
             "(reference file, e.g. SBHEAP.C:195 or deflate.c)",
@@ -643,7 +638,7 @@ def _check_W015_va_case(result: LintResult, va_str: str) -> None:
         hex_digits = va_str[2:]
         if hex_digits != hex_digits.lower() and hex_digits != hex_digits.upper():
             result.warning(
-                result.marker_line,
+                result.binding_line,
                 "W015",
                 f"VA '{va_str}' has mixed-case hex digits (prefer consistent case)",
             )
@@ -837,15 +832,15 @@ def _check_W035_unknown_modules(cfg: ProjectConfig) -> list[LintResult]:
 
     ``status`` / ``todo`` / the dashboards filter rows by module, so a row left
     behind by a renamed target is invisible everywhere while still sitting in
-    the store.  Known modules are the project marker, every target marker, the
+    the store.  Known modules are the project module, every target module, the
     active target's library modules, and every target's external libraries —
     a D3DX8 row is read while server.dll is the default, but only the TL client
     links d3dx8.lib, so that row is live, not stale.
     """
     from rebrew.metadata.functions import load_metadata
 
-    known = {preset_module_key(str(getattr(cfg, "marker", "") or ""))}
-    known |= {preset_module_key(str(name)) for name in (getattr(cfg, "all_markers", None) or ())}
+    known = {preset_module_key(str(getattr(cfg, "module", "") or ""))}
+    known |= {preset_module_key(str(name)) for name in (getattr(cfg, "target_modules", None) or ())}
     known |= {
         preset_module_key(str(name)) for name in (getattr(cfg, "library_modules", None) or ())
     }
@@ -869,7 +864,7 @@ def _check_W035_unknown_modules(cfg: ProjectConfig) -> list[LintResult]:
         res.warning(
             1,
             "W035",
-            f"module {module!r} matches no target marker or library module"
+            f"module {module!r} matches no target module or library module"
             " (rows for a renamed or removed target stay invisible to status/todo)",
         )
     return [res]
@@ -1200,9 +1195,9 @@ def _check_config_rules(
 ) -> None:
     """Config-aware checks (E012).
 
-    A stacked shared-source marker for ANOTHER target (``// FUNCTION: V1``
+    A stacked shared-source address anchor for ANOTHER target (``// ADDRESS: V1 0xVA``
     in a file linted under V2) is not a mismatch: one ``src/shared`` file
-    serves every target with one marker per target (ADR-010).  Accept any
+    serves every target with one address anchor per target (ADR-010).  Accept any
     module that names a known project target; only a module naming NO
     target fires E012.
     """
@@ -1210,25 +1205,29 @@ def _check_config_rules(
         return
 
     module = found_keys.get("MODULE", "")
-    marker = getattr(cfg, "marker", None)
-    if module and marker and preset_module_key(module) != preset_module_key(str(marker)):
-        known = {preset_module_key(str(marker))} | {
+    target_module_name = getattr(cfg, "module", None)
+    if (
+        module
+        and target_module_name
+        and preset_module_key(module) != preset_module_key(str(target_module_name))
+    ):
+        known = {preset_module_key(str(target_module_name))} | {
             preset_module_key(str(item))
-            for item in (getattr(cfg, "all_markers", None) or ())
+            for item in (getattr(cfg, "target_modules", None) or ())
             if item
         }
         if preset_module_key(module) in known:
             return
         result.error(
-            result.marker_line,
+            result.binding_line,
             "E012",
-            f"Module '{module}' doesn't match configured marker '{marker}'",
+            f"Module '{module}' doesn't match configured module '{target_module_name}'",
         )
 
 
 @dataclass(frozen=True)
 class MissingSection:
-    """A DATA/GLOBAL marker whose VA resolves to a known binary section (W016)."""
+    """A DATA/GLOBAL binding whose VA resolves to a known binary section (W016)."""
 
     module: str
     va: int
@@ -1237,18 +1236,18 @@ class MissingSection:
 
 def _check_W016_section(
     result: LintResult,
-    marker: str,
+    kind: str,
     found_keys: dict[str, str],
     module: str = "",
     va_int: int | None = None,
     section_for_va: Any = None,
     section_hits: list[MissingSection] | None = None,
 ) -> None:
-    if marker in DATA_KINDS and "SECTION" not in found_keys:
+    if kind in DATA_KINDS and "SECTION" not in found_keys:
         result.warning(
-            result.marker_line,
+            result.binding_line,
             "W016",
-            f"{marker} marker missing // SECTION: (.data, .rdata, .bss)",
+            f"{kind} metadata missing SECTION: (.data, .rdata, .bss)",
         )
         if (
             module
@@ -1390,7 +1389,7 @@ def _check_W031_source_provenance(cfg: ProjectConfig) -> list[LintResult]:
         return [result]
     known = {
         preset_module_key(str(module))
-        for module in (getattr(cfg, "all_markers", None) or [cfg.marker])
+        for module in (getattr(cfg, "target_modules", None) or [cfg.module])
         if module
     }
     hashes: dict[str, dict[str, str]] = {}
@@ -1399,7 +1398,7 @@ def _check_W031_source_provenance(cfg: ProjectConfig) -> list[LintResult]:
         if known and record.module not in known:
             result.warning(1, "W031", f"source provenance {label} names an unknown target module")
             continue
-        if cfg.marker and record.module != preset_module_key(cfg.marker):
+        if cfg.module and record.module != preset_module_key(cfg.module):
             continue
         try:
             if record.file not in hashes:
@@ -1437,7 +1436,7 @@ def _check_W020_asm_dump(
     source: str,
     rows: list[tuple[str, int, dict[str, Any]]],
     headers: list[tuple[dict[str, str], dict[str, bool]]],
-    marker: str | None,
+    target_module_name: str | None,
     filepath: Path,
     metadata_dir: Path,
 ) -> None:
@@ -1454,17 +1453,18 @@ def _check_W020_asm_dump(
     selected_rows = [
         row
         for module, _, row in rows
-        if not marker or preset_module_key(module) == preset_module_key(marker)
+        if not target_module_name
+        or preset_module_key(module) == preset_module_key(target_module_name)
     ]
     function_headers = [
-        keys for keys, _ in headers if keys.get("MARKER") in {"FUNCTION", "LIBRARY", "STUB"}
+        keys for keys, _ in headers if keys.get("KIND") in {"FUNCTION", "LIBRARY", "STUB"}
     ]
     if (
-        marker
+        target_module_name
         and (rows or function_headers)
         and not selected_rows
         and not any(
-            preset_module_key(keys.get("MODULE", "")) == preset_module_key(marker)
+            preset_module_key(keys.get("MODULE", "")) == preset_module_key(target_module_name)
             for keys in function_headers
         )
     ):
@@ -1486,13 +1486,14 @@ def _check_W020_asm_dump(
             pending.extend(reversed(node.children))
     definitions.sort()
     documented: set[str] = set()
-    if marker:
+    if target_module_name:
         try:
             relative = filepath.resolve().relative_to(metadata_dir.resolve()).as_posix()
             records = [
                 record
                 for record in load_source_provenance(metadata_dir)
-                if record.file == relative and record.module == preset_module_key(marker)
+                if record.file == relative
+                and record.module == preset_module_key(target_module_name)
             ]
             hashes = function_definition_hashes(source) if records else {}
             documented = {r.symbol for r in records if hashes.get(r.symbol) == r.source_hash}
@@ -1524,14 +1525,19 @@ def _check_W020_asm_dump(
             for keys, _ in headers
             if start
             and previous_end < int(keys.get("_LINE", "0")) <= start
-            and keys.get("MARKER") in {"FUNCTION", "LIBRARY", "STUB"}
+            and keys.get("KIND") in {"FUNCTION", "LIBRARY", "STUB"}
         ]
         own_headers = [
             keys
             for keys in definition_headers
-            if not marker or preset_module_key(keys.get("MODULE", "")) == preset_module_key(marker)
+            if not target_module_name
+            or preset_module_key(keys.get("MODULE", "")) == preset_module_key(target_module_name)
         ]
-        if marker and (definition_rows or definition_headers) and not (own_rows or own_headers):
+        if (
+            target_module_name
+            and (definition_rows or definition_headers)
+            and not (own_rows or own_headers)
+        ):
             continue
         if any(row.get("blocker") for row in own_rows) or any(
             keys.get("BLOCKER") for keys in own_headers
@@ -1568,11 +1574,11 @@ def _check_W021_duplicate_globals(
     ``seen_vas``. Extern declarations at the owner's address are references,
     matching E013's progressive-ownership rule.
 
-    The key carries the annotation's marker: a shared tree annotates the same
+    The key carries the binding's module: a shared tree annotates the same
     symbol once per target (SERVER ``g_log_newline`` at 0x100270e4, the
     client's at 0x677ac8), and those are two binaries' globals, not a
     collision. Conflicting addresses or two initialized definitions under the
-    same module still warn, including a DATA marker beside a GLOBAL marker.
+    same module still warn, including a DATA binding beside a GLOBAL binding.
     """
     if seen_globals is None:
         return
@@ -2024,7 +2030,7 @@ def lint_file(
                         name; enables W016 autofix collection in
                         ``section_hits``.
         section_hits: Optional list collecting :class:`MissingSection` for
-                      DATA/GLOBAL markers whose VA resolves to a section.
+                      DATA/GLOBAL bindings whose VA resolves to a section.
         pedantic: Enable the pedantic-only W023 (default function name) check.
 
     """
@@ -2057,7 +2063,7 @@ def lint_file(
     relative = rel_display_path(filepath.resolve(), directory.resolve())
     support = [record for record in load_source_files(directory) if record.file == relative]
     if support:
-        result._marker_counts["SUPPORT"] += 1
+        result._kind_counts["SUPPORT"] += 1
         _check_body_rules(result, lines, True)
         return result
     try:
@@ -2079,7 +2085,7 @@ def lint_file(
         all_headers = [
             (
                 {
-                    "MARKER": a.kind,
+                    "KIND": a.kind,
                     "MODULE": a.module,
                     "VA": f"0x{a.va:08x}",
                     "_LINE": str(a.line or definition_lines.get(a.name, 1)),
@@ -2126,9 +2132,9 @@ def lint_file(
             for row in _metadata_entries.values()
         ):
             # Explicitly retired TUs remain reviewable source, outside compilation.
-            result._marker_counts["INACTIVE"] += 1
+            result._kind_counts["INACTIVE"] += 1
             return result
-    # A pure-C file whose row names this path is annotated. A marker-less
+    # A pure-C file whose row names this path is annotated. A anchor-free
     # file with no row is still E001.
     metadata_backed = False
     if not all_headers:
@@ -2143,12 +2149,14 @@ def lint_file(
             all_headers = [({}, {"has_new": False})]
     result._headers = all_headers
 
-    # Marker keys this project recognises, folded once per file: the NFC +
-    # upper of every marker in cfg.all_markers is per-annotation work below
+    # Module keys this project recognises, folded once per file: the NFC +
+    # upper of every binding in cfg.target_modules is per-annotation work below
     # otherwise, on a tree with thousands of annotated blocks.
-    _own_marker = getattr(cfg, "marker", None) if cfg is not None else None
-    _known_markers = getattr(cfg, "all_markers", None) or ({_own_marker} if _own_marker else set())
-    _known_folded = {preset_module_key(str(item)) for item in _known_markers if item}
+    _own_module = getattr(cfg, "module", None) if cfg is not None else None
+    _target_modules = getattr(cfg, "target_modules", None) or (
+        {_own_module} if _own_module else set()
+    )
+    _known_folded = {preset_module_key(str(item)) for item in _target_modules if item}
 
     # Statuses claimed by this file's annotations (for E023 diagnostics).
     _file_statuses: set[str] = set()
@@ -2157,7 +2165,7 @@ def lint_file(
     _file_cflags: set[str] = set()
 
     if metadata_backed:
-        # A pure-C file carries no marker blocks: its blockers and statuses are
+        # A pure-C file carries no metadata bindings: its blockers and statuses are
         # the store rows that name it, for this target only.
         for _row_module, _row_va, _row in function_rows_for_file(
             filepath,
@@ -2165,28 +2173,19 @@ def lint_file(
             _metadata_entries,
             project_root=getattr(cfg, "root", None),
         ):
-            if _own_marker and preset_module_key(_row_module) != preset_module_key(_own_marker):
+            if _own_module and preset_module_key(_row_module) != preset_module_key(_own_module):
                 continue
             _row_status = canonical_status(str(_row.get("status") or ""))
             if _row_status:
                 _file_statuses.add(_row_status)
 
     for found_keys, flags in all_headers:
-        result.marker_line = int(found_keys.get("_LINE", "1"))
+        result.binding_line = int(found_keys.get("_LINE", "1"))
 
         mod = found_keys.get("MODULE", "")
         va_str = found_keys.get("VA", "")
 
-        # Overlay metadata fields into found_keys for this marker block.
-        #
-        # The store is the source of truth for every metadata-owned key,
-        # including SIZE and CFLAGS.  Equal inline copies are stripped.
-        # Disagreements warn (W019) and leave the inline text for the author
-        # (never migrate inline → store, which would clobber a promoted
-        # STATUS with a stale // STATUS: STUB).
-        #
-        # Track which keys the store supplied so W019 can tell a key that
-        # must be migrated from one that is correctly metadata-only.
+        # Populate metadata fields for this source binding.
         _metadata_sourced_keys: set[str] = set()
         _va_int: int | None = None
         _metadata_size: str | None = None
@@ -2205,7 +2204,7 @@ def lint_file(
             except (ValueError, KeyError) as exc:
                 # A malformed inline block drops the key from the drift
                 # comparison, so a disagreeing SIZE would go unreported.
-                log.debug("unreadable inline metadata at %s: %s", result.marker_line, exc)
+                log.debug("unreadable inline metadata at %s: %s", result.binding_line, exc)
 
         ctx = f"[{mod} {va_str}] " if mod and va_str else ""
 
@@ -2218,8 +2217,8 @@ def lint_file(
             continue
 
         if flags["has_new"]:
-            marker = found_keys.get("MARKER", "")
-            _check_E001_marker(result, marker)
+            kind = found_keys.get("KIND", "")
+            _check_E001_kind(result, kind)
 
             va_int = _check_E002_va(
                 result, va_str, min_va=min_valid_va_for(cfg) if cfg else MIN_VALID_VA
@@ -2228,7 +2227,7 @@ def lint_file(
             # Check EVERY block of a multi-function file, keyed on
             # (module, va) so a multi-module file whose blocks share a VA
             # (a valid layout) is not flagged.
-            # DATA/GLOBAL also pass the marker kind + body so the check can
+            # DATA/GLOBAL also pass the binding kind + body so the check can
             # tell a second definition (real collision) from an extern/bare
             # claim beside the single definition (progressive ownership).
             _check_E013_duplicate_va(
@@ -2238,13 +2237,13 @@ def lint_file(
                 filepath,
                 seen_vas,
                 module=mod,
-                marker=marker,
+                kind=kind,
                 lines=lines,
-                marker_line=result.marker_line,
+                binding_line=result.binding_line,
                 seen_va_defines=seen_va_defines,
             )
 
-            if marker in ("FUNCTION", "STUB") and va_int is not None:
+            if kind in ("FUNCTION", "STUB") and va_int is not None:
                 _check_W028_stale_annotation(
                     result,
                     va_int,
@@ -2258,15 +2257,15 @@ def lint_file(
                     metadata=_metadata_entries,
                 )
 
-            if marker not in DATA_KINDS:
+            if kind not in DATA_KINDS:
                 # A stacked shared-source block for ANOTHER target answers to
                 # its own target's defaults, not this one's — flagging it for
                 # missing CFLAGS here is misattribution (ADR-010).
-                _own_key = preset_module_key(_own_marker) if _own_marker else ""
+                _own_key = preset_module_key(_own_module) if _own_module else ""
                 _mod_key = preset_module_key(mod) if mod else ""
                 if not (
                     cfg is not None
-                    and _own_marker
+                    and _own_module
                     and mod
                     and _mod_key != _own_key
                     and _mod_key in _known_folded
@@ -2299,16 +2298,16 @@ def lint_file(
             _file_cflags.update(found_keys.get("CFLAGS", "").split())
 
             # Collect summary data during the lint pass (used by _print_summary).
-            if marker:
-                result._marker_counts[marker] += 1
+            if kind:
+                result._kind_counts[kind] += 1
             if status:
                 result._status_counts[status] += 1
                 _file_statuses.add(status)
 
-            _check_E015_marker_consistency(result, marker, module, status, cfg)
+            _check_E015_kind_consistency(result, kind, module, status, cfg)
             _check_W005_blocker(result, status, found_keys)
             _check_W006_source(result, module, found_keys, cfg)
-            _check_E017_contradictory(result, status, marker)
+            _check_E017_contradictory(result, status, kind)
             _check_E004_status_value(result, status)
             _check_E008_size_value(result, _metadata_size)
             _check_config_rules(result, found_keys, cfg)
@@ -2316,7 +2315,7 @@ def lint_file(
             _check_W015_va_case(result, va_str)
             _check_W016_section(
                 result,
-                marker,
+                kind,
                 found_keys,
                 module=mod,
                 va_int=_va_int,
@@ -2341,7 +2340,7 @@ def lint_file(
             project_root=getattr(cfg, "root", None),
         ),
         all_headers,
-        _own_marker,
+        _own_module,
         filepath,
         cfg.metadata_dir if cfg else filepath.parent,
     )
@@ -2361,16 +2360,16 @@ def lint_file(
 
 
 def _print_summary(results: list[LintResult]) -> None:
-    """Print a breakdown table by status and marker type.
+    """Print a breakdown table by status and binding kind.
 
     Uses counters collected during the lint pass (LintResult._status_counts
-    and _marker_counts) instead of re-reading every file.
+    and _kind_counts) instead of re-reading every file.
     """
     status_counts: Counter[str] = Counter()
-    marker_counts: Counter[str] = Counter()
+    kind_counts: Counter[str] = Counter()
     for r in results:
         status_counts += r._status_counts
-        marker_counts += r._marker_counts
+        kind_counts += r._kind_counts
 
     console.print()
     table = Table(title="Summary", show_lines=False, pad_edge=False)
@@ -2380,8 +2379,8 @@ def _print_summary(results: list[LintResult]) -> None:
 
     for status, count in sorted(status_counts.items(), key=lambda x: -x[1]):
         table.add_row("STATUS", untrusted_ident(status), str(count))
-    for marker, count in sorted(marker_counts.items(), key=lambda x: -x[1]):
-        table.add_row("MARKER", marker, str(count))
+    for kind, count in sorted(kind_counts.items(), key=lambda x: -x[1]):
+        table.add_row("KIND", kind, str(count))
 
     console.print(table)
 
@@ -2510,10 +2509,10 @@ def main(
         _preloaded_data_metadata = load_data_metadata(cfg.metadata_dir)
     # Pre-load the function list once for the whole batch (W028).
     function_index = _build_function_index(cfg) if cfg else None
-    # Section resolver for W016 autofix (DATA/GLOBAL markers missing SECTION):
+    # Section resolver for W016 autofix (DATA/GLOBAL bindings missing SECTION):
     # one binary parse per batch, mapping VA -> section name.  The load is
     # deferred to the first VA actually queried: a run without a SECTION-less
-    # DATA/GLOBAL marker never pays LIEF's ~0.13 s import, and an unusable
+    # DATA/GLOBAL binding never pays LIEF's ~0.13 s import, and an unusable
     # binary just leaves the resolver returning "" (W016 stays warn-only).
     section_for_va: Any = None
     if cfg is not None and getattr(cfg, "target_binary", None):
@@ -2598,7 +2597,7 @@ def main(
         preset_redundant, fn_redundant = check_redundant_cflags(cfg, _preloaded_metadata)
         if preset_redundant or fn_redundant:
             # Build VA -> file index from this run, for per-function attribution.
-            # LintResult.marker_line holds the LAST marker in the file, so
+            # LintResult.binding_line holds the LAST binding in the file, so
             # the header's own line travels with the index.
             va_to_result: dict[tuple[str, int], tuple[LintResult, int]] = {}
             for r in all_results:
@@ -2702,15 +2701,11 @@ def main(
         if summary:
             _print_summary(all_results)
 
-    # Apply --fix: migrate inline metadata to rebrew-functions.toml /
-    # rebrew-data.toml (the destination depends on the marker type).
-    # Without a loaded config the migration has nowhere to write — say so
-    # instead of silently doing nothing (functionality-review: a user running
-    # --fix outside a project saw zero effect and no explanation).
+    # Fixes write dedicated metadata through its locked writers.
     if fix and not cfg:
         console.print(
             "[yellow]warning:[/yellow] --fix needs a rebrew-project.toml — "
-            "no config loaded, nothing migrated"
+            "no config loaded, no metadata updated"
         )
     if fix and cfg:
         from rebrew.metadata.data import get_data_entry, set_data_fields_batch
@@ -2813,7 +2808,7 @@ def _source_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[str, bo
     """Structural address headers only; never parse state from comments."""
     return [
         (
-            {"MARKER": a.kind, "MODULE": a.module, "VA": f"0x{a.va:08x}", "_LINE": str(a.line)},
+            {"KIND": a.kind, "MODULE": a.module, "VA": f"0x{a.va:08x}", "_LINE": str(a.line)},
             {"has_new": True},
         )
         for a in parse_address_anchors("\n".join(lines))

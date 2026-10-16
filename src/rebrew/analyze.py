@@ -757,7 +757,7 @@ def main(
             root=None,
             target_binary=binary,
             metadata_dir=None,
-            marker="",
+            module="",
             target_name=binary.stem,
             crt_sources={},
             reversed_dir=Path("/nonexistent"),  # no sources -> no CRT/library annotations

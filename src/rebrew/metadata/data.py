@@ -234,8 +234,8 @@ _CANONICAL_ORDER = [
 #: explicit renames on repeated registration. Written by :func:`record_data_rows`
 #: rather than :func:`set_data_fields_batch`, which clears a verdict when
 #: ``name`` / ``type`` / ``size`` / ``section`` change.
-_DATA_MARKER_IDENTITY = ("file", "kind", "name")
-_DATA_MARKER_FILL = ("type", "size", "section", "note")
+_DATA_BINDING_IDENTITY = ("file", "kind", "name")
+_DATA_BINDING_FILL = ("type", "size", "section", "note")
 
 __all__ = [
     "DATA_METADATA_FILENAME",
@@ -333,22 +333,22 @@ _scope_memo: tuple[Any, str, frozenset[str]] | None = None
 
 
 def _target_scope(cfg: Any) -> tuple[str, frozenset[str]]:
-    """``(active marker key, set of every target marker key)`` for *cfg*.
+    """``(active module key, set of every target module key)`` for *cfg*.
 
     Both are config-constant for the process, but this predicate runs once per
-    data row, so the derivation (including the ``all_markers`` set build) is
+    data row, so the derivation (including the ``target_modules`` set build) is
     memoised against the last config seen.  A single slot bounds the memory.
     """
     global _scope_memo
-    from rebrew.config import module_marker
+    from rebrew.config import target_module
     from rebrew.utils import preset_module_key
 
     with _SCOPE_LOCK:
         memo = _scope_memo
         if memo is not None and memo[0] is cfg:
             return memo[1], memo[2]
-    active = preset_module_key(module_marker(cfg))
-    others = frozenset(preset_module_key(m) for m in (getattr(cfg, "all_markers", None) or ()))
+    active = preset_module_key(target_module(cfg))
+    others = frozenset(preset_module_key(m) for m in (getattr(cfg, "target_modules", None) or ()))
     with _SCOPE_LOCK:
         _scope_memo = (cfg, active, others)
     return active, others
@@ -358,9 +358,9 @@ def module_visible_to_target(module: str, cfg: Any) -> bool:
     """Whether a data row's module belongs on the active target's reports.
 
     One ``rebrew-data.toml`` holds every binary in a shared tree. Another
-    target's marker does not belong on this target's ``status``, ``data``,
-    ``todo``, or ``verify --data`` output. The active marker does. A module
-    that is not any target's marker (``MSVCRT``, ``ZLIB``) does too: that
+    target's module does not belong on this target's ``status``, ``data``,
+    ``todo``, or ``verify --data`` output. The active module does. A module
+    that is not any target's module (``MSVCRT``, ``ZLIB``) does too: that
     data is linked into this binary. With no config, or no marker, every
     module belongs.
     """
@@ -875,8 +875,8 @@ def record_data_rows(metadata_dir: Path | str | Any, rows: list[dict[str, Any]])
             for key, value in (row.get("identity") or {}).items():
                 if key == "status":
                     raise ValueError("data registration does not write STATUS")
-                if key not in _DATA_MARKER_IDENTITY:
-                    raise ValueError(f"unknown data marker identity field {key!r}")
+                if key not in _DATA_BINDING_IDENTITY:
+                    raise ValueError(f"unknown data binding identity field {key!r}")
                 if value and not (key == "name" and entry.get("name")):
                     stored = validate_data_field(key, value)
                     if stored:
@@ -884,8 +884,8 @@ def record_data_rows(metadata_dir: Path | str | Any, rows: list[dict[str, Any]])
             for key, value in (row.get("fill") or {}).items():
                 if key == "status":
                     raise ValueError("data registration does not write STATUS")
-                if key not in _DATA_MARKER_FILL:
-                    raise ValueError(f"unknown data marker fill field {key!r}")
+                if key not in _DATA_BINDING_FILL:
+                    raise ValueError(f"unknown data binding fill field {key!r}")
                 if value in (None, "", 0):
                     continue
                 if entry.get(key) not in (None, ""):

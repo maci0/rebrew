@@ -554,7 +554,7 @@ def _linker_reference_changes(
         mapping = {
             old: new
             for module, names in symbols.items()
-            if preset_module_key(module) == preset_module_key(target.marker)
+            if preset_module_key(module) == preset_module_key(target.module)
             for old, new in names.items()
         }
         if not mapping:
@@ -575,7 +575,7 @@ def _linker_reference_changes(
                 mapping: dict[str, str] = mapping,
                 text: str = text,
                 edits: list[SourceEdit] = edits,
-                marker: str = preset_module_key(target.marker),
+                target_module_name: str = preset_module_key(target.module),
                 path: Path = path,
             ) -> str:
                 """Change internal symbols while preserving export names and other options."""
@@ -588,7 +588,9 @@ def _linker_reference_changes(
                     if option.upper() == "ALTERNATENAME"
                     else [binding.rsplit("=", 1)[-1]]
                 )
-                if any((marker, name) in (ambiguous_symbols or set()) for name in referred):
+                if any(
+                    (target_module_name, name) in (ambiguous_symbols or set()) for name in referred
+                ):
                     raise RenameError(
                         "ambiguous linker reference to independent same-target definitions; review linker ownership",
                         files=[path],
@@ -1552,7 +1554,7 @@ def rename_function_everywhere(
     actual_old_name = rename_source_name(old_name, old_sym)
     if not actual_old_name:
         raise ValueError(
-            f"cannot rename {filepath}: old name is empty (missing FUNCTION marker or symbol)"
+            f"cannot rename {filepath}: old name is empty (missing FUNCTION binding or symbol)"
         )
     plan = plan_symbol_rename(
         cfg,

@@ -499,15 +499,16 @@ def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     Marker symbols use the per-target ``// FUNCTION:`` name. The key is
     the C name, so ``__foo`` stays ``_foo`` and ``hook@@12`` is ``hook``.
     """
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import iter_source_bindings
     from rebrew.rename_ops import c_name_from_symbol
-    from rebrew.sources import iter_sources, target_marker
+    from rebrew.sources import iter_sources
 
-    marker = target_marker(cfg)
+    target_module_name = target_module(cfg)
     out: dict[str, int] = {}
     for path, annos in iter_source_bindings(
         iter_sources(cfg.reversed_dir, cfg),
-        target=marker,
+        target=target_module_name,
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):

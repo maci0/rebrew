@@ -1,6 +1,6 @@
-"""Tests for the single module-marker resolver (``rebrew.config.module_marker``).
+"""Tests for the single module resolver (``rebrew.config.target_module``).
 
-The marker is the ``MODULE`` half of every ``MODULE.0xVA`` metadata key.  Before
+The module is the ``MODULE`` half of every ``MODULE.0xVA`` metadata key.  Before
 this resolver existed, nine call sites derived it differently (raw ``.upper()``,
 lower-case target name, hardcoded ``"SERVER"`` / ``"GAME"``), so one function
 could be written under four different keys.
@@ -12,43 +12,43 @@ from types import SimpleNamespace
 
 import pytest
 
-from rebrew.config import module_marker
+from rebrew.config import target_module
 from rebrew.metadata.document import parse_metadata_key, qualified_key
 
 
-class TestModuleMarker:
-    def test_explicit_marker_wins(self) -> None:
-        cfg = SimpleNamespace(marker="SERVER", target_name="client.dll")
-        assert module_marker(cfg) == "SERVER"
+class TestTargetModule:
+    def test_explicit_module_wins(self) -> None:
+        cfg = SimpleNamespace(module="SERVER", target_name="client.dll")
+        assert target_module(cfg) == "SERVER"
 
     def test_derives_from_target_name(self) -> None:
-        cfg = SimpleNamespace(marker="", target_name="server")
-        assert module_marker(cfg) == "SERVER"
+        cfg = SimpleNamespace(module="", target_name="server")
+        assert target_module(cfg) == "SERVER"
 
     def test_strips_non_identifier_chars(self) -> None:
         # Matches load_config's own derivation: a raw ``.upper()`` would yield
-        # "SERVER.DLL", which matches no ``// FUNCTION: MODULE 0xVA`` line.
-        cfg = SimpleNamespace(marker="", target_name="server.dll")
-        assert module_marker(cfg) == "SERVERDLL"
+        # "SERVER.DLL", which matches no ``// ADDRESS: MODULE 0xVA`` line.
+        cfg = SimpleNamespace(module="", target_name="server.dll")
+        assert target_module(cfg) == "SERVERDLL"
 
     def test_unresolvable_is_empty_not_fabricated(self) -> None:
-        cfg = SimpleNamespace(marker="", target_name="")
-        assert module_marker(cfg) == ""
+        cfg = SimpleNamespace(module="", target_name="")
+        assert target_module(cfg) == ""
 
     def test_missing_attributes_do_not_raise(self) -> None:
-        assert module_marker(SimpleNamespace()) == ""
+        assert target_module(SimpleNamespace()) == ""
 
     def test_none_values_treated_as_unset(self) -> None:
-        cfg = SimpleNamespace(marker=None, target_name=None)
-        assert module_marker(cfg) == ""
+        cfg = SimpleNamespace(module=None, target_name=None)
+        assert target_module(cfg) == ""
 
 
-class TestMarkerKeyRoundTrip:
-    """Why an empty marker must never reach a store writer."""
+class TestModuleKeyRoundTrip:
+    """Why an empty module must never reach a store writer."""
 
-    def test_resolved_marker_round_trips_through_a_metadata_key(self) -> None:
-        cfg = SimpleNamespace(marker="", target_name="server.dll")
-        module = module_marker(cfg)
+    def test_resolved_module_round_trips_through_a_metadata_key(self) -> None:
+        cfg = SimpleNamespace(module="", target_name="server.dll")
+        module = target_module(cfg)
         assert parse_metadata_key(qualified_key(module, 0x1000)) == (module, 0x1000)
 
     def test_empty_module_renders_a_key_the_loader_drops(self) -> None:

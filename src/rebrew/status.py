@@ -736,7 +736,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # Before scoping: external .lib rows carry library modules
         # (D3DX8, MSVCRT, …) and must leave the denominators whatever the
         # module — identified external code is not pending work.  The flag
-        # is `targets.<name>.external_libs` (plus LIBRARY marker rows).
+        # is `targets.<name>.external_libs` (plus LIBRARY binding rows).
         library_vas = external_vas(existing, getattr(cfg, "external_libs", None))
         existing = scope_to_target(existing, cfg)
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:

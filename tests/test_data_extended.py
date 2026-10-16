@@ -42,7 +42,7 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "target_binary": tmp_path / "fake.dll",
         "reversed_dir": src,
         "metadata_dir": tmp_path,
-        "marker": "SERVER",
+        "module": "SERVER",
         "source_ext": ".c",
     }
     defaults.update(overrides)
@@ -1278,7 +1278,7 @@ class TestDataMarkerScan:
     markers scanned as zero annotated globals in section "unknown".
     """
 
-    def test_data_marker_counts_as_an_annotated_global(self, tmp_path: Path) -> None:
+    def test_data_kind_counts_as_an_annotated_global(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         write_source(
             cfg.reversed_dir / "a.c",

@@ -3,9 +3,9 @@
 Combines multiple annotated source files into a single compilation unit,
 deduplicating preamble lines and sorting function blocks by virtual address.
 
-With ``--shared``, twin files (same body, different target markers — the
+With ``--shared``, twin files (same body, different target modules — the
 per-target copies ``cross-import`` used to make) collapse into one stacked
-block per body (one ``// FUNCTION: <target> <va>`` marker per target,
+block per body (one ``// ADDRESS: <module> <va>`` anchor per target,
 ADR-022): the migration path from N copies to one shared file.  Bodies
 that differ between targets are refused, never averaged.
 
@@ -771,7 +771,7 @@ def _accept_function(
 
 
 def _require_merged_functions(
-    func_out: list[_Piece], *, shared: bool, marker: str, json_output: bool
+    func_out: list[_Piece], *, shared: bool, target_module_name: str, json_output: bool
 ) -> None:
     if not any(piece.rows for piece in func_out):
         error_exit(
@@ -780,26 +780,26 @@ def _require_merged_functions(
         )
     if len(func_out) < 2 and not shared:
         error_exit(
-            f"Need at least two functions for target '{marker}'",
+            f"Need at least two functions for target '{target_module_name}'",
             json_mode=json_output,
         )
     if shared and not func_out:
         error_exit("No functions found in input files", json_mode=json_output)
 
 
-def _target_va(layout: _InputLayout, marker: str) -> int:
+def _target_va(layout: _InputLayout, target_module_name: str) -> int:
     """Lowest function VA of *layout* under module *marker*, else under any module."""
     own = [
         va
         for piece in layout.functions
         for module, va, _old in piece.rows
-        if preset_module_key(module) == preset_module_key(marker)
+        if preset_module_key(module) == preset_module_key(target_module_name)
     ]
     return min(own, default=layout.va)
 
 
 def _assemble_pieces(
-    layouts: list[_InputLayout], *, shared: bool, marker: str, json_output: bool
+    layouts: list[_InputLayout], *, shared: bool, target_module_name: str, json_output: bool
 ) -> tuple[list[_Piece], list[_Piece]]:
     """Storage first, then functions.  Files are ordered by their lowest function VA.
 
@@ -807,7 +807,7 @@ def _assemble_pieces(
     targets, and a client VA below the server image would sort it ahead of code
     that precedes it in the linked order.
     """
-    layouts.sort(key=lambda item: (_target_va(item, marker), item.rel))
+    layouts.sort(key=lambda item: (_target_va(item, target_module_name), item.rel))
     store_out: list[_Piece] = []
     seen_store: dict[str, _Piece] = {}
     for layout in layouts:
@@ -818,7 +818,9 @@ def _assemble_pieces(
     for layout in layouts:
         for piece in layout.functions:
             _accept_function(seen_func, func_out, piece, shared=shared, json_output=json_output)
-    _require_merged_functions(func_out, shared=shared, marker=marker, json_output=json_output)
+    _require_merged_functions(
+        func_out, shared=shared, target_module_name=target_module_name, json_output=json_output
+    )
     return store_out, func_out
 
 
@@ -1114,7 +1116,7 @@ def _merge_definitions(
     if problems:
         error_exit(f"{problems[0]}. Nothing was written.", json_mode=json_output)
     store_out, func_out = _assemble_pieces(
-        layouts, shared=shared, marker=str(cfg.marker), json_output=json_output
+        layouts, shared=shared, target_module_name=str(cfg.module), json_output=json_output
     )
     merged_text = _compose_definitions(layouts, store_out, func_out, input_eol=input_eol)
     extern_report: ExternReport | None = None

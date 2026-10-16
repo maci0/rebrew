@@ -120,7 +120,7 @@ class TestLoadExistingVas:
             root=tmp_path,
             reversed_dir=src_dir,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_name="SERVER",
             source_ext=".c",
         )
@@ -218,7 +218,7 @@ class TestGenerateSkeletonModules:
 
     def _make_cfg(self, **overrides: Any) -> ProjectConfig:
         defaults: dict[str, Any] = {
-            "marker": "SERVER",
+            "module": "SERVER",
             "library_modules": {"DIRECTX"},
         }
         defaults.update(overrides)
@@ -226,7 +226,7 @@ class TestGenerateSkeletonModules:
 
     def test_library_module_uses_library_marker(self, tmp_path: Path) -> None:
         """The C is marker-free. kind_module in library_modules records LIBRARY
-        under the address module, which the CLI sets to cfg.marker."""
+        under the address module, which the CLI sets to cfg.module."""
         from rebrew.metadata.functions import get_entry
         from rebrew.skeleton import _write_skeleton_metadata
 
@@ -391,7 +391,7 @@ class TestGenerateAnnotationBlock:
     def _cfg(self) -> object:
         from types import SimpleNamespace
 
-        return SimpleNamespace(library_modules=set(), marker="SERVER")
+        return SimpleNamespace(library_modules=set(), module="SERVER")
 
     def test_basic_block(self) -> None:
         from rebrew.skeleton import generate_skeleton
@@ -407,13 +407,13 @@ class TestGenerateAnnotationBlock:
         assert "my_func" in block
         assert "func_10001000" not in block
 
-    def test_library_module_marker(self, tmp_path: Path) -> None:
+    def test_library_target_module(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
         from rebrew.metadata.functions import get_entry
         from rebrew.skeleton import _write_skeleton_metadata, generate_skeleton
 
-        cfg = SimpleNamespace(library_modules={"MSVCRT"}, marker="SERVER", metadata_dir=tmp_path)
+        cfg = SimpleNamespace(library_modules={"MSVCRT"}, module="SERVER", metadata_dir=tmp_path)
         block = generate_skeleton(cfg, 0x1000, "FUN_10001000", module="MSVCRT")
         _assert_pure_c(block)
         assert "func_10001000" in block
@@ -452,7 +452,7 @@ class TestSkeletonListFallback:
             root=tmp_path,
             reversed_dir=src_dir,
             metadata_dir=tmp_path,
-            marker="GAME",
+            module="GAME",
             source_ext=".c",
             target_binary=tmp_path / "game.dll",
             iat_thunks=set(),
@@ -519,7 +519,7 @@ class TestSkeletonMetadataSize:
             root=tmp_path,
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="GAME",
+            module="GAME",
             source_ext=".c",
             target_binary=tmp_path / "game.dll",
             iat_thunks=set(),
@@ -612,7 +612,7 @@ class TestSkeletonDryRun:
             root=tmp_path,
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="GAME",
+            module="GAME",
             source_ext=".c",
             target_binary=tmp_path / "game.dll",
             iat_thunks=set(),
@@ -750,7 +750,7 @@ class TestDecompBody:
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(
             reversed_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             metadata_dir=tmp_path,
             library_modules=set(),
             target_name="SERVER",
@@ -1276,7 +1276,7 @@ class TestProfileAwareSignature:
         return SimpleNamespace(
             root=tmp_path,
             compiler_profile=profile,
-            marker="MAIN",
+            module="MAIN",
             target_binary=tmp_path / "x.exe",
             reversed_dir=tmp_path / "src",
             library_modules=set(),
@@ -1286,9 +1286,6 @@ class TestProfileAwareSignature:
         from rebrew.skeleton import _render_skeleton
 
         out = _render_skeleton(
-            marker="FUNCTION",
-            cfg_marker="MAIN",
-            va=0x1000,
             xref_context=None,
             decomp_code=None,
             decomp_backend="",
@@ -1304,9 +1301,6 @@ class TestProfileAwareSignature:
         from rebrew.skeleton import _render_skeleton
 
         out = _render_skeleton(
-            marker="FUNCTION",
-            cfg_marker="MAIN",
-            va=0x1000,
             xref_context=None,
             decomp_code=None,
             decomp_backend="",
@@ -1392,7 +1386,7 @@ class TestSkeletonNameInjection:
     and inject C into the skeleton (which `rebrew test` compiles)."""
 
     def _make_cfg(self) -> ProjectConfig:
-        return ProjectConfig(root=Path("/tmp"), marker="SERVER")
+        return ProjectConfig(root=Path("/tmp"), module="SERVER")
 
     def test_ghidra_name_cannot_break_comment(self) -> None:
         hostile = 'x */ #include "/etc/passwd" /*'
@@ -1439,7 +1433,7 @@ class TestAppendCrlfSource:
             root=tmp_path,
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="GAME",
+            module="GAME",
             source_ext=".c",
             target_binary=tmp_path / "game.dll",
             iat_thunks=set(),
@@ -1518,9 +1512,7 @@ class TestInertDecompilerFallback:
         from rebrew.skeleton import _render_skeleton
 
         with pytest.warns(UserWarning, match="failed the C gate:"):
-            content = _render_skeleton(
-                "FUNCTION", "GAME", 0x1000, None, body, "kuna", "my_func", "orig", decomp_body=True
-            )
+            content = _render_skeleton(None, body, "kuna", "my_func", "orig", decomp_body=True)
         assert [name for name, _line in find_c_function_definitions(content)] == ["my_func"]
         tree, _ = parse_c_source(content)
         assert not tree.root_node.has_error

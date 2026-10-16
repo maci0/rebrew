@@ -154,7 +154,7 @@ def _write_config(root_dir: Path, *targets: str) -> Path:
     root_dir.mkdir(parents=True, exist_ok=True)
     body = f'[project]\nname = "testbin"\ndefault_target = "{targets[0]}"\n\n'
     for name in targets:
-        body += f'[targets."{name}"]\nmarker = "GAME"\nbinary = "orig/{name}.dll"\n\n'
+        body += f'[targets."{name}"]\nmodule = "GAME"\nbinary = "orig/{name}.dll"\n\n'
     path = root_dir / "rebrew-project.toml"
     path.write_text(body, encoding="utf-8")
     return path

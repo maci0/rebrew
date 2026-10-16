@@ -1655,7 +1655,7 @@ def merge_into_binding(ann: SourceBinding, directory: Path | str | Any) -> Sourc
     The metadata wins for every field it defines.
 
     Lookup uses the qualified key ``(ann.module, ann.va)``.  Multi-target
-    ``.c`` files (with multiple ``// FUNCTION: MODULE 0xVA`` markers) each
+    ``.c`` files (with multiple ``// ADDRESS: MODULE 0xVA`` anchors) each
     receive their own metadata entry and are merged in isolation.
 
     Args:

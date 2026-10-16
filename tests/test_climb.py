@@ -443,7 +443,7 @@ class TestRestoreOnSignal:
         cfg = SimpleNamespace(metadata_dir=str(tmp_path), target_binary=str(tmp_path / "t.bin"))
         ann = SimpleNamespace(symbol="demo", size=4, va=0x1000, module="SERVER", cflags=None)
         monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
-        monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+        monkeypatch.setattr(climb_mod, "target_module", lambda c: "SERVER")
         monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **k: [ann])
         monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
         monkeypatch.setattr(
@@ -484,7 +484,7 @@ class TestRestoreOnSignal:
             return "msvc-4.2", "/O1"
 
         monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
-        monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+        monkeypatch.setattr(climb_mod, "target_module", lambda c: "SERVER")
         monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **k: [ann])
         monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
         monkeypatch.setattr(climb_mod, "resolve_compile_overrides", _resolve)
@@ -523,7 +523,7 @@ class TestRestoreOnSignal:
             return 2.0, len(args[3])  # type: ignore[arg-type]
 
         monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
-        monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+        monkeypatch.setattr(climb_mod, "target_module", lambda c: "SERVER")
         monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **k: [ann])
         monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
         monkeypatch.setattr(
@@ -580,7 +580,7 @@ class TestRestoreOnSignal:
             raise RuntimeError("sweep gave up")
 
         monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
-        monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+        monkeypatch.setattr(climb_mod, "target_module", lambda c: "SERVER")
         monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **k: [ann])
         monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
         monkeypatch.setattr(
@@ -630,7 +630,7 @@ def test_preview_preserves_original_header_directory(tmp_path, monkeypatch, obje
         )
 
     monkeypatch.setattr(rebrew.climb, "require_config", lambda **kw: cfg)
-    monkeypatch.setattr(rebrew.climb, "target_marker", lambda c: "SERVER")
+    monkeypatch.setattr(rebrew.climb, "target_module", lambda c: "SERVER")
     monkeypatch.setattr(rebrew.climb, "read_source_bindings", lambda *a, **kw: [ann])
     monkeypatch.setattr(rebrew.climb, "extract_raw_bytes", lambda *a: b"\x90" * 4)
     monkeypatch.setattr(rebrew.climb, "resolve_compile_overrides", lambda *a: ("msvc-6.0", "/O2"))
@@ -665,7 +665,7 @@ def test_explicit_target_accepts_unregistered_source(tmp_path, monkeypatch, mark
     original = "int probe(int arg)\n{\n int value;\n value = arg;\n return value;\n}\n"
     write_source(source, original)
     cfg = SimpleNamespace(
-        root=tmp_path, metadata_dir=tmp_path, target_binary="unused", marker=marker
+        root=tmp_path, metadata_dir=tmp_path, target_binary="unused", module=marker
     )
     calls = []
 
@@ -681,7 +681,7 @@ def test_explicit_target_accepts_unregistered_source(tmp_path, monkeypatch, mark
         return 4.0, 4
 
     monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
-    monkeypatch.setattr(climb_mod, "target_marker", lambda c: marker)
+    monkeypatch.setattr(climb_mod, "target_module", lambda c: marker)
     monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **kw: [])
     monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90" * 4)
     monkeypatch.setattr(climb_mod, "resolve_compile_overrides", resolve)
@@ -720,9 +720,9 @@ def test_unregistered_source_requires_complete_overrides(tmp_path, monkeypatch, 
 
     source = tmp_path / "probe.c"
     source.write_text("int probe(void) { int value; value = 0; return value; }\n")
-    cfg = SimpleNamespace(metadata_dir=tmp_path, marker="SERVER")
+    cfg = SimpleNamespace(metadata_dir=tmp_path, module="SERVER")
     monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
-    monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+    monkeypatch.setattr(climb_mod, "target_module", lambda c: "SERVER")
     monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **kw: [])
     options = {"--va": "0x1234", "--symbol": "_probe", "--size": "4"}
     args = ["--json"]

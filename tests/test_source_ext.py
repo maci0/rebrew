@@ -45,7 +45,6 @@ def test_sources_public_all() -> None:
         "source_exts",
         "source_glob",
         "source_roots",
-        "target_marker",
     ]
     for name in sources.__all__:
         assert getattr(sources, name, None) is not None, name
@@ -93,7 +92,7 @@ class TestScanFiles:
         once or three times.
         """
         src = self._tree(tmp_path)
-        cfg = ProjectConfig(root=tmp_path, reversed_dir=src, target_name="t", marker="T")
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=src, target_name="t", module="T")
         tree = scan_files(src)
         assert iter_sources(src, cfg, scanned=tree) == iter_sources(src, cfg)
         assert iter_library_headers(src, cfg, scanned=tree) == iter_library_headers(src, cfg)

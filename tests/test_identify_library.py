@@ -36,7 +36,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
         metadata_dir=tmp_path,
         library_modules=["ZLIB", "MSVCRT"],
         target_name="SERVER",
-        marker="SERVER",
+        module="SERVER",
     )
 
 
@@ -375,7 +375,7 @@ format = "pe"
 arch = "x86_32"
 reversed_dir = "src/S"
 bin_dir = "bin/S"
-marker = "S"
+module = "S"
 
 [compiler]
 profile = "mingw-16.2.0"

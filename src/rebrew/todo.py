@@ -428,13 +428,13 @@ def _collect_active_functions(
 
         elif status == "EXTRACT_ERROR":
             # The symbol was not found in the compiled .obj (wrong symbol,
-            # optimized-away function, or a STUB marker whose decorated name
+            # optimized-away function, or a STUB binding whose decorated name
             # doesn't match).  delta is 0 (no bytes extracted), so without
             # this branch it would fall into fix-delta as a misleading
             # "0B diff" quick-win.  Surface it as a tooling/annotation issue
             # instead — a flag sweep cannot fix a missing symbol.
             category = CAT_EXTRACT_ERROR
-            desc = "Symbol not found in .obj — check STUB/FUNCTION marker, symbol name, or implementation"
+            desc = "Symbol not found in .obj — check STUB/FUNCTION binding, symbol name, or implementation"
             score = 150.0  # High priority: nothing else can proceed until resolved
 
         elif (not name or name.startswith("FUN_")) and v_status not in (
@@ -1281,18 +1281,18 @@ def _collect_missing_bindings(
 ) -> list[TodoItem]:
     """Keep missing managed definitions visible without claiming source coverage."""
     from rebrew.c_parser import function_signatures
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import derive_c_symbol
     from rebrew.metadata.functions import load_metadata
-    from rebrew.sources import target_marker
     from rebrew.utils import preset_module_key, read_source_text, rel_display_path
 
-    marker = preset_module_key(target_marker(cfg) or "")
+    target_module_name = preset_module_key(target_module(cfg) or "")
     items: list[TodoItem] = []
     for (module, va), row in load_metadata(cfg.metadata_dir, deepcopy=False).items():
         stored = str(row.get("file") or "")
         if (
             va in existing
-            or preset_module_key(module) != marker
+            or preset_module_key(module) != target_module_name
             or row.get("kind") not in {"FUNCTION", "STUB"}
             or row.get("status") == "SKIP"
             or Path(stored).suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"}

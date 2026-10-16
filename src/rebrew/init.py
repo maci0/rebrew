@@ -1298,7 +1298,7 @@ def main(
         project_name=cwd.name,
         target_name=target_name,
         binary_name=binary_name,
-        marker=re.sub(r"[^A-Za-z0-9_]", "", target_name).upper(),
+        module=re.sub(r"[^A-Za-z0-9_]", "", target_name).upper(),
         compiler_profile=compiler_profile,
         compiler_command=compiler_command,
         compiler_includes=profile["includes"],

@@ -468,7 +468,7 @@ class TestStubMetadataDir:
             reversed_dir=reversed_dir,
             metadata_dir=tmp_path / "src",
             source_ext=".c",
-            marker="SERVER",
+            module="SERVER",
             ignored_symbols=[],
         )
         return reversed_dir, f, cfg
@@ -762,7 +762,7 @@ class TestRunAllParallel:
         return SimpleNamespace(
             reversed_dir=tmp_path,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             ignored_symbols=[],
             target_name="SERVER",
@@ -1432,7 +1432,7 @@ class TestSweepThenGa:
         cfg = SimpleNamespace(
             reversed_dir=tmp_path,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             ignored_symbols=[],
             target_name="SERVER",
@@ -1504,7 +1504,7 @@ class TestSweepThenGa:
         cfg = SimpleNamespace(
             reversed_dir=tmp_path,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             ignored_symbols=[],
             target_name="SERVER",
@@ -1759,7 +1759,7 @@ class TestOutDirRejection:
                 default_jobs=2,
                 reversed_dir=tmp_path / "src",
                 metadata_dir=tmp_path,
-                marker="SERVER",
+                module="SERVER",
                 target_binary=tmp_path / "x.dll",
             ),
         )
@@ -1783,7 +1783,7 @@ class TestOutDirRejection:
                 default_jobs=2,
                 reversed_dir=tmp_path / "src",
                 metadata_dir=tmp_path,
-                marker="SERVER",
+                module="SERVER",
                 target_binary=tmp_path / "x.dll",
             ),
         )
@@ -1824,7 +1824,7 @@ class TestSeedLlmRejection:
                 default_jobs=2,
                 reversed_dir=tmp_path / "src",
                 metadata_dir=tmp_path,
-                marker="SERVER",
+                module="SERVER",
                 target_binary=tmp_path / "x.dll",
             ),
         )
@@ -2334,7 +2334,7 @@ class TestPerFunctionToolchain:
             root=tmp_path,
             reversed_dir=tmp_path,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_name="T",
             target_binary=str(tmp_path / "target.bin"),
             base_cflags="",
@@ -2436,7 +2436,7 @@ class TestRunOneStubGaPersistsFlags:
             root=tmp_path,
             reversed_dir=tmp_path,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_name="T",
             target_binary=str(tmp_path / "target.bin"),
             base_cflags="/nologo /c /MT",
@@ -2643,7 +2643,7 @@ class TestCrossProjectSeeding:
         return SimpleNamespace(
             reversed_dir=tmp_path,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             ignored_symbols=[],
             target_name="SERVER",

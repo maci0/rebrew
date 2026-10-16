@@ -65,7 +65,7 @@ from rebrew.compiler.compile import (
     clears_blocker,
 )
 from rebrew.compiler.overrides import resolve_compile_overrides_cached
-from rebrew.config import ProjectConfig, inventory_path_for, module_marker
+from rebrew.config import ProjectConfig, inventory_path_for, target_module
 from rebrew.linked_exact import linked_image_current
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata.bindings import SourceBinding, min_valid_va_for
@@ -162,7 +162,7 @@ def _fenced_naked_note(cfile: Path) -> str:
 
 
 def _entry_symbol(entry: Any) -> str:
-    """COFF symbol for *entry*, synthesizing it for legacy marker-only entries.
+    """COFF symbol for *entry*, synthesizing it for entries without a stored COFF symbol.
 
     A stored symbol is kept. An empty symbol uses the prototype when that
     is vectorcall (``hook@@4``), fastcall (``@keeps@4``), or stdcall
@@ -225,7 +225,7 @@ def verify_entry(
 
     if entry.va < min_valid_va_for(cfg):
         # A VA below the valid floor is an annotation problem (a data-range
-        # VA that slipped past the marker filter), NOT a compile failure —
+        # VA that slipped past the module filter), NOT a compile failure —
         # labeling it COMPILE_ERROR showed a bogus "compile error" in the
         # summary and tripped the CI gate as if the source failed to build.
         # The floor is arch-aware: 16-bit DOS targets address code from
@@ -256,7 +256,7 @@ def verify_entry(
         # for post-compile extraction failures), so the summary and CI gate
         # don't blame the .c file.  When the function list is available and
         # the annotation VA is not a function in it, the likeliest cause is a
-        # stale annotation (binary updated since the marker was written) —
+        # stale annotation (binary updated since the binding was recorded) —
         # say so instead of a bare tooling error.
         hint = ""
         try:
@@ -267,7 +267,7 @@ def verify_entry(
                 hint = (
                     f" (annotation VA 0x{entry.va:x} is not a function in the "
                     "current function list — stale annotation? re-run "
-                    "`rebrew intake` or edit the marker VA)"
+                    "`rebrew intake` or correct the metadata binding VA)"
                 )
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             # Best-effort hint: narrow the catch so a broken cache or config
@@ -1994,7 +1994,7 @@ def _apply_size_fixes(cfg: Any, size_divergences: list[dict[str, Any]], dry_run:
     updates: list[dict[str, Any]] = []
     for d in size_divergences:
         va = int(d["va"], 16)
-        module = d.get("module") or cfg.marker
+        module = d.get("module") or cfg.module
         updates.append({"module": module, "va": va, "fields": {"size": d["binary_size"]}})
     if not dry_run and updates:
         # One TOML read-modify-write for the whole batch (per-entry writes
@@ -2197,7 +2197,7 @@ def scope_entries(
     paths filter identically.  *batch_dir* resolves against
     ``cfg.reversed_dir`` with real path containment (a raw string prefix
     also matched sibling directories).  *origin_filter* matches the
-    annotation's module — ORIGIN is derivable from the FUNCTION-marker
+    annotation's module — ORIGIN is derivable from the FUNCTION-binding
     module, which is also what test's old ``origin`` attribute check meant
     (it matched nothing since SourceBinding has no such field).
 
@@ -2345,12 +2345,12 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     from rebrew.metadata.functions import METADATA_FILENAME
     from rebrew.sources import iter_library_headers
 
-    marker = preset_module_key(module_marker(cfg))
+    target_module_name = preset_module_key(target_module(cfg))
     headers = list(iter_library_headers(cfg.reversed_dir, cfg))
     metadata_dir = getattr(cfg, "metadata_dir", None)
     metadata_path = Path(metadata_dir) / METADATA_FILENAME if metadata_dir else None
     key = (
-        marker,
+        target_module_name,
         tuple((str(h), *_stat_identity(h)) for h in headers),
         (str(metadata_path), *_stat_identity(metadata_path)) if metadata_path else None,
     )
@@ -2366,7 +2366,7 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     rows: dict[int, dict[str, str]] = {}
     for header in headers:
         for e in library_bindings_for_file(header, metadata_dir=metadata_dir):
-            if preset_module_key(e.module or "") in ("", marker):
+            if preset_module_key(e.module or "") in ("", target_module_name):
                 rows[e.va] = {
                     "kind": e.kind or "LIBRARY",
                     "module": e.module or "",
@@ -2375,7 +2375,7 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
                 }
     if metadata_dir is not None:
         for e in library_inventory_bindings(metadata_dir, cfg.reversed_dir):
-            if e.va not in rows and preset_module_key(e.module or "") in ("", marker):
+            if e.va not in rows and preset_module_key(e.module or "") in ("", target_module_name):
                 rows[e.va] = {
                     "kind": "LIBRARY",
                     "module": e.module or "",

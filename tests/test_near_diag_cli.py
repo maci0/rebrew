@@ -22,7 +22,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
         target_binary=tmp_path / "fake.dll",
         reversed_dir=src,
         metadata_dir=tmp_path,
-        marker="SERVER",
+        module="SERVER",
         source_ext=".c",
         capstone_arch="CS_ARCH_X86",
         capstone_mode="CS_MODE_32",

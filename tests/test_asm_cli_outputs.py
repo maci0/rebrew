@@ -29,7 +29,7 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     cfg = SimpleNamespace(
         root=tmp_path,
         target_name="server",
-        marker="SERVER",
+        module="SERVER",
         target_binary=tmp_path / "absent.dll",
         reversed_dir=source,
         metadata_dir=tmp_path,
@@ -277,7 +277,7 @@ class TestBatchArtifacts:
         from rebrew.metadata.functions import load_metadata
 
         cfg = _project(tmp_path, monkeypatch)
-        cfg.marker = marker
+        cfg.module = marker
         source = cfg.reversed_dir / "f.c"
         write_source(
             source,

@@ -24,7 +24,7 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "metadata_dir": tmp_path,
         "bin_dir": tmp_path / "bin",
         "source_ext": ".c",
-        "marker": "TEST",
+        "module": "TEST",
         "iat_thunks": [],
         "ignored_symbols": [],
         "library_modules": set(),

@@ -37,7 +37,7 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "target_binary": tmp_path / "fake.dll",
         "reversed_dir": src,
         "metadata_dir": tmp_path,
-        "marker": "SERVER",
+        "module": "SERVER",
         "source_ext": ".c",
         "compiler_profile": "msvc",
     }
@@ -207,7 +207,7 @@ class TestGenerateInlineC:
         assert "status" not in entry
 
         # No project marker: the row is keyed TARGET, still FUNCTION.
-        cfg.marker = ""
+        cfg.module = ""
         _record_inline_c_identity(cfg, path, 0x2000, code, "_f")
         target = get_entry(tmp_path, 0x2000, "TARGET")
         assert target["kind"] == "FUNCTION"
@@ -538,7 +538,7 @@ arch = "x86_32"
 reversed_dir = "src/SERVER"
 bin_dir = "bin/SERVER"
 source_ext = ".c"
-marker = "SERVER"
+module = "SERVER"
 
 [compiler]
 profile = "mingw-16.2.0"
@@ -755,7 +755,7 @@ class TestHexDisassembly:
             root=tmp_path,
             target_binary=binary,
             reversed_dir=src,
-            marker="SERVER",
+            module="SERVER",
         )
         text = hex_disassembly(cfg, 0x401000, len(code))
         lines = text.splitlines()
@@ -788,7 +788,7 @@ class TestHexDisassembly:
             root=tmp_path,
             target_binary=binary,
             reversed_dir=src,
-            marker="SERVER",
+            module="SERVER",
             arch="arm32",
         )
         text = hex_disassembly(cfg, 0x401000, len(code))

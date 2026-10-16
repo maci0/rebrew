@@ -505,13 +505,13 @@ class ProjectConfig:
     """Project-level shared-sources root (``src/shared`` by default).
 
     Sources here are scanned for EVERY target and may carry one
-    ``// FUNCTION: <target> <va>`` marker per target (the same function at
+    ``// ADDRESS: <module> <va>`` anchor per target (the same function at
     a different VA in each version) plus ``#ifdef`` deltas driven by the
     per-target ``defines``.  ``None`` (or an empty ``[project] shared_dir``)
     disables shared sources.
     """
     bin_dir: Path = field(default_factory=lambda: Path())
-    marker: str = ""  # Prefix used in annotations, e.g. // FUNCTION: SERVER 0x... (default: target_name.upper())
+    module: str = ""  # Prefix used in annotations, e.g. // ADDRESS: SERVER 0x... (default: target_name.upper())
     r2_bogus_vas: list[int] = field(default_factory=list)  # VAs with known-bad r2 size data
     check_known_bindings: bool = False  # reject contradictory mapped native operands
 
@@ -672,7 +672,7 @@ class ProjectConfig:
     ignored_symbols: list[str] = field(default_factory=list)
     library_modules: set[str] = field(
         default_factory=set
-    )  # Module names using LIBRARY marker (e.g. {"MSVCRT", "ZLIB"})
+    )  # Module names using LIBRARY metadata (e.g. {"MSVCRT", "ZLIB"})
     # External .lib code, the one flag for "not our work": module name ->
     # link spec (the archive to link, e.g. "LIBCMT.lib",
     # "references/dxsdk8/lib/d3dx8.lib"; "" = identified external code with
@@ -704,8 +704,8 @@ class ProjectConfig:
     # --- All known target names ---
     all_targets: list[str] = field(default_factory=list)
 
-    # --- All known target markers (E012 allows stacked shared markers) ---
-    all_markers: set[str] = field(default_factory=set)
+    # --- All known target modules (E012 allows stacked shared bindings) ---
+    target_modules: set[str] = field(default_factory=set)
 
     # --- External library modules declared by ANY target, not just the active
     # one. A LIBRARY row for a module another target links (D3DX8 on the TL
@@ -826,7 +826,7 @@ class ProjectConfig:
             "reversed_dir": str(self.reversed_dir),
             "shared_dir": str(self.shared_dir) if self.shared_dir else None,
             "bin_dir": str(self.bin_dir),
-            "marker": self.marker,
+            "module": self.module,
             "check_known_bindings": self.check_known_bindings,
             "project_name": self.project_name,
             "default_jobs": self.default_jobs,
@@ -931,25 +931,25 @@ class ProjectConfig:
             )
 
 
-#: Characters stripped from a target name when deriving its module marker:
+#: Characters stripped from a target name when deriving its module:
 #: ``server.dll`` yields ``SERVERDLL``, an identifier-shaped module name.
-#: Set ``marker`` explicitly when the annotations use another module
+#: Set ``module`` explicitly when the annotations use another module
 #: (e.g. ``SERVER``).
-_MARKER_STRIP_RE = re.compile(r"[^A-Za-z0-9_]")
+_MODULE_STRIP_RE = re.compile(r"[^A-Za-z0-9_]")
 
 
-def _module_marker_value(raw: Any, target: str, field_name: str) -> str:
+def _target_module_value(raw: Any, target: str, field_name: str) -> str:
     """Return the annotation module for one target.
 
-    Absent or blank ``marker`` uses the derived name (target upper-cased,
-    non-identifier characters stripped). An explicit marker must be one
-    token: whitespace never matches ``// FUNCTION: MARKER 0xVA``, and a
-    marker containing ``.0x`` makes ``parse_metadata_key`` split the module
-    off the VA. A target whose name derives nothing and sets no marker
-    fails the load — an empty marker drops every function out of
+    Absent or blank ``module`` uses the derived name (target upper-cased,
+    non-identifier characters stripped). An explicit module must be one
+    token: whitespace never matches ``// ADDRESS: MODULE 0xVA``, and a
+    module containing ``.0x`` makes ``parse_metadata_key`` split the module
+    off the VA. A target whose name derives nothing and sets no module
+    fails the load — an empty module drops every function out of
     verify/todo/status.
     """
-    derived = _MARKER_STRIP_RE.sub("", target).upper()
+    derived = _MODULE_STRIP_RE.sub("", target).upper()
     if raw is None:
         text = derived
     elif isinstance(raw, str):
@@ -963,12 +963,12 @@ def _module_marker_value(raw: Any, target: str, field_name: str) -> str:
     if not text:
         raise ConfigError(
             f"rebrew-project.toml {field_name} is empty and {target!r} has no "
-            "identifier characters to derive a module marker from"
+            "identifier characters to derive a module from"
         )
     if any(ch.isspace() for ch in text):
         raise ConfigError(
             f"rebrew-project.toml {field_name} = {text!r} is not a single token "
-            "(annotation markers are one word: // FUNCTION: MARKER 0xVA)"
+            "(address modules are one word: // ADDRESS: MODULE 0xVA)"
         )
     if ".0x" in text.casefold():
         raise ConfigError(
@@ -978,13 +978,13 @@ def _module_marker_value(raw: Any, target: str, field_name: str) -> str:
     return unicodedata.normalize("NFC", text)
 
 
-def module_marker(cfg: Any) -> str:
-    """Return the annotation module marker for *cfg*.
+def target_module(cfg: Any) -> str:
+    """Return the annotation module for *cfg*.
 
-    The marker is the ``MODULE`` half of every ``MODULE.0xVA`` metadata key
-    and of every ``// FUNCTION: MODULE 0xVA`` line, so it must resolve the
+    The module is the ``MODULE`` half of every ``MODULE.0xVA`` metadata key
+    and of every ``// ADDRESS: MODULE 0xVA`` line, so it must resolve the
     same way everywhere: an entry written under one spelling is invisible to
-    a reader using another.  The rule is ``cfg.marker``, else the target name
+    a reader using another.  The rule is ``cfg.module``, else the target name
     with non-identifier characters stripped and upper-cased (the same
     derivation :func:`load_config` applies), else ``""``.
 
@@ -997,11 +997,11 @@ def module_marker(cfg: Any) -> str:
 
     Mock-safe via ``getattr`` — takes any config-shaped object.
     """
-    marker = str(getattr(cfg, "marker", "") or "")
-    if marker:
-        return unicodedata.normalize("NFC", marker)
+    target_module_name = str(getattr(cfg, "module", "") or "")
+    if target_module_name:
+        return unicodedata.normalize("NFC", target_module_name)
     target = str(getattr(cfg, "target_name", "") or "")
-    return unicodedata.normalize("NFC", _MARKER_STRIP_RE.sub("", target).upper())
+    return unicodedata.normalize("NFC", _MODULE_STRIP_RE.sub("", target).upper())
 
 
 def inventory_path_for(reversed_dir: Path | str, cfg: Any = None) -> Path:
@@ -1429,10 +1429,10 @@ def _normalized_targets(targets: Mapping[str, Any]) -> dict[str, Any]:
     """``targets`` re-keyed to NFC, or a :class:`ConfigError` on a collision.
 
     A target name is an identity: ``--target`` on the command line, the module
-    marker derived from it, ``db/coverage-<target>.toml`` and the ``[targets.X]``
-    table all have to agree on one spelling.  The marker side already
-    normalizes (:func:`_module_marker_value`), so an NFD key in the TOML would
-    produce an NFC marker that no ``--target`` spelling reaches, and every
+    derived from it, ``db/coverage-<target>.toml`` and the ``[targets.X]``
+    table all have to agree on one spelling.  The module side already
+    normalizes (:func:`_target_module_value`), so an NFD key in the TOML would
+    produce an NFC module that no ``--target`` spelling reaches, and every
     function under it would drop out of verify/todo.  Normalizing the keys
     instead makes both sides agree.  Two keys that differ only in normalization
     are two names for one target: that is a real ambiguity, not a spelling to
@@ -2175,7 +2175,7 @@ KNOWN_TARGET_KEYS = {
     "binary",
     "arch",
     "format",
-    "marker",
+    "module",
     "reversed_dir",
     "bin_dir",
     "compiler",
@@ -2348,6 +2348,11 @@ def load_config(
             )
     for tgt_name, tgt_data in targets_dict.items():
         if isinstance(tgt_data, dict):
+            if "marker" in tgt_data:
+                raise ConfigError(
+                    f"rebrew-project.toml [targets.{tgt_name}]: marker was replaced by module; "
+                    "rename the key and retain its existing value"
+                )
             unknown_tgt = set(tgt_data) - KNOWN_TARGET_KEYS
             if unknown_tgt:
                 _config_warn(
@@ -2464,7 +2469,7 @@ def load_config(
         root, sources.get("reversed_dir"), f"src/{target}", f"[targets.{target}].reversed_dir"
     )
     # Shared sources: one project-level root scanned for every target (the
-    # same .c serving multiple binaries with per-version markers / #ifdefs).
+    # same .c serving multiple binaries with per-version address anchors / #ifdefs).
     # An explicitly empty value disables shared sources (None).
     shared_dir_raw = project_raw.get("shared_dir", "src/shared")
     if shared_dir_raw is None or not str(shared_dir_raw).strip():
@@ -2546,14 +2551,14 @@ def load_config(
     if execution_backend == "unshare" and recompile_url_val:
         raise ConfigError("compiler.execution_backend = unshare conflicts with remote recompile")
 
-    # Every target, not just the active one: a bad marker on a sibling
+    # Every target, not just the active one: a bad module on a sibling
     # target would otherwise wait until ``--target`` switched to it, and
-    # ``all_markers`` would advertise a blank or unsplittable module.
-    markers_by_target = {
-        n: _module_marker_value(
-            t.get("marker") if isinstance(t, dict) else None,
+    # ``target_modules`` would advertise a blank or unsplittable module.
+    modules_by_target = {
+        n: _target_module_value(
+            t.get("module") if isinstance(t, dict) else None,
             n,
-            f"targets.{n}.marker",
+            f"targets.{n}.module",
         )
         for n, t in targets_dict.items()
         if isinstance(n, str)
@@ -2587,7 +2592,7 @@ def load_config(
         # Derived when blank: raw upper() of `server.dll` is "SERVER.DLL",
         # which matches no identifier-shaped annotation module and silently
         # filters every function out of verify/todo/status.
-        marker=markers_by_target[target],
+        module=modules_by_target[target],
         r2_bogus_vas=_parse_int_list(tgt.get("r2_bogus_vas", []), "r2_bogus_vas"),
         check_known_bindings=_as_bool(
             tgt.get("check_known_bindings"), False, f"targets.{target}.check_known_bindings"
@@ -2647,7 +2652,7 @@ def load_config(
         dll_exports=_parse_hex_dict(tgt.get("dll_exports", {})),
         ignored_symbols=_parse_str_list(tgt.get("ignored_symbols", []), "ignored_symbols"),
         library_modules=set(_parse_str_list(tgt.get("library_modules", []), "library_modules")),
-        # Marker modules are upper-case ("D3DX8"); normalize so lookups
+        # Library modules are upper-case ("D3DX8"); normalize so lookups
         # against parsed annotations never miss on spelling.
         external_libs={
             k.upper(): v
@@ -2668,7 +2673,7 @@ def load_config(
         binsync_user=_as_str(tgt.get("binsync_user"), "", f"targets.{target}.binsync_user"),
         inventory_file=_as_str(tgt.get("inventory_file"), "", f"targets.{target}.inventory_file"),
         all_targets=all_target_names,
-        all_markers=set(markers_by_target.values()),
+        target_modules=set(modules_by_target.values()),
         all_library_modules=all_library_modules,
         # lint configuration — validated enums; unknown keys warn like other sections
         **_load_lint_settings(project_raw),
@@ -2898,7 +2903,7 @@ __all__ = [
     "llm_max_tokens",
     "llm_timeout",
     "load_config",
-    "module_marker",
+    "target_module",
     "parse_bool",
     "parse_env_bool",
     "parse_env_log_level",

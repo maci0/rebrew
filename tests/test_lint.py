@@ -20,7 +20,7 @@ def _write_c(tmp_path: Path, name: str, content: str) -> Path:
 
 
 def _make_cfg(
-    marker: str = "SERVER",
+    module: str = "SERVER",
     base_cflags: str = "/nologo /c /MT",
     library_modules: set | None = None,
     reversed_dir: Path | None = None,
@@ -30,7 +30,7 @@ def _make_cfg(
     """Create a minimal config-like namespace for config-aware lint tests."""
     return ProjectConfig(
         root=root,
-        marker=marker,
+        module=module,
         base_cflags=base_cflags,
         library_modules=library_modules or set(),
         reversed_dir=reversed_dir or root,
@@ -214,7 +214,7 @@ class TestConfigMarkerValidation:
 
 class TestConfigMarker:
     def test_wrong_module_name(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(marker="SERVER", root=tmp_path)
+        cfg = _make_cfg(module="SERVER", root=tmp_path)
         content = SourceFixture(
             "/* ADDRESS: CLIENT 0x10008880 */\n\n\n\nint foo(void) { return 0; }\n",
             {
@@ -231,7 +231,7 @@ class TestConfigMarker:
         assert any((c == "E012" for _, c, _ in result.errors))
 
     def test_correct_module_name(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(marker="SERVER", root=tmp_path)
+        cfg = _make_cfg(module="SERVER", root=tmp_path)
         f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
         result = lint_file(f, cfg=cfg)
         assert not any((c == "E012" for _, c, _ in result.errors))
@@ -606,7 +606,7 @@ class TestPrintSummary:
         f = _write_c(tmp_path, "bit_reverse.c", content)
         result = lint_file(f)
         assert result._status_counts["EXACT"] == 1
-        assert result._marker_counts["FUNCTION"] == 1
+        assert result._kind_counts["FUNCTION"] == 1
 
     def test_summary_counters_multi_block(self, tmp_path: Path) -> None:
         """Multi-block file should accumulate counters across blocks."""
@@ -621,8 +621,8 @@ class TestPrintSummary:
         result = lint_file(f)
         assert result._status_counts["EXACT"] == 1
         assert result._status_counts["STUB"] == 1
-        assert result._marker_counts["FUNCTION"] == 1
-        assert result._marker_counts["STUB"] == 1
+        assert result._kind_counts["FUNCTION"] == 1
+        assert result._kind_counts["STUB"] == 1
 
 
 class TestLintResult:
@@ -753,7 +753,7 @@ class TestLintFile:
         assert not any(c == "E013" for _, c, _ in result2.errors)
 
     def test_with_config(self, tmp_path: Path) -> None:
-        cfg = ProjectConfig(root=tmp_path, marker="SERVER")
+        cfg = ProjectConfig(root=tmp_path, module="SERVER")
         f = _make_c_file(tmp_path)
         result = lint_file(f, cfg=cfg)
         assert result.passed
@@ -784,7 +784,7 @@ class TestLintFile:
         )
         result = lint_file(f)
         # Both function blocks should be detected (warnings expected for inline metadata)
-        assert result._marker_counts["FUNCTION"] == 2
+        assert result._kind_counts["FUNCTION"] == 2
 
     def test_empty_file(self, tmp_path: Path) -> None:
         f = _make_c_file(tmp_path, content="")
@@ -834,7 +834,7 @@ class TestLintFileBranches:
         update_field(tmp_path, 0x1000, "size", 42, module="SERVER")
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             library_modules=set(),
             cflags_presets={},
             default_cflags="/O2",
@@ -863,7 +863,7 @@ class TestLintFileBranches:
         set_data_field(tmp_path, 0x1000, "note", "counter", "SERVER")
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             library_modules=set(),
             cflags_presets={},
             default_cflags="/O2",
@@ -898,7 +898,7 @@ class TestLintCli:
             root=tmp_path,
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             library_modules=set(),
             cflags_presets={},
@@ -966,7 +966,7 @@ class TestLintCli:
         result = self._invoke(tmp_path, monkeypatch, ["--summary", str(src / "ok.c")])
         assert result.exit_code == 0
         assert "Summary" in result.output
-        assert "MARKER" in result.output
+        assert "KIND" in result.output
         assert "FUNCTION" in result.output
 
 
@@ -976,7 +976,7 @@ class TestLintFix:
             root=tmp_path,
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             library_modules=set(),
             cflags_presets={},
@@ -1143,23 +1143,23 @@ class TestW020AsmDump:
             )
             update_source_status(tmp_path, status, module, va)
         set_fields(tmp_path, 0x10008880, {"blocker": "original asm"}, "SERVER")
-        cfg = _make_cfg(marker="GOLDTL", reversed_dir=tmp_path, root=tmp_path)
+        cfg = _make_cfg(module="GOLDTL", reversed_dir=tmp_path, root=tmp_path)
         cfg.root = tmp_path
-        cfg.all_markers = {"SERVER", "GOLDTL"}
+        cfg.target_modules = {"SERVER", "GOLDTL"}
         source = "int shared(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
         result = lint_file(_write_c(tmp_path, "shared.c", source), cfg=cfg)
         warnings = [msg for _, code, msg in result.warnings if code == "W020"]
         assert len(warnings) == 1
         assert "EXACT" not in warnings[0]
-        cfg.marker = "SERVER"
+        cfg.module = "SERVER"
         assert not any(
             code == "W020" for _, code, _ in lint_file(tmp_path / "shared.c", cfg=cfg).warnings
         )
 
     def test_inline_target_status_does_not_leak(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(marker="GOLDTL", reversed_dir=tmp_path, root=tmp_path)
+        cfg = _make_cfg(module="GOLDTL", reversed_dir=tmp_path, root=tmp_path)
         cfg.root = tmp_path
-        cfg.all_markers = {"SERVER", "GOLDTL"}
+        cfg.target_modules = {"SERVER", "GOLDTL"}
         source = SourceFixture(
             "/* ADDRESS: SERVER 0x10008880 */\n\n/* ADDRESS: GOLDTL 0x408880 */\n\nint shared(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n",
             {
@@ -1173,9 +1173,9 @@ class TestW020AsmDump:
         assert "EXACT" not in warnings[0]
 
     def test_foreign_target_assembly_is_not_reported(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(marker="SERVER", reversed_dir=tmp_path, root=tmp_path)
+        cfg = _make_cfg(module="SERVER", reversed_dir=tmp_path, root=tmp_path)
         cfg.root = tmp_path
-        cfg.all_markers = {"SERVER", "GOLDTL"}
+        cfg.target_modules = {"SERVER", "GOLDTL"}
         source = SourceFixture(
             "static void fill(void) {\n    __asm { mov eax, 1 }\n}\n/* ADDRESS: GOLDTL 0x408880 */\nint client(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n",
             {"GOLDTL.0x408880": {"kind": "FUNCTION"}},
@@ -2132,7 +2132,7 @@ class TestAnnotationStaleness:
         result = lint_file(f, cfg=_make_cfg(root=tmp_path), function_index=self.INDEX)
         assert self._w028(result) == []
 
-    def test_other_target_marker_filtered(self, tmp_path: Path) -> None:
+    def test_other_target_module_filtered(self, tmp_path: Path) -> None:
         # A shared source carrying a marker for a different target must not
         # be cross-checked against this target's function list.
         f = _write_c(
@@ -2144,7 +2144,7 @@ class TestAnnotationStaleness:
             ),
         )
         result = lint_file(
-            f, cfg=_make_cfg(marker="SERVER", root=tmp_path), function_index=self.INDEX
+            f, cfg=_make_cfg(module="SERVER", root=tmp_path), function_index=self.INDEX
         )
         assert self._w028(result) == []
 
@@ -2310,7 +2310,7 @@ class TestW029RedundantCflags:
             source_ext=".c",
             cflags="/O2 /Gd",
             cflags_presets={},
-            marker="SERVER",
+            module="SERVER",
             library_modules=set(),
         )
         with patch("rebrew.lint.load_config", return_value=cfg):
@@ -2355,7 +2355,7 @@ class TestW029RedundantCflags:
             source_ext=".c",
             cflags="/O2 /Gd",
             cflags_presets={},
-            marker="SERVER",
+            module="SERVER",
             library_modules=set(),
         )
         w029_prints: list[str] = []
@@ -2405,7 +2405,7 @@ class TestW029RedundantCflags:
             source_ext=".c",
             cflags="/O2 /Gd",
             cflags_presets={"SERVER": "/O2 /Gd"},  # redundant preset → synthetic W029 entry
-            marker="SERVER",
+            module="SERVER",
             library_modules=set(),
             target_name="",
         )
@@ -2423,7 +2423,7 @@ class TestW029RedundantCflags:
             source_ext=".c",
             cflags="/O2 /Gd",
             cflags_presets={},
-            marker="SERVER",
+            module="SERVER",
             library_modules=set(),
             target_name="",
         )
@@ -2643,7 +2643,7 @@ class TestSupportTu:
         )
         result = lint_file(f)
         assert result.errors == result.warnings == []
-        assert result._marker_counts["SUPPORT"] == 1
+        assert result._kind_counts["SUPPORT"] == 1
 
     def test_support_for_another_target_has_no_missing_identity(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
@@ -2652,7 +2652,7 @@ class TestSupportTu:
 
         f = _write_c(tmp_path, "client.c", "int client(void){return 0;}\n")
         set_source_file(tmp_path, "client.c", "CLIENT", "client-only link helper")
-        cfg = SimpleNamespace(metadata_dir=tmp_path, marker="SERVER")
+        cfg = SimpleNamespace(metadata_dir=tmp_path, module="SERVER")
         result = lint_file(f, cfg=cfg)
         assert result.errors == result.warnings == []
 
@@ -2848,9 +2848,9 @@ class TestCommentInteriorIsNotCode:
 class TestStackedSharedMarkers:
     """One shared file, one marker per target (ADR-010): no E012."""
 
-    def test_other_target_marker_allowed(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(marker="V2", root=tmp_path)
-        cfg.all_markers = {"V1", "V2"}
+    def test_other_target_module_allowed(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(module="V2", root=tmp_path)
+        cfg.target_modules = {"V1", "V2"}
         content = SourceFixture(
             "/* ADDRESS: V1 0x401000 */\n/* ADDRESS: V2 0x501000 */\nint common(void){ return 1; }\n",
             {"V1.0x401000": {"kind": "FUNCTION"}, "V2.0x501000": {"kind": "FUNCTION"}},
@@ -2860,8 +2860,8 @@ class TestStackedSharedMarkers:
         assert not any((c == "E012" for _, c, _ in result.errors))
 
     def test_unknown_module_still_e012(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(marker="V2", root=tmp_path)
-        cfg.all_markers = {"V1", "V2"}
+        cfg = _make_cfg(module="V2", root=tmp_path)
+        cfg.target_modules = {"V1", "V2"}
         f = _write_c(
             tmp_path,
             "bad.c",
@@ -3412,7 +3412,7 @@ class TestW031Cli:
             source_ext=".c",
             cflags="/O2 /Gd",
             cflags_presets={},
-            marker="SERVER",
+            module="SERVER",
             library_modules=set(),
             db_dir="db",
             target_name="SERVER",
@@ -3613,8 +3613,8 @@ class TestW035UnknownModules:
         base: dict[str, object] = {
             "metadata_dir": tmp_path,
             "root": tmp_path,
-            "marker": "SERVER",
-            "all_markers": ["SERVER"],
+            "module": "SERVER",
+            "target_modules": ["SERVER"],
             "library_modules": [],
         }
         base.update(overrides)
@@ -3639,7 +3639,7 @@ class TestW035UnknownModules:
             'format = 2\n["CLIENT.0x1000"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
-        assert "matches no target marker" in self._warnings(self._cfg(tmp_path))
+        assert "matches no target module" in self._warnings(self._cfg(tmp_path))
 
     def test_module_another_target_links_is_silent(self, tmp_path: Path) -> None:
         """D3DX8 rows are read while server.dll is the default target, but only
@@ -3653,7 +3653,7 @@ class TestW035UnknownModules:
         cfg = self._cfg(tmp_path, all_library_modules=["D3DX8"])
         assert self._warnings(cfg) == ""
         # Without the cross-target view it would still be flagged.
-        assert "matches no target marker" in self._warnings(self._cfg(tmp_path))
+        assert "matches no target module" in self._warnings(self._cfg(tmp_path))
 
 
 class TestW036StrayMetadataStore:
@@ -3751,7 +3751,7 @@ def test_markerless_library_binding_uses_project_root(
     metadata = src if metadata_in_src else tmp_path
     provider = src / "provider.c"
     provider.write_text("int provider(void) { return 0; }\n")
-    cfg = SimpleNamespace(root=tmp_path, metadata_dir=metadata, marker="S", all_markers={"S"})
+    cfg = SimpleNamespace(root=tmp_path, metadata_dir=metadata, module="S", target_modules={"S"})
     entries = {
         ("S", 0x401000): {
             "file": "src/provider.c",
@@ -3779,7 +3779,7 @@ class TestW037W038DataRows:
     def _project(self, tmp_path: Path, source: str, rows: str) -> Path:
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "server.dll"\n\n'
-            '[targets."server.dll"]\nbinary = "server.dll"\nmarker = "SERVER"\n'
+            '[targets."server.dll"]\nbinary = "server.dll"\nmodule = "SERVER"\n'
             'reversed_dir = "src"\n',
             encoding="utf-8",
         )

@@ -11,14 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
-from rebrew.config import ProjectConfig, inventory_path_for, module_marker
+from rebrew.config import ProjectConfig, inventory_path_for, target_module
 from rebrew.metadata.bindings import (
     SourceBinding,
     library_bindings_for_file,
     library_inventory_bindings,
     read_source_bindings,
 )
-from rebrew.sources import iter_library_headers, iter_sources, scan_files, target_marker
+from rebrew.sources import iter_library_headers, iter_sources, scan_files
 from rebrew.utils import preset_module_key, read_json_text
 
 # ---------------------------------------------------------------------------
@@ -371,19 +371,19 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     for cfile in iter_sources(reversed_dir, cfg, scanned=tree):
         parsed = read_source_bindings(
             cfile,
-            target_name=target_marker(cfg),
+            target_name=target_module(cfg),
             base_dir=reversed_dir,
             metadata_dir=metadata_root,
             project_root=cfg.root if cfg else None,
         )
         entries.extend(parsed)
 
-    # Scan library_*.h files for LIBRARY markers (CRT/zlib identifications).
+    # Scan library_*.h files for LIBRARY bindings (CRT/zlib identifications).
     # `cfg` makes the scan include the project's shared root, which
     # scan_reversed_dir already covered for the catalog.
     # Headers carry no target affinity in their path, so keep only rows of
     # this target's module (sources are scoped by read_source_bindings above).
-    marker = preset_module_key(module_marker(cfg)) if cfg else ""
+    target_module_name = preset_module_key(target_module(cfg)) if cfg else ""
     from rebrew.function_providers import bind_library_source, compiled_library_annotations
     from rebrew.metadata.functions import load_metadata
 
@@ -394,16 +394,23 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
             parsed = [
                 bind_library_source(cfg, entry, metadata.get((entry.module, entry.va), {}))
                 for entry in parsed
-                if not marker or preset_module_key(entry.module or "") in ("", marker)
+                if not target_module_name
+                or preset_module_key(entry.module or "") in ("", target_module_name)
             ]
         entries.extend(
-            e for e in parsed if not marker or preset_module_key(e.module or "") in ("", marker)
+            e
+            for e in parsed
+            if not target_module_name
+            or preset_module_key(e.module or "") in ("", target_module_name)
         )
 
     seen = {(entry.module, entry.va) for entry in entries}
     if cfg and metadata_root is not None:
         for entry in library_inventory_bindings(metadata_root, reversed_dir):
-            if (not marker or preset_module_key(entry.module or "") in ("", marker)) and (
+            if (
+                not target_module_name
+                or preset_module_key(entry.module or "") in ("", target_module_name)
+            ) and (
                 entry.module,
                 entry.va,
             ) not in seen:

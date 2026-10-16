@@ -318,7 +318,7 @@ def collect_library_annotations(
     here — not the parser's ``target_name`` filter — decides what counts as a
     library function.  Passing ``target_name=None`` keeps cross-module
     ``// LIBRARY: MSVCRT``-style markers (the documented ``library_modules``
-    convention); only FUNCTION/LIBRARY markers are collected, so GLOBAL/DATA
+    convention); only FUNCTION/LIBRARY bindings are collected, so GLOBAL/DATA
     annotations never match against the CRT index.
     """
     annotations: list[tuple[Path, SourceBinding]] = []

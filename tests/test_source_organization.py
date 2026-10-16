@@ -19,7 +19,7 @@ def _project(tmp_path: Path) -> tuple[ProjectConfig, ProjectConfig, list[Path]]:
     for path, name in zip(files, ["a", "b"], strict=True):
         path.write_text(f"int {name}(void) {{ return 1; }}\n")
     configs = [
-        ProjectConfig(root=tmp_path, reversed_dir=source, marker=marker, target_name=marker)
+        ProjectConfig(root=tmp_path, reversed_dir=source, module=marker, target_name=marker)
         for marker in ("A", "B")
     ]
     for marker, addresses in [("A", [0x401000, 0x401100]), ("B", [0x501100, 0x501000])]:

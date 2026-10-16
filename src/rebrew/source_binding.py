@@ -12,12 +12,12 @@ import typer
 from rebrew.c_parser import function_signatures
 from rebrew.c_rename import ORDINARY_ROLES, ParsedSource, definitions, occurrences
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, target_module
 from rebrew.metadata.binding_history import change_source_binding, validate_binding_history
 from rebrew.metadata.bindings import derive_c_symbol
 from rebrew.metadata.functions import get_entry, identity_file, load_metadata
 from rebrew.metadata.source_provenance import function_definition_hashes
-from rebrew.sources import iter_sources, target_marker
+from rebrew.sources import iter_sources
 from rebrew.utils import preset_module_key, read_source_text
 
 app = typer.Typer(
@@ -44,7 +44,7 @@ def _change(
     dry_run: bool,
     expected_digest: str | None,
 ) -> dict[str, Any]:
-    module = target_marker(cfg) or ""
+    module = target_module(cfg) or ""
     current = get_entry(cfg.metadata_dir, va, module)
     history = validate_binding_history(current.get("binding_history", []))
     identity = None

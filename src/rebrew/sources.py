@@ -3,8 +3,7 @@
 Single home for locating the source files that make up a target: configured
 extensions (:func:`source_exts`), glob patterns (:func:`source_glob`),
 recursive enumeration incl. shared sources (:func:`iter_sources`), library
-headers (:func:`iter_library_headers`), and the per-target annotation marker
-(:func:`target_marker`).  Pure pathlib/config logic — no CLI or output
+headers (:func:`iter_library_headers`).  Pure pathlib/config logic — no CLI or output
 concerns — so library modules (catalog, matcher, core) can depend on it
 without pulling in the presentation layer.
 """
@@ -51,15 +50,6 @@ def source_glob(cfg: ProjectConfig | None) -> str:
     if len(exts) == 1:
         return f"*{exts[0]}"
     return f"*.{{{','.join(e.lstrip('.') for e in exts)}}}"
-
-
-def target_marker(cfg: ProjectConfig | None) -> str | None:
-    """Return the target marker name from *cfg*, or ``None`` if unavailable.
-
-    Shorthand for the ``cfg.marker if cfg else None`` pattern that appears
-    at every ``read_source_bindings`` / ``library_bindings_for_file`` call site.
-    """
-    return cfg.marker if cfg is not None else None
 
 
 #: Directories the source walk must not descend into (see :func:`_files_matching`).
@@ -314,7 +304,7 @@ def iter_sources(
     When *cfg* is provided and *directory* is the target's ``reversed_dir``,
     the project's shared-sources root (``cfg.shared_dir``, e.g.
     ``src/shared``) is merged in: files there serve **every** target, with
-    one ``// FUNCTION: <target> <va>`` marker per target and ``#ifdef``
+    one ``// ADDRESS: <module> <va>`` anchor per target and ``#ifdef``
     deltas driven by the per-target ``defines``.
 
     *scanned* is a :func:`scan_files` result for the same directory.
@@ -376,5 +366,4 @@ __all__ = [
     "source_exts",
     "source_glob",
     "source_roots",
-    "target_marker",
 ]

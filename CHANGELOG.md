@@ -1,5 +1,96 @@
 ## [Unreleased]
 
+### Changed
+- **Breaking:** Target configuration uses `[targets.<name>].module`,
+  `ProjectConfig.module` and `ProjectConfig.target_modules` instead of `marker`
+  and `all_markers`. Retain the old values when renaming keys: they identify
+  durable metadata rows. The removed key is rejected, with no alias or reader.
+- **Breaking:** Use `rebrew.config.target_module(cfg)` for resolved namespaces.
+  The raw workspace helpers are `rebrew.workspace.target_module(name, entry)`
+  and `rebrew.workspace.config.target_module(name, entry)`. Removed resolver
+  imports (including incidental re-exports) are:
+  `rebrew.asm.module_marker`,
+  `rebrew.asm.target_marker`,
+  `rebrew.binsync.importer.module_marker`,
+  `rebrew.binsync.overlay.module_marker`,
+  `rebrew.blocker.module_marker`,
+  `rebrew.catalog.loaders.module_marker`,
+  `rebrew.catalog.loaders.target_marker`,
+  `rebrew.cli.target_marker`,
+  `rebrew.climb.module_marker`,
+  `rebrew.climb.target_marker`,
+  `rebrew.cmake_sources.target_marker`,
+  `rebrew.config.module_marker`,
+  `rebrew.coverage_history.module_marker`,
+  `rebrew.coverage_project.module_marker`,
+  `rebrew.cross_import.target_marker`,
+  `rebrew.data.module_marker`,
+  `rebrew.data_annotate.module_marker`,
+  `rebrew.depgraph.target_marker`,
+  `rebrew.describe.target_marker`,
+  `rebrew.document_assembly.module_marker`,
+  `rebrew.document_unmatched.target_marker`,
+  `rebrew.drift_cli.target_marker`,
+  `rebrew.function_providers.module_marker`,
+  `rebrew.gen_layout.module_marker`,
+  `rebrew.imports.module_marker`,
+  `rebrew.lib_match.module_marker`,
+  `rebrew.link_anchors.target_marker`,
+  `rebrew.link_order.module_marker`,
+  `rebrew.match_sweep.target_marker`,
+  `rebrew.merge_sweep.target_marker`,
+  `rebrew.naming.module_marker`,
+  `rebrew.naming.target_marker`,
+  `rebrew.native_review.module_marker`,
+  `rebrew.objdiff_project.target_marker`,
+  `rebrew.order_sources.module_marker`,
+  `rebrew.prove.target_marker`,
+  `rebrew.report.target_marker`,
+  `rebrew.round_trip.target_marker`,
+  `rebrew.skeleton.target_marker`,
+  `rebrew.source_binding.target_marker`,
+  `rebrew.source_contracts.module_marker`,
+  `rebrew.source_organization.module_marker`,
+  `rebrew.source_units.target_marker`,
+  `rebrew.sources.target_marker`,
+  `rebrew.splat_config.target_marker`,
+  `rebrew.symbol_addrs.target_marker`,
+  `rebrew.test.target_marker`,
+  `rebrew.verify.module_marker`,
+  `rebrew.workspace.target_marker`,
+  `rebrew.workspace.config.target_marker`.
+- **Breaking:** Namespace arguments use `target_module_name` in
+  `rebrew.cmake_flags.collect`,
+  `rebrew.cmake_sources.collect_target_sources`,
+  `rebrew.data_annotate.annotate_globals`,
+  `rebrew.document_unmatched.classify_all`,
+  `rebrew.gen_layout.gen_crt_imports`,
+  `rebrew.gen_layout.gen_data_restore`,
+  `rebrew.intake.classify_all`,
+  `rebrew.intake.prune_stale_stubs`,
+  `rebrew.link_order.file_va`,
+  `rebrew.link_order.order_sources`,
+  `rebrew.order_sources.main`,
+  `rebrew.order_sources.order_sources`,
+  `rebrew.recommend.recommend_foreign_sources`,
+  `rebrew.source_contracts.collect_target_sources`,
+  `rebrew.source_organization.collect_target_sources`,
+  `rebrew.source_selection.collect_target_sources`.
+  `rebrew.data_annotate.annotate_globals` drops its unused namespace argument.
+  `rebrew.order_sources.main` exposes `--module` instead of `--marker`.
+  `rebrew.link_order.file_va` no longer borrows another target's address when
+  the selected module is absent. Omit the module to request an unfiltered order.
+- **Breaking:** `rebrew.cmake_flags.CODE_MARKERS` is `CODE_KINDS`;
+  `rebrew.lint.LintResult.marker_line` is `binding_line`, and lint's synthetic
+  `MARKER` key is `KIND`. Splat `SourceBinding.marker` is `declaration` and
+  `ImportPlan.marker` is `module` (JSON keys follow those names).
+  `rebrew.recommend.recommend_stale_markers` is `recommend_stale_addresses`;
+  recommendation kind `stale-markers` is `stale-addresses`.
+  `rebrew.config.KNOWN_TARGET_KEYS` and its `rebrew.cfg.KNOWN_TARGET_KEYS`
+  re-export use `module`. Generated config templates
+  `rebrew.init.DEFAULT_REBREW_TOML` and
+  `rebrew.init_profiles.DEFAULT_REBREW_TOML` take `{module}`.
+
 ### Fixed
 - Renaming a native-only function identity now reports its missing source binding
   and the registration step, rather than claiming an empty path escapes the source

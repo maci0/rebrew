@@ -50,9 +50,10 @@ from rebrew.config import (
     find_root,
     load_config,
     parse_env_log_level,
+    target_module,
 )
 from rebrew.metadata.bindings import SourceBinding, read_source_bindings
-from rebrew.sources import iter_sources, target_marker
+from rebrew.sources import iter_sources
 from rebrew.utils import (
     console,
     parse_int_literal,
@@ -276,7 +277,7 @@ def source_targets_run(
             cfg = load_config(root=resolved, target=name)
             bindings = read_source_bindings(
                 path,
-                target_name=target_marker(cfg),
+                target_name=target_module(cfg),
                 metadata_dir=cfg.metadata_dir,
                 project_root=resolved,
             )
@@ -1106,7 +1107,7 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     sources = iter_sources(src_dir, cfg)
 
     if va_int is not None:
-        tm = target_marker(cfg)
+        tm = target_module(cfg)
         from rebrew.function_providers import bind_library_source
         from rebrew.metadata.bindings import SourceBinding
         from rebrew.metadata.functions import load_metadata
@@ -1185,7 +1186,7 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
         from rebrew.utils import fold_ident
 
         want = fold_ident(arg_norm.strip())
-        tm = target_marker(cfg)
+        tm = target_module(cfg)
         for src in sources:
             try:
                 annos = read_source_bindings(
@@ -1261,7 +1262,7 @@ def select_annotation(
 
     annos = read_source_bindings(
         path,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )

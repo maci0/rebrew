@@ -13,9 +13,9 @@ from rebrew.merge import app
 runner = CliRunner()
 
 
-def _make_cfg(tmp_path: Path, marker: str = "SERVER") -> Any:
+def _make_cfg(tmp_path: Path, module: str = "SERVER") -> Any:
     return SimpleNamespace(
-        marker=marker, source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
+        module=module, source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
     )
 
 
@@ -76,7 +76,7 @@ class TestMergeBasic:
         assert "func_a" in text
         assert "func_b" in text
 
-    def test_stacked_block_keeps_body_when_target_marker_is_not_first(
+    def test_stacked_block_keeps_body_when_target_module_is_not_first(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
         """A shared body stacks GOLD above SERVER; the SERVER merge must keep it."""
@@ -470,7 +470,7 @@ class TestMergeErrors:
 
         from rebrew.merge import main
 
-        # Both files use module GAME but cfg.marker is SERVER → no matching blocks.
+        # Both files use module GAME but cfg.module is SERVER → no matching blocks.
         a = _write(tmp_path / "a.c", _single(0x1000, "_a", module="GAME"))
         b = _write(tmp_path / "b.c", _single(0x2000, "_b", module="GAME"))
         monkeypatch.setattr(
@@ -926,7 +926,7 @@ class TestMergeCrlfInputs:
 
 def _meta_cfg(tmp_path: Path) -> Any:
     return SimpleNamespace(
-        marker="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
+        module="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
     )
 
 

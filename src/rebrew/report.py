@@ -54,7 +54,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.compression import precompress
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, target_module
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
 from rebrew.formats.binary_loader import load_binary
 from rebrew.formats.import_table import find_import_stubs, parse_imports
@@ -64,11 +64,7 @@ from rebrew.metadata.bindings import (
     library_bindings_for_file,
     min_valid_va_for,
 )
-from rebrew.sources import (
-    iter_library_headers,
-    iter_sources,
-    target_marker,
-)
+from rebrew.sources import iter_library_headers, iter_sources
 from rebrew.status import StatusReport, collect_status
 from rebrew.status_style import (
     DISPLAY_STATUSES,
@@ -506,7 +502,7 @@ def _page(title: str, target: str, active: str, body: str) -> str:
 
 def _target_name(cfg: ProjectConfig) -> str:
     """Best-effort human-readable target name for page titles."""
-    return getattr(cfg, "target_name", "") or getattr(cfg, "marker", "") or "rebrew"
+    return getattr(cfg, "target_name", "") or getattr(cfg, "module", "") or "rebrew"
 
 
 def _display_name(ann: SourceBinding, src: Path) -> str:
@@ -561,7 +557,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     sources = iter_sources(reversed_path, cfg)
     for src, annos in iter_source_bindings(
         sources,
-        target=target_marker(cfg),
+        target=target_module(cfg),
         metadata_dir=metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):
@@ -1438,11 +1434,11 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     from rebrew.workspace.status import FUZZY_STATUSES, MATCHED_STATUSES
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
-    marker = target_marker(cfg)
+    target_module_name = target_module(cfg)
     annos_by_file: list[tuple[str, list[Any]]] = []
     for path, annos in iter_source_bindings(
         sources,
-        target=marker,
+        target=target_module_name,
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):

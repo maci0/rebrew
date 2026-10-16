@@ -34,7 +34,7 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "metadata_dir": tmp_path,
         "bin_dir": tmp_path / "bin",
         "source_ext": ".c",
-        "marker": "TEST",
+        "module": "TEST",
         "iat_thunks": [],
         "ignored_symbols": [],
         "library_modules": set(),
@@ -1418,7 +1418,7 @@ class TestStatusCli:
             arch="x86",
             reversed_dir=tmp_path / "src",
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
         monkeypatch.setattr("rebrew.status.require_config", lambda **kw: cfg)
@@ -1850,7 +1850,7 @@ class TestDataVerdicts:
         from rebrew.metadata.data import set_data_field
         from rebrew.status import collect_status
 
-        cfg = _make_cfg(tmp_path, all_markers={"TEST", "GOLD"})
+        cfg = _make_cfg(tmp_path, target_modules={"TEST", "GOLD"})
         set_data_field(tmp_path, 0x1000, "name", "g_ours", "TEST")
         set_data_field(tmp_path, 0x1000, "status", "VERIFIED", "TEST")
         set_data_field(tmp_path, 0x401000, "name", "g_client", "GOLD")

@@ -90,9 +90,10 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.config import target_module
 from rebrew.layout_meta import SectionMeta
 from rebrew.metadata.bindings import iter_source_bindings
-from rebrew.sources import iter_sources, target_marker
+from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, library_header_name, parse_int_literal, untrusted_ident
 from rebrew.workspace.config import config_path
 
@@ -367,8 +368,8 @@ SEED_STATUS = "STUB"
 #: Blocker written for a seeded skeleton (lint W005 expects a reason on a STUB).
 SEED_BLOCKER = "seeded from a splat config, implementation pending"
 
-#: Characters the rebrew marker is built from (same rule as ``rebrew intake``).
-_MARKER_STRIP_RE = re.compile(r"[^A-Za-z0-9_]")
+#: Characters the target module is built from (same rule as ``rebrew intake``).
+_MODULE_STRIP_RE = re.compile(r"[^A-Za-z0-9_]")
 
 app = typer.Typer(
     help="Seed a Rebrew project from splat YAML: names, layout, and metadata.",
@@ -834,7 +835,7 @@ class SourceBinding:
     """One annotation the import would add.
 
     ``kind`` is ``FUNCTION``, ``LIBRARY``, or ``DATA``. *path* is relative to
-    the target's ``reversed_dir``. ``marker`` is the text written into the
+    the target's ``reversed_dir``. ``declaration`` is the text written into the
     source: the C declaration, or a comment that is not the legacy marker
     grammar. Identity is recorded in the metadata stores.
     """
@@ -847,7 +848,7 @@ class SourceBinding:
     section: str
     detail: str
     path: str
-    marker: str
+    declaration: str
     state: str  # "create" | "unchanged" | "conflict"
     overridable: bool = False  # a conflict --force may replace
 
@@ -862,7 +863,7 @@ class ImportPlan:
 
     splat: SplatConfig
     target: str
-    marker: str
+    module: str
     reversed_display: str
     binary: Path
     binary_dest: str
@@ -907,7 +908,7 @@ def build_plan(cfg_splat: SplatConfig, target: str | None = None) -> ImportPlan:
 
     cfg = require_config(target=target)
     target_name = cfg.target_name
-    marker = cfg.marker or _MARKER_STRIP_RE.sub("", target_name).upper()
+    target_module_name = cfg.module or _MODULE_STRIP_RE.sub("", target_name).upper()
 
     binary = cfg_splat.target_path
     if binary is None or not binary.is_file():
@@ -950,7 +951,7 @@ def build_plan(cfg_splat: SplatConfig, target: str | None = None) -> ImportPlan:
 
     existing = _existing_annotations(cfg)
     annotations, conflicts, unresolvable, skipped, notes_ann = _plan_annotations(
-        cfg_splat, cfg, marker, info.image_base, symbols, existing
+        cfg_splat, cfg, target_module_name, info.image_base, symbols, existing
     )
     notes.extend(notes_ann)
     skipped.extend(layout_skipped)
@@ -960,7 +961,7 @@ def build_plan(cfg_splat: SplatConfig, target: str | None = None) -> ImportPlan:
     return ImportPlan(
         splat=cfg_splat,
         target=target_name,
-        marker=marker,
+        module=target_module_name,
         reversed_display=_display_dir(cfg),
         binary=binary,
         binary_dest=binary.relative_to(cfg.root).as_posix() if in_project else binary_dest,
@@ -1078,7 +1079,7 @@ def _layout_sections(
 
 
 def _existing_annotations(cfg: Any) -> dict[int, tuple[str, str]]:
-    """``va -> ("MARKER name", path)`` for every annotation already in the project.
+    """``va -> ("KIND name", path)`` for every annotation already in the project.
 
     Sources come through :func:`rebrew.metadata.bindings.iter_source_bindings` (the shared batch
     reader) and ``library_*.h`` headers through
@@ -1090,10 +1091,10 @@ def _existing_annotations(cfg: Any) -> dict[int, tuple[str, str]]:
 
     existing: dict[int, tuple[str, str]] = {}
     sources = list(iter_sources(cfg.reversed_dir, cfg))
-    marker = target_marker(cfg)
+    target_module_name = target_module(cfg)
     for path, annos in iter_source_bindings(
         sources,
-        target=marker,
+        target=target_module_name,
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):
@@ -1110,14 +1111,14 @@ def _existing_annotations(cfg: Any) -> dict[int, tuple[str, str]]:
 def _plan_annotations(
     cfg_splat: SplatConfig,
     cfg: Any,
-    marker: str,
+    target_module_name: str,
     image_base: int,
     symbols: SymbolSet,
     existing: dict[int, tuple[str, str]],
 ) -> tuple[list[SourceBinding], list[str], list[str], list[tuple[str, str]], list[str]]:
     """Classify every symbol row into a planned annotation, a skip, or a conflict.
 
-    The symbol's splat ``type:`` picks the marker (``func`` -> FUNCTION, a
+    The symbol's splat ``type:`` picks the metadata kind (``func`` -> FUNCTION, a
     sized type -> DATA); the segment map decides whether the address exists in
     the image as code or as data.  A row whose two signals disagree is skipped
     with the reason rather than annotated on a guess.  A row the project
@@ -1179,7 +1180,7 @@ def _plan_annotations(
             continue
         seen_names[name] = row.va
 
-        # The section decides the marker (code vs data); the splat type and the
+        # The section decides the metadata kind (code vs data); the splat type and the
         # provenance detail only refine it.  Code the config attributes to a DLL
         # import is LIBRARY, the same classification identify_library's import
         # backend makes for `jmp [IAT]` thunks.
@@ -1192,12 +1193,12 @@ def _plan_annotations(
                 path = None  # a library header is appended to, not owned
             else:
                 kind = "FUNCTION"
-                module = marker
+                module = target_module_name
                 rel = make_filename(name, custom_name=name, cfg=cfg)
                 path = cfg.reversed_dir / rel
         else:
             kind = "DATA"
-            module = marker
+            module = target_module_name
             declaration = _data_declaration(name, row.kind, row.size)
             rel = f"data_{name}{_first_ext(cfg)}"
             path = cfg.reversed_dir / rel
@@ -1221,7 +1222,7 @@ def _plan_annotations(
                 section=section,
                 detail=row.detail or (f"from {source}" if source else ""),
                 path=rel,
-                marker=_source_declaration(kind, module, row.va, declaration),
+                declaration=_source_declaration(kind, module, row.va, declaration),
                 state=state,
                 overridable=overridable,
             )
@@ -1230,7 +1231,7 @@ def _plan_annotations(
     planned.extend(
         _plan_library_annotations(
             cfg_splat,
-            marker,
+            target_module_name,
             symbols,
             existing,
             {ann.va for ann in planned},
@@ -1253,7 +1254,7 @@ def _annotation_state(
     tracks (a symbol spelling can change when the C definition is written).
     So a VA already annotated in the planned file is ``unchanged``; the message
     carries a name disagreement as a note.  A VA claimed by *another* file is a
-    conflict ``--force`` cannot fix (a second marker for one VA is lint error
+    conflict ``--force`` cannot fix (a second binding for one VA is lint error
     E013), and a planned ``.c`` that exists without annotating this VA is a
     conflict ``--force`` may overwrite.
     """
@@ -1290,7 +1291,7 @@ def _file_annotates(path: Path, va: int) -> bool:
 
 def _plan_library_annotations(
     cfg_splat: SplatConfig,
-    marker: str,
+    target_module_name: str,
     symbols: SymbolSet,
     existing: dict[int, tuple[str, str]],
     planned_vas: set[int],
@@ -1332,7 +1333,7 @@ def _plan_library_annotations(
             )
             continue
         name = sanitize_name(row.name)
-        module = infer_module(row.name, marker or "LIBRARY")
+        module = infer_module(row.name, target_module_name or "LIBRARY")
         rel = library_header_name(module)
         # No file check for a library entry: the header is appended to, so it
         # existing is the normal case.
@@ -1354,7 +1355,7 @@ def _plan_library_annotations(
                 section="",
                 detail=f"undefined in {cfg_splat.path.name}",
                 path=rel,
-                marker=_source_declaration("LIBRARY", module, row.va, ""),
+                declaration=_source_declaration("LIBRARY", module, row.va, ""),
                 state=state,
                 overridable=overridable,
             )
@@ -1433,7 +1434,7 @@ def apply_plan(plan: ImportPlan, force: bool = False, dry_run: bool = False) -> 
 
     Raises :class:`ValueError` when an annotation conflicts with an existing
     one: an ``unresolvable`` conflict (the VA is already annotated in another
-    file, and a second marker for one VA would fail lint E013) always refuses,
+    file, and a second binding for one VA would fail lint E013) always refuses,
     and an overridable one refuses unless *force* is set.  *dry_run* returns
     the same report without touching the project and never refuses, so the
     preview can show the conflict.
@@ -1466,7 +1467,7 @@ def apply_plan(plan: ImportPlan, force: bool = False, dry_run: bool = False) -> 
     if _write_target_metadata(plan, root):
         written.append("rebrew-project.toml")
     # Reload after the patch: the skeletons probe the binary through the config
-    # (arch, marker, reversed_dir), all of which this import just set.
+    # (arch, module, reversed_dir), all of which this import just set.
     cfg = load_config(root=root, target=plan.target)
 
     by_kind: dict[str, list[SourceBinding]] = {}
@@ -1572,7 +1573,7 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -
             cfg,
             ann.va,
             ghidra_name=ann.name,
-            module=plan.marker,
+            module=plan.module,
             custom_name=ann.name,
         )
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1580,7 +1581,7 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -
         written.append(target_path.relative_to(cfg.root).as_posix())
         identity_rows.append(
             {
-                "module": plan.marker,
+                "module": plan.module,
                 "va": ann.va,
                 "identity": {
                     "file": identity_file(target_path, cfg.metadata_dir),
@@ -1594,10 +1595,10 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -
         fields: dict[str, Any] = {"blocker": SEED_BLOCKER}
         if ann.size:
             fields["size"] = ann.size
-        field_updates.append({"module": plan.marker, "va": ann.va, "fields": fields})
+        field_updates.append({"module": plan.module, "va": ann.va, "fields": fields})
         status_updates.append(
             {
-                "module": plan.marker,
+                "module": plan.module,
                 "va": ann.va,
                 "new_status": SEED_STATUS,
                 "clear_blockers": False,
@@ -1622,12 +1623,13 @@ def _write_data(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -> lis
         target_path = cfg.reversed_dir / ann.path
         target_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(
-            target_path, ann.marker if ann.marker.endswith("\n") else f"{ann.marker}\n"
+            target_path,
+            ann.declaration if ann.declaration.endswith("\n") else f"{ann.declaration}\n",
         )
         written.append(target_path.relative_to(cfg.root).as_posix())
         identity_rows.append(
             {
-                "module": plan.marker,
+                "module": plan.module,
                 "va": ann.va,
                 "identity": {
                     "file": identity_file(target_path, cfg.metadata_dir),
@@ -1641,7 +1643,7 @@ def _write_data(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -> lis
         if ann.size:
             fields["size"] = ann.size
         updates.append(
-            {"module": plan.marker, "va": ann.va, "fields": fields, "updated_by": "intake"}
+            {"module": plan.module, "va": ann.va, "fields": fields, "updated_by": "intake"}
         )
     record_data_rows(cfg.metadata_dir, identity_rows)
     # One rebrew-data.toml rewrite for the whole import, not three per symbol.
@@ -2077,7 +2079,7 @@ def _plan_payload(plan: ImportPlan, result: dict[str, Any], *, written: bool) ->
         "annotations": [
             {
                 "kind": a.kind,
-                "marker": a.marker,
+                "declaration": a.declaration,
                 "module": a.module,
                 "va": f"0x{a.va:08X}",
                 "name": a.name,
@@ -2150,7 +2152,7 @@ def _render(plan: ImportPlan, result: dict[str, Any], *, written: bool) -> None:
         if not written:
             console.print("[dim]annotation syntax:[/dim]")
             for ann in plan.annotations:
-                for line in ann.marker.splitlines():
+                for line in ann.declaration.splitlines():
                     console.print(f"  [dim]{untrusted_ident(line)}[/dim]")
 
     for conflict in plan.conflicts:

@@ -18,6 +18,10 @@ Externals (the only packages this one may import): `c_parser`, `compiler.toolcha
 
 ## Contracts
 
+- **Name the distinct concepts.** Config `module` selects the target namespace;
+  metadata `kind` classifies a row; optional `ADDRESS` comments are source anchors.
+  Resolved consumers use `rebrew.config.target_module(cfg)`.
+
 - **Writers lock and write 0444.** Store writes go through `utils.atomic_write_locked` under `document.metadata_write_lock`; a new writer reuses them instead of opening the TOML itself.
 - **Commands live outside.** `rebrew source register` (`source_register.py`), `rebrew blocker` and the other commands that edit metadata stay at the package root.
 - **`type_metadata.py` stays outside.** The type store compiles probes and hashes headers, so it imports the compile path this package must not.

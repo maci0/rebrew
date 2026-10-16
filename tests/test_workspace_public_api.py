@@ -38,7 +38,7 @@ def test_workspace_public_api_snapshot() -> None:
         "project_table",
         "read_config",
         "target_binary",
-        "target_marker",
+        "target_module",
         "target_reversed_dir",
         "targets_table",
         "walk_up_to_root",

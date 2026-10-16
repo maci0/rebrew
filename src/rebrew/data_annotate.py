@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.c_parser import CALLING_CONVENTION, is_pointer_to_array
-from rebrew.config import ProjectConfig, module_marker
+from rebrew.config import ProjectConfig, target_module
 from rebrew.metadata.data import iter_data_symbols
 from rebrew.utils import (
     atomic_write_text,
@@ -81,19 +81,13 @@ _VAR_DECL_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*(\[[^\]]*\])?\s*$")
 def annotate_globals(
     src_dir: Path,
     metadata: Path,
-    marker: str,
     dry_run: bool = False,
     cfg: ProjectConfig | None = None,
 ) -> tuple[dict[str, int], int]:
     """Bind ``file`` on named data rows that do not have one yet.
 
-    The first declaration of the name owns the row. A row that already has
-    ``file`` is left alone. A file that still has a data-marker line is
-    migrated first (every marker, not only this target's) so a new ``file``
-    is visible; a VA that marker already names is not bound again.
-
-    *marker* is unused. The row's own module is the key, and the kind
-    written for a new bind is ``GLOBAL``.
+    Existing file bindings are preserved. New GLOBAL rows use their stored
+    module and the first matching declaration's source path.
 
     Returns ``(per_file, skipped_unnamed)``. *skipped_unnamed* counts rows
     with no ``name``: the declaration is what locates them.
@@ -104,7 +98,6 @@ def annotate_globals(
     from rebrew.sources import iter_sources
     from rebrew.utils import rel_display_path
 
-    del marker
     db = load_tomllib(metadata)
     skipped_unnamed = 0
     symbols: dict[str, tuple[str, int, bool]] = {}
@@ -286,14 +279,14 @@ def patch_data_fields(
     expected_digest: str | None = None,
 ) -> dict[str, Any]:
     """Normalize CLI fields, then preview/apply one locked non-verdict patch."""
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import DATA_KINDS
     from rebrew.metadata.data import patch_data_fields_batch
     from rebrew.metadata.functions import identity_file, validate_identity_file
-    from rebrew.sources import target_marker
 
-    module = target_marker(cfg) or ""
+    module = target_module(cfg) or ""
     if not module:
-        raise ValueError("no target marker configured to address the data metadata")
+        raise ValueError("no target module configured to address the data metadata")
     updates: list[dict[str, Any]] = []
     rows: dict[int, dict[str, Any]] = {}
     for field, specs in specifications.items():
@@ -394,13 +387,13 @@ def mark_literal_rows(
     two different literal symbols, or a row whose storage kind is not
     replaceable, is returned under ``conflicts`` and left unchanged.
     """
+    from rebrew.config import target_module
     from rebrew.data_ownership import is_compiler_literal
     from rebrew.metadata.data import load_data_metadata, set_data_fields_batch
-    from rebrew.sources import target_marker
 
-    module = target_marker(cfg) or ""
+    module = target_module(cfg) or ""
     if not module:
-        raise ValueError("no target marker configured to address the data metadata")
+        raise ValueError("no target module configured to address the data metadata")
     literals: dict[int, set[str]] = {}
     for sym in symbols:
         if not sym.is_function and is_compiler_literal(sym.name):
@@ -485,7 +478,7 @@ def set_data_sizes(
 def set_data_kinds(
     cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
 ) -> list[dict[str, Any]]:
-    """Set the data marker word a row reads as, from ``0xVA=MARKER`` specs.
+    """Set the data metadata kind, from ``0xVA=KIND`` specs.
 
     A row without one reads as ``DATA``; a row ``data set`` created has none.
     """
@@ -495,7 +488,7 @@ def set_data_kinds(
         cfg,
         specs,
         option="--kind",
-        placeholder="MARKER",
+        placeholder="KIND",
         field="kind",
         allowed=tuple(sorted(DATA_KINDS)),
         dry_run=dry_run,
@@ -645,7 +638,7 @@ def gen_globals_header(
     from rebrew.metadata.data import load_data_metadata
     from rebrew.sources import iter_sources
 
-    marker = module_marker(cfg)
+    target_module_name = target_module(cfg)
     metadata = load_data_metadata(cfg.metadata_dir)
 
     # Sources are authoritative for the emitted name and type: a
@@ -670,7 +663,7 @@ def gen_globals_header(
         try:
             annotations = read_source_bindings(
                 src,
-                target_name=marker,
+                target_name=target_module_name,
                 metadata_dir=cfg.metadata_dir,
                 project_root=getattr(cfg, "root", None),
             )

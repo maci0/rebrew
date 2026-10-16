@@ -63,11 +63,14 @@ class TestOrderSources:
                 kind=marker,
             )
         assert file_va(hi, "SERVER", metadata_dir=tmp_path) == 0x10003000
-        assert order_sources([hi, lo], marker="SERVER", metadata_dir=tmp_path)[0] == [lo, hi]
+        assert order_sources([hi, lo], target_module_name="SERVER", metadata_dir=tmp_path)[0] == [
+            lo,
+            hi,
+        ]
         assert order_sources(
             [hi, lo],
             first_va={"a.c": 0},
-            marker="SERVER",
+            target_module_name="SERVER",
             metadata_dir=tmp_path,
         )[0] == [hi, lo]
 
@@ -135,8 +138,8 @@ class TestBlockMarkersAndZeroVa:
         assert ordered == [hi, lo]
 
 
-class TestFileVaMarker:
-    """Stacked shared files order by the requesting target's own marker."""
+class TestFileVaModule:
+    """Stacked shared files order by the requesting target's own module."""
 
     def _stacked(self, tmp_path: Path) -> Path:
         p = tmp_path / "s.c"
@@ -154,13 +157,13 @@ class TestFileVaMarker:
     def test_unfiltered_minimum_unchanged(self, tmp_path: Path) -> None:
         assert file_va(self._stacked(tmp_path)) == 0x401000
 
-    def test_marker_scopes_to_own_va(self, tmp_path: Path) -> None:
+    def test_module_scopes_to_own_va(self, tmp_path: Path) -> None:
         f = self._stacked(tmp_path)
         assert file_va(f, "V2") == 0x501000
         assert file_va(f, "V1") == 0x401000
 
-    def test_unknown_marker_falls_back(self, tmp_path: Path) -> None:
-        assert file_va(self._stacked(tmp_path), "V9") == 0x401000
+    def test_foreign_module_has_no_order(self, tmp_path: Path) -> None:
+        assert file_va(self._stacked(tmp_path), "V9") is None
 
     def test_library_and_stub_keep_target_link_positions(self, tmp_path: Path) -> None:
         lib = _write(
@@ -186,4 +189,4 @@ class TestFileVaMarker:
         )
         assert file_va(lib, "SERVER") == 0x10003960
         assert file_va(stub, "SERVER") == 0x10003D20
-        assert order_sources([game, stub, lib], marker="SERVER")[0] == [lib, stub, game]
+        assert order_sources([game, stub, lib], target_module_name="SERVER")[0] == [lib, stub, game]

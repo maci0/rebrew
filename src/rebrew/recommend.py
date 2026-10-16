@@ -7,7 +7,7 @@ reuses the module that owns the check, never reimplements it):
   clusters vs current source files.
 * **link-order**: sources not in VA order in ``CMakeLists.txt``
   (:mod:`rebrew.link_order`).
-* **orphans**: metadata blocks with no source marker
+* **orphans**: metadata blocks with no source binding
   (:mod:`rebrew.orphans`, prunable subset only).
 * **lint-fixable**: ``rebrew lint --fix`` would change files (W019 inline
   metadata, W029 redundant cflags, W016 backfillable SECTION).
@@ -20,7 +20,7 @@ reuses the module that owns the check, never reimplements it):
 * **fix-sizes**: functions with no SIZE annotation — ``verify --fix-sizes``
   backfills from the binary.
 * **lint-errors**: E-code findings need human fixes (``rebrew lint`` shows).
-* **foreign-sources**: files carrying no marker for this target are excluded
+* **foreign-sources**: files carrying no binding for this target are excluded
   from the build (:func:`rebrew.source_selection.collect_target_sources`).
 
 ``--apply`` executes only the safe mechanical fixes (``lint --fix``,
@@ -460,9 +460,9 @@ def recommend_lint_errors(
 
 def recommend_foreign_sources(
     foreign: list[str],
-    marker: str,
+    target_module_name: str,
 ) -> Recommendation | None:
-    """Note files excluded from this target's build (no marker for it)."""
+    """Note files excluded from this target's build (no binding for it)."""
     if not foreign:
         return None
     return Recommendation(
@@ -471,7 +471,9 @@ def recommend_foreign_sources(
         confidence=1.0,
         functions=[],
         files=sorted(foreign),
-        evidence=[f"{len(foreign)} files carry no {marker} marker — excluded from build"],
+        evidence=[
+            f"{len(foreign)} files carry no {target_module_name} binding — excluded from build"
+        ],
         command="rebrew build cmake-sources --json",
     )
 
@@ -527,10 +529,10 @@ def recommend_cluster_fill(
 def recommend_matched_orphans(
     orphans: list[dict[str, Any]],
 ) -> list[Recommendation]:
-    """Flag earned orphans (:data:`rebrew.workspace.status.EARNED_STATUSES`) with no marker.
+    """Flag earned orphans (:data:`rebrew.workspace.status.EARNED_STATUSES`) with no source binding.
 
     The ``orphans`` lane prunes the safe subset; these are held back because
-    deleting them destroys matched work.  The fix is re-attaching a marker,
+    deleting them destroys matched work.  The fix is repairing a source binding,
     never pruning — so they surface here as human-fix items.
     """
     matched = [o for o in orphans if o.get("status") in EARNED_STATUSES]
@@ -541,8 +543,8 @@ def recommend_matched_orphans(
             confidence=1.0,
             functions=[],
             files=[],
-            evidence=[f"{o.get('module')} {o.get('va')} claims {o.get('status')} with no marker"],
-            command=f"re-attach marker for {o.get('module')} {o.get('va')} (never --include-matched)",
+            evidence=[f"{o.get('module')} {o.get('va')} claims {o.get('status')} with no binding"],
+            command=f"repair source binding for {o.get('module')} {o.get('va')} (never --include-matched)",
         )
         for o in matched
     ]
@@ -760,10 +762,10 @@ def recommend_duplicate_globals(
     ]
 
 
-def recommend_stale_markers(
+def recommend_stale_addresses(
     warnings: list[tuple[str, str]],
 ) -> list[Recommendation]:
-    """Surface W028 stale markers (VA matches no function start).
+    """Surface W028 stale addresses (VA matches no function start).
 
     *warnings* are ``(file, va)`` pairs; the fix is re-annotate or refresh
     the function list, per the lint hint.
@@ -773,12 +775,12 @@ def recommend_stale_markers(
         by_file.setdefault(name, set()).add(va)
     return [
         Recommendation(
-            kind="stale-markers",
+            kind="stale-addresses",
             cluster_id=-1,
             confidence=1.0,
             functions=[],
             files=[name],
-            evidence=[f"{len(vas)} stale marker(s): {sorted(vas)[:3]}"],
+            evidence=[f"{len(vas)} stale address(es): {sorted(vas)[:3]}"],
             command=f"rebrew lint {name}",
         )
         for name, vas in sorted(by_file.items())
@@ -837,8 +839,9 @@ def load_layout(
     dict[int, str], dict[int, str], dict[int, str], dict[int, tuple[str, str]], dict[int, int]
 ]:
     """Return ``(va_to_file, va_to_name, va_to_flags, va_to_flagsets, va_to_size)``."""
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import iter_sources, target_marker
+    from rebrew.sources import iter_sources
     from rebrew.utils import rel_display_path
 
     va_to_file: dict[int, str] = {}
@@ -850,7 +853,7 @@ def load_layout(
         rel = rel_display_path(cfile, cfg.reversed_dir)
         for entry in read_source_bindings(
             cfile,
-            target_name=target_marker(cfg),
+            target_name=target_module(cfg),
             metadata_dir=cfg.metadata_dir,
             project_root=getattr(cfg, "root", None),
         ):
@@ -897,7 +900,7 @@ def _collect_hygiene(
         if cmake.is_file():
             text = cmake.read_text(encoding="utf-8")
             files = list(iter_sources(cfg.reversed_dir, cfg))
-            ordered, _ = order_sources(files, marker=cfg.marker)
+            ordered, _ = order_sources(files, target_module_name=cfg.module)
             by_key = {
                 str(p.resolve()): rel_display_path(p, cfg.root) for p in ordered if p.is_absolute()
             }
@@ -953,7 +956,7 @@ def _collect_hygiene(
             recs.append(rec)
         recs.extend(recommend_lint_errors(lint_errors))
         recs.extend(recommend_duplicate_globals(dup_globals))
-        recs.extend(recommend_stale_markers(stale))
+        recs.extend(recommend_stale_addresses(stale))
 
     with _lane("shared-twins"):
         from rebrew.c_parser import function_definition_spans
@@ -1085,19 +1088,19 @@ def _collect_hygiene(
                 recs.append(rec)
 
     with _lane("foreign-sources"):
+        from rebrew.config import target_module
         from rebrew.source_selection import collect_target_sources
-        from rebrew.sources import target_marker
         from rebrew.utils import rel_display_path
 
-        marker = target_marker(cfg) or cfg.target_name
-        _own, foreign = collect_target_sources(cfg, marker)
+        target_module_name = target_module(cfg) or cfg.target_name
+        _own, foreign = collect_target_sources(cfg, target_module_name)
         rels = []
         for p in foreign:
             try:
                 rels.append(p.relative_to(cfg.root).as_posix())
             except ValueError:
                 rels.append(rel_display_path(p, cfg.reversed_dir))
-        rec = recommend_foreign_sources(rels, marker)
+        rec = recommend_foreign_sources(rels, target_module_name)
         if rec:
             recs.append(rec)
 
@@ -1125,7 +1128,7 @@ _KIND_TO_LANE = {
     "data-drift": "hygiene",
     "start-data": "hygiene",
     "duplicate-globals": "hygiene",
-    "stale-markers": "hygiene",
+    "stale-addresses": "hygiene",
     "build-check": "hygiene",
     "stale-cache": "hygiene",
     "backfill-blockers": "next",

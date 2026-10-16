@@ -20,7 +20,7 @@ def _project(root: Path, *, extra: str = "") -> None:
     (root / "rebrew-project.toml").write_text(
         '[project]\nname = "live"\ndefault_target = "good"\nshared_dir = ""\n'
         '[compiler]\nprofile = "msvc-6.0"\nincludes = ""\nlibs = ""\n'
-        '[targets.good]\nbinary = "game.exe"\nreversed_dir = "src"\nmarker = "GOOD"\n' + extra
+        '[targets.good]\nbinary = "game.exe"\nreversed_dir = "src"\nmodule = "GOOD"\n' + extra
     )
     (root / "game.exe").write_bytes(make_pe(b"\xc3"))
     source = root / "src" / "function.c"
@@ -154,7 +154,7 @@ class TestLiveProjectCoverage:
     ) -> None:
         _project(
             tmp_path,
-            extra='[targets.other]\nbinary = "game.exe"\nreversed_dir = "src"\nmarker = "OTHER"\n',
+            extra='[targets.other]\nbinary = "game.exe"\nreversed_dir = "src"\nmodule = "OTHER"\n',
         )
         load_project_coverage(tmp_path)
         original = coverage_project.scan_files
@@ -257,7 +257,7 @@ class TestProjectCoherence:
     ) -> None:
         _project(
             tmp_path,
-            extra='[targets.zother]\nbinary="game.exe"\nreversed_dir="src"\nmarker="GOOD"\n',
+            extra='[targets.zother]\nbinary="game.exe"\nreversed_dir="src"\nmodule ="GOOD"\n',
         )
         original = coverage_project.build_catalog_data
         changed = False
@@ -280,7 +280,7 @@ class TestProjectCoherence:
     ) -> None:
         _project(
             tmp_path,
-            extra='[targets.zother]\nbinary="game.exe"\nreversed_dir="src"\nmarker="OTHER"\n',
+            extra='[targets.zother]\nbinary="game.exe"\nreversed_dir="src"\nmodule ="OTHER"\n',
         )
         original = coverage_project._inputs
         calls: dict[str, int] = {}

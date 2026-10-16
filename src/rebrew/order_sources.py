@@ -13,7 +13,7 @@ from pathlib import Path
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print
-from rebrew.config import ConfigError, ConfigNotFoundError, load_config, module_marker
+from rebrew.config import ConfigError, ConfigNotFoundError, load_config, target_module
 from rebrew.link_order import order_sources
 
 _EPILOG = (
@@ -46,7 +46,7 @@ def main(
     exclude: list[str] = typer.Option(
         [], "--exclude", help="File basenames absent from the original (repeatable)"
     ),
-    marker: str = typer.Option(
+    target_module_name: str = typer.Option(
         "",
         "--module",
         help="Metadata module to order by (e.g. SERVER) for multi-target sources",
@@ -84,7 +84,7 @@ def main(
         files,
         table,
         set(exclude),
-        marker=marker or (module_marker(cfg) if cfg is not None else None),
+        target_module_name=target_module_name or (target_module(cfg) if cfg is not None else None),
         metadata_dir=cfg.metadata_dir if cfg is not None else None,
     )
     if json_output:

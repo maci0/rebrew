@@ -32,7 +32,7 @@ default_target = "game"
 
 [targets.game]
 binary = "game.exe"
-marker = "GAME"
+module = "GAME"
 reversed_dir = "src"
 [compiler]
 profile = "msvc-6.0"

@@ -4,8 +4,8 @@
 # the "target binary not found" warning and no toolchain round trip happens.
 #
 # `reversed_dir` must not be a package directory. A command run from this root
-# that writes markers, skeletons or metadata (`document-unmatched`,
-# `skeleton`, `migrate-markers`, `catalog`) writes into it, and src/rebrew is
+# that writes source, skeletons or metadata (`document-unmatched`,
+# `skeleton`, `source register`, `catalog`) writes into it, and src/rebrew is
 # the shipped package: those files would be committed and packed into the
 # wheel. A gitignored scratch path keeps a stray write out of the tree.
 [project]

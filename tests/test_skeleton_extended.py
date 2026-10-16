@@ -31,7 +31,7 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "target_binary": tmp_path / "fake.dll",
         "reversed_dir": src,
         "metadata_dir": tmp_path,
-        "marker": "SERVER",
+        "module": "SERVER",
         "source_ext": ".c",
         "library_modules": set(),
         "ignored_symbols": [],
@@ -48,9 +48,6 @@ class TestRenderersWithDecomp:
         # _render_skeleton was consolidated into _render_skeleton; the
         # origin_comment branch (always empty) is gone, todo_text is the hook.
         out = _render_skeleton(
-            marker="FUNCTION",
-            cfg_marker="SERVER",
-            va=0x1000,
             xref_context="/* === Cross-references ===",
             decomp_code="undefined4 func(void) { return 0; }",
             decomp_backend="r2ghidra",
@@ -74,9 +71,6 @@ class TestRenderersWithDecomp:
             "#endif"
         )
         out = _render_skeleton(
-            marker="FUNCTION",
-            cfg_marker="SERVER",
-            va=0x1000,
             xref_context="",
             decomp_code=None,
             decomp_backend="decompiler",
@@ -94,9 +88,6 @@ class TestRenderersWithDecomp:
 
     def test_annotation_block_with_decomp(self) -> None:
         out = _render_skeleton(
-            marker="FUNCTION",
-            cfg_marker="SERVER",
-            va=0x1000,
             xref_context="/* ctx */",
             decomp_code="void f(void) {}",
             decomp_backend="ghidra",

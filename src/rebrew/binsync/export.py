@@ -729,7 +729,7 @@ def export_state(
     # Optional git commit (opt-in, after all writes including manifest)
     commit_hash: str | None = None
     if git_commit and not dry_run:
-        commit_hash = _git_commit_state_dir(outdir, cfg.target_name or cfg.marker or "default")
+        commit_hash = _git_commit_state_dir(outdir, cfg.target_name or cfg.module or "default")
 
     return {
         "outdir": str(outdir),

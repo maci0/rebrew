@@ -19,7 +19,7 @@ from types import MappingProxyType
 from typing import Any
 
 from rebrew.catalog.pipeline import build_catalog_data
-from rebrew.config import ProjectConfig, inventory_path_for, load_config, module_marker
+from rebrew.config import ProjectConfig, inventory_path_for, load_config, target_module
 from rebrew.coverage_db import import_verify_rows
 from rebrew.coverage_toml import (
     CoverageSnapshot,
@@ -155,7 +155,7 @@ def _target_view(cfg: ProjectConfig, old: _Target | None) -> _Target:
             cfg.target_name,
             data,
             verify_rows=rows,
-            history=load_status_history(cfg.metadata_dir, module_marker(cfg)),
+            history=load_status_history(cfg.metadata_dir, target_module(cfg)),
         )
         snapshot = snapshot_from_document(
             cfg.root / "rebrew-project.toml", document, cfg.target_name

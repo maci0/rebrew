@@ -68,7 +68,7 @@ from rebrew.cli import (
     require_config,
     run_standalone,
 )
-from rebrew.config import ProjectConfig, module_marker
+from rebrew.config import ProjectConfig, target_module
 from rebrew.naming import avoid_windows_reserved
 from rebrew.utils import (
     c_comment_safe,
@@ -449,8 +449,8 @@ def apply_binsync_prototype(cfg: Any, local: Any, prototype: str, filepath: str)
 def _entry_module(cfg: Any, local: Any = None) -> str:
     """Module for a metadata write.
 
-    The local entry's module wins. Otherwise the project marker
-    (:func:`rebrew.config.module_marker`). A hardcoded ``SERVER`` would
+    The local entry's module wins. Otherwise the project module
+    (:func:`rebrew.config.target_module`). A hardcoded ``SERVER`` would
     store the row under another project's module when this one has none.
     Empty means the caller must skip the write.
     """
@@ -459,18 +459,18 @@ def _entry_module(cfg: Any, local: Any = None) -> str:
         named = str(getattr(local, "module", "") or "").strip()
     if named:
         return named
-    return module_marker(cfg)
+    return target_module(cfg)
 
 
 def _stub_text(cfg: Any, va: int, bs_name: str, bs_proto: str) -> tuple[Path, str, str]:
     """``(path, source, module)`` of the stub ``--create-missing`` would write."""
     bs_stripped = strip_cdecl_prefix(bs_name)
     target_func = bs_stripped if is_safe_c_ident(bs_stripped) else f"func_{va:08x}"
-    mod = module_marker(cfg)
+    mod = target_module(cfg)
     if not mod:
         raise ValueError(
-            "cannot create a stub without a module marker "
-            "(set [targets.<name>].marker, or use a target name with identifier characters)"
+            "cannot create a stub without a module "
+            "(set [targets.<name>].module, or use a target name with identifier characters)"
         )
     proto = (bs_proto or "").strip()
     if proto.endswith(";"):
@@ -910,7 +910,7 @@ def import_state(
 
             local_mod = _entry_module(cfg, local)
             if not local_mod:
-                log.warning("skipping note for VA 0x%x: no module marker", va)
+                log.warning("skipping note for VA 0x%x: no module", va)
                 skipped += 1
             else:
                 local_note = str(get_entry(cfg.metadata_dir, va, local_mod).get("note") or "")
@@ -1072,10 +1072,10 @@ def import_state(
         mod = (
             _entry_module(cfg, local)
             if local is not None
-            else (wanted_module or module_marker(cfg))
+            else (wanted_module or target_module(cfg))
         )
         if not mod:
-            log.warning("skipping global for VA 0x%x: no module marker", va)
+            log.warning("skipping global for VA 0x%x: no module", va)
             skipped += 1
             continue
         if local is not None:
@@ -1236,7 +1236,7 @@ def import_state(
             continue
         local_mod = _entry_module(cfg, local)
         if not local_mod:
-            log.warning("skipping locals for VA 0x%x: no module marker", va)
+            log.warning("skipping locals for VA 0x%x: no module", va)
             skipped += 1
             continue
 
@@ -1291,7 +1291,7 @@ def import_state(
         ):
             continue  # A repeated pull writes nothing.
         if not owner_mod:
-            log.warning("skipping comments for VA 0x%x: no module marker", owner_va)
+            log.warning("skipping comments for VA 0x%x: no module", owner_va)
             skipped += 1
         elif dry_run:
             proposed.append(

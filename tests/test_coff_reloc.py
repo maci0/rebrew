@@ -29,7 +29,7 @@ binary = "bin/game.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src"
-marker = "GAME"
+module = "GAME"
 
 [compiler]
 profile = "gcc-14.2.0"
@@ -234,7 +234,7 @@ def test_function_catalog_scan_is_marker_scoped(
         reversed_dir=src,
         metadata_dir=tmp_path,
         dll_exports={},
-        marker="GAME",
+        module="GAME",
         target_name="game",
     )
     m = cr.build_name_to_va(cfg)  # type: ignore[arg-type]

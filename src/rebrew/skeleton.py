@@ -46,6 +46,7 @@ from rebrew.config import (
     ConfigError,
     ProjectConfig,
     inventory_path_for,
+    target_module,
     validate_http_url,
 )
 from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends, fetch_decompilation
@@ -59,9 +60,6 @@ from rebrew.naming import (
     load_existing_vas,
     make_filename,
     sanitize_name,
-)
-from rebrew.sources import (
-    target_marker,
 )
 from rebrew.utils import (
     SOURCE_BACKUP_DIRNAME,
@@ -93,9 +91,6 @@ def _decomp_comment_lines(decomp_code: str, decomp_backend: str) -> list[str]:
 
 
 def _render_skeleton(
-    marker: str,
-    cfg_marker: str,
-    va: int,
     xref_context: str | None,
     decomp_code: str | None,
     decomp_backend: str,
@@ -107,11 +102,6 @@ def _render_skeleton(
     convention_note: str | None = None,
     profile: str = "",
 ) -> str:
-    # Identity (marker, module, VA) is recorded by the write path. The file
-    # is pure C so a migrated tree has nothing for an external marker parser
-    # to read. The three arguments stay so existing callers keep their
-    # keyword shape.
-    del marker, cfg_marker, va
     lines: list[str] = []
     if xref_context:
         lines.append(f"{xref_context}\n")
@@ -222,8 +212,6 @@ def generate_skeleton(
         todo_text: Optional comment text for the TODO marker (None for compact format).
 
     """
-    lib_modules = cfg.library_modules or set()
-    marker = kind_for_module(module, "RELOC", lib_modules)
 
     # Determine symbol name.  A custom name gets the same sanitization as a
     # Ghidra name (non-identifier characters, leading digit, length), so
@@ -237,9 +225,6 @@ def generate_skeleton(
     signature, conv_note = _convention_stub(cfg, va, func_name, func_lookup)
 
     content = _render_skeleton(
-        marker=marker,
-        cfg_marker=cfg.marker,
-        va=va,
         profile=str(getattr(cfg, "compiler_profile", "")),
         func_name=func_name,
         ghidra_name=ghidra_name,
@@ -253,7 +238,7 @@ def generate_skeleton(
     )
     from rebrew.metadata.anchors import add_address_anchor
 
-    address_module = module or target_marker(cfg) or cfg.target_name
+    address_module = module or target_module(cfg) or cfg.target_name
     return add_address_anchor(content, address_module, va, func_name) if address_module else content
 
 
@@ -1075,7 +1060,7 @@ def _run_batch_mode(
         else:
             overwrite_backup = _preserve_overwrite(cfg, filepath)
             atomic_write_text(filepath, content, encoding="utf-8")
-            _write_skeleton_metadata(cfg, filepath, va_val, size_val, cfg.marker, name_val)
+            _write_skeleton_metadata(cfg, filepath, va_val, size_val, cfg.module, name_val)
 
         symbol_val = "_" + sanitize_name(name_val)
         test_cmd = generate_test_command(rel_path, symbol_val, va_val, size_val)
@@ -1132,12 +1117,12 @@ def _write_skeleton_metadata(
     """Record identity and fill SIZE when the store lacks it.
 
     The row key is ``module_val`` (the address module). ``kind_module``
-    selects FUNCTION or LIBRARY: a library module under the game marker is
+    selects FUNCTION or LIBRARY: a library module under the game module is
     LIBRARY. Never overwrites an existing SIZE and never writes STATUS.
     An existing row keeps its name unless *overwrite_name* (an explicit
     ``--name``), which otherwise would disagree with the rewritten symbol.
     """
-    from rebrew.metadata.bindings import derive_c_symbol, kind_for_module
+    from rebrew.metadata.bindings import derive_c_symbol
     from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
 
     existing = get_entry(cfg.metadata_dir, va_int, module_val)
@@ -1196,7 +1181,7 @@ def _run_append_mode(
     try:
         existing_in_file = read_source_bindings(
             append_path,
-            target_name=target_marker(cfg),
+            target_name=target_module(cfg),
             metadata_dir=cfg.metadata_dir,
             project_root=getattr(cfg, "root", None),
         )
@@ -1637,7 +1622,7 @@ def main(
             console.print("Use [cyan]--force[/] to overwrite.")
         raise typer.Exit(code=EXIT_OK)
 
-    module_val = cfg.marker  # Use the project marker as module name
+    module_val = cfg.module  # Use the project module as module name
 
     # --append mode: add marker block to an existing file
     if append:

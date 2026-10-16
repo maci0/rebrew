@@ -145,7 +145,7 @@ class TestDiffSourceResolution:
             root=tmp_path,
             reversed_dir=tmp_path,
             metadata_dir=tmp_path.parent,
-            marker="GAME",
+            module="GAME",
             source_ext=".c",
             compile_timeout=30,
         )
@@ -194,7 +194,7 @@ class TestDiffSourceResolution:
             root=tmp_path,
             reversed_dir=tmp_path,
             metadata_dir=tmp_path.parent,
-            marker="GAME",
+            module="GAME",
             source_ext=".c",
             compile_timeout=30,
         )

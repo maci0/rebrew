@@ -334,9 +334,9 @@ def _existing_vas(cfg: Any) -> set[int]:
     """VAs that already have a FUNCTION/LIBRARY annotation anywhere.
 
     ``crt_match.collect_library_annotations`` deliberately drops FUNCTION
-    markers outside ``library_modules``, so using it here let a LIBRARY marker
+    markers outside ``library_modules``, so using it here let a LIBRARY binding
     be appended over an already-decompiled function.  ``naming.load_existing_vas``
-    keeps every FUNCTION/LIBRARY marker (only GLOBAL/DATA are skipped) and
+    keeps every FUNCTION/LIBRARY binding (only GLOBAL/DATA are skipped) and
     scans the same trees.
 
     Fail closed: a scan error must propagate.  Swallowing it as ``set()`` made
@@ -565,10 +565,10 @@ def main(
     try:
         existing = _existing_vas(cfg)
     except Exception as exc:
-        # Fail closed: an empty existing-set would write LIBRARY markers over
+        # Fail closed: an empty existing-set would write LIBRARY bindings over
         # already-decompiled functions.  Surface the scan error and refuse.
         error_exit(
-            f"cannot scan existing annotations (refusing to write LIBRARY markers): {exc}",
+            f"cannot scan existing annotations (refusing to write LIBRARY bindings): {exc}",
             json_mode=json_output,
         )
 

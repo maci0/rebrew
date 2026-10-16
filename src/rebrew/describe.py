@@ -49,17 +49,14 @@ from rebrew.cli import (
     require_config,
     untrusted_ident,
 )
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, target_module
 from rebrew.formats.binary_loader import load_binary
 from rebrew.formats.binary_model import BinaryInfo
 from rebrew.formats.import_table import parse_import_table
 from rebrew.metadata.bindings import SourceBinding, read_source_bindings
 from rebrew.metadata.functions import as_metadata_int, get_entry, load_metadata
 from rebrew.rename_ops import c_name_from_symbol
-from rebrew.sources import (
-    iter_sources,
-    target_marker,
-)
+from rebrew.sources import iter_sources
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +98,7 @@ def _collect_annotations(cfg: ProjectConfig) -> list[SourceBinding]:
             annos.extend(
                 read_source_bindings(
                     cfile,
-                    target_name=target_marker(cfg),
+                    target_name=target_module(cfg),
                     metadata_dir=cfg.metadata_dir,
                     project_root=getattr(cfg, "root", None),
                 )
@@ -139,9 +136,9 @@ def _build_lookup(
             if ann.size > 0:
                 ranges.append((ann.va, ann.va + ann.size, name))
     if cfg is not None:
-        marker = target_marker(cfg)
+        target_module_name = target_module(cfg)
         for (module, va), entry in load_metadata(cfg.metadata_dir, deepcopy=False).items():
-            if module != marker or va in annotations:
+            if module != target_module_name or va in annotations:
                 continue
             name = entry.get("name") or c_name_from_symbol(entry.get("symbol", ""))
             if name:
@@ -397,8 +394,8 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
         annotations, names, ranges = {}, {}, []
     ann = annotations.get(va)
     if ann is None:
-        marker = target_marker(cfg)
-        entry = get_entry(cfg.metadata_dir, va, marker) if marker else {}
+        target_module_name = target_module(cfg)
+        entry = get_entry(cfg.metadata_dir, va, target_module_name) if target_module_name else {}
         name = entry.get("name") or c_name_from_symbol(entry.get("symbol", "")) or f"fcn_{va:08x}"
         size: int | None = as_metadata_int(entry.get("size", 0)) or None
         status: str | None = None

@@ -112,12 +112,12 @@ def missing_relocations(cfg: Any, source: Path, built: Path, link_map: Path) -> 
     symbol in *source*'s object. Fixups are compared by offset from each
     function's start, so a build whose layout drifted is compared correctly.
     """
+    from rebrew.config import target_module
     from rebrew.data_ownership import parse_link_map
     from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
     from rebrew.formats.relocations import relocation_spans
     from rebrew.metadata.bindings import read_source_bindings
     from rebrew.rename_ops import c_name_from_symbol
-    from rebrew.sources import target_marker
 
     symbols = parse_link_map(link_map.read_text(encoding="utf-8", errors="replace"))
     objects = object_names(source)
@@ -139,7 +139,7 @@ def missing_relocations(cfg: Any, source: Path, built: Path, link_map: Path) -> 
     report = SiteReport({}, [], [])
     annotations = read_source_bindings(
         source,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         base_dir=cfg.root,
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),

@@ -258,16 +258,16 @@ def build_name_to_va(
     """
     name_to_va: dict[str, int] = {}
     try:
-        from rebrew.config import module_marker
+        from rebrew.config import target_module
         from rebrew.data_scan import scan_globals
 
-        # Every source of pairs below is scoped to the ACTIVE target's marker.
+        # Every source of pairs below is scoped to the ACTIVE target's module.
         # A shared file carries one `// DATA:`/`// GLOBAL:` marker per target
         # and the same symbol sits at a different VA in each binary; unscoped,
         # the last entry wins and the other target's compare validates its
         # absolute references against the wrong binary (guild-rebrew round
         # 1292: GOLDTL's log tables resolved to the SERVER VAs 0x10027078...).
-        active_marker = module_marker(cfg)
+        active_module = target_module(cfg)
 
         scan = scan_globals(cfg.reversed_dir, cfg, record_roles=False)
         for name, glob in scan.globals.items():
@@ -281,9 +281,9 @@ def build_name_to_va(
         meta = load_data_metadata(cfg.metadata_dir)
         for (_module, va), entry in meta.items():
             if (
-                active_marker
+                active_module
                 and _module
-                and preset_module_key(_module) != preset_module_key(active_marker)
+                and preset_module_key(_module) != preset_module_key(active_module)
             ):
                 continue
             for field in ("name", "link_symbol"):
@@ -311,7 +311,7 @@ def build_name_to_va(
                 for path in iter_sources(cfg.reversed_dir, cfg)
                 for ann in read_source_bindings(
                     path,
-                    target_name=active_marker,
+                    target_name=active_module,
                     base_dir=cfg.reversed_dir,
                     metadata_dir=cfg.metadata_dir,
                     project_root=getattr(cfg, "root", None),
@@ -361,7 +361,7 @@ def build_name_to_va(
         native_binary_hash: str | None = None
         for (owner, va), entry in load_metadata(cfg.metadata_dir).items():
             if (
-                preset_module_key(owner) != preset_module_key(active_marker)
+                preset_module_key(owner) != preset_module_key(active_module)
                 or entry.get("kind") != "LIBRARY"
                 or not entry.get("native_identity")
             ):

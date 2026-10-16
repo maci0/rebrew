@@ -57,13 +57,10 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import ProjectConfig, inventory_path_for, load_config, module_marker
+from rebrew.config import ProjectConfig, inventory_path_for, load_config, target_module
 from rebrew.metadata.bindings import read_source_bindings
 from rebrew.rename_ops import c_name_from_symbol
-from rebrew.sources import (
-    iter_sources,
-    target_marker,
-)
+from rebrew.sources import iter_sources
 from rebrew.status_style import DISPLAY_STATUSES
 from rebrew.utils import atomic_write_text, parse_int_literal, untrusted_ident
 
@@ -171,7 +168,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
             try:
                 entries = read_source_bindings(
                     cfile,
-                    target_name=target_marker(cfg),
+                    target_name=target_module(cfg),
                     metadata_dir=cfg.metadata_dir,
                     project_root=getattr(cfg, "root", None),
                 )
@@ -1428,7 +1425,7 @@ def generate_inline_c(
     lines.append("")
     from rebrew.metadata.anchors import add_address_anchor
 
-    return add_address_anchor("\n".join(lines), cfg.marker or "TARGET", va, func_name)
+    return add_address_anchor("\n".join(lines), cfg.module or "TARGET", va, func_name)
 
 
 def _record_inline_c_identity(
@@ -1439,7 +1436,7 @@ def _record_inline_c_identity(
     from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
 
     sym = symbol or f"_func_{va:08x}"
-    module = cfg.marker or "TARGET"
+    module = cfg.module or "TARGET"
     previous = get_entry(cfg.metadata_dir, va, module)
     kind = "LIBRARY" if previous.get("kind") == "LIBRARY" else "FUNCTION"
     root = (
@@ -1617,7 +1614,7 @@ def batch_extract_nasm(
         if cfile.resolve().is_relative_to(resolved_output):
             continue
         for info in _parse_annotations(
-            cfile, metadata_dir=cfg.metadata_dir, target_name=module_marker(cfg)
+            cfile, metadata_dir=cfg.metadata_dir, target_name=target_module(cfg)
         ):
             if info["size"] < 6:
                 continue

@@ -14,7 +14,7 @@ from rebrew.c_parser import find_extern_variables, function_definition_spans, fu
 from rebrew.c_rename import ParsedSource
 from rebrew.c_rename import definitions as source_definitions
 from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.config import ProjectConfig, load_config, module_marker
+from rebrew.config import ProjectConfig, load_config, target_module
 from rebrew.formats.binary_loader import load_binary
 from rebrew.formats.pe_headers import SECTION_ENTRY_SIZE, pe_layout
 from rebrew.metadata.bindings import FUNCTION_KINDS, read_source_bindings
@@ -163,7 +163,7 @@ def review_organization(
     targets = []
     all_ids = set(definitions)
     for cfg in cfgs:
-        sources, _foreign = collect_target_sources(cfg, module_marker(cfg))
+        sources, _foreign = collect_target_sources(cfg, target_module(cfg))
         active = set(sources) & set(paths)
         participating = bool(active)
         compiled = {identifier for path in active for identifier in by_file[path]}
@@ -224,7 +224,7 @@ def review_organization(
         for source in sorted(active):
             annotations = read_source_bindings(
                 source,
-                target_name=module_marker(cfg),
+                target_name=target_module(cfg),
                 metadata_dir=cfg.metadata_dir,
                 project_root=cfg.root,
             )
@@ -273,7 +273,7 @@ def review_organization(
                 )
             if not settings:
                 settings.add(
-                    resolve_compile_overrides(cfg, source.parent, None, None, module_marker(cfg))
+                    resolve_compile_overrides(cfg, source.parent, None, None, target_module(cfg))
                 )
             flags.append(
                 {

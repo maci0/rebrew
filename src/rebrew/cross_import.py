@@ -42,9 +42,9 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
-from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.config import ProjectConfig, inventory_path_for, target_module
 from rebrew.similar import disasm_signature, similarity_score
-from rebrew.sources import contained_path, iter_sources, source_roots, target_marker
+from rebrew.sources import contained_path, iter_sources, source_roots
 from rebrew.utils import (
     atomic_write_text,
     preset_module_key,
@@ -152,7 +152,7 @@ def annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     for path in iter_sources(cfg.reversed_dir, cfg):
         for ann in read_source_bindings(
             path,
-            target_name=target_marker(cfg),
+            target_name=target_module(cfg),
             base_dir=cfg.reversed_dir,
             metadata_dir=cfg.metadata_dir,
             project_root=getattr(cfg, "root", None),
@@ -248,7 +248,7 @@ def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
     entries = registry(cfg_src)
     metadata_dir = getattr(cfg_src, "metadata_dir", None)
     metadata = load_metadata(metadata_dir) if metadata_dir is not None else {}
-    module = (target_marker(cfg_src) or "") if metadata else ""
+    module = (target_module(cfg_src) or "") if metadata else ""
     sizes = {
         va: int(metadata.get((module, va), {}).get("size") or reg.get("canonical_size") or 0)
         for va, reg in entries.items()
@@ -699,25 +699,6 @@ def _import_result(
     }
 
 
-def _place_shared_marker(
-    text: str,
-    module: str,
-    dst_va: int,
-    dst_size: int,
-    src_module: str,
-    src_va: int,
-    *,
-    superseded: bool,
-) -> str:
-    """Return *text*. Shared import does not insert a marker line.
-
-    The destination row is recorded after verification. The arguments stay
-    so callers keep their shape.
-    """
-    del module, dst_va, dst_size, src_module, src_va, superseded
-    return text
-
-
 def import_shared_function(
     cfg_dst: ProjectConfig,
     cfg_src: ProjectConfig,
@@ -778,7 +759,7 @@ def import_shared_function(
             filepath=src_file,
             message=str(exc),
         )
-    module = target_marker(cfg_dst) or cfg_dst.target_name
+    module = target_module(cfg_dst) or cfg_dst.target_name
 
     from rebrew.metadata.bindings import (
         FUNCTION_KINDS,
@@ -792,7 +773,7 @@ def import_shared_function(
         metadata_dir=cfg_dst.metadata_dir,
         project_root=cfg_dst.root,
     )
-    src_module = target_marker(cfg_src) or cfg_src.target_name
+    src_module = target_module(cfg_src) or cfg_src.target_name
     superseded = any(e.va == dst_va for e in existing)
     _preamble, blocks = split_address_sections(text)
     already_on_source = False
@@ -1022,8 +1003,8 @@ def import_function(
             message=str(exc),
         )
 
-    module = target_marker(cfg_dst) or cfg_dst.target_name
-    src_module = target_marker(cfg_src) or cfg_src.target_name
+    module = target_module(cfg_dst) or cfg_dst.target_name
+    src_module = target_module(cfg_src) or cfg_src.target_name
     from rebrew.metadata.bindings import FUNCTION_KINDS, read_source_bindings
 
     donor = next(
@@ -1090,7 +1071,7 @@ def import_function(
         )
         own = [e for e in existing if e.va == dst_va]
         other = [e for e in existing if e.va != dst_va]
-        src_module = target_marker(cfg_src) or cfg_src.target_name
+        src_module = target_module(cfg_src) or cfg_src.target_name
         src_in_file = any(
             e.va == src_va
             for e in read_source_bindings(
@@ -1260,7 +1241,7 @@ def _source_flags(cfg_src: ProjectConfig, src_path: Path, src_va: int) -> str:
     try:
         anns = read_source_bindings(
             src_path,
-            target_name=target_marker(cfg_src),
+            target_name=target_module(cfg_src),
             metadata_dir=cfg_src.metadata_dir,
             project_root=cfg_src.root,
         )
@@ -1268,7 +1249,7 @@ def _source_flags(cfg_src: ProjectConfig, src_path: Path, src_va: int) -> str:
         anns = []
     for ann in anns:
         if ann.va == src_va and preset_module_key(ann.module) == preset_module_key(
-            target_marker(cfg_src) or ""
+            target_module(cfg_src) or ""
         ):
             return resolve_cflags(cfg_src, ann.cflags, ann.module)
     return resolve_cflags(cfg_src, "", "")

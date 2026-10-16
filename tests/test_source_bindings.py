@@ -136,7 +136,7 @@ class TestRegistration:
         cfg = SimpleNamespace(
             root=tmp_path,
             metadata_dir=tmp_path,
-            all_markers={"S"},
+            target_modules={"S"},
             library_modules=set(),
             external_libs={},
         )
@@ -157,7 +157,7 @@ class TestRegistration:
         cfg = SimpleNamespace(
             root=tmp_path,
             metadata_dir=tmp_path,
-            all_markers={"S"},
+            target_modules={"S"},
             library_modules=set(),
             external_libs={},
         )

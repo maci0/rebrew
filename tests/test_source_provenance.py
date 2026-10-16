@@ -132,14 +132,14 @@ class TestSourceProvenance:
 class TestAssemblyLint:
     def test_evidence_scopes_to_file_symbol_target_and_current_body(self, tmp_path: Path) -> None:
         file = _source(tmp_path)
-        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, marker="CLIENT")
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="CLIENT")
         document_assembly(tmp_path, file, "fill0", "CLIENT", "Original macro at 0x401000")
         warnings = [m for _, c, m in lint_file(file, cfg).warnings if c == "W020"]
         assert len(warnings) == 1
         assert "other" in warnings[0]
-        cfg.marker = "SERVER"
+        cfg.module = "SERVER"
         assert len([c for _, c, _ in lint_file(file, cfg).warnings if c == "W020"]) == 2
-        cfg.marker = "CLIENT"
+        cfg.module = "CLIENT"
         second = tmp_path / "second.c"
         second.write_text(SOURCE)
         assert len([c for _, c, _ in lint_file(second, cfg).warnings if c == "W020"]) == 2
@@ -150,15 +150,15 @@ class TestAssemblyLint:
         file = _source(tmp_path)
         file.write_text("__declspec(naked) void dump(void) { __asm { _emit 0x55 } }\n")
         document_assembly(tmp_path, file, "dump", "CLIENT", "Original assembly")
-        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, marker="CLIENT")
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="CLIENT")
         assert any(c == "E023" for _, c, _ in lint_file(file, cfg).errors)
 
     def test_stale_missing_and_foreign_records_are_visible(self, tmp_path: Path) -> None:
         from rebrew.lint import _check_W031_source_provenance
 
         file = _source(tmp_path)
-        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, marker="CLIENT")
-        cfg.all_markers = {"CLIENT", "SERVER"}
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="CLIENT")
+        cfg.target_modules = {"CLIENT", "SERVER"}
         for module in ("CLIENT", "SERVER"):
             document_assembly(tmp_path, file, "fill0", module, "Original")
         assert _check_W031_source_provenance(cfg) == []
@@ -176,7 +176,7 @@ class TestAssemblyLint:
     def test_malformed_store_never_exempts_assembly(self, tmp_path: Path) -> None:
 
         file = _source(tmp_path)
-        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, marker="CLIENT")
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="CLIENT")
         (tmp_path / SOURCE_PROVENANCE_FILENAME).write_text("format = 1.0\ndefinitions = {}")
         with pytest.raises(ValueError, match="source metadata requires format = 2"):
             lint_file(file, cfg)
@@ -186,7 +186,7 @@ class TestAssemblyLint:
         file.write_bytes(
             SOURCE.replace("__asm { mov eax, 0 }", "/* ü */ __asm { mov eax, 0 }").encode("cp1252")
         )
-        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, marker="CLIENT")
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="CLIENT")
         document_assembly(tmp_path, file, "fill0", "CLIENT", "Original macro")
         assert len([c for _, c, _ in lint_file(file, cfg).warnings if c == "W020"]) == 1
 
@@ -198,7 +198,7 @@ class TestDocumentAssemblyCLI:
         _source(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\nname = "probe"\ndefault_target = "client"\n'
-            '[targets.client]\nbinary = "original.exe"\nmarker = "CLIENT"\nreversed_dir = "."\n'
+            '[targets.client]\nbinary = "original.exe"\nmodule = "CLIENT"\nreversed_dir = "."\n'
             '[compiler]\nprofile = "msvc-6.0"\n'
         )
         monkeypatch.chdir(tmp_path)
@@ -231,7 +231,7 @@ class TestRenameProvenance:
     def _plan(self, root: Path, *, move: bool = False) -> tuple[ProjectConfig, RenamePlan]:
         from rebrew.rename_ops import plan_symbol_rename
 
-        cfg = ProjectConfig(root=root, reversed_dir=root, marker="CLIENT")
+        cfg = ProjectConfig(root=root, reversed_dir=root, module="CLIENT")
         return cfg, plan_symbol_rename(
             cfg,
             "fill0",
@@ -340,7 +340,7 @@ class TestRenameProvenance:
         file = _source(tmp_path)
         file.write_text("int counter;\n" + SOURCE.replace("mov eax, 1", "mov eax, counter"))
         document_assembly(tmp_path, file, "other", "CLIENT", "Original macro")
-        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, marker="CLIENT")
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="CLIENT")
         plan = plan_symbol_rename(cfg, "counter", "total", store="data", require_ack=False)
         apply_rename_plan(cfg, plan)
         (record,) = load_source_provenance(tmp_path)

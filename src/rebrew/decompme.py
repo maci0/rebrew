@@ -701,12 +701,12 @@ def _resolve_annotation(
     *size_override* (the CLI ``--size``) supplies the size when the annotation
     has none — the check must not reject the very case ``--size`` exists for.
     """
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import target_marker
 
     annos = read_source_bindings(
         source,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )

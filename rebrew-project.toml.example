@@ -69,9 +69,9 @@ format = "pe"
 # Default: "x86_32"
 arch = "x86_32"
 
-# Module marker identifier in C source annotations (e.g. // FUNCTION: GAME 0x00401000).
+# Module identifier in metadata keys and address anchors (e.g. // ADDRESS: GAME 0x00401000).
 # Default: target name uppercased with non-alphanumeric chars stripped.
-marker = "GAME"
+module = "GAME"
 
 # Directory where reversed C sources live (relative to project root).
 # Default: "src/<target_name>"
@@ -99,7 +99,7 @@ source_ext = ".c"
 # Per-target compile defines (-D or /D) for shared multi-version source blocks.
 # defines = ["GAME_CLIENT", "VER_1_0"]
 
-# Module names using // LIBRARY: markers (e.g. standard library or vendor SDKs).
+# Module names with LIBRARY metadata bindings (e.g. standard library or vendor SDKs).
 # library_modules = ["MSVCRT", "ZLIB"]
 
 # External archives (.lib) attributed as external code (not reversed in-tree).

@@ -61,7 +61,7 @@ arch = "x86_32"
 reversed_dir = "src/fixture.exe"
 bin_dir = "bin/fixture.exe"
 source_ext = ".c"
-marker = "FIXTURE"
+module = "FIXTURE"
 
 [compiler]
 profile = "msvc-6.0"
@@ -455,7 +455,7 @@ class TestPlan:
         assert by_va[0x00401020].path == "library_other.h"
         assert by_va[0x00402000].kind == "DATA"
         assert by_va[0x00402000].section == ".data"
-        assert by_va[0x00402010].marker == (
+        assert by_va[0x00402010].declaration == (
             "/* ADDRESS: FIXTURE 0x00402010 */\nextern unsigned int imp_KERNEL32_dll_GetTickCount;\n"
         )
         # The undefined_* function lands inside .text: the config says that code
@@ -482,7 +482,7 @@ class TestPlan:
     def test_target_metadata(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         plan = self._plan(tmp_path, monkeypatch)
         assert plan.target == "fixture.exe"
-        assert plan.marker == "FIXTURE"
+        assert plan.module == "FIXTURE"
         assert plan.profile == "msvc-6.0"
         assert (plan.format, plan.arch) == ("pe", "x86_32")
         assert plan.image_base == IMAGE_BASE

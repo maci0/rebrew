@@ -46,10 +46,10 @@ from rebrew.cli import (
 )
 from rebrew.coff_reloc import build_name_to_va
 from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.config import ProjectConfig, inventory_path_for, target_module
 from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
 from rebrew.metadata.bindings import derive_c_symbol, read_source_bindings
-from rebrew.sources import contained_path, iter_sources, source_roots, target_marker
+from rebrew.sources import contained_path, iter_sources, source_roots
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -618,11 +618,11 @@ def _load_annotations(cfg: ProjectConfig) -> dict[int, Any]:
     """VA to annotation over every reversed source for the active target."""
     from rebrew.metadata.bindings import iter_source_bindings
 
-    marker = target_marker(cfg)
+    target_module_name = target_module(cfg)
     out: dict[int, Any] = {}
     for _path, anns in iter_source_bindings(
         iter_sources(cfg.reversed_dir, cfg),
-        target=marker,
+        target=target_module_name,
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):
@@ -646,13 +646,13 @@ def _initial_partition_for_annotated(
 
 def _parse_annotations_fallback(cfg: ProjectConfig) -> dict[int, Any]:
     """VA to annotation via direct per-file parse (no metadata overlay)."""
-    marker = target_marker(cfg)
+    target_module_name = target_module(cfg)
     out: dict[int, Any] = {}
     for src in iter_sources(cfg.reversed_dir, cfg):
         try:
             anns = read_source_bindings(
                 src,
-                target_name=marker,
+                target_name=target_module_name,
                 metadata_dir=cfg.metadata_dir,
                 project_root=getattr(cfg, "root", None),
             )

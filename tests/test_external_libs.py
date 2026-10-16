@@ -31,7 +31,7 @@ binary = "bin/game.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src"
-marker = "GAME"
+module = "GAME"
 
 [targets.game.external_libs]
 KERNEL32 = "KERNEL32.lib"

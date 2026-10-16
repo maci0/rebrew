@@ -33,7 +33,7 @@ binary = "original/server.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/server_dll"
-marker = "SERVER"
+module = "SERVER"
 
 [compiler]
 profile = "msvc-6.0"
@@ -95,7 +95,7 @@ def test_target_defines_reach_annotated_and_listed_sources(
         },
     )
     (tmp_path / "rebrew-project.toml").write_text(
-        TOML.replace('marker = "SERVER"', 'marker = "SERVER"\ndefines = ' + json.dumps(defines)),
+        TOML.replace('module = "SERVER"', 'module = "SERVER"\ndefines = ' + json.dumps(defines)),
         encoding="utf-8",
     )
     listed = tmp_path / "sources.txt"
@@ -145,9 +145,9 @@ def test_target_defines_do_not_leak_between_targets(
         },
     )
     (tmp_path / "rebrew-project.toml").write_text(
-        TOML.replace('marker = "SERVER"', 'marker = "SERVER"\ndefines = ["SERVER_BUILD"]')
+        TOML.replace('module = "SERVER"', 'module = "SERVER"\ndefines = ["SERVER_BUILD"]')
         + '\n[targets.client]\nbinary = "original/client.exe"\nformat = "pe"\n'
-        'arch = "x86_32"\nreversed_dir = "src/server_dll"\nmarker = "CLIENT"\n'
+        'arch = "x86_32"\nreversed_dir = "src/server_dll"\nmodule = "CLIENT"\n'
         'defines = ["CLIENT_BUILD"]\n',
         encoding="utf-8",
     )

@@ -167,7 +167,7 @@ class TestSourceSelectors:
             root=tmp_path,
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_name="server",
             source_ext=".c",
             target_binary=tmp_path / "game.bin",

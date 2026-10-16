@@ -1045,7 +1045,7 @@ class TestPrepareProveInputsDir32:
             target_binary=tmp_path / "x.dll",
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
         (tmp_path / "x.dll").write_bytes(b"\x00" * 64)
@@ -1116,7 +1116,7 @@ class TestPrepareProveInputsDir32:
             target_binary=tmp_path / "x.dll",
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
         (tmp_path / "x.dll").write_bytes(b"\x00" * 64)
@@ -1186,7 +1186,7 @@ def _watch_va_run(
         root=tmp_path,
         reversed_dir=src,
         metadata_dir=src,
-        marker="GAME",
+        module="GAME",
         source_ext=".c",
         target_binary=tmp_path / "game.exe",
     )
@@ -1267,7 +1267,7 @@ class TestProveInputsWatchedVasMetadata:
             target_binary=tmp_path / "x.dll",
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
         (tmp_path / "x.dll").write_bytes(b"\x00" * 64)
@@ -1367,7 +1367,7 @@ class TestMaxDeltaFilter:
             default_jobs=1,
             target_name="T",
             source_ext=".c",
-            marker="T",
+            module="T",
         )
         annos = [self._anno(0x1000, 2), self._anno(0x2000, 40), self._anno(0x3000, None)]
         monkeypatch.setattr("rebrew.prove.read_source_bindings", lambda *a, **k: annos)
@@ -1750,7 +1750,7 @@ class TestDecoratedNameSelection:
 
         (tmp_path / "rebrew-project.toml").write_text(
             '[targets.GAME]\nbinary = "game.exe"\nreversed_dir = "src"\n'
-            'source_ext = ".c"\nmarker = "GAME"\n',
+            'source_ext = ".c"\nmodule = "GAME"\n',
             encoding="utf-8",
         )
         shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")

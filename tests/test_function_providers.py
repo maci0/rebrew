@@ -16,7 +16,7 @@ from rebrew.metadata.functions import record_function_rows
 def _project(tmp_path: Path) -> ProjectConfig:
     src = tmp_path / "src"
     src.mkdir()
-    return ProjectConfig(root=tmp_path, reversed_dir=src, marker="GAME", source_ext=".c")
+    return ProjectConfig(root=tmp_path, reversed_dir=src, module="GAME", source_ext=".c")
 
 
 class TestCompiledSources:
@@ -392,7 +392,7 @@ class TestExactProviderPaths:
         source.write_text(prefix + "int f(void) { return 0; }\n")
         reversed_dir = tmp_path / "src/game"
         reversed_dir.mkdir(parents=True)
-        cfg = ProjectConfig(root=tmp_path, reversed_dir=reversed_dir, marker="GAME")
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=reversed_dir, module="GAME")
         record_function_rows(
             reversed_dir.parent,
             [
@@ -446,7 +446,7 @@ class TestExactProviderPaths:
         reversed_dir = tmp_path / "src/game"
         reversed_dir.mkdir()
         cfg = ProjectConfig(
-            root=tmp_path, reversed_dir=reversed_dir, marker="A", target_binary=tmp_path / "a.exe"
+            root=tmp_path, reversed_dir=reversed_dir, module="A", target_binary=tmp_path / "a.exe"
         )
         record_function_rows(
             reversed_dir.parent,

@@ -4,7 +4,7 @@ A glob (``src/shared/*.c``) over-includes: a shared tree holds every
 target's TUs, and a target must compile only files bound to its module
 in the function/data stores or source-purpose metadata — a GOLD-only TU linked into server.dll
 is a composition break (duplicate symbols at best, foreign bytes at
-worst).  ``rebrew build cmake-sources`` partitions the tree by marker and writes
+worst).  ``rebrew build cmake-sources`` partitions the tree by module and writes
 a CMake include setting ``<VAR>`` to exactly that target's files:
 
     execute_process(COMMAND ${REBREW} build cmake-sources -o ${CMAKE_BINARY_DIR}/rebrew-sources.cmake)
@@ -30,8 +30,8 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.config import target_module
 from rebrew.source_selection import collect_target_sources
-from rebrew.sources import target_marker
 from rebrew.utils import (
     atomic_write_text,
 )
@@ -81,9 +81,9 @@ def main(
 ) -> None:
     """Write the target's source list as a CMake include."""
     cfg = require_config(target=target, json_mode=json_output)
-    marker = target_marker(cfg) or cfg.target_name
+    target_module_name = target_module(cfg) or cfg.target_name
     try:
-        own, foreign = collect_target_sources(cfg, marker)
+        own, foreign = collect_target_sources(cfg, target_module_name)
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
 
@@ -117,7 +117,7 @@ def main(
 
     if not json_output and foreign and not dry_run:
         console.print(
-            f"[dim]cmake-sources: {len(foreign)} file(s) carry no {marker} marker "
+            f"[dim]cmake-sources: {len(foreign)} file(s) carry no {target_module_name} binding "
             f"and are excluded from the build[/dim]"
         )
     if dry_run:
@@ -129,7 +129,7 @@ def main(
         json_print(
             {
                 "target": cfg.target_name,
-                "marker": marker,
+                "module": target_module_name,
                 "variable": var,
                 "written": None if dry_run else str(output),
                 "files": rels,

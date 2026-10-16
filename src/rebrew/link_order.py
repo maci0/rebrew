@@ -25,7 +25,7 @@ from pathlib import Path
 import typer
 
 from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
-from rebrew.config import module_marker
+from rebrew.config import target_module
 from rebrew.metadata.bindings import FUNCTION_KINDS, read_source_bindings
 from rebrew.sources import iter_sources, source_exts
 from rebrew.utils import atomic_write_text, preset_module_key
@@ -48,17 +48,12 @@ _CMAKE_LISTS = "CMakeLists.txt"
 
 
 def file_va(
-    path: Path, marker: str | None = None, *, metadata_dir: Path | None = None
+    path: Path, target_module_name: str | None = None, *, metadata_dir: Path | None = None
 ) -> int | None:
     """Lowest FUNCTION/LIBRARY/STUB VA in *path* (None when none).
 
-    The shared annotation parser accepts both line and C89 block comments
-    and keeps library attribution from changing a file's link position.
-    Pass the project's metadata root to include migrated, pure C sources.
-
-    With *marker*, only that target's markers count: a stacked shared file
-    carries one VA per target in unrelated address spaces, so the minimum
-    across all markers can order the file at another target's address.
+    Read dedicated metadata bindings. *target_module_name* scopes shared files
+    to one target's address space; another target cannot supply the order.
     """
     if not path.is_file():
         return None
@@ -67,14 +62,14 @@ def file_va(
         for ann in read_source_bindings(path, metadata_dir=metadata_dir)
         if ann.kind in FUNCTION_KINDS
     ]
-    if marker is None:
+    if target_module_name is None:
         vas = [va for _, va in matches]
     else:
-        own = [va for mod, va in matches if preset_module_key(mod) == preset_module_key(marker)]
-        # Fall back to all markers when none names this target (legacy files
-        # whose module predates the configured marker) — filtering to empty
-        # would drop every file to the unknown-VA tail.
-        vas = own or [va for _, va in matches]
+        vas = [
+            va
+            for mod, va in matches
+            if preset_module_key(mod) == preset_module_key(target_module_name)
+        ]
     return min(vas) if vas else None
 
 
@@ -91,7 +86,7 @@ def order_sources(
     files: list[Path],
     first_va: dict[str, int] | None = None,
     exclude: set[str] | None = None,
-    marker: str | None = None,
+    target_module_name: str | None = None,
     *,
     metadata_dir: Path | None = None,
 ) -> tuple[list[Path], list[str]]:
@@ -101,7 +96,7 @@ def order_sources(
     unknown-VA files in path order; *excluded* files (absent from the
     original) are dropped.  ``first_va`` and ``exclude`` match on basenames,
     so ``zlib/adler32.c=0x10001000`` matches ``src/zlib/adler32.c``.
-    *marker* scopes stacked shared files to one target's VA.
+    *target_module_name* scopes stacked shared files to one target's VA.
     *metadata_dir* supplies function identities for migrated sources.
     """
     first_by_base = {_base_key(k): v for k, v in (first_va or {}).items()}
@@ -115,11 +110,11 @@ def order_sources(
             excluded.append(f.name)
             continue
         # Presence check, not truthiness: an explicit --first-va of 0x0 is a
-        # real override and must not fall through to the marker.
+        # real override and must not fall through to the binding.
         va = (
             first_by_base[base]
             if base in first_by_base
-            else file_va(f, marker, metadata_dir=metadata_dir)
+            else file_va(f, target_module_name, metadata_dir=metadata_dir)
         )
         if va is None:
             unknown.append(f)
@@ -408,7 +403,7 @@ def main(
     if not files:
         error_exit(f"no source files found in {cfg.reversed_dir}", json_mode=json_output)
     ordered_paths, _excluded = order_sources(
-        files, marker=module_marker(cfg) or None, metadata_dir=cfg.metadata_dir
+        files, target_module_name=target_module(cfg) or None, metadata_dir=cfg.metadata_dir
     )
     by_key = {_abs_key(cfg.root, str(p)): _rel(cfg.root, p) for p in ordered_paths}
     computed = [_rel(cfg.root, p) for p in ordered_paths]

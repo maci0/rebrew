@@ -27,17 +27,17 @@ command = "CL.EXE"
 
 [targets."server.dll"]
 binary = "server.dll"
-marker = "SERVER"
+module = "SERVER"
 reversed_dir = "src"
 
 [targets."tl.exe"]
 binary = "tl.exe"
-marker = "GOLDTL"
+module = "GOLDTL"
 reversed_dir = "src"
 
 [targets."gold.exe"]
 binary = "gold.exe"
-marker = "GOLD"
+module = "GOLD"
 reversed_dir = "src"
 """
 

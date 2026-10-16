@@ -2559,7 +2559,7 @@ class TestLlmSeedDryRun:
             root=tmp_path,
             reversed_dir=tmp_path,
             metadata_dir=tmp_path,
-            marker="S",
+            module="S",
             source_ext=".c",
             target_name="S",
             target_binary=tmp_path / "x",

@@ -69,7 +69,7 @@ class TestMergeDryRunIdempotent:
         monkeypatch.setattr(
             "rebrew.merge.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
-                marker="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
+                module="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
             ),
         )
         before = _tree_digest(tmp_path)
@@ -96,7 +96,7 @@ class TestSplitDryRunIdempotent:
         monkeypatch.setattr(
             "rebrew.split.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
-                marker="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
+                module="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
             ),
         )
         before = _tree_digest(tmp_path)
@@ -120,7 +120,7 @@ binary = "original/Server/server.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/server_dll"
-marker = "SERVER"
+module = "SERVER"
 """
 
     def test_fix_dry_run_twice_identical(
@@ -155,7 +155,7 @@ class TestMatchAllDryRunIdempotent:
         monkeypatch.setattr(
             "rebrew.match.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
-                marker="SERVER",
+                module="SERVER",
                 source_ext=".c",
                 reversed_dir=tmp_path,
                 metadata_dir=tmp_path,
@@ -229,7 +229,7 @@ class TestBlockerSetIdempotent:
         monkeypatch.setattr(
             "rebrew.blocker.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
-                marker="SERVER",
+                module="SERVER",
                 reversed_dir=tmp_path,
                 metadata_dir=tmp_path,
                 root=tmp_path,

@@ -215,7 +215,7 @@ class TestVerifyDataBytes:
             expected={0x1000: b"abcd", 0x2000: b"ef"},
             actual={0x1000: b"abXd", 0x2000: b"eX"},
             sizes={0x1000: 4, 0x2000: 2},
-            cfg=SimpleNamespace(marker="SERVER", all_markers={"SERVER", "OTHER"}),
+            cfg=SimpleNamespace(module="SERVER", target_modules={"SERVER", "OTHER"}),
         )
         assert report["total"] == report["compared"] == 3
         assert report["matched"] == 1

@@ -44,7 +44,7 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "metadata_dir": tmp_path,
         "bin_dir": tmp_path / "bin",
         "source_ext": ".c",
-        "marker": None,
+        "module": None,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

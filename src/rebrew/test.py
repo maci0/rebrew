@@ -64,7 +64,7 @@ from rebrew.compiler.compile import (
     matched_byte_count,
 )
 from rebrew.compiler.context import CompileContext
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, target_module
 from rebrew.formats.binary_loader import PADDING_BYTES, extract_raw_bytes
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata.bindings import (
@@ -80,7 +80,6 @@ from rebrew.metadata.functions import (
     update_source_status,
 )
 from rebrew.present import bar_plain
-from rebrew.sources import target_marker
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
 from rebrew.utils import floor_pct, untrusted_ident
 
@@ -868,7 +867,7 @@ def _status_skip_for_source(cfg: ProjectConfig, source: str, no_promote: bool) -
             entry.kind == "LIBRARY" and not entry.is_data
             for entry in read_source_bindings(
                 source_path,
-                target_name=target_marker(cfg),
+                target_name=target_module(cfg),
                 metadata_dir=cfg.metadata_dir,
                 project_root=cfg.root,
             )
@@ -907,7 +906,7 @@ def _lint_preamble(
 
     lint_annos = read_source_bindings(
         Path(source),
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=cfg.root,
     )
@@ -1044,7 +1043,7 @@ def _run_test_impl(
         if size_val is not None:
             target_bytes = target_bytes[:size_val]
         # --target-bin runs compare a raw byte blob with no VA — but the
-        # FUNCTION marker still carries the function's VA, and REL32 callee
+        # FUNCTION binding still carries the function's VA, and REL32 callee
         # validation needs it (section_va=None masks every call as valid).
         # Resolve it from the annotation so call targets are validated.
         if section_va is None:
@@ -1264,7 +1263,7 @@ def _run_test_impl(
         anno_module = promote_ann.module if promote_ann else ""
         if not anno_module:
             # The marker filter can exclude every annotation (e.g. a fresh
-            # file whose module differs from the target marker) — fall back
+            # file whose module differs from the target module) — fall back
             # to the file's own marker for the requested VA so the SIZE /
             # STATUS writes land under the real (module, VA) key instead of
             # raising on an empty module (or worse, writing an unreadable one).

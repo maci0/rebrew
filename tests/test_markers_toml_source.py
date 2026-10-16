@@ -95,7 +95,7 @@ class TestTomlSynthesis:
             ("FUNCTION", 0x2000),
         ]
 
-    def test_other_target_marker_does_not_hide_migrated_function(self, tmp_path: Path) -> None:
+    def test_other_target_module_does_not_hide_migrated_function(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
         write_source(

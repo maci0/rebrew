@@ -43,7 +43,7 @@ def plan_registration(
     allowed = {
         preset_module_key(m)
         for m in (
-            set(getattr(cfg, "all_markers", ()) or ())
+            set(getattr(cfg, "target_modules", ()) or ())
             | set(getattr(cfg, "library_modules", ()) or ())
             | set(getattr(cfg, "external_libs", ()) or ())
         )
@@ -133,10 +133,10 @@ def main(
                 raise ValueError("--support requires one source file and a non-empty reason")
             relative = identity_file(source, cfg.metadata_dir)
             if not dry_run:
-                set_source_file(cfg.metadata_dir, relative, cfg.marker, support)
+                set_source_file(cfg.metadata_dir, relative, cfg.module, support)
             result = {
                 "file": relative,
-                "module": cfg.marker,
+                "module": cfg.module,
                 "purpose": support,
                 "dry_run": dry_run,
             }

@@ -123,7 +123,7 @@ def test_first_field_alias_does_not_reclassify_its_backing_definition(tmp_path: 
             }
         ],
     )
-    cfg = SimpleNamespace(marker="SERVER", all_markers={"SERVER"}, metadata_dir=tmp_path)
+    cfg = SimpleNamespace(module="SERVER", target_modules={"SERVER"}, metadata_dir=tmp_path)
     scan = scan_globals(tmp_path, cfg)
     resolve_backing_owners(scan)
     assert scan.globals["storage"].storage_kind == "object"
@@ -177,7 +177,7 @@ def test_multiline_marker_declaration_keeps_foreign_target_scoping(tmp_path: Pat
         metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL"}, "GOLD.0x2000": {"kind": "GLOBAL"}},
         metadata_dir=tmp_path,
     )
-    cfg = SimpleNamespace(marker="SERVER", all_markers={"SERVER", "GOLD"}, metadata_dir=tmp_path)
+    cfg = SimpleNamespace(module="SERVER", target_modules={"SERVER", "GOLD"}, metadata_dir=tmp_path)
     scan = scan_globals(tmp_path, cfg)
     assert set(scan.globals) == {"hook"}
     assert scan.globals["hook"].va == 0x1000
@@ -213,7 +213,7 @@ def test_foreign_function_bodies_do_not_contribute_users(tmp_path: Path) -> None
         },
         metadata_dir=tmp_path,
     )
-    cfg = SimpleNamespace(marker="SERVER", all_markers={"SERVER", "GOLD"}, metadata_dir=tmp_path)
+    cfg = SimpleNamespace(module="SERVER", target_modules={"SERVER", "GOLD"}, metadata_dir=tmp_path)
     scan = scan_globals(tmp_path, cfg)
     assert scan.globals["server_value"].referenced_in == ["mixed.c"]
     assert scan.globals["foreign_value"].referenced_in == []
@@ -231,5 +231,5 @@ def test_stacked_identity_markers_keep_shared_function_users(tmp_path: Path) -> 
         },
         metadata_dir=tmp_path,
     )
-    cfg = SimpleNamespace(marker="SERVER", all_markers={"SERVER", "GOLD"}, metadata_dir=tmp_path)
+    cfg = SimpleNamespace(module="SERVER", target_modules={"SERVER", "GOLD"}, metadata_dir=tmp_path)
     assert scan_globals(tmp_path, cfg).globals["value"].referenced_in == ["shared.c"]

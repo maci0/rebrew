@@ -98,7 +98,7 @@ supplies its own tag.
 - **Identity paths are gated.**  The `file` field is joined onto the project
   root by `verify`, `rename` and BinSync, so `validate_identity_file` refuses an
   absolute path or a `..` segment at the write, and W034 reports rows written
-  before that gate.  W035 reports a row whose module matches no target marker or
+  before that gate.  W035 reports a row whose module matches no target module or
   library module: invisible to `status`/`todo`, which filter by module.
 - **The store is found by directory, not by search.**  A reader is handed
   `metadata_dir` (plus `reversed_dir` and `shared_dir`) and reads whatever is

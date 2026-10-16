@@ -14,7 +14,7 @@ def _mock_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespac
         root=tmp_path,
         reversed_dir=tmp_path / "reversed",
         metadata_dir=tmp_path,
-        marker="SERVER",
+        module="SERVER",
         source_ext=".c",
         shared_dir=None,
         dll_exports={},

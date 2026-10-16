@@ -91,10 +91,10 @@ class TestBinsyncImportHelpers:
 
         from rebrew.binsync.importer import _entry_module, _stub_text
 
-        blank = SimpleNamespace(marker="", target_name="")
+        blank = SimpleNamespace(module="", target_name="")
         assert _entry_module(blank) == ""
         assert _entry_module(blank, SimpleNamespace(module="CLIENT")) == "CLIENT"
-        derived = SimpleNamespace(marker="", target_name="client.exe")
+        derived = SimpleNamespace(module="", target_name="client.exe")
         assert _entry_module(derived) == "CLIENTEXE"
         with pytest.raises(ValueError, match="module marker"):
             _stub_text(blank, 0x1000, "foo", "")
@@ -110,7 +110,7 @@ class TestBinsyncImportHelpers:
 
         from rebrew.binsync.importer import _stub_text
 
-        cfg = SimpleNamespace(marker="GAME", target_name="game", reversed_dir=tmp_path)
+        cfg = SimpleNamespace(module="GAME", target_name="game", reversed_dir=tmp_path)
         _path, text, _mod = _stub_text(cfg, 0x2000, "hook@@12", "")
         assert text == "void hook(void) {}\n"
         assert _path.name == "hook.c"
@@ -1287,7 +1287,7 @@ shared_dir = "src/shared"
 [targets.V1]
 binary = "v1.exe"
 reversed_dir = "src/V1"
-marker = "V1"
+module = "V1"
 """
 
     def _shared_project(self, tmp_path: Path) -> None:

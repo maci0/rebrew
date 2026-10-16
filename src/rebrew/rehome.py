@@ -90,6 +90,7 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
     its decoration around NAME. This is how a second module's row joins an
     existing shared definition.
     """
+    from rebrew.config import target_module
     from rebrew.metadata.functions import (
         get_entry,
         identity_file,
@@ -97,11 +98,10 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
         validate_identity_file,
     )
     from rebrew.rename_ops import redecorated_symbol
-    from rebrew.sources import target_marker
 
-    module = target_marker(cfg) or ""
+    module = target_module(cfg) or ""
     if not module:
-        raise ValueError("no target marker configured to address the function metadata")
+        raise ValueError("no target module configured to address the function metadata")
     rows: list[dict[str, Any]] = []
     for spec in specs:
         va_s, sep, value = spec.partition("=")

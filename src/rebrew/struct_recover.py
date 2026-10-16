@@ -645,8 +645,9 @@ def _collect_functions(
     Raises ``ValueError`` for an unparseable VA or an empty selection; the
     CLI turns either into ``error_exit``.
     """
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import iter_sources, target_marker
+    from rebrew.sources import iter_sources
 
     if functions:
         out: list[tuple[int, str]] = []
@@ -661,13 +662,13 @@ def _collect_functions(
             out.append((va, f"0x{va:x}"))
         return out
 
-    marker = target_marker(cfg)
+    target_module_name = target_module(cfg)
     seen: set[int] = set()
     out = []
     for src in iter_sources(cfg.reversed_dir, cfg):
         annos = read_source_bindings(
             src,
-            target_name=marker,
+            target_name=target_module_name,
             metadata_dir=cfg.metadata_dir,
             project_root=getattr(cfg, "root", None),
         )

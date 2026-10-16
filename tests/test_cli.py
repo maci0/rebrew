@@ -549,7 +549,7 @@ class TestResolveSourceArg:
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(
-            reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c", marker="GAME"
+            reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c", module="GAME"
         )
 
     def test_direct_path_that_exists(self, tmp_path: Path) -> None:
@@ -630,7 +630,7 @@ class TestSelectAnnotation:
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(
-            reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c", marker="GAME"
+            reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c", module="GAME"
         )
 
     def _write_two(self, tmp_path: Path) -> Path:
@@ -727,7 +727,7 @@ class TestSelectAnnotation:
         )
         cfg = self._cfg(tmp_path)
         cfg.metadata_dir = tmp_path
-        cfg.marker = module
+        cfg.module = module
         path, anno, va_int = select_annotation(cfg, "0x2000", None)
         assert path == src
         assert (anno.module, anno.va, anno.symbol, anno.size, va_int) == (
@@ -914,7 +914,7 @@ class TestResolveSourceArgUnderscore:
             metadata_dir=tmp_path,
             source_ext=".c",
             shared_dir=None,
-            marker="SERVER",
+            module="SERVER",
             target_name="SERVER",
         )
 
@@ -952,7 +952,7 @@ class TestResolveSourceArgExactStem:
         underscored.write_text("int foo(void) { return 1; }\n", encoding="utf-8")
         exact = src / "foo.c"
         exact.write_text("int foo(void) { return 2; }\n", encoding="utf-8")
-        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, target_name="T", marker="T")
+        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, target_name="T", module="T")
         monkeypatch.setattr("rebrew.cli.iter_sources", lambda d, c: sorted([underscored, exact]))
         assert resolve_source_arg(cfg, "foo") == exact
 
@@ -1259,7 +1259,7 @@ class TestResolveStoredSymbol:
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_name="server",
             source_ext=".c",
         )
@@ -1281,6 +1281,6 @@ class TestResolveStoredSymbol:
             metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "symbol": "_chosen", "size": 4}},
         )
         cfg = SimpleNamespace(
-            reversed_dir=tmp_path, metadata_dir=tmp_path, marker="SERVER", source_ext=".c"
+            reversed_dir=tmp_path, metadata_dir=tmp_path, module="SERVER", source_ext=".c"
         )
         assert resolve_source_arg(cfg, "chosen") == named

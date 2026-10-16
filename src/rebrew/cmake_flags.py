@@ -87,17 +87,19 @@ def _defines(cflags: str) -> set[str]:
 #: Markers that annotate CODE.  ``DATA``/``GLOBAL`` annotate bytes a file
 #: defines (a generated string blob, a table) and carry no compile flags of
 #: their own, so they must not participate in the per-file flag resolution: a
-#: file legitimately holds both, and treating the data marker as a function
+#: file legitimately holds both, and treating a data binding as a function
 #: made the whole file look self-contradictory and refused to emit anything for
 #: it (guild-rebrew's CrashDumpUnhandledExceptionFilter.c).
-CODE_MARKERS = {"FUNCTION", "STUB", "LIBRARY"}
+CODE_KINDS = {"FUNCTION", "STUB", "LIBRARY"}
 
 
-def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str], list[str]]:
+def collect(
+    cfg: ProjectConfig, target_module_name: str
+) -> tuple[dict[Path, str], list[str], list[str]]:
     """{absolute source path: cflags}, problem descriptions, and notes.
 
-    `marker` is the annotation prefix (``SERVER``), not the target name: one
-    source file carries one marker per target it belongs to, and only the
+    `target_module_name` is the module (``SERVER``), not the target name: one
+    source file carries one address anchor per target it belongs to, and only the
     requested target's entries may decide the flags.
     """
     files: dict[Path, str] = {}
@@ -113,8 +115,8 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str]
                 src, metadata_dir=cfg.metadata_dir, project_root=getattr(cfg, "root", None)
             )
             if e.va
-            and preset_module_key(e.module) == preset_module_key(marker)
-            and (not e.kind or e.kind.upper() in CODE_MARKERS)
+            and preset_module_key(e.module) == preset_module_key(target_module_name)
+            and (not e.kind or e.kind.upper() in CODE_KINDS)
         ]
         if not entries:
             continue
@@ -205,7 +207,7 @@ def main(
 ) -> None:
     """Write the per-file CFLAGS table as a CMake include."""
     cfg = require_config(target=target, json_mode=json_output)
-    files, problems, notes = collect(cfg, cfg.marker)
+    files, problems, notes = collect(cfg, cfg.module)
 
     # The table is keyed by the path spelling CMake knows: a listed source
     # keeps the spelling the build gave it (references/zlib-1.1.3 is a symlink

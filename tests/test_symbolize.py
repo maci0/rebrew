@@ -99,9 +99,9 @@ def _project(tmp_path: Path, source: str = _SOURCE) -> SimpleNamespace:
         reversed_dir=tmp_path / "src",
         target_binary=_pe(tmp_path / "server.dll", _CODE, _REF_SITES),
         raw_link=built,
-        marker="SERVER",
+        module="SERVER",
         target_name="SERVER",
-        all_markers=["SERVER"],
+        target_modules=["SERVER"],
     )
 
 

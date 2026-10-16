@@ -33,10 +33,10 @@ from rebrew.cli import (
 )
 from rebrew.compiler.compile import compile_and_compare
 from rebrew.compiler.overrides import resolve_compile_overrides
+from rebrew.config import target_module
 from rebrew.drift import DerivedRegion, DriftWindow, derive_regions, drift_windows
 from rebrew.formats.binary_loader import extract_raw_bytes
 from rebrew.metadata.bindings import read_function_fields, read_source_bindings
-from rebrew.sources import target_marker
 
 # Module-form registration (empty ``attr`` in app/builtins.py) resolves BOTH a
 # ``main`` callable and a module-level ``app``.  A module exposing only ``main``
@@ -126,7 +126,7 @@ def main(
     meta = read_function_fields(str(src_path))
     annos = read_source_bindings(
         src_path,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )

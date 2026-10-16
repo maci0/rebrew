@@ -121,7 +121,7 @@ def main(
     from rebrew.data_layout import data_symbols, link_objects, obj_data_symbol_offsets
 
     data_va = built_data_va(dll)
-    expected = data_symbols(metadata, module=getattr(cfg, "marker", None))
+    expected = data_symbols(metadata, module=getattr(cfg, "module", None))
 
     here: dict[str, int] = {}
     tot = 0

@@ -13,9 +13,9 @@ import rebrew.verify_hash as verify_hash_mod
 from rebrew.metadata.bindings import SourceBinding
 
 
-def _ann(va: int, marker: str = "FUNCTION", filepath: str = "f.c", size: int = 64) -> SourceBinding:
+def _ann(va: int, module: str = "FUNCTION", filepath: str = "f.c", size: int = 64) -> SourceBinding:
     return SourceBinding(
-        va=va, name=f"f{va:x}", status="STUB", size=size, filepath=filepath, kind=marker
+        va=va, name=f"f{va:x}", status="STUB", size=size, filepath=filepath, kind=module
     )
 
 
@@ -55,7 +55,7 @@ class TestPrepareEntries:
         from rebrew.metadata.functions import record_function_identity
 
         cfg = _cfg(tmp_path)
-        cfg.marker = "GAME"
+        cfg.module = "GAME"
         cfg.src_dir = cfg.reversed_dir
         (tmp_path / "x.dll").write_bytes(b"MZ")
         record_function_identity(
@@ -71,7 +71,7 @@ class TestPrepareEntries:
         stale = _ann(0x1000, filepath="stale.c")
         stale.module = "GAME"
         stale.name = "stale"
-        bound = _ann(0x1000, marker=marker, filepath=filepath)
+        bound = _ann(0x1000, module=marker, filepath=filepath)
         bound.module = "GAME"
         bound.name = "bound"
         candidates = [bound, stale] if reverse else [stale, bound]
@@ -101,7 +101,7 @@ class TestPrepareEntries:
         from rebrew.metadata.functions import record_function_identity
 
         cfg = _cfg(tmp_path)
-        cfg.marker = "GAME"
+        cfg.module = "GAME"
         cfg.src_dir = cfg.reversed_dir
         (tmp_path / "x.dll").write_bytes(b"MZ")
         record_function_identity(
@@ -115,7 +115,7 @@ class TestPrepareEntries:
             size=64,
         )
         stale = _ann(0x1000, filepath="same.c")
-        bound = _ann(0x1000, marker="LIBRARY", filepath="same.c")
+        bound = _ann(0x1000, module="LIBRARY", filepath="same.c")
         stale.module = bound.module = "GAME"
         _patch(monkeypatch, [bound, stale] if reverse else [stale, bound])
         entries, *_rest = verify_mod.prepare_entries(cfg, full=True, json_output=False)
@@ -130,7 +130,7 @@ class TestPrepareEntries:
         from rebrew.metadata.functions import record_function_identity
 
         cfg = _cfg(tmp_path)
-        cfg.marker = "GAME"
+        cfg.module = "GAME"
         cfg.src_dir = cfg.reversed_dir
         (tmp_path / "x.dll").write_bytes(b"MZ")
         record_function_identity(
@@ -161,8 +161,8 @@ class TestPrepareEntries:
             [
                 _ann(0x1000),
                 _ann(0x1000),  # duplicate VA
-                _ann(0x2000, marker="DATA"),
-                _ann(0x3000, marker="GLOBAL"),
+                _ann(0x2000, module="DATA"),
+                _ann(0x3000, module="GLOBAL"),
                 _ann(0x4000, filepath="lib.h"),
             ],
         )
@@ -1039,7 +1039,7 @@ def test_scope_entries_nolib_drops_header_attributed_functions(tmp_path: Path) -
         metadata_dir=tmp_path,
     )
     cfg = SimpleNamespace(
-        reversed_dir=rev, root=tmp_path, metadata_dir=tmp_path, marker="T", external_libs=None
+        reversed_dir=rev, root=tmp_path, metadata_dir=tmp_path, module="T", external_libs=None
     )
     entries = [
         SourceBinding(va=0x1000, name="game", filepath="a.c", module="T", kind="FUNCTION"),
@@ -1084,6 +1084,6 @@ def test_scan_keeps_only_this_targets_library_headers(tmp_path: Path) -> None:
         metadata_dir=tmp_path,
     )
     cfg = SimpleNamespace(
-        reversed_dir=rev, root=tmp_path, metadata_dir=tmp_path, marker="SERVER", source_ext=".c"
+        reversed_dir=rev, root=tmp_path, metadata_dir=tmp_path, module="SERVER", source_ext=".c"
     )
     assert [e.va for e in scan_reversed_dir(rev, cfg=cfg)] == [0x2000]  # type: ignore[arg-type]

@@ -57,10 +57,9 @@ from rebrew.coff_reloc import build_name_to_va
 from rebrew.compiler.compile import CompareResult, compile_and_compare, matched_byte_count
 from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
-from rebrew.config import ProjectConfig, module_marker
+from rebrew.config import ProjectConfig, target_module
 from rebrew.formats.binary_loader import extract_raw_bytes
 from rebrew.metadata.bindings import read_source_bindings
-from rebrew.sources import target_marker
 from rebrew.utils import (
     SOURCE_BACKUP_DIRNAME,
     atomic_write_text,
@@ -584,7 +583,7 @@ def main(
 
     anns = read_source_bindings(
         path,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )
@@ -626,7 +625,7 @@ def main(
         path.resolve().parent,
         getattr(selected, "toolchain", None),
         cflags or getattr(selected, "cflags", None),
-        selected.module if selected is not None else module_marker(cfg),
+        selected.module if selected is not None else target_module(cfg),
     )
     name_to_va = build_name_to_va(cfg)
 

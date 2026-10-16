@@ -83,14 +83,14 @@ binary = "bin/a.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src"
-marker = "ALPHA"
+module = "ALPHA"
 
 [targets.beta]
 binary = "bin/b.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src"
-marker = "BETA"
+module = "BETA"
 
 [compiler]
 profile = "gcc-14.2.0"

@@ -51,7 +51,7 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "metadata_dir": tmp_path,
         "bin_dir": tmp_path / "bin",
         "source_ext": ".c",
-        "marker": "TEST",
+        "module": "TEST",
         "iat_thunks": [],
         "ignored_symbols": [],
         "library_modules": set(),
@@ -1980,7 +1980,7 @@ class TestDataDrift:
         from rebrew.metadata.data import set_data_field
         from rebrew.todo import _collect_data_drift
 
-        cfg = _make_cfg(tmp_path, all_markers={"TEST", "GOLD"})
+        cfg = _make_cfg(tmp_path, target_modules={"TEST", "GOLD"})
         set_data_field(tmp_path, 0x1000, "name", "g_ours", "TEST")
         set_data_field(tmp_path, 0x1000, "status", "DRIFT", "TEST")
         set_data_field(tmp_path, 0x401000, "name", "g_client", "GOLD")

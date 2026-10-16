@@ -30,7 +30,7 @@ output_dir = "output"
 [targets.server]
 binary = "game.exe"
 reversed_dir = "src"
-marker = "SERVER"
+module = "SERVER"
 """
 
 _FUNC_A = SourceFixture(
@@ -443,7 +443,7 @@ class TestDecompDevUnitNames:
             root=tmp_path,
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_name="T",
             target_binary=tmp_path / "x.dll",
             source_ext=".c",
@@ -491,7 +491,7 @@ class TestLibraryHeaderRows:
             root=tmp_path,
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_name="T",
             source_ext=".c",
             arch="x86_32",
@@ -536,7 +536,7 @@ class TestLibraryHeaderRows:
             root=tmp_path,
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_name="T",
             source_ext=".c",
             arch="x86_32",

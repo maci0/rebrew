@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
 
 from rebrew.analysis import capstone_handle
-from rebrew.config import ProjectConfig, inventory_path_for, module_marker
+from rebrew.config import ProjectConfig, inventory_path_for, target_module
 from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 from rebrew.formats.binary_model import BinaryInfo
 from rebrew.metadata.bindings import (
@@ -28,12 +28,7 @@ from rebrew.metadata.bindings import (
     min_valid_va_for,
     read_source_bindings,
 )
-from rebrew.sources import (
-    iter_library_headers,
-    iter_sources,
-    source_exts,
-    target_marker,
-)
+from rebrew.sources import iter_library_headers, iter_sources, source_exts
 from rebrew.utils import clip_span, fold_ident, preset_module_key, rel_display_path
 
 # ---------------------------------------------------------------------------
@@ -295,11 +290,11 @@ def load_data(
     # Hoisted out of the per-file loops below: `metadata_dir` re-derives its
     # answer with a filesystem probe per ancestor on every access.
     metadata_root = cfg.metadata_dir
-    marker_name = target_marker(cfg)
+    module_name = target_module(cfg)
     for cfile in iter_sources(src_dir, cfg, scanned=tree):
         entries = read_source_bindings(
             cfile,
-            target_name=marker_name,
+            target_name=module_name,
             metadata_dir=metadata_root,
             project_root=getattr(cfg, "root", None),
         )
@@ -326,18 +321,18 @@ def load_data(
 
     # Scan library_*.h files for identified CRT/zlib functions.  A shared tree
     # holds every target's headers, so a marker counts only when its module is
-    # this target's marker or one of its external_libs; another target's
-    # LIBRARY marker at the same VA must not replace this target's function.
-    marker = marker_name
+    # this target's module or one of its external_libs; another target's
+    # LIBRARY binding at the same VA must not replace this target's function.
+    target_module_name = module_name
     own_modules = {preset_module_key(m) for m in (getattr(cfg, "external_libs", None) or ())}
-    if marker:
-        own_modules.add(preset_module_key(marker))
+    if target_module_name:
+        own_modules.add(preset_module_key(target_module_name))
     for hfile in iter_library_headers(src_dir, cfg, scanned=tree):
         lib_entries = library_bindings_for_file(hfile, metadata_dir=metadata_root)
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
                 continue
-            if marker and preset_module_key(entry.module or "") not in own_modules:
+            if target_module_name and preset_module_key(entry.module or "") not in own_modules:
                 continue
             existing[entry.va] = {
                 "filename": hfile.name,
@@ -460,14 +455,14 @@ def scope_to_target(
     rows (legacy callers that cannot attribute); navigation maps
     (``covered_vas``) stay unfiltered.
     """
-    marker = preset_module_key(module_marker(cfg)) if cfg else ""
-    if not marker:
+    target_module_name = preset_module_key(target_module(cfg)) if cfg else ""
+    if not target_module_name:
         return existing
     libs = {preset_module_key(m) for m in (getattr(cfg, "external_libs", None) or ())}
     return {
         va: info
         for va, info in existing.items()
-        if preset_module_key(info.get("module") or "") in ("", marker)
+        if preset_module_key(info.get("module") or "") in ("", target_module_name)
         or (
             (info.get("kind") or "").upper() == "LIBRARY"
             and preset_module_key(info.get("module") or "") in libs
@@ -524,7 +519,7 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
         rel_name = rel_display_path(cfile, src_path)
         entries = read_source_bindings(
             cfile,
-            target_name=target_marker(cfg),
+            target_name=target_module(cfg),
             metadata_dir=cfg.metadata_dir if cfg else None,
             project_root=getattr(cfg, "root", None),
         )
@@ -562,7 +557,7 @@ def find_neighbor_file(
     appended to that file rather than getting its own skeleton.
 
     Header entries are skipped: ``covered_vas``/``load_existing_vas`` include
-    ``library_*.h`` LIBRARY markers, and this result is used as a
+    ``library_*.h`` LIBRARY bindings, and this result is used as a
     ``rebrew skeleton --append`` target, which would inject C into the header.
 
     Args:

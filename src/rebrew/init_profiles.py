@@ -43,7 +43,7 @@ arch = "__TARGET_ARCH__"               # x86_16 | x86_32 | x86_64 | arm32 | arm6
 reversed_dir = "src/{target_name}"   # directory containing reversed .c files
 bin_dir = "bin/{target_name}"        # directory for extracted .bin files
 source_ext = ".c"                      # source file extension (.c, .cpp, etc.)
-marker = "{marker}"                  # annotation marker (e.g. // FUNCTION: SERVER 0x...)
+module = "{module}"                  # metadata module (optional // ADDRESS: SERVER 0x...)
 # ignored_symbols = []              # symbols to skip (ASM builtins etc.)
 
 # Per-target cflags presets — keyed by module name, under the target's

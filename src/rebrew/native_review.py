@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.coff_reloc import build_name_to_va, smart_reloc_compare
-from rebrew.config import ProjectConfig, module_marker
+from rebrew.config import ProjectConfig, target_module
 from rebrew.formats.binary_loader import load_binary
 from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, METADATA_FILENAME, get_entry
 from rebrew.metadata.native_identity import native_identity_receipt, record_native_identity
@@ -42,7 +42,7 @@ def review_native_identity(
     ).hexdigest()
     if expected_digest is not None and digest != expected_digest:
         raise ValueError("native identity inputs changed; review a new preview")
-    entry = get_entry(cfg.metadata_dir, va, module_marker(cfg))
+    entry = get_entry(cfg.metadata_dir, va, target_module(cfg))
     if entry.get("kind") != "LIBRARY" or type(entry.get("size")) is not int or entry["size"] <= 0:
         raise ValueError("select a library metadata row with a complete positive SIZE")
     function = object_function(object_raw, symbol, entry["size"])
@@ -101,7 +101,7 @@ def review_native_identity(
     if not dry_run:
         record_native_identity(
             cfg.metadata_dir,
-            module_marker(cfg),
+            target_module(cfg),
             va,
             evidence,
             expected_digest=inputs[metadata_path],

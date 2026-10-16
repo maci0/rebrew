@@ -31,14 +31,14 @@ binary = "original/server.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/server_dll"
-marker = "SERVER"
+module = "SERVER"
 
 [targets.client_exe]
 binary = "original/client.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/shared"
-marker = "CLIENT"
+module = "CLIENT"
 
 [compiler]
 profile = "msvc-6.0"
@@ -74,7 +74,7 @@ def test_stacked_file_belongs_to_both_targets(tmp_path: Path) -> None:
 
     for target, count in (("server_dll", 1), ("client_exe", 1)):
         cfg = _load(root=tmp_path, target=target)
-        own, foreign = collect_target_sources(cfg, cfg.marker)
+        own, foreign = collect_target_sources(cfg, cfg.module)
         assert len(own) == count, (target, own, foreign)
 
 
@@ -231,7 +231,7 @@ def test_migrated_library_sources_keep_target_scope(tmp_path: Path, metadata_in_
     ]:
         cfg = load_config(root=tmp_path, target=target)
         assert cfg.metadata_dir == metadata
-        own, foreign = collect_target_sources(cfg, cfg.marker)
+        own, foreign = collect_target_sources(cfg, cfg.module)
         assert {f.relative_to(tmp_path).as_posix() for f in own} == expected
         assert {f.relative_to(tmp_path).as_posix() for f in foreign} == {
             "src/shared/client_lib.c" if target == "server_dll" else "src/shared/server_lib.c"
@@ -261,7 +261,7 @@ def test_shared_helper_outside_metadata_root(tmp_path: Path, purpose_module: str
         symbol="_owner",
         size=8,
     )
-    cfg = ProjectConfig(root=tmp_path, reversed_dir=source, shared_dir=shared, marker="SERVER")
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=source, shared_dir=shared, module="SERVER")
     assert cfg.metadata_dir == source.parent
     own, foreign = collect_target_sources(cfg, "SERVER")
     assert helper in own and helper not in foreign

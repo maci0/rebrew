@@ -25,7 +25,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
         encoding="utf-8",
     )
     return SimpleNamespace(
-        root=tmp_path, metadata_dir=tmp_path, marker="SERVER", target_name="SERVER"
+        root=tmp_path, metadata_dir=tmp_path, module="SERVER", target_name="SERVER"
     )
 
 
@@ -93,7 +93,7 @@ format = "pe"
 arch = "x86_32"
 reversed_dir = "src"
 source_ext = ".c"
-marker = "SERVER"
+module = "SERVER"
 
 [compiler]
 profile = "mingw-16.2.0"

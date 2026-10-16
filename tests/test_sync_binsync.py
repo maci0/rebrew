@@ -85,7 +85,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
         root=tmp_path,
         target_name="T",
         metadata_dir=tmp_path,
-        marker="T",
+        module="T",
         iat_thunks=[],
         compiler_profile="msvc-6.0",
         source_ext=".c",

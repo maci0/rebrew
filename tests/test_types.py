@@ -779,7 +779,7 @@ class TestApplyTypeCli:
             reversed_dir=tmp_path / "src",
             metadata_dir=tmp_path,
             source_ext=".c",
-            marker="SERVER",
+            module="SERVER",
         )
 
     def test_apply_rewrites_param(self, tmp_path: Path, monkeypatch) -> None:

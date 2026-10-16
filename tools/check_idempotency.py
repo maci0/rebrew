@@ -64,7 +64,7 @@ arch = "x86_32"
 reversed_dir = "src/SERVER"
 bin_dir = "bin/SERVER"
 source_ext = ".c"
-marker = "SERVER"
+module = "SERVER"
 
 [compiler]
 profile = "mingw-16.2.0"

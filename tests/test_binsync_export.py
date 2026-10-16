@@ -823,7 +823,7 @@ class TestBinsyncStructNames:
             root=tmp_path,
             reversed_dir=tmp_path / "src" / "SERVER",
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)

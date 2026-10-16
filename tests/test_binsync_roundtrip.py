@@ -130,7 +130,7 @@ def _project(root: Path) -> None:
     (root / "rebrew-project.toml").write_text(
         "[project]\nname = 'rt'\ndefault_target = 'server'\n"
         "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
-        "[targets.server]\nbinary = 'server.dll'\nreversed_dir = 'src'\nmarker = 'SERVER'\n",
+        "[targets.server]\nbinary = 'server.dll'\nreversed_dir = 'src'\nmodule = 'SERVER'\n",
         encoding="utf-8",
     )
     (root / "server.dll").write_bytes(_BINARY)

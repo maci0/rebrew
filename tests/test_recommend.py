@@ -30,8 +30,8 @@ from rebrew.recommend import (
     recommend_next_action,
     recommend_orphans,
     recommend_shared_twins,
+    recommend_stale_addresses,
     recommend_stale_cache,
-    recommend_stale_markers,
     recommend_start_data,
     recommend_stub_sort,
     recommend_verify_failures,
@@ -380,7 +380,7 @@ class TestRound3Lanes:
             reversed_dir=tmp_path,
             metadata_dir=tmp_path,
             source_ext=".c",
-            marker="GAME",
+            module="GAME",
             target_name="GAME",
             ignored_symbols=(),
         )
@@ -421,12 +421,12 @@ class TestRound4Lanes:
         assert recommend_duplicate_globals([("a.c", "g_x")]) == []
 
     def test_stale_markers_groups_per_file(self) -> None:
-        recs = recommend_stale_markers([("a.c", "0x1000"), ("a.c", "0x1100")])
+        recs = recommend_stale_addresses([("a.c", "0x1000"), ("a.c", "0x1100")])
         assert len(recs) == 1
         assert recs[0].command == "rebrew lint a.c"
 
     def test_stale_markers_empty_is_silent(self) -> None:
-        assert recommend_stale_markers([]) == []
+        assert recommend_stale_addresses([]) == []
 
     def test_start_data_lists_unchecked(self) -> None:
         rec = recommend_start_data([("m", 0x2000, "g_a"), ("m", 0x2004, "g_b")])

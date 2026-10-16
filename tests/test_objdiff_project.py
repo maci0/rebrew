@@ -16,7 +16,7 @@ import rebrew.objdiff_project as objdiff_project
 runner = CliRunner()
 
 
-def _fake_ann(va: int, size: int, name: str, symbol: str = "", marker: str = "FUNCTION") -> Any:
+def _fake_ann(va: int, size: int, name: str, symbol: str = "", module: str = "FUNCTION") -> Any:
     from rebrew.metadata.bindings import SourceBinding
 
     return SourceBinding(
@@ -26,7 +26,7 @@ def _fake_ann(va: int, size: int, name: str, symbol: str = "", marker: str = "FU
         symbol=symbol,
         module="T",
         status="STUB",
-        kind=marker,
+        kind=module,
         filepath="a.c",
     )
 
@@ -114,7 +114,7 @@ class TestObjdiffProject:
             target_name="T",
             metadata_dir=tmp_path,
             source_ext=".c",
-            marker="T",
+            module="T",
         )
 
     def test_generates_units_and_config(

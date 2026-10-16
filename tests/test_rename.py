@@ -600,7 +600,7 @@ class TestRenameCli:
         cfg = SimpleNamespace(
             root=tmp_path,
             reversed_dir=src,
-            marker="SERVER",
+            module="SERVER",
             metadata_dir=tmp_path,
             source_ext=".c",
         )
@@ -738,7 +738,7 @@ class TestRenameCli:
         cfg = SimpleNamespace(
             root=tmp_path,
             reversed_dir=src,
-            marker="SERVER",
+            module="SERVER",
             metadata_dir=tmp_path,
             source_ext=".c",
         )
@@ -766,7 +766,7 @@ class TestRenameCli:
         cfg = SimpleNamespace(
             root=tmp_path,
             reversed_dir=src,
-            marker="SERVER",
+            module="SERVER",
             metadata_dir=tmp_path,
             source_ext=".c",
         )
@@ -796,7 +796,7 @@ class TestRenameCli:
         cfg = SimpleNamespace(
             root=tmp_path,
             reversed_dir=src,
-            marker="SERVER",
+            module="SERVER",
             metadata_dir=tmp_path,
             source_ext=".c",
         )
@@ -830,7 +830,7 @@ class TestRenameCli:
         cfg = SimpleNamespace(
             root=tmp_path,
             reversed_dir=src,
-            marker="SERVER",
+            module="SERVER",
             metadata_dir=tmp_path,
             source_ext=".c",
         )
@@ -913,7 +913,7 @@ class TestRenameData:
             reversed_dir=tmp_path / "src",
             metadata_dir=tmp_path,
             source_ext=".c",
-            marker="SERVER",
+            module="SERVER",
         )
 
     def _project(self, tmp_path: Path) -> None:
@@ -1427,7 +1427,7 @@ class TestFunctionReferenceBinding:
             provider.unlink()
             provider.symlink_to(tmp_path.parent / "outside-writer.c")
         cfg = _cfg(tmp_path)
-        cfg.root, cfg.reversed_dir, cfg.marker, cfg.source_ext = (
+        cfg.root, cfg.reversed_dir, cfg.module, cfg.source_ext = (
             tmp_path,
             source_dir,
             "CLIENT",
@@ -1494,7 +1494,7 @@ class TestFunctionReferenceBinding:
             symbol="_free",
         )
         cfg = _cfg(tmp_path)
-        cfg.root, cfg.marker, cfg.source_ext = tmp_path, "CLIENT", ".c"
+        cfg.root, cfg.module, cfg.source_ext = tmp_path, "CLIENT", ".c"
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
         original = caller.read_bytes()
         metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
@@ -1543,7 +1543,7 @@ class TestFunctionReferenceBinding:
             symbol="_free",
         )
         cfg = _cfg(tmp_path)
-        cfg.root, cfg.marker, cfg.source_ext = tmp_path, "CLIENT", ".c"
+        cfg.root, cfg.module, cfg.source_ext = tmp_path, "CLIENT", ".c"
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
         metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
         result = CliRunner().invoke(app, ["--json", "placeholder", "CLIENT.0x1000"])
@@ -1571,7 +1571,7 @@ class TestFunctionReferenceBinding:
         )
         cfg = _cfg(tmp_path)
         cfg.root = tmp_path
-        cfg.marker = "CLIENT"
+        cfg.module = "CLIENT"
         cfg.source_ext = ".c"
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
         return CliRunner().invoke(app, ["--json", *args, "placeholder", "CLIENT.0x1000"])

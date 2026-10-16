@@ -2197,7 +2197,7 @@ class TestCurrentWriterCacheIdentity:
         for path in cfg.reversed_dir.glob("*.c"):
             text = path.read_text(encoding="utf-8")
             path.write_text(text.replace("ADDRESS: SERVER ", "ADDRESS: CLIENT "), encoding="utf-8")
-        cfg.marker = "CLIENT"
+        cfg.module = "CLIENT"
         assert _prepare_cached(cfg) == (2, 0)
 
     def test_context_digest_change_misses(self, tmp_path: Path) -> None:

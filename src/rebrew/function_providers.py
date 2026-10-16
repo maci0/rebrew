@@ -8,7 +8,7 @@ from dataclasses import replace
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-from rebrew.config import ProjectConfig, module_marker
+from rebrew.config import ProjectConfig, target_module
 from rebrew.metadata.bindings import DATA_KINDS, SourceBinding
 from rebrew.metadata.functions import (
     identity_file,
@@ -43,7 +43,7 @@ def select_source_bindings(
         filepath = getattr(entry, "filepath", "")
         if entry.kind in DATA_KINDS or counts[entry.va] < 2:
             return entry.va, False, False, False, filepath.endswith(".h")
-        row = managed.get((preset_module_key(entry.module or module_marker(cfg)), entry.va), {})
+        row = managed.get((preset_module_key(entry.module or target_module(cfg)), entry.va), {})
         path = contained_path(source_roots(cfg), filepath)
         bound = bool(
             metadata_dir
@@ -107,7 +107,7 @@ def compiled_library_annotations(
     Binding replaces a migrated header's file identity with its compiled source.
     The source can sit outside reversed_dir; missing sources remain candidates.
     """
-    from rebrew.config import module_marker
+    from rebrew.config import target_module
     from rebrew.metadata.functions import apply_metadata_entry, load_metadata
     from rebrew.utils import preset_module_key
 
@@ -116,12 +116,12 @@ def compiled_library_annotations(
         if metadata_dir is None:
             return []
         metadata = load_metadata(metadata_dir, deepcopy=False)
-    marker = preset_module_key(module_marker(cfg))
+    target_module_name = preset_module_key(target_module(cfg))
     results: list[SourceBinding] = []
     for (module, va), entry in metadata.items():
         stored = str(entry.get("file", ""))
         if (
-            preset_module_key(module) != marker
+            preset_module_key(module) != target_module_name
             or entry.get("kind") != "LIBRARY"
             or Path(stored).suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"}
         ):

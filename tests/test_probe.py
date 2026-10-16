@@ -144,7 +144,7 @@ class TestProbeAnnotationSelection:
             reversed_dir=tmp_path,
             metadata_dir=tmp_path,
             source_ext=".c",
-            marker="GAME",
+            module="GAME",
             target_binary=tmp_path / "original.dll",
             capstone_arch=capstone.CS_ARCH_X86,
             capstone_mode=capstone.CS_MODE_32,

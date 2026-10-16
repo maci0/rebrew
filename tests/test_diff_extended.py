@@ -603,7 +603,7 @@ class TestDiffCli:
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
         monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: cfg)
@@ -630,7 +630,7 @@ class TestDiffCli:
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
         monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: cfg)
@@ -671,7 +671,7 @@ class TestDiffCli:
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
         monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: cfg)
@@ -736,7 +736,7 @@ class TestResolveGlobalNames:
         cfg = SimpleNamespace(
             metadata_dir=Path("/tmp/meta"),
             reversed_dir=Path("/tmp/src"),
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             target_name="SERVER",
         )

@@ -122,7 +122,7 @@ class TestCatalogCli:
         canonical value and the run reports one update."""
         cfg = _patch(monkeypatch, tmp_path)
         cfg.source_ext = ".c"
-        cfg.marker = "T"
+        cfg.module = "T"
         func_c = cfg.reversed_dir / "func.c"
         write_source(
             func_c,
@@ -168,7 +168,7 @@ class TestCatalogCli:
         """A file whose SIZE already matches the registry is not re-parsed."""
         cfg = _patch(monkeypatch, tmp_path)
         cfg.source_ext = ".c"
-        cfg.marker = "T"
+        cfg.module = "T"
         write_source(
             cfg.reversed_dir / "func.c",
             "/* ADDRESS: T 0x1000 */\n\nint f_a(void) { return 0; }\n",

@@ -638,9 +638,10 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     SIZE/SECTION/NOTE are overlaid from ``rebrew-data.toml`` metadata if present.
     Returns a list of dicts with: va, name, size, section, note, filepath.
     """
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
     from rebrew.metadata.data import merge_into_data_binding
-    from rebrew.sources import iter_sources_and_headers, target_marker
+    from rebrew.sources import iter_sources_and_headers
     from rebrew.utils import rel_display_path
 
     entries: list[dict[str, Any]] = []
@@ -651,7 +652,7 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
         rel_name = rel_display_path(cfile, src_dir)
         for ann in read_source_bindings(
             cfile,
-            target_name=target_marker(cfg),
+            target_name=target_module(cfg),
             metadata_dir=cfg.metadata_dir if cfg else src_dir,
             project_root=getattr(cfg, "root", None),
         ):
@@ -690,15 +691,16 @@ def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int,
     A source with no name falls back to its path relative to *src_dir*, so
     every annotation is named even before the catalog fills the gaps.
     """
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import iter_sources, target_marker
+    from rebrew.sources import iter_sources
     from rebrew.utils import rel_display_path
 
     known_functions: dict[int, dict[str, str]] = {}
     for cfile in iter_sources(src_dir, cfg):
         for entry in read_source_bindings(
             cfile,
-            target_name=target_marker(cfg),
+            target_name=target_module(cfg),
             metadata_dir=cfg.metadata_dir,
             project_root=getattr(cfg, "root", None),
         ):

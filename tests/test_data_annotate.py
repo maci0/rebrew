@@ -33,7 +33,7 @@ def test_annotate_binds_nondecimal_array(tmp_path: Path) -> None:
         'format = 2\n["SERVER.0x10027000"]\nname = "g_hex"\nsection = ".data"\n["SERVER.0x10027010"]\nname = "g_expr"\nsection = ".data"\n["SERVER.0x10027020"]\nname = "g_2d"\nsection = ".data"\n',
         encoding="utf-8",
     )
-    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    per_file, skipped = annotate_globals(src, meta, dry_run=True)
     assert per_file == {"mod.c": 3}
     assert skipped == 0
 
@@ -55,7 +55,7 @@ def test_annotate_binds_nested_bracket_bound(tmp_path: Path) -> None:
         'format = 2\n["SERVER.0x10027000"]\nname = "g_wide"\nsection = ".data"\n["SERVER.0x10027010"]\nname = "g_ints"\nsection = ".data"\n',
         encoding="utf-8",
     )
-    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    per_file, skipped = annotate_globals(src, meta, dry_run=True)
     assert per_file == {"mod.c": 2}
     assert skipped == 0
 
@@ -78,7 +78,7 @@ def test_annotate_binds_pointer_to_array(tmp_path: Path) -> None:
         'format = 2\n["SERVER.0x10027000"]\nname = "g_row"\nsection = ".data"\n["SERVER.0x10027004"]\nname = "g_ptrs"\nsection = ".data"\n',
         encoding="utf-8",
     )
-    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    per_file, skipped = annotate_globals(src, meta, dry_run=True)
     assert per_file == {"mod.c": 2}
     assert skipped == 0
 
@@ -102,7 +102,7 @@ def test_annotate_binds_pointer_array(tmp_path: Path) -> None:
         'format = 2\n["SERVER.0x10027000"]\nname = "table"\nsection = ".data"\n["SERVER.0x10027010"]\nname = "rows"\nsection = ".data"\n["SERVER.0x10027020"]\nname = "counts"\nsection = ".data"\n',
         encoding="utf-8",
     )
-    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    per_file, skipped = annotate_globals(src, meta, dry_run=True)
     assert per_file == {"mod.c": 3}
     assert skipped == 0
 
@@ -130,7 +130,7 @@ def test_annotate_binds_cdecl_pointer_array(tmp_path: Path) -> None:
         'format = 2\n["SERVER.0x10027000"]\nname = "table"\nsection = ".data"\n["SERVER.0x10027010"]\nname = "rows"\nsection = ".data"\n["SERVER.0x10027014"]\nname = "g_row"\nsection = ".data"\n["SERVER.0x10027020"]\nname = "cbs"\nsection = ".data"\n["SERVER.0x10027030"]\nname = "plain"\nsection = ".data"\n',
         encoding="utf-8",
     )
-    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    per_file, skipped = annotate_globals(src, meta, dry_run=True)
     assert per_file == {"mod.c": 5}
     assert skipped == 0
 
@@ -145,7 +145,7 @@ def test_annotate_inserts_markers(tmp_path: Path) -> None:
         'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n["SERVER.0x10027004"]\nname = "g_b"\nsection = ".data"\n',
         encoding="utf-8",
     )
-    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    per_file, skipped = annotate_globals(src, meta, dry_run=True)
     assert per_file == {"mod.c": 2}
     assert skipped == 0
     text = (src / "mod.c").read_text()
@@ -170,7 +170,7 @@ def test_annotate_writes_and_skips_existing(tmp_path: Path) -> None:
         'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n["SERVER.0x10027004"]\nname = "g_b"\nsection = ".data"\n',
         encoding="utf-8",
     )
-    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=False)
+    per_file, skipped = annotate_globals(src, meta, dry_run=False)
     text = (src / "mod.c").read_text()
     # The existing GLOBAL line is migrated off the source. g_b had no marker,
     # so this pass binds its file and does not insert a line.
@@ -190,7 +190,7 @@ def test_annotate_writes_and_skips_existing(tmp_path: Path) -> None:
     assert bound["file"] == "src/mod.c"
 
     # Rerun must be completely idempotent (0 files modified, text unchanged)
-    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=False)
+    per_file, skipped = annotate_globals(src, meta, dry_run=False)
     assert per_file == {}
     assert skipped == 0
     assert (src / "mod.c").read_text() == text
@@ -211,7 +211,7 @@ def test_annotate_skips_block_comment_markers(tmp_path: Path) -> None:
         'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n',
         encoding="utf-8",
     )
-    per_file, _ = annotate_globals(src, meta, "SERVER", dry_run=False)
+    per_file, _ = annotate_globals(src, meta, dry_run=False)
     assert per_file == {"mod.c": 1}
     assert (src / "mod.c").read_text() == "/* ADDRESS: SERVER 0x10027000 */\nint g_a;\n"
     from rebrew.metadata.data import get_data_entry
@@ -235,7 +235,7 @@ def test_annotate_reports_skipped_unnamed(tmp_path: Path) -> None:
         'format = 2\n["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n["SERVER.0x10027004"]\nsize = 4\nsection = ".bss"\n["SERVER.0x10027008"]\nsize = 8\nsection = ".data"\n',
         encoding="utf-8",
     )
-    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    per_file, skipped = annotate_globals(src, meta, dry_run=True)
     assert per_file == {"mod.c": 1}  # only the named g_a
     assert skipped == 2  # the two unnamed entries
 
@@ -253,7 +253,7 @@ def test_annotate_uses_configured_source_ext(tmp_path: Path) -> None:
         meta, 'format = 2\n["SERVER.0x1000"]\nname = "g_a"\nsection = ".data"\n', encoding="utf-8"
     )
     cfg = SimpleNamespace(source_ext=".c,.cpp", reversed_dir=src, shared_dir=None)
-    per_file, _ = annotate_globals(src, meta, "SERVER", dry_run=True, cfg=cfg)
+    per_file, _ = annotate_globals(src, meta, dry_run=True, cfg=cfg)
     assert per_file == {"mod.cpp": 1}
 
 
@@ -270,7 +270,7 @@ def test_annotate_duplicate_names_are_not_reported_unnamed(tmp_path: Path) -> No
         'format = 2\n["SERVER.0x1000"]\nname = "g_a"\nsection = ".data"\n["SERVER.0x1004"]\nname = "g_a"\nsection = ".data"\n',
         encoding="utf-8",
     )
-    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    per_file, skipped = annotate_globals(src, meta, dry_run=True)
     assert skipped == 0
     assert per_file == {"mod.c": 1}
 
@@ -297,7 +297,7 @@ def test_gen_header_skips_non_c_identifiers(tmp_path) -> None:
         target_binary=tmp_path / "fake.dll",
         reversed_dir=src,
         metadata_dir=tmp_path,
-        marker="SERVER",
+        module="SERVER",
         source_ext=".c",
     )
     write_source(
@@ -336,7 +336,7 @@ def test_gen_header_drops_type_that_ends_the_declaration(tmp_path) -> None:
         target_binary=tmp_path / "fake.dll",
         reversed_dir=src,
         metadata_dir=tmp_path,
-        marker="SERVER",
+        module="SERVER",
         source_ext=".c",
     )
     write_source(

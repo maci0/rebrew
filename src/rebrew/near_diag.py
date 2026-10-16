@@ -211,11 +211,12 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     status NEAR_MATCHING and a known size.  Per-function failures are recorded
     in the results list instead of aborting the batch.
     """
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import iter_sources, target_marker
+    from rebrew.sources import iter_sources
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
-    tm = target_marker(cfg)
+    tm = target_module(cfg)
     candidates: list[tuple[Path, Any]] = []
     all_annos: list[Any] = []
     skipped_files: list[str] = []
@@ -385,8 +386,8 @@ def main(
             print(catalog_markdown(), end="")
         return
 
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import target_marker
 
     cfg = require_config(target=target, json_mode=json_output)
 
@@ -416,7 +417,7 @@ def main(
 
     annos = read_source_bindings(
         source_path,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )

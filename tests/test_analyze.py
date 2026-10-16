@@ -142,7 +142,7 @@ class TestCollectFunctions:
             SimpleNamespace(
                 reversed_dir=tmp_path / "src",
                 metadata_dir=tmp_path / "src",
-                marker="S",
+                module="S",
                 source_ext=".c",
             )
         )
@@ -373,7 +373,7 @@ class TestDispatchTablesShape:
             reversed_dir=tmp_path / "src",
             metadata_dir=None,
             target_binary=tmp_path / "t.dll",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             iat_thunks=[],
         )
@@ -410,7 +410,7 @@ class TestDispatchTablesShape:
             reversed_dir=src,
             metadata_dir=None,
             target_binary=tmp_path / "t.dll",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             iat_thunks=[],
         )
