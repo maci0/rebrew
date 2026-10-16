@@ -7,7 +7,9 @@ the stub makes the expected winning order explicit.
 
 from __future__ import annotations
 
+import difflib
 import os
+import random
 import signal
 import subprocess
 import sys
@@ -180,9 +182,9 @@ class TestScoreAligned:
         monkeypatch.setattr(nd, "disasm_insns", lambda code, *a, **k: list(streams[code]))
         cfg = SimpleNamespace(capstone_arch="CS_ARCH_X86", capstone_mode="CS_MODE_32")
 
-        def score_of(obj: bytes) -> float:
+        def score_of(obj: bytes) -> tuple[float, int]:
             _result.obj_bytes = obj
-            return rebrew.climb._score_aligned(
+            score = rebrew.climb._score_aligned(
                 cfg,
                 tmp_path / "f.c",
                 "_f",
@@ -193,8 +195,50 @@ class TestScoreAligned:
                 None,
                 rebrew.climb.target_texts(cfg, b"target", 0x1000),
             )[0]
+            return score, rebrew.climb._AlignedMatcher.last_visits
 
-        assert score_of(b"scattered") > score_of(b"deleted") > 0.0
+        scattered, scattered_visits = score_of(b"scattered")
+        deleted, deleted_visits = score_of(b"deleted")
+        assert scattered > deleted > 0.0
+        # Half the stream is the repeated opcode "mov". difflib's index walk
+        # reads every copy on both sides for one longest-match pass, and the
+        # scattered candidate needs one such pass per isolated mov. The visit
+        # counter is token positions read, so it does not move with load.
+        quadratic_pass = 1100 * 1100
+        assert scattered_visits < quadratic_pass
+        assert deleted_visits < quadratic_pass
+
+
+class TestAlignedMatcher:
+    """The climb aligner returns difflib's blocks and reads fewer token positions."""
+
+    def test_blocks_and_opcodes_match_difflib(self) -> None:
+        from rebrew.climb import _AlignedMatcher
+
+        streams: list[tuple[list[str], list[str]]] = [
+            ([], []),
+            (["mov"], ["mov"]),
+            (["mov"], ["ret"]),
+            (["mov", "t0"] * 20, ["mov", "c"] * 8 + ["mov", "t0"] * 12),
+            (["mov"] * 30, ["mov"] * 30),
+            (["mov"] * 30, ["mov"] * 10),
+            (["a", "b", "a", "b"], ["a", "b", "x", "a", "b"]),
+        ]
+        rng = random.Random(0)
+        alphabet = ["mov", "push", "pop", "call", "ret", "only"]
+        for length in (1, 2, 8, 40):
+            for _ in range(15):
+                streams.append(
+                    (
+                        [rng.choice(alphabet) for _ in range(length)],
+                        [rng.choice(alphabet) for _ in range(length + 3)],
+                    )
+                )
+        for left, right in streams:
+            got = _AlignedMatcher(a=left, b=right, autojunk=False)
+            ref = difflib.SequenceMatcher(a=left, b=right, autojunk=False)
+            assert list(got.get_matching_blocks()) == list(ref.get_matching_blocks())
+            assert got.get_opcodes() == ref.get_opcodes()
 
 
 class TestSwap:

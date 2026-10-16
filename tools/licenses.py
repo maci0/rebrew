@@ -58,6 +58,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     "declib==4.5.0": "BSD-2-Clause",
     "diskcache==5.6.3": "Apache 2.0",
     "distlib==0.4.3": "PSF-2.0",
+    "execnet==2.1.2": "MIT",
     "filelock==3.32.6": "MIT",
     "future==1.0.0": "MIT",
     "gitdb==4.0.12": "BSD License",
@@ -108,6 +109,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     "pymysql==1.2.3": "MIT",
     "pypcode==4.0.0": "BSD-2-Clause AND Apache-2.0 AND Zlib",
     "pytest==9.1.1": "MIT",
+    "pytest-xdist==3.8.0": "MIT",
     "python-dateutil==2.9.0.post0": "Dual License",
     # Multi-line License field (the full MIT text, which the docstring's
     # fallback rule skips); the trove classifier is the declared grant.

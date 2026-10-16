@@ -923,6 +923,34 @@ def import_status_history(
     return changed
 
 
+def _identity_updates(
+    entry: dict[str, Any],
+    identity: Any,
+    *,
+    overwrite_name: bool,
+) -> dict[str, Any]:
+    """Identity keys to write, using :func:`record_function_rows`' rules.
+
+    Empty values are skipped. ``name`` is left alone when the row already has
+    one, unless ``overwrite_name``. A retired binding is not rewritten here.
+    """
+    if not identity:
+        return {}
+    from rebrew.metadata.binding_history import retired_binding
+
+    if retired_binding(entry):
+        raise ValueError("retired source bindings require an explicit reviewed rebind")
+    updates: dict[str, Any] = {}
+    for key, value in identity.items():
+        if key not in FUNCTION_IDENTITY_FIELDS:
+            raise ValueError(f"unknown function identity field {key!r}")
+        if value and not (key == "name" and entry.get("name") and not overwrite_name):
+            stored = validate_identity_file(str(value)) if key == "file" else str(value)
+            if stored:
+                updates[key] = toml_safe(stored)
+    return updates
+
+
 def record_function_rows(
     metadata_dir: Path | str | Any,
     rows: list[dict[str, Any]],
@@ -970,17 +998,9 @@ def record_function_rows(
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
                 updates[key] = toml_safe(validate_metadata_field(key, value))
-            from rebrew.metadata.binding_history import retired_binding
-
-            if row.get("identity") and retired_binding(entry):
-                raise ValueError("retired source bindings require an explicit reviewed rebind")
-            for key, value in (row.get("identity") or {}).items():
-                if key not in FUNCTION_IDENTITY_FIELDS:
-                    raise ValueError(f"unknown function identity field {key!r}")
-                if value and not (key == "name" and entry.get("name") and not overwrite_name):
-                    stored = validate_identity_file(str(value)) if key == "file" else str(value)
-                    if stored:
-                        updates[key] = toml_safe(stored)
+            updates.update(
+                _identity_updates(entry, row.get("identity"), overwrite_name=overwrite_name)
+            )
             row_changed = False
             for key, value in updates.items():
                 if entry.get(key) != value:
@@ -1517,8 +1537,12 @@ def update_statuses_batch(
     *updates*: list of dicts with keys ``module``, ``va``, ``new_status``
     and optional ``clear_blockers`` (default True), ``force`` (default
     False), ``updated_by`` (provenance tag; when set, also records
-    ``updated_at``), and ``fields`` (non-STATUS fields applied in the same
-    atomic write, even if STATUS stays parked). Returns the number of entries
+    ``updated_at``), ``fields`` (non-STATUS fields applied in the same
+    atomic write, even if STATUS stays parked), and ``identity`` (keys from
+    :data:`FUNCTION_IDENTITY_FIELDS`, same empty-value and ``overwrite_name``
+    rules as :func:`record_function_rows`; ``overwrite_name`` on the row
+    defaults false). Identity, the verdict, and fields land in one write.
+    Returns the number of entries
     written, including a same-status write that stripped a stale blocker or
     changed associated fields. *now* fixes that
     one instant for every row the batch stamps, so a replay lands the same
@@ -1575,6 +1599,16 @@ def update_statuses_batch(
             if retired_binding(entry):
                 raise ValueError("a retired source binding cannot receive a comparison verdict")
 
+            identity_changed = False
+            for key, value in _identity_updates(
+                entry,
+                u.get("identity"),
+                overwrite_name=bool(u.get("overwrite_name", False)),
+            ).items():
+                if entry.get(key) != value:
+                    entry[key] = value
+                    identity_changed = True
+
             clear_blockers = u.get("clear_blockers", True)
             force = u.get("force", False)
 
@@ -1589,7 +1623,7 @@ def update_statuses_batch(
                 or force
                 or should_promote_status(current_status, new_status)
             )
-            row_changed = bool(status_change)
+            row_changed = bool(status_change) or identity_changed
             if status_change:
                 if current_status and current_status != new_status:
                     event = _history_event(

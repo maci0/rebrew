@@ -199,6 +199,34 @@ The `_pre_*` contract is locked by `TestPrecomputedTarget` in
 `TestScoreFastPaths` (exact zero metrics, mnemonic-equality reference check,
 and a differing-mnemonics case that must still be penalized).
 
+## Aligned climb scoring
+
+`rebrew match climb --objective aligned` counts instruction pairs with
+difflib's matching blocks and `autojunk` off. The stdlib index walk reads
+every copy of a repeated opcode from every copy on the other side, which is
+quadratic on a stream of `mov`. The climb matcher returns those same blocks.
+A length-2-or-longer region is a rolling-hash search checked against the
+tokens; a region with no adjacent pair is one forward scan. The gate is the
+token-position counter on the 2200-instruction pair-vs-hunk case
+(`TestScoreAligned.test_more_pairs_win_regardless_of_hunk_count`), which has
+to stay under one quadratic pass. That count does not move with scheduler load.
+
+## Surface reads and recompile retries
+
+`tools/public_surface.surface_at_ref` used to spawn `git show` once per Python
+file. It now lists the tree and reads every blob in one `git cat-file --batch`.
+`public_surface` parses each module once and reuses that tree for constant
+substitution. Substitution walks signatures, bases, and literal values, not
+function bodies. The gates are `TestSurfaceWork.test_ref_is_one_cat_file_batch`
+(two git commands), `TestSurfaceWork.test_each_module_is_parsed_once`, and
+`TestSurfaceWork.test_substitution_ignores_function_body_size` (the same
+name-visit count for a 1-statement body and a 400-statement body).
+
+`test_failed_artifact_download_never_re_posts_the_compile` injects the
+recompile client's `sleep` seam and asserts the backoff delays. One delay is
+recorded per retried attempt. The test does not wait on the clock, so the
+retry count does not move with scheduler load.
+
 ## What was measured and rejected
 
 - **Fancy-indexing reloc normalization**: 0.7× slower; kept the slice loop.

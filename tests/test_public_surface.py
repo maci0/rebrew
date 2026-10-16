@@ -10,15 +10,19 @@ table, the other half CONTRIBUTING holds unfrozen.
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tools.public_surface import (
+    _parse_cat_file_batch,
+    _SubstituteConstants,
     dashboard_routes,
     diff_surfaces,
     public_surface,
@@ -654,6 +658,137 @@ class TestDashboardRoutes:
         )
         unnamed = [path for path in removed if path not in notes]
         assert unnamed == [], f"**Breaking:** entries do not name {unnamed}"
+
+
+class TestSurfaceWork:
+    """Load-independent cost of reading a surface.
+
+    Wall time moves with the scheduler. The gates are git processes and
+    ``ast.parse`` calls.
+    """
+
+    def test_batch_parser_skips_missing_and_keeps_empty_blobs(self) -> None:
+        payload = (
+            b"aaa blob 5\nhello\nHEAD:missing.py missing\nbbb blob 0\n\nccc blob 2\n\xff\xfe\n"
+        )
+        found = _parse_cat_file_batch(["a.py", "missing.py", "empty.py", "bad.py"], payload)
+        assert found == {"a.py": "hello", "empty.py": "", "bad.py": "\ufffd\ufffd"}
+
+    def test_ref_is_one_cat_file_batch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = tmp_path / "repo"
+        pkg = repo / "pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "a.py").write_text(
+            "VALUE = 1\n\ndef public(n: int = VALUE) -> int:\n    return n\n",
+            encoding="utf-8",
+        )
+        (pkg / "b.py").write_text("OTHER = 2\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "--", "pkg"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-qm",
+                "init",
+            ],
+            check=True,
+        )
+        calls: list[list[str]] = []
+        real_run = subprocess.run
+
+        def _count(*args: Any, **kwargs: Any) -> Any:
+            command = args[0] if args else kwargs.get("args")
+            if isinstance(command, (list, tuple)) and command and command[0] == "git":
+                calls.append([str(part) for part in command])
+            return real_run(*args, **kwargs)
+
+        monkeypatch.setattr("tools.public_surface.subprocess.run", _count)
+        monkeypatch.chdir(repo)
+        got = surface_at_ref("HEAD", pkg, cwd=repo)
+        assert [command[1] for command in calls] == ["ls-tree", "cat-file"]
+        assert got == public_surface(pkg)
+
+    def test_each_module_is_parsed_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "a.py").write_text(
+            "VALUE = 1\n\ndef public(n: int = VALUE) -> int:\n    return n\n",
+            encoding="utf-8",
+        )
+        (pkg / "b.py").write_text("OTHER = 2\n", encoding="utf-8")
+        parsed: list[str] = []
+        real_parse = ast.parse
+
+        def _count(source: str, filename: str = "<unknown>", *args: Any, **kwargs: Any) -> ast.AST:
+            parsed.append(filename)
+            tree = real_parse(source, filename, *args, **kwargs)
+            if not isinstance(tree, ast.AST):
+                raise TypeError("ast.parse must return a tree")
+            return tree
+
+        monkeypatch.setattr("tools.public_surface.ast.parse", _count)
+        surface = public_surface(pkg)
+        assert "VALUE" not in " ".join(surface["a"]["public"])
+        assert "1" in " ".join(surface["a"]["public"])
+        assert sorted(parsed) == sorted(str(path) for path in pkg.glob("*.py"))
+
+    def test_substitution_ignores_function_body_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A longer function body adds no constant-name visits.
+
+        Surface descriptors are signatures, bases, and literal values. Walking
+        the body would make the name-visit count grow with statements that the
+        gate never reads.
+        """
+        seen: list[str] = []
+        original = _SubstituteConstants.visit_Name
+
+        def _count(self: _SubstituteConstants, node: ast.Name) -> ast.expr:
+            seen.append(node.id)
+            return original(self, node)
+
+        monkeypatch.setattr(_SubstituteConstants, "visit_Name", _count)
+
+        def _source(lines: int) -> str:
+            fn_body = "\n".join(f"    name_{i} = VALUE" for i in range(lines))
+            method_body = "\n".join(f"        name_{i} = VALUE" for i in range(lines))
+            return (
+                "VALUE = 1\n\n"
+                "def public(n: int = VALUE) -> int:\n"
+                f"{fn_body}\n"
+                "    return n\n"
+                "class Box:\n"
+                "    def method(self, n: int = VALUE) -> int:\n"
+                f"{method_body}\n"
+                "        return n\n"
+            )
+
+        root = Path("pkg")
+        path = Path("pkg/a.py")
+
+        def _once(lines: int) -> tuple[int, dict[str, tuple[str, ...]]]:
+            start = len(seen)
+            surface = public_surface(root, source={path: _source(lines)})
+            return len(seen) - start, surface["a"]
+
+        small_visits, small = _once(1)
+        large_visits, large = _once(400)
+        assert small_visits > 0
+        assert small_visits == large_visits
+        assert small == large
+        assert "VALUE" not in " ".join(small["public"])
+        assert "1" in " ".join(small["public"])
 
 
 if __name__ == "__main__":

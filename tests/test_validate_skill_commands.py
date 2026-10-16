@@ -2,6 +2,7 @@
 
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 import typer
@@ -116,34 +117,38 @@ class TestExtractCommands:
 
 
 class TestRunHelp:
-    @pytest.mark.parametrize("returncode", [0, 1, 2])
-    def test_exit_status_is_checked(self, monkeypatch: pytest.MonkeyPatch, returncode: int) -> None:
-        result = subprocess.CompletedProcess(
-            args=["rebrew", "missing", "--help"],
-            returncode=returncode,
-            stdout="\x1b[1mUsage\x1b[0m",
-            stderr="diagnostic",
-        )
-        monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: result)
-        assert vsc._run_help("missing") == (returncode == 0, "Usagediagnostic")
+    def test_known_route_renders_help_without_a_process(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _refuse_spawn(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("help probe spawned a process")
 
-    def test_timeout_returns_false(self, monkeypatch) -> None:
-        import subprocess
+        monkeypatch.setattr(subprocess, "run", _refuse_spawn)
+        vsc._command_tree.cache_clear()
+        ok, output = vsc._run_help("schema")
+        assert ok
+        assert "Usage" in output
 
-        def _run(*a, **k):
-            raise subprocess.TimeoutExpired("uv", 30)
+    def test_missing_route_is_not_ok(self) -> None:
+        ok, output = vsc._run_help("not-a-rebrew-command")
+        assert not ok
+        assert output
 
-        monkeypatch.setattr(subprocess, "run", _run)
-        assert vsc._run_help("test") == (False, "<timeout>")
+    def test_routes_share_one_command_build(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import typer.main
 
-    def test_filenotfound_returns_false(self, monkeypatch) -> None:
-        import subprocess
+        builds: list[int] = []
+        real = typer.main.get_command
 
-        def _run(*a, **k):
-            raise FileNotFoundError("uv")
+        def _count(typer_instance: Any) -> Any:
+            builds.append(1)
+            return real(typer_instance)
 
-        monkeypatch.setattr(subprocess, "run", _run)
-        assert vsc._run_help("test") == (False, "<uv not found>")
+        monkeypatch.setattr(typer.main, "get_command", _count)
+        vsc._command_tree.cache_clear()
+        assert vsc._run_help("schema")[0]
+        assert vsc._run_help("status")[0]
+        assert builds == [1]
 
 
 class TestProbeFailureMessage:
@@ -156,13 +161,6 @@ class TestProbeFailureMessage:
     def test_missing_subcommand_is_reported_as_missing(self) -> None:
         msg = vsc._probe_failure_message("rebrew-workflow", "data", "Usage: no such command")
         assert msg.endswith("subcommand not found")
-
-    def test_help_timeout_survives_a_cold_import(self) -> None:
-        # A cold tree pays bytecode compilation for the whole rebrew import
-        # graph under _HELP_WORKERS concurrent probes; the old 30s bound made
-        # every one of them look like a stale skill.
-        assert vsc._HELP_TIMEOUT_SECONDS >= 120
-        assert vsc._HELP_WORKERS >= 1
 
 
 class TestDocumentationValidation:

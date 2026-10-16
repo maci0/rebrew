@@ -102,6 +102,21 @@
   comparison state does not become a source verdict for an unbound identity.
 
 ### Performance
+- Reading a git ref's public import surface lists the tree once and reads
+  every Python blob in one `git cat-file --batch`. Each module is parsed once.
+  Constant substitution reuses that tree and skips function bodies, which the
+  descriptors do not include. The gates are two git commands for a package of
+  any size, one `ast.parse` per file, and a name-visit count that stays put
+  when a function body grows.
+- The recompile artifact-download property no longer waits out backoff. It
+  records the delays through the client's `sleep` seam, and the retry count
+  is the length of that list.
+- Aligned climb scoring (`rebrew match climb --objective aligned`) keeps
+  difflib's blocks with `autojunk` off, and counts token positions read instead
+  of walking every copy of a repeated opcode. The 2200-instruction pair-vs-hunk
+  case stays under one quadratic pass.
+- Skill-command validation renders `--help` on the composed command tree once,
+  not one process per subcommand.
 - Single-file `rebrew test` reuses the active target's name-to-VA map from
   `.rebrew/name_to_va_cache.json` when sources, metadata, exports, and the
   target binary are unchanged. A failed catalog scan is not cached.
@@ -111,6 +126,10 @@
   parses as that file in a handful-file project.
 - A single-file name map reuses parsed facts for unchanged sources. Editing
   one file re-parses that file, not the rest of the reversed tree.
+- A full pytest suite (`make test`, or bare `uv run --frozen pytest`) runs on
+  pytest-xdist workers. `make coverage`, `--collect-only`, and a single file
+  or node id stay one process. `update_statuses_batch` can record function
+  identity in the same write as STATUS.
 
 ## [4.3.0] - 2026-10-16
 

@@ -46,7 +46,7 @@ make pr-check                             # before a PR: CI gates, pre-commit, b
 make coverage                             # slipcover fail-under floor (COV_FLOOR); ratchet up, never down
 ```
 
-Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest config loads `tests/pytest_ansi_env.py`; `.` on `pythonpath` exposes `tools/`).
+Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest config loads `tests/pytest_ansi_env.py`, which also starts pytest-xdist workers for a full-suite run; `.` on `pythonpath` exposes `tools/`). `make coverage`, `--collect-only`, and a file or node id stay one process.
 
 ## Code Style
 

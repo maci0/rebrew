@@ -3,9 +3,10 @@
 Parses each ``src/rebrew/agent-skills/*/SKILL.md`` and its ``references/*.md``,
 collects every ``rebrew <subcommand>`` invocation from both ``bash`` code
 blocks and inline code spans, and for each unique ``(subcommand, flags)``
-combination runs ``uv run --frozen rebrew <subcommand> --help`` to confirm the
-subcommand resolves, then checks every referenced long flag against that
-command's registered option declarations.
+combination renders ``rebrew <subcommand> --help`` on the composed command
+tree (one build, no process per route) to confirm the subcommand resolves,
+then checks every referenced long flag against that command's registered
+option declarations.
 
 The script does NOT invoke the actual commands — it only exercises ``--help``.
 
@@ -24,10 +25,10 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
 import sys
 from functools import cache
 from pathlib import Path
+from typing import cast
 
 from typer._click.core import Command as TyperBaseCommand
 from typer._click.core import Context as TyperContext
@@ -192,63 +193,24 @@ def _extract_commands(skill_md: Path) -> list[tuple[str, list[str]]]:
 # ---------------------------------------------------------------------------
 
 
-def _rebrew_help_command() -> list[str]:
-    """The rebrew CLI invocation for --help runs.
-
-    Prefers the repo venv's console script (``.venv/bin/rebrew``) over
-    ``uv run --frozen rebrew``: uv needs a writable cache dir under the user home,
-    which is read-only in sandboxed environments (the help output would be
-    an error instead of the flags).  Falls back to ``uv run --frozen rebrew`` when
-    the venv script is not found (non-venv installs)."""
-    # NOTE: no .resolve() on sys.executable — in venvs it is a symlink to
-    # the uv-managed interpreter, and resolving would look next to the real
-    # python (no rebrew script there).
-    script = Path(sys.executable).parent / "rebrew"
-    if script.exists():
-        return [str(script)]
-    return ["uv", "run", "--frozen", "rebrew"]
-
-
-#: Wall-clock bound for one ``rebrew <subcommand> --help`` probe.  The first
-#: probe on a cold tree pays bytecode compilation for the whole rebrew import
-#: graph, and with :data:`_HELP_WORKERS` probes running at once that easily
-#: exceeds 30s — the validator then reports stale-looking "subcommand not
-#: found" failures for commands that are present and correct.  Measured: ~3s
-#: warm, ~20s+ cold under contention.
-_HELP_TIMEOUT_SECONDS = 180
-
-#: Concurrent `--help` subprocesses.  Each probe is an independent spawn, so
-#: this trades wall clock against the cold-start cost above.
-_HELP_WORKERS = 8
-
-
 def _run_help(subcommand: str) -> tuple[bool, str]:
-    """Run ``rebrew <subcommand> --help`` and return (ok, output).
+    """Render ``rebrew <subcommand> --help`` and return (ok, output).
 
-    Runs with a wide terminal (COLUMNS=200) so Rich does not truncate flag names.
-    *subcommand* may be a space-separated route like ``cfg target add``.
+    Uses the composed command from :func:`_command_tree` (built once) instead of
+    a process per route.  A wide terminal (COLUMNS=200) keeps Rich from
+    truncating flag names.  *subcommand* may be a space-separated route like
+    ``cfg target add``.
     """
-    import os
+    from click.core import Command
+    from click.testing import CliRunner
 
-    env = {**os.environ, "COLUMNS": "200"}
-    sub_tokens = subcommand.split()
-    try:
-        result = subprocess.run(
-            _rebrew_help_command() + sub_tokens + ["--help"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_HELP_TIMEOUT_SECONDS,
-            cwd=_REPO_ROOT,
-            env=env,
-        )
-        combined = _ANSI_RE.sub("", result.stdout + result.stderr)
-        return result.returncode == 0, combined
-    except subprocess.TimeoutExpired:
-        return False, "<timeout>"
-    except FileNotFoundError:
-        return False, "<uv not found>"
+    result = CliRunner().invoke(
+        cast(Command, _command_tree()),
+        [*subcommand.split(), "--help"],
+        env={"COLUMNS": "200"},
+    )
+    output = _ANSI_RE.sub("", result.output or "")
+    return result.exit_code == 0, output
 
 
 def _probe_failure_message(skill_name: str, subcommand: str, output: str) -> str:
@@ -259,10 +221,7 @@ def _probe_failure_message(skill_name: str, subcommand: str, output: str) -> str
     subcommand that was there all along.
     """
     if output.startswith("<"):
-        return (
-            f"{skill_name}: rebrew {subcommand} — probe {output.strip('<>')}, "
-            f"not a skill defect (raise _HELP_TIMEOUT_SECONDS if it is a timeout)"
-        )
+        return f"{skill_name}: rebrew {subcommand}: probe {output.strip('<>')}, not a skill defect"
     return f"{skill_name}: rebrew {subcommand} — subcommand not found"
 
 
@@ -289,11 +248,8 @@ def validate(*, quiet: bool = False, docs: bool = False) -> bool:
         return True
 
     # Collect (skill_name, subcommand, flags) triples first, deduplicating per
-    # skill, then probe the UNIQUE subcommands' --help output IN PARALLEL —
-    # each probe is an independent subprocess spawn (~1s); serialising ~30 of
-    # them made the validation (and the two suite tests running it) take 30s+.
-    from concurrent.futures import ThreadPoolExecutor
-
+    # skill, then render each unique subcommand's --help on the one composed
+    # command tree.
     combos: list[tuple[str, str, tuple[str, ...]]] = []
     for skill_dir in sorted(_SKILLS_DIR.iterdir()):
         if not skill_dir.is_dir():
@@ -320,10 +276,7 @@ def validate(*, quiet: bool = False, docs: bool = False) -> bool:
                 combos.append((str(path.relative_to(_REPO_ROOT)), subcommand, doc_flags))
 
     unique_subs = sorted({c[1] for c in combos})
-    with ThreadPoolExecutor(max_workers=_HELP_WORKERS) as pool:
-        help_cache: dict[str, tuple[bool, str]] = dict(
-            zip(unique_subs, pool.map(_run_help, unique_subs), strict=True)
-        )
+    help_cache = {sub: _run_help(sub) for sub in unique_subs}
     registered_flags = {sub: _registered_flags(sub) for sub in unique_subs if help_cache[sub][0]}
 
     errors: list[str] = []

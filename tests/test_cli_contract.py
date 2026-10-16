@@ -640,25 +640,37 @@ class TestScriptDispatch:
 class TestComposedHelp:
     """Nested help and examples must remain usable after route migrations."""
 
-    def test_every_route_renders_help_and_version(self) -> None:
-        from typer.testing import CliRunner
+    def test_every_route_renders_help_and_version(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from click.testing import CliRunner
 
         from rebrew.app.main import app
 
+        builds: list[int] = []
+        real_get_command = typer.main.get_command
+
+        def _count_builds(typer_instance: Any) -> Any:
+            builds.append(1)
+            return real_get_command(typer_instance)
+
+        monkeypatch.setattr(typer.main, "get_command", _count_builds)
         command = typer.main.get_command(app)
         pending = [((), command)]
         runner = CliRunner()
         while pending:
             path, current = pending.pop()
-            result = runner.invoke(app, [*path, "--help"], env={"COLUMNS": "200"})
+            result = runner.invoke(command, [*path, "--help"], env={"COLUMNS": "200"})
             assert result.exit_code == 0, (path, result.output)
             assert "Examples:" in result.output, path
             assert "Exit codes:" in result.output, path
-            version = runner.invoke(app, [*path, "--version"])
+            version = runner.invoke(command, [*path, "--version"])
             assert version.exit_code == 0, (path, version.output)
             assert version.stdout.startswith("rebrew "), path
             for name, child in getattr(current, "commands", {}).items():
                 pending.append(((*path, name), child))
+        # Typer rebuilds the click tree, and re-inspects every callback, on each
+        # CliRunner.invoke. One build serves every route. The count does not
+        # move when the machine is busy.
+        assert builds == [1]
 
     def test_help_examples_name_real_operations_flags_and_required_arguments(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

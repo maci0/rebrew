@@ -594,7 +594,6 @@ class TestReportPayloadShape:
                 src / f"extra_{i:04d}.c",
                 f"/* ADDRESS: SERVER 0x{va:08x} */\n\nint extra_{i}(void) {{ return 0; }}\n",
                 encoding="utf-8",
-                metadata_fields={f"SERVER.0x{va:08x}": {"kind": "FUNCTION", "size": 16}},
             )
             meta_lines.append(f'["SERVER.0x{va:08x}"]\nstatus = "STUB"\n')
         write_store_fixture(
@@ -1164,7 +1163,6 @@ class TestGeneratedMarkup:
                 src / f"extra_{i:04d}.c",
                 f"/* ADDRESS: SERVER 0x{va:08x} */\n\nint extra_{i}(void) {{ return 0; }}\n",
                 encoding="utf-8",
-                metadata_fields={f"SERVER.0x{va:08x}": {"kind": "FUNCTION", "size": 16}},
             )
             meta_lines.append(f'["SERVER.0x{va:08x}"]\nstatus = "STUB"\n')
         write_store_fixture(

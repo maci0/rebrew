@@ -518,13 +518,19 @@ def main(argv: list[str] | None = None) -> int:
         # index, so shrinking or reordering WRITE_COMMANDS would otherwise
         # leave the stale write7/, write8/... trees behind forever.
         _clear_sweep_base(sweep_base)
-        for index, cmd in enumerate(WRITE_COMMANDS):
-            write_outcomes.append(
-                (
-                    cmd,
-                    *check_write_idempotency(cmd, _write_sweep_dir(sweep_base, index, cmd)),
-                )
+        # Each command mutates its own write{index} directory, so the runs
+        # share nothing but the print order, which map preserves.
+        write_root = sweep_base
+
+        def _one_write(item: tuple[int, str]) -> tuple[str, bool, str]:
+            index, command = item
+            ok, reason = check_write_idempotency(
+                command, _write_sweep_dir(write_root, index, command)
             )
+            return command, ok, reason
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            write_outcomes.extend(pool.map(_one_write, enumerate(WRITE_COMMANDS)))
         for cmd, ok, reason in write_outcomes:
             marker = "PASS" if ok else "FAIL"
             print(f"[{marker}] (write) {cmd}")

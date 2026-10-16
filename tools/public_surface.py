@@ -261,12 +261,66 @@ def _constant_values(trees: Mapping[str, ast.Module]) -> dict[str, dict[str, Con
 class _SubstituteConstants(ast.NodeTransformer):
     """Replace a resolvable constant name with the value it binds.
 
-    Applied to the whole module, not just the defaults: a Typer option hides
-    its default in a call, and only the substituted form compares as a value.
+    A Typer option hides its default in a call, so the replacement has to cover
+    the whole signature expression, not only a bare name. Function and method
+    bodies are not part of a surface descriptor, so they are not walked: a
+    longer body must not add name visits.
     """
 
     def __init__(self, values: Mapping[str, ConstValue]) -> None:
         self._values = values
+
+    def _visit_signature(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> ast.FunctionDef | ast.AsyncFunctionDef:
+        args = self.visit(node.args)
+        if not isinstance(args, ast.arguments):
+            raise TypeError("signature substitution must keep the arguments")
+        node.args = args
+        if node.returns is not None:
+            returns = self.visit(node.returns)
+            if not isinstance(returns, ast.expr):
+                raise TypeError("return substitution must keep the expression")
+            node.returns = returns
+        return node
+
+    @override
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
+        visited = self._visit_signature(node)
+        if not isinstance(visited, ast.FunctionDef):
+            raise TypeError("signature substitution must keep the function")
+        return visited
+
+    @override
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
+        visited = self._visit_signature(node)
+        if not isinstance(visited, ast.AsyncFunctionDef):
+            raise TypeError("signature substitution must keep the function")
+        return visited
+
+    @override
+    def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
+        bases: list[ast.expr] = []
+        for base in node.bases:
+            visited_base = self.visit(base)
+            if not isinstance(visited_base, ast.expr):
+                raise TypeError("base substitution must keep the expression")
+            bases.append(visited_base)
+        node.bases = bases
+        body: list[ast.stmt] = []
+        for stmt in node.body:
+            if not isinstance(
+                stmt,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.Assign, ast.AnnAssign, ast.ClassDef),
+            ):
+                body.append(stmt)
+                continue
+            visited_stmt = self.visit(stmt)
+            if not isinstance(visited_stmt, ast.stmt):
+                raise TypeError("statement substitution must keep the statement")
+            body.append(visited_stmt)
+        node.body = body
+        return node
 
     @override
     def visit_Assign(self, node: ast.Assign) -> ast.Assign:
@@ -488,17 +542,25 @@ def _module_name(path: Path, root: Path) -> str:
     return ".".join(parts)
 
 
-def _surface_from_source(
-    source: str,
+def _surface_from_tree(
+    tree: ast.Module,
     module: str,
     is_package: bool,
     constants: Mapping[str, ConstValue],
     defaults: FieldDefaults,
 ) -> dict[str, tuple[str, ...]]:
-    tree = ast.parse(source)
+    """Score one already-parsed module.
+
+    Constant substitution reuses that tree. A second parse would repeat the
+    same bytes for every module on every surface read.
+    """
+    scored = tree
     if constants:
-        tree = ast.fix_missing_locations(_SubstituteConstants(constants).visit(tree))
-    return _module_names(tree, module, is_package, defaults)
+        rewritten = _SubstituteConstants(constants).visit(tree)
+        if not isinstance(rewritten, ast.Module):
+            raise TypeError("constant substitution must keep the module")
+        scored = rewritten
+    return _module_names(scored, module, is_package, defaults)
 
 
 def public_surface(
@@ -507,7 +569,7 @@ def public_surface(
     """Map ``rebrew.module`` to the public names it binds and their descriptors.
 
     ``source`` supplies the text per absolute path instead of reading the tree,
-    so the same routine scores a tagged tree.
+    so the same routine scores a tagged tree. Each module is parsed once.
     """
     paths: list[Path] = []
     if source is not None:
@@ -516,18 +578,24 @@ def public_surface(
         paths = sorted(root.rglob("*.py"))
     # Every module is parsed before any is scored: a default may name a
     # constant another module defines, and the value is what has to match.
-    text = {
-        _module_name(p, root): (source[p] if source is not None else p.read_text(encoding="utf-8"))
-        for p in paths
-    }
-    trees = {m: ast.parse(t) for m, t in text.items()}
+    entries: list[tuple[str, Path, str]] = []
+    for path in paths:
+        body = source[path] if source is not None else path.read_text(encoding="utf-8")
+        entries.append((_module_name(path, root), path, body))
+    if len({module for module, _path, _body in entries}) != len(entries):
+        raise ValueError("two paths resolved to one module name")
+    trees = {module: ast.parse(body, filename=str(path)) for module, path, body in entries}
     constants = _constant_values(trees)
     defaults = _class_field_defaults(trees)
     surface = {
-        module: _surface_from_source(
-            source, module, p.name == f"{_INIT}.py", constants.get(module, {}), defaults
+        module: _surface_from_tree(
+            trees[module],
+            module,
+            path.name == f"{_INIT}.py",
+            constants.get(module, {}),
+            defaults,
         )
-        for (module, source), p in zip(text.items(), paths, strict=True)
+        for module, path, _body in entries
     }
     # Last, because a re-export can only borrow the origin's shape once every
     # module has been scored.
@@ -681,6 +749,64 @@ def _git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _parse_cat_file_batch(names: list[str], payload: bytes) -> dict[str, str]:
+    """Split one ``git cat-file --batch`` payload into path to text.
+
+    Objects are in *names* order. A ``missing`` line has no body. Anything
+    the batch cannot account for raises, so a short read cannot look like a
+    package that deleted those modules.
+    """
+    found: dict[str, str] = {}
+    pos = 0
+    limit = len(payload)
+    for name in names:
+        if pos >= limit:
+            raise RuntimeError("git cat-file --batch ended early")
+        end = payload.find(b"\n", pos)
+        if end < 0:
+            raise RuntimeError("git cat-file --batch header was truncated")
+        header = payload[pos:end]
+        pos = end + 1
+        if header.endswith(b" missing"):
+            continue
+        parts = header.split()
+        if len(parts) != 3:
+            raise RuntimeError("git cat-file --batch header was not a blob")
+        try:
+            size = int(parts[2])
+        except ValueError as exc:
+            raise RuntimeError("git cat-file --batch size was not an integer") from exc
+        if size < 0 or pos + size > limit:
+            raise RuntimeError("git cat-file --batch blob overruns the output")
+        body = payload[pos : pos + size]
+        pos += size
+        if pos >= limit or payload[pos : pos + 1] != b"\n":
+            raise RuntimeError("git cat-file --batch blob was not newline-terminated")
+        pos += 1
+        if parts[1] == b"blob":
+            found[name] = body.decode("utf-8", errors="replace")
+    if pos != limit:
+        raise RuntimeError("git cat-file --batch output continued past the request")
+    return found
+
+
+def _blobs_at_ref(ref: str, names: list[str], cwd: Path) -> dict[str, str]:
+    """Read *names* at *ref* in one ``git cat-file --batch`` process."""
+    if not names:
+        return {}
+    proc = subprocess.run(
+        ["git", "cat-file", "--batch"],
+        cwd=cwd,
+        input="".join(f"{ref}:{name}\n" for name in names).encode(),
+        check=False,
+        capture_output=True,
+    )
+    if proc.returncode != 0 or proc.stdout is None:
+        detail = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"git cat-file --batch failed for {ref}: {detail}")
+    return _parse_cat_file_batch(names, proc.stdout)
+
+
 # --- dashboard routes -----------------------------------------------------
 
 #: Module holding the dashboard's route table, read for the paths it serves.
@@ -781,19 +907,17 @@ def routes_at_ref(ref: str, cwd: Path = Path(".")) -> frozenset[str] | None:
 def surface_at_ref(
     ref: str, root: Path = PKG_ROOT, cwd: Path = Path(".")
 ) -> dict[str, dict[str, tuple[str, ...]]] | None:
-    """The surface of ``root`` as of ``ref``, or ``None`` outside a checkout."""
+    """The surface of ``root`` as of ``ref``, or ``None`` outside a checkout.
+
+    The tree listing is one ``git ls-tree``. Every Python blob is then one
+    ``git cat-file --batch``, not one ``git show`` per file.
+    """
     listing = _git("ls-tree", "-r", "--name-only", ref, "--", str(root), cwd=cwd)
     if listing.returncode != 0:
         return None
-    source: dict[Path, str] = {}
-    for line in listing.stdout.splitlines():
-        name = line.strip()
-        if not name.endswith(".py"):
-            continue
-        blob = _git("show", f"{ref}:{name}", cwd=cwd)
-        if blob.returncode != 0:
-            continue
-        source[Path(name).resolve()] = blob.stdout
+    names = [line.strip() for line in listing.stdout.splitlines() if line.strip().endswith(".py")]
+    blobs = _blobs_at_ref(ref, names, cwd)
+    source = {Path(name).resolve(): text for name, text in blobs.items()}
     return public_surface(root, source=source)
 
 
