@@ -1561,6 +1561,18 @@ ID preserves the helper's 129 bytes but grows two TL callers from 414/65 to
 forwarding alone does not establish the C parameter width; the earlier rejection
 of that ID type from push width alone was too strong.
 
+Goal69 replay (2026-10-16), from guild-rebrew:
+`uv run --frozen rebrew types reconcile fcn_00451840
+src/client_scene_transform.h --prototype 'int __cdecl
+fcn_00451840(float* a, float* b, float range);' --dry-run --json` also refuses
+incomplete contexts. The full contract audit reports `findings: []`, alongside
+122 SERVER, 915 GOLDTL and 625 GOLD unknown-context records; unrelated Docker
+SDK include closures still prevent the writer from establishing the
+complete affected source set. Receipt: `.scratch/goal69/bounds-contracts.json`.
+Keep the incomplete-context guard. Explicit source repair and preservation checks
+with each target's pinned compiler remain necessary; an empty findings list is
+not a complete-context verdict or permission to rewrite uncertain sources.
+
 Proposed capability: obtain complete target-specific declaration/include
 contexts from the pinned compiler image, with image/source/flag hashes and
 missing or conditional inputs reported explicitly. Preserve per-target header
