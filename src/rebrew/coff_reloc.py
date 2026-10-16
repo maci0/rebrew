@@ -13,7 +13,7 @@ import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeGuard, cast
 
 from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources
@@ -235,26 +235,70 @@ def build_iat_region(cfg: ProjectConfig) -> frozenset[int]:
     return frozen
 
 
+_ANNOTATION_FACT_FIELDS = ("va", "name", "symbol", "module", "kind", "filepath", "line")
+
+
+def _annotation_fact(ann: Any) -> dict[str, Any]:
+    """Fields the name-map merge reads off one source binding."""
+    return {name: getattr(ann, name) for name in _ANNOTATION_FACT_FIELDS}
+
+
+def _annotation_from_fact(row: dict[str, Any]) -> Any:
+    """Rebuild a source binding from :func:`_annotation_fact`."""
+    from rebrew.metadata.bindings import SourceBinding
+
+    va = row.get("va")
+    if isinstance(va, bool) or not isinstance(va, int):
+        raise ValueError("name-map annotation fact has a non-integer VA")
+    line = row.get("line") or 0
+    if isinstance(line, bool) or not isinstance(line, int):
+        raise ValueError("name-map annotation fact has a non-integer line")
+    return SourceBinding(
+        va=va,
+        name=str(row.get("name") or ""),
+        symbol=str(row.get("symbol") or ""),
+        module=str(row.get("module") or ""),
+        kind=str(row.get("kind") or ""),
+        filepath=str(row.get("filepath") or ""),
+        line=line,
+    )
+
+
+def _usable_annotation_facts(rows: object) -> TypeGuard[list[dict[str, Any]]]:
+    if not isinstance(rows, list):
+        return False
+    return all(isinstance(row, dict) for row in rows)
+
+
 def build_name_to_va(
     cfg: ProjectConfig,
     *,
     annotations: Sequence[Any] | None = None,
+    scan_facts: dict[str, dict[str, Any]] | None = None,
+    scan_facts_out: dict[str, dict[str, Any]] | None = None,
+    annotation_facts: dict[str, list[dict[str, Any]]] | None = None,
+    annotation_facts_out: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, int]:
     """Build a symbol-name → VA map from globals AND the function catalog.
 
     Shared by ``rebrew test`` and ``rebrew verify`` so both paths apply the
     same DIR32 absolute-address and REL32 callee checks.  Includes exported
-    symbols, annotated functions, scanned globals, and data metadata —
-    without the function half, REL32 callee validation would miss every call
+    symbols, annotated functions, scanned globals, and data metadata.
+    Without the function half, REL32 callee validation would miss every call
     target and mask wrong-function calls as valid RELOC.
 
-    When *annotations* is provided (e.g. the list already returned by
+    When *annotations* is provided (the list already returned by
     ``scan_reversed_dir``), the function-name half is filled from that list
-    instead of re-walking and re-parsing every source — verify's prepare
+    instead of re-walking and re-parsing every source. Verify's prepare
     pass already paid that cost once.
 
-    :raises CatalogScanError: the scan failed — callers must fail closed
-        (no reloc masking without validation), never mask on an empty map.
+    *scan_facts* and *annotation_facts* are per-file parse records from an
+    earlier call. Paths present there are not read again. The merge still
+    visits every file, and the ``*_out`` dicts receive the records this call
+    used. This function does not write a cache file.
+
+    :raises CatalogScanError: the scan failed. Callers must fail closed
+        (no reloc masking without validation) and must not mask on an empty map.
     """
     name_to_va: dict[str, int] = {}
     try:
@@ -269,7 +313,13 @@ def build_name_to_va(
         # 1292: GOLDTL's log tables resolved to the SERVER VAs 0x10027078...).
         active_module = target_module(cfg)
 
-        scan = scan_globals(cfg.reversed_dir, cfg, record_roles=False)
+        scan = scan_globals(
+            cfg.reversed_dir,
+            cfg,
+            record_roles=False,
+            fact_cache=scan_facts,
+            facts_out=scan_facts_out,
+        )
         for name, glob in scan.globals.items():
             if glob.va:
                 name_to_va[name] = glob.va
@@ -306,17 +356,30 @@ def build_name_to_va(
         if annotations is None:
             from rebrew.metadata.bindings import read_source_bindings
 
-            annotations = [
-                ann
-                for path in iter_sources(cfg.reversed_dir, cfg)
-                for ann in read_source_bindings(
-                    path,
-                    target_name=active_module,
-                    base_dir=cfg.reversed_dir,
-                    metadata_dir=cfg.metadata_dir,
-                    project_root=getattr(cfg, "root", None),
+            annotations = []
+            for path in iter_sources(cfg.reversed_dir, cfg):
+                try:
+                    fact_key = str(path.resolve())
+                except OSError:
+                    fact_key = str(path)
+                cached_rows = (
+                    annotation_facts.get(fact_key) if annotation_facts is not None else None
                 )
-            ]
+                if _usable_annotation_facts(cached_rows):
+                    rows = [_annotation_from_fact(row) for row in cached_rows]
+                    stored = cached_rows
+                else:
+                    rows = read_source_bindings(
+                        path,
+                        target_name=active_module,
+                        base_dir=cfg.reversed_dir,
+                        metadata_dir=cfg.metadata_dir,
+                        project_root=getattr(cfg, "root", None),
+                    )
+                    stored = [_annotation_fact(ann) for ann in rows]
+                if annotation_facts_out is not None:
+                    annotation_facts_out[fact_key] = stored
+                annotations.extend(rows)
         selected, _duplicates = select_source_bindings(cfg, annotations)
         ambiguous_names: set[str] = set()
         for ann in selected:

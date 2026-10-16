@@ -14,6 +14,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from itertools import combinations
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from rebrew.config import (
@@ -292,8 +293,268 @@ def _bind_stored_data_rows(
                 mark(name, type_str)
 
 
+def _scan_fact_key(path: Path) -> str:
+    """Stable cache key for one source. A path that cannot be resolved stays spelled as given."""
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
+
+
+def _usable_scan_fact(facts: object) -> bool:
+    """True when *facts* is a per-file parse record this scan can apply."""
+    if not isinstance(facts, dict) or not isinstance(facts.get("apply"), bool):
+        return False
+    if not facts["apply"]:
+        return "fname" not in facts or isinstance(facts.get("fname"), str)
+    return (
+        isinstance(facts.get("fname"), str)
+        and isinstance(facts.get("header"), bool)
+        and isinstance(facts.get("bindings"), list)
+        and isinstance(facts.get("externs"), list)
+    )
+
+
+def _collect_scan_file_facts(
+    cfile: Path,
+    src_dir: Path,
+    cfg: ProjectConfig | None,
+    *,
+    metadata_dir: Path,
+    function_entries: dict[tuple[str, int], dict[str, Any]],
+    inactive_sources: set[Path],
+    record_roles: bool,
+    file_roles: dict[str, tuple[set[str], set[str], set[str]]],
+) -> dict[str, Any] | None:
+    """Parse *cfile* into the facts :func:`_apply_scan_file_facts` replays.
+
+    ``None`` means the file could not be read. Callers retry that file next
+    time instead of remembering an empty contribution.
+    """
+    from rebrew.c_parser import (
+        find_c_function_definitions,
+        find_extern_variables,
+        find_variable_roles,
+    )
+    from rebrew.metadata.bindings import function_rows_for_file, source_bindings
+    from rebrew.metadata.data import data_rows_for_path
+    from rebrew.utils import rel_display_path
+
+    is_header = cfile.suffix.lower() == ".h"
+    try:
+        # Tolerant read: a legacy-encoded source must not have its
+        # non-ASCII bytes silently deleted, which would corrupt string
+        # literals, comments, and address-binding scans.
+        text, _ = read_source_text(cfile)
+    except OSError as exc:
+        # The scan still returns an inventory, just one missing every
+        # marker in this file, so say which file and why rather than
+        # reporting a short list as the whole tree.
+        log.warning("skipping unreadable source %s: %s", cfile, exc)
+        return None
+
+    lines = text.splitlines()
+    fname = rel_display_path(cfile, src_dir)
+    stored_modules = tuple(
+        module
+        for module, _, _ in (
+            function_rows_for_file(
+                cfile,
+                metadata_dir,
+                function_entries,
+                project_root=getattr(cfg, "root", None),
+            )
+            + data_rows_for_path(metadata_dir, cfile)
+        )
+    )
+    if not stored_modules and not is_header and cfile.resolve() in inactive_sources:
+        return {"apply": False}
+    if not _source_visible_to_target(lines, cfg, stored_modules):
+        return {"apply": False, "fname": fname, "header": is_header}
+
+    bindings = source_bindings(
+        text,
+        cfile,
+        None,
+        None,
+        metadata_dir,
+        with_prototypes=False,
+        project_root=getattr(cfg, "root", None),
+    )
+    function_modules: dict[str, set[str]] = defaultdict(set)
+    data_modules: dict[str, set[str]] = defaultdict(set)
+    anchored_data_names: set[str] = set()
+    for binding in bindings:
+        if binding.is_data:
+            # Migrated data identities have no source line, but still scope declarations.
+            data_modules[binding.name].add(binding.module)
+            if binding.line:
+                anchored_data_names.add(binding.name)
+        else:
+            function_modules[binding.name].add(binding.module)
+    by_line = {line: name for name, line in find_c_function_definitions(text)}
+
+    def function_visible(
+        line: int,
+        *,
+        names: dict[int, str] = by_line,
+        modules_by_name: dict[str, set[str]] = function_modules,
+    ) -> bool:
+        modules = modules_by_name.get(names.get(line, ""), set())
+        return cfg is None or not modules or any(module_visible_to_target(m, cfg) for m in modules)
+
+    parsed_vars = find_extern_variables(
+        text, include_definitions=True, function_filter=function_visible
+    )
+
+    def variable_visible(
+        name: str,
+        is_definition: bool,
+        *,
+        modules_by_name: dict[str, set[str]] = data_modules,
+        anchored_names: set[str] = anchored_data_names,
+    ) -> bool:
+        modules = modules_by_name.get(name, set())
+        return (
+            cfg is None
+            or not modules
+            or not (is_definition or name in anchored_names)
+            or any(module_visible_to_target(m, cfg) for m in modules)
+        )
+
+    if record_roles:
+        file_roles[fname] = find_variable_roles(
+            text, function_filter=function_visible, variable_filter=variable_visible
+        )
+
+    visible_vars = [v for v in parsed_vars if variable_visible(v.name, v.is_definition)]
+    return {
+        "apply": True,
+        "fname": fname,
+        "header": is_header,
+        "bindings": [
+            {
+                "data": bool(binding.is_data),
+                "name": binding.name,
+                "module": binding.module,
+                "va": int(binding.va or 0),
+                "line": int(binding.line or 0),
+            }
+            for binding in bindings
+        ],
+        "externs": [
+            {
+                "name": ev.name,
+                "type": ev.type_str,
+                "definition": bool(ev.is_definition),
+                "declaration": ev.declaration,
+            }
+            for ev in visible_vars
+        ],
+    }
+
+
+def _apply_scan_file_facts(
+    facts: dict[str, Any],
+    *,
+    cfg: ProjectConfig | None,
+    cfile: Path,
+    data_entries: dict[tuple[str, int], dict[str, Any]],
+    by_key: dict[tuple[str, int], GlobalEntry],
+    by_name: dict[str, GlobalEntry],
+    entries_by_name: dict[str, list[GlobalEntry]],
+    remember: Any,
+    type_by_name: dict[str, dict[str, list[str]]],
+    mark: Any,
+    header_files: set[str],
+) -> None:
+    """Apply one file's cached parse facts to the running global inventory."""
+    fname = str(facts["fname"])
+    is_header = bool(facts["header"])
+    bindings = [
+        SimpleNamespace(
+            is_data=bool(row.get("data")),
+            name=str(row.get("name") or ""),
+            module=str(row.get("module") or ""),
+            va=int(row.get("va") or 0),
+            line=int(row.get("line") or 0),
+        )
+        for row in facts["bindings"]
+        if isinstance(row, dict)
+    ]
+    extern_vars = {
+        str(row.get("name") or ""): SimpleNamespace(
+            name=str(row.get("name") or ""),
+            type_str=str(row.get("type") or ""),
+            is_definition=bool(row.get("definition")),
+            declaration=str(row.get("declaration") or ""),
+        )
+        for row in facts["externs"]
+        if isinstance(row, dict)
+    }
+    annotated_names: set[str] = set()
+    _bind_stored_data_rows(
+        cfg=cfg,
+        cfile=cfile,
+        bindings=bindings,
+        data_entries=data_entries,
+        fname=fname,
+        is_header=is_header,
+        extern_vars=extern_vars,
+        annotated_names=annotated_names,
+        by_key=by_key,
+        remember=remember,
+        type_by_name=type_by_name,
+        mark=mark,
+    )
+    for ev_name, ev in extern_vars.items():
+        if ev_name in annotated_names:
+            # The marker already named it. Keep that spelling when it
+            # parsed a type: a second form in the same file (`[88]` and
+            # `[0x58]`) is one object. Fill the type only when no source
+            # marker spelled one, so a header's `T[]` cannot become the
+            # size.
+            if not is_header and ev.type_str:
+                known = type_by_name[ev_name]
+                c_known = [
+                    t
+                    for t, files in known.items()
+                    if any(path not in header_files for path in files)
+                ]
+                if not c_known:
+                    type_by_name[ev_name][ev.type_str].append(fname)
+                    mark(ev_name, ev.type_str)
+                    for typed_entry in entries_by_name.get(ev_name, ()):
+                        if not typed_entry.type_str:
+                            typed_entry.type_str = ev.type_str
+            continue
+
+        key = (ev_name, 0)
+        entry = by_key.get(key)
+        if entry is None:
+            # An earlier file may already hold this name as an annotated
+            # entry whose VA is known. Reuse it: creating a duplicate
+            # ``(name, 0)`` key would make the final pass overwrite the
+            # annotated entry with the valueless one (order-dependent:
+            # an extern-only file sorted after the annotated one lost it).
+            entry = by_name.get(ev_name)
+        if entry is None:
+            entry = GlobalEntry(name=ev_name, type_str=ev.type_str)
+            remember(entry, key)
+
+        entry.declare(fname)
+
+        if ev.type_str:
+            type_by_name[ev_name][ev.type_str].append(fname)
+
+
 def scan_globals(
-    src_dir: Path, cfg: ProjectConfig | None = None, *, record_roles: bool = True
+    src_dir: Path,
+    cfg: ProjectConfig | None = None,
+    *,
+    record_roles: bool = True,
+    fact_cache: dict[str, dict[str, Any]] | None = None,
+    facts_out: dict[str, dict[str, Any]] | None = None,
 ) -> ScanResult:
     """Scan reversed source files for global declarations.
 
@@ -315,12 +576,9 @@ def scan_globals(
     *record_roles* fills ``defined_in`` and ``referenced_in``. The reloc
     name map only reads names and VAs, so it passes False and skips that walk.
     """
-    from rebrew.c_parser import array_type_shape, find_extern_variables, find_variable_roles
-    from rebrew.metadata.bindings import function_rows_for_file
-    from rebrew.metadata.data import data_rows_for_path
+    from rebrew.c_parser import array_type_shape
     from rebrew.metadata.functions import load_metadata
     from rebrew.sources import iter_sources_and_headers
-    from rebrew.utils import rel_display_path
 
     result = ScanResult()
     # Track all type declarations per name for conflict detection
@@ -373,171 +631,47 @@ def scan_globals(
             for row in function_entries.values()
         )
     )
+    # Role walks need the source text, so a fact cache would skip that work
+    # and report an empty defined_in. The reloc name map passes record_roles
+    # False and is the caller that reuses facts.
+    use_facts = not record_roles
+    cached_facts = fact_cache if use_facts else None
+    recorded_facts = facts_out if use_facts else None
     for cfile in iter_sources_and_headers(src_dir, cfg):
-        is_header = cfile.suffix.lower() == ".h"
-        try:
-            # Tolerant read: a legacy-encoded source must not have its
-            # non-ASCII bytes silently deleted, which would corrupt string
-            # literals, comments, and address-binding scans.
-            text, _ = read_source_text(cfile)
-        except OSError as exc:
-            # The scan still returns an inventory, just one missing every
-            # marker in this file, so say which file and why rather than
-            # reporting a short list as the whole tree.
-            log.warning("skipping unreadable source %s: %s", cfile, exc)
+        fact_key = _scan_fact_key(cfile)
+        facts = cached_facts.get(fact_key) if cached_facts is not None else None
+        if not _usable_scan_fact(facts):
+            facts = _collect_scan_file_facts(
+                cfile,
+                src_dir,
+                cfg,
+                metadata_dir=metadata_dir,
+                function_entries=function_entries,
+                inactive_sources=inactive_sources,
+                record_roles=record_roles,
+                file_roles=file_roles,
+            )
+        if facts is None:
             continue
-
-        lines = text.splitlines()
-        fname = rel_display_path(cfile, src_dir)
-        if is_header:
-            header_files.add(fname)
-        stored_modules = (
-            tuple(
-                module
-                for module, _, _ in (
-                    function_rows_for_file(
-                        cfile,
-                        metadata_dir,
-                        function_entries,
-                        project_root=getattr(cfg, "root", None),
-                    )
-                    + data_rows_for_path(metadata_dir, cfile)
-                )
-            )
-            if metadata_dir
-            else ()
-        )
-        if not stored_modules and not is_header and cfile.resolve() in inactive_sources:
+        if recorded_facts is not None:
+            recorded_facts[fact_key] = facts
+        if facts.get("header") and isinstance(facts.get("fname"), str):
+            header_files.add(facts["fname"])
+        if not facts["apply"]:
             continue
-        if not _source_visible_to_target(lines, cfg, stored_modules):
-            continue
-
-        from rebrew.c_parser import find_c_function_definitions
-        from rebrew.metadata.bindings import source_bindings
-
-        bindings = source_bindings(
-            text,
-            cfile,
-            None,
-            None,
-            metadata_dir,
-            with_prototypes=False,
-            project_root=getattr(cfg, "root", None),
-        )
-        function_modules: dict[str, set[str]] = defaultdict(set)
-        data_modules: dict[str, set[str]] = defaultdict(set)
-        anchored_data_names: set[str] = set()
-        for binding in bindings:
-            if binding.is_data:
-                # Migrated data identities have no source line, but still scope declarations.
-                data_modules[binding.name].add(binding.module)
-                if binding.line:
-                    anchored_data_names.add(binding.name)
-            else:
-                function_modules[binding.name].add(binding.module)
-        by_line = {line: name for name, line in find_c_function_definitions(text)}
-
-        def function_visible(
-            line: int,
-            *,
-            names: dict[int, str] = by_line,
-            modules_by_name: dict[str, set[str]] = function_modules,
-        ) -> bool:
-            modules = modules_by_name.get(names.get(line, ""), set())
-            return (
-                cfg is None or not modules or any(module_visible_to_target(m, cfg) for m in modules)
-            )
-
-        parsed_vars = find_extern_variables(
-            text, include_definitions=True, function_filter=function_visible
-        )
-
-        def variable_visible(
-            name: str,
-            is_definition: bool,
-            *,
-            modules_by_name: dict[str, set[str]] = data_modules,
-            anchored_names: set[str] = anchored_data_names,
-        ) -> bool:
-            modules = modules_by_name.get(name, set())
-            return (
-                cfg is None
-                or not modules
-                or not (is_definition or name in anchored_names)
-                or any(module_visible_to_target(m, cfg) for m in modules)
-            )
-
-        if record_roles:
-            file_roles[fname] = find_variable_roles(
-                text, function_filter=function_visible, variable_filter=variable_visible
-            )
-
-        # Pre-compute extern variables from tree-sitter (used for unannotated
-        # scan).  Definitions are included: a global's real type lives on its
-        # definition, and conflict detection that only sees `extern` lines
-        # cannot report the mismatch that matters most -- `int g[4] = {...}`
-        # in one file against `extern short g;` in another.
-        visible_vars = [v for v in parsed_vars if variable_visible(v.name, v.is_definition)]
-        extern_vars = {v.name: v for v in visible_vars}
-
-        # Track which names are already handled via a data binding
-        annotated_names: set[str] = set()
-
-        _bind_stored_data_rows(
+        _apply_scan_file_facts(
+            facts,
             cfg=cfg,
             cfile=cfile,
-            bindings=bindings,
             data_entries=data_entries,
-            fname=fname,
-            is_header=is_header,
-            extern_vars=extern_vars,
-            annotated_names=annotated_names,
             by_key=by_key,
+            by_name=by_name,
+            entries_by_name=entries_by_name,
             remember=_remember,
             type_by_name=type_by_name,
             mark=_mark,
+            header_files=header_files,
         )
-
-        # 2. Add unannotated extern variables from tree-sitter
-        for ev_name, ev in extern_vars.items():
-            if ev_name in annotated_names:
-                # The marker already named it. Keep that spelling when it
-                # parsed a type: a second form in the same file (`[88]` and
-                # `[0x58]`) is one object. Fill the type only when no source
-                # marker spelled one, so a header's `T[]` cannot become the
-                # size.
-                if not is_header and ev.type_str:
-                    known = type_by_name[ev_name]
-                    c_known = [
-                        t
-                        for t, files in known.items()
-                        if any(path not in header_files for path in files)
-                    ]
-                    if not c_known:
-                        type_by_name[ev_name][ev.type_str].append(fname)
-                        _mark(ev_name, ev.type_str)
-                        for typed_entry in entries_by_name.get(ev_name, ()):
-                            if not typed_entry.type_str:
-                                typed_entry.type_str = ev.type_str
-                continue
-
-            key = (ev_name, 0)
-            entry = by_key.get(key)
-            if entry is None:
-                # An earlier file may already hold this name as an annotated
-                # entry whose VA is known.  Reuse it: creating a duplicate
-                # ``(name, 0)`` key would make the final pass overwrite the
-                # annotated entry with the valueless one (order-dependent —
-                # an extern-only file sorted after the annotated one lost it).
-                entry = by_name.get(ev_name)
-            if entry is None:
-                entry = GlobalEntry(name=ev_name, type_str=ev.type_str)
-                _remember(entry, key)
-
-            entry.declare(fname)
-
-            if ev.type_str:
-                type_by_name[ev_name][ev.type_str].append(fname)
 
     for (name, va), entry in by_key.items():
         if va and name in result.globals and result.globals[name] is not entry:

@@ -4,12 +4,14 @@ The shipped preamble (``_lint_preamble``) must resolve a symbol defined in
 another file without parsing a large reversed tree on every call, must not
 borrow another target's VA, and must still fail closed when the scan cannot
 build a map. The speed gate counts C parses and global scans. Those counts
-do not move when the machine is busy.
+do not move when the machine is busy. One edited source is parsed again;
+the other files' facts are reused.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -204,6 +206,77 @@ class TestSingleFileNameMap:
         assert _ONLY_OTHER_VA not in large_map.values()
         assert "filler_0" not in large_map
         assert "_filler_0" not in large_map
+
+    def test_one_edited_file_reuses_the_other_facts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.test as test_mod
+        from rebrew.coff_reloc import build_name_to_va
+
+        root = tmp_path / "large"
+        root.mkdir()
+        _project(root, fillers=_FILLER_COUNT)
+        cfg = load_config(root)
+        source = str(root / "src" / "caller.c")
+        cold_map, cold_parses, cold_scans = _measured_preamble(monkeypatch, cfg, source)
+        assert cold_scans == 1
+        assert cold_parses > _FILLER_COUNT
+        assert cold_map["_helper"] == _HELPER_VA
+        assert "filler_added" not in cold_map
+        filler = root / "src" / "fill" / "filler_0.c"
+        filler.write_text(
+            "/* ADDRESS: GAME 0x2100 */\nvoid filler_added(void) {}\nvoid filler_0(void) {}\n",
+            encoding="utf-8",
+        )
+        test_mod._name_map_cache.clear()
+        edited_map, edited_parses, edited_scans = _measured_preamble(monkeypatch, cfg, source)
+        assert edited_scans == 1
+        assert edited_parses < _FILLER_COUNT
+        assert edited_map["_helper"] == _HELPER_VA
+        assert edited_map["filler_added"] == edited_map["_filler_added"] == _ADDED_VA
+        assert "filler_0" not in edited_map
+        assert edited_map == build_name_to_va(cfg)
+
+    def test_unrelated_file_does_not_rebuild(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.test as test_mod
+
+        _project(tmp_path)
+        first = _preamble(tmp_path, "caller.c")
+        (tmp_path / "src" / "notes.txt").write_text("notes\n", encoding="utf-8")
+        test_mod._name_map_cache.clear()
+
+        def _boom(*_args: object, **_kwargs: object) -> dict[str, int]:
+            raise AssertionError("name map was rebuilt")
+
+        monkeypatch.setattr(test_mod, "build_name_to_va", _boom)
+        second = _preamble(tmp_path, "caller.c")
+        assert second["_helper"] == first["_helper"] == _HELPER_VA
+
+    def test_metadata_change_rebuilds(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.test as test_mod
+
+        _project(tmp_path)
+        _preamble(tmp_path, "caller.c")
+        meta = tmp_path / "rebrew-functions.toml"
+        assert meta.is_file()
+        st = meta.stat()
+        os.utime(meta, ns=(st.st_atime_ns, st.st_mtime_ns + 1))
+        test_mod._name_map_cache.clear()
+        calls = {"n": 0}
+        real = test_mod.build_name_to_va
+
+        def _counting(cfg: object, **kwargs: object) -> dict[str, int]:
+            calls["n"] += 1
+            return real(cfg, **kwargs)
+
+        monkeypatch.setattr(test_mod, "build_name_to_va", _counting)
+        name_to_va = _preamble(tmp_path, "caller.c")
+        assert calls["n"] == 1
+        assert name_to_va["_helper"] == _HELPER_VA
 
     def test_other_target_keeps_its_own_va(self, tmp_path: Path) -> None:
         _project(tmp_path)

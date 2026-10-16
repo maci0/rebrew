@@ -8,7 +8,8 @@ persisted CFLAGS is what every other tool resolves for that function.
 
 A repeated single-file run reuses that target's name-to-VA map from
 `.rebrew/name_to_va_cache.json` when the sources, metadata, and target binary
-are unchanged. `rebrew test --all` still recompiles every selected file.
+are unchanged. One changed source reuses the other files' parsed facts.
+`rebrew test --all` still recompiles every selected file.
 
 Usage:
     rebrew test <source.c> [--symbol NAME] [--va 0xHEX --size N] [--cflags ...]
@@ -26,7 +27,7 @@ import math
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 import typer
 from typer.models import TyperPath
@@ -92,12 +93,13 @@ from rebrew.utils import floor_pct, untrusted_ident
 # plain yellow — visually distinguishing "almost there" from "far off".
 _NEAR_MATCHING_BOLD_THRESHOLD = 0.97
 
-# Single-file `rebrew test` is one process per invocation. The name map is
-# remembered here and under the project `.rebrew` directory so the next
-# process does not parse the reversed tree again. `build_name_to_va` itself
-# stays uncached: a failed scan must not become a stored empty map, and a
-# read-only caller must not grow a file in the project.
-_NAME_MAP_CACHE_VERSION = 1
+# Single-file `rebrew test` is one process per invocation. The name map and
+# each file's parse facts are remembered here and under the project `.rebrew`
+# directory. An unchanged tree returns the stored map. One changed source
+# reuses the other files' facts. `build_name_to_va` itself stays uncached: a
+# failed scan must not become a stored empty map, and a read-only caller must
+# not grow a file in the project.
+_NAME_MAP_CACHE_VERSION = 2
 _NAME_MAP_CACHE_MAX = 4
 _NAME_MAP_CACHE_FILENAME = "name_to_va_cache.json"
 _name_map_cache: dict[str, dict[str, int]] = {}
@@ -902,62 +904,18 @@ def _stat_token(path: Path) -> tuple[str, int, int, int]:
     return (str(path), st.st_mtime_ns, st.st_size, st.st_ino)
 
 
-def _is_name_map_cache(path: Path) -> bool:
-    return path.name == _NAME_MAP_CACHE_FILENAME and path.parent.name == ".rebrew"
-
-
 def _feed(hasher: Any, text: str) -> None:
     hasher.update(text.encode("utf-8", "surrogateescape"))
     hasher.update(b"\n")
 
 
-def _feed_tree(hasher: Any, directory: Path) -> None:
-    """Hash one file stat per non-symlink file under *directory*.
-
-    ``scan_files`` is the same walk the source iterators use, without
-    resolving each path. The cache file is omitted so writing it does not
-    change the key.
-    """
-    from rebrew.sources import scan_files
-
-    root = directory if directory.is_absolute() else directory.absolute()
-    _feed(hasher, f"tree {root}")
-    for path in scan_files(root):
-        if _is_name_map_cache(path):
-            continue
-        _feed(hasher, repr(_stat_token(path)))
+def _json_int(value: object) -> bool:
+    """True for a JSON integer. ``bool`` is an ``int`` subclass and is rejected."""
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _shared_dir_outside_reversed(cfg: ProjectConfig) -> Path | None:
-    """Shared root that ``iter_sources`` adds beyond the reversed tree.
-
-    A shared directory inside ``reversed_dir`` is already in that walk.
-    """
-    shared = getattr(cfg, "shared_dir", None)
-    reversed_dir = getattr(cfg, "reversed_dir", None)
-    if shared is None or reversed_dir is None:
-        return None
-    shared_path = Path(shared)
-    reversed_path = Path(reversed_dir)
-    try:
-        if not shared_path.is_dir():
-            return None
-        shared_real = shared_path.resolve()
-        reversed_real = reversed_path.resolve()
-    except OSError:
-        return shared_path
-    if shared_real == reversed_real:
-        return None
-    try:
-        if shared_real.is_relative_to(reversed_real):
-            return None
-    except ValueError:
-        return shared_path
-    return shared_path
-
-
-def _name_map_fingerprint(cfg: ProjectConfig) -> str:
-    """Identity of every input ``build_name_to_va`` reads for *cfg*."""
+def _name_map_identity(cfg: ProjectConfig) -> str:
+    """Hash of name-map inputs other than per-file source and header stats."""
     from rebrew.config import METADATA_FILENAME, target_module
     from rebrew.metadata.data import DATA_METADATA_FILENAME
     from rebrew.sources import source_exts
@@ -988,10 +946,37 @@ def _name_map_fingerprint(cfg: ProjectConfig) -> str:
     _feed(hasher, f"binary {binary_fingerprint(binary) if binary else ''}")
     _feed(hasher, f"functions {_stat_token(metadata_dir / METADATA_FILENAME)!r}")
     _feed(hasher, f"data {_stat_token(metadata_dir / DATA_METADATA_FILENAME)!r}")
-    _feed_tree(hasher, Path(cfg.reversed_dir))
-    shared = _shared_dir_outside_reversed(cfg)
-    if shared is not None:
-        _feed_tree(hasher, shared)
+    return hasher.hexdigest()
+
+
+def _source_token_map(cfg: ProjectConfig) -> dict[str, list[int] | None]:
+    """Resolved source and header path to ``[mtime_ns, size, ino]``.
+
+    ``None`` means the path could not be stat'ed. That path stays in the
+    cache key and its parse facts are not reused.
+    """
+    from rebrew.sources import iter_sources_and_headers
+
+    tokens: dict[str, list[int] | None] = {}
+    for path in iter_sources_and_headers(Path(cfg.reversed_dir), cfg):
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
+        try:
+            st = path.stat()
+        except OSError:
+            tokens[key] = None
+        else:
+            tokens[key] = [st.st_mtime_ns, st.st_size, st.st_ino]
+    return tokens
+
+
+def _name_map_key(identity: str, tokens: dict[str, list[int] | None]) -> str:
+    hasher = hashlib.sha256()
+    _feed(hasher, identity)
+    for path in sorted(tokens):
+        _feed(hasher, f"{path} {tokens[path]!r}")
     return hasher.hexdigest()
 
 
@@ -1018,30 +1003,138 @@ def _cached_name_map(key: str) -> dict[str, int] | None:
         return dict(cached)
 
 
-def _load_disk_name_map(path: Path, key: str) -> dict[str, int] | None:
+def _read_name_map_payload(path: Path) -> dict[str, Any] | None:
+    """Version-2 cache document, or ``None`` when the file is missing or older."""
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         return None
-    if not isinstance(raw, dict):
+    if not isinstance(raw, dict) or raw.get("version") != _NAME_MAP_CACHE_VERSION:
         return None
-    if raw.get("version") != _NAME_MAP_CACHE_VERSION or raw.get("key") != key:
-        return None
-    mapping = raw.get("map")
+    return raw
+
+
+def _valid_name_map(mapping: object) -> dict[str, int] | None:
+    """Copy *mapping* when every VA is an integer. A bool VA is a cache miss."""
     if not isinstance(mapping, dict):
         return None
     loaded: dict[str, int] = {}
     for name, va in mapping.items():
-        if not isinstance(name, str) or isinstance(va, bool) or not isinstance(va, int):
+        if not isinstance(name, str) or not _json_int(va):
             return None
         loaded[name] = va
     return loaded
 
 
-def _store_disk_name_map(path: Path, key: str, mapping: dict[str, int]) -> None:
+def _scan_fact_ok(facts: object) -> TypeGuard[dict[str, Any]]:
+    """True when *facts* is a per-file scan record safe to apply."""
+    if not isinstance(facts, dict) or not isinstance(facts.get("apply"), bool):
+        return False
+    if not facts["apply"]:
+        fname = facts.get("fname", None)
+        header = facts.get("header", None)
+        if "fname" in facts and not isinstance(fname, str):
+            return False
+        return "header" not in facts or isinstance(header, bool)
+    if not isinstance(facts.get("fname"), str) or not isinstance(facts.get("header"), bool):
+        return False
+    bindings = facts.get("bindings")
+    externs = facts.get("externs")
+    if not isinstance(bindings, list) or not isinstance(externs, list):
+        return False
+    for row in bindings:
+        if (
+            not isinstance(row, dict)
+            or not _json_int(row.get("va"))
+            or not _json_int(row.get("line"))
+        ):
+            return False
+    return all(isinstance(row, dict) for row in externs)
+
+
+def _annotation_facts_ok(rows: object) -> TypeGuard[list[dict[str, Any]]]:
+    """True when *rows* can be restored without reading the source again."""
+    if not isinstance(rows, list):
+        return False
+    for row in rows:
+        if not isinstance(row, dict) or not _json_int(row.get("va")):
+            return False
+        line = row.get("line", 0)
+        if line is None:
+            line = 0
+        if not _json_int(line):
+            return False
+    return True
+
+
+def _reusable_name_map_facts(
+    payload: dict[str, Any] | None,
+    identity: str,
+    tokens: dict[str, list[int] | None],
+) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]] | None:
+    """Facts whose stored stat still matches, or ``None`` when replay is unsafe.
+
+    An identity change (module, exports, metadata, binary) and an empty fact
+    table both refuse the partial path. A changed or new path is simply
+    absent, so the next scan reads that file.
+    """
+    if payload is None or payload.get("identity") != identity:
+        return None
+    files = payload.get("files")
+    if not isinstance(files, dict) or not files:
+        return None
+    scan_facts: dict[str, dict[str, Any]] = {}
+    annotation_facts: dict[str, list[dict[str, Any]]] = {}
+    for path, token in tokens.items():
+        if token is None:
+            continue
+        record = files.get(path)
+        if not isinstance(record, dict) or record.get("st") != token:
+            continue
+        scan = record.get("scan")
+        if _scan_fact_ok(scan):
+            scan_facts[path] = scan
+        if "annotations" in record and _annotation_facts_ok(record.get("annotations")):
+            annotation_facts[path] = record["annotations"]
+    return scan_facts, annotation_facts
+
+
+def _name_map_file_records(
+    tokens: dict[str, list[int] | None],
+    scan_out: dict[str, dict[str, Any]],
+    annotation_out: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    """Per-file facts this scan actually produced. Unreadable paths are omitted."""
+    files: dict[str, Any] = {}
+    for path, token in tokens.items():
+        if token is None:
+            continue
+        scan = scan_out.get(path)
+        if not _scan_fact_ok(scan):
+            continue
+        record: dict[str, Any] = {"st": token, "scan": scan}
+        if path in annotation_out and _annotation_facts_ok(annotation_out[path]):
+            record["annotations"] = annotation_out[path]
+        files[path] = record
+    return files
+
+
+def _store_disk_name_map(
+    path: Path,
+    key: str,
+    identity: str,
+    mapping: dict[str, int],
+    files: dict[str, Any],
+) -> None:
     from rebrew.utils import atomic_write_text
 
-    payload = {"version": _NAME_MAP_CACHE_VERSION, "key": key, "map": mapping}
+    payload = {
+        "version": _NAME_MAP_CACHE_VERSION,
+        "key": key,
+        "identity": identity,
+        "map": mapping,
+        "files": files,
+    }
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(path, json.dumps(payload, sort_keys=True, separators=(",", ":")))
@@ -1049,30 +1142,70 @@ def _store_disk_name_map(path: Path, key: str, mapping: dict[str, int]) -> None:
         return
 
 
+def _scan_test_name_map(
+    cfg: ProjectConfig,
+    *,
+    scan_facts: dict[str, dict[str, Any]] | None = None,
+    annotation_facts: dict[str, list[dict[str, Any]]] | None = None,
+) -> tuple[dict[str, int], dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    scan_out: dict[str, dict[str, Any]] = {}
+    annotation_out: dict[str, list[dict[str, Any]]] = {}
+    mapping = build_name_to_va(
+        cfg,
+        scan_facts=scan_facts,
+        scan_facts_out=scan_out,
+        annotation_facts=annotation_facts,
+        annotation_facts_out=annotation_out,
+    )
+    return mapping, scan_out, annotation_out
+
+
 def _load_test_name_map(cfg: ProjectConfig) -> dict[str, int]:
     """Return the active target's name-to-VA map for a single-file test.
 
-    The map is the one ``build_name_to_va`` built, reused when the active
-    module, exports, source extensions, metadata stores, target binary, and
-    reversed and shared trees still match. A copy is kept in this process
-    and in ``<root>/.rebrew/name_to_va_cache.json``. ``CatalogScanError`` is
-    not stored. A fingerprint that cannot be built scans again and does not
-    write a cache. Callers that must not write into the project keep calling
-    ``build_name_to_va`` directly.
+    An exact match returns the stored map and does not scan. The same
+    identity with a changed source reuses the other files' parse facts and
+    reads the file that changed. A metadata, binary, module, or export
+    change scans every file. ``CatalogScanError`` is not stored. A key that
+    cannot be built scans again and does not write a cache. Callers that
+    must not write into the project keep calling ``build_name_to_va``
+    directly.
     """
     try:
-        key = _name_map_fingerprint(cfg)
+        identity = _name_map_identity(cfg)
+        tokens = _source_token_map(cfg)
+        key = _name_map_key(identity, tokens)
     except (OSError, ValueError, KeyError, AttributeError, TypeError):
         return build_name_to_va(cfg)
     cached = _cached_name_map(key)
     if cached is not None:
         return cached
     path = _name_map_cache_path(cfg)
-    loaded = _load_disk_name_map(path, key)
-    if loaded is not None:
-        return _remember_name_map(key, loaded)
-    mapping = build_name_to_va(cfg)
-    _store_disk_name_map(path, key, mapping)
+    payload = _read_name_map_payload(path)
+    if payload is not None and payload.get("key") == key:
+        loaded = _valid_name_map(payload.get("map"))
+        if loaded is not None:
+            return _remember_name_map(key, loaded)
+    reused = _reusable_name_map_facts(payload, identity, tokens)
+    if reused is None:
+        mapping, scan_out, annotation_out = _scan_test_name_map(cfg)
+    else:
+        scan_facts, annotation_facts = reused
+        try:
+            mapping, scan_out, annotation_out = _scan_test_name_map(
+                cfg,
+                scan_facts=scan_facts,
+                annotation_facts=annotation_facts,
+            )
+        except (CatalogScanError, OSError, ValueError, KeyError, AttributeError, TypeError):
+            mapping, scan_out, annotation_out = _scan_test_name_map(cfg)
+    _store_disk_name_map(
+        path,
+        key,
+        identity,
+        mapping,
+        _name_map_file_records(tokens, scan_out, annotation_out),
+    )
     return _remember_name_map(key, mapping)
 
 
@@ -1095,6 +1228,7 @@ def _lint_preamble(
     multi-function files, so it is not applied here.
 
     The map is reused across single-file invocations while its inputs match.
+    One changed source is read again; the other files' facts stay.
     A failed scan still exits: the relocations are not checked against an
     empty map, and the failure is not cached.
 

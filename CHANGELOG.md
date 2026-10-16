@@ -109,6 +109,8 @@
 - The single-file name-map check counts C parses and global scans. A warm
   preamble on a 2000-file tree does no global scan and the same number of
   parses as that file in a handful-file project.
+- A single-file name map reuses parsed facts for unchanged sources. Editing
+  one file re-parses that file, not the rest of the reversed tree.
 
 ## [4.3.0] - 2026-10-16
 
