@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [4.3.0] - 2026-10-16
+
 ### Added
 - `binary repair-extents --add-missing` explicitly admits reviewed native functions
   omitted by discovery, preserving other inventory rows and earned measurements.
