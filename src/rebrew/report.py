@@ -695,7 +695,7 @@ def _render_index(
         # figure is at least a full section without inventing one; the note
         # gives the byte counts.
         if report.accounted_text_bytes > report.total_text_bytes:
-            counted = f"{report.matched_bytes} bytes of byte-matched functions"
+            counted = f"{report.matched_bytes} bytes of matched functions and identified libraries"
             if report.padding_bytes:
                 counted += f" plus {report.padding_bytes} bytes of alignment fill"
             text_card = "100%+"
@@ -1586,11 +1586,11 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
         "total_functions": registry_total,
         "matched_functions": matched_functions,
         "matched_functions_percent": floor_pct(matched_functions, registry_total, 2),
-        # A byte-matched rebrew function is byte-identical, hence "linked"
-        # by construction when the rebuilt binary is relinked — map
-        # complete_* onto matched_* for the decomp.dev "fully linked" bar.
-        "complete_code": matched_code,
-        "complete_code_percent": floor_pct(matched_code, text_size, 2),
+        # complete_* is the code account `rebrew status` prints: matched
+        # functions, identified libraries, and alignment padding.
+        # matched_code is that account without the padding.
+        "complete_code": status.accounted_text_bytes,
+        "complete_code_percent": status.byte_coverage_pct if text_size else 0.0,
         "complete_data": 0,
         "complete_data_percent": 0.0,
         "total_units": len(units),

@@ -193,6 +193,23 @@ DATA_STATUSES: frozenset[str] = frozenset(
     }
 )
 
+
+def data_status_bucket(status: object) -> str:
+    """Partition a stored data STATUS into ``verified``, ``drift``, or ``unchecked``.
+
+    Empty, blank, and unknown spellings are unchecked. ``rebrew status`` and
+    the ``start-data`` queue both use this partition, so a hand-edited typo
+    is unfinished work in both places. Writers still reject an unknown
+    spelling; this is the read path for a row that was edited by hand.
+    """
+    verdict = str(status or "").strip().upper()
+    if verdict in (DATA_STATUS_EXACT, DATA_STATUS_VERIFIED):
+        return "verified"
+    if verdict in (DATA_STATUS_DISPLACED, DATA_STATUS_DRIFT):
+        return "drift"
+    return "unchecked"
+
+
 # Canonical TOML key order when writing.  Identity first, then the fields
 # `rebrew data set` and the verdict writers already emit.
 _CANONICAL_ORDER = [
@@ -224,6 +241,7 @@ __all__ = [
     "DATA_METADATA_FILENAME",
     "DATA_METADATA_FIELDS",
     "DATA_METADATA_FIELD_TYPES",
+    "data_status_bucket",
     "data_definition_hash",
     "load_data_metadata",
     "save_data_metadata",

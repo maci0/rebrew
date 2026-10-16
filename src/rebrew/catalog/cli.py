@@ -126,16 +126,17 @@ def run_catalog(
 
         if progress.total_text_bytes > 0:
             # Same figure, same words, as `rebrew status`. Identified below
-            # counts every annotated function, stubs included. byte_coverage_pct
-            # is the accounted share (matched function bytes plus the alignment
-            # between them), so the counts and the bar must use the same total
-            # or the percentage disagrees with the numbers beside it.
+            # counts every annotated function, stubs included. The code account
+            # is matched functions, identified libraries, and alignment padding.
+            from rebrew.status import CODE_ACCOUNT_CAPTION, code_account_headline
+
             accounted = progress.accounted_text_bytes
             console.print(
-                f"Of .text: {progress.byte_coverage_pct}% "
-                f"({accounted}/{progress.total_text_bytes} bytes) "
-                "in byte-matched functions and alignment"
+                code_account_headline(
+                    progress.byte_coverage_pct, accounted, progress.total_text_bytes
+                )
             )
+            console.print(CODE_ACCOUNT_CAPTION)
             console.print(ratio_bar(accounted, progress.total_text_bytes))
         console.print(
             f"Identified: {identified_pct:.1f}% of .text ({covered}/{text_size} bytes) "

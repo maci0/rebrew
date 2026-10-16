@@ -1,111 +1,42 @@
 # Rebrew Ecosystem
 
-How rebrew fits together with the sibling repositories in the `relumea`
-workspace (`~/Desktop/Projects/relumea/`): the toolchain image source, the
-assembly-similarity engine, the coverage dashboard, the self-hosted portal,
-the compiler service, the autonomous agent, and the product vision. It also
-covers the external tools rebrew interoperates with, chiefly
-[reccmp](https://github.com/isledecomp/reccmp) and
-[BinSync](https://github.com/binsync/binsync).
+Rebrew and [Resembl](https://github.com/maci0/resembl) are open-source
+projects. This guide describes their public integration boundaries and
+interoperability with third-party tools.
 
-> **Scope**: this document covers the *between-repo* architecture (what
-> each project is, what it depends on, and how data flows across the
-> boundary). For rebrew's internal module map and data flow, see
-> [ARCHITECTURE.md](ARCHITECTURE.md).
+For Rebrew's own modules and data flow, see
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Component map
 
 ```mermaid
-flowchart TB
-    subgraph L0["Toolchain layer"]
-        RT["recompile-toolchains<br/>Dockerfiles · wrappers · sources.json<br/>build source for 46 compiler images"]
-        IMG[("docker images<br/>rebrew/msvc:6.0-win32<br/>rebrew/borland:3.1-win16<br/>rebrew/watcom:2.0-win32 …")]
-    end
-
-    subgraph L1["Core workbench"]
-        RB["rebrew<br/>compile → compare → STATUS<br/>GA engine · FLIRT · catalog<br/>canonical metadata · optional snapshots"]
-        PRJ["Project workspaces<br/>target binary + C sources +<br/>rebrew-project.toml"]
-    end
-
-    subgraph L2["Intelligence & visualization"]
-        RES["resembl<br/>MinHash + LSH asm similarity<br/>own DB (SQLite/Postgres/…)"]
-        RECOV["recoverage<br/>Bottle + Preact coverage SPA<br/>live canonical project views"]
-        REPORTAL["reportal<br/>self-hosted portal: binaries ·<br/>functions · matches · scans · reports"]
-        REAGENT["reagent<br/>autonomous LLM RE agent<br/>imports Rebrew internals"]
-    end
-
-    subgraph L3["Services & product vision"]
-        RC["recompile<br/>compiler-as-a-service API<br/>FastAPI over the image zoo"]
-        REL["relumea<br/>SaaS workbench vision:<br/>workflows · multi-agent ·<br/>knowledge graph · LoRA training"]
-        DECOMP["decompedia<br/>community decomp wiki:<br/>platforms · compilers · projects"]
-        RDB["recondb<br/>PyPI name placeholder"]
-    end
-
-    subgraph EXT["External (not in this workspace)"]
-        RECCMP["reccmp (isledecomp/reccmp)<br/>community-standard comparison framework"]
-        BINSYNC["BinSync (binsync/binsync)<br/>collaborative RE state format<br/>+ IDA/Binja/Ghidra plugins"]
-    end
-
-    RT -->|"build.sh / rebrew toolchain build"| IMG
-    RB -->|"reads Dockerfiles via<br/>REBREW_TOOLCHAINS_DIR"| RT
-    RB -->|"docker run"| IMG
-    RB -->|"similarity group:<br/>resembl/scoring.py"| RES
-    RB -->|"shared live coverage model"| RECOV
-    RB -->|"rebrew CLI: analyze · asm · decompile ·<br/>fingerprints · crypto-scan · xrefs"| REPORTAL
-    RECOV -.->|"coverage document format"| REPORTAL
-    RES -.->|"scoring core (similarity group)"| REPORTAL
-    RB -.->|"operates on"| PRJ
-    REAGENT -->|"direct rebrew.* imports"| RB
-    RC -->|"path dep: rebrew.compiler.toolchain catalog"| RB
-    RC -->|"docker run"| IMG
-    REL -.->|"productizes the whole stack"| RB
-    REPORTAL -.->|"self-hosted portal UX"| REL
-    REL -.->|"snowball datasets from matched pairs"| REAGENT
-    REL -.->|"community knowledge"| DECOMP
-    RB -.->|"comparison workflow<br/>separate source identity formats"| RECCMP
-    RECCMP -.->|"recomp build reads<br/>Rebrew source trees"| PRJ
-    RB <-.->|"state-dir TOML:<br/>binsync export / binsync import"| BINSYNC
+flowchart LR
+    PRJ["Project binary + C sources + metadata"] --> RB["Rebrew: compile and compare"]
+    IMG["Configured compiler container"] --> RB
+    RES["Resembl scoring core"] --> RB
+    RB --> OUT["Comparison results + coverage documents"]
+    RB <-->|"state directory"| BS["BinSync-aware tools"]
+    RB -->|"recompiled sources"| RC["reccmp comparison workflow"]
 ```
 
 ## Components
 
 ### rebrew: the core workbench (this repo)
 
-Compiler-in-the-loop decompilation: annotated C source is compiled with the
-target's original compiler (MSVC 1.0–11.0; 16-bit 1.0/1.5/1.52 plus 32-bit
-2.0–11.0; Borland C++ 5.5 / Turbo C 2.0/3.1, Watcom, Delphi 1.0, mingw-16.2.0),
-byte-compared against the target binary, and the result drives
-`STATUS` promotion, diff analysis, and the GA matching engine. It is both
-the CLI workbench and a Python library (`rebrew.*`) that the sibling agent
-and service projects import. Internals: [ARCHITECTURE.md](ARCHITECTURE.md).
+Rebrew compiles C source with a configured compiler, compares the result
+against a target binary, and records comparison-earned status in managed
+metadata. It provides a CLI and Python library for this workflow.
 
-What rebrew *produces* for the ecosystem:
+Public outputs include:
 
-- matched C sources + per-function `rebrew-functions.toml` / `rebrew-data.toml`
-  metadata (the durable output),
-- `db/coverage-<target>.toml`: one clear-text coverage document per target,
-  consumed by recoverage ([COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md)),
-- GA run history (`ga_runs.jsonl`) and FLIRT signature indexes,
-- docker image names/builds (consumed via recompile-toolchains).
+- C sources and managed `rebrew-functions.toml` / `rebrew-data.toml` metadata;
+- coverage documents described in [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md);
+- comparison results, matching history and generated signatures;
+- BinSync state-directory exports for collaboration.
 
-### recompile-toolchains: the compiler image source
-
-Standalone docker images for every legacy Windows/DOS compiler. This repo is
-the *build source only*: Dockerfiles, the shared `base` image, wrapper
-scripts, and the sha256-pinned `sources.json` manifest. No compiler binaries
-live here: 32-bit images download verified sources at build time. Seven
-16-bit images build; six of them (msvc-1.0/1.5/1.52, borland-2.0/3.1,
-delphi-1.0) curl their pinned `archaic-toolchains` codeload snapshot, as
-`watcom-2.0-win16` does for its release asset.  No media tarball has to be
-supplied by hand.
-
-The images are self-contained (runtime such as wine/wibo/DOSBox baked in, the
-wrapper is the entrypoint), so any tool can use them without rebrew itself.
-`rebrew toolchain build` (and `vendor`/`update`) reads the Dockerfiles from
-the sibling checkout (`REBREW_TOOLCHAINS_DIR`, defaults to
-`../recompile-toolchains`); `pull`/`smoke` operate on the built images, and
-compilation shells out via `docker run`. The same images back the
-`recompile` service. See [TOOLCHAIN.md](TOOLCHAIN.md).
+Compiler execution uses configured container images. See
+[TOOLCHAIN.md](TOOLCHAIN.md) for setup and image requirements; availability of
+a build source or image is separate from Rebrew's source license.
 
 ### resembl: assembly similarity search
 
@@ -116,7 +47,7 @@ Jaccard + Levenshtein (rapidfuzz) score, plus CFG similarity in `compare`.
 Backends: SQLite (default), PostgreSQL, MySQL, DuckDB.
 
 Integration with rebrew is at the package level: the `similarity` dependency
-group path-pins the sibling `resembl` checkout, and rebrew reuses
+group selects the `resembl` checkout, and rebrew reuses
 `resembl/scoring.py` (importable without resembl's DB stack) for the
 `verify_results.similarity` column; the structural score verify reports for
 every verified function with compiled bytes, matched and unmatched alike (the
@@ -133,94 +64,6 @@ detection belongs on `resembl`; see
 [ARCHITECTURE.md](ARCHITECTURE.md#which-similarity-tool) for the full list of
 similarity surfaces.
 
-### recoverage: coverage dashboard
-
-Standalone consumer of Rebrew's coverage documents: a Bottle server and a
-Preact SPA display per-byte section coverage, function and data details, and
-server-rendered Potato Mode. `recoverage check` supplies a coverage gate.
-
-The shared contract is [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md):
-`rebrew coverage export --output snapshots/` writes `db/coverage-<target>.toml`, and
-`recoverage serve` reads it through `rebrew.coverage_toml`.
-`rebrew.workspace` resolves project configuration and the coverage directory;
-Recoverage regeneration calls `write_coverage_toml` in process. Serving existing
-documents requires no compiler toolchain or original binary.
-
-### reportal: the self-hosted portal
-
-Reportal serves a FastAPI JSON API and a Vite/Preact SPA over its own SQLite
-store. It imports Rebrew projects, stores binary analyses and functions,
-compares listings through Resembl, and exposes inspection and source-recovery
-operations. Its [README](../../relumea-workbench/README.md) and
-[capability reference](../../relumea-workbench/docs/PARITY.md) describe the complete
-portal surface.
-
-Rebrew is a library dependency. `reportal.engines` owns direct Python calls for
-inspection, disassembly, decompilation and scans; intake launches the Rebrew CLI
-and then generates coverage documents in process. `reportal.rebrew_import`
-reads those documents through the shared TOML reader and records the project's
-path for later engine operations. Reportal keeps its own portal database;
-coverage documents are derived Rebrew inputs.
-
-The default is local operation. LLM endpoints, guarded URL ingestion, external
-sources and sandbox execution are opt-in features configured by the workspace.
-See Reportal's [threat model](../../relumea-workbench/docs/THREAT_MODEL.md) for their
-boundaries.
-
-### recompile: compiler-as-a-service
-
-FastAPI service wrapping the toolchain zoo as an HTTP API:
-`POST /api/v1/compile` accepts C source + a compiler id + flags, runs the
-compile in the matching pinned toolchain container, and returns the
-artifact. It path-depends on rebrew (the compiler catalog comes from
-`rebrew.compiler.toolchain`) and needs the recompile-toolchains images to execute
-compiles.
-
-It is also the dataset side of the ML vision: `emit_assembly: true` appends
-`(source, listing)` pairs to `train_data/train.jsonl`; the raw material
-for the snowball/LoRA fine-tuning pipeline (relumea below).  Collection is
-implemented (`rebrew.compiler.recompile_client`); the training pipeline itself is not.
-
-### reagent: autonomous LLM RE agent
-
-Unattended reversing loop built directly on Rebrew internals: it talks to a
-local LLM over an OpenAI-compatible endpoint, picks a per-function workflow
-(`skip` / `ga_only` / `llm_then_ga` / `llm_only` / `flag_sweep_first`), and
-runs the ASM → LLM → compile → test → feedback loop, tracking state in
-SQLite and emitting a run report. It imports `rebrew.*` modules directly
-(`annotation`, `cli`, `skeleton`, `test`, `matcher`): no subprocess
-overhead, no reimplementation of the workbench.
-
-The repo also hosts the product PRDs for the wider agent vision: RAG-based
-recon context, the multi-agent AUTO_AGENT design, knowledge-graph plans, and
-GA model training.
-
-### relumea: the SaaS workbench vision
-
-The umbrella product: an AI-powered, collaborative reverse-engineering
-platform. Currently a Go backend (`backend/main.go`), a React + Vite
-frontend, and the PRD set (`docs/prd/`): visual workflow builder, multi-agent
-orchestration, a Cognee-based knowledge graph over ASTs/xrefs, and
-continuous learning; generating LoRA fine-tuning datasets from
-successfully matched functions (the "snowball effect"). A Python placeholder
-package reserves the `relumea` name on PyPI.
-
-relumea is the vision layer over the whole stack: rebrew does the low-level
-matching, reagent automates it, recompile serves compiles at scale, and the
-matched-pair corpora they generate feed the fine-tuning loop.
-
-### recondb: PyPI placeholder
-
-A placeholder package that reserves the `recondb` name (future "recon
-database" component). No code, no consumers.
-
-### decompedia: community decomp wiki
-
-A markdown knowledge base about video game decompilation: platforms
-(N64, PS1, Saturn, …), compilers, libraries, projects, and tool
-directories. Independent of the code repos: a reference resource, not a
-dependency.
-
 ## External interoperability
 
 ### reccmp
@@ -228,7 +71,7 @@ dependency.
 [reccmp](https://github.com/isledecomp/reccmp) is the binary recompilation
 comparison framework from the LEGO Island decomp community: the de-facto
 standard toolset for Windows binary-matching decomp projects. It is
-**external** (not a sibling repo in this workspace). Rebrew uses dedicated
+an independent project. Rebrew uses dedicated
 format-2 metadata and optional ADDRESS-only source anchors. It does not read
 reccmp marker blocks; a reccmp checkout needs its own compatible identities.
 
@@ -320,96 +163,21 @@ The full external-tools table (decomp.me, LIEF, Capstone, angr, ReVa, and
 the adjacent tools) lives in the README's "Ecosystem & Related Tools"
 section.
 
-## Data flow across the boundary
+## Public boundary contracts
 
-```mermaid
-flowchart LR
-    SRC["annotated C sources"] --> CMP["compile_and_compare<br/>in a toolchain container"]
-    BIN["target binary PE/ELF"] --> CMP
-    CMP --> MET["rebrew-functions.toml<br/>STATUS promotion"]
-    CMP --> VFY["rebrew verify<br/>similarity column"]
-    RES["resembl scoring core"] --> VFY
-    CMP --> BDB["rebrew coverage export --output snapshots/"]
-    BDB --> DB[("db/coverage-<target>.toml")]
-    DB --> DASH["recoverage serve<br/>defrag grid SPA"]
-```
-
-The compile-service flow is the same compiler boundary, served over HTTP
-instead of a local loop: API client → `recompile` (FastAPI) → `docker run`
-on a toolchain image → `artifacts/{id}` + `ledger.json`, with optional
-`emit_assembly` pairs streaming into `train_data/`.
-
-## Dependency layering
-
-Edges point strictly upward in the diagram above: the graph is acyclic:
-
-| Component | Depends on | Boundary contract |
-|---|---|---|
-| rebrew | resembl (scoring core), recompile-toolchains (image source) | python import; sibling checkout + `docker run` |
-| recoverage | rebrew (shared reader, workspace helpers, regeneration) | coverage TOML + direct Python APIs |
-| reportal | rebrew (engine APIs and coverage), optional resembl (scores) | direct Python APIs + coverage TOML |
-| recompile | rebrew (toolchain catalog), toolchain images | path dependency + HTTP API out |
-| reagent | rebrew (internals) | direct `rebrew.*` imports |
-| relumea | none yet: vision layer over the stack | n/a |
-| recondb / decompedia | none | n/a |
-| reccmp (external) | nothing from rebrew: consumes its outputs | separate identity formats: Rebrew uses format-2 metadata and optional ADDRESS anchors, not reccmp blocks; recomp binary comparisons remain useful |
-| BinSync (external) | nothing from rebrew: consumes its exports | BinSync state-dir TOML layout |
-
-Decoupling is by stable contract, not shared code:
-
-- **toolchains**: docker images + the `sources.json` manifest; rebrew and
-  recompile are interchangeable consumers,
-- **coverage**: the clear-text document format in [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md);
-  Rebrew writes it; Recoverage and Reportal use the shared Rebrew reader,
-- **similarity**: the `resembl/scoring.py` module, importable without
-  resembl's database stack,
-- **compiles**: `POST /api/v1/compile` for remote consumers,
-- **collaboration**: the BinSync state-dir TOML layout for any
-  BinSync-aware decompiler. Reccmp marker blocks are a separate format
-  and are not Rebrew input,
-- **agents/vision**: HTTP + file datasets (train JSONL), nothing shipped
-  depends on the SaaS layer.
-
-## Workspace layout
-
-```
-~/Desktop/Projects/relumea/
-└── repos/
-    ├── rebrew/               # matching engine (this repo)
-    ├── recompile-toolchains/ # compiler image build source
-    ├── recondb/              # FLIRT signatures
-    ├── rebrew-test-projects/ # target project instances
-    ├── resembl/              # assembly similarity search
-    ├── recoverage/           # coverage dashboard
-    ├── relumea-workbench/    # product web app, API, and CLI
-    ├── recompile/            # compiler-as-a-service API
-    ├── recondb-reservation/  # package-name placeholder
-    └── third-party/objconv-fork/ # modified OMF converter source
-
-~/Desktop/ai-decomp/third-party/
-├── decompedia/               # community decomp wiki checkout
-└── decompme-api/             # compiler and site checkouts, x86 samples
-```
-
-The `*-rebrew` directories under `rebrew-test-projects/` are rebrew *project
-instances*, not code: each holds a target binary, the written C sources, its
-`rebrew-project.toml`, per-function metadata, and its own `db/`; one per
-binary being decompiled.
+| Boundary | Contract |
+|---|---|
+| Compiler execution | Configured container image and compiler inputs; see [TOOLCHAIN.md](TOOLCHAIN.md) |
+| Coverage | Rebrew's [coverage document format](COVERAGE_DOCUMENT.md) |
+| Similarity | Resembl's scoring core, independent of its database stack |
+| Collaboration | BinSync state-directory artifacts |
+| Comparison | Recompiled sources and comparison outputs; Reccmp identities remain separate |
 
 ## Further reading
 
-- [ARCHITECTURE.md](ARCHITECTURE.md): Rebrew internals (module map, compile
-  loop, metadata routing rules)
-- [architecture.drawio](architecture.drawio): the same map in diagrams.net (ecosystem,
-  compile loop, toolchains, FLIRT/resembl/GA, reverse data flows,
-  config/store tiers, data/globals/layout, LLM training export,
-  AI-decomp research landscape)
-- [TOOLCHAIN.md](TOOLCHAIN.md): the toolchain zoo and image provenance
-- [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md): the coverage document format shared with
-  recoverage
-- [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md): the BinSync state-dir
-  bridge in detail
-- [PRINCIPLES.md](PRINCIPLES.md): idempotency, score monotonicity, snowball
-  effect
-- Sibling READMEs: `../recompile-toolchains`, `../resembl`, `../recoverage`,
-  `../recompile`, `../relumea`, `../reagent`
+- [ARCHITECTURE.md](ARCHITECTURE.md): Rebrew's internal module map and compile loop
+- [architecture.drawio](architecture.drawio): public integration and Rebrew data-flow diagrams
+- [TOOLCHAIN.md](TOOLCHAIN.md): compiler configuration and image requirements
+- [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md): coverage document format
+- [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md): BinSync state-directory bridge
+- [Resembl](https://github.com/maci0/resembl): assembly similarity search

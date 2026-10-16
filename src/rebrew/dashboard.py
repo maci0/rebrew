@@ -38,7 +38,7 @@ Retry-After. Request bodies are never read and force connection closure.
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry pair measures 12609 B zstd / 13215 B gzip against a 13320 B budget.
+entry pair measures 12616 B zstd / 13227 B gzip against a 13320 B budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
 COVERAGE_DOCUMENT.md, dashboard-api.yaml and PERFORMANCE.md.
@@ -726,7 +726,7 @@ function renderSummary(s) {
     ["Functions", s.function_stats.total, null,
       "Total functions for this target"],
     ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%", null,
-      "Share of .text bytes in byte-matched (EXACT or RELOC) functions"],
+      "Share of .text bytes in byte-matched functions and identified libraries. Alignment padding is not included."],
     ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%", null,
       "Share of .text bytes covered by any known function, including stubs"],
   ];
@@ -2126,10 +2126,10 @@ class Dashboard:
         if snapshot is None:
             return None
         stats = snapshot.function_stats
-        # Headline coverage = byte-matched (EXACT/RELOC) bytes / text size;
-        # the old covered_bytes summed every function's size, so an all-STUB
-        # binary reported ~100% "coverage".  Identified bytes
-        # (incl. stubs) stays available as a separate field.
+        # Headline coverage = matched function bytes plus identified library
+        # rows, over .text. Alignment padding is not in this figure, so it
+        # is not the status code account. Identified bytes (incl. stubs)
+        # stay a separate field. An all-STUB binary is not ~100%.
         matched_b, identified_b, total_b = (
             _byte_count(stats.get(name)) for name in _FUNCTION_STAT_BYTE_COUNTS
         )

@@ -64,6 +64,8 @@ class TestDecompDevReport:
         """Stub the shared collect_status progress model for the measures."""
         from rebrew.status import StatusReport
 
+        raw_padding = fields.get("padding_bytes")
+        padding_bytes = raw_padding if isinstance(raw_padding, int) else None
         monkeypatch.setattr(
             report,
             "collect_status",
@@ -73,6 +75,7 @@ class TestDecompDevReport:
                 status_counts=dict(fields.get("status_counts") or {"EXACT": 1}),
                 matched_bytes=int(fields.get("matched_bytes", 64)),
                 total_text_bytes=int(fields.get("total_text_bytes", 0x1000)),
+                padding_bytes=padding_bytes,
             ),
         )
 
@@ -98,6 +101,7 @@ class TestDecompDevReport:
         assert m["matched_functions"] == 1  # EXACT only
         assert m["matched_code"] == 64
         assert m["complete_code"] == 64
+        assert m["complete_code_percent"] == 1.5
         assert m["complete_data"] == 0
 
         units = doc["units"]
@@ -111,6 +115,19 @@ class TestDecompDevReport:
 
         assert result["total_functions"] == 3
         assert result["matched_functions"] == 1
+
+    def test_complete_code_includes_alignment_padding(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The fully-linked bar is the code account, not matched bytes alone."""
+        cfg = self._setup(tmp_path, monkeypatch, [_fake_ann(0x1000, 64, "exact_fn", "EXACT")])
+        self._mock_progress(monkeypatch, padding_bytes=16)
+        out = tmp_path / "report.json"
+        report.generate_decomp_dev_report(cfg, out)
+        measures = json.loads(out.read_text(encoding="utf-8"))["measures"]
+        assert measures["matched_code"] == 64
+        assert measures["complete_code"] == 80
+        assert measures["complete_code_percent"] == 1.9
 
     @pytest.mark.parametrize("status", ["NEAR_MATCHING", "PROVEN"])
     def test_unmatched_uses_cached_match_percent(

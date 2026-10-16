@@ -407,11 +407,12 @@ warning naming the target and the count.
 >   byte, including padding and data.  A binary whose functions are all STUB
 >   placeholders still reports high coverage here.
 > - `function_stats` (the dashboard headline, derived at load): `/api/summary`
->   computes `coverage_pct` from **matched bytes** `(EXACT + RELOC sizes) /
->   textSize`, the genuine progress metric, and `identified_pct` from
->   `covered_bytes` (every function incl. stubs), so "fully documented" stays
->   visible separately rather than reading as ~100% "coverage" for an all-STUB
->   binary.
+>   computes `coverage_pct` from matched bytes over `textSize`. Matched bytes
+>   are EXACT and RELOC spans plus `LIBRARY` rows whatever their status.
+>   Alignment padding is not included, so this is not the status code account.
+>   `identified_pct` comes from `covered_bytes` (every function incl. stubs),
+>   so "fully documented" stays visible separately rather than reading as
+>   ~100% "coverage" for an all-STUB binary.
 
 > [!NOTE]
 > All PE sections the catalog finds become `[sections."<name>"]` tables, not

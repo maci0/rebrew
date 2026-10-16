@@ -45,6 +45,24 @@ from rebrew.workspace.status import MATCHED_STATUSES, STUB_PLACEHOLDER_STATUSES
 
 log = logging.getLogger(__name__)
 
+#: What the code-account percentage counts. Status, todo, and catalog print this.
+CODE_ACCOUNT_CAPTION = "Matched functions, identified libraries, and alignment padding."
+
+
+def code_account_parts(pct: float, accounted: int, total: int) -> tuple[str, str]:
+    """Label and byte line for the code account of a known virtual ``.text``."""
+    return (
+        f"Code account  {pct}% of virtual .text",
+        f"    {accounted:,}B / {total:,}B",
+    )
+
+
+def code_account_headline(pct: float, accounted: int, total: int) -> str:
+    """The code-account sentence, one line, shared by every progress surface."""
+    label, amounts = code_account_parts(pct, accounted, total)
+    return f"{label}{amounts}"
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -584,20 +602,29 @@ def effective_status(ann_status: str, cached: str | None) -> str:
     """The status reported for a function: metadata *ann_status* overlaid by
     the verify cache verdict *cached* (``None`` when uncached).
 
+    Both sides are canonical spellings (``canonical_status``): upper case,
+    trimmed, with the ``NEAR_MATCH`` alias folded to ``NEAR_MATCHING``. The
+    writer already stores that spelling; a hand-edited lower-case row must
+    take the same branch.
+
     Metadata PROVEN and SKIP win: `rebrew prove` compiles after any cached
     verdict (the next verify/test replaces PROVEN), and SKIP is user parking.
     Metadata STUB wins over the cache's SIZE_MISMATCH/MISSING_SIZE/STUB (a
     stub's size mismatch is expected); every other cached verdict wins.
     """
-    if ann_status in ("PROVEN", "SKIP"):
-        return ann_status
+    from rebrew.metadata.functions import canonical_status
+
+    ann = canonical_status(ann_status or "")
+    cache = canonical_status(cached) if cached and str(cached).strip() else None
+    if ann in ("PROVEN", "SKIP"):
+        return ann
     if (
-        ann_status == "STUB"
-        and cached is not None
-        and (cached == "STUB" or cached in STUB_PLACEHOLDER_STATUSES)
+        ann == "STUB"
+        and cache is not None
+        and (cache == "STUB" or cache in STUB_PLACEHOLDER_STATUSES)
     ):
-        return ann_status
-    return cached or ann_status
+        return ann
+    return cache or ann
 
 
 #: Fill bytes the linker and compiler place between functions.
@@ -873,7 +900,13 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # `verify --data`.  Named symbols only — unnamed inventory rows carry
     # no verdict.
     from rebrew.data_layout import data_symbol_size
-    from rebrew.metadata.data import load_data_metadata, module_visible_to_target
+    from rebrew.metadata.data import (
+        DATA_STATUS_DISPLACED,
+        DATA_STATUS_EXACT,
+        data_status_bucket,
+        load_data_metadata,
+        module_visible_to_target,
+    )
 
     data_spans: dict[str, list[tuple[int, int]]] = {"verified": [], "drift": [], "unchecked": []}
     copied = postlink_copied_ranges(cfg)
@@ -885,17 +918,15 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
         if span_is_copied(va, size, copied):
             continue
-        verdict = str(fields.get("status") or "UNCHECKED").upper()
-        if verdict in ("EXACT", "VERIFIED"):
-            bucket = "verified"
+        verdict = str(fields.get("status") or "").strip().upper()
+        bucket = data_status_bucket(verdict)
+        if bucket == "verified":
             report.data_verified += 1
-            report.data_exact += verdict == "EXACT"
-        elif verdict in ("DISPLACED", "DRIFT"):
-            bucket = "drift"
+            report.data_exact += verdict == DATA_STATUS_EXACT
+        elif bucket == "drift":
             report.data_drift += 1
-            report.data_displaced += verdict == "DISPLACED"
+            report.data_displaced += verdict == DATA_STATUS_DISPLACED
         else:
-            bucket = "unchecked"
             report.data_unchecked += 1
         section = str(fields.get("section") or "").strip().lower() or "(no section)"
         counts = report.data_sections.setdefault(
@@ -1321,13 +1352,11 @@ def _headline(report: StatusReport) -> tuple[Text, Text | None]:
     if report.total_text_bytes > 0:
         text = Text()
         accounted = report.accounted_text_bytes
-        text.append(
-            f"Code account  {report.byte_coverage_pct}% of virtual .text", style="bold green"
+        label, amounts = code_account_parts(
+            report.byte_coverage_pct, accounted, report.total_text_bytes
         )
-        text.append(
-            f"    {accounted:,}B / {report.total_text_bytes:,}B",
-            style="dim",
-        )
+        text.append(label, style="bold green")
+        text.append(amounts, style="dim")
         return text, _bar(accounted, report.total_text_bytes, _BAR_WIDTH)
     text = Text(
         f"{report.matched_functions}/{report.total_functions} functions  ({report.matched_pct}%)",
@@ -1509,12 +1538,7 @@ def _render_terminal(report: StatusReport) -> None:
     if bar is not None:
         panel_rows.append(bar)
     if show_bytes:
-        panel_rows.append(
-            Text(
-                "Matched functions, identified libraries, and alignment padding.",
-                style="dim",
-            )
-        )
+        panel_rows.append(Text(CODE_ACCOUNT_CAPTION, style="dim"))
     if report.total_functions > 0:
         counts = Text()
         counts.append("Game functions", style="bold")

@@ -872,7 +872,10 @@ class TestHandle:
         assert body.index('id="globals-results"') < body.index('id="globals-show-more-wrap"')
         assert body.index('id="history-results"') < body.index('id="history-show-more-wrap"')
         assert 'clear-filters").disabled' in body
-        assert "Share of .text bytes in byte-matched (EXACT or RELOC) functions" in body
+        assert (
+            "Share of .text bytes in byte-matched functions and identified libraries. "
+            "Alignment padding is not included."
+        ) in body
         assert "Retry sections" in body
         assert "Retry globals" in body
         assert "Retry history" in body
@@ -2347,7 +2350,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12609), ("gzip", 13215)],
+        [("zstd", 12616), ("gzip", 13227)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int

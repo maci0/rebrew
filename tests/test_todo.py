@@ -66,6 +66,22 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
 # ---------------------------------------------------------------------------
 
 
+def test_data_symbol_does_not_replace_the_function_at_its_address(tmp_path: Path) -> None:
+    """exact-only scores 0 and start-data scores 10. Same address, both stay."""
+    write_store_fixture(
+        tmp_path / "rebrew-data.toml",
+        'format = 2\n["TEST.0x00001000"]\nname = "g_same"\nsize = 16\nsection = ".rdata"\n',
+        encoding="utf-8",
+    )
+    cfg = _make_cfg(tmp_path)
+    existing = {
+        0x1000: {"status": "RELOC", "symbol": "fn", "size": "16", "filename": "fn.c"},
+    }
+    items = collect_all(cfg, [], existing, {0x1000: "fn.c"})  # type: ignore[arg-type]
+    cats = {item.category for item in items if item.va == 0x1000}
+    assert cats == {"exact-only", "start-data"}
+
+
 class TestScoring:
     def test_base_match_pct(self) -> None:
         # Match % 80, size 200 -> base 33.0. Size < 300 (+5). Total 38.0
@@ -608,6 +624,7 @@ class TestCollectors:
         """status=SKIP is user parking — never actionable until force-unparked."""
         existing = {
             0x1000: {"status": "SKIP", "symbol": "parked"},
+            0x1500: {"status": "skip", "symbol": "also_parked"},
             0x2000: {"status": "NEAR_MATCHING", "symbol": "active"},
         }
         items = _collect_active_functions(existing, {0x2000: 40}, {}, {})
@@ -1588,12 +1605,11 @@ class TestTodoCli:
     def test_documented_rows_are_not_counted_twice(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """DOCUMENTED is a subset of STUB, so the buckets must stay disjoint.
+        """DOCUMENTED is a subset of STUB. The status map still sums to covered.
 
-        The header prints six counts side by side.  A STUB the verify cache
-        has since demoted to NEAR_MATCHING used to be counted under both
-        NEAR_MATCHING and DOCUMENTED, so the row total read above the number
-        of covered functions.
+        A STUB the verify cache has since demoted to NEAR_MATCHING is only
+        NEAR_MATCHING. A documented STUB stays in the STUB count, and
+        ``documented`` names that subset without adding a seventh bucket.
         """
 
         import rebrew.status
@@ -1633,16 +1649,38 @@ class TestTodoCli:
         cov = cli_payload(result)["coverage"]
         assert cov["documented"] == 1
         assert cov["matching"] == 1
-        assert cov["stub"] == 1
-        assert (
-            cov["exact"]
-            + cov["reloc"]
-            + cov["proven"]
-            + cov["matching"]
-            + cov["stub"]
-            + cov["documented"]
-            == cov["covered"]
+        assert cov["stub"] == 2
+        assert cov["byte_coverage_pct"] is None
+        assert cov["statuses"]["STUB"] == cov["stub"]
+        assert cov["statuses"]["NEAR_MATCHING"] == cov["matching"]
+        assert sum(cov["statuses"].values()) == cov["covered"]
+        assert cov["documented"] not in cov["statuses"]
+
+    def test_every_status_is_in_the_coverage_map(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SIZE_MISMATCH is a covered function. The map names it, and the
+        letter counts are not a second population beside it."""
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=[
+                FunctionEntry(va=0x1000, size=40, name="sized"),
+                FunctionEntry(va=0x2000, size=40, name="exact"),
+            ],
+            existing={
+                0x1000: {"status": "SIZE_MISMATCH", "symbol": "sized", "size": "40"},
+                0x2000: {"status": "EXACT", "symbol": "exact", "size": "40"},
+            },
+            covered_vas={0x1000: "sized.c", 0x2000: "exact.c"},
+            args=["--json"],
         )
+        assert result.exit_code == 0
+        cov = cli_payload(result)["coverage"]
+        assert cov["statuses"]["SIZE_MISMATCH"] == 1
+        assert cov["statuses"]["EXACT"] == 1
+        assert sum(cov["statuses"].values()) == cov["covered"] == 2
+        assert cov["pct_matched"] == 50.0
 
     def test_category_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
@@ -1994,6 +2032,20 @@ class TestDataDrift:
         set_data_field(tmp_path, 0x10027000, "section", ".data", "TEST")
         set_data_field(tmp_path, 0x10027000, "status", "VERIFIED", "TEST")
         assert _collect_start_data(cfg) == []
+
+    def test_unknown_status_is_unchecked_work(self, tmp_path: Path) -> None:
+        """A hand-edited spelling is unchecked, the same bucket status uses."""
+        from rebrew.todo import _collect_start_data
+
+        cfg = _make_cfg(tmp_path)
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["TEST.0x00002000"]\nname = "g_typo"\nsize = 4\nstatus = "TYPO"\n'
+            '["TEST.0x00002010"]\nname = "g_spaced"\nsize = 4\nstatus = " exact "\n',
+            encoding="utf-8",
+        )
+        items = _collect_start_data(cfg)
+        assert [item.name for item in items] == ["g_typo"]
 
     def test_bss_label_skipped(self, tmp_path: Path) -> None:
         """A .bss symbol is not start-data work; the lane leaves it out."""

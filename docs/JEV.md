@@ -67,8 +67,6 @@ Jev cannot replace anything that must emit C, ASM, or prose:
 - `rebrew match run --seed-llm`: [`llm_seed.py`](../src/rebrew/llm_seed.py)
   asks an OpenAI-compatible endpoint for alternative C snippets,
   tree-sitter-validates them, and injects survivors into the GA.
-- `reagent`'s ASM → LLM → compile loop
-  ([ECOSYSTEM.md](ECOSYSTEM.md) §reagent).
 - Skeletons, comments, Ghidra names, commit messages.
 
 [PRINCIPLES.md](PRINCIPLES.md) already splits the jobs: the LLM

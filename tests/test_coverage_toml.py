@@ -1040,6 +1040,20 @@ class TestDerivedAtLoad:
         assert dict(stats["by_module_counts"]) == {"": 3, "GAME": 1}
         assert stats["total_bytes"] == clamp_nonneg_int(data["sections"][".text"]["size"])
 
+    def test_library_row_matches_even_when_its_status_does_not(
+        self,
+        write: Callable[[dict[str, Any]], list[Path]],
+        data: dict[str, Any],
+        tmp_path: Path,
+    ) -> None:
+        """Identified library bytes stay in the matched figure. Padding does not."""
+        data["functions"]["0x10001200"]["status"] = "STUB"
+        write(data)
+        stats = load_coverage_from(tmp_path / "db", TARGET).function_stats
+        assert stats["matched_bytes"] == 260
+        assert dict(stats["by_status"])["STUB"] == 3
+        assert "RELOC" not in stats["by_status"]
+
     def test_functions_by_va_is_the_same_objects(
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
     ) -> None:

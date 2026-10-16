@@ -177,7 +177,8 @@ def test_todo_headline_bar(monkeypatch: pytest.MonkeyPatch) -> None:
     buf = _console(monkeypatch, todo_mod)
     render_matched_headline(1, 2)
     out = buf.getvalue()
-    assert "50.0% byte-matched" in out
+    assert "1/2 functions  (50.0%)" in out
+    assert "byte-matched" not in out
     bar = _bar_line(out)
     assert "█" in bar and "░" in bar
     assert "/home/" not in out

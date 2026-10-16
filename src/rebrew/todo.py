@@ -172,6 +172,13 @@ class TodoItem:
         return d
 
 
+def _item_domain(item: TodoItem) -> str:
+    """``data`` or ``code``. The two do not replace each other at one address."""
+    if item.category in {CAT_DATA_DRIFT, CAT_START_DATA}:
+        return "data"
+    return "code"
+
+
 # ---------------------------------------------------------------------------
 # Unified Continuous Scoring
 # ---------------------------------------------------------------------------
@@ -311,17 +318,18 @@ def _collect_active_functions(
         name = info.get("symbol") or name_by_va.get(va) or f"FUN_{va:08x}"
         filename = info.get("filename", "")
 
-        # User-parked: intentional "don't touch" — never surface as actionable
-        # work (flag sweep / GA / prove) until someone unparks with force.
-        if status == "SKIP":
-            continue
-
         va_key = f"0x{va:08x}"
         v_entry = verify_entries.get(va_key)
         v_status = v_entry.status if v_entry else None
         # Same rule as `rebrew status`: a stale metadata EXACT whose cached
-        # verdict no longer matches is live work.
+        # verdict no longer matches is live work. Canonical spelling, so a
+        # hand-edited "skip" parks the same way SKIP does.
         status = effective_status(status, v_status)
+
+        # User-parked: intentional "don't touch" — never surface as actionable
+        # work (flag sweep / GA / prove) until someone unparks with force.
+        if status == "SKIP":
+            continue
 
         # Skip finished functions — except naked reconstructions: byte-exact
         # via a generated skeleton (`source = "naked"`) is reproduced, not
@@ -1128,7 +1136,11 @@ def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
     tail, 84 import slots, 7 without a size).
     """
     from rebrew.data_layout import data_symbol_size
-    from rebrew.metadata.data import load_data_metadata, module_visible_to_target
+    from rebrew.metadata.data import (
+        data_status_bucket,
+        load_data_metadata,
+        module_visible_to_target,
+    )
 
     in_zero_fill_tail = _zero_fill_tail_checker(cfg)
     items: list[TodoItem] = []
@@ -1140,7 +1152,9 @@ def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
         # stay; they are linked into this binary.
         if not module_visible_to_target(module, cfg):
             continue
-        if str(fields.get("status") or "").upper() not in ("", "UNCHECKED"):
+        # Same unchecked bucket as ``rebrew status``, including a hand-edited
+        # spelling the writer would have rejected.
+        if data_status_bucket(fields.get("status")) != "unchecked":
             continue
         name = str(fields.get("name") or "")
         section = str(fields.get("section") or "").lower()
@@ -1363,17 +1377,20 @@ def collect_all(
     if exclude_vas:
         items = [item for item in items if item.va not in exclude_vas]
 
-    # Deduplicate by VA — keep only the highest-ROI item per function.
-    # Setup items (va=0) are category-level, not per-function, so they skip dedup.
-    best: dict[int, TodoItem] = {}
+    # One action per code address, and one per data address. Setup items
+    # (va=0) are category-level, so they skip dedup. A function and a data
+    # symbol can share an address; folding them into one VA dropped the
+    # function, because exact-only scores 0 and start-data scores 10.
+    best: dict[tuple[str, int], TodoItem] = {}
     non_va_items: list[TodoItem] = []
     for item in items:
         if item.va == 0:
             non_va_items.append(item)
             continue
-        prev = best.get(item.va)
+        key = (_item_domain(item), item.va)
+        prev = best.get(key)
         if prev is None or item.roi_score > prev.roi_score:
-            best[item.va] = item
+            best[key] = item
     items = non_va_items + list(best.values())
 
     # Sort by ROI descending
@@ -1411,6 +1428,32 @@ _EPILOG = (
     "  postlink-mangled · · ·  Functions whose shipped bytes a postlink fixer rewrote (needs `raw_link` configured)\n\n"
     "[dim]Reads from function_structure.json, source files, and .rebrew/verify_cache.toml.[/dim]"
 )
+
+#: Title letters. These five stay visible at zero; every other status is
+#: printed beside them when its count is nonzero, so the letters partition
+#: the covered functions instead of hiding SIZE_MISMATCH and the rest.
+_LETTER_STATUSES = (
+    ("EXACT", "E", "green"),
+    ("RELOC", "R", "cyan"),
+    ("PROVEN", "P", "magenta"),
+    ("NEAR_MATCHING", "M", "yellow"),
+    ("STUB", "S", "dim"),
+)
+
+
+def _coverage_status_markup(status_counts: dict[str, int]) -> str:
+    """E/R/P/M/S plus every other nonzero status, one token per covered row."""
+    parts = [
+        f"[{color}]{status_counts.get(name, 0)}{letter}[/{color}]"
+        for name, letter, color in _LETTER_STATUSES
+    ]
+    known = {name for name, _letter, _color in _LETTER_STATUSES}
+    for name in sorted(status_counts):
+        count = status_counts[name]
+        if name not in known and count:
+            parts.append(f"[dim]{count} {name}[/dim]")
+    return " ".join(parts)
+
 
 app = typer.Typer(
     help="Prioritized action list: what to work on next for highest ROI.",
@@ -1492,6 +1535,8 @@ def main(
 
     verify_statuses = load_verify_statuses(cfg)
 
+    from rebrew.metadata.functions import canonical_status
+
     status_counts: dict[str, int] = {}
     documented = 0
     for va_int, info in existing.items():
@@ -1501,30 +1546,20 @@ def main(
             continue
         ann_status = info.get("status", "STUB")
         s = effective_status(ann_status, verify_statuses.get(va_int))
-        # DOCUMENTED is a subset of STUB, not a bucket beside it: the header
-        # prints the six counts as disjoint, so a STUB the verify cache has
-        # since demoted to NEAR_MATCHING used to be counted under both
-        # NEAR_MATCHING and DOCUMENTED and the row total came out above
-        # `covered`.  A documented row is tallied once, here, and skipped in
-        # the status buckets (same split `rebrew status` renders as its
-        # "(no source)" remainder).
+        # Documented non-targets stay STUB, the bucket `rebrew status` uses.
+        # `documented` is how many of those STUB rows carry the marker, not
+        # a seventh bucket and not the "(no source)" remainder.
         if (
             s == "STUB"
-            and ann_status == "STUB"
+            and canonical_status(ann_status or "") == "STUB"
             and any(m in info.get("blocker", "") for m in _NON_TARGET_MARKERS)
         ):
             documented += 1
-            continue
         status_counts[s] = status_counts.get(s, 0) + 1
     function_vas = {va for va in existing if va not in library_vas}
     ghidra_vas = {f.va for f in ghidra_funcs}
     total_funcs = len(function_vas | (ghidra_vas - library_vas - pseudo_vas))
     covered = len(function_vas)
-    exact = status_counts.get("EXACT", 0)
-    reloc = status_counts.get("RELOC", 0)
-    proven = status_counts.get("PROVEN", 0)
-    matching = status_counts.get("NEAR_MATCHING", 0)
-    stub = status_counts.get("STUB", 0)
     # Denominator mirrors `rebrew status` exactly (the two must not
     # disagree): covered FUNCTION rows plus the ghidra inventory MINUS
     # identified library code (CRT/zlib/static libs — "never reverse"
@@ -1532,9 +1567,43 @@ def main(
     # `ghidra_funcs` alone went over 100% (library rows outside the
     # inventory), and `ghidra ∪ covered` counted library attributions as
     # unfinished functions (28% where status said 42% for the same tree).
+    # When the target binary is on disk, the live status report replaces
+    # these counts so a second loop cannot drift from it.
+    text_bytes = 0
+    accounted_bytes = 0
+    byte_coverage_pct: float | None = None
+    binary = Path(getattr(cfg, "target_binary", "") or "")
+    if binary.is_file():
+        try:
+            from rebrew.status import collect_status
+
+            progress = collect_status(cfg)
+        except (OSError, ValueError, KeyError):
+            progress = None
+        else:
+            if progress is not None and progress.load_error:
+                progress = None
+        if progress is not None:
+            status_counts = dict(progress.status_counts)
+            total_funcs = progress.total_functions
+            covered = progress.covered_functions
+            if progress.total_text_bytes > 0:
+                text_bytes = progress.total_text_bytes
+                accounted_bytes = progress.accounted_text_bytes
+                byte_coverage_pct = progress.byte_coverage_pct
+    exact = status_counts.get("EXACT", 0)
+    reloc = status_counts.get("RELOC", 0)
+    proven = status_counts.get("PROVEN", 0)
+    matching = status_counts.get("NEAR_MATCHING", 0)
+    stub = status_counts.get("STUB", 0)
     denominator = total_funcs
-    # Byte-matched only: PROVEN bytes still differ from the target.
+    # Function ratio. PROVEN bytes still differ from the target. This is
+    # `StatusReport.matched_pct`, not the code account.
     pct = floor_pct(exact + reloc, denominator)
+    if byte_coverage_pct is not None:
+        pct_label = f"{byte_coverage_pct}% of .text"
+    else:
+        pct_label = f"{pct}% of functions"
 
     if category:
         all_items = [i for i in all_items if i.category == category]
@@ -1562,6 +1631,8 @@ def main(
                     "stub": stub,
                     "documented": documented,
                     "pct_matched": pct,
+                    "byte_coverage_pct": byte_coverage_pct,
+                    "statuses": status_counts,
                 },
                 "total_items": len(all_items),
                 "count": len(display_items),
@@ -1571,9 +1642,15 @@ def main(
         )
         return
 
-    if denominator > 0:
-        # One bar for this percentage. Per-row Match % is a different quantity.
-        render_matched_headline(exact + reloc, denominator)
+    if denominator > 0 or text_bytes > 0:
+        # One bar. With a known .text it is the code account; otherwise the
+        # function ratio, labeled as functions. Per-row Match % is neither.
+        render_matched_headline(
+            exact + reloc,
+            denominator,
+            accounted_bytes=accounted_bytes,
+            text_bytes=text_bytes,
+        )
 
     if stats or not display_items:
         # Show coverage stats header
@@ -1581,6 +1658,11 @@ def main(
             f"  [dim]· [green]{exact}[/green] identical straight from the toolchain[/dim]"
             if reloc
             else ""
+        )
+        extra = "".join(
+            f"  [dim]{name}: {status_counts[name]}[/dim]"
+            for name in sorted(status_counts)
+            if name not in {row[0] for row in _LETTER_STATUSES} and status_counts[name]
         )
         console.print(
             f"  [bold]Coverage[/bold]: {covered} covered"
@@ -1591,7 +1673,8 @@ def main(
             f"  [yellow]NEAR_MATCHING: {matching}[/yellow]"
             f"  [dim]STUB: {stub}[/dim]"
             f"  [dim]DOCUMENTED: {documented}[/dim]"
-            f"  → [bold]{pct}%[/bold] byte-matched{toolchain}"
+            f"{extra}"
+            f"  → [bold]{exact + reloc}/{denominator}[/bold] functions byte-matched{toolchain}"
         )
 
     if not display_items:
@@ -1642,10 +1725,10 @@ def main(
 
     panel = Panel(
         table,
-        title=f"[bold]Rebrew TODO[/bold] — {len(all_items)} actions"
-        f"  [green]{exact}E[/green] [cyan]{reloc}R[/cyan]"
-        f" [magenta]{proven}P[/magenta] [yellow]{matching}M[/yellow]"
-        f" [dim]{stub}S[/dim] ({pct}%)",
+        title=(
+            f"[bold]Rebrew TODO[/bold] — {len(all_items)} actions"
+            f"  {_coverage_status_markup(status_counts)} ({pct_label})"
+        ),
         subtitle=subtitle,
         border_style="blue",
     )
@@ -1656,11 +1739,34 @@ def main(
     )
 
 
-def render_matched_headline(matched: int, total: int) -> None:
-    """Print the byte-matched percentage and a bar of that same ratio."""
+def render_matched_headline(
+    matched: int,
+    total: int,
+    *,
+    accounted_bytes: int = 0,
+    text_bytes: int = 0,
+) -> None:
+    """Print the same progress line ``rebrew status`` prints.
+
+    With a known virtual ``.text``, that is the code account (matched
+    functions, identified libraries, and alignment padding) and the
+    byte-matched function count under it. Without a measured section the
+    function share is the percentage, and it is not called a byte match.
+    """
+    if text_bytes > 0:
+        from rebrew.status import CODE_ACCOUNT_CAPTION, code_account_headline
+
+        pct = floor_pct(accounted_bytes, text_bytes)
+        console.print(f"  [bold]{code_account_headline(pct, accounted_bytes, text_bytes)}[/bold]")
+        console.print(f"  [dim]{CODE_ACCOUNT_CAPTION}[/dim]")
+        console.print(ratio_bar(accounted_bytes, text_bytes))
+        if total > 0:
+            console.print(f"  {matched}/{total} functions byte-matched")
+        return
     pct = floor_pct(matched, total)
-    console.print(f"  [bold]{pct}% byte-matched[/bold]")
-    console.print(ratio_bar(matched, total))
+    console.print(f"  [bold]{matched}/{total} functions  ({pct}%)[/bold]")
+    if total > 0:
+        console.print(ratio_bar(matched, total))
 
 
 def main_entry() -> None:

@@ -38,6 +38,15 @@
 - Source contract audits resolve ordinary callback typedef parameters per translation
   unit and ignore nested parameter names while preserving callback ABI differences.
   Named record aliases retain their pointer and function declarators.
+- `rebrew todo`, `rebrew status`, catalog `--summary`, the HTML report, and
+  the decomp.dev complete-code bar share one code account: matched functions,
+  identified libraries, and alignment padding, over virtual `.text`. Todo no
+  longer labels the function ratio as that byte percentage. The todo title
+  lists every status count, including `SIZE_MISMATCH`. A hand-edited function
+  status and an unknown data verdict use the same buckets as the writers.
+  The dashboard matched share counts identified library rows and says that
+  alignment padding is not included. A data symbol that shares a function's
+  address no longer replaces that function's action.
 - Scaffold lint uses the configured default target, matching `init --refresh-agents`
   even when another target is declared first or selected for lint.
 - `init --refresh-agents --dry-run` previews scaffold drift without writing files,

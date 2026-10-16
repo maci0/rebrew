@@ -8,22 +8,16 @@ STATUS promotion and the GA matching engine.
 
 ## Ecosystem
 
-rebrew is one repo in a wider workspace. Sibling projects plug in at stable
-boundaries: `recompile-toolchains` supplies the docker compiler images,
-`resembl` supplies the assembly-similarity scoring core, `recovery` serves
-the `db/coverage-<target>.toml` documents this repo builds, `recompile` wraps the toolchain zoo
-as an HTTP API, and `reagent` automates the loop with an LLM. External
-tools interoperate through file formats: the coverage document and the
-BinSync state directory (`rebrew binsync`, plus `rebrew binsync export` /
-`-import` / `-diff` / `-init` / `-overlay`). C carries optional ADDRESS-only anchors;
-all identity and state live in dedicated format-2 metadata. The catalog's reccmp CSV
-export is gone with the catalog's own artifacts.
-The full cross-repo map, dependency layering, and mermaid diagrams are in
-[ECOSYSTEM.md](ECOSYSTEM.md). Open [architecture.drawio](architecture.drawio)
-in diagrams.net for the same map as nine pages: ecosystem, compile-compare
-loop, toolchains, FLIRT/resembl/GA, reverse data flows, config/store tiers,
-data/globals/layout, LLM training export, and the local AI-decomp research
-landscape.
+Rebrew uses Resembl's assembly-similarity scoring core and configured
+compiler containers. External tools interoperate through documented file
+formats, including coverage documents and BinSync state directories.
+Optional ADDRESS-only source anchors bind declarations; identity and state
+live in managed format-2 metadata.
+
+[ECOSYSTEM.md](ECOSYSTEM.md) covers these public boundaries. Open
+[architecture.drawio](architecture.drawio) in diagrams.net for the public
+integration map and Rebrew's compile, matching, configuration and metadata
+flows. Diagram page numbers are retained for existing references.
 
 ## High-level data flow
 
@@ -43,7 +37,7 @@ flowchart LR
     FACADE --> MERGED
 
     CFG --> TOOLCHAIN["compiler/toolchain.py<br/>spec registry + docker-only runner"]
-    RT["recompile-toolchains checkout<br/>Dockerfiles (REBREW_TOOLCHAINS_DIR)"] --> IMG[("docker images<br/>rebrew/msvc:6.0-win32 …")]
+    RT["Configured compiler build source<br/>REBREW_TOOLCHAINS_DIR"] --> IMG[("docker images<br/>rebrew/msvc:6.0-win32 …")]
     TOOLCHAIN --> COMPILE["compiler/compile.py<br/>compile_and_compare"]
     IMG --> COMPILE
 
@@ -165,7 +159,7 @@ would be a second answer to that question. See
    evidence live in `rebrew-source.toml`.
 3. `compile_and_compare()` compiles the source in the pinned toolchain
    image (`compiler/toolchain.py`; docker-only for every shipped profile, including
-   gcc/clang/mingw; images built from the `recompile-toolchains` checkout) and
+   gcc/clang/mingw; images built from the configured toolchain source) and
    byte-compares against the target bytes → `CompareResult`.
 4. `update_source_status()` writes STATUS to the metadata file only: the
    C state comments are never written. `update_field` / `remove_field`

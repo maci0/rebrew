@@ -158,8 +158,8 @@ commit writes the same file.
 ## Ecosystem
 
 [ECOSYSTEM.md](https://github.com/maci0/rebrew/blob/main/docs/ECOSYSTEM.md)
-maps compiler images, similarity scoring, coverage consumers, remote compilation,
-and agent orchestration. Integration details belong in the topical guides linked
+maps public compiler, similarity, coverage and third-party interoperability
+boundaries. Integration details belong in the topical guides linked
 from the [documentation index](https://github.com/maci0/rebrew/blob/main/docs/README.md).
 
 ## License

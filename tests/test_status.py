@@ -2006,6 +2006,14 @@ class TestEffectiveStatus:
     def test_cached_verdict_overrides_metadata(self) -> None:
         assert effective_status("NEAR_MATCHING", "EXACT") == "EXACT"
 
+    def test_hand_edited_spelling_uses_the_same_branches(self) -> None:
+        """Lower case and the NEAR_MATCH alias take the canonical branch."""
+        assert effective_status("stub", "size_mismatch") == "STUB"
+        assert effective_status("proven", "EXACT") == "PROVEN"
+        assert effective_status("skip", "RELOC") == "SKIP"
+        assert effective_status("near_match", None) == "NEAR_MATCHING"
+        assert effective_status("STUB", "near_match") == "NEAR_MATCHING"
+
 
 class TestAccounting:
     def test_zero_operands_inside_unknown_code_are_not_padding(self) -> None:
@@ -2071,6 +2079,34 @@ class TestAccounting:
         assert report.data_verified_bytes == 8
         assert report.data_conflicting_verified_bytes == 12
         assert report.to_dict()["data"]["bytes"] == report.data_bytes
+
+    def test_hand_edited_data_status_shares_one_bucket(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A typo is unchecked and a spaced EXACT is verified, in status."""
+        from rebrew.metadata.data import data_status_bucket
+
+        assert data_status_bucket(" exact ") == "verified"
+        assert data_status_bucket("drift") == "drift"
+        assert data_status_bucket("DISPLACED") == "drift"
+        assert data_status_bucket("TYPO") == "unchecked"
+        assert data_status_bucket("") == "unchecked"
+        write_store_fixture(
+            tmp_path / "rebrew-data.toml",
+            'format = 2\n["TEST.0x00000064"]\nname = "g_typo"\nsize = 4\nstatus = "TYPO"\n'
+            '["TEST.0x00000068"]\nname = "g_spaced"\nsize = 4\nstatus = " exact "\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "src").mkdir()
+        monkeypatch.setattr("rebrew.status._initialized_data_ranges", lambda _cfg: [])
+        monkeypatch.setattr("rebrew.status.postlink_copied_ranges", lambda _cfg: [])
+        monkeypatch.setattr("rebrew.naming.load_data", lambda *_a, **_kw: ([], {}, {}))
+        report = collect_status(_make_cfg(tmp_path))
+        assert report.load_error == ""
+        assert report.data_exact == 1
+        assert report.data_verified == 1
+        assert report.data_unchecked == 1
+        assert report.data_drift == 0
 
     def test_overlapping_data_ranges_do_not_inflate_denominator(self) -> None:
         from rebrew.status import data_byte_coverage

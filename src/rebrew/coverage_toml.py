@@ -1273,8 +1273,9 @@ def _derive_function_stats(
     over a throwaway table, with its cursor gone: the same ``FUNCTION_KINDS``
     code-row filter, the same ``clip_span`` cut at the next function start, the
     same ``MATCHED_STATUSES`` split between identified bytes (every function,
-    STUB placeholders included) and matched bytes (EXACT/RELOC, the headline
-    figure).
+    STUB placeholders included) and matched bytes (EXACT/RELOC, plus a
+    ``LIBRARY`` row whatever its status). Alignment padding is not in this
+    figure; the status code account adds it.
 
     It is derived rather than stored because it is a pure function of the rows
     already in the file, and a stored copy is a second thing to keep in step on
@@ -1290,7 +1291,7 @@ def _derive_function_stats(
     covered_bytes = 0
     matched_bytes = 0
     for fn in rows:
-        status = fn.status or "UNKNOWN"
+        status = canonical_status(fn.status) if fn.status and fn.status.strip() else "UNKNOWN"
         by_status[status] = by_status.get(status, 0) + 1
         # Key is the stored module, including "": "GAME" is a real module name,
         # so a blank must not be counted under it.
@@ -1302,14 +1303,16 @@ def _derive_function_stats(
         # totals the wrong way; the writer clamps it to 0 on the way in.
         size = clip_span(starts, fn.va, max(fn.size, 0))
         covered_bytes += size
-        if status in MATCHED_STATUSES:
+        # A LIBRARY row is identified library code. Status counts those bytes
+        # in the code account even when the row's own STATUS is not EXACT/RELOC.
+        if status in MATCHED_STATUSES or fn.markerType == "LIBRARY":
             matched_bytes += size
     return MappingProxyType(
         {
             "total": len(rows),
             # Identified bytes: every function, STUB placeholders included.
             "covered_bytes": covered_bytes,
-            # EXACT/RELOC only — the headline coverage metric.
+            # EXACT/RELOC bytes plus identified library rows. Padding is absent.
             "matched_bytes": matched_bytes,
             "total_bytes": text.size if text is not None else 0,
             "by_status": MappingProxyType(dict(sorted(by_status.items()))),

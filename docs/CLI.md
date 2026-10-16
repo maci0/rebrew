@@ -814,6 +814,21 @@ straight from the toolchain`).
 
 `Match %` is rounded down to one decimal, so a near miss never reads 100%.
 
+The bar above the list is the code account when virtual `.text` is known:
+matched functions, identified libraries, and alignment padding, the same
+percentage `rebrew status` prints. The line under it is a count,
+`N/M functions byte-matched`. The title says `of .text` or `of functions`,
+and it lists every status that has a count. EXACT, RELOC, PROVEN,
+NEAR_MATCHING, and STUB stay visible at zero. `--json` keeps
+`coverage.pct_matched` as the function ratio. `coverage.byte_coverage_pct`
+is the code account, or null when `.text` was not measured.
+`coverage.statuses` counts every covered function once. `documented` is how
+many of the STUB rows are marked non-targets.
+
+`start-data` is the unchecked data lane after import slots, BSS, and
+zero-fill tails are skipped. It is not the status data table, which counts
+every named symbol. An unknown data spelling is unchecked in both.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--limit` / `-n` | int | `20` | Number of items to show (0 = none) |
@@ -4142,8 +4157,9 @@ served, server errors, slowest request) print once when the server stops.
 `rebrew coverage catalog [OPTIONS]`
 
 The `--summary` progress lines (byte-matched functions, per-status counts,
-library identified, and `Of .text` when the section size is known) are
-`rebrew status`'s own figures.  `identified_bytes` / `identified_pct` in
+library identified, and the code account when the section size is known) are
+`rebrew status`'s own figures, including the caption
+`Matched functions, identified libraries, and alignment padding.`  `identified_bytes` / `identified_pct` in
 `--json` are the `.text` bytes claimed by any bound function, stubs and
 library code included; `registry` is the inventory size.  The coverage
 document `rebrew coverage export --output snapshots/` writes stores the same globals: this target's

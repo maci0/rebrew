@@ -56,8 +56,8 @@
 
 | Document | Description |
 |----------|-------------|
-| [ECOSYSTEM.md](ECOSYSTEM.md) | Cross-repo architecture: how rebrew fits with recompile-toolchains, resembl, recovery, reportal, recompile, reagent, relumea, decompedia, recondb; mermaid diagrams |
-| [architecture.drawio](architecture.drawio) | Same map in diagrams.net (ecosystem, compile loop, toolchains, FLIRT/resembl/GA, reverse data flows, config/store tiers, data/globals/layout, LLM training export, AI-decomp research) |
+| [ECOSYSTEM.md](ECOSYSTEM.md) | Public Rebrew and Resembl integration boundaries and third-party interoperability |
+| [architecture.drawio](architecture.drawio) | Public integration map and Rebrew compile, toolchain, matching, configuration and metadata flows |
 
 ## Project
 
