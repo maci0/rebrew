@@ -92,6 +92,8 @@
   `rebrew.init_profiles.DEFAULT_REBREW_TOML` take `{module}`.
 
 ### Fixed
+- Refreshed project address-anchor examples use the configured module, even
+  when it differs from the target name.
 - Renaming a native-only function identity now reports its missing source binding
   and the registration step, rather than claiming an empty path escapes the source
   roots. The command still refuses to invent a source provider or change the row.

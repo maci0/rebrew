@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 from rebrew.cli import console
 from rebrew.compiler.toolchain import toolchain_link_candidates
 from rebrew.utils import ascii_slug, atomic_write_text, read_json_text
+from rebrew.workspace.config import target_module
 
 logger = logging.getLogger(__name__)
 
@@ -885,6 +886,7 @@ def _refresh_agents(
     content = _render_agents_md(
         cwd.name,
         target_name=target_name,
+        module_name=target_module(target_name, target_cfg),
         binary_name=Path(str(target_cfg.get("binary", ""))).name,
         binary_format=str(target_cfg.get("format") or profile.get("format", "pe")),
         arch=str(target_cfg.get("arch") or profile.get("arch", "x86_32")),
@@ -963,6 +965,7 @@ def _render_agents_md(
     project_name: str,
     *,
     target_name: str,
+    module_name: str,
     binary_name: str,
     binary_format: str,
     arch: str,
@@ -1007,6 +1010,7 @@ def _render_agents_md(
         quick_start=quick_start,
         project_name=project_name,
         target_name=target_name,
+        module_name=module_name,
         binary_name=binary_name,
         binary_format=binary_format,
         arch=arch,
@@ -1298,7 +1302,7 @@ def main(
         project_name=cwd.name,
         target_name=target_name,
         binary_name=binary_name,
-        module=re.sub(r"[^A-Za-z0-9_]", "", target_name).upper(),
+        module=target_module(target_name, {}),
         compiler_profile=compiler_profile,
         compiler_command=compiler_command,
         compiler_includes=profile["includes"],
@@ -1333,6 +1337,7 @@ def main(
     agents_content = _render_agents_md(
         cwd.name,
         target_name=target_name,
+        module_name=target_module(target_name, {}),
         binary_name=binary_name,
         binary_format=binary_format,
         arch=target_arch,

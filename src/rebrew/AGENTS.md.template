@@ -120,7 +120,7 @@ an `ADDRESS` comment only anchors that identity to the following declaration.
 C source may carry an optional address immediately above a definition or variable:
 
 ```c
-/* ADDRESS: {target_name} 0x10001234 */
+/* ADDRESS: {module_name} 0x10001234 */
 void __cdecl function_name(void)
 {{
     /* stub */
