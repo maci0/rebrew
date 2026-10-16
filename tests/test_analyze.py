@@ -45,7 +45,7 @@ format = "pe"
 arch = "x86_32"
 reversed_dir = "src/S"
 bin_dir = "bin/S"
-marker = "S"
+module = "S"
 
 [compiler]
 profile = "mingw-16.2.0"

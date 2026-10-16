@@ -96,7 +96,7 @@ class TestBinsyncImportHelpers:
         assert _entry_module(blank, SimpleNamespace(module="CLIENT")) == "CLIENT"
         derived = SimpleNamespace(module="", target_name="client.exe")
         assert _entry_module(derived) == "CLIENTEXE"
-        with pytest.raises(ValueError, match="module marker"):
+        with pytest.raises(ValueError, match="without a module"):
             _stub_text(blank, 0x1000, "foo", "")
 
     def test_decorated_symbol_stubs_the_c_name(self, tmp_path: Path) -> None:
