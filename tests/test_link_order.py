@@ -21,6 +21,7 @@ _TOML_CFG = """
 default_target = "server"
 
 [targets.server]
+module = "server.dll"
 binary = "server.dll"
 reversed_dir = "src"
 """

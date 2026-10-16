@@ -283,7 +283,8 @@ class TestOrderSourcesCli:
 
         return CliRunner().invoke(mod.app, list(args))
 
-    def test_prints_ordered_files(self, tmp_path: Path) -> None:
+    def test_prints_ordered_files(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
         lo = _mk_src(tmp_path, "b.c", 0x10001000)
         hi = _mk_src(tmp_path, "a.c", 0x10003000)
         result = self._run(str(hi), str(lo))
