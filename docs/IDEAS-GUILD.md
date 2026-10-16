@@ -1800,6 +1800,24 @@ Regression coverage also preserves pointer/function declarators when a typedef's
 return/base type is a named record; replacing the entire type with its tag had
 lost those declarators. Anonymous records remain unresolved.
 
+Guild replay (2026-10-16): `uv run --frozen rebrew types contracts --name
+g_1052c60 --all-targets --json`. Its canonical `src/client_timer.h` declares
+`typedef struct { TIMER_CALLBACK funktion; unsigned int periode; int pausiert; }
+TIMER_CALLBACK_SLOT;` and an extern array of 32 slots. Both target compilers
+confirm sizeof12/offsets0,4,8; complete native controls match every bound operand.
+The auditor intentionally returns `unresolved context-specific typedef` for the
+anonymous record in eleven TL and six Gold contexts. This is an unsupported
+identity form, not evidence of a declaration conflict or a compiler failure.
+
+Proposed capability: preserve anonymous record identity from its canonical
+definition and actual per-TU include context using the existing C AST. Recognize
+the same physical definition through a shared header without equating unrelated
+anonymous records by typedef spelling or layout alone. Keep conditional,
+ambiguous and incompatible declarations explicit. Add same-header acceptance and
+independent-record rejection tests; do not invent source tags, erase the type or
+promote byte/data verdicts to bypass this gap. Guild receipts are retained in
+`.scratch/goal61/timer-proof.json` and `contracts-current-all.json`.
+
 ## Bind non-record typedefs with compiler evidence (2026-10-16)
 
 Guild's event runner establishes a first-slot callback contract represented by
