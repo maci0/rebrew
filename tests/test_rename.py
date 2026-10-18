@@ -1561,6 +1561,94 @@ class TestProtectedSpans:
         assert spans == ["foo", "'f'"]
 
 
+class TestReferenceBindingDigest:
+    def _project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+        from rebrew.metadata.functions import save_metadata
+
+        _src(tmp_path, "api.h", "typedef int Result;\n")
+        _src(tmp_path, "builder.c", '#include "api.h"\nResult BuildEvent(void) { return 1; }\n')
+        _src(
+            tmp_path,
+            "caller.c",
+            '#include "api.h"\nResult placeholder(void); '
+            "Result caller(void) { return placeholder(); }\n",
+        )
+        save_metadata(
+            tmp_path,
+            {
+                ("CLIENT", 0x1000): {
+                    "file": "builder.c",
+                    "kind": "FUNCTION",
+                    "name": "BuildEvent",
+                    "symbol": "_BuildEvent",
+                    "size": 6,
+                    "status": "EXACT",
+                }
+            },
+        )
+        cfg = _cfg(tmp_path)
+        cfg.root, cfg.module, cfg.source_ext = tmp_path, "CLIENT", ".c"
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        return cfg
+
+    def _invoke(self, *args: str) -> Any:
+        from typer.testing import CliRunner
+
+        from rebrew.rename import app
+
+        return CliRunner().invoke(app, ["--json", *args, "placeholder", "CLIENT.0x1000"])
+
+    def test_guarded_apply_preserves_destination_identity_and_verdict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._project(tmp_path, monkeypatch)
+        before = snapshot(tmp_path)
+        preview = self._invoke("--dry-run")
+        assert preview.exit_code == 0, preview.output
+        payload = cli_payload(preview)
+        assert len(payload["input_digest"]) == 64
+        assert {Path(p).name for p in payload["input_hashes"]} >= {
+            "caller.c",
+            "api.h",
+            "builder.c",
+            "rebrew-functions.toml",
+        }
+        assert snapshot(tmp_path) == before
+        destination = (tmp_path / "builder.c").read_bytes()
+        metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
+        result = self._invoke("--expected-digest", payload["input_digest"])
+        assert result.exit_code == 0, result.output
+        assert "placeholder" not in (tmp_path / "caller.c").read_text()
+        assert (tmp_path / "builder.c").read_bytes() == destination
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata
+
+    @pytest.mark.parametrize("input_name", ["caller.c", "api.h", "builder.c", "store"])
+    @pytest.mark.parametrize("apply_via", ["cli", "api"])
+    def test_stale_inputs_refuse_before_writes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, input_name: str, apply_via: str
+    ) -> None:
+        from rebrew.metadata.functions import update_field
+
+        cfg = self._project(tmp_path, monkeypatch)
+        plan = rename_ops.plan_function_reference_binding(
+            cfg, "placeholder", rename_ops.Selection("function", "CLIENT", 0x1000)
+        )
+        if input_name == "store":
+            update_field(tmp_path, 0x1000, "size", 7, module="CLIENT")
+        else:
+            path = tmp_path / input_name
+            path.write_text(path.read_text() + "/* changed after review */\n")
+        changed = snapshot(tmp_path)
+        if apply_via == "api":
+            with pytest.raises(rename_ops.RenameError, match="inputs changed"):
+                rename_ops.apply_rename_plan(cfg, plan)
+        else:
+            result = self._invoke("--expected-digest", plan.input_digest)
+            assert result.exit_code == 2, result.output
+            assert "changed; review a new preview" in result.output
+        assert snapshot(tmp_path) == changed
+
+
 class TestFunctionReferenceBinding:
     @pytest.mark.parametrize("preview", [True, False])
     @pytest.mark.parametrize("conflict", [None, "other-target-definition", "missing", "escape"])

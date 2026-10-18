@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Fixed
+- Function reference-binding rename previews include an input digest;
+  `--expected-digest` guards apply against changed sources, dependencies and
+  project context without changing the destination identity or verdict.
+- Binary xrefs reports no-base indexed table displacements as `indexed_mem`
+  candidates, separate from exact memory and IAT references. Shared scanners
+  preserve their exact-reference defaults and expose indexed candidates explicitly.
 - Intake and blocker backfill leave short or unknown-size functions pending
   native review instead of claiming they are IAT thunks or excluding them from
   decompilation solely because their size is at most eight bytes.

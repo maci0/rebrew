@@ -74,6 +74,8 @@ class Xref:
     - ``lea``                 — ``lea reg, [abs]``
     - ``mov_mem``             — ``mov reg, [abs]`` (data read)
     - ``mov_mem_store``       — ``mov [abs], reg/imm`` (data write)
+    - ``indexed_mem``         — indexed memory displacement (opt-in base candidate,
+      not a resolved effective address or IAT call)
     - otherwise               — mnemonic + ``_mem`` (e.g. ``and_mem``)
     """
 
@@ -402,6 +404,8 @@ def scan_references(
     info: BinaryInfo,
     target_va: int | None = None,
     section_names: list[str] | None = None,
+    *,
+    include_indexed: bool = False,
 ) -> list[Xref]:
     """Scan code sections for absolute references.
 
@@ -409,6 +413,8 @@ def scan_references(
     Without it, every absolute reference found is returned (in address order).
     The scan covers *section_names* (default: the NE code segments for NE
     binaries, else ``[".text"]``).
+    *include_indexed* also reports x86 no-base indexed displacements as
+    ``indexed_mem`` candidates; their effective address remains unknown.
     """
     names = section_names if section_names is not None else _default_scan_sections(info)
     md = capstone_for(info)
@@ -425,7 +431,7 @@ def scan_references(
         for insn in md.disasm(raw[start:], va + start):
             if insn.mnemonic == "db":  # skipdata placeholder
                 continue
-            for kind, from_va, to_va in _classify_insn(info, insn):
+            for kind, from_va, to_va in _classify_insn(info, insn, include_indexed=include_indexed):
                 if target_va is not None and to_va != target_va:
                     continue
                 if is_inside(info, to_va):
@@ -434,7 +440,9 @@ def scan_references(
     return xrefs
 
 
-def data_references(info: BinaryInfo, va: int, size: int) -> list[Xref]:
+def data_references(
+    info: BinaryInfo, va: int, size: int, *, include_indexed: bool = False
+) -> list[Xref]:
     """Absolute references from the instructions at *va*, per function.
 
     :func:`scan_references` sweeps whole code sections linearly; this is its
@@ -442,6 +450,7 @@ def data_references(info: BinaryInfo, va: int, size: int) -> list[Xref]:
     filler between functions (a jump table, a data blob) cannot desynchronize
     the stream and swallow the references of everything after it.  ``to_va``
     may land in any section; the caller filters by target.
+    *include_indexed* adds displacement-base candidates, as in ``scan_references``.
     """
     if size <= 0:
         return []
@@ -456,18 +465,21 @@ def data_references(info: BinaryInfo, va: int, size: int) -> list[Xref]:
     for insn in md.disasm(raw[start:], va + start):
         if insn.mnemonic == "db":  # skipdata placeholder
             continue
-        for kind, from_va, to_va in _classify_insn(info, insn):
+        for kind, from_va, to_va in _classify_insn(info, insn, include_indexed=include_indexed):
             if is_inside(info, to_va):
                 out.append(Xref(kind=kind, from_va=from_va, to_va=to_va))
     return out
 
 
-def reachable_code(info: BinaryInfo, va: int, size: int) -> tuple[list[Insn], list[Xref]]:
+def reachable_code(
+    info: BinaryInfo, va: int, size: int, *, include_indexed: bool = False
+) -> tuple[list[Insn], list[Xref]]:
     """Decode reachable x86 instructions inside an independently established body.
 
     Direct internal branches are followed; calls, external tail jumps and
     indirect dispatch targets are not. Tables and padding skipped by control
     flow are never decoded. This does not discover or extend a function body.
+    *include_indexed* adds displacement-base candidates, as in ``scan_references``.
     """
     if info.arch not in {"x86_32", "x86_64"}:
         raise ValueError("reachable code decoding requires x86_32 or x86_64")
@@ -493,7 +505,7 @@ def reachable_code(info: BinaryInfo, va: int, size: int) -> tuple[list[Insn], li
             raise ValueError(f"instruction at 0x{pc:x} overlaps another instruction")
         covered.update(occupied)
         decoded[pc] = Insn(pc, insn.size, insn.mnemonic, insn.op_str, bytes(insn.bytes))
-        for ref in _classify_insn(info, insn):
+        for ref in _classify_insn(info, insn, include_indexed=include_indexed):
             if is_inside(info, ref[2]):
                 refs.append(Xref(*ref))
         if insn.group(capstone.CS_GRP_RET) or insn.group(capstone.CS_GRP_IRET):
@@ -529,14 +541,25 @@ def _ne_segment_of(info: BinaryInfo, va: int) -> int | None:
     return None
 
 
-def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[tuple[str, int, int], ...]:
-    """Classify every absolute reference in one capstone instruction."""
+def _classify_insn(
+    info: BinaryInfo, insn: Any, *, include_indexed: bool = False
+) -> tuple[tuple[str, int, int], ...]:
+    """Classify static references and optional indexed displacement candidates."""
     from_va = insn.address
     ops = insn.operands
     if not ops:
         return ()
     mnemonic = insn.mnemonic
     op_reg, op_imm, op_mem = _op_constants()
+    if include_indexed and info.arch in {"x86_32", "x86_64"}:
+        indexed = tuple(
+            ("indexed_mem", from_va, int(op.mem.disp))
+            for op in ops
+            if op.type == op_mem and op.mem.base == 0 and op.mem.index != 0
+        )
+        if indexed:
+            # Keep immediate references without treating the indexed operand as exact.
+            return (*_classify_insn(info, insn), *indexed)
 
     # 16-bit NE: near call/jmp targets are relative within the segment;
     # absolute data reads/writes (e.g. ``mov ax, [imm16]``) address the DS

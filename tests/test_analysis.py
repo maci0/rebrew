@@ -10,6 +10,7 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 
+import pytest
 from bin_util import PROBE_IMAGE_BASE, PROBE_TEXT_VA, make_pe, make_xref_probe
 
 from rebrew.analysis import (
@@ -198,6 +199,60 @@ class TestScanReferences:
         """``mov.l @r1, r0`` is register-relative. Its operand has no x86 base field."""
         info = _code_image(bytes.fromhex("6012"), arch="sh2", endian="big")
         assert scan_references(info) == []
+
+
+class TestIndexedReferences:
+    @pytest.mark.parametrize(
+        "encoding",
+        [
+            "89 0c 85 80 10 00 00",  # mov [eax*4+0x1080], ecx
+            "8b 0c 85 80 10 00 00",  # mov ecx, [eax*4+0x1080]
+            "8d 0c 85 80 10 00 00",  # lea ecx, [eax*4+0x1080]
+            "ff 14 85 80 10 00 00",  # call [eax*4+0x1080], not an exact IAT slot
+            "ff 24 85 80 10 00 00",  # jmp [eax*4+0x1080], not an exact IAT slot
+            "ff 34 85 80 10 00 00",  # push [eax*4+0x1080]
+            "83 04 85 80 10 00 00 01",  # add [eax*4+0x1080], 1
+        ],
+    )
+    def test_indexed_displacements_are_opt_in_candidates(self, encoding: str) -> None:
+        code = bytes.fromhex(encoding) + b"\xc3"
+        info = _code_image(code + b"\x90" * 256, arch="x86_32")
+        expected = [Xref("indexed_mem", 0x1000, 0x1080)]
+        assert scan_references(info) == []
+        assert data_references(info, 0x1000, len(code)) == []
+        assert reachable_code(info, 0x1000, len(code))[1] == []
+        assert scan_references(info, include_indexed=True) == expected
+        assert data_references(info, 0x1000, len(code), include_indexed=True) == expected
+        assert reachable_code(info, 0x1000, len(code), include_indexed=True)[1] == expected
+        assert scan_references(info, target_va=0x1080, include_indexed=True) == expected
+        assert scan_references(info, target_va=0x1084, include_indexed=True) == []
+
+    @pytest.mark.parametrize("opcode,kind", [("c7 04 85", "mov"), ("81 3c 85", "cmp")])
+    def test_indexed_operand_preserves_address_immediate(self, opcode: str, kind: str) -> None:
+        code = bytes.fromhex(opcode + " 80 10 00 00 90 10 00 00 c3")
+        info = _code_image(code + b"\x90" * 256, arch="x86_32")
+        assert scan_references(info, include_indexed=True) == [
+            Xref("indexed_mem", 0x1000, 0x1080),
+            Xref(kind, 0x1000, 0x1090),
+        ]
+
+    def test_x64_absolute_indexed_displacement(self) -> None:
+        code = bytes.fromhex("48 8b 0c c5 80 10 00 00 c3")
+        info = _code_image(code + b"\x90" * 256, arch="x86_64")
+        assert scan_references(info, include_indexed=True) == [Xref("indexed_mem", 0x1000, 0x1080)]
+
+    @pytest.mark.parametrize(
+        "encoding",
+        [
+            "8b 88 80 10 00 00",  # register-relative, despite an image-valued displacement
+            "8b 8c 83 80 10 00 00",  # base register plus index, not an absolute base
+            "8b 0c 85 20 00 00 00",  # scalar displacement outside the image
+        ],
+    )
+    def test_register_relative_and_scalar_displacements_stay_excluded(self, encoding: str) -> None:
+        code = bytes.fromhex(encoding) + b"\xc3"
+        info = _code_image(code + b"\x90" * 256, arch="x86_32")
+        assert scan_references(info, include_indexed=True) == []
 
 
 class TestIterStrings:
