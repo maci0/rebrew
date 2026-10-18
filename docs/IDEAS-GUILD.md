@@ -2864,3 +2864,25 @@ Podman suggestions stay unchanged. This does not implement unshare linked
 comparison or claim the raw image is identical; verification must establish it.
 The 5.1.0 artifacts remain unchanged. Replay:
 `make test-one T=tests/test_todo.py::TestCollectAllIntegration`.
+
+### Generated principles described all metadata as format 2 (2026-10-18)
+
+The packaged `PRINCIPLES.md` still claimed that identity and state use format-2
+metadata after function/source metadata moved to format 3. A project with the
+correct version-neutral wording therefore received W033, and refreshing would
+restore the false instruction. The template now refers to managed metadata
+without conflating the two formats. A scaffold-refresh regression test rejects
+the stale claim; existing drift checks remain unchanged. Replay:
+`make test-one T=tests/test_init.py::TestRefreshAgents::test_refresh_writes_skills_and_principles`.
+
+### Source fixtures could overwrite an ancestor project catalog (2026-10-19)
+
+`write_source` preferred a discovered project over its pytest fixture boundary.
+With a custom `--basetemp` beneath a real project, lint fixtures changed real
+function identities and could retain unrelated earned verdicts. The fixture
+helper now respects the session temporary root and rejects projects above its
+fixture boundary, while accepting projects created inside it. Regression tests
+cover default/custom temporary paths and an inner fixture project. Affected
+catalog rows were restored from their prior records through the locked owner;
+no replacement verdict was earned. Replay:
+`make test-one T=tests/test_source_fixture_writes.py`.

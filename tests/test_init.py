@@ -1706,6 +1706,7 @@ class TestRefreshAgents:
 
         principles = root / "PRINCIPLES.md"
         assert principles.is_file() and principles.stat().st_size > 0
+        assert "format-2 managed metadata" not in principles.read_text(encoding="utf-8")
         skill = root / ".agents" / "skills" / "rebrew-workflow" / "SKILL.md"
         assert skill.is_file()
         assert "<target>" not in skill.read_text(encoding="utf-8")

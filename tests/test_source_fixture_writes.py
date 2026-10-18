@@ -61,3 +61,56 @@ class TestWriteSourceOneEdit:
         assert kept["name"] == "extra"
         assert kept["symbol"] == entry["symbol"]
         assert kept["file"] == entry["file"]
+
+
+@pytest.mark.parametrize("custom_basetemp", [False, True])
+def test_fixture_metadata_cannot_escape_into_an_ancestor_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, custom_basetemp: bool
+) -> None:
+    import source_util
+
+    ancestor = tmp_path / "real-project"
+    ancestor.mkdir()
+    (ancestor / "rebrew-project.toml").write_text("[project]\nname = 'parent'\n")
+    write_source(
+        ancestor / "native.c",
+        _TEXT,
+        metadata_dir=ancestor,
+        metadata_fields={"SERVER.0x10003000": {"kind": "FUNCTION", "size": 16}},
+    )
+    update_source_status(ancestor, "EXACT", _KEY[0], _KEY[1], force=True)
+    store = ancestor / "rebrew-functions.toml"
+    before = store.read_bytes()
+    basetemp = ancestor / ("custom-temp" if custom_basetemp else "pytest-0")
+    fixture = basetemp / "test_sample0"
+    fixture.mkdir(parents=True)
+    monkeypatch.setattr(source_util, "_pytest_basetemp", basetemp)
+
+    write_source(
+        fixture / "extra.c",
+        _TEXT,
+        metadata_fields={"SERVER.0x10003000": {"kind": "FUNCTION", "size": 32}},
+    )
+
+    assert store.read_bytes() == before
+    assert load_metadata(fixture)[_KEY]["status"] == "STUB"
+    assert load_metadata(fixture)[_KEY]["size"] == 32
+
+
+@pytest.mark.parametrize("project_name", ["project", "pytest-7"])
+def test_project_inside_fixture_boundary_keeps_its_own_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, project_name: str
+) -> None:
+    import source_util
+
+    basetemp = tmp_path / "custom-temp"
+    project = basetemp / "test_sample0" / project_name
+    source = project / "src" / "extra.c"
+    source.parent.mkdir(parents=True)
+    (project / "rebrew-project.toml").write_text("[project]\nname = 'fixture'\n")
+    monkeypatch.setattr(source_util, "_pytest_basetemp", basetemp, raising=False)
+
+    write_source(source, _TEXT, metadata_fields={"SERVER.0x10003000": {"size": 16}})
+
+    assert load_metadata(project)[_KEY]["file"] == "src/extra.c"
+    assert not (source.parent / "rebrew-functions.toml").exists()
