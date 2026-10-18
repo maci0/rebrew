@@ -73,6 +73,26 @@ namespaces and rootless overlayfs, and provide `openat2`, `pidfd_open` and
 `close_range`. No root, setuid helper, crun or runc is required. The packaged
 native C helper is built locally on first use.
 
+On Ubuntu 24.04+, AppArmor can allow `/usr/bin/unshare` while denying this
+locally compiled helper. Doctor's image checks do not establish helper
+permissions. From a configured project, run
+`rebrew verify --experimental-unshare --dry-run` to probe the actual helper and
+admitted image without writing verdicts.
+If it reports `rebrew-unshare: unshare: Operation not permitted` or a denied
+`clone user/pid`, inspect the host policy and kernel audit log:
+
+```bash
+sysctl kernel.apparmor_restrict_unprivileged_userns
+sudo journalctl -k -b --grep='apparmor="DENIED"'
+```
+
+For a regular installation, have an administrator review the denial and an
+application-specific policy for the trusted helper, following
+[Ubuntu's AppArmor guidance](https://documentation.ubuntu.com/security/security-features/privilege-restriction/apparmor/#apparmor-unprivileged-user-namespace-restrictions).
+Rebrew does not ship a validated host profile. Use Docker or Podman until the
+actual helper probe succeeds. CI relaxes the AppArmor namespace restriction
+only in disposable hosted runners; it does not configure regular installations.
+
 Docker (or the `REBREW_CONTAINER_RUNTIME` frontend) must initially have the
 profile's image. Rebrew admits its immutable SHA-256 image ID and exports its
 filesystem once, preserving archive timestamps. Image preparation initializes a

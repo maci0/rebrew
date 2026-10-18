@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Changed
+- Clarify AppArmor diagnostics and the actual experimental-runner admission
+  probe. Exercise read-only image directory timestamps without leaving
+  undeletable test fixtures behind.
+
 ## [5.0.0] - 2026-10-18
 
 ### Changed
