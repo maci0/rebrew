@@ -41,8 +41,6 @@ from rebrew.binsync.state import (
     local_sync_records,
     merge_sync_record,
     remote_sync_records,
-    resolve_global_names,
-    resolve_global_types,
     result_count,
     result_paths,
     sync_health,
@@ -484,16 +482,6 @@ def export_state(
             "empty": True,
         }
 
-    # Collect global vars with real names + types
-    va_to_name = resolve_global_names(cfg, global_entries)
-    va_to_type = resolve_global_types(cfg, global_entries)
-    globals_list: list[tuple[int, str, int, str, str | None]] = []
-    for e in global_entries:
-        gname = va_to_name.get(e.va) or e.symbol or e.name or f"g_{e.va:08x}"
-        gtype = va_to_type.get(e.va, "char")
-        section = getattr(e, "section", "") or None
-        globals_list.append((e.va, gname, e.size, gtype, section))
-
     struct_defs: dict[str, tuple[str, list[dict[str, Any]]]] = {
         e.struct: ("", []) for e in func_entries if e.struct
     }
@@ -518,7 +506,7 @@ def export_state(
         for key, fields in local_records.items()
         if key not in baseline or key in remote_records
     }
-    globals_list = [
+    globals_list: list[tuple[int, str, int, str, str | None]] = [
         (
             int(key.rsplit(".", 1)[1], 16),
             fields.get("name", ""),

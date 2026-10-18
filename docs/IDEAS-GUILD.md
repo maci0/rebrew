@@ -2947,3 +2947,18 @@ Podman override and inspected the default runtime's image store. Reuse the
 configured frontend for image checks, label the selected runner, and run the
 existing unshare namespace probe before reporting readiness. No host Wine
 fallback is introduced. Replay `pytest tests/test_doctor.py::TestConfiguredRunner`.
+
+### BinSync export repeatedly stats unrelated source files (2026-10-19)
+
+The Gold TL export took about seven minutes with 7,246 C files. A bounded
+100-function freshness profile spent 9.21 seconds in include lookup: each
+unresolved host CRT include checked every directory entry's file type before
+comparing its name. Filter names first using `os.scandir`; retain live lookup,
+case folding, directory precedence and reached-header freshness. The same
+profile's lookup time falls to 0.60 seconds. Export also built and discarded a
+global projection before the canonical sync projection repeated its full scan;
+remove that dead pass. Regressions verify unrelated files are never stat'ed,
+late case-folded header creation and edits remain visible, and global export
+uses one complete scan. Replay:
+`make test-one T=tests/test_compile_cache.py::TestHeaderDependencyHash` and
+`make test-one T=tests/test_binsync_export.py::TestBinsyncExportGlobals`.

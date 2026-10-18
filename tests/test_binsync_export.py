@@ -285,6 +285,16 @@ class TestBinsyncExportGlobals:
     def test_global_vars_toml_written(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from rebrew.data_scan import scan_globals
+
+        scans = 0
+
+        def scan_once(*args: Any, **kwargs: Any) -> Any:
+            nonlocal scans
+            scans += 1
+            return scan_globals(*args, **kwargs)
+
+        monkeypatch.setattr("rebrew.data_scan.scan_globals", scan_once)
         _make_project(
             tmp_path,
             {
@@ -306,8 +316,10 @@ class TestBinsyncExportGlobals:
         assert gv_path.exists()
         globals_list = _load_artifacts(gv_path, "global_variable")
         assert [g.addr for g in globals_list] == [0x01008000]
-        assert globals_list[0].name and globals_list[0].type
+        assert globals_list[0].name == "g_szBuffer"
+        assert globals_list[0].type == "char[64]"
         assert globals_list[0].size == 64
+        assert scans == 1
 
     def test_data_marker_above_include_not_misparsed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
