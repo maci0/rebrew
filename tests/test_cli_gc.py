@@ -26,3 +26,18 @@ def test_startup_freeze_is_one_shot(monkeypatch: pytest.MonkeyPatch) -> None:
         assert gc.get_freeze_count() == after_first
     finally:
         gc.unfreeze()
+
+
+def test_startup_freeze_does_not_run_a_preliminary_collection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Freeze once without requesting a preliminary collection."""
+    from rebrew.app import main as cli_main
+
+    calls: list[str] = []
+    monkeypatch.setattr(cli_main, "_STARTUP_GC_FROZEN", False)
+    monkeypatch.setattr(gc, "collect", lambda: calls.append("collect"))
+    monkeypatch.setattr(gc, "freeze", lambda: calls.append("freeze"))
+    cli_main._freeze_startup_objects()
+    cli_main._freeze_startup_objects()
+    assert calls == ["freeze"]

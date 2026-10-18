@@ -485,7 +485,7 @@ def _load_verify_info(
     from rebrew.metadata.functions import metadata_path
     from rebrew.verify_cache import cache_path_for
 
-    cache_path = cache_path_for(cfg)
+    cache_path = cache_path_for(cfg, for_read=True)
     if raw is None:
         raw = _load_cache_raw(cfg)
     if raw is None:

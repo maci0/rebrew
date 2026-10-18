@@ -507,6 +507,7 @@ class TestGANativeEndToEnd:
             out_dir=tmp_path / "ga",
             pop_size=4,
             num_generations=3,
+            num_jobs=1,  # Bound real compiler concurrency independently of pytest workers.
             rng_seed=42,
             env=None,
             posix_style=True,

@@ -275,7 +275,7 @@ def _collect_setup_steps(
     if not existing:
         add(99.0, f"Run todo to survey {len(ghidra_funcs)} functions", "rebrew todo --json")
         add(99.0, "Generate first skeleton files to start reversing", "rebrew skeleton --batch 5")
-    elif not cache_path_for(cfg).exists():
+    elif not cache_path_for(cfg, for_read=True).exists():
         add(90.0, f"Run first verify on {len(existing)} functions", "rebrew verify")
 
     return items
@@ -678,8 +678,8 @@ def _collect_prover_candidates(
 def load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     """Load verify cache entries, returning {} on missing/corrupt cache.
 
-    Mirrors status.py's target guard: the cache is a single shared file whose
-    ``target`` field identifies the run that wrote it.  Another target's
+    Mirrors status.py's target guard: each selected cache still records the
+    ``target`` identity of the run that wrote it.  Another target's
     entries must never drive todo's categories/deltas — a CLIENT run would
     otherwise surface SERVER's EXACTs as phantom fix-delta quick-wins.
     """

@@ -405,7 +405,9 @@ def write_coverage(
     return written
 
 
-def _verify_cache_belongs_to_project(root_dir: Path, target_name: str, raw: dict[str, Any]) -> bool:
+def _verify_cache_belongs_to_project(
+    root_dir: Path, target_name: str, raw: dict[str, Any], *, cfg: Any = None
+) -> bool:
     """Whether a raw verify-cache document holds this project's current verdicts.
 
     Delegates to the one identity predicate in :mod:`rebrew.verify_cache`, so
@@ -418,7 +420,9 @@ def _verify_cache_belongs_to_project(root_dir: Path, target_name: str, raw: dict
 
     if not (root_dir / "rebrew-project.toml").exists():
         return raw.get("target") == target_name and raw.get("version") == CACHE_VERSION
-    return cache_identity_matches(raw, load_config(root_dir, target=target_name))
+    return cache_identity_matches(
+        raw, cfg if cfg is not None else load_config(root_dir, target=target_name)
+    )
 
 
 def import_verify_rows(
@@ -451,17 +455,22 @@ def import_verify_rows(
     document.  *now_iso* is only the fallback stamp for when the cache file's
     mtime cannot be read.
     """
-    from rebrew.verify_cache import CACHE_FILENAME, load_verify_cache_raw
+    from rebrew.verify_cache import cache_path_for, load_verify_cache_raw
 
-    cache_path = Path(root_dir) / ".rebrew" / CACHE_FILENAME
-    raw = load_verify_cache_raw(SimpleNamespace(root=root_dir))
+    cfg = (
+        load_config(root_dir, target=target_name)
+        if (root_dir / "rebrew-project.toml").exists()
+        else SimpleNamespace(root=root_dir, target_name=target_name)
+    )
+    cache_path = cache_path_for(cfg, for_read=True)
+    raw = load_verify_cache_raw(cfg)
     # The cache stores verdicts measured against one compiler config and one
     # binary image; the same predicate verify/status use decides whether those
     # rows are still this project's rows.  A cache left behind by a rebuild of
     # the target binary must not be republished as current, so the compiler and
     # binary identity guards apply here too, not just target and version.
     if not isinstance(raw, dict) or not _verify_cache_belongs_to_project(
-        root_dir, target_name, raw
+        root_dir, target_name, raw, cfg=cfg
     ):
         return None
     entries = raw.get("entries")

@@ -26,6 +26,7 @@ style/object-format conventions the rest of rebrew needs to drive it.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 import re
@@ -900,6 +901,35 @@ def kill_container(name: str, timeout: int = 30, *, runtime: str | None = None) 
     )
 
 
+def image_environment(image_id: str) -> dict[str, str] | None:
+    """Inspect an admitted immutable image's environment, or fail closed.
+
+    CL and _CL_ can inject implicit flags and input files. A driver cache must
+    reject those instead of assuming its visible argv is the complete command.
+    """
+    if not image_content_id(image_id):
+        return None
+    try:
+        result = subprocess.run(
+            [container_runtime(), "image", "inspect", "--format", "{{json .Config.Env}}", image_id],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+            timeout=15,
+        )
+        if result.returncode != 0:
+            return None
+        values = json.loads(result.stdout)
+        if not isinstance(values, list) or any(
+            not isinstance(v, str) or "=" not in v for v in values
+        ):
+            return None
+        return dict(v.split("=", 1) for v in values)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
 def image_present(tag: str, use_cache: bool = True, *, runtime: str | None = None) -> bool:
     """True when a docker image for *tag* is present locally (cached).
 
@@ -1564,6 +1594,7 @@ __all__ = [
     "docker_available",
     "get_toolchain",
     "image_content_id",
+    "image_environment",
     "image_msvc_env",
     "image_present",
     "invalidate_toolchain_digest",

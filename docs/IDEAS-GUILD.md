@@ -7,6 +7,34 @@ flags may be unshipped. Status `open` unless noted; observations describe the
 campaign at the time recorded. Use [CLI.md](CLI.md) for shipped behavior and
 promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
+## Nested include casing tracked the wrong search root — fixed (2026-10-19)
+
+Guild's cache review reproduced a shared header resolver bug without compiling:
+with `#include "dir/api.h"`, source-directory `DIR/api.h` and a later `/I`
+directory containing exact `dir/api.h`, `_find_in_dirs` skipped the earlier
+header because only leaf filenames had a case-insensitive fallback. Wine reads
+the earlier header, but editing it left `header_dependency_hash` unchanged and
+could reuse a stale test/verify object.
+
+The resolver now walks each relative path component with exact spelling first,
+then the existing NFC/casefold matching, finishing one search root before moving
+to the next. The compile-cache schema is bumped to invalidate old entries.
+Traversal rejection and the caller's separate escaping-include policy stay
+unchanged. No new resolver API or cache feature is needed.
+
+Replay without a native compiler:
+
+```
+pytest tests/test_compile_cache.py::TestIncludePathResolution
+```
+
+Six of the twelve regression cases fail before the repair. They cover earlier
+casefolded paths versus later exact paths, multiple directory components,
+component exact-spelling priority, normalized Unicode, first-header edits versus
+unreached shadow edits, missing/non-directory paths, an unreadable directory,
+and unchanged traversal rejection. The rest of `test_compile_cache.py` exercises
+unreadable reached-header fallback and escaping-include tracking.
+
 ## Source evidence consolidation — implemented in 5.0
 
 The separate `rebrew-source.toml` repeated the metadata ownership boundary for
@@ -3071,3 +3099,116 @@ Replay without a native compiler:
 ```
 pytest tests/test_rename.py::TestReferenceBindingDigest
 ```
+
+### CMake CL driver bypassed the object cache (2026-10-19)
+
+Guild admitted two shared Gold sources through per-source CMake flag export.
+Unix Make lists target-wide flags.make as a prerequisite of every object, so
+that table change requested 4,458 Gold and 4,847 TL compilations even where the
+individual argv and source were unchanged. cmake_tc.driver_main dispatched the
+native tool unconditionally, unlike test/verify's compile_to_obj cache path.
+The staged test objects cannot replace real CMake outputs: paths, defines and
+flags (including /MT versus /ML) can differ.
+
+A narrow driver cache now reuses the existing cache backend, flag/dependency APIs
+and C AST parser in a separate domain. It captures source and leaf-header bytes,
+rejects unresolved/unsupported inputs and side effects, pins the immutable image
+used by the actual unshare run, and replays exact successful object/diagnostic
+receipts only while before/after inputs agree. Content guards cover preserved
+mtime/size edits; the old stat-only header key is not presented as content proof.
+Complex /D bodies also bypass: a macro can inject __pragma(include_alias(...))
+before a literal include despite ordinary source/header bytes. Both joined and
+split define payloads are restricted to simple identifiers/integer values.
+Nested include search, image-only SDK reconstruction, response files, mutable
+shared Wine prefixes and other compile modes remain uncached. The driver reads
+cache configuration through the same extracted settings owner as full config,
+without per-object binary layout analysis or its incidental diagnostics.
+
+Replay without a native compiler:
+
+```
+pytest tests/test_cmake_cache.py tests/test_cmake_tc.py tests/test_compile_cache.py tests/test_config.py
+```
+
+Guild evidence: .scratch/cmake-driver-cache-audit/findings.md and key-costs.json.
+The first regression dispatched the old mocked runner twice; the guarded path
+restores a removed object and identical stdout/stderr with one dispatch. Serial
+native controls on plain SP5 `/MT` and Processor Pack `/ML` preserve complete
+COFF bytes, timestamps and diagnostics against uncached controls. Hot calls
+dispatch no compiler; same-stat source/header edits and changed flags miss.
+These bounded controls do not establish a whole-build speedup or raw-image match.
+Cache bytes are staged privately and inputs rechecked before atomic publication.
+Rejected candidates never touch the prior output; no rollback can fail or lose
+it. Eight regressions cover input changes, staging/snapshot errors and failed
+publication followed by failed compilation, with and without a prior object.
+
+
+### Literal include resolver misses multicomponent case-insensitive precedence (2026-10-19)
+
+The shared compiler/cache.py _find_in_dirs case-fold fallback handles only a
+single filename. With source `#include "dir/api.h"`, an earlier quoted source
+directory containing `DIR/api.h` is skipped on a case-sensitive host, while a
+later /I directory's exact `dir/api.h` is selected. Wine may instead read the
+earlier file. This can hash the wrong dependency bytes; matching a later exact
+path does not establish the compiler's input closure.
+
+Replay without a native compiler:
+
+```
+pytest tests/test_cmake_cache.py::test_multicomponent_casefold_ambiguity_bypasses_driver_cache
+```
+
+That driver regression failed before admission repair (one cached invocation
+instead of two uncached invocations). The narrow driver adapter now bypasses
+non-leaf literal spellings, including directory separators, absolute/drive and
+traversal paths. The shared resolver repair is recorded under
+[nested include casing](#nested-include-casing-tracked-the-wrong-search-root--fixed-2026-10-19).
+Its broader path support does not widen the driver's deliberately limited
+admission policy.
+
+### Multi-target verify receipts and compare baselines evicted siblings (2026-10-19)
+
+Guild's sequential Gold -> TL per-file verify reported that the shared
+`.rebrew/verify_cache.toml` belonged to another target/compiler and preserved
+none of 5,019 excluded VAs. The resulting TL cache had seven entries. The
+identity guard correctly refused foreign results, but every target wrote the
+same root-scoped file, making alternate-target verification cold and removing
+status/todo's current cache view. `verify_baseline.toml` had the same collision:
+a sibling's full verify made `--compare` skip a foreign-target baseline.
+
+Existing path owners now isolate both files for multi-target configs under
+`.rebrew/targets/<sha256-of-exact-target-name>/`. Untouched single-target projects retain
+the root paths. Once created, a target namespace remains selected if siblings
+are removed; dangling selected symlinks never revive a legacy file. Locks, cache
+schema, compiler/binary checks and per-entry input checks remain unchanged. An absent isolated file may read an identity-matching
+legacy file; the first actual writer preserves its selected target's rows in
+the new file without moving/deleting legacy data. Existing isolated files are
+authoritative even when stale/corrupt, so fallback cannot resurrect old results.
+Coverage imports/freshness/invalidation use the selected target path as well.
+
+Replay without a native compiler (all verification stages in these regressions
+are mocked; cache/baseline readers and locked writers are real):
+
+```
+pytest tests/test_target_result_cache.py
+```
+
+The Gold -> TL -> Gold scoped-refresh and alternating-baseline cases both
+failed before this repair. The compare CLI regression observes a Gold
+regression after TL saves, rather than skipping its foreign baseline. Additional
+controls cover legacy migration, same-VA verdicts, target-name path safety,
+promotion patches, coverage inputs and unchanged identity rejection.
+
+### VC6 Ninja builds need verified header dependency tracking (2026-10-19)
+
+Ninja could avoid Make's target-wide `flags.make` rebuilds, but switching the
+project generator is not yet safe. CMake 4.4.4 only enables MSVC `/showIncludes`
+tracking above MSVC 1300; these projects use VC6. A real plain-SP5 probe reports
+CL 12.00.8804 and D4002, ignoring `/showIncludes`. It compiles a nested-header
+value correctly but emits no include paths. Processor Pack was not probed.
+
+Establish a supported dependency source and Wine-to-host path mapping before
+adding Ninja guidance. Prove direct/transitive header invalidation and a no-op
+rebuild, then compare the isolated server's complete raw image. Do not fake the
+compiler version or disable dependencies. Evidence: Guild's
+`.scratch/vc6-showincludes-probe/`; no generator/configuration change was made.

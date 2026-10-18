@@ -328,6 +328,16 @@ VA/symbol/size/byte-slice overrides. Compiler flags/context still apply explicit
 
 ### `rebrew verify`
 
+Multi-target projects retain independent verification results and `--compare`
+baselines under `.rebrew/targets/<sha256-of-exact-target-name>/`. Untouched single-target
+projects keep `.rebrew/verify_cache.toml` and `.rebrew/verify_baseline.toml`.
+Before the first isolated write, an identity-matching legacy file can be read;
+writers leave it intact. Once a target namespace exists, removing sibling
+targets keeps that namespace selected. Existing target files are authoritative,
+even when stale or corrupt. Compiler, binary and per-entry freshness guards
+still apply. Switching targets does not
+erase another target's receipts or skip its comparison baseline.
+
 `--experimental-unshare` opts one invocation into the experimental rootless
 MSVC/Wine backend. For a project default, set `[compiler] execution_backend =
 "unshare"`; `"docker"` and `"podman"` select those frontends explicitly. See
@@ -3645,6 +3655,24 @@ and `-v`, which must reach the compiler unchanged. Tool exit codes propagate.
 | --- | --- | --- | --- |
 | `MODE` | cl / link / lib | required | Tool to invoke: cl, link, or lib |
 | `ARGS` | str… | — | Tool arguments (place flags after --) |
+
+For `cl` on the explicit `unshare` backend, ordinary single-source object-only
+commands can reuse the project's configured compile cache. This is a separate
+domain from staged `test`/`verify` objects: cwd, original paths/argv, toolchain
+specification, admitted immutable image, backend identity and source/header
+contents remain part of the identity. A hit atomically materializes the object
+and replays the exact compiler stdout/stderr; it does not earn STATUS.
+
+Admission requires the runner's frozen clock (`SOURCE_DATE_EPOCH`), no time
+builtin tokens, ordinary supported flags with simple identifier/integer defines,
+and complete literal leaf-header resolution on the host. Include spellings must
+be single filenames; directory, absolute and traversal spellings bypass caching. Nested includes, macros/unsupported preprocessing,
+image `CL`/`_CL_` flags, response files, debug/PDB/PCH, dependency, preprocess and
+assembly output commands bypass caching. `/Fd` alone is permitted with the
+nondebug flag set. Docker/Podman shared Wine prefixes and LINK/LIB stay uncached.
+Source and header content changes invalidate entries even if size and mtime are
+preserved; success is published only while before/after inputs still agree.
+Generated CMake files and their mtimes are not modified by cache reuse.
 
 ### `rebrew build objdiff-driver`
 

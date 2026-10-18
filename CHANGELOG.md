@@ -1,6 +1,17 @@
 ## [Unreleased]
 
+### Changed
+- **Breaking:** `rebrew.compiler.cache.CACHE_SCHEMA_VERSION` moves from 9 to 10.
+  Existing derived compile-cache entries are invalidated and objects recompile;
+  project sources and managed metadata are unchanged.
+
 ### Fixed
+- Compile-cache include resolution matches every relative path component
+  case-insensitively within each search directory before trying later roots,
+  so differently cased nested headers retain Wine's search priority and edits
+  invalidate the cached object.
+- Keep multi-target verify result caches and compare baselines separate, preserving
+  guarded legacy single-target reads and target-aware coverage freshness.
 - Function reference-binding rename previews include an input digest;
   `--expected-digest` guards apply against changed sources, dependencies and
   project context without changing the destination identity or verdict.
@@ -12,6 +23,13 @@
   decompilation solely because their size is at most eight bytes.
 
 ### Performance
+- The CMake CL driver reuses content-guarded object/diagnostic receipts for
+  ordinary single-source unshare builds with an admitted image and frozen clock.
+  Unsupported flags, side outputs and unresolved or nested includes stay uncached.
+- The umbrella CLI freezes its startup graph without a preceding full collect,
+  retaining unreachable startup cycles once for the process lifetime, including
+  watch/server modes. Historical fresh-process CPU measured `--version` at
+  0.349s to 0.291s and synthetic 5,000-function `status` at about 0.73s to 0.65s.
 - Single-function `test` skips the locked SIZE transaction when the selected
   binding already stores that size. Explicit and corrected sizes still persist;
   `--fix-sizes` writes its correction once before the unchanged STATUS pipeline.
