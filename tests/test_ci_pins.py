@@ -1641,6 +1641,56 @@ class TestCiPins:
         assert "native runner tests need" in result.stdout
         assert "apt install build-essential pkg-config libjson-c-dev" in result.stdout
 
+    @pytest.mark.parametrize(
+        ("key_exists", "set_exit", "probe_exit", "expected"),
+        [(True, 0, 0, 0), (False, 0, 0, 0), (True, 7, 0, 7), (True, 0, 9, 9)],
+    )
+    def test_ci_enables_and_probes_native_user_namespaces(
+        self, key_exists: bool, set_exit: int, probe_exit: int, expected: int
+    ) -> None:
+        """The ephemeral runner must exercise namespaces, not hide denied tests."""
+        import yaml
+
+        job = yaml.safe_load(CI_YML.read_text(encoding="utf-8"))["jobs"]["test"]
+        steps = job["steps"]
+        setup = next(step for step in steps if step["name"] == "Enable native namespace tests")
+        assert "if" not in setup
+        assert steps.index(setup) < next(
+            i for i, step in enumerate(steps) if step.get("run") in {"make test", "make coverage"}
+        )
+        stubs = """
+sysctl() {
+    [ "$*" = '-n kernel.apparmor_restrict_unprivileged_userns' ] || return 99
+    [ "$KEY_EXISTS" = 1 ]
+}
+sudo() {
+    [ "$*" = 'sysctl -w kernel.apparmor_restrict_unprivileged_userns=0' ] || return 99
+    printf 'set policy\\n'
+    return "$SET_EXIT"
+}
+unshare() {
+    [ "$*" = '--user --map-root-user true' ] || return 99
+    printf 'probe namespaces\\n'
+    return "$PROBE_EXIT"
+}
+"""
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", stubs + setup["run"]],
+            env={
+                **os.environ,
+                "KEY_EXISTS": str(int(key_exists)),
+                "SET_EXIT": str(set_exit),
+                "PROBE_EXIT": str(probe_exit),
+            },
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode == expected, result.stdout + result.stderr
+        assert result.stdout.count("set policy") == int(key_exists)
+        assert result.stdout.count("probe namespaces") == int(not key_exists or set_exit == 0)
+
     def test_vnu_is_preflighted_and_installable_locally(self) -> None:
         """The W3C skip must be visible on the dev path, and its fix runnable.
 

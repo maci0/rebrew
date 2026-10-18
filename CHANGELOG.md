@@ -167,6 +167,9 @@
   `rebrew.init_profiles.DEFAULT_REBREW_TOML` take `{module}`.
 
 ### Fixed
+- Enable and probe unprivileged user namespaces on disposable Ubuntu CI runners,
+  so native unshare integration tests execute under AppArmor instead of failing
+  before the helper can start. User host security settings are unchanged.
 - Install native runner build prerequisites in every Linux CI matrix entry,
   and report missing compiler/json-c development files before local full runs.
 - Metadata tests distinguish valid escaped control characters in quoted TOML

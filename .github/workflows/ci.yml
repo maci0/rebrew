@@ -117,6 +117,15 @@ jobs:
           patch --version
           cc --version
           pkg-config --modversion json-c
+      - name: Enable native namespace tests
+        # Ubuntu's AppArmor userns restriction blocks the real helper. Change
+        # only this disposable runner and fail if namespaces still cannot run.
+        run: |
+          set -euo pipefail
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          unshare --user --map-root-user true
       - name: Set up bun (dashboard interaction tests)
         # tests/dashboard_*.mjs run through `bun`, and test_dashboard.py skips
         # them when it is absent, so a job without it would report green

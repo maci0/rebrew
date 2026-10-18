@@ -8,6 +8,10 @@ Assembly and vendor tests require nasm and GNU patch. Native runner tests also
 require a C compiler, pkg-config and json-c development files. Every Python matrix
 entry installs `nasm patch build-essential pkg-config libjson-c-dev` through
 `tools/ci_apt_install.sh` with its retry policy.
+The disposable Ubuntu runner also disables AppArmor's unprivileged-userns
+restriction when that kernel setting exists, then probes a real user namespace
+before the suite. This setup belongs to CI; Rebrew never changes a user's host
+security policy automatically.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
 across the supported Python versions (3.13–3.14; the 3.13 entry runs it as
