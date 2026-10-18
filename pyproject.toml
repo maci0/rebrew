@@ -63,6 +63,7 @@ dependencies = [
 # resolve the wrong package or reject a direct URL.
 prove = [
     "angr>=9.3.4,<10",  # BSD-2-Clause; pulls pyvex (LibVEX is GPL-2.0-or-later, see NOTICE)
+    "bitstring>=4.4.0,<5",  # pyvex 9.x imports ConstBitStream, removed in bitstring 5
     "claripy>=9.3.4,<10",  # direct import in prove.py / doctor.py; same release train as angr
     "gitpython>=3.2.1,<4",  # NO direct import — transitive security pin (same pattern as idna): 3.1.58+ fixes the RCE-class advisories angr would otherwise resolve
 ]

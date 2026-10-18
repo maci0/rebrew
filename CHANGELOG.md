@@ -150,6 +150,9 @@
   `rebrew.init_profiles.DEFAULT_REBREW_TOML` take `{module}`.
 
 ### Fixed
+- The prove extra constrains Bitstring to 4.x because PyVEX 9.x requires
+  `ConstBitStream`, removed in Bitstring 5. Metadata tests distinguish valid
+  escaped control characters in quoted TOML keys from malformed raw controls.
 - `build check-text-placement` prefers the supplied image's sibling MSVC map,
   including builds outside the default directory. Both it and `verify --text`
   fail on missing expected functions; an empty placement result no longer passes.
