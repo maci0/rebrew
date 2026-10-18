@@ -3194,3 +3194,17 @@ failed before this repair. The compare CLI regression observes a Gold
 regression after TL saves, rather than skipping its foreign baseline. Additional
 controls cover legacy migration, same-VA verdicts, target-name path safety,
 promotion patches, coverage inputs and unchanged identity rejection.
+
+### VC6 Ninja builds need verified header dependency tracking (2026-10-19)
+
+Ninja could avoid Make's target-wide `flags.make` rebuilds, but switching the
+project generator is not yet safe. CMake 4.4.4 only enables MSVC `/showIncludes`
+tracking above MSVC 1300; these projects use VC6. A real plain-SP5 probe reports
+CL 12.00.8804 and D4002, ignoring `/showIncludes`. It compiles a nested-header
+value correctly but emits no include paths. Processor Pack was not probed.
+
+Establish a supported dependency source and Wine-to-host path mapping before
+adding Ninja guidance. Prove direct/transitive header invalidation and a no-op
+rebuild, then compare the isolated server's complete raw image. Do not fake the
+compiler version or disable dependencies. Evidence: Guild's
+`.scratch/vc6-showincludes-probe/`; no generator/configuration change was made.
