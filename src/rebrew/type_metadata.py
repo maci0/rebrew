@@ -216,8 +216,9 @@ def compile_type(cfg: ProjectConfig, record: dict[str, Any]) -> None:
         f"offsetof({spelling}, {name}) == {offset}" for name, offset in record["offsets"].items()
     )
     with TemporaryDirectory(prefix="rebrew-types-") as temp:
-        workdir = Path(temp)
-        probe = workdir / "layout.c"
+        workdir = Path(temp) / "obj"
+        workdir.mkdir()
+        probe = Path(temp) / "layout.c"
         probe.write_text(
             '#include <stddef.h>\n#include "'
             + file.as_posix()

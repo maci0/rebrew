@@ -37,7 +37,7 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
 from rebrew.coverage_toml import render_coverage_toml
@@ -240,10 +240,21 @@ class TestNumericQueryParams:
     @given(
         raw=st.one_of(st.text(alphabet=_CHARS, min_size=1), st.integers().map(str)),
     )
+    @example(raw="1\x85")
+    @example(raw="+5")
+    @example(raw="1_0")
+    @example(raw="٥")
+    @example(raw="0" * 100 + "1")
+    @example(raw="0" * 100)
     @settings(max_examples=200)
     def test_unparsable_value_falls_back_to_the_default(self, raw: str) -> None:
         """A non-numeric or non-positive value is a client mistake, not a 500."""
         params = {"limit": [raw], "offset": [raw]}
+        digits = raw.strip(" \t\n\r\f\v").removeprefix("-")
+        if not digits.isascii() or not digits.isdecimal():
+            assert _int_param(params, "limit", _DEFAULT_LIMIT) == _DEFAULT_LIMIT
+            assert _offset_param(params, "offset", 0) == 0
+            return
         try:
             number = int(raw)
         except ValueError:

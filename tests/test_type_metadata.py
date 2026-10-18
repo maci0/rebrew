@@ -331,6 +331,9 @@ class TestTypeCLI:
         def fake_compile(
             config: Any, source: Path, flags: list[str], workdir: Path, **kwargs: Any
         ) -> tuple[str, str]:
+            # unshare cannot same-path mount a temporary source beneath private /tmp.
+            assert source.parent != workdir
+            assert workdir.is_dir()
             text = source.read_text()
             assert "sizeof(struct ITEM) == 4" in text
             assert "offsetof(struct ITEM, value) == 0" in text

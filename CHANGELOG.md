@@ -1,6 +1,11 @@
 ## [Unreleased]
 
 ### Fixed
+- Dashboard paging preserves small values with long leading-zero prefixes.
+  The property-test model follows the API's ASCII decimal grammar rather than
+  accepting Python-only numeric spellings.
+- Temporary type-layout probes compile under unshare without requesting a
+  same-path mount beneath its private `/tmp` runtime mount.
 - Source fixtures keep their metadata inside pytest temporary trees, including
   custom `--basetemp` paths nested in another project. They no longer overwrite
   an ancestor project's catalog.
