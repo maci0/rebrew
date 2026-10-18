@@ -913,7 +913,7 @@ class TestForceStatus:
 
         monkeypatch.setattr("rebrew.test.require_config", lambda target=None, json_mode=False: cfg)
         monkeypatch.setattr("rebrew.test.require_source_arg", lambda cfg, s, **_kw: s)
-        monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg, **_kw: {})
         monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec")
         ann = SourceBinding(
             va=0x1000,
@@ -1086,7 +1086,7 @@ class TestSinglePathExitCodes:
         )
         monkeypatch.setattr("rebrew.test.require_config", lambda target=None, json_mode=False: cfg)
         monkeypatch.setattr("rebrew.test.require_source_arg", lambda cfg, s, **_kw: s)
-        monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg: {"_f": 0x1000})
+        monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg, **_kw: {"_f": 0x1000})
         monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
         monkeypatch.setattr(
             "rebrew.compiler.overrides.resolve_compile_overrides", lambda *a, **k: (None, "/O2")

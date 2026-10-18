@@ -149,6 +149,32 @@ class TestLoadExistingVas:
         result = load_existing_vas(tmp_path / "src", cfg=self._cfg(tmp_path))
         assert result == {}
 
+    def test_compiled_library_outside_reversed_dir_is_covered(self, tmp_path: Path) -> None:
+        lib = tmp_path / "references" / "zlib"
+        lib.mkdir(parents=True)
+        (lib / "gzio.c").write_text("int gzopen(void) { return 0; }\n", encoding="utf-8")
+        from rebrew.metadata.functions import record_function_rows
+
+        record_function_rows(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x10002000,
+                    "identity": {
+                        "file": "references/zlib/gzio.c",
+                        "symbol": "_gzopen",
+                        "name": "gzopen",
+                        "kind": "LIBRARY",
+                    },
+                    "fields": {"size": 21},
+                }
+            ],
+            updated_by="match",
+        )
+        result = load_existing_vas(tmp_path / "src", cfg=self._cfg(tmp_path))
+        assert 0x10002000 in result
+
 
 # -------------------------------------------------------------------------
 # list_uncovered

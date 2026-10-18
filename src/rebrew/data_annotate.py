@@ -504,7 +504,7 @@ def set_data_notes(
     )
 
 
-_DATA_SECTIONS = (".data", ".rdata", ".bss")
+_DATA_SECTIONS = (".data", ".rdata", ".bss", ".text")
 
 
 def set_data_sections(

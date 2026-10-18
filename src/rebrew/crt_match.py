@@ -25,6 +25,7 @@ from rich.table import Table
 
 from rebrew.cli import (
     TargetOption,
+    all_items_option,
     console,
     error_exit,
     json_print,
@@ -546,7 +547,7 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     va: str | None = typer.Argument(None, help="Virtual address to match (hex, e.g. 0x10006c00)"),
-    all_funcs: bool = typer.Option(False, "--all", help="Match all LIBRARY metadata entries"),
+    all_funcs: bool = all_items_option("LIBRARY metadata entry"),
     fix_source: bool = typer.Option(
         False,
         "--fix-source",

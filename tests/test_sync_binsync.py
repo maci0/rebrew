@@ -75,6 +75,24 @@ class TestJsonContracts:
         assert result.exit_code == 0, result.output
         assert cli_payload(result)["output"] == "header.h"
 
+    def test_global_json_watch_is_rejected_before_export(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.app.main import app
+
+        def refuse(*args: object, **kwargs: object) -> None:
+            raise AssertionError("JSON watch must be rejected before export")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(sync_cli, "require_config", refuse)
+        monkeypatch.setattr("rebrew.binsync.export.export_state", refuse)
+        monkeypatch.setattr("rebrew.utils.watch_files", refuse)
+        result = runner.invoke(app, ["-o", "json", "sync", "watch"])
+        assert result.exit_code == 2, result.output
+        assert result.stdout.strip() == ""
+        assert "JSON" in cli_payload(result)["error"]
+        assert list(tmp_path.iterdir()) == []
+
 
 def _cfg(tmp_path: Path) -> SimpleNamespace:
     src = tmp_path / "src"
@@ -443,6 +461,69 @@ class TestSyncCli:
         assert r.exit_code == 0
         assert applied == []
         assert "Would apply 1 operation(s)" in r.output
+
+    def test_bookmarks_dry_run_json_reports_zero_operations(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_cfg(tmp_path, monkeypatch)
+        monkeypatch.setattr("rebrew.catalog.scan_reversed_dir", lambda *_a, **_k: [])
+        result = runner.invoke(sync_cli.app, ["bookmarks", "--dry-run", "--json"])
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result) == {"dry_run": True, "operations": 0}
+        assert result.stdout.count("{") == 1
+
+    def test_create_functions_apply_error_exits_2(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_cfg(tmp_path, monkeypatch)
+        monkeypatch.setattr(sync_cli, "_probe_program_path", lambda ep, pp, j: pp)
+        monkeypatch.setattr("rebrew.catalog.cached_function_list", lambda _cfg: [])
+        monkeypatch.setattr(
+            "rebrew.catalog.build_function_registry",
+            lambda *a, **k: {
+                0x1000: {"detected_by": ["list"], "canonical_size": 8, "size_by_tool": {"list": 8}}
+            },
+        )
+
+        def _fake_apply(ops: list[dict], endpoint: str) -> tuple[int, int]:
+            return 0, 1
+
+        monkeypatch.setattr("rebrew.ghidra.client.apply_commands_via_mcp", _fake_apply)
+        result = runner.invoke(sync_cli.app, ["create-functions", "--json"])
+        assert result.exit_code == 2, result.output
+        payload = cli_payload(result)
+        assert payload == {"applied": 0, "errors": 1, "operations": 1}
+        assert result.stdout.count("{") == 1
+
+    def test_pull_create_functions_json_is_one_document(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_cfg(tmp_path, monkeypatch)
+        monkeypatch.setattr(sync_cli, "_probe_program_path", lambda ep, pp, j: pp)
+
+        def _import(cfg_: object, src: Path, **kwargs: object) -> dict:
+            return {"state_dir": str(src), "touched_vas": [0x1000]}
+
+        monkeypatch.setattr("rebrew.binsync.importer.import_from_repo", _import)
+
+        def _fake_apply(ops: list[dict], endpoint: str) -> tuple[int, int]:
+            return 1, 1
+
+        monkeypatch.setattr("rebrew.ghidra.client.apply_commands_via_mcp", _fake_apply)
+        state = tmp_path / "state"
+        result = runner.invoke(
+            sync_cli.app,
+            ["pull", "--state-dir", str(state), "--create-functions", "--json"],
+        )
+        assert result.exit_code == 2, result.output
+        payload = cli_payload(result)
+        assert payload["state_dir"] == str(state)
+        assert payload["create_functions"] == {"applied": 1, "errors": 1, "operations": 1}
+        import json
+
+        text = result.stdout.strip()
+        _doc, end = json.JSONDecoder().raw_decode(text)
+        assert text[end:].strip() == ""
 
     def test_summary_previews_export(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_cfg(tmp_path, monkeypatch)

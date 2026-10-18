@@ -27,6 +27,7 @@ from rebrew.c_parser import (
     find_extern_variables,
     find_function_name_in_node,
     mask_msvc_syntax,
+    msvc_asm_spans,
     parse_c_source,
 )
 from rebrew.cli import (
@@ -1265,7 +1266,6 @@ def _check_E023_naked_asm(
     lines: list[str],
     code_lines: list[str],
     claimed_statuses: set[str] | None = None,
-    metadata_cflags: str = "",
 ) -> None:
     """Flag whole-function ``__declspec(naked)`` + ``__asm`` dumps (E023).
 
@@ -1283,23 +1283,6 @@ def _check_E023_naked_asm(
     padding (``0x90``/``0xCC``) / non-nop mnemonic — is a whole-function
     dump and earns E023.  1-2 nops for alignment are tolerated silently.
     """
-    # The project's byte-identity guard: a naked body gated by
-    # ``REBREW_ALLOW_NAKED`` — either fenced in ``#ifdef REBREW_ALLOW_NAKED``
-    # (with a C fallback in ``#else``) or compiled via ``cflags`` carrying
-    # ``/DREBREW_ALLOW_NAKED`` (in rebrew-functions.toml, or a remaining
-    # inline ``// CFLAGS:`` annotation) — is the documented workflow for
-    # reproducing a compiler whose codegen the available toolchains cannot
-    # emit (see AGENTS.md / the naked-guard convention).  That is
-    # intentional, not a decompilation shortcut — the flag marks it.
-    # Skip E023 for naked bodies gated by REBREW_ALLOW_NAKED.
-    if "REBREW_ALLOW_NAKED" in metadata_cflags:
-        return
-    # Scan the stripped CODE view, not raw lines: a commented-out mention
-    # of the guard (a // todo) would otherwise disable E023 for the file.
-    for line in code_lines:
-        if "REBREW_ALLOW_NAKED" in line:
-            return
-
     # Find the naked declaration in CODE.  The naive
     # `startswith("//")/"/*"/"*"` filter let the interior of a block comment
     # through (a commented-out body whose lines lack a leading `*`), reporting
@@ -1314,59 +1297,49 @@ def _check_E023_naked_asm(
     if not has_naked:
         return
 
-    emit_lines: list[int] = []
-    meaningful_asm: list[int] = []
-    for idx, code in enumerate(code_lines, start=1):
-        # Scan the stripped CODE view, not raw lines: a block comment's
-        # interior lines need not start with `*`, so a commented-out body
-        # was counted as an asm dump.
-        # Use "_emit" so both "_emit" and "__emit" variants are caught.
-        has_asm = "__asm" in code
-        has_emit = "_emit" in code
-        if has_asm:
-            payload = code.lower().split("__asm", 1)[1]
-            payload = payload.replace("{", "").replace("}", "").replace(";", "").strip()
-            # Only count as meaningful if it carries a mnemonic, not just braces.
-            if payload:
-                # Strip _emit payload — the emit line itself is counted via emit_lines.
-                payload_no_emit = payload.replace("_emit", "").strip()
-                # After removing _emit, if nothing left (or just hex) it's not a separate asm mnemonic.
-                if (
-                    payload_no_emit
-                    and payload_no_emit not in ("", ",", "0x90", "0xcc", "0x90,")
-                    and not all(
-                        tok.strip() in ("", "0x90", "0xcc", ",")
-                        for tok in payload_no_emit.replace(",", " , ").split()
-                    )
-                ):
-                    meaningful_asm.append(idx)
-        if has_emit:
-            emit_lines.append(idx)
-
-    total_meaningful = len(emit_lines) + len(meaningful_asm)
-    if total_meaningful == 0:
+    source = "\n".join(code_lines)
+    raw = source.encode("utf-8", errors="surrogateescape")
+    spans = msvc_asm_spans(source)
+    assembly = [raw[start:end].decode("utf-8", errors="surrogateescape") for start, end in spans]
+    if not assembly:
+        assembly = [code for code in code_lines if "_emit" in code]
+    payloads: list[list[str]] = []
+    for block in assembly:
+        for line in block.splitlines():
+            # C comments/strings are already stripped; ';' starts an asm comment.
+            payload = line.lower().split(";", 1)[0]
+            payload = payload.replace("__asm", " ").replace("_asm", " ")
+            words = payload.replace("{", " ").replace("}", " ").split()
+            if words and words[0].endswith(":"):
+                words = words[1:]
+            if words:
+                payloads.append(words)
+    if not payloads:
         return
 
-    # Minor padding allowance: 1-2 meaningful asm/emit lines that are *only*
-    # padding (nop / 0x90 / 0xCC / int 3) are tolerated.  Bare `__asm {` /
-    # `}` braces are structural and not counted.
-    if total_meaningful <= 2:
-        padding_only = True
-        for idx in meaningful_asm:
-            low = lines[idx - 1].lower()
-            if "__asm" in low:
-                payload = low.split("__asm", 1)[1]
-                payload = payload.replace("{", "").replace("}", "").replace(";", "").strip()
-                if payload and payload not in ("nop", "int 3", "") and "nop" not in payload:
-                    padding_only = False
-                    break
-        for idx in emit_lines:
-            low = lines[idx - 1].lower()
-            if "0x90" not in low and "0xcc" not in low and "nop" not in low:
+    padding_count = 0
+    padding_only = True
+    for words in payloads:
+        i = 0
+        while i < len(words):
+            if words[i] == "nop":
+                i += 1
+            elif words[i : i + 2] in (
+                ["int", "3"],
+                ["_emit", "0x90"],
+                ["_emit", "0xcc"],
+                ["__emit", "0x90"],
+                ["__emit", "0xcc"],
+            ):
+                i += 2
+            else:
                 padding_only = False
                 break
-        if padding_only:
-            return
+            padding_count += 1
+        if not padding_only:
+            break
+    if padding_only and padding_count <= 2:
+        return
 
     claimed = sorted((claimed_statuses or set()) - _UNCLAIMED_STATUSES)
     suffix = f" but STATUS claims {', '.join(claimed)}" if claimed else ""
@@ -2160,9 +2133,6 @@ def lint_file(
 
     # Statuses claimed by this file's annotations (for E023 diagnostics).
     _file_statuses: set[str] = set()
-    # CFLAGS from metadata/inline annotations (for the E023 REBREW_ALLOW_NAKED
-    # guard — the flag lives in rebrew-functions.toml, not in source lines).
-    _file_cflags: set[str] = set()
 
     if metadata_backed:
         # A pure-C file carries no metadata bindings: its blockers and statuses are
@@ -2295,7 +2265,6 @@ def lint_file(
             # Canonicalize so hand-edited `status = "exact"` / `// STATUS: stub`
             # feed E015/E017/MATCHED_STATUSES the same way update_source_status does.
             status = canonical_status(found_keys.get("STATUS", ""))
-            _file_cflags.update(found_keys.get("CFLAGS", "").split())
 
             # Collect summary data during the lint pass (used by _print_summary).
             if kind:
@@ -2328,7 +2297,7 @@ def lint_file(
     # exemption (the original binary stored the zero-init data in .data).
     _data_section_names = _data_section_names_for(_data_metadata_entries)
     code_lines = _strip_all(lines)  # one strip pass shared by E023/W020/W022
-    _check_E023_naked_asm(result, lines, code_lines, _file_statuses, " ".join(_file_cflags))
+    _check_E023_naked_asm(result, lines, code_lines, _file_statuses)
     _check_W020_asm_dump(
         result,
         code_lines,

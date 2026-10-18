@@ -19,7 +19,9 @@ import typer
 from rich.table import Table
 
 from rebrew.cli import (
+    CFLAGS_HELP,
     EXIT_ERROR,
+    SIZE_HELP,
     SOURCE_HELP,
     TargetOption,
     console,
@@ -105,8 +107,8 @@ def _emit_text(windows: list[DriftWindow], derived: list[DerivedRegion]) -> None
 def main(
     source: str = typer.Argument(..., help=SOURCE_HELP),
     va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
-    size: int | None = typer.Option(None, "--size", help="Function size (default: from metadata)"),
-    cflags: str | None = typer.Option(None, "--cflags", help="Override compiler flags"),
+    size: int | None = typer.Option(None, "--size", help=SIZE_HELP),
+    cflags: str | None = typer.Option(None, "--cflags", help=CFLAGS_HELP),
     toolchain: str | None = typer.Option(None, "--toolchain", help="Override toolchain profile"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

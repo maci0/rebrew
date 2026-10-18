@@ -622,7 +622,7 @@ class TestPlacement:
         )
         assert res["results"][0]["status"] == "EXACT"
 
-    def test_link_map_symbols_skips_functions_and_imports(self) -> None:
+    def test_link_map_symbols_includes_import_slots_but_not_functions(self) -> None:
         from rebrew.data_verify import link_map_symbols
 
         text = (
@@ -633,4 +633,33 @@ class TestPlacement:
             " 0003:00000014       _g_common                  10003014     <common>\n"
             " 0003:00000018       _g_zero                    10003018     other.obj\n"
         )
-        assert link_map_symbols(text) == {"_g_zero": 0x10003010, "_g_common": 0x10003014}
+        assert link_map_symbols(text) == {
+            "__imp__FlushFileBuffers@4": 0x1002412C,
+            "_g_zero": 0x10003010,
+            "_g_common": 0x10003014,
+        }
+
+    def test_import_slot_outside_reference_va_is_displaced(self, tmp_path: Path) -> None:
+        from rebrew.data_verify import link_map_symbols, verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        _write(
+            meta,
+            'format = 2\n["GOLD.0x5eb060"]\n'
+            'name = "__imp__LeaveCriticalSection@4"\nsize = 4\n'
+            'section = ".rdata"\nstorage_kind = "import"\n',
+        )
+        symbols = link_map_symbols(
+            " 0002:00000060 __imp__LeaveCriticalSection@4 004b7060 KERNEL32:KERNEL32.dll\n"
+        )
+        report = verify_data_bytes(
+            metadata_path=meta,
+            expected={0x5EB060: bytes(4)},
+            actual={},
+            sizes={0x5EB060: 4},
+            built_symbols=symbols,
+        )
+        assert report["results"][0]["status"] == "DISPLACED"
+        assert report["results"][0]["built_va"] == "0x4b7060"
+        assert report["unplaced"] == 0
+        assert report["matched"] == 0

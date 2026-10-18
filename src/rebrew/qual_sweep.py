@@ -31,6 +31,7 @@ import typer
 
 from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.cli import (
+    JOBS_HELP,
     SOURCE_HELP,
     TargetOption,
     console,
@@ -204,9 +205,7 @@ def main(
         None, "--symbol", help="COFF symbol (default: from metadata)"
     ),
     rounds: int = typer.Option(4, "--rounds", help="Sweep rounds (stops early on convergence)"),
-    jobs: int | None = typer.Option(
-        None, "--jobs", "-j", help="Parallel compile workers (default: project jobs)"
-    ),
+    jobs: int | None = typer.Option(None, "--jobs", "-j", help=JOBS_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

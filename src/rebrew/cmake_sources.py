@@ -35,6 +35,7 @@ from rebrew.source_selection import collect_target_sources
 from rebrew.utils import (
     atomic_write_text,
 )
+from rebrew.workspace.config import config_path
 
 #: The module docstring is design notes, not help: it is RST, and Rich would
 #: render its double backticks and emphasis markers literally.
@@ -111,7 +112,11 @@ def main(
     if external:
         lines.append("\nset(REBREW_EXTERNAL_LIBS\n")
         for spec in external:
-            lines.append(f'  "{spec}"\n')
+            path = config_path(spec)
+            archive = path.as_posix()
+            if not path.is_absolute() and ("/" in spec or "\\" in spec):
+                archive = f"${{CMAKE_CURRENT_SOURCE_DIR}}/{archive}"
+            lines.append(f'  "{archive}"\n')
         lines.append(")\n")
     text = "".join(lines)
 

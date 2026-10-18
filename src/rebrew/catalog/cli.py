@@ -139,7 +139,7 @@ def run_catalog(
             console.print(CODE_ACCOUNT_CAPTION)
             console.print(ratio_bar(accounted, progress.total_text_bytes))
         console.print(
-            f"Identified: {identified_pct:.1f}% of .text ({covered}/{text_size} bytes) "
+            f"Identified spans: {identified_pct:.1f}% of .text ({covered}/{text_size} bytes) "
             "claimed by an annotated function, stubs and library code included"
         )
         if text_size:

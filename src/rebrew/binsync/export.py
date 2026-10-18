@@ -33,7 +33,7 @@ import typer
 
 from rebrew.binsync import serial
 from rebrew.binsync.git import run_git
-from rebrew.binsync.repo import checkout_user_branch, is_binsync_repo, resolve_user
+from rebrew.binsync.repo import USER_HELP, checkout_user_branch, is_binsync_repo, resolve_user
 from rebrew.binsync.state import (
     acknowledge_sync,
     artifact_hash,
@@ -64,7 +64,7 @@ app = typer.Typer(
         "  rebrew binsync export ./state --json  # Machine-readable output\n\n"
         "  rebrew binsync export ./state --module SERVER  # Export one module only\n\n"
         "  rebrew binsync export ./state --git  # Export + git commit\n\n"
-        "[dim]Produces BinSync-compatible TOML layout: functions/, global_vars.toml, structs/ — BinSync-native fields only (STATUS/CFLAGS stay in rebrew-functions.toml).[/dim]"
+        "[dim]Produces BinSync-compatible TOML layout: functions/, global_vars.toml, structs/. BinSync-native fields only (STATUS/CFLAGS stay in rebrew-functions.toml).[/dim]"
     ),
 )
 
@@ -331,8 +331,7 @@ def main(
     user: str | None = typer.Option(
         None,
         "--user",
-        help="BinSync user to write as (default: targets.<name>.binsync_user, the user "
-        "'rebrew binsync init' recorded, else rebrew)",
+        help=USER_HELP,
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

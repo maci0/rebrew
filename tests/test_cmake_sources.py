@@ -156,6 +156,51 @@ def test_json_reports_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert payload["excluded"] == ["src/shared/only_client.c"]
 
 
+@pytest.mark.parametrize("archive", ["vendor/runtime.lib", r"vendor\runtime.lib"])
+def test_relative_archive_reaches_cmake_as_a_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, archive: str
+) -> None:
+    """Relative archive items otherwise become -lvendor/runtime.lib or .lib.lib."""
+    cmake = shutil.which("cmake")
+    compiler = shutil.which("cc")
+    if not cmake or not compiler:
+        pytest.skip("CMake and a C compiler are required")
+    cfg = _project(tmp_path, {"src/server_dll/main.c": "int main(void) { return 0; }\n"})
+    cfg.external_libs = {"RUNTIME": archive, "SYSTEM": "KERNEL32.lib"}
+    monkeypatch.setattr("rebrew.cmake_sources.require_config", lambda **_kw: cfg)
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "sources.cmake"
+    result = CliRunner().invoke(app, ["--output", str(output), "--json"])
+    assert result.exit_code == 0, result.output
+    assert cli_payload(result)["external_libs"] == [archive, "KERNEL32.lib"]
+    (tmp_path / "vendor").mkdir()
+    library = tmp_path / "vendor/runtime.lib"
+    library.touch()
+    (tmp_path / "CMakeLists.txt").write_text(
+        "cmake_minimum_required(VERSION 3.19)\nproject(archive_path C)\n"
+        "include(sources.cmake)\nadd_executable(example ${REBREW_SOURCES})\n"
+        "target_link_libraries(example PRIVATE ${REBREW_EXTERNAL_LIBS})\n"
+    )
+    subprocess.run(
+        [
+            cmake,
+            "-S",
+            str(tmp_path),
+            "-B",
+            str(tmp_path / "build"),
+            "-G",
+            "Unix Makefiles",
+            f"-DCMAKE_C_COMPILER={compiler}",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    command = (tmp_path / "build/CMakeFiles/example.dir/link.txt").read_text()
+    assert str(library) in command
+    assert "-lvendor" not in command and "runtime.lib.lib" not in command
+
+
 def test_config_change_regenerates_library_order(tmp_path: Path) -> None:
     """An ordinary build re-reads configuration instead of retaining stale libs."""
     cmake = shutil.which("cmake")

@@ -72,8 +72,8 @@ def _map_sections(text: str) -> dict[int, list[tuple[int, int, str]]]:
     return segments
 
 
-def parse_link_map(text: str) -> list[LinkSymbol]:
-    """Read MSVC Publics/Static symbols, excluding import-address-table entries."""
+def parse_link_map(text: str, *, include_imports: bool = False) -> list[LinkSymbol]:
+    """Read MSVC Publics/Static symbols; optionally retain linker-owned imports."""
     segments = _map_sections(text)
     symbols: list[LinkSymbol] = []
     for line in text.splitlines():
@@ -105,7 +105,7 @@ def parse_link_map(text: str) -> list[LinkSymbol]:
                 library = PureWindowsPath(archive.strip('"')).name
                 member = PureWindowsPath(obj.strip('"')).name
         # DLL import slots are emitted by the linker, not a static archive member.
-        if member.casefold().endswith(".dll"):
+        if member.casefold().endswith(".dll") and not include_imports:
             continue
         symbols.append(
             LinkSymbol(

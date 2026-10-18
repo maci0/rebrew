@@ -41,12 +41,13 @@ rebrew recommend --json                   # all lanes: TU layout + hygiene + nex
 
 - `rebrew source split --va <va>` moves one function out of a multi-function file.
   Definitions are resolved from canonical function rows and C syntax. File-scope storage stays
-  in the original file. A static dependency is refused. Pass `--force` when
-  the run is not interactive. `--dry-run` writes nothing.
+  in the original file. A static dependency is refused. A non-terminal stdin
+  is refused, and `--json` requires `--force`. Pass `--force` to skip the
+  prompt. A piped answer does not approve. `--dry-run` writes nothing.
 - `rebrew source merge` combines C definitions from their function rows.
   Definitions move to the output and every row that names an input moves
   with them. `--shared` keeps one copy when the bodies match and refuses
-  bodies that differ. Reconstruction source stays scoped to its metadata identity. Pass `--force` when the run is not interactive.
+  bodies that differ. Reconstruction source stays scoped to its metadata identity. A non-terminal stdin is refused, and `--json` requires `--force`. Pass `--force` to skip the prompt. A piped answer does not approve.
   `--dry-run` writes nothing.
 - `rebrew source import-related --shared` records the destination identity on
   the shared definition (`--promote` moves the file first). Optional address
@@ -65,7 +66,8 @@ rebrew recommend --json                   # all lanes: TU layout + hygiene + nex
   the configured archive and raw link; binding requires no replacement C body.
 - A definition shared by several modules' rows renames only with
   `--all-modules`; a per-target twin keeps its name unless `--all-modules`
-  is given. Pick one twin by `MODULE.0xVA`. A name with no row in the active
+  is given. `rebrew source rename --all-modules` renames module rows. It is
+  not `--all`. Pick one twin by `MODULE.0xVA`. A name with no row in the active
   target renames the source symbol and the other modules' rows bound to it.
 - `--data` renames a global's rows, definition, `extern` declarations and
   uses (`rebrew data set --name` changes only the row). `--type` renames a tag

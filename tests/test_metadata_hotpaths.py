@@ -146,3 +146,21 @@ class TestCommentScanWork:
             lambda text: (SimpleNamespace(root_node=Node(tree.root_node)), raw),
         )
         assert metadata_comments(source) == [(1, "NOTE")]
+
+
+@pytest.mark.parametrize("relative", [".", "stores"])
+def test_relative_metadata_root_cache_follows_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str
+) -> None:
+    from rebrew.metadata.functions import clear_metadata_cache, load_metadata, set_fields
+
+    roots = [tmp_path / "first", tmp_path / "second"]
+    for size, root in enumerate(roots, start=1):
+        directory = root / relative
+        directory.mkdir(parents=True)
+        set_fields(directory, 0x1000, {"size": size}, "GAME")
+    clear_metadata_cache()
+    monkeypatch.chdir(roots[0])
+    assert load_metadata(Path(relative))[("GAME", 0x1000)]["size"] == 1
+    monkeypatch.chdir(roots[1])
+    assert load_metadata(Path(relative))[("GAME", 0x1000)]["size"] == 2

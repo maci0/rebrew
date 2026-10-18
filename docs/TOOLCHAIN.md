@@ -44,9 +44,10 @@ An explicit value wins over `REBREW_CONTAINER_RUNTIME`. Omitting it preserves
 that environment setting, whose default is Docker. `runner` is the separate
 compiler-loader setting; it does not select a container backend. Image build and
 pull commands continue to use `REBREW_CONTAINER_RUNTIME`; set that variable to
-`podman` when preparing images for Podman execution. CMake build drivers also
-continue to use that variable; this project key currently controls verification,
-test, diff and matching compiles.
+`podman` when preparing images for Podman execution. CMake build drivers honor
+the project-level `compiler.execution_backend` for CL, LINK and LIB as well.
+CMake commands carry a profile pin rather than a Rebrew target identity, so
+per-target backend overrides apply to test/verify, not to CMake commands.
 
 ### Experimental unshare backend
 
@@ -60,7 +61,11 @@ The project setting also applies to ordinary compiler calls from test, diff and
 matching. This opt-in currently supports image-backed **32-bit MSVC/Wine**
 profiles on **unprivileged Linux x86_64**. Unsupported profiles, kernel policy,
 missing prerequisites and remote recompile conflicts fail without fallback.
-Linked comparison is currently unsupported and fails explicitly.
+Linked comparison inside verification is currently unsupported and fails explicitly.
+Ordinary CMake builds support CL, LINK and LIB through the same native runner;
+they mount the project at its host path and retain the nested build cwd. Each
+invocation gets a private Wine prefix; no shared Docker-prefix lock is used.
+Existing generated CMake toolchain files need no regeneration for this choice.
 
 Install a C compiler (`cc`), `pkg-config`, and json-c development files
 (`libjson-c-dev` on Debian/Ubuntu). The kernel must permit unprivileged user
@@ -70,7 +75,10 @@ native C helper is built locally on first use.
 
 Docker (or the `REBREW_CONTAINER_RUNTIME` frontend) must initially have the
 profile's image. Rebrew admits its immutable SHA-256 image ID and exports its
-filesystem once. Compiler runs then use that cached filesystem directly: a new
+filesystem once, preserving archive timestamps. Image preparation initializes a
+cached Wine prefix once through the native helper; each compile changes that
+prefix only in its private overlay. Versioned caches leave active older runs
+untouched. Compiler runs then use that cached filesystem directly: a new
 user/PID namespace, private mount/network/IPC/UTS/cgroup namespaces, a disposable
 writable overlay, read-only include mounts and a writable `/work`. The image's
 Wine prefix and home are writable only in that invocation's overlay. Capabilities

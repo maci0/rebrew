@@ -33,12 +33,19 @@ import typer
 from typer.models import TyperPath
 
 from rebrew.cli import (
+    CFLAGS_HELP,
+    DIR_HELP,
     EXIT_ERROR,
     EXIT_MISMATCH,
+    JOBS_HELP,
+    MODULE_HELP,
+    SIZE_HELP,
     SOURCE_HELP,
+    WATCH_FILE_HELP,
     AllTargetsOption,
     SourceTargetsOption,
     TargetOption,
+    all_items_option,
     all_targets_run,
     console,
     error_exit,
@@ -255,37 +262,37 @@ def _select_annotation_for_va(
 @app.callback(invoke_without_command=True)
 def main(
     source: str | None = typer.Argument(None, help=SOURCE_HELP + " (omit with --all)"),
-    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
+    va: str | None = typer.Option(
+        None, "--va", help="Target VA in hex (default: from metadata). Excludes --all."
+    ),
     symbol: str | None = typer.Option(
-        None, "--symbol", help="Compiled symbol name (default: from metadata or source definition)"
+        None,
+        "--symbol",
+        help="Compiled symbol name (default: from metadata or source definition). Excludes --all.",
     ),
     target_bin: str | None = typer.Option(
         None,
         "--target-bin",
-        help="Raw function byte slice to compare against",
+        help="Raw function byte slice to compare against. Excludes --all.",
         click_type=TyperPath(path_type=str),
     ),
-    size: int | None = typer.Option(None, "--size", help="Size in bytes"),
-    cflags: str | None = typer.Option(None, "--cflags", help="Compiler flags"),
+    size: int | None = typer.Option(None, "--size", help=f"{SIZE_HELP}. Excludes --all."),
+    cflags: str | None = typer.Option(None, "--cflags", help=f"{CFLAGS_HELP}. Excludes --all."),
     toolchain: str | None = typer.Option(
         None,
         "--toolchain",
-        help="Compiler profile (e.g. msvc-5.0); overrides the project default",
+        help="Compiler profile (e.g. msvc-5.0); overrides the project default. Excludes --all.",
     ),
-    all_sources: bool = typer.Option(False, "--all", help="Batch test all reversed .c files"),
+    all_sources: bool = all_items_option("reversed .c file"),
     batch_dir: str | None = typer.Option(
         None,
         "--dir",
-        help="With --all, restrict to this subdirectory",
+        help=f"{DIR_HELP}. Requires --all",
         click_type=TyperPath(path_type=str),
     ),
-    origin: str | None = typer.Option(
-        None, "--module", help="With --all, filter by module (e.g. GAME)"
-    ),
+    origin: str | None = typer.Option(None, "--module", help=f"{MODULE_HELP}. Requires --all"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    jobs: int | None = typer.Option(
-        None, "--jobs", "-j", help="Number of parallel compile jobs (with --all)"
-    ),
+    jobs: int | None = typer.Option(None, "--jobs", "-j", help=f"{JOBS_HELP}. Requires --all"),
     no_promote: bool = typer.Option(
         False,
         "--no-promote",
@@ -318,7 +325,7 @@ def main(
     watch: bool = typer.Option(
         False,
         "--watch",
-        help="Watch the source file and re-test on every change (terminal only; no --json)",
+        help=WATCH_FILE_HELP,
     ),
     context: Path | None = typer.Option(
         None,
@@ -377,6 +384,30 @@ def main(
             if value or (flag == "--size" and value is not None):
                 error_exit(
                     f"--source-targets and {flag} are mutually exclusive", json_mode=json_output
+                )
+
+    if option_default(all_sources, False):
+        for value, flag in (
+            (cflags, "--cflags"),
+            (toolchain, "--toolchain"),
+            (size, "--size"),
+            (va, "--va"),
+            (symbol, "--symbol"),
+            (target_bin, "--target-bin"),
+        ):
+            if option_default(value, None) is not None:
+                error_exit(
+                    f"{flag} cannot be combined with --all",
+                    json_mode=option_default(json_output, False),
+                    code=EXIT_ERROR,
+                )
+    else:
+        for unused, flag in ((batch_dir, "--dir"), (origin, "--module"), (jobs, "--jobs")):
+            if option_default(unused, None) is not None:
+                error_exit(
+                    f"{flag} requires --all",
+                    json_mode=option_default(json_output, False),
+                    code=EXIT_ERROR,
                 )
 
     if source_targets and source is not None:
@@ -453,7 +484,6 @@ def main(
         source = str(require_source_arg(cfg, source, json_mode=json_output))
 
     if watch and all_sources:
-        # Flag-combination usage error — exit 2, not "needs code work" (1).
         error_exit("--watch cannot be combined with --all", json_mode=json_output, code=EXIT_ERROR)
 
     if linked and all_sources:

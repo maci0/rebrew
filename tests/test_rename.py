@@ -341,6 +341,206 @@ class TestRenameTargetIsolation:
         assert ambiguous in excinfo.value.files
         assert {p: p.read_bytes() for p in tmp_path.iterdir()} == original
 
+    def test_unrelated_main_tokens_do_not_block_real_users(self, tmp_path: Path) -> None:
+        """Comments, strings and locals are not function references.
+
+        An independent ``main`` provider stays put. Direct calls, function
+        pointers, address expressions and MSVC assembly operands of the
+        selected definition are rewritten. A shared declaration or macro, and
+        a call compiled into both providers, still refuse.
+        """
+        gold = _src(
+            tmp_path,
+            "gold.c",
+            SourceFixture(
+                "/* ADDRESS: GOLD 0x53cf50 */\n"
+                "int main(void)\n{\n"
+                "    /* Ghidra name: main */\n"
+                "    return 0;\n}\n",
+                {"GOLD.0x53cf50": {"kind": "FUNCTION"}},
+            ),
+        )
+        goldtl = _src(
+            tmp_path,
+            "goldtl.c",
+            SourceFixture(
+                "/* ADDRESS: GOLDTL 0x544c50 */\nint main(void) { return 0; }\n",
+                {"GOLDTL.0x544c50": {"kind": "FUNCTION"}},
+            ),
+        )
+        minigzip = _src(
+            tmp_path,
+            "minigzip.c",
+            SourceFixture(
+                "/* ADDRESS: ZLIB 0x800000 */\nint main(int argc, char **argv) { return argc; }\n",
+                {"ZLIB.0x800000": {"kind": "FUNCTION"}},
+            ),
+        )
+        server = _src(
+            tmp_path,
+            "server.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\n"
+                "/* ServerMainThread: the main server orchestration loop. */\n"
+                "int server_loop(void) { return 1; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            ),
+        )
+        script = _src(
+            tmp_path,
+            "script.c",
+            SourceFixture(
+                "/* ADDRESS: GOLDTL 0x428230 */\n"
+                'int evt_RunScript(char *script) { return lookup(script, "main"); }\n',
+                {"GOLDTL.0x428230": {"kind": "FUNCTION"}},
+            ),
+        )
+        local = _src(
+            tmp_path,
+            "local.c",
+            SourceFixture(
+                "/* ADDRESS: GOLDTL 0x43b8f0 */\n"
+                "int use_local(void)\n{\n"
+                "    int main;\n"
+                "    main = 1;\n"
+                "    return main;\n}\n",
+                {"GOLDTL.0x43b8f0": {"kind": "FUNCTION"}},
+            ),
+        )
+        caller = _src(
+            tmp_path,
+            "caller.c",
+            SourceFixture(
+                "/* ADDRESS: GOLD 0x410000 */\n"
+                "int call_main(void)\n"
+                "{\n"
+                "    extern int main(void);\n"
+                "    int (*saved)(void);\n"
+                "    int (*addressed)(void);\n"
+                "    saved = main;\n"
+                "    addressed = &main;\n"
+                "    return main();\n"
+                "}\n",
+                {"GOLD.0x410000": {"kind": "FUNCTION"}},
+            ),
+        )
+        asm = _src(
+            tmp_path,
+            "asm.c",
+            SourceFixture(
+                "/* ADDRESS: GOLD 0x410100 */\n"
+                "int asm_main(void)\n{\n"
+                "    __asm {\n"
+                "        call main\n"
+                "        mov eax, offset main\n"
+                "        // main\n"
+                "    }\n"
+                "    return 0;\n}\n",
+                {"GOLD.0x410100": {"kind": "FUNCTION"}},
+            ),
+        )
+        note = _src(tmp_path, "note.h", "/* the main entry is documented here */\n")
+        kept = {path: path.read_bytes() for path in (goldtl, minigzip, server, script, local, note)}
+        count = rename_function_everywhere(
+            _cfg(tmp_path), gold, "main", "_main", "WinMain", rename_file=False
+        )
+        assert count == 3
+        assert "int WinMain(void)" in gold.read_text(encoding="utf-8")
+        assert "/* Ghidra name: main */" in gold.read_text(encoding="utf-8")
+        caller_text = caller.read_text(encoding="utf-8")
+        assert "extern int WinMain(void);" in caller_text
+        assert "return WinMain();" in caller_text
+        assert "saved = WinMain;" in caller_text
+        assert "addressed = &WinMain;" in caller_text
+        asm_text = asm.read_text(encoding="utf-8")
+        assert "call WinMain" in asm_text
+        assert "offset WinMain" in asm_text
+        assert "// main" in asm_text
+        assert {path: path.read_bytes() for path in kept} == kept
+        count = rename_function_everywhere(
+            _cfg(tmp_path), goldtl, "main", "_main", "WinMain", rename_file=False
+        )
+        assert count == 1
+        assert "int WinMain(void)" in goldtl.read_text(encoding="utf-8")
+        assert "int main(int argc, char **argv)" in minigzip.read_text(encoding="utf-8")
+
+    def test_same_target_name_collision_still_refuses(self, tmp_path: Path) -> None:
+        gold = _src(
+            tmp_path,
+            "gold.c",
+            SourceFixture(
+                "/* ADDRESS: GOLD 0x53cf50 */\nint main(void) { return 0; }\n",
+                {"GOLD.0x53cf50": {"kind": "FUNCTION"}},
+            ),
+        )
+        occupied = _src(
+            tmp_path,
+            "occupied.c",
+            SourceFixture(
+                "/* ADDRESS: GOLD 0x410000 */\nint WinMain(void) { return 1; }\n",
+                {"GOLD.0x410000": {"kind": "FUNCTION"}},
+            ),
+        )
+        original = {path: path.read_bytes() for path in (gold, occupied)}
+        with pytest.raises(rename_ops.RenameError, match="already used") as excinfo:
+            rename_function_everywhere(
+                _cfg(tmp_path), gold, "main", "_main", "WinMain", rename_file=False
+            )
+        assert occupied in excinfo.value.files
+        assert {path: path.read_bytes() for path in original} == original
+
+    def test_unknown_and_cross_target_main_references_still_refuse(self, tmp_path: Path) -> None:
+        gold = _src(
+            tmp_path,
+            "gold.c",
+            SourceFixture(
+                "/* ADDRESS: GOLD 0x53cf50 */\nint main(void) { return 0; }\n",
+                {"GOLD.0x53cf50": {"kind": "FUNCTION"}},
+            ),
+        )
+        _src(
+            tmp_path,
+            "minigzip.c",
+            SourceFixture(
+                "/* ADDRESS: ZLIB 0x800000 */\nint main(int argc, char **argv) { return argc; }\n",
+                {"ZLIB.0x800000": {"kind": "FUNCTION"}},
+            ),
+        )
+        _src(
+            tmp_path,
+            "goldtl.c",
+            SourceFixture(
+                "/* ADDRESS: GOLDTL 0x544c50 */\nint main(void) { return 0; }\n",
+                {"GOLDTL.0x544c50": {"kind": "FUNCTION"}},
+            ),
+        )
+        shared = _src(
+            tmp_path,
+            "shared.h",
+            "extern int main(void);\n#define LAUNCH main()\n",
+        )
+        both = _src(
+            tmp_path,
+            "both.c",
+            SourceFixture(
+                "/* ADDRESS: GOLD 0x410000 */\n"
+                "/* ADDRESS: GOLDTL 0x410000 */\n"
+                "int both_call(void) { return main(); }\n",
+                {
+                    "GOLD.0x410000": {"kind": "FUNCTION"},
+                    "GOLDTL.0x410000": {"kind": "FUNCTION"},
+                },
+            ),
+        )
+        original = {path: path.read_bytes() for path in tmp_path.iterdir()}
+        with pytest.raises(rename_ops.RenameError, match="ambiguous") as excinfo:
+            rename_function_everywhere(
+                _cfg(tmp_path), gold, "main", "_main", "WinMain", rename_file=False
+            )
+        assert shared in excinfo.value.files
+        assert both in excinfo.value.files
+        assert {path: path.read_bytes() for path in tmp_path.iterdir()} == original
+
     def test_empty_vectorcall_name_does_not_rename_another_target(self, tmp_path: Path) -> None:
         """``hook@@12`` with an empty name owns only its module.
 
@@ -1604,6 +1804,59 @@ class TestFunctionReferenceBinding:
         )
         assert builder.read_text() == "int BuildEvent(void) { return 1; }\n"
         assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata
+
+    @pytest.mark.parametrize("retained", [False, True])
+    def test_reference_binding_leaves_retired_sources_unchanged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retained: bool
+    ) -> None:
+        from rebrew.metadata.binding_history import change_source_binding
+        from rebrew.metadata.functions import record_function_identity
+
+        _src(tmp_path, "builder.c", "int BuildEvent(void) { return 1; }\n")
+        retired = _src(
+            tmp_path,
+            "retired.c",
+            "int placeholder(void) { return 0; }\nint retained(void) { return 2; }\n",
+        )
+        caller = _src(tmp_path, "caller.c", "int placeholder(void);\n")
+        record_function_identity(
+            tmp_path,
+            module="CLIENT",
+            va=0x2000,
+            file="retired.c",
+            kind="FUNCTION",
+            name="placeholder",
+            symbol="_placeholder",
+        )
+        change_source_binding(
+            tmp_path,
+            "CLIENT",
+            0x2000,
+            reason="Reviewed obsolete provider",
+            project_root=tmp_path,
+        )
+        if retained:
+            record_function_identity(
+                tmp_path,
+                module="OTHER",
+                va=0x3000,
+                file="retired.c",
+                kind="FUNCTION",
+                name="retained",
+                symbol="_retained",
+            )
+        original = retired.read_bytes()
+        preview = self._invoke(tmp_path, monkeypatch, "--dry-run")
+        if retained:
+            assert preview.exit_code != 0, preview.output
+            assert caller.read_text() == "int placeholder(void);\n"
+        else:
+            assert preview.exit_code == 0, preview.output
+            assert [f["file"] for f in cli_payload(preview)["files"]] == ["caller.c"]
+            result = self._invoke(tmp_path, monkeypatch)
+            assert result.exit_code == 0, result.output
+            assert caller.read_text() == "int BuildEvent(void);\n"
+        assert retired.read_bytes() == original
 
     @pytest.mark.parametrize(
         "conflict",

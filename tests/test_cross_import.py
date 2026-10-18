@@ -2482,7 +2482,7 @@ class TestImportSize:
 
     A stale destination registry size (an old skeleton's ``// SIZE:``) made
     the import verify only a prefix and report EXACT MATCH; the next
-    ``rebrew verify --full`` then flagged SIZE_MISMATCH (guild-rebrew round
+    ``rebrew verify --no-cache`` then flagged SIZE_MISMATCH (guild-rebrew round
     1412 — GOLD 0x00449d80 claimed 23 bytes, the body is 25).
     """
 

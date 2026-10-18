@@ -42,7 +42,14 @@ from typing import Any, Literal
 import typer
 from rich.table import Table
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import (
+    EXIT_ERROR,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+)
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.utils import untrusted_ident
@@ -1238,51 +1245,77 @@ def main(
     console.print(table)
 
 
+def _child_exit_code(result: Any) -> int:
+    """Exit status of one ``--apply`` child, or ``EXIT_ERROR`` when it is missing."""
+    code = getattr(result, "exit_code", None)
+    if not isinstance(code, int):
+        return EXIT_ERROR
+    if code == 0 and getattr(result, "exception", None) is not None:
+        return EXIT_ERROR
+    return code
+
+
 def _apply_safe(cfg: ProjectConfig, recs: list[Recommendation], json_mode: bool) -> None:
-    """Execute applyable lanes via their owning commands' helpers."""
+    """Execute applyable lanes via their owning commands' helpers.
+
+    A non-zero child is a failure, not an applied fix. ``source merge`` is
+    already authorized by ``--apply``, so it gets ``--force`` and does not
+    wait on an empty stdin for the merge confirmation.
+    """
     from typer.testing import CliRunner
 
     from rebrew.app.main import app as umbrella
 
     applied: list[str] = []
+    failed: list[str] = []
+    worst = 0
     runner = CliRunner()
+    target_args = ["--target", cfg.target_name] if cfg.target_name else []
     for rec in recs:
         if not rec.applyable or rec.kind not in APPLYABLE:
             continue
         if rec.kind == "lint-fixable":
-            result = runner.invoke(
-                umbrella,
-                ["lint", "--fix", *(["--target", cfg.target_name] if cfg.target_name else [])],
-            )
-            applied.append(f"lint --fix ({result.exit_code})")
+            args = ["lint", "--fix", *target_args]
+            label = "lint --fix"
         elif rec.kind == "link-order":
-            result = runner.invoke(
-                umbrella,
-                [
-                    "build",
-                    "link-order",
-                    "--apply",
-                    *(["--target", cfg.target_name] if cfg.target_name else []),
-                ],
-            )
-            applied.append(f"build link-order --apply ({result.exit_code})")
+            args = ["build", "link-order", "--apply", *target_args]
+            label = "build link-order --apply"
         elif rec.kind == "orphans":
-            result = runner.invoke(
-                umbrella,
-                ["orphans", "prune", *(["--target", cfg.target_name] if cfg.target_name else [])],
-            )
-            applied.append(f"orphans prune ({result.exit_code})")
+            args = ["orphans", "prune", *target_args]
+            label = "orphans prune"
         elif rec.kind == "shared-twins":
             out = cfg.root / "src" / "shared" / "twins.c"
-            cmd = ["source", "merge", *rec.files, "-o", str(out), "--shared"]
-            result = runner.invoke(umbrella, cmd)
-            applied.append(f"rebrew {' '.join(cmd)} ({result.exit_code})")
+            args = ["source", "merge", *rec.files, "-o", str(out), "--shared", "--force"]
+            label = f"rebrew {' '.join(args)}"
+        else:
+            continue
+        result = runner.invoke(umbrella, args)
+        code = _child_exit_code(result)
+        record = f"{label} ({code})"
+        if code == 0:
+            applied.append(record)
+            continue
+        failed.append(record)
+        worst = max(worst, code)
     if json_mode:
-        json_print({"applied": applied})
+        payload: dict[str, Any] = {"applied": applied}
+        if failed:
+            payload["failed"] = failed
+        json_print(payload)
+    elif failed:
+        if applied:
+            console.print(
+                f"Applied {len(applied)} fix(es): " + ", ".join(untrusted_ident(a) for a in applied)
+            )
+        console.print(
+            f"Failed {len(failed)} fix(es): " + ", ".join(untrusted_ident(a) for a in failed)
+        )
     else:
         console.print(
             f"Applied {len(applied)} fix(es): " + ", ".join(untrusted_ident(a) for a in applied)
         )
+    if failed:
+        raise typer.Exit(code=worst)
 
 
 def main_entry() -> None:

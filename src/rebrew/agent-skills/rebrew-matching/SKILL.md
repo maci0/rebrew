@@ -167,8 +167,9 @@ rebrew match qualifiers src/<target>/<file>.c --dry-run --json
 `match qualifiers --dry-run` lists candidate declarations without compiling.
 Run without `--dry-run` to score candidates and keep improvements.
 
-`climb` = adjacent statement swaps; `qual-sweep` = exhaustive per-declaration
-qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
+`rebrew match climb` swaps adjacent statements. `rebrew match qualifiers` tries
+every qualifier set on one function and keeps winners. Batch flag/GA details:
+`references/flag-sweep.md`.
 
 ## 5. Tips
 
@@ -192,7 +193,9 @@ rebrew prove src/<target>/<file>.c --json
 ```
 
 `REGISTER (N% of delta)` verdicts are prime PROVEN candidates: prefer
-`rebrew prove --all` before more GA. Full flags, EDX/`--watch-va` gotchas, and
+`rebrew prove --all` before more GA. `rebrew prove --all` excludes
+`--start-offset` and `--end-offset`. `--ceiling` and `--max-delta` require
+`--all`. Watch rejects `--json`. Full flags, EDX/`--watch-va` gotchas, and
 angr mechanics: `references/prove.md`. Needs the `[prove]` extra (angr); if
 missing, install it when dependency setup is authorized, otherwise report the
 requirement and continue byte-matching work (see the reference).

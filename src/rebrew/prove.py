@@ -50,7 +50,9 @@ from rebrew.cli import (
     EXIT_MISMATCH,
     EXIT_OK,
     SOURCE_HELP,
+    WATCH_FILE_HELP,
     TargetOption,
+    all_items_option,
     console,
     error_exit,
     json_print,
@@ -1139,7 +1141,7 @@ _EPILOG = (
     "  # Prove a specific block\n"
     "  rebrew prove my_func --start-offset 0 --end-offset 48\n\n"
     "[bold]How it works:[/bold]\n\n"
-    "  1. Validates the function status is NEAR_MATCHING/SIZE_MISMATCH — the gate\n"
+    "  1. Validates the function status is NEAR_MATCHING/SIZE_MISMATCH. The gate\n"
     "     checks the effective status (metadata or the verify cache)\n\n"
     "  2. Extracts target bytes from the configured binary and compiles the C source\n\n"
     "  3. Verifies bytes still differ post-compile (matched bytes belong as RELOC, not PROVEN)\n\n"
@@ -1159,26 +1161,28 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(None, help=SOURCE_HELP + " (omit with --all)"),
-    all_sources: bool = typer.Option(
-        False, "--all", help="Prove all NEAR_MATCHING/SIZE_MISMATCH functions"
-    ),
+    all_sources: bool = all_items_option("eligible NEAR_MATCHING or SIZE_MISMATCH function"),
     ceiling_only: bool = typer.Option(
         False,
         "--ceiling",
-        help="With --all, restrict to GA_CEILING functions; excludes --max-delta",
+        help=("With --all, restrict to GA_CEILING functions. Requires --all. Excludes --max-delta"),
     ),
     max_delta: int | None = typer.Option(
         None,
         "--max-delta",
-        help="With --all, cap recorded blocker_delta in bytes; excludes --ceiling",
+        help="With --all, cap recorded blocker_delta in bytes. Requires --all. Excludes --ceiling",
     ),
     timeout: int = typer.Option(60, "--timeout", help="Seconds before giving up"),
     loop_bound: int = typer.Option(10, "--loop-bound", help="Max loop iterations for angr"),
     start_offset: int = typer.Option(
-        0, "--start-offset", help="Start byte offset within the function (0-based)"
+        0,
+        "--start-offset",
+        help="Start byte offset within one function (0-based). Excludes --all",
     ),
     end_offset: int = typer.Option(
-        0, "--end-offset", help="End byte offset within the function (0 = full function)"
+        0,
+        "--end-offset",
+        help="End byte offset within one function (0 means the full function). Excludes --all",
     ),
     check_edx: bool = typer.Option(
         False,
@@ -1202,7 +1206,7 @@ def main(
     watch: bool = typer.Option(
         False,
         "--watch",
-        help="Watch the source file and re-prove on every change (terminal only; no --json)",
+        help=WATCH_FILE_HELP,
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -1210,6 +1214,23 @@ def main(
     """Prove semantic equivalence of a NEAR_MATCHING/SIZE_MISMATCH function via symbolic execution."""
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
+    all_sources = option_default(all_sources, False)
+    ceiling_only = option_default(ceiling_only, False)
+    max_delta = option_default(max_delta, None)
+    start_offset = option_default(start_offset, 0)
+    end_offset = option_default(end_offset, 0)
+    if ceiling_only and max_delta is not None:
+        error_exit(
+            "--ceiling and --max-delta are mutually exclusive (ceiling functions are a fixed set)",
+            json_mode=json_output,
+        )
+    if (ceiling_only or max_delta is not None) and not all_sources:
+        error_exit("--ceiling and --max-delta require --all", json_mode=json_output)
+    if all_sources and (start_offset or end_offset):
+        error_exit(
+            "--start-offset and --end-offset cannot be combined with --all",
+            json_mode=json_output,
+        )
     # angr logs an ERROR about its optional unicorn engine at import; prove
     # is the only tool that legitimately imports angr, and its own status
     # messages are the meaningful output — silence angr's logger so every
@@ -1240,12 +1261,6 @@ def main(
     if all_sources:
         if watch:
             error_exit("--watch cannot be combined with --all", json_mode=json_output)
-        if ceiling_only and max_delta is not None:
-            error_exit(
-                "--ceiling and --max-delta are mutually exclusive "
-                "(ceiling functions are a fixed set)",
-                json_mode=json_output,
-            )
         _run_all_batch(
             cfg,
             timeout,

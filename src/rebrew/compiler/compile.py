@@ -974,7 +974,7 @@ def _without_msvc_switches(flags: list[str]) -> list[str]:
     return [flag for flag in flags if _MSVC_SWITCH.fullmatch(flag) is None]
 
 
-def _effective_compile_flags(
+def effective_compile_flags(
     cfg: ProjectConfig,
     spec: "ToolchainSpec | None",
     cflags: list[str] | str,
@@ -1743,8 +1743,8 @@ def compile_to_obj(
     src_parent = source_path.resolve().parent
 
     # Per-target version defines (targets.<name>.defines → /DV2 or -DV2)
-    # join here via _effective_compile_flags so they shape the cache key.
-    all_flags = _effective_compile_flags(cfg, spec, cflags, src_parent)
+    # join here via effective_compile_flags so they shape the cache key.
+    all_flags = effective_compile_flags(cfg, spec, cflags, src_parent)
 
     # --- Compile cache lookup ---
     cc = cache if use_cache else None
@@ -1962,6 +1962,62 @@ def compile_to_obj(
     )
 
 
+#: Wine's CreateProcess rejects a command line longer than 32767
+#: characters.  The compiler path and the image wrapper sit outside the
+#: argument vector, so the switch happens this far below that limit.
+_WIN32_CMDLINE_LIMIT = 32767
+_WIN32_CMDLINE_HEADROOM = 1024
+_BATCH_RESPONSE_NAME = "rebrew-batch.rsp"
+
+
+def _msvc_response_body(args: list[str]) -> str:
+    """One MSVC-quoted argument per line.
+
+    ``subprocess.list2cmdline`` is the MS C runtime quoting.  CL reads a
+    response file back as those arguments, so each line is that quoting of
+    one argument and a newline separates arguments.
+    """
+    return "".join(subprocess.list2cmdline([arg]) + "\n" for arg in args)
+
+
+def _msvc_batch_args(prefix: list[str], sources: list[str], workdir: Path) -> list[str]:
+    """Return the MSVC argv, moving overflow arguments into a response file.
+
+    The image entrypoint keeps the first argument that is a readable file
+    and rejects a command that has none (``rebrew_pick_source``).  A command
+    that is only ``@response`` therefore never reaches CL.  The first source
+    stays on the command line, in its original position, and the response
+    file holds the sources that follow it.  CL inserts that file where the
+    ``@`` argument stands, so the compiler still sees ``prefix``, that
+    source, then the rest.
+
+    When the flags alone still do not fit beside that source, a separate
+    response file keeps them before the source. A name
+    containing a newline cannot occupy one response line, so that vector
+    stays inline.  The file uses the same byte-preserving encoding as the
+    CMake response-file rewrite.
+    """
+    inline = prefix + sources
+    if any("\n" in arg or "\r" in arg for arg in inline):
+        return inline
+    if len(subprocess.list2cmdline(inline)) <= _WIN32_CMDLINE_LIMIT - _WIN32_CMDLINE_HEADROOM:
+        return inline
+    if not sources:
+        return inline
+    kept = sources[0]
+    rsp_args = sources[1:]
+    command = prefix + [kept, "@" + _BATCH_RESPONSE_NAME]
+    if len(subprocess.list2cmdline(command)) > _WIN32_CMDLINE_LIMIT - _WIN32_CMDLINE_HEADROOM:
+        flags_rsp = workdir / "rebrew-batch-flags.rsp"
+        flags_rsp.write_text(
+            _msvc_response_body(prefix), encoding="utf-8", errors="surrogateescape"
+        )
+        command = ["@" + flags_rsp.name, kept, "@" + _BATCH_RESPONSE_NAME]
+    rsp = workdir / _BATCH_RESPONSE_NAME
+    rsp.write_text(_msvc_response_body(rsp_args), encoding="utf-8", errors="surrogateescape")
+    return command
+
+
 def compile_batch_objs(
     spec: "ToolchainSpec",
     src_names: list[str],
@@ -1976,10 +2032,14 @@ def compile_batch_objs(
     """Compile N sources already staged in *workdir* with one container run.
 
     posix/msvc styles only (``-c a b...`` / ``/c a b...`` with default-named
-    outputs); dos/borland/watcom keep single-file compiles.  Returns
-    ``({src_name: obj_path}, error)``.  On nonzero exit the map keeps the
-    objects the run did emit and the error carries the combined output
-    (caller falls back per file for the rest, per ADR-021).
+    outputs); dos/borland/watcom keep single-file compiles.  A posix command
+    always lists its sources.  An msvc command does too while it fits the
+    Win32 command-line limit.  Past that, the first source stays on the
+    command line and the remaining sources are written, unchanged, to a
+    response file in *workdir*.  Returns ``({src_name: obj_path}, error)``.
+    On nonzero exit the map keeps the objects the run did emit and the error
+    carries the combined output (caller falls back per file for the rest,
+    per ADR-021).
 
     *image_id* is the image id admitted for this batch.  When set, the
     container runs that id.  When omitted, the run uses ``spec.image``.
@@ -1999,7 +2059,13 @@ def compile_batch_objs(
     # ``./`` keeps the same file while staying a filename, matching the
     # single-file path.  The dict keys keep the bare name.
     argv_srcs = [f"./{s}" if s.startswith(("@", "-")) else s for s in src_names]
-    args = all_flags + (["-c", *argv_srcs] if style == "posix" else ["/c", *argv_srcs])
+    if style == "posix":
+        args = all_flags + ["-c", *argv_srcs]
+    else:
+        try:
+            args = _msvc_batch_args(all_flags + ["/c"], argv_srcs, workdir)
+        except OSError as exc:
+            return {}, f"cannot write batch response file: {exc}"
     try:
         tr = run_toolchain(
             spec,
@@ -2088,7 +2154,7 @@ def cleanup_batch_obj_dirs() -> None:
     :func:`precompile_batch` and any sandbox :func:`_discard_temp_dir`
     could not remove.  Safe to call when none exist.  Verify invokes this
     after extracting symbol bytes so long-lived processes do not accumulate
-    one dir per ``--full`` run; an atexit registration is the crash
+    one dir per ``--no-cache`` run; an atexit registration is the crash
     backstop.
 
     A path is dropped from the tracking list only after a successful remove
@@ -2235,7 +2301,7 @@ def precompile_batch(
                         text = cfile.read_bytes().decode("utf-8", errors="surrogateescape")
                         _text_by_path[cfile] = text
                     src_parent = cfile.resolve().parent
-                    flags = _effective_compile_flags(cfg, spec, cflags, src_parent)
+                    flags = effective_compile_flags(cfg, spec, cflags, src_parent)
                     key = _cache_key_for(
                         cfg,
                         spec,
@@ -2365,7 +2431,7 @@ def precompile_batch(
             # Resolve relative /I against the project root (single-file
             # resolves against src_parent; the batch workdir has no
             # tree-relative meaning) before the container rewrite.
-            flags = _effective_compile_flags(cfg, spec, flags, Path(cfg.root))
+            flags = effective_compile_flags(cfg, spec, flags, Path(cfg.root))
             # Same container setup as the single-file path: project root
             # same-path mounted (relative ../../ includes resolve), unioned
             # /I rewritten for the container, global compiler_includes
@@ -2409,7 +2475,7 @@ def precompile_batch(
             def _staged_cache_key(entry: Any, staged_name: str) -> str | None:
                 src = Path(cfg.reversed_dir) / entry.filepath
                 src_parent = src.resolve().parent
-                member_flags = _effective_compile_flags(
+                member_flags = effective_compile_flags(
                     cfg, spec, member_cflags[id(entry)], src_parent
                 )
                 staged_text = _staged_text(staged_name)
@@ -2509,7 +2575,7 @@ def precompile_batch(
                 _discard_temp_dir(workdir)
 
     # Groups are independent workdirs — compile them in parallel (each is a
-    # ~1s container spawn; serial was the whole --full budget on real
+    # ~1s container spawn; serial was the whole --no-cache budget on real
     # projects).  Workers default to the project's job count.
     batchable = {k: ms for k, ms in groups.items() if len(ms) >= 2}
     if not batchable:
@@ -3217,6 +3283,7 @@ __all__ = [
     "compile_batch_objs",
     "compile_to_obj",
     "contextualized_source",
+    "effective_compile_flags",
     "extract_include_dirs",
     "extract_linked_slice",
     "filter_wine_stderr",

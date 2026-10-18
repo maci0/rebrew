@@ -24,6 +24,7 @@ from rebrew.config import ProjectConfig, inventory_path_for, target_module
 from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 from rebrew.formats.binary_model import BinaryInfo
 from rebrew.metadata.bindings import (
+    iter_source_bindings,
     library_bindings_for_file,
     min_valid_va_for,
     read_source_bindings,
@@ -283,21 +284,25 @@ def load_data(
     # Ghidra functions
     ghidra_funcs = load_function_structure(ghidra_json)
 
-    # Existing source files — use read_source_bindings to capture all VAs in
-    # multi-function files (not just the first annotation).
+    # Inventory views use durable identities; source parsing remains for
+    # source-only files and consumers that need declaration locations.
     existing: dict[int, dict[str, str]] = {}
     covered_vas: dict[int, str] = {}
     # Hoisted out of the per-file loops below: `metadata_dir` re-derives its
     # answer with a filesystem probe per ancestor on every access.
     metadata_root = cfg.metadata_dir
     module_name = target_module(cfg)
-    for cfile in iter_sources(src_dir, cfg, scanned=tree):
-        entries = read_source_bindings(
-            cfile,
-            target_name=module_name,
-            metadata_dir=metadata_root,
-            project_root=getattr(cfg, "root", None),
-        )
+    from rebrew.metadata.functions import load_metadata
+
+    metadata = load_metadata(metadata_root, deepcopy=False)
+    for cfile, entries in iter_source_bindings(
+        iter_sources(src_dir, cfg, scanned=tree),
+        target=module_name,
+        metadata_dir=metadata_root,
+        project_root=getattr(cfg, "root", None),
+        inventory_only=True,
+        function_entries=metadata,
+    ):
         rel_name = rel_display_path(cfile, src_dir)
         for entry in entries:
             if entry.is_data:
@@ -328,7 +333,9 @@ def load_data(
     if target_module_name:
         own_modules.add(preset_module_key(target_module_name))
     for hfile in iter_library_headers(src_dir, cfg, scanned=tree):
-        lib_entries = library_bindings_for_file(hfile, metadata_dir=metadata_root)
+        lib_entries = library_bindings_for_file(
+            hfile, metadata_dir=metadata_root, function_entries=metadata, inventory_only=True
+        )
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
                 continue
@@ -349,14 +356,12 @@ def load_data(
             }
             covered_vas[entry.va] = hfile.name
 
-    # A LIBRARY row can name a .c outside reversed_dir (vendored zlib under
-    # references/).  Verify and the catalog already compile that row.  Status
-    # and todo share this loader, so the same row has to land here or the
-    # address stays "no source" and shows up as work.
-    from rebrew.function_providers import compiled_library_annotations
+    # Managed source bindings can name a .c outside reversed_dir. Keep them
+    # in status/todo without changing FUNCTION vs LIBRARY classification.
+    from rebrew.function_providers import compiled_source_annotations
 
     floor = min_valid_va_for(cfg)
-    for entry in compiled_library_annotations(cfg):
+    for entry in compiled_source_annotations(cfg, metadata=metadata):
         if entry.va < floor:
             continue
         existing[entry.va] = {
@@ -364,7 +369,7 @@ def load_data(
             "size": str(entry.size),
             "status": entry.status or "STUB",
             "module": entry.module or "",
-            "kind": entry.kind or "LIBRARY",
+            "kind": entry.kind,
             "blocker": entry.blocker or "",
             "blocker_delta": str(entry.blocker_delta) if entry.blocker_delta is not None else "",
             "symbol": entry.symbol,
@@ -540,6 +545,18 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
             if entry.va < min_valid_va_for(cfg):
                 continue
             existing[entry.va] = hfile.name
+
+    # Managed rows may name a .c outside reversed_dir (vendored zlib).
+    # Status already treats those as covered. Skeleton must too, or a batch
+    # generates a stub and overwrites the library identity.
+    if cfg is not None:
+        from rebrew.function_providers import compiled_source_annotations
+
+        floor = min_valid_va_for(cfg)
+        for entry in compiled_source_annotations(cfg):
+            if entry.va < floor:
+                continue
+            existing[entry.va] = entry.filepath
 
     return existing
 

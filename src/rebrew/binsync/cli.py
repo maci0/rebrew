@@ -26,19 +26,20 @@ import typer
 
 from rebrew.binsync import diff, export, importer, init, overlay
 from rebrew.binsync.git import GIT_NETWORK_TIMEOUT, one_line, run_git
-from rebrew.binsync.repo import ROOT_BRANCH, fetch_peers, is_binsync_repo
+from rebrew.binsync.repo import ROOT_BRANCH, USER_HELP, fetch_peers, is_binsync_repo
 from rebrew.binsync.serial import require_declib
-from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import (
+    CREATE_MISSING_HELP,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+)
 from rebrew.config import ProjectConfig
 
 log = logging.getLogger(__name__)
 
-
-#: ``--user`` help shared by push and pull.
-_USER_HELP = (
-    "BinSync user rebrew writes as (default: targets.<name>.binsync_user, the user "
-    "'rebrew binsync init' recorded, else rebrew)"
-)
 
 #: Counts surfaced by ``summary`` for each direction.
 _PUSH_COUNTS: tuple[str, ...] = (
@@ -122,7 +123,7 @@ def push(
         False, "--git-push", help="Push the root and current branches to the remote"
     ),
     remote: str = typer.Option("origin", "--remote", help="Git remote for --git-push"),
-    user: str | None = typer.Option(None, "--user", help=_USER_HELP),
+    user: str | None = typer.Option(None, "--user", help=USER_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -178,10 +179,10 @@ def pull(
     create_missing: bool = typer.Option(
         False,
         "--create-missing",
-        help="Create STUB files for BinSync functions not in the project catalog",
+        help=CREATE_MISSING_HELP,
     ),
     remote: str = typer.Option("origin", "--remote", help="Git remote to fetch user branches from"),
-    user: str | None = typer.Option(None, "--user", help=_USER_HELP),
+    user: str | None = typer.Option(None, "--user", help=USER_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

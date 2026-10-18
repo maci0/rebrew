@@ -21,7 +21,15 @@ import tomlkit
 import typer
 from typer.models import TyperPath
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.cli import (
+    EXPECTED_DIGEST_HELP,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    parse_va,
+    require_config,
+)
 from rebrew.metadata.document import metadata_write_lock
 from rebrew.metadata.functions import (
     LIBRARY_METADATA_FILE,
@@ -123,7 +131,7 @@ def review_native_cmd(
     symbol: str = typer.Option(..., "--symbol", help="Exact native object symbol to establish"),
     reason: str = typer.Option(..., "--reason", help="Reviewed identity evidence"),
     expected_digest: str | None = typer.Option(
-        None, "--expected-digest", help="Require input digest from a reviewed preview"
+        None, "--expected-digest", help=EXPECTED_DIGEST_HELP
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

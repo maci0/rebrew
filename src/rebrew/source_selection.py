@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from rebrew.config import ProjectConfig
-from rebrew.function_providers import bind_library_source
+from rebrew.function_providers import bind_compiled_source
 from rebrew.metadata.bindings import SourceBinding, read_source_bindings
 from rebrew.metadata.functions import identity_file, load_metadata
 from rebrew.sources import iter_sources
@@ -22,8 +22,8 @@ def collect_target_sources(
 
     own: list[Path] = []
     foreign: list[Path] = []
-    # Explicit compiled-library bindings are project-root relative. The pure-C
-    # parser uses metadata-relative paths, so retain every module's bindings
+    # Library providers are project-root relative; FUNCTION rows use metadata-relative
+    # paths. Retain every module's bindings
     # before deciding a body is an unannotated helper shared by all targets.
     from rebrew.metadata.binding_history import historical_source_files
 
@@ -34,14 +34,16 @@ def collect_target_sources(
         stored = str(row.get("file", ""))
         if (
             not va
-            or row.get("kind") != "LIBRARY"
+            or row.get("kind") not in {"FUNCTION", "LIBRARY"}
             or Path(stored).suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"}
         ):
             continue
-        bound = bind_library_source(cfg, SourceBinding(module=module, va=va, kind="LIBRARY"), row)
+        bound = bind_compiled_source(
+            cfg, SourceBinding(module=module, va=va, kind=str(row["kind"])), row
+        )
         source = (cfg.reversed_dir / bound.filepath).resolve()
         if not source.is_file():
-            raise ValueError(f"compiled library source is missing: {source}")
+            raise ValueError(f"compiled source is missing: {source}")
         library_entries.setdefault(source, []).append(bound)
     source_files = set(iter_sources(cfg.reversed_dir, cfg)) | set(library_entries)
     for src in sorted(source_files):

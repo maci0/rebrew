@@ -27,7 +27,15 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.cli import EXIT_OK, TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import (
+    EXIT_OK,
+    TargetOption,
+    all_items_option,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+)
 from rebrew.utils import parse_int_literal, untrusted_ident
 
 #: Maximum table entries to read (the bounds-check count normally bounds it;
@@ -325,9 +333,7 @@ app = typer.Typer(
 def main(
     va: str | None = typer.Argument(None, help="Function VA in hex (omit with --all)"),
     window: int = typer.Option(512, "--window", help="Disassembly window size"),
-    all_functions: bool = typer.Option(
-        False, "--all", help="Scan every function-list entry (report those with dispatches)"
-    ),
+    all_functions: bool = all_items_option("function-list entry"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:

@@ -14,6 +14,8 @@ nearest ``rebrew-libraries.toml`` → module preset → ``[compiler].cflags``) a
 writes a CMake include that sets ``COMPILE_FLAGS`` for those files.
 It also sets ``COMPILE_DEFINITIONS`` from the selected target's ``defines``;
 these select shared source branches and are separate from metadata guards.
+Use ``--cmake-target`` for each table when build targets share source files;
+include that table after declaring its CMake target.
 A CMake project then does
 
     execute_process(COMMAND ${REBREW} build cmake-flags -o ${CMAKE_BINARY_DIR}/rebrew-cflags.cmake)
@@ -30,6 +32,7 @@ error naming the functions and their flags, not silently averaged.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -39,6 +42,7 @@ from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
     console,
+    error_exit,
     json_print,
     require_config,
 )
@@ -94,13 +98,14 @@ CODE_KINDS = {"FUNCTION", "STUB", "LIBRARY"}
 
 
 def collect(
-    cfg: ProjectConfig, target_module_name: str
+    cfg: ProjectConfig, target_module_name: str, *, source_paths: set[Path] | None = None
 ) -> tuple[dict[Path, str], list[str], list[str]]:
     """{absolute source path: cflags}, problem descriptions, and notes.
 
     `target_module_name` is the module (``SERVER``), not the target name: one
     source file carries one address anchor per target it belongs to, and only the
     requested target's entries may decide the flags.
+    When supplied, `source_paths` restricts checks to those resolved build inputs.
     """
     files: dict[Path, str] = {}
     problems: list[str] = []
@@ -109,6 +114,8 @@ def collect(
     # target and need CMake flags too, and the glob honours source_ext
     # (a bare "*.c" drops every .cpp source).
     for src in iter_sources(cfg.reversed_dir, cfg):
+        if source_paths is not None and src.resolve() not in source_paths:
+            continue
         entries = [
             e
             for e in read_source_bindings(
@@ -166,6 +173,7 @@ def _emit_json(
     problems: list[str],
     notes: list[str],
     defines: list[str],
+    cmake_target: str | None,
 ) -> None:
     """Print the result payload shared by the success and problem paths.
 
@@ -179,6 +187,7 @@ def _emit_json(
             "problems": problems,
             "notes": notes,
             "defines": defines,
+            "cmake_target": cmake_target,
         }
     )
 
@@ -198,8 +207,14 @@ def main(
     sources_file: Path = typer.Option(
         None,
         "--sources-file",
-        help="Build source list: one project-relative path per line. Emits resolved metadata "
+        help="Restrict to this build source list: one project-relative path per line. Emits resolved metadata "
         "flags or project defaults for every listed source, including files without bindings",
+    ),
+    cmake_target: str | None = typer.Option(
+        None,
+        "--cmake-target",
+        help="CMake build target receiving these flags. Required when targets share sources "
+        "in one build tree; include the table after declaring that target",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -207,32 +222,31 @@ def main(
 ) -> None:
     """Write the per-file CFLAGS table as a CMake include."""
     cfg = require_config(target=target, json_mode=json_output)
-    files, problems, notes = collect(cfg, cfg.module)
+    if cmake_target is not None and re.fullmatch(r"[A-Za-z0-9_.+-]+", cmake_target) is None:
+        error_exit("--cmake-target must be a CMake build target name", json_mode=json_output)
+    requested: dict[str, Path] = {}
+    if sources_file is not None:
+        for line in sources_file.read_text(encoding="utf-8").splitlines():
+            rel = config_path(line.strip()).as_posix()
+            if rel and (cfg.root / rel).is_file():
+                requested[rel] = (cfg.root / rel).resolve()
+    selected = set(requested.values()) if sources_file is not None else None
+    files, problems, notes = collect(cfg, cfg.module, source_paths=selected)
 
     # The table is keyed by the path spelling CMake knows: a listed source
     # keeps the spelling the build gave it (references/zlib-1.1.3 is a symlink
     # to references/zlib, so a resolved path would not match the target's
     # source entry).
     emit: dict[str, str] = {}
-    listed: set[Path] = set()
-    if sources_file is not None:
-        for line in sources_file.read_text(encoding="utf-8").splitlines():
-            rel = config_path(line.strip()).as_posix()
-            if not rel or not (cfg.root / rel).is_file():
-                continue
-            path = (cfg.root / rel).resolve()
-            listed.add(path)
-            if path in files:
-                emit[rel] = files[path]
-            else:
-                # Un-annotated source: the project default, resolved the same
-                # way an annotated file's fallback is, so the table is complete
-                # (without this a file the build compiles but nothing annotates
-                # would silently lose its flags).
-                _tc, flags = resolve_compile_overrides(cfg, path.parent, None, None, "")
-                emit[rel] = flags
+    for rel, path in requested.items():
+        if path in files:
+            emit[rel] = files[path]
+        else:
+            # Un-annotated build inputs still need their resolved defaults.
+            _tc, flags = resolve_compile_overrides(cfg, path.parent, None, None, "")
+            emit[rel] = flags
     for path, flags in files.items():
-        if path in listed:
+        if selected is not None and path in selected:
             continue
         emit[os.path.relpath(path, cfg.root).replace(os.sep, "/")] = flags
 
@@ -246,8 +260,28 @@ def main(
             )
 
     lines = [HEADER]
+    if cmake_target is not None:
+        lines.append(
+            f'if(NOT TARGET "{cmake_target}")\n'
+            f'  message(FATAL_ERROR "Unknown CMake build target: {cmake_target}")\n'
+            "endif()\n"
+        )
     definitions = _cmake_definitions(cfg.defines)
     for rel, flags in sorted(emit.items()):
+        if cmake_target is not None:
+            condition = f"$<STREQUAL:$<TARGET_PROPERTY:NAME>,{cmake_target}>"
+            quoted_flags = flags.replace("\\", "\\\\").replace('"', '\\"')
+            lines.append(
+                f'set_property(SOURCE "${{CMAKE_CURRENT_SOURCE_DIR}}/{rel}" APPEND_STRING\n'
+                f'    PROPERTY COMPILE_FLAGS " $<{condition}:{quoted_flags}>")\n'
+            )
+            for define in cfg.defines:
+                quoted_define = _cmake_definitions([define])
+                lines.append(
+                    f'set_property(SOURCE "${{CMAKE_CURRENT_SOURCE_DIR}}/{rel}" APPEND\n'
+                    f'    PROPERTY COMPILE_DEFINITIONS "$<{condition}:{quoted_define}>")\n'
+                )
+            continue
         lines.append(
             f'set_source_files_properties("${{CMAKE_CURRENT_SOURCE_DIR}}/{rel}"\n'
             f'    PROPERTIES COMPILE_FLAGS "{flags}"'
@@ -259,7 +293,7 @@ def main(
 
     if problems:
         if json_output:
-            _emit_json(None, emit, problems, notes, cfg.defines)
+            _emit_json(None, emit, problems, notes, cfg.defines, cmake_target)
         raise typer.Exit(code=EXIT_ERROR)
 
     written: str | None = None
@@ -274,7 +308,7 @@ def main(
         # Report the same table the include uses (emit), including
         # --sources-file entries that lack annotations — not collect()'s
         # annotated-only map.
-        _emit_json(written, emit, problems, notes, cfg.defines)
+        _emit_json(written, emit, problems, notes, cfg.defines, cmake_target)
     elif not dry_run:
         console.print(f"[green]cmake-flags:[/] wrote {output} ({len(emit)} source files)")
 

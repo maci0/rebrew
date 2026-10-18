@@ -20,7 +20,7 @@ from rebrew.c_parser import (
 )
 from rebrew.c_rename import ParsedSource, declarator_name, non_external_function_declarations
 from rebrew.compiler.cache import scan_include_closure
-from rebrew.compiler.compile import extract_include_dirs, resolve_include_flags
+from rebrew.compiler.compile import effective_compile_flags, extract_include_dirs
 from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig, target_module
 from rebrew.metadata.bindings import read_source_bindings
@@ -28,7 +28,7 @@ from rebrew.metadata.document import metadata_write_lock
 from rebrew.rename_ops import FileChange, RenamePlan, SourceEdit, apply_rename_plan
 from rebrew.source_selection import collect_target_sources
 from rebrew.types import type_size
-from rebrew.utils import detect_source_encoding, safe_shlex_split, source_newline
+from rebrew.utils import detect_source_encoding, source_newline
 
 
 @dataclass(frozen=True)
@@ -173,11 +173,7 @@ def contract_contexts(
         headers: set[Path] = set()
         for cflags in flags:
             includes = extract_include_dirs(
-                resolve_include_flags(
-                    safe_shlex_split(cfg.base_cflags) + safe_shlex_split(cflags),
-                    source.parent,
-                    cfg.root,
-                )
+                effective_compile_flags(cfg, None, cflags, source.parent)
             )
             if cfg.compiler_includes != Path():
                 includes.append(str(cfg.compiler_includes))
@@ -414,9 +410,15 @@ def audit_contracts(cfg: ProjectConfig, *, name: str | None = None) -> dict[str,
             raise ValueError(f"source changed while auditing: {path}")
         input_hashes[str(path)] = hashlib.sha256(before).hexdigest()
         source_texts[path] = text
+        function_sites = _functions(path, path, text)
+        variables = list(find_extern_variables(text, include_definitions=True))
+        parsed = ParsedSource.parse(text)
+        declarations = [n for n in _nodes(parsed.tree.root_node) if n.type == "declaration"]
+        declarations_by_line: dict[int, list[Any]] = {}
+        for declaration in declarations:
+            declarations_by_line.setdefault(declaration.start_point[0] + 1, []).append(declaration)
         for unit in sorted(units):
-            sites.extend(_functions(path, unit, text))
-            parsed = ParsedSource.parse(text)
+            sites.extend(replace(site, context=str(unit)) for site in function_sites)
             if parsed.tree.root_node.has_error:
                 unknown.append(
                     {
@@ -433,7 +435,7 @@ def audit_contracts(cfg: ProjectConfig, *, name: str | None = None) -> dict[str,
                         "reason": "selected name has a non-external-function declaration",
                     }
                 )
-            for declaration in _nodes(parsed.tree.root_node):
+            for declaration in declarations:
                 if (
                     declaration.type == "declaration"
                     and len(declaration.children_by_field_name("declarator")) > 1
@@ -449,12 +451,8 @@ def audit_contracts(cfg: ProjectConfig, *, name: str | None = None) -> dict[str,
                             "reason": "multi-declarator function declaration requires explicit review",
                         }
                     )
-            for variable in find_extern_variables(text, include_definitions=True):
-                candidates = [
-                    n
-                    for n in _nodes(parsed.tree.root_node)
-                    if n.type == "declaration" and n.start_point[0] + 1 == variable.line
-                ]
+            for variable in variables:
+                candidates = declarations_by_line.get(variable.line, [])
                 static = bool(
                     candidates
                     and any(

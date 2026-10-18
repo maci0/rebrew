@@ -46,7 +46,7 @@ app = typer.Typer(
         "  rebrew source document-unmatched --dry-run\n\n"
         "  # Write STUB .c + blocker for every unmatched function\n"
         "  rebrew source document-unmatched\n\n"
-        "[dim]Skips VAs that already have a fcn_<va>.c file or a bound function metadata row. Idempotent — re-running after documenting reports zero unmatched.[/dim]"
+        "[dim]Skips VAs that already have a fcn_<va>.c file or a bound function metadata row. Idempotent: re-running after documenting reports zero unmatched.[/dim]"
     ),
 )
 
@@ -86,7 +86,7 @@ def main(
         False,
         "--backfill-blockers",
         help="Write a BLOCKER for every existing STUB function that lacks one "
-        "(the lint W005 class — stubs documented before document-unmatched "
+        "(the lint W005 class: stubs documented before document-unmatched "
         "existed), and record available SIZE metadata so the stub stays "
         "testable",
     ),

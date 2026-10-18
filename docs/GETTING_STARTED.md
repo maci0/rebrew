@@ -199,8 +199,8 @@ rebrew verify            # bulk: every function, STATUS auto-updated
 rebrew verify --compare  # CI mode: fail on regressions vs last report
 ```
 
-`verify --full` forces everything, ignoring the cache (it has no warm path).
-Plain `verify` is incremental: only changed functions recompile.
+`verify --no-cache` recompiles every selected function. Plain `verify`
+already covers every function and recompiles only the ones whose inputs changed.
 
 ## The core loop (your daily driver)
 

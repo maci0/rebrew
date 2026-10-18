@@ -1,20 +1,19 @@
-"""cmake_tc.py — CMake toolchain bridge for docker-based toolchains.
+"""cmake_tc.py — CMake toolchain bridge for image-backed toolchains.
 
 The rebrew toolchain images (e.g. ``rebrew/msvc:6.0-win32``) encapsulate the
 command-line tools, but CMake needs three tool commands —
 ``CMAKE_C_COMPILER`` / ``CMAKE_LINKER`` / ``CMAKE_AR`` — invoked with plain
 argv. ``rebrew build driver <cl|link|lib> -- <arguments>`` translates
-CMake's invocations into ``docker run`` calls
-against the toolchain image: the same backend the rebrew compile pipeline
-uses, reusable from any project's CMake build:
+CMake's invocations into image-backed calls using the project compiler
+execution_backend (Docker/Podman or opt-in native unshare):
 
 - the project root (found by walking up from the cwd for
   ``rebrew-project.toml``) is same-path mounted, so absolute paths in the
   arguments resolve identically inside the container;
 - wine's ``Z:`` drive maps them the way the old host-wine wrapper did;
-- a shared per-toolchain wineprefix is flock-initialized and the runs are
+- Docker/Podman use a shared per-toolchain wineprefix, flock-initialized and the runs are
   serialized on it (concurrent wineservers on one prefix corrupt it —
-  MSVC6 dies with C1900/C1083 otherwise);
+  MSVC6 dies with C1900/C1083 otherwise); unshare uses a private image overlay;
 - ``INCLUDE``/``LIB`` point at the image's own toolchain tree, so the image
   is self-contained.
 
@@ -31,8 +30,10 @@ import sys
 import tempfile
 import tomllib
 import uuid
+from dataclasses import replace
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -288,8 +289,9 @@ def _wineprefix(spec: ToolchainSpec) -> Path:
     return xdg_cache_home() / f"rebrew-{spec.name}-wineprefix"
 
 
-def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
+def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec, *, runtime: str | None = None) -> None:
     """Initialize the shared prefix exactly once (parallel builds race)."""
+    runtime_options: dict[str, Any] = {"runtime": runtime} if runtime else {}
     if (prefix / ".update-timestamp").exists():
         return
     prefix.mkdir(parents=True, exist_ok=True)
@@ -302,7 +304,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
         try:
             r = subprocess.run(
                 [
-                    container_runtime(),
+                    container_runtime(runtime) if runtime else container_runtime(),
                     "run",
                     "--rm",
                     "--network=none",  # wineboot needs no network
@@ -324,11 +326,11 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
                 timeout=300,
             )
         except subprocess.TimeoutExpired as exc:
-            kill_container(name)
+            kill_container(name, **runtime_options)
             error_exit(f"wineprefix init timed out after 300s ({prefix}): {exc}")
         except BaseException:
             # Ctrl+C kills the docker CLI but leaves the container running.
-            kill_container(name)
+            kill_container(name, **runtime_options)
             raise
         if r.returncode != 0:
             # A half-initialized prefix makes every later compile fail with
@@ -375,7 +377,10 @@ def _rewrite_response_files(mode: str, args: list[str], directory: Path) -> list
     return [copy_arg(arg) for arg in args]
 
 
-def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
+def _docker_run(
+    spec: ToolchainSpec, mode: str, args: list[str], *, runtime: str | None = None
+) -> int:
+    runtime_options: dict[str, Any] = {"runtime": runtime} if runtime else {}
     root = walk_up_to_root(Path.cwd())
     if root is None:
         error_exit(
@@ -383,7 +388,7 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
             "CMake from inside the project (build dir under the project root)"
         )
     prefix = _wineprefix(spec)
-    _ensure_wineprefix(prefix, spec)
+    _ensure_wineprefix(prefix, spec, **runtime_options)
 
     assert spec.tool_root is not None  # _resolve_spec validated it
     tool_root = Path(spec.tool_root)
@@ -393,7 +398,7 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
     epoch = source_date_epoch()
 
     cmd = [
-        container_runtime(),
+        container_runtime(runtime) if runtime else container_runtime(),
         "run",
         "--rm",
         "--network=none",  # compile-only containers — no egress needed
@@ -443,11 +448,39 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
             except BaseException:
                 # Timeout/Ctrl+C kills the CLI; dockerd may still be running
                 # Wine. Clean up before releasing the shared prefix lock.
-                kill_container(str(cmd[cmd.index("--name") + 1]))
+                kill_container(str(cmd[cmd.index("--name") + 1]), **runtime_options)
                 raise
     sys.stdout.write((r.stdout + r.stderr).replace("\r", ""))
     sys.stdout.flush()
     return r.returncode
+
+
+def _unshare_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
+    """Run CMake tools in a private image overlay, retaining host project paths."""
+    from rebrew.compiler.toolchain import cached_image_digest, run_toolchain
+
+    root = walk_up_to_root(Path.cwd())
+    assert root is not None  # driver_main validated the project root
+    assert spec.image is not None and spec.tool_root is not None
+    epoch = source_date_epoch()
+    entrypoint = "/usr/local/bin/rebrew-clock" if epoch is not None else _WINE
+    command = ([_WINE] if epoch is not None else []) + [
+        str(Path(spec.tool_root) / _TOOL_EXES[mode])
+    ]
+    with tempfile.TemporaryDirectory(prefix="rebrew-rsp-", dir=root) as rsp_dir:
+        command.extend(_rewrite_args(mode, _rewrite_response_files(mode, args, Path(rsp_dir))))
+        result = run_toolchain(
+            replace(spec, image_entrypoint=entrypoint),
+            command,
+            workdir=root,
+            project_cwd=Path.cwd(),
+            image_id=cached_image_digest(spec.image),
+            execution_backend="unshare",
+            timeout=3600,
+        )
+    sys.stdout.write((result.stdout + result.stderr).replace("\r", ""))
+    sys.stdout.flush()
+    return result.returncode
 
 
 def driver_main(
@@ -478,8 +511,21 @@ def driver_main(
             argv.append(a)
     name = pinned or os.environ.get("REBREW_TOOLCHAIN", "").strip() or _load_profile(root)
     spec = _resolve_spec(name)
+    from rebrew.compiler.toolchain import ToolchainError
+
+    # CMake has a profile pin, but no Rebrew target identity: use the project backend.
+    backend = (
+        load_tomllib(root / "rebrew-project.toml").get("compiler", {}).get("execution_backend", "")
+    )
+    if backend not in ("", "docker", "podman", "unshare"):
+        error_exit("compiler.execution_backend must be docker, podman, or unshare")
     try:
-        rc = _docker_run(spec, mode.value, argv)
+        if backend == "unshare":
+            rc = _unshare_run(spec, mode.value, argv)
+        else:
+            rc = _docker_run(spec, mode.value, argv, **({"runtime": backend} if backend else {}))
+    except ToolchainError as exc:
+        error_exit(str(exc))
     except subprocess.TimeoutExpired:
         # A hung wine build must exit with a clean message, not a raw
         # traceback polluting CMake's error output.

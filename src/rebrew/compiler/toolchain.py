@@ -1209,6 +1209,7 @@ def run_toolchain(
     mounts: list[tuple[str, str]] | None = None,
     image_id: str | None = None,
     execution_backend: str | None = None,
+    project_cwd: str | Path | None = None,
 ) -> RunResult:
     """Invoke a toolchain's compiler through its docker image (uniform backend).
 
@@ -1243,6 +1244,7 @@ def run_toolchain(
             after :func:`image_present`.  Both paths pass ``--pull=never``.
             The tag remains the name in errors on the unpinned path.
 
+        project_cwd: CMake cwd inside workdir; unshare mounts that project at its host path.
         execution_backend: docker, podman, or experimental unshare. None uses
             the runtime environment. Unsupported setup never falls back.
 
@@ -1251,6 +1253,8 @@ def run_toolchain(
             native binary for a native-runtime toolchain.
     """
     workdir = Path(workdir) if workdir is not None else Path.cwd()
+    if project_cwd is not None and execution_backend != "unshare":
+        raise ToolchainError("project_cwd requires unshare", kind="validation", name=spec.name)
     if execution_backend == "unshare":
         from rebrew.compiler.unshare import UnshareError, run_unshare
 
@@ -1287,6 +1291,7 @@ def run_toolchain(
                 mounts=mounts or [],
                 env=env,
                 timeout=timeout,
+                **({"project_cwd": Path(project_cwd)} if project_cwd is not None else {}),
             )
         except (UnshareError, ConfigError, OSError) as exc:
             raise ToolchainError(str(exc), kind="invocation", name=spec.name) from exc

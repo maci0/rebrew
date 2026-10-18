@@ -3,6 +3,30 @@
 Measured facts about where rebrew's hot paths spend time, and what was done
 (and deliberately *not* done) about it.
 
+## Metadata-backed inventories (2026-10-18)
+
+Status/todo and verification preparation use stored function identities without
+reading or parsing registered C files and library headers. Declaration consumers
+keep the full source reader; source-only files still use it. Verification also
+reads declarations when a missing stored symbol requires calling-convention
+recovery, and cache admission still validates source and header fingerprints.
+
+`tests/test_source_scan_hotpaths.py` gates one function-store load and zero AST
+calls for both one-file and 32-file registered inventories, including a dangling
+address anchor and library headers. It also checks exact paths, target filtering,
+source-only fallback and the default declaration reader. Guild's 7,246-source
+tree retains 25 source-only fallbacks: profiled status calls finish with no load
+error, reporting 251/251 covered for SERVER and 4,995/4,996 for GOLDTL. These are
+inventory checks, not new byte-comparison verdicts.
+
+Existing fingerprint memos already avoid body rereads and include-closure walks.
+New counted tests cover unchanged calls, source/header touch and content edits,
+and library-override changes. An immediate paired sample of 32 real Guild sources
+with includes performed 151 body reads and 32 closure walks cold, then zero of
+either warm, with equal fingerprints. A separate unsnapshotted 7,246-file pass
+performed one source reread and one closure walk warm; that pass does not prove
+that the whole tree stayed unchanged. No additional fingerprint cache was added.
+
 ## Twenty additional hot-path rounds (2026-10-14)
 
 Profiled the actual timed callbacks in the eighteen-workload runner, then measured

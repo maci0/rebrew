@@ -1794,3 +1794,42 @@ class TestDecoratedNameSelection:
             app, ["--json", "--target", "GAME", "hook"], catch_exceptions=False
         )
         assert "Status is 'STUB'" in asked_hook.output, asked_hook.output
+
+
+class TestProveSelectionFlags:
+    """Slice offsets are single-function. Ceiling and max-delta are batch-only."""
+
+    def test_illegal_combinations_exit_2_before_angr(self) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.prove import app
+
+        runner = CliRunner()
+        cases = [
+            (["--all", "--start-offset", "4"], "--start-offset and --end-offset"),
+            (["--all", "--end-offset", "8"], "--start-offset and --end-offset"),
+            (["--ceiling"], "--ceiling and --max-delta require --all"),
+            (["--max-delta", "4"], "--ceiling and --max-delta require --all"),
+            (["--all", "--ceiling", "--max-delta", "4"], "mutually exclusive"),
+        ]
+        for args, message in cases:
+            result = runner.invoke(app, [*args, "--json"])
+            assert result.exit_code == 2, result.output
+            assert message in cli_payload(result)["error"]
+            assert result.stdout.strip() == ""
+
+    def test_help_states_the_combinations_without_an_em_dash(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.prove import app
+
+        monkeypatch.setenv("COLUMNS", "200")
+        result = CliRunner().invoke(app, ["--help"])
+        assert result.exit_code == 0, result.output
+        rendered = result.output
+        assert "Requires --all" in rendered
+        assert "Excludes --all" in rendered
+        assert "Excludes --max-delta" in rendered
+        assert "\u2014" not in rendered

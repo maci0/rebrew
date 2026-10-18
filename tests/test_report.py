@@ -874,7 +874,51 @@ class TestSummaryCards:
         page = (site / "index.html").read_text(encoding="utf-8")
         assert "<dl class='cards'>" in page
         assert "<dt class='label'>Total functions</dt><dd class='value'>" in page
+        assert "<dt class='label'>Code account</dt>" in page
+        assert "Of .text" not in page
         assert "<div class='value'>" not in page
+
+    def test_code_account_card_names_its_measure(self) -> None:
+        """The code-account card is that percentage. Byte-matched stays a count."""
+        from rebrew.report import _render_index
+        from rebrew.status import StatusReport
+
+        known = StatusReport(
+            target="T",
+            total_functions=4,
+            covered_functions=2,
+            status_counts={"EXACT": 1, "RELOC": 1},
+            matched_bytes=50,
+            total_text_bytes=200,
+            padding_bytes=10,
+        )
+        page = _render_index("T", known, [])[0][1]
+        assert "<dt class='label'>Code account</dt><dd class='value'>30.0%</dd>" in page
+        assert "<dt class='label'>Byte-matched</dt><dd class='value'>2/4</dd>" in page
+        assert "Of .text" not in page
+
+        unknown = StatusReport(
+            target="T",
+            total_functions=4,
+            covered_functions=2,
+            status_counts={"EXACT": 1, "RELOC": 1},
+        )
+        page = _render_index("T", unknown, [])[0][1]
+        assert "2/4 (50.0% of functions)" in page
+        assert "<dt class='label'>Code account</dt><dd class='value'>n/a</dd>" in page
+
+        over = StatusReport(
+            target="T",
+            total_functions=1,
+            covered_functions=1,
+            status_counts={"EXACT": 1},
+            matched_bytes=300,
+            total_text_bytes=200,
+            padding_bytes=0,
+        )
+        page = _render_index("T", over, [])[0][1]
+        assert "<dt class='label'>Code account</dt><dd class='value'>100%+</dd>" in page
+        assert "The code account counts 300 bytes" in page
 
     def test_byte_coverage_clips_annotation_to_text_size(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -906,7 +950,6 @@ class TestSummaryCards:
         assert result.exit_code == 0, result.output
         page = (site / "index.html").read_text(encoding="utf-8")
         assert "100%+" not in page
-        assert "byte coverage is shown as 100%+" not in page
         assert "<dd class='value'>1.2%</dd>" in page  # func_a's 100 of 8192, floored
 
     def test_alignment_fill_excludes_annotations_outside_text(

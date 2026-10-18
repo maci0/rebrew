@@ -31,6 +31,7 @@ from rich.table import Table
 from rebrew.analysis import Xref, iter_strings, string_refs
 from rebrew.cli import (
     EXIT_ERROR,
+    MIN_STRING_LEN_HELP,
     TargetOption,
     console,
     error_exit,
@@ -156,7 +157,7 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     binary: Path | None = typer.Argument(None, help="Binary path (default: project target)"),
-    min_len: int = typer.Option(DEFAULT_MIN_LEN, "--min-len", help="Minimum string length"),
+    min_len: int = typer.Option(DEFAULT_MIN_LEN, "--min-len", help=MIN_STRING_LEN_HELP),
     section: list[str] = typer.Option(
         None, "--section", help="Section to scan (repeatable; default .rdata/.data/.rodata)"
     ),

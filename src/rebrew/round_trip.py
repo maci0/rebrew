@@ -112,7 +112,7 @@ def main(
         False,
         "--fix-headers",
         help="Patch the reasm copy's PE header (linker/OS/subsystem versions, "
-        "TSAWARE, stack, timestamp, checksum) to match the original — values "
+        "TSAWARE, stack, timestamp, checksum) to match the original. Values "
         "from \\[link] in rebrew-project.toml, falling back to the original's "
         "own fields",
     ),

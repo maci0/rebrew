@@ -234,6 +234,9 @@ _RESOLVED_METADATA_PATHS_LOCK = threading.Lock()
 
 def _resolved_metadata_path(directory: str) -> Path:
     """``<directory>/rebrew-functions.toml`` resolved, memoized per directory."""
+    # Relative roots change meaning after chdir; absolute avoids repeating
+    # the expensive symlink resolution while keeping projects independent.
+    directory = str(Path(directory).absolute())
     with _RESOLVED_METADATA_PATHS_LOCK:
         hit = _RESOLVED_METADATA_PATHS.get(directory)
         if hit is not None:

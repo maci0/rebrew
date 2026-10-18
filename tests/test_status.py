@@ -771,6 +771,30 @@ class TestCollectStatus:
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.total_functions == 0
 
+    def test_sourced_function_without_a_verdict_is_stub(self, tmp_path: Path) -> None:
+        from rebrew.metadata.functions import record_function_identity
+
+        cfg = _make_cfg(tmp_path)
+        cfg.reversed_dir.mkdir()
+        (cfg.reversed_dir / "pending.c").write_text(
+            "/* ADDRESS: TEST 0x1000 */\nvoid pending(void) {}\n"
+        )
+        record_function_identity(
+            tmp_path,
+            module="TEST",
+            va=0x1000,
+            file="src/pending.c",
+            name="pending",
+            symbol="_pending",
+            kind="FUNCTION",
+        )
+
+        report = collect_status(cfg)
+        assert report.total_functions == report.covered_functions == 1
+        assert report.status_counts == {"STUB": 1}
+        assert report.module_status == {"TEST": {"STUB": 1}}
+        assert report.to_dict()["status"] == {"STUB": 1}
+
     def test_status_handles_annotated_vas_not_in_ghidra(self, tmp_path: Path) -> None:
         """When source annotations cover VAs that aren't in function_structure.json,
         total_functions must be the union so percentages stay <= 100%."""
@@ -1479,7 +1503,7 @@ class TestRenderTerminal:
         assert "SERVER" in out
         assert "server.dll" in out
         assert "EXACT" in out
-        assert "5/6 byte-matched, 1 failed" in out
+        assert "Verify cache  5/6 byte-matched, 1 failed" in out
         assert "3 source files" in out
 
     def test_headline_is_byte_matched(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1501,6 +1525,20 @@ class TestRenderTerminal:
         assert "blocked" not in out
         assert "reversed" not in out
         assert "Coverage" not in out
+
+    def test_naked_line_is_a_function_count(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Naked reconstructions are a function count under the code account."""
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        report = self._report(naked_matched=2, naked_bytes=40)
+        _render_terminal(report)
+        out = buf.getvalue()
+        assert "3/10 functions decompiled" in out
+        assert "2 naked reconstructions" in out
+        assert "implement the C bodies" in out
+        assert "% decompiled" not in out
+        assert report.decompiled_pct == 30.0
 
     def test_function_percent_is_not_a_second_headline(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1668,7 +1706,7 @@ class TestRenderTerminal:
         buf = self._capture(monkeypatch)
         _render_terminal(self._report(verify_info=None))
         out = buf.getvalue()
-        assert "Last verify" not in out
+        assert "Verify cache" not in out
         assert "SERVER" in out
 
     def test_no_inline_warning(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1983,6 +2021,13 @@ class TestEffectiveStatus:
     A wrong overlay either parks a broken function behind STUB or serves a stale
     verdict for a source that has since been proven, so every branch is pinned.
     """
+
+    @pytest.mark.parametrize("ann_status", ["", "  "])
+    @pytest.mark.parametrize("cached", [None, "", "  ", "EXACT", "SIZE_MISMATCH"])
+    def test_missing_status_is_stub_unless_cached(
+        self, ann_status: str, cached: str | None
+    ) -> None:
+        assert effective_status(ann_status, cached) == ((cached or "").strip() or "STUB")
 
     @pytest.mark.parametrize("pinned", ["PROVEN", "SKIP"])
     def test_metadata_pin_beats_a_cached_verdict(self, pinned: str) -> None:

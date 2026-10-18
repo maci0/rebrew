@@ -609,6 +609,7 @@ class TestCLIAddRemoveTarget:
         """The confirm prompt must not pollute stdout; declining keeps the target."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         result = runner.invoke(cfg_app, ["target", "remove", "server.dll"], input="n\n")
         # Declining is a usage error (2), not the mismatch code (1).
         assert result.exit_code == 2

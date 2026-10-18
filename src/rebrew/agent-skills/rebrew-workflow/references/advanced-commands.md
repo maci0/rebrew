@@ -43,7 +43,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew match solutions` | Query the GA solutions database (`.rebrew/ga_runs.jsonl` wins + run history). |
 | `rebrew build residue` | Measure linked byte-identity residue after postlink fixers. |
 | `rebrew binary xrefs` | Show cross-references (callers/callees) to/from a target address. |
-| `rebrew cache` | Manage the compile result cache (`rebrew cache stats` to inspect; `clear` prompts before deleting, `--force` skips the prompt). |
+| `rebrew cache` | Manage the compile result cache (`rebrew cache stats` to inspect; `rebrew cache clear` refuses a non-terminal stdin, `--force` skips the prompt, and a piped answer does not approve). |
 | `rebrew binary imports list` | List import-table symbols (PE IAT/ELF/NE) and detect import stubs. |
 | `rebrew binary imports mark` | Record detected import stubs as library identifications. Preview with `--dry-run`. |
 | `rebrew binary strings` | Extract strings from binary with cross-references (`--xref`, `--section`). |

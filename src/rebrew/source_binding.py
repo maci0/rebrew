@@ -11,7 +11,15 @@ import typer
 
 from rebrew.c_parser import function_signatures
 from rebrew.c_rename import ORDINARY_ROLES, ParsedSource, definitions, occurrences
-from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.cli import (
+    EXPECTED_DIGEST_HELP,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    parse_va,
+    require_config,
+)
 from rebrew.config import ProjectConfig, target_module
 from rebrew.metadata.binding_history import change_source_binding, validate_binding_history
 from rebrew.metadata.bindings import derive_c_symbol
@@ -199,7 +207,7 @@ def retire(
         None, "--counterpart", help="Existing native counterpart; its binding/verdict is preserved"
     ),
     expected_digest: str | None = typer.Option(
-        None, "--expected-digest", help="Require the input digest from a reviewed preview"
+        None, "--expected-digest", help=EXPECTED_DIGEST_HELP
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -242,7 +250,7 @@ def rebind(
         ..., "--reason", help="Reviewed native evidence supporting this binding"
     ),
     expected_digest: str | None = typer.Option(
-        None, "--expected-digest", help="Require the input digest from a reviewed preview"
+        None, "--expected-digest", help=EXPECTED_DIGEST_HELP
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

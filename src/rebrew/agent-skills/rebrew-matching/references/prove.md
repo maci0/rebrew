@@ -11,8 +11,8 @@ rebrew prove src/<target>/<file>.c --json
 rebrew prove src/<target>/<file>.c --dry-run --json
 rebrew prove src/<target>/<file>.c --timeout 120 --json
 rebrew prove src/<target>/<file>.c --loop-bound 50
-rebrew prove my_func --start-offset 0 --end-offset 48
-rebrew prove --all --json
+rebrew prove my_func --start-offset 0 --end-offset 48   # one function; excludes --all
+rebrew prove --all --json                                 # excludes --start-offset and --end-offset
 rebrew prove my_func --check-edx --json
 rebrew prove my_func --watch-va 0x10123456 --json
 ```
@@ -20,7 +20,10 @@ rebrew prove my_func --watch-va 0x10123456 --json
 **Register-gap functions are prime PROVEN candidates.** `REGISTER (N% of delta)`
 means bytes differ only by register allocation: prove EAX equivalence and promote
 without fighting the bytes. `rebrew prove --all` first; "no terminal states" on a
-loop → retry with `--loop-bound 50 --timeout 120`.
+loop → retry with `--loop-bound 50 --timeout 120`. `rebrew prove --all` excludes
+`--start-offset` and `--end-offset`. `--ceiling` and `--max-delta` require
+`--all` and exclude each other. `rebrew prove src/<target>/<file>.c --watch`
+rejects `--json`. Selection rules are in `rebrew-workflow`.
 
 `rebrew diagnose near --json` → `categories` + `verdict`. Invalid relocs surface as `structural`.
 `--fix-blocker` writes each verdict as BLOCKER (including suggested GA mutations).

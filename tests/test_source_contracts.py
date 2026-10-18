@@ -10,7 +10,7 @@ from cli_json import cli_payload
 from rebrew.config import ProjectConfig
 from rebrew.metadata.functions import record_function_identity
 from rebrew.rename_ops import RenameError
-from rebrew.source_contracts import audit_contracts, reconcile_contract
+from rebrew.source_contracts import audit_contracts, contract_contexts, reconcile_contract
 
 
 def _project(tmp_path: Path) -> ProjectConfig:
@@ -37,6 +37,67 @@ def _project(tmp_path: Path) -> ProjectConfig:
 
 
 class TestContracts:
+    @pytest.mark.parametrize("name", [None, "queue", "g"])
+    def test_shared_header_is_extracted_once_with_each_context_preserved(
+        self, tmp_path: Path, name: str | None
+    ) -> None:
+        import rebrew.source_contracts as contracts
+
+        cfg = _project(tmp_path)
+        header = cfg.reversed_dir / "api.h"
+        header.write_text("int queue(int value);\nextern int g;\n")
+        units = [cfg.reversed_dir / filename for filename in ("owner.c", "user.c")]
+        for source in units:
+            source.write_text('#include "api.h"\n' + source.read_text())
+        with (
+            patch.object(contracts, "_functions", wraps=contracts._functions) as functions,
+            patch.object(
+                contracts, "find_extern_variables", wraps=contracts.find_extern_variables
+            ) as variables,
+        ):
+            report = audit_contracts(cfg, name=name)
+        assert sum(call.args[0] == header for call in functions.call_args_list) == 1
+        assert sum(call.args[0] == header.read_text() for call in variables.call_args_list) == 1
+        for symbol in ("queue", "g") if name is None else (name,):
+            assert {
+                site["context"]
+                for site in report["sites"]
+                if site["file"] == str(header) and site["name"] == symbol
+            } == {str(source) for source in units}
+        assert [finding["differences"] for finding in report["findings"]] == (
+            [["return_value_type"]] if name != "g" else []
+        )
+        assert len(report["calls"]) == (0 if name == "g" else 1)
+
+    @pytest.mark.parametrize("shared", [True, False])
+    def test_nested_context_uses_the_compilers_shared_include_root(
+        self, tmp_path: Path, shared: bool
+    ) -> None:
+        cfg = _project(tmp_path)
+        cfg.shared_dir = cfg.reversed_dir if shared else None
+        nested = cfg.reversed_dir / "nested"
+        nested.mkdir()
+        source = nested / "nested.c"
+        source.write_text('#include "api.h"\nint nested(void) { return 1; }\n')
+        record_function_identity(
+            cfg.metadata_dir,
+            module="GAME",
+            va=0x401200,
+            file="src/nested/nested.c",
+            name="nested",
+            symbol="_nested",
+            kind="FUNCTION",
+            size=8,
+        )
+        contexts, unknown = contract_contexts(cfg, selected_sources={source.resolve()})
+        header = (cfg.reversed_dir / "api.h").resolve()
+        if shared:
+            assert not unknown
+            assert contexts[header] == {source}
+        else:
+            assert header not in contexts
+            assert unknown[0]["missing"] == ["api.h"]
+
     def test_return_mismatch_and_return_use_are_independent(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
         (cfg.reversed_dir / "other.c").write_text(

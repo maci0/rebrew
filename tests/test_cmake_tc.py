@@ -634,3 +634,124 @@ def test_response_file_bytes_survive_the_rewrite(tmp_path: Path) -> None:
     _rewrite_response_files("link", ["@" + str(response)], output)
     rewritten = next(output.glob("*.rsp")).read_bytes()
     assert b'"Z:\\home\\caf\xe9 dir\\a.obj"' in rewritten
+
+
+@pytest.mark.parametrize("mode", ["cl", "link", "lib"])
+def test_driver_uses_configured_unshare(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str
+) -> None:
+    from typer.testing import CliRunner
+
+    from rebrew import cmake_tc
+    from rebrew.app.main import app
+
+    (tmp_path / "rebrew-project.toml").write_text(
+        '[compiler]\nprofile="msvc-6.0-sp5"\nexecution_backend="unshare"\n'
+    )
+    monkeypatch.chdir(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        cmake_tc,
+        "_unshare_run",
+        lambda spec, mode, args: calls.append((spec.name, mode, args)) or 9,
+        raising=False,
+    )
+    monkeypatch.setattr(cmake_tc, "_docker_run", lambda *_: pytest.fail("Docker must not run"))
+    result = CliRunner().invoke(
+        app, ["build", "driver", mode, "--", "/REBREW_TOOLCHAIN:msvc-6.0-sp5-pp", "/ML"]
+    )
+    assert result.exit_code == 9, result.output
+    assert calls == [("msvc-6.0-sp5-pp", mode, ["/ML"])]
+
+
+@pytest.mark.parametrize("mode", ["cl", "link", "lib"])
+@pytest.mark.parametrize("epoch", [None, "0", "1234567890"])
+def test_unshare_bridge_keeps_paths_and_tool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str, epoch: str | None
+) -> None:
+    from rebrew import cmake_tc
+    from rebrew.compiler import toolchain
+
+    (tmp_path / "rebrew-project.toml").write_text('[compiler]\nprofile="msvc-6.0-sp5-pp"\n')
+    build = tmp_path / "build space"
+    build.mkdir()
+    monkeypatch.chdir(build)
+    if epoch is None:
+        monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+    else:
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", epoch)
+    (build / "inputs.rsp").write_text(f'"{tmp_path}/source file.c"')
+    monkeypatch.setattr(toolchain, "cached_image_digest", lambda *_: "sha256:" + "a" * 64)
+    calls = []
+
+    def run(spec, args, **kwargs):
+        calls.append((spec, args, kwargs))
+        rewritten = Path(args[-1][3:].replace("\\", "/"))
+        assert cmake_tc._to_w(str(tmp_path / "source file.c")) in rewritten.read_text()
+        return SimpleNamespace(returncode=3, stdout="ok\r\n", stderr="")
+
+    monkeypatch.setattr(toolchain, "run_toolchain", run)
+    assert cmake_tc._unshare_run(TOOLCHAINS["msvc-6.0-sp5-pp"], mode, ["@inputs.rsp"]) == 3
+    spec, args, kwargs = calls[0]
+    assert spec.image_entrypoint == (
+        "/usr/local/bin/rebrew-clock" if epoch is not None else "/usr/bin/wine"
+    )
+    assert args[: 1 if epoch is not None else 0] == (["/usr/bin/wine"] if epoch is not None else [])
+    assert (
+        str(Path(spec.tool_root) / {"cl": "CL.EXE", "link": "LINK.EXE", "lib": "LIB.EXE"}[mode])
+        in args
+    )
+    assert kwargs == {
+        "workdir": tmp_path,
+        "project_cwd": build,
+        "image_id": "sha256:" + "a" * 64,
+        "execution_backend": "unshare",
+        "timeout": 3600,
+    }
+
+
+@pytest.mark.parametrize("backend", ["docker", "podman"])
+def test_driver_explicit_container_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, backend: str
+) -> None:
+    from typer.testing import CliRunner
+
+    from rebrew import cmake_tc
+    from rebrew.app.main import app
+
+    (tmp_path / "rebrew-project.toml").write_text(
+        f'[compiler]\nprofile="msvc-6.0-sp5"\nexecution_backend="{backend}"\n'
+    )
+    monkeypatch.chdir(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        cmake_tc, "_docker_run", lambda spec, mode, args, **kwargs: calls.append(kwargs) or 0
+    )
+    result = CliRunner().invoke(app, ["build", "driver", "cl", "--", "/c", "x.c"])
+    assert result.exit_code == 0, result.output
+    assert calls == [{"runtime": backend}]
+
+
+def test_driver_unshare_failure_has_no_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    from rebrew import cmake_tc
+    from rebrew.app.main import app
+    from rebrew.compiler.toolchain import ToolchainError
+
+    (tmp_path / "rebrew-project.toml").write_text(
+        '[compiler]\nprofile="msvc-6.0-sp5"\nexecution_backend="unshare"\n'
+    )
+    monkeypatch.chdir(tmp_path)
+
+    def fail(*_):
+        raise ToolchainError("user namespaces blocked", kind="invocation", name="msvc-6.0-sp5")
+
+    monkeypatch.setattr(cmake_tc, "_unshare_run", fail)
+    monkeypatch.setattr(cmake_tc, "_docker_run", lambda *_: pytest.fail("must not fall back"))
+    result = CliRunner().invoke(app, ["build", "driver", "cl", "--", "/c", "x.c"])
+    assert result.exit_code != 0
+    assert "user namespaces blocked" in result.output
+    assert result.exception is not None and isinstance(result.exception, SystemExit)

@@ -15,6 +15,7 @@ import typer
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import (
     EXIT_ERROR,
+    EXPECTED_DIGEST_HELP,
     TargetOption,
     console,
     error_exit,
@@ -148,8 +149,7 @@ def main(
         False,
         "--all-modules",
         help=(
-            "Rename the rows of every module bound to the definition, and every other "
-            "definition of the name"
+            "Rename every module's rows of this definition, and every other definition of the name"
         ),
     ),
     shared_definition: bool = typer.Option(
@@ -165,7 +165,7 @@ def main(
     expected_digest: str | None = typer.Option(
         None,
         "--expected-digest",
-        help="Require the input digest from a reviewed reference-ownership preview",
+        help=EXPECTED_DIGEST_HELP,
     ),
     comments: bool = typer.Option(
         False, "--comments", help="Also rewrite whole-word occurrences inside comments"

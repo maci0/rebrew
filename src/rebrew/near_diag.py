@@ -20,8 +20,10 @@ from rich.table import Table
 
 from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
 from rebrew.cli import (
+    SIZE_HELP,
     SOURCE_HELP,
     TargetOption,
+    all_items_option,
     console,
     error_exit,
     json_print,
@@ -359,13 +361,9 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(None, help=SOURCE_HELP + " (omit with --all)"),
-    all_funcs: bool = typer.Option(
-        False, "--all", help="Classify all NEAR_MATCHING functions; excludes SOURCE and --va"
-    ),
+    all_funcs: bool = all_items_option("NEAR_MATCHING function"),
     va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
-    size: int | None = typer.Option(
-        None, "--size", help="Target size in bytes (default: from metadata)"
-    ),
+    size: int | None = typer.Option(None, "--size", help=SIZE_HELP),
     fix_blocker: bool = typer.Option(
         False,
         "--fix-blocker",

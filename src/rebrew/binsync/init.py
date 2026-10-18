@@ -25,6 +25,7 @@ from rebrew.binsync.git import one_line, run_git
 from rebrew.binsync.repo import (
     ROOT_BRANCH,
     USER_CONFIG_KEY,
+    USER_HELP,
     is_binsync_repo,
     resolve_user,
     user_branch,
@@ -106,8 +107,7 @@ def main(
     user: str | None = typer.Option(
         None,
         "--user",
-        help="BinSync user rebrew writes as (branch binsync/<user>; default: "
-        "targets.<name>.binsync_user, else rebrew)",
+        help=USER_HELP,
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

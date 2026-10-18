@@ -103,9 +103,22 @@ def plan_registration(
                     row["fill"] = {"type": variables[anchor.name].type_str}
                 data_rows.append(row)
             else:
-                identity["symbol"] = str(
-                    entry.get("symbol") or derive_c_symbol(anchor.name, anchor.prototype)
-                )
+                from rebrew.rename_ops import c_name_from_symbol
+
+                stored_symbol = str(entry.get("symbol") or "")
+                derived = derive_c_symbol(anchor.name, anchor.prototype) if anchor.prototype else ""
+                # A stored decoration of this same C name follows the prototype.
+                # An empty parse keeps the stored symbol, and a symbol that names
+                # something else is not a calling-convention refresh.
+                if not stored_symbol or (
+                    derived
+                    and c_name_from_symbol(stored_symbol) == anchor.name
+                    and stored_symbol != derived
+                ):
+                    symbol = derived
+                else:
+                    symbol = stored_symbol
+                identity["symbol"] = symbol
                 function_rows.append(
                     {"module": anchor.module, "va": anchor.va, "identity": identity}
                 )

@@ -14,6 +14,7 @@ from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 from rebrew.config import ProjectConfig, inventory_path_for, target_module
 from rebrew.metadata.bindings import (
     SourceBinding,
+    iter_source_bindings,
     library_bindings_for_file,
     library_inventory_bindings,
     read_source_bindings,
@@ -352,11 +353,17 @@ def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:
 # ---------------------------------------------------------------------------
 
 
-def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> list[SourceBinding]:
+def scan_reversed_dir(
+    reversed_dir: Path,
+    cfg: ProjectConfig | None = None,
+    *,
+    inventory_only: bool = False,
+) -> list[SourceBinding]:
     """Scan source files and ``library_*.h`` headers under *reversed_dir*.
 
-    Supports multi-function files: a single source file may contain multiple
-    ``// FUNCTION:`` blocks, each generating a separate entry.
+    Supports multi-function files through stored identities or address anchors.
+    With *inventory_only*, metadata-backed files need no source parsing;
+    declaration consumers retain prototype and anchor validation by default.
 
     When *cfg* is provided, merges each directory's ``rebrew-functions.toml``
     metadata so that volatile fields (STATUS, CFLAGS, SIZE, BLOCKER, etc.)
@@ -367,16 +374,33 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     # Hoisted: `metadata_dir` re-derives its answer with a filesystem probe
     # per ancestor, and this loop runs once per source file.
     metadata_root = cfg.metadata_dir if cfg else reversed_dir
+    from rebrew.metadata.functions import load_metadata
+
+    metadata = load_metadata(metadata_root, deepcopy=False)
     tree = scan_files(reversed_dir)
-    for cfile in iter_sources(reversed_dir, cfg, scanned=tree):
-        parsed = read_source_bindings(
-            cfile,
-            target_name=target_module(cfg),
+    sources = iter_sources(reversed_dir, cfg, scanned=tree)
+    if inventory_only:
+        for _cfile, parsed in iter_source_bindings(
+            sources,
+            target=target_module(cfg),
             base_dir=reversed_dir,
             metadata_dir=metadata_root,
             project_root=cfg.root if cfg else None,
-        )
-        entries.extend(parsed)
+            inventory_only=True,
+            function_entries=metadata,
+        ):
+            entries.extend(parsed)
+    else:
+        for cfile in sources:
+            entries.extend(
+                read_source_bindings(
+                    cfile,
+                    target_name=target_module(cfg),
+                    base_dir=reversed_dir,
+                    metadata_dir=metadata_root,
+                    project_root=cfg.root if cfg else None,
+                )
+            )
 
     # Scan library_*.h files for LIBRARY bindings (CRT/zlib identifications).
     # `cfg` makes the scan include the project's shared root, which
@@ -384,15 +408,18 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     # Headers carry no target affinity in their path, so keep only rows of
     # this target's module (sources are scoped by read_source_bindings above).
     target_module_name = preset_module_key(target_module(cfg)) if cfg else ""
-    from rebrew.function_providers import bind_library_source, compiled_library_annotations
-    from rebrew.metadata.functions import load_metadata
+    from rebrew.function_providers import bind_compiled_source, compiled_source_annotations
 
-    metadata = load_metadata(cfg.metadata_dir, deepcopy=False) if cfg else {}
     for hfile in iter_library_headers(reversed_dir, cfg, scanned=tree):
-        parsed = library_bindings_for_file(hfile, metadata_dir=metadata_root)
+        parsed = library_bindings_for_file(
+            hfile,
+            metadata_dir=metadata_root,
+            function_entries=metadata,
+            inventory_only=inventory_only,
+        )
         if cfg:
             parsed = [
-                bind_library_source(cfg, entry, metadata.get((entry.module, entry.va), {}))
+                bind_compiled_source(cfg, entry, metadata.get((entry.module, entry.va), {}))
                 for entry in parsed
                 if not target_module_name
                 or preset_module_key(entry.module or "") in ("", target_module_name)
@@ -406,7 +433,9 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
 
     seen = {(entry.module, entry.va) for entry in entries}
     if cfg and metadata_root is not None:
-        for entry in library_inventory_bindings(metadata_root, reversed_dir):
+        for entry in library_inventory_bindings(
+            metadata_root, reversed_dir, function_entries=metadata
+        ):
             if (
                 not target_module_name
                 or preset_module_key(entry.module or "") in ("", target_module_name)
@@ -415,10 +444,10 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
                 entry.va,
             ) not in seen:
                 entries.append(
-                    bind_library_source(cfg, entry, metadata.get((entry.module, entry.va), {}))
+                    bind_compiled_source(cfg, entry, metadata.get((entry.module, entry.va), {}))
                 )
                 seen.add((entry.module, entry.va))
-        for entry in compiled_library_annotations(cfg, metadata=metadata):
+        for entry in compiled_source_annotations(cfg, metadata=metadata):
             if (entry.module, entry.va) not in seen:
                 entries.append(entry)
                 seen.add((entry.module, entry.va))

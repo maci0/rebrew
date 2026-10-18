@@ -18,9 +18,11 @@ _RICH_TAG = re.compile(
     re.IGNORECASE,
 )
 
-# Leaves whose commands only report state. Anything else is non-idempotent
-# unless named in _IDEMPOTENT: this tree does not accept an idempotency key,
-# so a retry is not declared safe.
+# Leaves whose commands only report state. A full path in _WRITING_PATHS
+# writes even when its leaf is in this set: the path is the command, not
+# the last word. Anything else is non-idempotent unless named in
+# _IDEMPOTENT. This tree does not accept an idempotency key, so a retry
+# is not declared safe.
 _READ_ONLY_LEAVES = frozenset(
     {
         "check",
@@ -51,6 +53,20 @@ _READ_ONLY_LEAVES = frozenset(
 # ``changed`` in JSON. Do not add a command here without that field.
 _IDEMPOTENT = frozenset({"cfg target remove", "cfg module remove"})
 
+# Full paths that write. Leaf classification called them read_only.
+# ``lint --fix`` and ``diff --fix-blocker`` edit metadata or source.
+# ``binary extract show`` writes a .bin file. ``binary asm show`` writes
+# when invoked as nasm --inline-c --output (the file, and the metadata
+# identity). ``binsync diff`` stays read_only: only the path ``diff`` writes.
+_WRITING_PATHS = frozenset(
+    {
+        "binary asm show",
+        "binary extract show",
+        "diff",
+        "lint",
+    }
+)
+
 # Commands that prompt on a terminal and refuse without one unless this flag
 # is set. The flag is also what JSON mode requires instead of prompting.
 _CONFIRMATION = {
@@ -67,9 +83,11 @@ _RETRY_NOTE = (
     " knowing whether the first run finished."
 )
 
-_GLOBAL_FLAGS = frozenset(
-    {"--help", "-h", "--version", "-V", "--verbose", "-v", "--quiet", "-q", "--json"}
-)
+_HELP_OPTS = frozenset({"--help", "-h"})
+# Copied onto every command by add_global_options, with expose_value left
+# false. A command that declares the same spelling keeps it: lint --quiet
+# suppresses warnings and changes the lint report, and is not this flag.
+_INJECTED_LOG_OPTS = frozenset({"--version", "-V", "--verbose", "-v", "--quiet", "-q"})
 
 
 def build_schema(root: typer.Typer, *, path: str | None = None) -> dict[str, Any]:
@@ -92,15 +110,11 @@ def build_schema(root: typer.Typer, *, path: str | None = None) -> dict[str, Any
                 "default": "auto",
                 "description": (
                     "Format selected before the subcommand. auto stays text,"
-                    " including when stdout is not a terminal. A command's own"
-                    " --output after the command name is a destination path."
+                    " including when stdout is not a terminal. json requests JSON."
+                    " A command's own --output after the command name is a destination path."
+                    " --json is an argument of the commands that declare it, and is"
+                    " rejected before the command. --output text wins over that --json."
                 ),
-            },
-            {
-                "name": "--json",
-                "type": "boolean",
-                "default": False,
-                "description": "Synonym for --output json. Ignored when --output text is set.",
             },
             {
                 "name": "--verbose",
@@ -186,14 +200,20 @@ def _walk(cmd: Any, prefix: str) -> list[tuple[str, Any]]:
     return found
 
 
-def _command(path: str, cmd: Any) -> dict[str, Any]:
-    leaf = path.rsplit(maxsplit=1)[-1]
+def _effects(path: str) -> str:
+    """What re-running *path* does. Writers are never reported as read_only."""
     if path in _IDEMPOTENT:
-        effects = "idempotent"
-    elif leaf in _READ_ONLY_LEAVES:
-        effects = "read_only"
-    else:
-        effects = "non_idempotent"
+        return "idempotent"
+    if path in _WRITING_PATHS:
+        return "non_idempotent"
+    leaf = path.rsplit(maxsplit=1)[-1]
+    if leaf in _READ_ONLY_LEAVES:
+        return "read_only"
+    return "non_idempotent"
+
+
+def _command(path: str, cmd: Any) -> dict[str, Any]:
+    effects = _effects(path)
     description = _plain(str(cmd.help or cmd.short_help or path)) or path
     if effects == "non_idempotent":
         description += _RETRY_NOTE
@@ -229,21 +249,36 @@ def _has_flag(cmd: Any, flag: str) -> bool:
     return any(flag in getattr(param, "opts", ()) for param in getattr(cmd, "params", ()))
 
 
+def _injected_log_flag(param: Any, opts: list[str]) -> bool:
+    """True when *param* is the umbrella log flag, not the command's own."""
+    if getattr(param, "expose_value", True):
+        return False
+    return any(opt in _INJECTED_LOG_OPTS for opt in opts)
+
+
 def _args(cmd: Any) -> list[dict[str, Any]]:
     rendered: list[dict[str, Any]] = []
     for param in getattr(cmd, "params", ()):
         opts = list(getattr(param, "opts", ()) or ())
-        if opts and opts[0] in _GLOBAL_FLAGS:
+        secondary = list(getattr(param, "secondary_opts", ()) or ())
+        if opts and all(opt in _HELP_OPTS for opt in opts):
             continue
-        if opts and opts[0] in {"--help", "-h"}:
+        if _injected_log_flag(param, opts):
             continue
         name = opts[0] if opts else (param.name or "arg")
-        if name in _GLOBAL_FLAGS:
-            continue
         spec: dict[str, Any] = {"name": name, "type": _arg_type(param)}
-        shorts = [opt for opt in opts[1:] if len(opt) == 2 and opt.startswith("-")]
+        shorts = [
+            opt
+            for opt in opts[1:]
+            if len(opt) == 2 and opt.startswith("-") and opt not in _HELP_OPTS
+        ]
         if shorts:
             spec["short"] = shorts[0]
+        negatives = [opt for opt in secondary if opt not in opts and opt not in _HELP_OPTS]
+        if len(negatives) == 1:
+            spec["negative"] = negatives[0]
+        elif negatives:
+            spec["negative"] = negatives
         if getattr(param, "required", False):
             spec["required"] = True
         default = _json_default(getattr(param, "default", None))

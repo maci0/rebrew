@@ -5,11 +5,11 @@
 ```bash
 rebrew doctor                           # toolchain/config health (run first on breakage)
 rebrew verify --summary                 # summary table with match %
-rebrew verify --json                    # bulk compile + diff all reversed functions
+rebrew verify --json                    # every function in the selected target; cache reused unless --no-cache
 rebrew verify --jobs 8 --output report.json       # parallel compile, save report
 rebrew verify --compare --json          # regressions vs last baseline
-rebrew verify --watch                   # re-verify on every file change
-rebrew verify --full --json             # ignore cache
+rebrew verify --watch                   # re-verify on file change; terminal only, rejects JSON output
+rebrew verify --no-cache --json         # recompile the selected functions
 rebrew lint src/bench/<file>.c       # lint one file (files are POSITIONAL)
 rebrew lint --json                      # annotation correctness
 rebrew lint --fix                       # drop W029-redundant cflags; source metadata tags are errors
@@ -31,7 +31,9 @@ rebrew build check-text-placement --built build/bench
 rebrew build check-data-placement --built build/bench
 ```
 
-`rebrew verify` syncs STATUS (SKIP preserved, PROVEN replaced by the byte result).
+`rebrew verify` checks every function in the selected target and reuses cached
+results. `--no-cache` recompiles those functions. There is no verify `--full`.
+It syncs STATUS (SKIP preserved, PROVEN replaced by the byte result).
 EXACT/RELOC clears BLOCKER unless the source still has `__asm`, `_asm`, or `__emit`
 (kept; lint W020). Exit 1 if any function fails. `passed` counts EXACT/RELOC only.
 
@@ -46,6 +48,11 @@ different bytes returns them to RELOC on the next verify; re-run the promotion.
 `rebrew source register <file> --support "<reason>"`; the purpose lives in
 `rebrew-source.toml`.
 
+`verify --data` and `verify --whole-binary` inspect existing images without a
+function scan, compiler runner, or function cache/baseline writes. Add
+`--functions` for combined checks; `--text` and explicit source scopes retain
+function verification. JSON reports `functions_checked` separately.
+
 `verify --data` reports comparisons but suppresses all stored data verdict and
 evidence writes unless `--raw-link` acknowledges the built image, or configured
 `raw_link` selects it. Existing stored verdicts remain unchanged without that
@@ -57,8 +64,10 @@ For an explicitly requested rootless experiment, use
 Unshare requires unprivileged Linux x86_64, rootless overlayfs, cc/pkg-config/json-c
 and a prepared 32-bit MSVC/Wine image. It has no automatic fallback, persistent
 Wine worker, seccomp policy or cgroup limits. Ordinary projects keep the default
-container backend. CMake build drivers still use `REBREW_CONTAINER_RUNTIME`;
-the project key currently controls verification/test/diff/matching compiles.
+container backend. CMake CL/LINK/LIB drivers honor the project-level backend;
+per-target backend overrides apply to verification/test/diff/matching compiles.
+Native image preparation seeds a Wine prefix once, while each invocation keeps
+its own writable overlay and private cache directories.
 
 ## Coverage / interchange
 
@@ -124,3 +133,5 @@ only eligible targets, with explicit skip reasons. FILE must be an existing
 current-directory-relative or absolute path, including with `verify --root`.
 Malformed target inputs fail independently; an entirely unbound scope fails.
 Use `--all-targets` when an absent binding should itself be an error.
+`--all-targets` excludes `--target`. `--source-targets` excludes `--target`
+and `--all-targets`.

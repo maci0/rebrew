@@ -730,6 +730,41 @@ def relocation_binding_evidence(
     return evidence
 
 
+def binding_evidence_current(evidence: object, name_to_va: dict[str, int]) -> bool:
+    """True when every recorded operand still resolves to its stored ``bound_va``.
+
+    ``check_known_bindings`` serves a verify-cache row only with this proof.
+    The list must be present; an empty list means the verdict had no operands.
+    Each row needs a symbol. The stored VA is compared with
+    ``_resolve_exact_then_stripped``, the lookup that recorded it. A missing
+    ``bound_va`` is a recorded unresolved binding when ``status`` is
+    ``UNRESOLVED`` or ``IAT_POLICY``, because the cache TOML drops nulls.
+    Any other gap fails closed, including a mask or unsupported row that
+    never stored a VA. Native operand bytes are not read; callers must also
+    validate the cached binary and compile-input identities.
+    """
+    if not isinstance(evidence, list):
+        return False
+
+    for row in evidence:
+        if not isinstance(row, dict):
+            return False
+        symbol = row.get("symbol")
+        if not isinstance(symbol, str) or not symbol:
+            return False
+        if "bound_va" in row:
+            recorded = row["bound_va"]
+            if recorded is not None and type(recorded) is not int:
+                return False
+        elif row.get("status") in {"UNRESOLVED", "IAT_POLICY"}:
+            recorded = None
+        else:
+            return False
+        if _resolve_exact_then_stripped(name_to_va, symbol) != recorded:
+            return False
+    return True
+
+
 def refresh_binding_evidence(
     evidence: list[dict[str, Any]],
     target_bytes: bytes,

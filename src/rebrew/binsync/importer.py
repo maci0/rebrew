@@ -60,6 +60,7 @@ from rebrew.binsync.state import (
     type_aliases,
 )
 from rebrew.cli import (
+    CREATE_MISSING_HELP,
     EXIT_MISMATCH,
     TargetOption,
     console,
@@ -574,7 +575,7 @@ def main(
     create_missing: bool = typer.Option(
         False,
         "--create-missing",
-        help="Create STUB files for BinSync functions not in the project catalog",
+        help=CREATE_MISSING_HELP,
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

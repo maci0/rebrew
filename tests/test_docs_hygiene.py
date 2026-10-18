@@ -215,7 +215,8 @@ def test_performance_doc_command_counts_match_the_sweeps() -> None:
         sweeps[node.targets[0].id] = [str(ast.literal_eval(e)) for e in node.value.elts]
     prose = (ROOT / "docs" / "PERFORMANCE.md").read_text(encoding="utf-8")
 
-    quoted = re.findall(r"\b(\d+|\w+) (?:mutating )?commands\b", prose)
+    idempotency = prose.partition("## Idempotency\n")[2].split("\n## ", 1)[0]
+    quoted = re.findall(r"\b(\d+|\w+) (?:mutating )?commands\b", idempotency)
     assert [int(n) if n.isdigit() else _NUMBER_WORDS.index(n) for n in quoted] == [
         len(sweeps["DEFAULT_COMMANDS"]),
         len(sweeps["WRITE_COMMANDS"]),

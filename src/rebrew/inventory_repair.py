@@ -3,7 +3,15 @@
 import typer
 
 from rebrew.catalog.inventory import repair_inventory_extents
-from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.cli import (
+    EXPECTED_DIGEST_HELP,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    parse_va,
+    require_config,
+)
 
 app = typer.Typer(
     help="Repair native inventory extents or explicitly admit reviewed missing entries.",
@@ -21,7 +29,7 @@ def main(
     specifications: list[str] = typer.Argument(..., help="Native 0xVA=SIZE repairs"),
     reason: str = typer.Option(..., "--reason", help="Reviewed native boundary evidence"),
     expected_digest: str | None = typer.Option(
-        None, "--expected-digest", help="Require the input digest from a reviewed preview"
+        None, "--expected-digest", help=EXPECTED_DIGEST_HELP
     ),
     add_missing: bool = typer.Option(
         False, "--add-missing", help="Explicitly admit reviewed functions absent from the inventory"

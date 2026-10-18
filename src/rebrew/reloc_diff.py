@@ -31,6 +31,7 @@ import typer
 from rich.markup import escape
 
 from rebrew.cli import (
+    BUILT_IMAGE_HELP,
     EXIT_MISMATCH,
     TargetOption,
     console,
@@ -255,9 +256,7 @@ def _print_sites(title: str, rows: list[dict[str, Any]], limit: int) -> None:
 
 @app.callback(invoke_without_command=True)
 def main(
-    built: Path | None = typer.Option(
-        None, "--built", help="Built image to compare (default: build/<target>)"
-    ),
+    built: Path | None = typer.Option(None, "--built", help=BUILT_IMAGE_HELP),
     link_map: Path | None = typer.Option(
         None,
         "--link-map",

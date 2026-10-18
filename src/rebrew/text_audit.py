@@ -1,13 +1,8 @@
-"""text-audit — post-edit check: compare .text function VAs vs the markers.
+"""Compare linked .text function addresses against the source bindings.
 
-The linked ``.text`` section is the concatenation of per-TU contributions in
-link order.  After editing sources, this command walks the link's object
-files (objdump on each obj, in link order), computes every function's current
-``.text`` VA, and compares it against the ``// FUNCTION:`` marker VA in the
-sources.  Misplaced functions mean the object order or a TU's own layout
-drifted — the position-alignment gate ``postlink`` assumes but never checks.
-When objects are unavailable, actual VAs fall back to exported-symbol lookup
-on the built binary.
+The built image's sibling MSVC map takes precedence over object contributions:
+linker retention and archive extraction can change the actual placement. Without
+a map, retain the object-walk estimate and exported-symbol fallback.
 
 Usage:
     rebrew build check-text-placement [--built build/<target>] [--limit 15] [--json]
@@ -15,12 +10,14 @@ Usage:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import typer
 
 from rebrew.cli import (
+    BUILT_IMAGE_HELP,
     EXIT_MISMATCH,
     TargetOption,
     console,
@@ -32,6 +29,9 @@ from rebrew.cli import (
 )
 from rebrew.data_layout import built_text_va
 from rebrew.verify_hash import expected_text_functions as _expected_functions
+
+if TYPE_CHECKING:
+    from rebrew.data_ownership import LinkSymbol
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -81,18 +81,35 @@ def exported_symbol_vas(binary: Path) -> dict[str, int]:
     return out
 
 
-def collect_actual_vas(root: Path, binary: Path) -> dict[str, int]:
-    """``{symbol: .text VA}`` of the current build, in link order.
+def map_function_vas(symbols: Iterable[LinkSymbol]) -> dict[str, int]:
+    """C function names and linked VAs from the parsed MSVC map."""
+    from rebrew.rename_ops import c_name_from_symbol
 
-    Walks the link's object files (objdump, link order) onto the built
-    binary's ``.text`` base VA.  Falls back to exported-symbol lookup on the
-    built binary when no objects are inventoried (raises on objdump errors —
-    same as ``verify-placement``: a partial walk reports wrong VAs instead
-    of honest MISSING rows).
+    actual: dict[str, int] = {}
+    for symbol in symbols:
+        if symbol.is_function:
+            actual.setdefault(c_name_from_symbol(symbol.name), symbol.va)
+    return actual
+
+
+def collect_actual_vas(root: Path, binary: Path) -> dict[str, int]:
+    """``{symbol: .text VA}`` from the sibling map, then objects or exports.
+
+    A present map is authoritative even when it has no matching functions.
+    The object fallback estimates placement by concatenating contributions;
+    missing objects fall back to exports. Read failures remain errors.
     """
     from rebrew.data_layout import link_objects, obj_text_symbol_offsets
 
     text_base = built_text_va(binary)
+    link_map = binary.with_suffix(".map")
+    if link_map.is_file():
+        from rebrew.data_ownership import parse_link_map
+
+        return map_function_vas(
+            parse_link_map(link_map.read_text(encoding="utf-8", errors="replace"))
+        )
+
     try:
         objects = link_objects(root)
     except FileNotFoundError:
@@ -158,7 +175,7 @@ def main(
     built: Path | None = typer.Option(
         None,
         "--built",
-        help="Built binary to inspect (default: build/<target>)",
+        help=BUILT_IMAGE_HELP,
     ),
     limit: int = typer.Option(15, "--limit", help="Max misplaced functions to print (0 = none)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -209,7 +226,7 @@ def main(
                 )
             else:
                 console.print(f"  {r['symbol']:32} exp {r['expected']}  MISSING from build")
-    if n_bad:
+    if n_bad or n_missing:
         raise typer.Exit(code=EXIT_MISMATCH)
 
 

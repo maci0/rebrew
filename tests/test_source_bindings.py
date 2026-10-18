@@ -26,6 +26,16 @@ def _record(root: Path, module: str, va: int, file: str, name: str, size: int = 
 
 
 class TestSourceBindings:
+    def test_invalid_anchor_reports_source_path(self, tmp_path: Path) -> None:
+        source = tmp_path / "misplaced.c"
+        source.write_text("// ADDRESS: S 0x1000\n#include <string.h>\nint f(void) { return 1; }\n")
+
+        with pytest.raises(ValueError, match="address must precede") as error:
+            read_source_bindings(source, metadata_dir=tmp_path)
+
+        assert str(source) in str(error.value)
+        assert "line 1" in str(error.value)
+
     def test_metadata_only_and_anchored_definitions_coexist(self, tmp_path: Path) -> None:
         source = tmp_path / "both.c"
         source.write_text(
@@ -145,6 +155,46 @@ class TestRegistration:
         assert "fields" not in functions[0]
         assert data == []
         assert not (tmp_path / "rebrew-functions.toml").exists()
+
+    def test_registration_refreshes_matching_calling_convention(self, tmp_path: Path) -> None:
+        from rebrew.metadata.functions import save_metadata
+
+        source = tmp_path / "main.c"
+        source.write_text(
+            "/* ADDRESS: S 0x1000 */\n"
+            "int __stdcall main(void *instance, void *previous, char *command, int show)\n"
+            "{ return 0; }\n"
+            "/* ADDRESS: S 0x1004 */\n"
+            "int other(void) { return 1; }\n"
+        )
+        save_metadata(
+            tmp_path,
+            {
+                ("S", 0x1000): {
+                    "file": "main.c",
+                    "name": "main",
+                    "symbol": "_main",
+                    "kind": "FUNCTION",
+                },
+                ("S", 0x1004): {
+                    "file": "main.c",
+                    "name": "other",
+                    "symbol": "_holdrand",
+                    "kind": "FUNCTION",
+                },
+            },
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            metadata_dir=tmp_path,
+            target_modules={"S"},
+            library_modules=set(),
+            external_libs={},
+        )
+        functions, _data = plan_registration(cfg, [source])
+        symbols = {row["va"]: row["identity"]["symbol"] for row in functions}
+        assert symbols[0x1000] == "_main@16"
+        assert symbols[0x1004] == "_holdrand"
 
     def test_duplicate_address_different_definitions_refuses_before_writes(
         self, tmp_path: Path

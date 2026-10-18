@@ -12,6 +12,8 @@ from typing import Any
 import typer
 
 from rebrew.cli import (
+    EXPECTED_DIGEST_HELP,
+    MIN_TABLE_LEN_HELP,
     AllTargetsOption,
     TargetOption,
     all_targets_run,
@@ -878,7 +880,7 @@ def set_data(
         help="Set a global's free-text note: 0xVA=TEXT (repeatable); keeps its verdict",
     ),
     expected_digest: str | None = typer.Option(
-        None, "--expected-digest", help="Require the complete input digest from a reviewed preview"
+        None, "--expected-digest", help=EXPECTED_DIGEST_HELP
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -1026,7 +1028,7 @@ def dispatch(
     min_table_len: int = typer.Option(
         3,
         "--min-table-len",
-        help="Minimum number of entries to qualify as a dispatch table",
+        help=MIN_TABLE_LEN_HELP,
     ),
     max_pointer_stride: int = typer.Option(
         4,

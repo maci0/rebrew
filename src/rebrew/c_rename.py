@@ -288,6 +288,7 @@ class Definition:
     kind: str  # "function" or "variable"
     static: bool
     line: int
+    definitely_inactive: bool = False
 
 
 def _walk(node: Any) -> Iterator[Any]:
@@ -296,6 +297,23 @@ def _walk(node: Any) -> Iterator[Any]:
         current = stack.pop()
         yield current
         stack.extend(reversed(current.children))
+
+
+def _definitely_inactive(src: ParsedSource, node: Any) -> bool:
+    """Recognize literal-zero branches; retain unknown or malformed conditions."""
+    while node.parent is not None:
+        parent = node.parent
+        if parent.type in {"preproc_if", "preproc_elif"} and not parent.has_error:
+            condition = parent.child_by_field_name("condition")
+            if (
+                condition is not None
+                and condition.type == "number_literal"
+                and src.node_text(condition) == "0"
+                and node != parent.child_by_field_name("alternative")
+            ):
+                return True
+        node = parent
+    return False
 
 
 def definitions(src: ParsedSource, name: str) -> list[Definition]:
@@ -315,6 +333,7 @@ def definitions(src: ParsedSource, name: str) -> list[Definition]:
                         "function",
                         "static" in _storage_classes(node, src),
                         src.line_col(node.start_byte)[0],
+                        definitely_inactive=_definitely_inactive(src, node),
                     )
                 )
         elif node.type == "declaration" and _at_file_scope(node):
@@ -327,7 +346,10 @@ def definitions(src: ParsedSource, name: str) -> list[Definition]:
                 if declarator_name(declarator, src) == name:
                     found.append(
                         Definition(
-                            "variable", "static" in storage, src.line_col(node.start_byte)[0]
+                            "variable",
+                            "static" in storage,
+                            src.line_col(node.start_byte)[0],
+                            definitely_inactive=_definitely_inactive(src, node),
                         )
                     )
     return found
@@ -363,6 +385,114 @@ def non_external_function_declarations(src: ParsedSource, name: str) -> list[int
             or "static" in _storage_classes(node, src)
         )
     ]
+
+
+def _declarator_name_span(declarator: Any, src: ParsedSource, name: str) -> tuple[int, int] | None:
+    """Byte span of the identifier *declarator* declares, ignoring parameters."""
+    if declarator is None:
+        return None
+    stack = [declarator]
+    while stack:
+        node = stack.pop()
+        if node.type == "parameter_list":
+            continue
+        if node.type == "identifier" and src.node_text(node) == name:
+            return node.start_byte, node.end_byte
+        stack.extend(node.children)
+    return None
+
+
+def _collect_parameter_names(declarator: Any, src: ParsedSource, local: set[str]) -> None:
+    if declarator is None:
+        return
+    stack = [declarator]
+    while stack:
+        part = stack.pop()
+        if part.type == "parameter_declaration":
+            parameter = declarator_name(part.child_by_field_name("declarator"), src)
+            if parameter:
+                local.add(parameter)
+        else:
+            stack.extend(part.children)
+
+
+def _function_binding_spans(src: ParsedSource, name: str) -> set[tuple[int, int]]:
+    """Spans where *name* is the external function, not a local or parameter.
+
+    File-scope and block-scope variables and parameters hide the function.
+    Static and external function declarators stay visible: a call in the same
+    file still names that function. The walk matches ``find_variable_roles``.
+    """
+    spans: set[tuple[int, int]] = set()
+
+    def walk(node: Any, shadows: set[str]) -> None:
+        if node.type.startswith("preproc_"):
+            if node.type in {"preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif"}:
+                blocked = {
+                    node.child_by_field_name("condition"),
+                    node.child_by_field_name("name"),
+                }
+                for child in node.named_children:
+                    if child not in blocked:
+                        walk(child, shadows)
+            return
+        if node.type == "function_definition":
+            local = set(shadows)
+            declarator = node.child_by_field_name("declarator")
+            _collect_parameter_names(declarator, src, local)
+            if declarator_name(declarator, src) == name:
+                span = _declarator_name_span(declarator, src, name)
+                if span is not None:
+                    spans.add(span)
+            body = node.child_by_field_name("body")
+            if body is not None:
+                walk(body, local)
+            return
+        if node.type in {"compound_statement", "for_statement"}:
+            local = set(shadows)
+            for child in node.named_children:
+                walk(child, local)
+            return
+        if node.type == "declaration":
+            storage = _storage_classes(node, src)
+            for declarator in node.children_by_field_name("declarator"):
+                declared = declarator_name(declarator, src)
+                if _declares_function(declarator):
+                    if declared == name and "static" not in storage:
+                        span = _declarator_name_span(declarator, src, name)
+                        if span is not None:
+                            spans.add(span)
+                elif declared and "extern" not in storage:
+                    shadows.add(declared)
+                value = declarator.child_by_field_name("value")
+                if value is not None:
+                    walk(value, shadows)
+            return
+        if node.type == "identifier" and src.node_text(node) == name and name not in shadows:
+            spans.add((node.start_byte, node.end_byte))
+            return
+        for child in node.named_children:
+            walk(child, shadows)
+
+    walk(src.tree.root_node, set())
+    return spans
+
+
+def function_reference_occurrences(src: ParsedSource, name: str) -> list[Occurrence]:
+    """Uses and declarations of the external function *name*.
+
+    Comments, string literals, and bindings shadowed by a variable or parameter
+    are not references. Macro bodies and tokens the grammar did not split,
+    including MSVC assembly operands preserved at their original offsets, stay
+    references because their target is unknown.
+    """
+    bound = _function_binding_spans(src, name)
+    found: dict[tuple[int, int], Occurrence] = {}
+    for occurrence in occurrences(src, name):
+        key = (occurrence.start, occurrence.end)
+        if occurrence.role in {ROLE_MACRO, ROLE_CODE} or key in bound:
+            found[key] = occurrence
+    return [found[key] for key in sorted(found)]
 
 
 # ---------------------------------------------------------------------------

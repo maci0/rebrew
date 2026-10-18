@@ -25,7 +25,7 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.cli import TargetOption, console, json_print, untrusted_ident
+from rebrew.cli import MIN_STRING_LEN_HELP, TargetOption, console, json_print, untrusted_ident
 from rebrew.config import load_config
 
 logger = logging.getLogger(__name__)
@@ -710,7 +710,7 @@ def main(
         None,
         help="Binary path (required when no project is present; default: project target binary)",
     ),
-    min_len: int = typer.Option(4, "--min-len", help="Minimum string length to report"),
+    min_len: int = typer.Option(4, "--min-len", help=MIN_STRING_LEN_HELP),
     top_strings: int = typer.Option(
         10, "--top-strings", help="How many most-referenced strings to list"
     ),

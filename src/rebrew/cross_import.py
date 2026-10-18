@@ -273,7 +273,7 @@ def import_size(dst_size: int, src_code: bytes | None) -> int:
     The destination's registry size is whatever the tree last recorded, and a
     skeleton from an earlier round can leave it stale.  Verifying only that
     prefix reports a false ``EXACT MATCH``: the import succeeds, and the next
-    ``rebrew verify --full`` flags ``SIZE_MISMATCH`` (guild-rebrew round 1412 —
+    ``rebrew verify --no-cache`` flags ``SIZE_MISMATCH`` (guild-rebrew round 1412 —
     GOLD 0x00449d80 claimed 23 bytes while the body is 25, carried over from
     the superseded stub).  Never claim less than the body the matcher matched;
     a destination that really is shorter then fails verification and the stack
@@ -1310,7 +1310,7 @@ def main(
         False,
         "--promote",
         help="Move the source file into src/shared (preserving relative path) "
-        "without importing — the manual step before --shared",
+        "without importing, the manual step before --shared",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     candidates_only: bool = typer.Option(

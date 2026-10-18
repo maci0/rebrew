@@ -42,6 +42,8 @@ import typer
 
 from rebrew.analysis import Insn
 from rebrew.cli import (
+    CFLAGS_HELP,
+    SIZE_HELP,
     SOURCE_HELP,
     TargetOption,
     console,
@@ -796,8 +798,8 @@ def main(
     ),
     va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
     symbol: str | None = typer.Option(None, "--symbol", help="COFF symbol (e.g. _funcname)"),
-    size: int | None = typer.Option(None, "--size", help="Size in bytes"),
-    cflags: str | None = typer.Option(None, "--cflags", help="Compiler flags"),
+    size: int | None = typer.Option(None, "--size", help=SIZE_HELP),
+    cflags: str | None = typer.Option(None, "--cflags", help=CFLAGS_HELP),
     passes: int = typer.Option(1, "--passes", help="Sweeps of adjacent statement swaps"),
     objective: Literal["positional", "aligned"] = typer.Option(
         "positional",

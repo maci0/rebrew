@@ -48,7 +48,7 @@ copy.
   projects; warns on multi-target projects when `shared_dir` is disabled or
   the directory is missing (fix points at `mkdir` + `--shared`).
 - Compiling a file under the shared root adds the shared root to the
-  include path (docker path via `_effective_compile_flags`, raw matcher
+  include path (docker path via `effective_compile_flags`, raw matcher
   path alongside defines), so a nested shared file finds root-level shared
   headers by bare name. Joins the flags so the compile-cache key tracks it.
 - `rebrew cmake-flags` collects shared sources (via `iter_sources`, which

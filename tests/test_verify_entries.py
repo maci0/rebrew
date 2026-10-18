@@ -29,7 +29,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
 
 
 def _patch(monkeypatch: pytest.MonkeyPatch, entries: list[SourceBinding]) -> None:
-    monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None: entries)
+    monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None, **_kw: entries)
     monkeypatch.setattr(verify_mod, "cached_function_list", lambda _cfg: [])
     monkeypatch.setattr(verify_mod, "build_function_registry", lambda *a, **k: {})
     monkeypatch.setattr(verify_mod, "count_detection_sources", lambda r: (0, 0, 0, 0))
@@ -41,6 +41,34 @@ def _patch(monkeypatch: pytest.MonkeyPatch, entries: list[SourceBinding]) -> Non
 
 
 class TestPrepareEntries:
+    @pytest.mark.parametrize(
+        ("convention", "symbol"),
+        [("__stdcall", "_hook@4"), ("__fastcall", "@hook@4"), ("__vectorcall", "hook@@4")],
+    )
+    def test_inventory_without_symbol_preserves_calling_convention(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        convention: str,
+        symbol: str,
+    ) -> None:
+        scan = verify_mod.scan_reversed_dir
+        cfg = _cfg(tmp_path)
+        cfg.module = "GAME"
+        cfg.reversed_dir.mkdir()
+        cfg.target_binary.write_bytes(b"MZ")
+        write_source(
+            cfg.reversed_dir / "hook.c",
+            f"int {convention} hook(int x) {{ return x; }}\n",
+            metadata_fields={"GAME.0x1000": {"symbol": "", "size": 8}},
+            metadata_dir=tmp_path,
+        )
+        _patch(monkeypatch, [])
+        monkeypatch.setattr(verify_mod, "scan_reversed_dir", scan)
+        entries, *_rest = verify_mod.prepare_entries(cfg, full=True, json_output=False)
+        assert len(entries) == 1
+        assert verify_mod._entry_symbol(entries[0]) == symbol
+
     @pytest.mark.parametrize("reverse", [False, True])
     @pytest.mark.parametrize("marker,filepath", [("FUNCTION", "bound.c"), ("LIBRARY", "bound.h")])
     def test_managed_source_binding_wins_over_duplicate(
@@ -236,7 +264,7 @@ class TestPrepareEntriesCache:
         self._entry = entry
         f = src / entry.filepath
         f.write_text("int f(void) { return 0; }\n", encoding="utf-8")
-        monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None: [entry])
+        monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None, **_kw: [entry])
         monkeypatch.setattr(verify_mod, "cached_function_list", lambda _cfg: [])
         monkeypatch.setattr(verify_mod, "build_function_registry", lambda *a, **k: {})
         monkeypatch.setattr(verify_mod, "count_detection_sources", lambda r: (0, 0, 0, 0))
@@ -895,7 +923,7 @@ def test_verify_entry_survives_a_raising_logger(
     Regression: the diff_lines/similarity handlers logged ``result.va``, an
     attribute ``CompareResult`` does not have, so every function that reached
     those blocks raised out of a guard whose entire purpose is to swallow
-    failures.  ``rebrew verify --full`` reported 31/283 instead of 281/283 on
+    failures.  ``rebrew verify --no-cache`` reported 31/283 instead of 281/283 on
     a tree with no source change.  Best-effort has to include its own
     diagnostics.
     """

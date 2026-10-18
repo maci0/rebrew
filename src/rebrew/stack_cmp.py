@@ -130,7 +130,7 @@ _EPILOG = (
     "  rebrew diagnose stack src/game/my_func.c  # Compare frame vs target\n\n"
     "  rebrew diagnose stack 0x10009310  # Resolve VA to its source\n\n"
     "  rebrew diagnose stack src/game/my_func.c --json  # JSON output\n\n"
-    "[dim]Derives the frame from disassembly on both sides (no PDB needed — works for MSVC 6.0 classic PDBs llvm-pdbutil cannot read).  A frame delta is a per-function flag symptom (/Oy, /O1 vs /O2, /Gs, calling convention).[/dim]\n\n"
+    "[dim]Derives the frame from disassembly on both sides (no PDB needed; works for MSVC 6.0 classic PDBs llvm-pdbutil cannot read).  A frame delta is a per-function flag symptom (/Oy, /O1 vs /O2, /Gs, calling convention).[/dim]\n\n"
     "Exit codes: 0 frames match; 1 frame mismatch; 2 usage/config/build error; 130 interrupted; 141 output pipe closed."
 )
 

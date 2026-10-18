@@ -226,7 +226,9 @@ def test_function_catalog_scan_is_marker_scoped(
     monkeypatch.setattr(
         data_mod,
         "scan_globals",
-        lambda _dir, _cfg, *, record_roles: SimpleNamespace(data_annotations=[], globals={}),
+        lambda _dir, _cfg, *, record_roles, fact_cache, facts_out: SimpleNamespace(
+            data_annotations=[], globals={}
+        ),
     )
     monkeypatch.setattr(dm_mod, "load_data_metadata", lambda _dir: {})
 

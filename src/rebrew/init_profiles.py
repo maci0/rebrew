@@ -685,12 +685,12 @@ MSVC_CONSTRAINTS = """- **C89 only**: no `for(int i=...)`, declare all variables
 - **Comments in code**: use `/* */` (C89). Do not add a `// FUNCTION:` line; identity is a `MODULE.0xVA` row
 - **Symbol decoration**: `_func` for `__cdecl`, `_func@N` for `__stdcall`
 - **No `/GS`** (buffer security), no `__declspec(noinline)`
-- **Execution**: all CL.EXE/LINK.EXE calls run inside the toolchain's docker image (wine lives in the image; there is no host wine/wibo fallback)"""
+- **Execution**: CL.EXE/LINK.EXE use the pinned toolchain image via the configured docker, podman or experimental unshare backend; no host wine/wibo fallback"""
 
 MSVC7_CONSTRAINTS = """- **C99 subset**: `for(int i=...)` OK, `//` comments OK
 - **Symbol decoration**: `_func` for `__cdecl`, `_func@N` for `__stdcall`
 - **Supports `/fp:*`** (floating point model) and `/GS-` (buffer security)
-- **Execution**: all CL.EXE/LINK.EXE calls run inside the toolchain's docker image (wine lives in the image; there is no host wine/wibo fallback)"""
+- **Execution**: CL.EXE/LINK.EXE use the pinned toolchain image via the configured docker, podman or experimental unshare backend; no host wine/wibo fallback"""
 
 GCC_CONSTRAINTS = """- **C99/C11**: standard modern C
 - **Symbol decoration**: no leading underscore on Linux

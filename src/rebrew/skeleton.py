@@ -38,6 +38,7 @@ from rebrew.cli import (
     console,
     error_exit,
     json_print,
+    option_default,
     parse_va,
     require_config,
 )
@@ -1462,13 +1463,25 @@ def _run_single_va_mode(
 
 @app.callback(invoke_without_command=True)
 def main(
-    va: str | None = typer.Argument(None, help="Function VA in hex (e.g. 0x10003da0)"),
-    name: str | None = typer.Option(None, "--name", help="Custom function name"),
+    va: str | None = typer.Argument(
+        None, help="Function VA in hex (e.g. 0x10003da0). Excludes --batch."
+    ),
+    name: str | None = typer.Option(None, "--name", help="Custom function name. Excludes --batch."),
     output: str | None = typer.Option(
-        None, "--output", "-o", help="Output file path", click_type=TyperPath(path_type=str)
+        None,
+        "--output",
+        "-o",
+        help="Output file path. Excludes --batch.",
+        click_type=TyperPath(path_type=str),
     ),
     batch: int | None = typer.Option(
-        None, "--batch", min=0, help="Generate N skeletons (smallest first; 0 generates none)"
+        None,
+        "--batch",
+        min=0,
+        help=(
+            "Generate N skeletons (smallest first; 0 generates none). "
+            "Excludes a function VA, --name, --output, and --append."
+        ),
     ),
     skip_fragments: bool = typer.Option(
         False,
@@ -1482,7 +1495,7 @@ def main(
     append: str | None = typer.Option(
         None,
         "--append",
-        help="Append function to an existing .c file (multi-function file)",
+        help="Append function to an existing .c file (multi-function file). Excludes --batch.",
         click_type=TyperPath(path_type=str),
     ),
     decomp: bool = typer.Option(False, "--decomp", help="Embed decompilation in skeleton"),
@@ -1512,6 +1525,23 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Generate .c skeleton files for uncovered target binary functions."""
+    if option_default(batch, None) is not None:
+        clashes: list[str] = []
+        if isinstance(va, str):
+            clashes.append("a function VA")
+        for raw, flag in (
+            (name, "--name"),
+            (output, "--output"),
+            (append, "--append"),
+        ):
+            if isinstance(option_default(raw, None), str):
+                clashes.append(flag)
+        if clashes:
+            error_exit(
+                "--batch cannot be combined with " + ", ".join(clashes),
+                json_mode=option_default(json_output, False),
+                code=EXIT_ERROR,
+            )
     # --decomp-body is meaningless without --decomp: the body option only
     # changes how the decompiled C is embedded, and without a decompiler
     # pass the user gets a silent no-op stub.  Fail loudly instead of

@@ -1300,6 +1300,38 @@ class TestE023NakedAsm:
         msg = next(m for _, c, m in result.errors if c == "E023")
         assert "naked" in msg.lower()
 
+    @pytest.mark.parametrize(
+        ("assembly", "is_error"),
+        [
+            ("__asm {\n push esi\n mov eax, 1\n ret\n}", True),
+            ("__asm {\n ret\n}", True),
+            ("__asm {\nLgo:\n mov eax, 1\n jmp Lgo\n}", True),
+            ("__asm {\n nop\n mov eax, 1\n}", True),
+            ("__asm {\n nop\n nop\n nop\n}", True),
+            ("__asm\n{\n ret\n}", True),
+            ("__asm {\n nop\n}", False),
+            ("__asm {\n nop\n int 3\n}", False),
+            ("__asm {\n /* mov eax, 1 */\n nop ; assembly comment\n}", False),
+            ("__asm {\n _emit 0x90\n __emit 0xCC\n}", False),
+            ("__asm {\n jmp Lnop\n}", True),
+            ("__asm { nop } return;", False),
+            ("__asm { nop } __asm { nop }", False),
+            ("__asm { nop } __asm { nop } __asm { nop }", True),
+            ("_asm {\n ret\n}", True),
+        ],
+    )
+    def test_multiline_asm_block_instructions(
+        self, tmp_path: Path, assembly: str, is_error: bool
+    ) -> None:
+        body = "__declspec(naked) void f(void) {\n" + assembly + "\n}\n"
+        result = self._lint(tmp_path, body)
+        assert any(code == "E023" for _, code, _ in result.errors) is is_error
+
+    def test_c_statements_outside_padding_block_are_not_assembly(self, tmp_path: Path) -> None:
+        body = "__declspec(naked) void f(int value) {\n (void)value;\n __asm {\n nop\n }\n return;\n}\n"
+        result = self._lint(tmp_path, body)
+        assert not any(code == "E023" for _, code, _ in result.errors)
+
     def test_whole_function_naked_emit_is_error(self, tmp_path: Path) -> None:
         body = "__declspec(naked) int f(void) {\n    __asm {\n        _emit 0x55\n        _emit 0x8b\n        _emit 0xc3\n    }\n}\n"
         result = self._lint(tmp_path, body)
@@ -1326,8 +1358,8 @@ class TestE023NakedAsm:
         result = self._lint(tmp_path, body)
         assert not any(c == "E023" for _, c, _ in result.errors)
 
-    def test_metadata_cflags_rebrew_allow_naked_skips_e023(self, tmp_path: Path) -> None:
-        """REBREW_ALLOW_NAKED in rebrew-functions.toml (not source) suppresses E023."""
+    def test_metadata_cflags_rebrew_allow_naked_keeps_e023(self, tmp_path: Path) -> None:
+        """A compile switch does not establish original assembly provenance."""
         metadata_toml = tmp_path / "rebrew-functions.toml"
         write_store_fixture(
             metadata_toml,
@@ -1340,10 +1372,28 @@ class TestE023NakedAsm:
         )
         f = _write_c(tmp_path, "naked.c", content)
         result = lint_file(f)
-        assert not any(c == "E023" for _, c, _ in result.errors), (
-            f"E023 must not fire when metadata cflags carry /DREBREW_ALLOW_NAKED, "
+        assert any(c == "E023" for _, c, _ in result.errors), (
+            f"E023 must still fire when metadata cflags carry /DREBREW_ALLOW_NAKED, "
             f"got errors={result.errors}"
         )
+
+    def test_source_guard_does_not_authorize_naked_reconstruction(self, tmp_path: Path) -> None:
+        body = (
+            "#ifdef REBREW_ALLOW_NAKED\n"
+            "__declspec(naked) int f(void) {\n"
+            " __asm { mov eax, 1 }\n __asm { ret }\n}\n"
+            "#else\nint f(void) { return 1; }\n#endif\n"
+        )
+        result = lint_file(_write_c(tmp_path, "guarded.c", body))
+        assert any(c == "E023" for _, c, _ in result.errors)
+
+    def test_unrelated_guard_does_not_hide_naked_reconstruction(self, tmp_path: Path) -> None:
+        body = (
+            "#ifdef REBREW_ALLOW_NAKED\nint guard_value;\n#endif\n"
+            "__declspec(naked) int f(void) {\n __asm { ret }\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "unrelated.c", body))
+        assert any(c == "E023" for _, c, _ in result.errors)
 
     def test_metadata_cflags_without_guard_keeps_e023(self, tmp_path: Path) -> None:
         """Metadata cflags that lack REBREW_ALLOW_NAKED must not suppress E023."""

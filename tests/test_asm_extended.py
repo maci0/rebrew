@@ -446,6 +446,9 @@ class TestBatchOutDirResolution:
             cfg, out_dir, verify_flag=False, stubs_only=False, inline_c=False, dry_run=False
         ):
             captured["out_dir"] = out_dir
+            return {"verify_exit": 0}
+            # batch() pops verify_exit from this dict. Absence means exit 0.
+            return {}
 
         monkeypatch.setattr("rebrew.asm.require_config", fake_require_config)
         monkeypatch.setattr("rebrew.asm.batch_extract_nasm", fake_batch)

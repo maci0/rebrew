@@ -678,9 +678,9 @@ def _render_index(
 ) -> list[tuple[str, str]]:
     """Render index.html (+ ``index-pN.html`` when the table exceeds one page)."""
     sc = report.status_counts
-    # One percentage. With a known .text size it is the byte share; the
-    # function figures stay counts. Without a size, the function share is
-    # the percentage and the byte card says the size was not measured.
+    # One percentage. With a known .text size the code-account card is that
+    # share and Byte-matched is a count. Without a size, Byte-matched carries
+    # the function share and the code-account card says the size was not measured.
     over_text_html = ""
     if report.total_text_bytes > 0:
         matched_card = f"{report.matched_functions}/{report.total_functions}"
@@ -696,8 +696,8 @@ def _render_index(
                 counted += f" plus {report.padding_bytes} bytes of alignment fill"
             text_card = "100%+"
             over_text_html = (
-                f"<p class='note'>Byte coverage counts {counted}, more than the "
-                f"{report.total_text_bytes}-byte .text section, so byte coverage "
+                f"<p class='note'>The code account counts {counted}, more than the "
+                f"{report.total_text_bytes}-byte .text section, so it "
                 "is shown as 100%+. Re-run <code>rebrew coverage export --output snapshots/</code> if the "
                 "SIZE fields are stale.</p>"
             )
@@ -705,7 +705,8 @@ def _render_index(
             text_card = f"{report.byte_coverage_pct}%"
     else:
         matched_card = (
-            f"{report.matched_functions}/{report.total_functions} ({report.matched_pct}%)"
+            f"{report.matched_functions}/{report.total_functions}"
+            f" ({report.matched_pct}% of functions)"
         )
         text_card = "n/a"
     cards: list[tuple[str, str]] = [
@@ -715,7 +716,7 @@ def _render_index(
         ("PROVEN", str(sc.get("PROVEN", 0))),
         ("NEAR_MATCHING", str(sc.get("NEAR_MATCHING", 0))),
         ("STUB", str(sc.get("STUB", 0))),
-        ("Of .text", text_card),
+        ("Code account", text_card),
     ]
     # Any non-standard statuses (MISMATCH, COMPILE_ERROR, ...) get their own card.
     standard = set(DISPLAY_STATUSES)
@@ -1624,7 +1625,7 @@ _EPILOG = (
     "                                            report.json for decomp.dev\n\n"
     "  rebrew coverage report --json  # Machine-readable summary\n\n"
     "[dim]Generates a self-contained static HTML site (function index, strings, "
-    "imports, call graph) with all styling inlined — no external assets.  "
+    "imports, call graph) with all styling inlined, no external assets.  "
     "Long tables paginate; a call graph over 32 KB of Mermaid moves to "
     "callgraph.mmd.  `--decomp-dev` instead emits the objdiff report v2 JSON "
     "the decomp.dev progress hub ingests from a GitHub Actions artifact.[/dim]"

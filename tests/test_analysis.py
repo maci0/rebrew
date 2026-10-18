@@ -62,6 +62,24 @@ def _code_image(code: bytes, *, arch: str, endian: str = "little") -> object:
 
 
 class TestScanReferences:
+    def test_pointer_comparisons_reference_immediate_and_memory(self) -> None:
+        # cmp ebx, 0x1020; cmp [0x1030], 0x1020; cmp eax, 1; ret
+        code = bytes.fromhex("81 fb 20 10 00 00 81 3d 30 10 00 00 20 10 00 00 83 f8 01 c3")
+        info = _code_image(code + b"\x90" * 48, arch="x86_32")
+        expected = [
+            Xref("cmp", 0x1000, 0x1020),
+            Xref("cmp", 0x1006, 0x1020),
+            Xref("cmp_mem", 0x1006, 0x1030),
+        ]
+        assert scan_references(info) == expected
+        assert data_references(info, 0x1000, len(code)) == expected
+        assert reachable_code(info, 0x1000, len(code))[1] == expected
+        assert scan_references(info, target_va=0x1030) == [expected[2]]
+
+    def test_x64_pointer_comparison(self) -> None:
+        code = bytes.fromhex("48 3d 10 10 00 00 c3") + b"\x90" * 16
+        assert scan_references(_code_image(code, arch="x86_64")) == [Xref("cmp", 0x1000, 0x1010)]
+
     def test_callback_address_stored_through_register(self) -> None:
         code = bytes.fromhex("c7 00 10 10 00 00 c3") + b"\x90" * 32
         info = _code_image(code, arch="x86_32")

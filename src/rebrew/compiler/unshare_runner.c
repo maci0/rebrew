@@ -233,14 +233,36 @@ static json_object *load(const char *path) {
   json_object *mounts = field(cfg, "mounts");
   if (!json_object_is_type(mounts, json_type_array))
     reject("mounts");
-  const char *destinations[] = {"/proc",           "/dev",        "/dev/pts",
-                                "/dev/shm",        "/work",       "/tmp",
-                                "/opt/wineprefix", "/home/rebrew"};
+  if (json_object_array_length(mounts) < 8)
+    reject("required mount set");
+  json_object *work = json_object_array_get_idx(mounts, 5);
+  const char *work_destination = strfield(work, "destination");
+  absolute(work_destination);
+  size_t work_length = strlen(work_destination);
+  if (work_length < 2 || work_destination[work_length - 1] == '/' ||
+      strstr(work_destination, "//") || strstr(work_destination, "/./") ||
+      (work_length >= 2 && !strcmp(work_destination + work_length - 2, "/.")))
+    reject("project mount overlaps runtime mount or is not canonical");
+  if (strcmp(work_destination, "/work") &&
+      strcmp(work_destination, strfield(work, "source")))
+    reject("project mount must retain its host path");
+  const char *destinations[] = {
+      "/proc", "/dev", "/dev/pts", "/dev/shm", work_destination,
+      "/tmp", "/opt/wineprefix", "/home/rebrew"};
+  for (int j = 0; j < 8; j++) {
+    if (j == 4)
+      continue;
+    size_t n = strlen(destinations[j]), d = strlen(work_destination);
+    bool beneath = !strncmp(work_destination, destinations[j], n) &&
+                   work_destination[n] == '/';
+    bool above = !strncmp(destinations[j], work_destination, d) &&
+                 (destinations[j][d] == '/' || !destinations[j][d]);
+    if (above || (beneath && j != 5))
+      reject("project mount overlaps runtime mount");
+  }
   const char *types[] = {"proc", "tmpfs", "devpts", "tmpfs",
                          "bind", "tmpfs", "bind",   "bind"};
   unsigned seen = 0;
-  if (json_object_array_length(mounts) < 8)
-    reject("required mount set");
   for (size_t i = 0; i < json_object_array_length(mounts); i++) {
     json_object *m = json_object_array_get_idx(mounts, i);
     keys(m, "|source||destination||type||options|");
