@@ -204,10 +204,10 @@ class TestDockerIncludeLibs:
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda img: True)
         inc = check_includes(self._cfg(tmp_path))
         assert inc.status == _OK
-        assert "docker image" in inc.message
+        assert "toolchain image" in inc.message
         lib = check_libs(self._cfg(tmp_path))
         assert lib.status == _OK
-        assert "docker image" in lib.message
+        assert "toolchain image" in lib.message
 
     def test_docker_profile_without_image_warns_with_fix(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda img: False)
@@ -230,7 +230,97 @@ class TestDockerIncludeLibs:
         )
         result = check_includes(cfg)
         assert result.status == _OK
-        assert "docker image" in result.message
+        assert "toolchain image" in result.message
+
+
+class TestConfiguredRunner:
+    @pytest.mark.parametrize("backend", ["docker", "podman"])
+    def test_image_checks_use_selected_runtime(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+    ) -> None:
+        import rebrew.doctor as doctor
+
+        inspected: list[str | None] = []
+
+        def image_present(image: str, *, runtime: str | None = None) -> bool:
+            inspected.append(runtime)
+            return True
+
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", image_present)
+        cfg = _make_cfg(tmp_path, compiler_profile="msvc-6.0", execution_backend=backend)
+        for check in (
+            doctor.check_compiler,
+            doctor.check_toolchain_backed,
+            doctor.check_runner,
+            doctor.check_includes,
+            doctor.check_libs,
+        ):
+            assert check(cfg).status == _OK
+        assert inspected == [backend] * 5
+        assert backend in doctor.check_runner(cfg).message
+
+    def test_unshare_probes_namespaces(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.doctor as doctor
+
+        probed: list[str] = []
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda image: True)
+        monkeypatch.setattr(
+            "rebrew.compiler.toolchain.check_experimental_unshare",
+            lambda spec: probed.append(spec.name),
+        )
+        cfg = _make_cfg(tmp_path, compiler_profile="msvc-6.0", execution_backend="unshare")
+        result = doctor.check_runner(cfg)
+        assert result.status == _OK
+        assert "unshare" in result.message
+        assert probed == ["msvc-6.0"]
+
+    def test_unshare_failure_does_not_claim_ready(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.doctor as doctor
+        from rebrew.compiler.toolchain import ToolchainError
+
+        def fail_probe(spec) -> None:
+            raise ToolchainError("user namespaces unavailable", name=spec.name)
+
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda image: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.check_experimental_unshare", fail_probe)
+        cfg = _make_cfg(tmp_path, compiler_profile="msvc-6.0", execution_backend="unshare")
+        result = doctor.check_runner(cfg)
+        assert result.status == _FAIL
+        assert "user namespaces unavailable" in result.message
+
+    def test_default_runner_follows_runtime_environment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.doctor as doctor
+
+        monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "podman")
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda image: True)
+        result = doctor.check_runner(_make_cfg(tmp_path, compiler_profile="msvc-6.0"))
+        assert result.status == _OK
+        assert "podman" in result.message
+
+    def test_missing_image_does_not_probe_unshare(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.doctor as doctor
+
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda image: False)
+
+        def unexpected_probe(spec) -> None:
+            pytest.fail("a missing image cannot be admitted to unshare")
+
+        monkeypatch.setattr(
+            "rebrew.compiler.toolchain.check_experimental_unshare", unexpected_probe
+        )
+        cfg = _make_cfg(tmp_path, compiler_profile="msvc-6.0", execution_backend="unshare")
+        result = doctor.check_runner(cfg)
+        assert result.status == _WARN
+        assert "unshare" in result.message
+        assert "toolchain build" in result.fix
 
 
 class TestCheckLibs:
@@ -705,7 +795,7 @@ class TestCheckIncludes16BitProfiles:
 
         # The docker-image probe is environment-dependent (the image is not
         # built on a CI runner); this test is about the include-path guard.
-        monkeypatch.setattr("rebrew.doctor._docker_toolchain_check", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.doctor._image_toolchain_check", lambda *a, **k: None)
         cfg = _make_cfg(tmp_path, arch="x86_16", compiler_profile=profile)
         result = check_includes(cfg)
         # The missing include dir is a real FAIL; the 16-bit guard must not

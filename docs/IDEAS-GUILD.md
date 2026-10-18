@@ -2929,12 +2929,21 @@ checks out MCP `main`, pins Ghidra 12.1.3 and expects a locally built bridge
 image. Do not transplant it as a reproducible supported deployment. Upstream
 reference: https://github.com/bethington/ghidra-mcp .
 
-Follow-up trial: both MCP6.0.0 and REA6.7.0 need a reviewed entry seed for
-TL0x4b6f00; both return216bytes after seeding, but their pseudocode drops the
+Follow-up trial: both MCP 6.0.0 and REA 6.7.0 need a reviewed entry seed for
+TL 0x4b6f00; both return 216 bytes after seeding, but their pseudocode drops the
 x87 expression around __ftol. Preserve native ABI/operand checks. Rebrew's
-BinSync preview also reports159 ambiguous private struct names (first header/
+BinSync preview also reports 159 ambiguous private struct names (first header/
 source wins) and truncates D3_ANIMATION_OPTIONS before its bitfields despite a
-managed, compiled12-byte binding. Before a bulk headless relay, offer a
+managed, compiled 12-byte binding. Before a bulk headless relay, offer a
 reviewed target/context-safe export using canonical type bindings and explicit
 unresolved/ambiguous types; do not silently promote partial/first-wins layouts.
 Reports: Guild .scratch/ghidra-mcp-trial and .scratch/rea-trial.
+
+### Doctor reported Docker instead of the configured backend (2026-10-19)
+
+The live Guild trial selected unshare but `doctor` reported a Docker runner
+without checking namespace admission. All image checks also ignored an explicit
+Podman override and inspected the default runtime's image store. Reuse the
+configured frontend for image checks, label the selected runner, and run the
+existing unshare namespace probe before reporting readiness. No host Wine
+fallback is introduced. Replay `pytest tests/test_doctor.py::TestConfiguredRunner`.
