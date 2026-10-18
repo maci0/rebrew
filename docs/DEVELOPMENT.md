@@ -159,7 +159,7 @@ tests, which `tests/test_dashboard.py` skips without it). Native runner tests
 require **cc**, **pkg-config** and **json-c development files**
 (`apt install build-essential pkg-config libjson-c-dev` on Debian/Ubuntu);
 `make test`, `make coverage` and `make doctor` preflight them. Bootstrap also needs
-sibling `../resembl` at tag `v3.3.0`
+sibling `../resembl` at tag `v3.3.1`
 whose `HEAD` is the `RESEMBL_SHA` commit (CI `resembl-sha`): `make setup`
 checks both and prints the clone or checkout line when either is wrong.  `make help`
 lists every contributor target.
