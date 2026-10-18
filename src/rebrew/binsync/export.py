@@ -22,7 +22,7 @@ stay in ``rebrew-functions.toml`` (STATUS is verify-earned; an old
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -289,7 +289,7 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
         console.print("[dim]No changes to commit.[/dim]")
         return None
 
-    utc = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+    utc = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     msg = f"rebrew binsync export: {target} @ {utc}"
     commit = run_git(state_dir, "commit", "-m", msg, timeout=15)
     if commit.returncode != 0:

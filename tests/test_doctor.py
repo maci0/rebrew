@@ -933,9 +933,9 @@ class TestCheckBinsyncState:
             ],
             check=True,
         )
-        import datetime
+        import datetime as dt
 
-        old = int(datetime.datetime.now(datetime.UTC).timestamp() - 30 * 86400)
+        old = int(dt.datetime.now(dt.UTC).timestamp() - 30 * 86400)
         # Identity via env, not repo/global config: a CI runner has none set,
         # and the amend would fail with "please tell me who you are".
         subprocess.run(

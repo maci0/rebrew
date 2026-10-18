@@ -3,6 +3,10 @@
 ## [5.0.0] - 2026-10-18
 
 ### Changed
+- Refresh dependency locks and artifact license records, including current
+  NumPy, Typer, mypy, Ruff and compatible transitive updates.
+- **Breaking:** Incidental module imports `rebrew.binsync.export.datetime` and
+  `rebrew.pe_info.datetime` are now named `dt`, following the updated linter.
 - Status/todo and verification inventories read registered function and library
   identities from metadata without parsing their C declarations. Source-only
   files retain source validation, and verification recovers calling conventions

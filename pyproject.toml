@@ -44,15 +44,15 @@ dependencies = [
     "click>=8.5.0,<9",  # direct import (init.py shell completion); 8.3.3 fixes CVE-2025-6143/6144
     "diskcache>=5.6.3,<6",  # GHSA-w8v5-vhqr-4h9v unfixed upstream; NoPickleDisk + chmod 0o700 mitigate (compiler/cache.py)
     "httpx>=0.28.1,<1",  # ReVa MCP / remote-tooling HTTP client (ghidra/, skeleton.py, decompiler.py, wibo.py)
-    "idna>=3.19,<4",  # NO direct import — transitive security pin: idna <3.15 has a Unicode-property DoS advisory; this floor forces the fixed version through httpx's tree
+    "idna>=3.20,<4",  # NO direct import — transitive security pin: idna <3.15 has a Unicode-property DoS advisory; this floor forces the fixed version through httpx's tree
     "lief>=1.0.0,<2",  # 1.0 verified: full suite green (was held at <1 on breaking rumors)
-    "numpy>=2.5.3,<3",  # byte/structural similarity scoring (matcher/scoring.py, core/matching.py, binary_similarity.py)
+    "numpy>=2.5.4,<3",  # byte/structural similarity scoring (matcher/scoring.py, core/matching.py, binary_similarity.py)
     "python-flirt>=0.10.0,<1",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
     "rich>=15.0.0,<16",  # console rendering (Console(stderr=True) convention) and typer's markup backend
-    "tomlkit>=0.15.1,<1",  # round-trip-preserving TOML writes (metadata/functions.py, cfg.py, library.py)
+    "tomlkit>=0.15.2,<1",  # round-trip-preserving TOML writes (metadata/functions.py, cfg.py, library.py)
     "tree-sitter>=0.26.0,<1",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
     "tree-sitter-c>=0.24.2,<1",  # C grammar for tree-sitter
-    "typer>=0.27.2,<1",  # CLI framework (every main_entry); floor tracks lock
+    "typer>=0.27.3,<1",  # CLI framework (every main_entry); floor tracks lock
     "zstandard>=0.25.0,<1",  # the dashboard's wire compression (report.py, compression.py); coverage itself is clear text
 ]
 
@@ -64,7 +64,7 @@ dependencies = [
 prove = [
     "angr>=9.3.4,<10",  # BSD-2-Clause; pulls pyvex (LibVEX is GPL-2.0-or-later, see NOTICE)
     "claripy>=9.3.4,<10",  # direct import in prove.py / doctor.py; same release train as angr
-    "gitpython>=3.1.62,<4",  # NO direct import — transitive security pin (same pattern as idna): 3.1.58+ fixes the RCE-class advisories angr would otherwise resolve
+    "gitpython>=3.2.1,<4",  # NO direct import — transitive security pin (same pattern as idna): 3.1.58+ fixes the RCE-class advisories angr would otherwise resolve
 ]
 # BinSync state I/O: declib is BinSync's artifact layer.  rebrew.binsync.serial
 # is the single module that touches it; the CLIs raise a clear install error
@@ -291,12 +291,12 @@ resembl = { path = "../resembl" }
 
 [dependency-groups]
 dev = [
-    "mypy>=2.3.1,<3",
+    "mypy>=2.4.0,<3",
     "pytest>=9.1.1,<10",  # CVE-2025-71176 (tmpdir) fixed in 9.0.3; floor tracks lock
     "slipcover>=1.1.0,<2",
-    "ruff>=0.16.7,<1",  # floor tracks lock; older minors shipped years-old lint rulesets
-    "pre-commit>=4.6.2,<5",
-    "hypothesis>=6.168.0,<7",
+    "ruff>=0.17.1,<1",  # floor tracks lock; older minors shipped years-old lint rulesets
+    "pre-commit>=4.7.0,<5",
+    "hypothesis>=6.170.1,<7",
     "skills-ref>=0.1.1,<1",  # the pre-commit "Validate Agent Skills" hook binary
     "pyyaml>=6.0.3,<7",  # direct import in tests/test_ci_pins.py; was only reachable via pre-commit
     "pytest-xdist>=3.8.0,<4",  # full-suite workers; tests/pytest_ansi_env.py injects -n auto
