@@ -360,6 +360,10 @@ class TestRenameProvenance:
         "int (*)(int)",
         "int (*)(int, char*)",
         "char (*)[4]",
+        "char (*)[sizeof(va_arg(ap, char*))]",
+        "char (*)[sizeof(*va_arg(ap, char*))]",
+        "char (*)[sizeof(0, va_arg(ap, char*))]",
+        "char (*)[sizeof(va_arg(ap, char (*)[sizeof(va_arg(ap, char*))]))]",
     ],
 )
 def test_definition_hash_accepts_va_arg_types_without_changing_raw_hash(type_name: str) -> None:
@@ -381,6 +385,7 @@ def test_definition_hash_accepts_va_arg_types_without_changing_raw_hash(type_nam
         "va_arg(ap +, char*)",
         "va_arg(ap char*)",
         "va_arg(ap, char* +)",
+        "va_arg(ap, char (*)[sizeof(*va_arg(ap, char* +))])",
         "va_arg(ap, char* junk +)",
         "va_arg(, char*)",
         "va_arg(ap,)",

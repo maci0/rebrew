@@ -2277,17 +2277,23 @@ def mask_va_arg_types(source: str) -> str:
     replacing it with zero for structural validation. Other syntax, including
     errors in the first operand or surrounding body, is left to the grammar.
     This is a parser view only; definition hashes must use the original bytes.
+    Only grammar-exposed call nodes are normalized; valid nested macro types
+    hidden by the grammar may still be rejected.
     """
     if "va_arg" not in source:
         return source
     tree, data = parse_c_source(source)
     masked = bytearray(data)
     pending = [tree.root_node]
+    calls = []
     while pending:
         node = pending.pop()
         pending.extend(node.children)
-        if node.type != "call_expression":
-            continue
+        if node.type == "call_expression":
+            calls.append(node)
+    # Nested calls in a sizeof/type expression must be normalized before the
+    # containing type is probed, using that already-normalized parser view.
+    for node in reversed(calls):
         function = node.child_by_field_name("function")
         args = node.child_by_field_name("arguments")
         if (
@@ -2302,7 +2308,7 @@ def mask_va_arg_types(source: str) -> str:
         if len(commas) != 1:
             continue
         start, end = commas[0].end_byte, args.children[-1].start_byte
-        probe = b"(" + data[start:end] + b")0;"
+        probe = b"(" + bytes(masked[start:end]) + b")0;"
         cast_tree, _ = parse_c_source(probe)
         statements = cast_tree.root_node.named_children
         if cast_tree.root_node.has_error or len(statements) != 1:

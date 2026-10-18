@@ -3225,11 +3225,20 @@ The definition-hash parser view now recognizes actual va_arg call nodes,
 validates their second operand separately as a C cast type, and substitutes a
 same-coordinate expression only for structural validation. First-operand and
 surrounding errors remain errors; original bytes still supply the body hash.
+Nested va_arg calls are processed before containing type probes, using the
+normalized bytes so valid sizeof expressions in pointer-to-array types pass.
 Tests cover pointer/qualified/struct/typedef/function-pointer/array-pointer
 variants, duplicate definitions, UTF-8 offsets, literal/comment text, malformed
 syntax and real source binding CLI preview plus digest-guarded apply/refusal.
 Replay: `pytest tests/test_source_provenance.py tests/test_source_binding.py`.
 No compiler or target-specific type default is needed for this parser repair.
+
+The adapter only visits call nodes exposed by tree-sitter. A valid nested call
+hidden by its type interpretation still leaves a false-negative capability gap:
+`function_definition_hashes("void f(int id, ...) { va_list ap; va_arg(ap, char (*)[sizeof((va_arg(ap, char*)))]); }")`
+returns no hash. Supporting such grammar-invisible macro types needs a separate
+parser capability improvement; this repair does not relax malformed-body
+rejection or claim support for every valid C macro type expression.
 
 ### Canonical variadic contract reconciliation remains unsupported (2026-10-19)
 
