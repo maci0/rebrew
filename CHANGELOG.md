@@ -5,6 +5,11 @@
   native review instead of claiming they are IAT thunks or excluding them from
   decompilation solely because their size is at most eight bytes.
 
+### Performance
+- Single-function `test` skips the locked SIZE transaction when the selected
+  binding already stores that size. Explicit and corrected sizes still persist;
+  `--fix-sizes` writes its correction once before the unchanged STATUS pipeline.
+
 ## [5.2.0] - 2026-10-19
 
 ### Added

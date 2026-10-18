@@ -3011,3 +3011,32 @@ pytest tests/test_intake.py::TestBlockers \
 
 The regression covers helper sizes zero/one/six/eight, an eight-byte intake
 function and a six-byte existing game stub with no import evidence.
+
+### Single-function test entered an unnecessary SIZE transaction (2026-10-19)
+
+Guild's `test --source-targets` checks repeatedly entered two locked function
+store transactions: `test.py` unconditionally called `update_field("size", ...)`
+even when the selected binding already stored that size, then persisted the
+comparison status/evidence separately. Its roughly 12 MB TOML store makes the
+extra parse/validation expensive and delays other writers. A `--fix-sizes`
+correction also wrote SIZE twice within the same single-function invocation.
+
+The final size writer now runs only for a missing/different size or a different
+explicit VA, and owns corrected-size persistence as well. Explicit `--size`
+previously replaced the in-memory binding size during lint; validation now uses
+a dataclass copy so the stored value remains available for this decision.
+Missing/changed explicit sizes still persist, and the STATUS/verification
+pipeline and its promotion policy are unchanged. Existing metadata writer APIs
+are sufficient; no batching feature or storage-backend change is needed.
+
+Replay without a native compiler:
+
+```
+pytest tests/test_test_helpers.py::TestSizePersistence \
+  tests/test_test_helpers.py::TestFixSize
+```
+
+With compilation mocked but real metadata writes, the regression observes zero
+SIZE writer calls for unchanged inferred/explicit sizes, one for missing/stale
+explicit sizes and a new explicit VA, and one instead of two for an accepted
+`--fix-sizes` correction. It also checks that the expected verdict persists.
