@@ -111,11 +111,11 @@ class TestSourcePurposeWork:
         assert load_source_files(tmp_path)[0].purpose == "second"
         assert original[0].purpose == "first"
         assert len(reads) == 2
-        path = tmp_path / "rebrew-source.toml"
+        path = tmp_path / "rebrew-functions.toml"
         path.unlink()
         assert load_source_files(tmp_path) == ()
         path.write_text("format = 1\n[files]\n[definitions]\n")
-        with pytest.raises(ValueError, match="format = 2"):
+        with pytest.raises(ValueError, match="format = 3"):
             load_source_files(tmp_path)
 
 

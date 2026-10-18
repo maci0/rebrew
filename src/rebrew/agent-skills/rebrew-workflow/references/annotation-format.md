@@ -24,7 +24,7 @@ not establish identities.
 these addresses; run without `--dry-run` to record them. It validates the complete
 selection before writes and preserves existing metadata fields. With no SOURCE,
 it scans configured sources and headers. `--support "reason"` with one source
-records its target-scoped support purpose in `rebrew-source.toml`.
+records its target-scoped support purpose in `rebrew-functions.toml` under `[source.files]`.
 
 Sources without addresses remain supported through stored `file`, `symbol`,
 `name`, and `kind` identities. Library inventories without a C declaration are
@@ -32,15 +32,18 @@ metadata-only. No fake definitions or storage are needed for inventory rows.
 
 ## Managed stores
 
-Function and data stores require `format = 2`, then qualified `MODULE.0xVA`
-tables. `rebrew-source.toml` requires format 2 and the `definitions` and `files`
-tables. No older schema or inline metadata blocks are read, including during
-registration. `kind` is the sole identity field for classification.
+Functions require `format = 3`; data requires `format = 2`. Both retain qualified
+`MODULE.0xVA` tables. The function store also holds `[source.definitions]` and
+`[source.files]` for addressless evidence and target-scoped purposes. Ordinary
+readers reject older schemas and inline metadata blocks, including during
+registration. Explicitly preview `rebrew source consolidate --dry-run --json`,
+then apply with the returned `--expected-digest` to fold format-2 function/source
+stores into the current function store. `kind` is the sole identity field for classification.
 
 Illustrative managed output (use the CLI or locked owner APIs to edit):
 
 ```toml
-format = 2
+format = 3
 
 ["SERVER.0x10001000"]
 file = "src/tick.c"
@@ -55,8 +58,9 @@ status = "STUB"
 external origins, verification evidence, STRUCT/CALLERS information, and
 `source = "naked"` for generated assembly reconstructions. `rebrew-data.toml`
 owns data identity, type, extent, section, storage relationships and data
-verification. `rebrew-source.toml` owns assembly evidence for definitions without
-a native address and target-scoped file purposes. File paths are relative to
+verification. The function store owns assembly evidence for definitions without
+a native address (`source.definitions.FILE.SYMBOL.MODULE`) and target-scoped file
+purposes (`source.files.FILE.MODULE`). These records never invent a native VA. File paths are relative to
 `cfg.metadata_dir`; pass that directory to readers and writers.
 
 Never hand-edit these stores. Writers use their owning metadata APIs, locks,

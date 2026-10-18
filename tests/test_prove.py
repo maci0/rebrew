@@ -293,7 +293,7 @@ class TestProveCLIStatusGuard:
         # i.e. the project root for reversed_dir="src".
         metadata_toml = tmp_path / "rebrew-functions.toml"
         write_store_fixture(
-            metadata_toml, f'format = 2\n["GAME.0x00001000"]\nstatus = "{status}"\nsize = 16\n'
+            metadata_toml, f'format = 3\n["GAME.0x00001000"]\nstatus = "{status}"\nsize = 16\n'
         )
         # Real PE fixture (parseable) — downstream needs a valid binary.
         import shutil
@@ -337,7 +337,7 @@ class TestProveCLIStatusGuard:
         toml = proj_dir / "rebrew-functions.toml"
         write_store_fixture(
             toml,
-            'format = 2\n["GAME.0x00001000"]\nstatus = "STUB"\nsize = 16\nblocker = "scheduler phase shift, instruction-identical to reference"\n',
+            'format = 3\n["GAME.0x00001000"]\nstatus = "STUB"\nsize = 16\nblocker = "scheduler phase shift, instruction-identical to reference"\n',
         )
         result = self._invoke(proj_dir, src, monkeypatch)
         assert result.exit_code != 0
@@ -1179,7 +1179,7 @@ def _watch_va_run(
     )
     write_store_fixture(
         src / "rebrew-functions.toml",
-        'format = 2\n["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n',
+        'format = 3\n["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n',
         encoding="utf-8",
     )
     cfg = SimpleNamespace(
@@ -1470,7 +1470,7 @@ class TestProveCeilingFilter:
         metadata_toml = tmp_path / "rebrew-functions.toml"
         write_store_fixture(
             metadata_toml,
-            'format = 2\n["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\nblocker = "GA_CEILING: register-only byte delta (effective match)"\n["GAME.0x00002000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n',
+            'format = 3\n["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\nblocker = "GA_CEILING: register-only byte delta (effective match)"\n["GAME.0x00002000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n',
         )
         shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")
         calls: list[str] = []
@@ -1656,7 +1656,7 @@ class TestPromoteAlreadyMatched:
         va = 0x1000
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            f'format = 2\n["GAME.0x{va:08x}"]\nstatus = "NEAR_MATCHING"\nsize = 8\n',
+            f'format = 3\n["GAME.0x{va:08x}"]\nstatus = "NEAR_MATCHING"\nsize = 8\n',
             encoding="utf-8",
         )
         cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
@@ -1714,7 +1714,7 @@ class TestPromoteAlreadyMatched:
         va = 0x1000
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            f'format = 2\n["GAME.0x{va:08x}"]\nstatus = "SKIP"\nsize = 8\n',
+            f'format = 3\n["GAME.0x{va:08x}"]\nstatus = "SKIP"\nsize = 8\n',
             encoding="utf-8",
         )
         cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
@@ -1776,7 +1776,7 @@ class TestDecoratedNameSelection:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["GAME.0x00003000"]\nstatus = "EXACT"\n["GAME.0x00004000"]\nstatus = "STUB"\n["GAME.0x00001000"]\nstatus = "EXACT"\n["GAME.0x00002000"]\nstatus = "STUB"\n',
+            'format = 3\n["GAME.0x00003000"]\nstatus = "EXACT"\n["GAME.0x00004000"]\nstatus = "STUB"\n["GAME.0x00001000"]\nstatus = "EXACT"\n["GAME.0x00002000"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)

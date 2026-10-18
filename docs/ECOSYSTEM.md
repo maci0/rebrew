@@ -72,7 +72,7 @@ similarity surfaces.
 comparison framework from the LEGO Island decomp community: the de-facto
 standard toolset for Windows binary-matching decomp projects. It is
 an independent project. Rebrew uses dedicated
-format-2 metadata and optional ADDRESS-only source anchors. It does not read
+canonical metadata (functions format 3; data format 2) and optional ADDRESS-only source anchors. It does not read
 reccmp marker blocks; a reccmp checkout needs its own compatible identities.
 
 | Boundary | How rebrew interoperates |

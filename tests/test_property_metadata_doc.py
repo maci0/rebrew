@@ -168,14 +168,21 @@ class TestDocumentReader:
 
         check()
 
-    def test_written_entries_read_back_identically(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "filename,version", [("rebrew-functions.toml", 3), ("rebrew-data.toml", 2)]
+    )
+    def test_written_entries_read_back_identically(
+        self, tmp_path: Path, filename: str, version: int
+    ) -> None:
         @given(store=_store())
         @settings(max_examples=200, deadline=None)
         def check(store: dict[tuple[str, int], dict[str, Any]]) -> None:
             root = Path(tempfile.mkdtemp(dir=tmp_path))
             safe = {k: {f: toml_safe(v) for f, v in e.items()} for k, e in store.items()}
-            path = root / "rebrew-functions.toml"
-            write_store_fixture(path, tomlkit.dumps(build_metadata_doc(safe, _CANONICAL_ORDER)))
+            path = root / filename
+            write_store_fixture(
+                path, tomlkit.dumps(build_metadata_doc(safe, _CANONICAL_ORDER, version=version))
+            )
             loaded = _load(path, tmp_path, "metadata")
             assert set(loaded) == set(store)
             for key, entry in loaded.items():
@@ -183,11 +190,16 @@ class TestDocumentReader:
 
         check()
 
-    def test_escaped_control_character_key_round_trips(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "filename,version", [("rebrew-functions.toml", 3), ("rebrew-data.toml", 2)]
+    )
+    def test_escaped_control_character_key_round_trips(
+        self, tmp_path: Path, filename: str, version: int
+    ) -> None:
         """TOML escapes preserve the key identity instead of sanitizing it."""
-        path = tmp_path / "rebrew-functions.toml"
+        path = tmp_path / filename
         store = {("SRV\x1b", 0x24000): {"STATUS": "EXACT"}}
-        text = tomlkit.dumps(build_metadata_doc(store, _CANONICAL_ORDER))
+        text = tomlkit.dumps(build_metadata_doc(store, _CANONICAL_ORDER, version=version))
         assert "\x1b" not in text
         write_store_fixture(path, text)
         assert _load(path, tmp_path, "metadata") == store

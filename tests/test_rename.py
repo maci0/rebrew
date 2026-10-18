@@ -697,7 +697,7 @@ class TestRenameCli:
         store = tmp_path / "rebrew-functions.toml"
         write_store_fixture(
             store,
-            'format = 2\n["SERVER.0x00001000"]\nname = "NativeName"\nsize = 8\n'
+            'format = 3\n["SERVER.0x00001000"]\nname = "NativeName"\nsize = 8\n'
             + ('file = ""\n' if stored_file is not None else ""),
         )
         before = {path: path.read_bytes() for path in (source, store)}

@@ -36,7 +36,7 @@ def _write_project(tmp_path: Path, matched_orphan: bool = False) -> None:
         encoding="utf-8",
         metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
     )
-    blocks = 'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\nsize = 16\n\n["SERVER.0x2000"]\nstatus = "STUB"\nsize = 16\n'
+    blocks = 'format = 3\n["SERVER.0x1000"]\nstatus = "STUB"\nsize = 16\n\n["SERVER.0x2000"]\nstatus = "STUB"\nsize = 16\n'
     if matched_orphan:
         blocks += '\n["SERVER.0x3000"]\nstatus = "EXACT"\nsize = 16\n'
     write_store_fixture(tmp_path / "rebrew-functions.toml", blocks, encoding="utf-8")
@@ -69,7 +69,7 @@ class TestOrphansList:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         res = CliRunner().invoke(app, ["list"])
@@ -182,7 +182,7 @@ class TestKnownSourceWidening:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "STUB"\nsize = 16\n\n["SERVER.0x3000"]\nstatus = "STUB"\nsize = 16\n\n["SERVER.0x4000"]\nstatus = "STUB"\nsize = 16\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "STUB"\nsize = 16\n\n["SERVER.0x3000"]\nstatus = "STUB"\nsize = 16\n\n["SERVER.0x4000"]\nstatus = "STUB"\nsize = 16\n',
             encoding="utf-8",
         )
         (src / FUNCTION_STRUCTURE_JSON).write_text(
@@ -389,7 +389,7 @@ class TestBatchDeletes:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            f'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "{earned}"\nsize = 16\n\n["SERVER.0x3000"]\nstatus = "STUB"\n',
+            f'format = 3\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "{earned}"\nsize = 16\n\n["SERVER.0x3000"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         res = CliRunner().invoke(app, ["prune"])
@@ -416,7 +416,7 @@ class TestBatchDeletes:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
             encoding="utf-8",
         )
         res = CliRunner().invoke(app, ["prune", "--include-matched"])
@@ -448,7 +448,7 @@ class TestCorruptInventoryFailClosed:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
             encoding="utf-8",
         )
         (src / FUNCTION_STRUCTURE_JSON).write_text("[{broken", encoding="utf-8")
@@ -475,7 +475,7 @@ class TestCorruptInventoryFailClosed:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
             encoding="utf-8",
         )
         (src / FUNCTION_STRUCTURE_JSON).write_text("[{broken", encoding="utf-8")

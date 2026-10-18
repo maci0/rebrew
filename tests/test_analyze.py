@@ -176,7 +176,7 @@ class TestBuildDossier:
         """The dossier's near_match section carries blockers + mutations."""
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["T.0x10002000"]\nstatus = "NEAR_MATCHING"\nblocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
+            'format = 3\n["T.0x10002000"]\nstatus = "NEAR_MATCHING"\nblocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
             encoding="utf-8",
         )
         cfg = SimpleNamespace(
@@ -193,7 +193,7 @@ class TestBuildDossier:
         """Legacy NEAR_MATCH spelling must still populate the near_match section."""
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["T.0x10002000"]\nstatus = "NEAR_MATCH"\nblocker = "legacy alias"\n',
+            'format = 3\n["T.0x10002000"]\nstatus = "NEAR_MATCH"\nblocker = "legacy alias"\n',
             encoding="utf-8",
         )
         cfg = SimpleNamespace(

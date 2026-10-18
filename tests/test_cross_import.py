@@ -422,7 +422,7 @@ class TestImportMechanics:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["FIXT.0x00401040"]\nstatus = "EXACT"\nsize = 11\n',
+            'format = 3\n["FIXT.0x00401040"]\nstatus = "EXACT"\nsize = 11\n',
         )
         assert ci.annotations_by_va(cfg) == {0x401040: ("EXACT", "f1.c")}
 

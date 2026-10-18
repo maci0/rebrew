@@ -46,7 +46,7 @@ acknowledgement it counts them and writes nothing. A rebuilt image with
 different bytes returns them to RELOC on the next verify; re-run the promotion.
 `rebrew lint` exits 1 on errors. Record link-only file purposes with
 `rebrew source register <file> --support "<reason>"`; the purpose lives in
-`rebrew-source.toml`.
+`rebrew-functions.toml` under `[source]`.
 
 `verify --data` and `verify --whole-binary` inspect existing images without a
 function scan, compiler runner, or function cache/baseline writes. Add

@@ -1067,16 +1067,36 @@ Find prior documented findings mentioning a native address or address range.
 | `--json` | flag | `False` | Output results as JSON |
 | `--root` | path | — | Project root directory (default: auto-detected from rebrew-project.toml). |
 
+### `rebrew source consolidate`
+
+`rebrew source consolidate [OPTIONS]`
+
+Preview the migration from format-2 `rebrew-functions.toml` and optional
+`rebrew-source.toml` with `--dry-run --json`. Review the reported counts and
+`input_digest`, then apply with `--expected-digest DIGEST`. The selected target
+chooses the metadata root; shared roots need migrating once. The operation
+preserves function rows, verdicts, assembly hashes and support purposes in
+format-3 functions, then removes the retired source store. Data remains format 2.
+Stale digests and conflicting existing source sections refuse without writes;
+ordinary readers never fall back to the retired store.
+
+| Option | Meaning |
+| --- | --- |
+| `--dry-run` | Preview changes without writing |
+| `--expected-digest` | Reviewed preview input digest; required to apply |
+| `--json` | Output results as JSON |
+| `--target` / `-t` | Select the configured target's metadata root |
+
 ### `rebrew source register`
 
 `rebrew source register [OPTIONS] [SOURCE]`
 
 Register optional `ADDRESS: MODULE 0xVA` comments immediately above the next C
-function definition, variable or constant in format-2 metadata. Stacked targets
+function definition, variable or constant in canonical metadata (functions format 3; data format 2). Stacked targets
 bind one declaration. Without SOURCE, scan configured sources and headers.
 Validate the full selection before writing; preserve existing fields and verdicts.
 With one SOURCE, `--support REASON` records a target-scoped file purpose in
-`rebrew-source.toml`. Old source blocks and older store formats are rejected.
+`rebrew-functions.toml` under `[source.files]`. Old source blocks and older store formats are rejected.
 See [source addresses](ANNOTATIONS.md).
 
 | Argument or option | Type | Default | Meaning |
@@ -1578,10 +1598,9 @@ rebrew source document-assembly src/game.c --symbol fill0 --target client \
 rebrew source document-assembly src/game.c --symbol fill0 --target client --clear
 ```
 
-The CLI owns `rebrew-source.toml` in `cfg.metadata_dir`, using the same locked,
-atomic writer as other metadata. Do not edit it by hand.
-Ignore `rebrew-source.toml.lock` in the project's `.gitignore`, like the
-function/data lock files; keep the canonical `rebrew-source.toml` in version control.
+The CLI records evidence under `[source.definitions]` in format-3
+`rebrew-functions.toml` at `cfg.metadata_dir`, sharing its lock and atomic writer.
+Do not edit it by hand; keep it in version control and ignore its `.lock`.
 Records bind the metadata-relative file, C identifier, target module and SHA-256 of the parsed
 definition's source text (signature and body, including comments). A duplicate
 or unparseable definition refuses before writing; malformed existing stores

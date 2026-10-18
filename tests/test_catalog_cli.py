@@ -397,7 +397,7 @@ class TestRunCatalog:
         )
         write_store_fixture(
             root / "rebrew-functions.toml",
-            'format = 2\n["GAME.0x10001000"]\nstatus = "EXACT"\n["GAME.0x10002000"]\nkind = "LIBRARY"\nfile = "original/library_msvc.h"\n',
+            'format = 3\n["GAME.0x10001000"]\nstatus = "EXACT"\n["GAME.0x10002000"]\nkind = "LIBRARY"\nfile = "original/library_msvc.h"\n',
             encoding="utf-8",
         )
         cfg = load_config(root=root)

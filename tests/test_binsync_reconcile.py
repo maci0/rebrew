@@ -46,6 +46,26 @@ def _pull(cfg: Any, state: Path, **options: Any) -> dict[str, Any]:
 
 
 class TestThreeWaySync:
+    def test_function_store_schema_does_not_change_sync_transport(self, tmp_path: Path) -> None:
+        from rebrew.metadata.source_provenance import load_source_files, set_source_file
+        from rebrew.utils import load_tomllib
+
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "support.c").write_text("static int helper(void) { return 0; }\n")
+        set_source_file(cfg.metadata_dir, "src/support.c", "SERVER", "native link support")
+        purposes = load_source_files(cfg.metadata_dir)
+        function = get_entry(cfg.metadata_dir, 0x1000, "SERVER")
+        assert load_tomllib(cfg.metadata_dir / "rebrew-functions.toml")["format"] == 3
+        state = tmp_path / "state"
+
+        export_state(cfg, state, dry_run=False)
+        assert load_tomllib(state / "manifest.toml")["metadata_schema"] == 2
+        export_state(cfg, state, dry_run=False)
+        _pull(cfg, state)
+
+        assert load_source_files(cfg.metadata_dir) == purposes
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER") == function
+
     def test_old_member_only_baseline_allows_tail_padding_repair(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
         (cfg.reversed_dir / "types.h").write_text("typedef struct { int id; char tag; } Padded;\n")

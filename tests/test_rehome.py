@@ -21,7 +21,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
     (tmp_path / "src").mkdir(exist_ok=True)
     write_store_fixture(
         tmp_path / "rebrew-functions.toml",
-        'format = 2\n["SERVER.0x1000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a.c"\nkind = "FUNCTION"\n',
+        'format = 3\n["SERVER.0x1000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a.c"\nkind = "FUNCTION"\n',
         encoding="utf-8",
     )
     return SimpleNamespace(
@@ -59,7 +59,7 @@ def test_binds_row_to_named_definition(tmp_path: Path) -> None:
     meta = tmp_path / "rebrew-functions.toml"
     write_store_fixture(
         meta,
-        'format = 2\n["SERVER.0x1000"]\nname = "fcn_00001000"\nsymbol = "_fcn_00001000@8"\nfile = "src/a.c"\nkind = "FUNCTION"\n',
+        'format = 3\n["SERVER.0x1000"]\nname = "fcn_00001000"\nsymbol = "_fcn_00001000@8"\nfile = "src/a.c"\nkind = "FUNCTION"\n',
         encoding="utf-8",
     )
     (tmp_path / "src" / "shared.c").write_text(
@@ -101,7 +101,7 @@ command = "i686-w64-mingw32-gcc"
 cflags = "-O2"
 """
 
-_FUNCTIONS_TOML = 'format = 2\n["SERVER.0x1000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a/x.c"\nkind = "FUNCTION"\nstatus = "EXACT"\n\n["CLIENT.0x5000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a/x.c"\nkind = "FUNCTION"\n\n["SERVER.0x2000"]\nname = "other"\nsymbol = "_other"\nfile = "src/a/z.c"\nkind = "FUNCTION"\n'
+_FUNCTIONS_TOML = 'format = 3\n["SERVER.0x1000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a/x.c"\nkind = "FUNCTION"\nstatus = "EXACT"\n\n["CLIENT.0x5000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a/x.c"\nkind = "FUNCTION"\n\n["SERVER.0x2000"]\nname = "other"\nsymbol = "_other"\nfile = "src/a/z.c"\nkind = "FUNCTION"\n'
 
 _DATA_TOML = 'format = 2\n["SERVER.0x3000"]\nname = "g_count"\nfile = "src/a/x.c"\n\n["SERVER.0x4000"]\nname = "g_other"\nfile = "src/a/z.c"\n'
 

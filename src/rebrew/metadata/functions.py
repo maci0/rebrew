@@ -1,4 +1,4 @@
-"""Locked format-2 function identity, state, provenance and verification store.
+"""Locked format-3 function identity, state, provenance and verification store.
 
 All fields belong in rebrew-functions.toml at cfg.metadata_dir. Source accepts
 only optional declaration-bound addresses. Granular writes validate the current
@@ -21,7 +21,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import tomlkit
@@ -29,20 +29,22 @@ import tomlkit
 from rebrew.config import METADATA_FILENAME
 from rebrew.errors import RebrewError
 from rebrew.metadata.document import (
+    FUNCTION_FORMAT_VERSION,
     MetadataDocCache,
     build_metadata_doc,
     build_metadata_key_index,
     clear_metadata_doc_cache,
     load_metadata_doc,
     load_metadata_for_write,
+    metadata_format,
     metadata_write_lock,
     pop_metadata_doc_cache,
     resolve_metadata_key,
     stamp_format,
 )
+from rebrew.metadata.source_schema import validate_identity_file
 from rebrew.utils import (
     atomic_write_locked,
-    load_toml_for_write_strict,
     read_toml_text,
     resolved_path,
     toml_safe,
@@ -289,6 +291,7 @@ def load_metadata(
     # with an lstat.  A symlink re-pointed mid-process is the only way the
     # answer changes, and the doc cache re-stats the file on every read.
     path = _resolved_metadata_path(str(dir_path))
+    metadata_format(path)
     if not path.exists():
         pop_metadata_doc_cache(_metadata_cache, path)
         return {}
@@ -327,7 +330,7 @@ def save_metadata(
     dir_path = resolve_metadata_dir(directory)
     path = (dir_path / METADATA_FILENAME).resolve()
     safe = {key: {f: toml_safe(v) for f, v in entry.items()} for key, entry in data.items()}
-    doc = build_metadata_doc(safe, _CANONICAL_ORDER)
+    doc = build_metadata_doc(safe, _CANONICAL_ORDER, version=FUNCTION_FORMAT_VERSION)
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         if expected_hash != "":
             import hashlib
@@ -335,8 +338,10 @@ def save_metadata(
             current = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
             if current != expected_hash:
                 raise ValueError(f"{path} changed since its rows were reviewed")
-        load_toml_for_write_strict(path, "metadata")
-        stamp_format(doc)
+        current_doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
+        if "source" in current_doc:
+            doc["source"] = current_doc["source"]
+        stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -599,7 +604,7 @@ def _set_field(
         entry[key] = safe
         if updated_by:
             stamp_provenance(entry, updated_by, now=now)
-        stamp_format(doc)
+        stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -634,28 +639,6 @@ PROVENANCE_TAGS: frozenset[str] = frozenset(
         "verify",
     }
 )
-
-
-def validate_identity_file(value: str) -> str:
-    """Return *value* when it is a project-relative source path.
-
-    The stored ``file`` identity is joined onto a project root by several
-    consumers (``verify`` compiles it, ``rename`` rewrites it, BinSync reads
-    it), and an absolute path or ``..`` segment makes that join read whatever
-    the file's author chose (``docs/THREAT_MODEL.md`` records the exposure).
-    Rejecting it at the one write gate keeps a cloned project's metadata from
-    naming a path outside the clone.  An empty value stays empty: a row
-    without identity is legal, and ``record_function_rows`` skips it.
-    """
-    text = str(value).strip()
-    if not text:
-        return ""
-    normalised = text.replace("\\", "/")
-    if normalised.startswith("/") or (len(normalised) > 1 and normalised[1] == ":"):
-        raise ValueError(f"file {value!r} must be relative to the project, not absolute")
-    if ".." in PurePosixPath(normalised).parts:
-        raise ValueError(f"file {value!r} must not escape the project with '..'")
-    return text
 
 
 def stamp_provenance(
@@ -724,7 +707,7 @@ def set_fields(
         if changed:
             if updated_by:
                 stamp_provenance(entry, updated_by, now=now)
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
             pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -802,7 +785,7 @@ def set_fields_batch(
                 stamp_provenance(entry, tag, now=now)
             changed_entries += 1
         if changed_entries:
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed_entries
@@ -920,7 +903,7 @@ def import_status_history(
                 entry["status_history"] = merged
                 changed += 1
         if changed and not dry_run:
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
             pop_metadata_doc_cache(_metadata_cache, path)
     return changed
@@ -1013,7 +996,7 @@ def record_function_rows(
             if updated_by and row_changed:
                 stamp_provenance(entry, updated_by)
         if changed:
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -1171,7 +1154,7 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
             if changed:
                 changed_entries += 1
         if changed_entries:
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed_entries
@@ -1208,7 +1191,7 @@ def delete_entries_batch(metadata_dir: Path | str | Any, targets: list[tuple[str
             key_index.pop((norm_mod, va_int), None)
             removed += 1
         if removed:
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return removed
@@ -1243,7 +1226,7 @@ def _mutate_entry_doc(
             return False
         if not mutate(doc_dict, toml_key):
             return False
-        stamp_format(doc)
+        stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
         return True
@@ -1675,7 +1658,7 @@ def update_statuses_batch(
 
         # Single write for the whole batch
         if changed:
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed

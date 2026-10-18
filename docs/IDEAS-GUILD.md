@@ -7,6 +7,16 @@ flags may be unshipped. Status `open` unless noted; observations describe the
 campaign at the time recorded. Use [CLI.md](CLI.md) for shipped behavior and
 promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
+## Source evidence consolidation — implemented in 5.0
+
+The separate `rebrew-source.toml` repeated the metadata ownership boundary for
+61 Guild assembly receipts and 14 support purposes. Fold these addressless
+file/symbol/module records into `[source]` in format-3 `rebrew-functions.toml`,
+sharing its lock and atomic writes without inventing VAs or duplicating comments.
+Replay: `rebrew source consolidate --dry-run --json`, review its digest/counts,
+then apply with `--expected-digest`. Data remains format 2; verdicts and stale
+source hashes survive unchanged.
+
 ## October 2026 consolidation audit
 
 The historical proposals below retain their campaign evidence. Current reusable
@@ -2759,7 +2769,7 @@ a coordinated file/definition section in an existing store can reduce maintenanc
 without duplicating evidence. Any migration must preserve hashes, target scopes,
 rename behavior, support purposes, locked atomic writes and stale-evidence lint.
 Current readers: `metadata/source_provenance.py`; inspect Guild source metadata
-with `rebrew source document-assembly --help`. No migration is implemented.
+with `rebrew source document-assembly --help`. Implemented in 5.0 by format-3 function `[source]` sections and digest-guarded `source consolidate`.
 
 
 ### Preserve accepted toolchain inputs when upstream removes archives (2026-10-18)

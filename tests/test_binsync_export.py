@@ -1414,7 +1414,7 @@ class TestExportIdentityWarnings:
         # tool recorded it.
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10002000"]\nfile = "lib.c"\nkind = "LIBRARY"\nname = "(static, no archive symbol)"\nsize = 4\n',
+            'format = 3\n["SERVER.0x10002000"]\nfile = "lib.c"\nkind = "LIBRARY"\nname = "(static, no archive symbol)"\nsize = 4\n',
             encoding="utf-8",
         )
         result, outdir = _invoke(tmp_path, monkeypatch, "--json")

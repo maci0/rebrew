@@ -64,7 +64,7 @@ _MAP = """\
  0003:00000010       _g_gap_10003010            10003010     bss.c.obj
 """
 
-_FUNCTIONS = 'format = 2\n["SERVER.0x401000"]\nsymbol = "_f"\nsize = 32\nfile = "src/net.c"\nkind = "FUNCTION"\n\n["SERVER.0x401020"]\nsymbol = "_g"\nsize = 16\nfile = "src/net.c"\nkind = "FUNCTION"\n\n["SERVER.0x401030"]\nsymbol = "_k"\nsize = 16\nfile = "src/net.c"\nkind = "FUNCTION"\n'
+_FUNCTIONS = 'format = 3\n["SERVER.0x401000"]\nsymbol = "_f"\nsize = 32\nfile = "src/net.c"\nkind = "FUNCTION"\n\n["SERVER.0x401020"]\nsymbol = "_g"\nsize = 16\nfile = "src/net.c"\nkind = "FUNCTION"\n\n["SERVER.0x401030"]\nsymbol = "_k"\nsize = 16\nfile = "src/net.c"\nkind = "FUNCTION"\n'
 
 _DATA = 'format = 2\n["SERVER.0x10003000"]\nname = "g_table"\nsize = 16\nsection = ".data"\n\n["SERVER.0x10003010"]\nname = "g_gap_10003010"\nsize = 4\nsection = ".bss"\nstorage_kind = "span"\n\n["SERVER.0x10003020"]\nname = "lbl_10003020"\nlink_symbol = "_g_real"\nsize = 4\nsection = ".data"\n\n["SERVER.0x10003030"]\nname = "g_unlinked"\nsize = 4\nsection = ".data"\n'
 

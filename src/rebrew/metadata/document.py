@@ -7,7 +7,7 @@ write lock around a read-modify-write are one concern shared by
 :mod:`rebrew.metadata.functions` (function store) and :mod:`rebrew.metadata.data` (data
 store); they live here so neither store hands-rolls a second copy.
 
-Leaf module: it imports :mod:`rebrew.utils` and nothing else from rebrew, so
+The pure source schema and :mod:`rebrew.utils` are its only dependencies, so
 both stores and their readers can depend on it without a cycle.
 """
 
@@ -23,18 +23,36 @@ from typing import Any
 import tomlkit
 from tomlkit import TOMLDocument
 
+from rebrew.metadata.source_schema import validate_source_metadata
 from rebrew.utils import file_lock, load_toml_for_write_strict, load_tomllib
 
 FORMAT_KEY = "format"
 FORMAT_VERSION = 2
+FUNCTION_FORMAT_VERSION = 3
 
 
-def stamp_format(doc: Any) -> None:
+def stamp_format(doc: Any, *, version: int | None = None) -> None:
     """Stamp a new document; reject an existing document with another schema."""
-    version = doc.get(FORMAT_KEY, FORMAT_VERSION)
-    if not isinstance(version, int) or isinstance(version, bool) or version != FORMAT_VERSION:
-        raise ValueError(f"unsupported metadata format {version!r}; expected {FORMAT_VERSION}")
-    doc[FORMAT_KEY] = FORMAT_VERSION
+    expected = version if version is not None else doc.get(FORMAT_KEY, FORMAT_VERSION)
+    current = doc.get(FORMAT_KEY, expected)
+    if (
+        (not isinstance(current, int) or isinstance(current, bool))
+        or current != expected
+        or expected not in {FORMAT_VERSION, FUNCTION_FORMAT_VERSION}
+    ):
+        raise ValueError(f"unsupported metadata format {current!r}; expected {expected}")
+    doc[FORMAT_KEY] = expected
+
+
+def metadata_format(path: Path) -> int:
+    """Select the current schema and refuse the retired separate source store."""
+    if path.name == "rebrew-functions.toml":
+        if (path.parent / "rebrew-source.toml").exists():
+            raise ValueError(
+                "separate rebrew-source.toml is retired; run rebrew source consolidate --dry-run"
+            )
+        return FUNCTION_FORMAT_VERSION
+    return FORMAT_VERSION
 
 
 logger = logging.getLogger(__name__)
@@ -175,6 +193,7 @@ def load_metadata_doc(
     to avoid cloning the whole table once per source file.
     """
     path = path.resolve()
+    metadata_format(path)
     try:
         st = path.stat()
     except FileNotFoundError:
@@ -193,7 +212,9 @@ def load_metadata_doc(
 
     doc = load_tomllib(path)
 
-    result = parse_metadata_doc(doc, known_fields=known_fields, source=str(path))
+    result = parse_metadata_doc(
+        doc, known_fields=known_fields, source=str(path), version=metadata_format(path)
+    )
     with _METADATA_DOC_CACHE_LOCK:
         # Re-check: a writer may have invalidated (or another reader filled)
         # while we parsed — prefer a fresher entry if one landed.
@@ -316,15 +337,26 @@ _UNKNOWN_KEY_REPORT_MAX = 5
 
 
 def parse_metadata_doc(
-    doc: dict[str, Any], *, known_fields: frozenset[str] | None = None, source: str = ""
+    doc: dict[str, Any],
+    *,
+    known_fields: frozenset[str] | None = None,
+    source: str = "",
+    version: int = FORMAT_VERSION,
 ) -> dict[tuple[str, int], dict[str, Any]]:
     """Read exactly the current qualified-identity metadata schema."""
-    version = doc.get(FORMAT_KEY)
-    if not isinstance(version, int) or isinstance(version, bool) or version != FORMAT_VERSION:
-        raise ValueError(f"{source}: metadata requires format = {FORMAT_VERSION}")
+    actual_version = doc.get(FORMAT_KEY)
+    if (
+        not isinstance(actual_version, int) or isinstance(actual_version, bool)
+    ) or actual_version != version:
+        raise ValueError(
+            f"{source}: metadata requires format = {version}; run rebrew source consolidate --dry-run for format-2 functions"
+        )
     result = {}
     for key, value in doc.items():
         if key == FORMAT_KEY:
+            continue
+        if version == FUNCTION_FORMAT_VERSION and key == "source":
+            validate_source_metadata(value)
             continue
         parsed = parse_metadata_key(key)
         if parsed is None or not parsed[0] or not isinstance(value, dict):
@@ -369,6 +401,8 @@ def canonical_va_key(va: Any) -> Any:
 def build_metadata_doc(
     data: dict[tuple[str, int], dict[str, Any]],
     canonical_order: Sequence[str],
+    *,
+    version: int = FORMAT_VERSION,
 ) -> TOMLDocument:
     """Render ``{(module, va): fields}`` into a TOML document.
 
@@ -377,7 +411,7 @@ def build_metadata_doc(
     order.  Empty entries are dropped.
     """
     doc = tomlkit.document()
-    stamp_format(doc)
+    stamp_format(doc, version=version)
     for module, va_int in sorted(data):
         entry = data[(module, va_int)]
         if not entry:
@@ -397,8 +431,9 @@ def load_metadata_for_write(
     path: Path, description: str, *, known_fields: frozenset[str] | None = None
 ) -> TOMLDocument:
     """Open a current metadata document under the caller's write lock."""
+    version = metadata_format(path)
     doc = load_toml_for_write_strict(path, description)
     if path.exists():
-        parse_metadata_doc(doc, known_fields=known_fields, source=str(path))
-    stamp_format(doc)
+        parse_metadata_doc(doc, known_fields=known_fields, source=str(path), version=version)
+    stamp_format(doc, version=version)
     return doc

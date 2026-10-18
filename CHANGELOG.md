@@ -3,6 +3,17 @@
 ## [5.0.0] - 2026-10-18
 
 ### Changed
+- **Breaking:** Function metadata now requires format 3 and includes addressless
+  assembly evidence and support file purposes under `[source]`; data stays format 2.
+  Preview `rebrew source consolidate --dry-run --json`, then apply with the returned
+  `--expected-digest` to preserve all function rows, verdicts and source receipts
+  while retiring `rebrew-source.toml`. Ordinary readers have no legacy fallback.
+  `metadata.source_provenance.SOURCE_PROVENANCE_FILENAME` and the imported
+  `lint.SOURCE_PROVENANCE_FILENAME` now name `rebrew-functions.toml`;
+  `app.builtins.DOMAIN_COMPONENTS` includes `source consolidate`. Incidental
+  `metadata.functions.load_toml_for_write_strict` and
+  `metadata.source_provenance.load_toml_for_write_strict` imports are removed;
+  use `rebrew.utils.load_toml_for_write_strict` for strict TOML input.
 - Refresh contributor pins to uv 0.13.1 and Resembl 3.3.1, upgrade the
   hash-pinned build backend to setuptools 84, and update m2c to its current
   upstream revision. Bun and Nu validator pins are refreshed as well.
@@ -158,9 +169,8 @@
 ### Fixed
 - Install native runner build prerequisites in every Linux CI matrix entry,
   and report missing compiler/json-c development files before local full runs.
-- The prove extra constrains Bitstring to 4.x because PyVEX 9.x requires
-  `ConstBitStream`, removed in Bitstring 5. Metadata tests distinguish valid
-  escaped control characters in quoted TOML keys from malformed raw controls.
+- Metadata tests distinguish valid escaped control characters in quoted TOML
+  keys from malformed raw controls.
 - `build check-text-placement` prefers the supplied image's sibling MSVC map,
   including builds outside the default directory. Both it and `verify --text`
   fail on missing expected functions; an empty placement result no longer passes.

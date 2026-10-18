@@ -128,7 +128,7 @@ class TestSourceBindings:
         (tmp_path / "rebrew-functions.toml").write_text(
             'format = 1\n["S.0x1000"]\nfile="f.c"\nmarker_type="FUNCTION"\n'
         )
-        with pytest.raises(ValueError, match="format = 2"):
+        with pytest.raises(ValueError, match="format = 3"):
             read_source_bindings(source, metadata_dir=tmp_path)
 
     def test_regular_body_comments_are_not_metadata(self, tmp_path: Path) -> None:
@@ -220,7 +220,7 @@ class TestRegistration:
         assert [(r.file, r.module, r.purpose) for r in load_source_files(tmp_path)] == [
             ("src/shims.c", "S", "native link layout")
         ]
-        assert (tmp_path / "rebrew-source.toml").stat().st_mode & 0o222 == 0
+        assert (tmp_path / "rebrew-functions.toml").stat().st_mode & 0o222 == 0
 
 
 class TestReviewedReplacement:
@@ -284,10 +284,10 @@ class TestReviewedReplacement:
         replace_source_metadata(tmp_path, [evidence], [purpose], expected_hash=None)
         assert load_source_provenance(tmp_path) == (evidence,)
         assert load_source_files(tmp_path) == (purpose,)
-        before = (tmp_path / "rebrew-source.toml").read_bytes()
+        before = (tmp_path / "rebrew-functions.toml").read_bytes()
         with pytest.raises(ValueError, match="changed since"):
             replace_source_metadata(tmp_path, [], [], expected_hash=None)
-        assert (tmp_path / "rebrew-source.toml").read_bytes() == before
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == before
 
 
 class TestIdentityOnlyScan:

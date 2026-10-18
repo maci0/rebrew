@@ -505,7 +505,7 @@ class TestLoadCatalogs:
         )
         write_store_fixture(
             cfg.reversed_dir / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
         funcs, data = _load_catalogs(cfg)

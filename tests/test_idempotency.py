@@ -150,7 +150,7 @@ class TestMatchAllDryRunIdempotent:
             _write(tmp_path / f"func_{va:08x}.c", _single(va, symbol))
         _write(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n["SERVER.0x10002000"]\nsize = 128\nstatus = "STUB"\n',
+            'format = 3\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n["SERVER.0x10002000"]\nsize = 128\nstatus = "STUB"\n',
         )
         monkeypatch.setattr(
             "rebrew.match.require_config",
@@ -224,7 +224,7 @@ class TestBlockerSetIdempotent:
         _write(tmp_path / "func_10001000.c", _single(0x10001000, "_func_a"))
         _write(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n',
+            'format = 3\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n',
         )
         monkeypatch.setattr(
             "rebrew.blocker.require_config",

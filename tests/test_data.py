@@ -427,15 +427,15 @@ def test_function_pointer_declaration_not_treated_as_function() -> None:
     assert [v.name for v in find_extern_variables(line)] == ["g_callback"]
 
 
-@pytest.mark.parametrize("store", ["rebrew-functions.toml", "rebrew-data.toml"])
-def test_migrated_file_retains_target_scope(tmp_path: Path, store: str) -> None:
+@pytest.mark.parametrize("store,version", [("rebrew-functions.toml", 3), ("rebrew-data.toml", 2)])
+def test_migrated_file_retains_target_scope(tmp_path: Path, store: str, version: int) -> None:
     """Removing inline identity must not introduce foreign declarations or owners."""
     _write_c(tmp_path, "server.c", "extern int g_value;\n")
     _write_c(tmp_path, "client.c", "char *g_value;\nextern int g_client;\n")
     _write_c(tmp_path, "shared.c", "extern int g_shared;\n")
     _write_c(tmp_path, "runtime.c", "extern int g_runtime;\n")
     (tmp_path / store).write_text(
-        'format = 2\n["SERVER.0x1000"]\nfile = "server.c"\nname = "g_value"\n["GOLD.0x2000"]\nfile = "client.c"\nname = "g_value"\n["MSVCRT.0x3000"]\nfile = "runtime.c"\nname = "g_runtime"\n',
+        f'format = {version}\n["SERVER.0x1000"]\nfile = "server.c"\nname = "g_value"\n["GOLD.0x2000"]\nfile = "client.c"\nname = "g_value"\n["MSVCRT.0x3000"]\nfile = "runtime.c"\nname = "g_runtime"\n',
         encoding="utf-8",
     )
     cfg = SimpleNamespace(

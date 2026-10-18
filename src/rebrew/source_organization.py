@@ -73,7 +73,6 @@ def review_organization(
                 for name in (
                     "rebrew-functions.toml",
                     "rebrew-data.toml",
-                    "rebrew-source.toml",
                     "rebrew-types.toml",
                 )
             ),

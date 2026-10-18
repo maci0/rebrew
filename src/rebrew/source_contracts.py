@@ -878,7 +878,7 @@ def reconcile_contract(
     if any(path.read_bytes() != raw for path, raw in original.items()):
         raise ValueError("contract inputs changed during planning")
     if not dry_run:
-        with metadata_write_lock(cfgs[0].metadata_dir, "rebrew-source.toml"):
+        with metadata_write_lock(cfgs[0].metadata_dir, "rebrew-functions.toml"):
             if any(path.read_bytes() != raw for path, raw in original.items()):
                 raise ValueError("contract inputs changed before publication")
             for cfg, audit in zip(cfgs, reports, strict=True):

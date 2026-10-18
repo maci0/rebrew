@@ -54,6 +54,7 @@ itself, and the consequences (including trade-offs accepted).
 | 027 | Build hooks under the umbrella CLI *(amended by 028)* |
 | 028 | [CLI domains and explicit operations](028-cli-domains-and-explicit-operations.md) |
 | 029 | [Managed type identities and target layout evidence](029-managed-type-identities.md) |
-| 030 | [Address-only source bindings and dedicated metadata](030-address-only-source.md) |
+| 030 | [Address-only source bindings and dedicated metadata](030-address-only-source.md) *(amended by 033)* |
 | 031 | [Live coverage views and explicit portable exports](031-live-coverage-views.md) |
 | 032 | [Explicit local execution and experimental rootless namespaces](032-experimental-unshare.md) |
+| 033 | [Source evidence shares the function metadata store](033-consolidated-source-evidence.md) |

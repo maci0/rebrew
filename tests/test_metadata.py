@@ -329,7 +329,7 @@ class TestDeleteMetadataEntry:
         one (module, va), so a duplicate would split the entry."""
         path = tmp_path / METADATA_FILENAME
         write_store_fixture(
-            path, 'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
+            path, 'format = 3\n["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
         )
 
         _set_field(tmp_path, 0x1000, "cflags", "/O2", module="SERVER")
@@ -381,7 +381,7 @@ class TestDeleteField:
         path = tmp_path / METADATA_FILENAME
         write_store_fixture(
             path,
-            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\nblocker = "register allocation"\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "STUB"\nblocker = "register allocation"\n',
             encoding="utf-8",
         )
 
@@ -828,7 +828,7 @@ class TestStatusWriteNonCanonicalKey:
         """The status path must not append a canonically-spelled twin of a key
         the store already holds in another spelling."""
         path = tmp_path / METADATA_FILENAME
-        write_store_fixture(path, 'format = 2\n["SERVER.0x1000"]\nsize = 42\n', encoding="utf-8")
+        write_store_fixture(path, 'format = 3\n["SERVER.0x1000"]\nsize = 42\n', encoding="utf-8")
 
         from rebrew.metadata.functions import update_source_status
 
@@ -850,7 +850,7 @@ class TestMetadataEdgeCases:
 
     def test_load_metadata_skips_non_dict_values(self, tmp_path: Path) -> None:
         path = tmp_path / METADATA_FILENAME
-        path.write_text('format = 2\n"SERVER.0x1000" = "scalar"\n')
+        path.write_text('format = 3\n"SERVER.0x1000" = "scalar"\n')
         with pytest.raises(ValueError, match="MODULE.0xVA"):
             load_metadata(tmp_path)
 
@@ -860,7 +860,7 @@ class TestMetadataEdgeCases:
         md.clear_metadata_cache()
         f = tmp_path / "rebrew-functions.toml"
         write_store_fixture(
-            f, 'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8"
+            f, 'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8"
         )
         first = md.load_metadata(tmp_path)
         assert ("SERVER", 0x10001000) in first
@@ -869,7 +869,7 @@ class TestMetadataEdgeCases:
 
         os.utime(f, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_000))
         write_store_fixture(
-            f, 'format = 2\n["SERVER.0x10001000"]\nstatus = "STUB"\n', encoding="utf-8"
+            f, 'format = 3\n["SERVER.0x10001000"]\nstatus = "STUB"\n', encoding="utf-8"
         )
         second = md.load_metadata(tmp_path)
         assert second[("SERVER", 0x10001000)]["status"] == "STUB"
@@ -884,12 +884,12 @@ class TestMetadataEdgeCases:
         md.clear_metadata_cache()
         f = tmp_path / "rebrew-functions.toml"
         write_store_fixture(
-            f, 'format = 2\n["SERVER.0x10001000"]\nstatus = "STUB"\n', encoding="utf-8"
+            f, 'format = 3\n["SERVER.0x10001000"]\nstatus = "STUB"\n', encoding="utf-8"
         )
         mtime_ns = f.stat().st_mtime_ns
         assert md.load_metadata(tmp_path)[("SERVER", 0x10001000)]["status"] == "STUB"
         tmp = tmp_path / "new.toml"
-        tmp.write_text('format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8")
+        tmp.write_text('format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8")
         os.utime(tmp, ns=(mtime_ns, mtime_ns))
         os.replace(tmp, f)
         assert f.stat().st_mtime_ns == mtime_ns
@@ -936,7 +936,7 @@ class TestMergeAnnotationEdges:
         from rebrew.metadata.functions import METADATA_FILENAME, apply_metadata_entry
 
         (tmp_path / METADATA_FILENAME).write_text(
-            'format = 2\n["SERVER.0x00001000"]\nsize = 12.9\n',
+            'format = 3\n["SERVER.0x00001000"]\nsize = 12.9\n',
             encoding="utf-8",
         )
         ann = SourceBinding(va=0x1000, module="SERVER", name="f", size=99)
@@ -967,7 +967,7 @@ class TestMergeAnnotationEdges:
         bool_dir = tmp_path / "bool"
         bool_dir.mkdir()
         (bool_dir / METADATA_FILENAME).write_text(
-            'format = 2\n["SERVER.0x00001000"]\nskip = false\n', encoding="utf-8"
+            'format = 3\n["SERVER.0x00001000"]\nskip = false\n', encoding="utf-8"
         )
         ann2 = SourceBinding(va=0x1000, module="SERVER", name="f")
         merge_into_binding(ann2, bool_dir)
@@ -1591,18 +1591,18 @@ class TestFormatStamp:
     """Each store carries a format stamp its writers add and never rewrite."""
 
     def test_a_write_stamps_the_format_version(self, tmp_path: Path) -> None:
-        from rebrew.metadata.document import FORMAT_KEY, FORMAT_VERSION
+        from rebrew.metadata.document import FORMAT_KEY
         from rebrew.metadata.functions import update_field
 
         update_field(tmp_path, 0x1000, "note", "x", "SERVER", updated_by="lint")
         text = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
-        assert f"{FORMAT_KEY} = {FORMAT_VERSION}" in text
+        assert f"{FORMAT_KEY} = 3" in text
 
     def test_a_foreign_stamp_is_preserved(self, tmp_path: Path) -> None:
         path = tmp_path / METADATA_FILENAME
         original = 'format = 99\n["SERVER.0x1000"]\nstatus = "STUB"\n'
         path.write_text(original)
-        with pytest.raises(ValueError, match="format = 2"):
+        with pytest.raises(ValueError, match="format = 3"):
             update_field(tmp_path, 0x1000, "note", "x", "SERVER")
         assert path.read_text() == original
 

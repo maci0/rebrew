@@ -24,7 +24,7 @@ not establish identities.
 these addresses; run without `--dry-run` to record them. It validates the complete
 selection before writes and preserves existing metadata fields. With no SOURCE,
 it scans configured sources and headers. `--support "reason"` with one source
-records its target-scoped support purpose in `rebrew-source.toml`.
+records its target-scoped support purpose in `rebrew-functions.toml` under `[source.files]`.
 
 Sources without addresses remain supported through stored `file`, `symbol`,
 `name`, and `kind` identities. Library inventories without a C declaration are
@@ -32,15 +32,18 @@ metadata-only. No fake definitions or storage are needed for inventory rows.
 
 ## Managed stores
 
-Function and data stores require `format = 2`, then qualified `MODULE.0xVA`
-tables. `rebrew-source.toml` requires format 2 and the `definitions` and `files`
-tables. No older schema or inline metadata blocks are read, including during
-registration. `kind` is the sole identity field for classification.
+Functions require `format = 3`; data requires `format = 2`. Both retain qualified
+`MODULE.0xVA` tables. The function store also holds `[source.definitions]` and
+`[source.files]` for addressless evidence and target-scoped purposes. Ordinary
+readers reject older schemas and inline metadata blocks, including during
+registration. Explicitly preview `rebrew source consolidate --dry-run --json`,
+then apply with the returned `--expected-digest` to fold format-2 function/source
+stores into the current function store. `kind` is the sole identity field for classification.
 
 Illustrative managed output (use the CLI or locked owner APIs to edit):
 
 ```toml
-format = 2
+format = 3
 
 ["SERVER.0x10001000"]
 file = "src/tick.c"
@@ -55,8 +58,9 @@ status = "STUB"
 external origins, verification evidence, STRUCT/CALLERS information, and
 `source = "naked"` for generated assembly reconstructions. `rebrew-data.toml`
 owns data identity, type, extent, section, storage relationships and data
-verification. `rebrew-source.toml` owns assembly evidence for definitions without
-a native address and target-scoped file purposes. File paths are relative to
+verification. The function store owns assembly evidence for definitions without
+a native address (`source.definitions.FILE.SYMBOL.MODULE`) and target-scoped file
+purposes (`source.files.FILE.MODULE`). These records never invent a native VA. File paths are relative to
 `cfg.metadata_dir`; pass that directory to readers and writers.
 
 Never hand-edit these stores. Writers use their owning metadata APIs, locks,
@@ -107,7 +111,7 @@ source comments or rewrites obsolete blocks.
 | W028 | Stale bound VA   FUNCTION/STUB binding VA has no function in the current discovery inventory (`function_structure.json`, removed/shifted) or points inside another function's span (moved/merged): review the binding or refresh with `rebrew binary functions`; LIBRARY/DATA/GLOBAL bindings excluded |
 | W029 | Redundant cflags   Per-function `cflags` in `rebrew-functions.toml` or `compiler.cflags_presets.<MODULE>` that only repeat the inherited value (`resolve_cflags` ladder: function → module preset → project `compiler.cflags`); flagged by `rebrew lint` (project-level `check_redundant_cflags` moved from `rebrew doctor`). `rebrew lint --fix` drops the redundant field; the fallback chain already supplies the same flags |
 | W030 | Function addresses for one target do not follow C definition order. |
-| W031 | Metadata store problem   A `rebrew-functions.toml` / `rebrew-data.toml` entry a reader will not honour: an unknown field, a STATUS outside the vocabulary, half an `updated_by`/`updated_at` pair, an unknown provenance tag, a stray top-level key, or a missing / foreign `format` stamp. Also reports malformed `rebrew-source.toml`, unknown target modules and evidence bound to a changed, missing or ambiguous definition; clear the record or review and record evidence again |
+| W031 | Metadata store problem   A `rebrew-functions.toml` / `rebrew-data.toml` entry a reader will not honour: an unknown field, a STATUS outside the vocabulary, half an `updated_by`/`updated_at` pair, an unknown provenance tag, a stray top-level key, or a missing / foreign `format` stamp. Also reports malformed function-store source evidence, unknown target modules and evidence bound to a changed, missing or ambiguous definition; clear the record or review and record evidence again |
 | W032 | Coverage store hygiene   An artifact from a store rebrew no longer writes: `db/coverage.db` (SQLite), `db/data_<target>.json` (catalog grid), `db/*.csv`, or a `db/coverage-<target>.toml` the dashboards cannot serve: unreadable to the loader (foreign `version`, malformed TOML) or one whose `target` key disagrees with its filename, so that target answers with another's data. Re-run `rebrew coverage export --output snapshots/` and delete the old artifacts |
 | W033 | Agent scaffold drift   `AGENTS.md`, `PRINCIPLES.md` or `.agents/skills/**` no longer matches the installed rebrew's packaged sources, so an agent follows workflow instructions for a version that is not running. Warn-only; fix with `rebrew init --refresh-agents` (it writes only differing files and prunes a skill the packaged tree no longer ships). `AGENTS.md`'s own comparison is profile-rendered: `rebrew init --refresh-agents --check` reports it in full |
 | W034 | `file` identity is not joinable   A stored `file` in `rebrew-functions.toml` is absolute or contains a `..` segment, so `verify`/`rename`/BinSync would join it to a path outside the checkout. Writers refuse it (`rebrew.metadata.functions.validate_identity_file`); this reports rows written before the gate |

@@ -165,7 +165,7 @@ class TestFindAllStubs:
         # STATUS lives in metadata, not inline
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
         stubs = find_all_stubs(tmp_path)
@@ -461,7 +461,7 @@ class TestStubMetadataDir:
         meta = tmp_path / "src" / "rebrew-functions.toml"
         write_store_fixture(
             meta,
-            'format = 2\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n',
+            'format = 3\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         cfg = SimpleNamespace(

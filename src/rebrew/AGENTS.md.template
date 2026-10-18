@@ -151,11 +151,14 @@ void __cdecl function_name(void)
 
 Stack one address per target above a shared declaration. Comments and blank lines
 may intervene; code and directives may not. New generators include these anchors.
-All state and identity live in format-2 metadata: `rebrew-functions.toml`,
-`rebrew-data.toml`, and `rebrew-source.toml`. The identity field is `kind`.
+All state and identity live in `rebrew-functions.toml` (format 3, including
+addressless assembly evidence and support purposes in `[source]`) and
+`rebrew-data.toml` (format 2). The identity field is `kind`.
 `source = "naked"`, STRUCT/CALLERS information and support file purposes are
 metadata-only. Old inline blocks and earlier metadata formats are rejected;
-there is no compatibility parser or migration reader.
+ordinary readers have no compatibility parser or legacy fallback. Use
+`rebrew source consolidate --dry-run --json`, review the digest, then apply with
+`--expected-digest` to migrate format-2 functions and the retired source store.
 
 Use `rebrew source register --dry-run` to preview declaration-bound identities,
 then register them without `--dry-run`. Registration preserves existing state.

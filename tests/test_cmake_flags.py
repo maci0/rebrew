@@ -47,8 +47,8 @@ def _project(tmp_path: Path, functions_toml: str, sources: dict[str, str]) -> Pr
     write_source(
         tmp_path / "src/rebrew-functions.toml",
         functions_toml
-        if functions_toml.startswith("format = 2")
-        else "format = 2\n" + functions_toml,
+        if functions_toml.startswith("format = 3")
+        else "format = 3\n" + functions_toml,
         encoding="utf-8",
     )
     for name, body in sources.items():
@@ -60,7 +60,7 @@ def test_metadata_flags_are_emitted(tmp_path: Path) -> None:
     """The TOML value wins — that is the whole point of the command."""
     cfg = _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -86,7 +86,7 @@ def test_target_defines_reach_annotated_and_listed_sources(
         pytest.skip("cmake is required to check the generated source properties")
     _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -168,7 +168,7 @@ def test_shared_source_flags_are_scoped_in_one_cmake_build(
         pytest.skip("cmake and a C compiler are required for generated-rule checks")
     _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O1"\n["CLIENT.0x401000"]\ncflags = "/O2"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O1"\n["CLIENT.0x401000"]\ncflags = "/O2"\n',
         {
             "a.c": SourceFixture(
                 "int a(void) { return 0; }\n",
@@ -279,7 +279,7 @@ def test_conflicting_functions_in_one_file_are_reported(tmp_path: Path) -> None:
     """A TU compiles with one flag set, so this cannot be honoured silently."""
     cfg = _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n/* ADDRESS: SERVER 0x10001020 */\nint b(void) { return 0; }\n",
@@ -302,7 +302,7 @@ def test_define_alone_is_not_a_conflict_and_is_not_emitted(tmp_path: Path) -> No
     define is dropped, visibly, rather than silently."""
     cfg = _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n["SERVER.0x10001020"]\ncflags = "/O2 /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n["SERVER.0x10001020"]\ncflags = "/O2 /Gd"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n/* ADDRESS: SERVER 0x10001020 */\nint b(void) { return 0; }\n",
@@ -335,7 +335,7 @@ def test_data_marker_does_not_count_as_a_function(tmp_path: Path) -> None:
     """
     cfg = _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Oy-"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Oy-"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10002000 */\nchar blob[4] = {0};\n/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -357,7 +357,7 @@ def test_written_include_is_valid_cmake(tmp_path: Path, monkeypatch: pytest.Monk
     """
     _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Ow"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Ow"\n',
         {
             "a b.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -379,7 +379,7 @@ def test_cli_json_dry_run_stdout_is_pure(tmp_path: Path, monkeypatch: pytest.Mon
     """``--json --dry-run`` must emit only JSON on stdout (no CMake include text)."""
     _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -403,7 +403,7 @@ def test_cli_conflicting_flags_exit_error_with_json(
     """Conflicting per-file flags exit EXIT_ERROR and still emit a JSON envelope."""
     _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n/* ADDRESS: SERVER 0x10001020 */\nint b(void) { return 0; }\n",
@@ -442,7 +442,7 @@ def test_toolchain_pin_is_reported_because_the_build_cannot_honour_it(
     """
     cfg = _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ntoolchain = "msvc-6.0"\n',
+        'format = 3\n["SERVER.0x10001000"]\ntoolchain = "msvc-6.0"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -463,7 +463,7 @@ def test_sources_file_unannotated_appears_in_json(
     """``--sources-file`` entries without annotations must still show in ``--json``."""
     _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -538,7 +538,7 @@ def test_shared_sources_are_collected(tmp_path: Path) -> None:
     (tmp_path / "src/shared").mkdir(parents=True, exist_ok=True)
     write_store_fixture(
         tmp_path / "src/rebrew-functions.toml",
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
         encoding="utf-8",
     )
     write_source(

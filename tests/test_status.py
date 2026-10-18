@@ -219,7 +219,7 @@ class TestCollectStatus:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["TEST.0x1000"]\nstatus = "EXACT"\n["TEST.0x2000"]\nstatus = "NEAR_MATCHING"\n',
+            'format = 3\n["TEST.0x1000"]\nstatus = "EXACT"\n["TEST.0x2000"]\nstatus = "NEAR_MATCHING"\n',
             encoding="utf-8",
         )
 
@@ -282,7 +282,7 @@ class TestCollectStatus:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["TEST.0x1000"]\nstatus = "EXACT"\n["OTHER.0x2000"]\nstatus = "EXACT"\n',
+            'format = 3\n["TEST.0x1000"]\nstatus = "EXACT"\n["OTHER.0x2000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
 
@@ -403,7 +403,7 @@ class TestCollectStatus:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["TEST.0x1000"]\nstatus = "EXACT"\nsize = 128\n',
+            'format = 3\n["TEST.0x1000"]\nstatus = "EXACT"\nsize = 128\n',
             encoding="utf-8",
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
@@ -516,7 +516,7 @@ class TestCollectStatus:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["TEST.0x1000"]\nstatus = "EXACT"\n["TEST.0x1020"]\nstatus = "STUB"\n',
+            'format = 3\n["TEST.0x1000"]\nstatus = "EXACT"\n["TEST.0x1020"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
@@ -580,7 +580,7 @@ class TestCollectStatus:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["TEST.0x1000"]\nstatus = "EXACT"\nsize = 64\n',
+            'format = 3\n["TEST.0x1000"]\nstatus = "EXACT"\nsize = 64\n',
             encoding="utf-8",
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
@@ -883,7 +883,7 @@ class TestCollectStatus:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["TEST.0x1000"]\nstatus = "RELOC"\n["TEST.0x2000"]\nstatus = "RELOC"\n["TEST.0x3000"]\nstatus = "RELOC"\n',
+            'format = 3\n["TEST.0x1000"]\nstatus = "RELOC"\n["TEST.0x2000"]\nstatus = "RELOC"\n["TEST.0x3000"]\nstatus = "RELOC"\n',
             encoding="utf-8",
         )
 
@@ -955,7 +955,7 @@ class TestCollectStatus:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["TEST.0x1000"]\nstatus = "SKIP"\n',
+            'format = 3\n["TEST.0x1000"]\nstatus = "SKIP"\n',
             encoding="utf-8",
         )
         cache_dir = tmp_path / ".rebrew"

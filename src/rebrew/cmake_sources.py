@@ -101,7 +101,7 @@ def main(
         "set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS\n"
         '  "${CMAKE_CURRENT_SOURCE_DIR}/rebrew-project.toml"\n',
     ]
-    for name in ("rebrew-functions.toml", "rebrew-data.toml", "rebrew-source.toml"):
+    for name in ("rebrew-functions.toml", "rebrew-data.toml"):
         metadata = (cfg.metadata_dir / name).relative_to(cfg.root).as_posix()
         lines.append(f'  "${{CMAKE_CURRENT_SOURCE_DIR}}/{metadata}"\n')
     lines.append(")\n\n")

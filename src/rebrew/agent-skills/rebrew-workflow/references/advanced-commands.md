@@ -24,7 +24,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew build cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via `rebrew build driver`. |
 | `rebrew build cmake-flags` | Write per-file CFLAGS from `rebrew-functions.toml` as a CMake include. |
 | `rebrew build cmake-sources` | Write the target's metadata-selected source list as a CMake include. |
-| `rebrew source register` | Register optional ADDRESS anchors above C declarations in format-2 stores; `--dry-run` previews. Sources and headers are scanned. |
+| `rebrew source register` | Register optional ADDRESS anchors above C declarations in canonical stores (functions format 3; data format 2); `--dry-run` previews. Sources and headers are scanned. |
 | `rebrew build check` | Verify `build/` still matches what CMake generated (catches a hand-edited `build.make`). |
 | `rebrew binsync init` | Create the BinSync state repository. |
 | `rebrew binsync diff` | Report field divergence and provenance freshness. |

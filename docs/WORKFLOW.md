@@ -157,7 +157,7 @@ rebrew test src/target_name/my_func.c           # compile + update STATUS
 rebrew test src/target_name/my_func.c --no-promote  # compile without updating STATUS
 ```
 
-Identity and all state live in format-2 metadata. Optional ADDRESS comments bind
+Identity and all state live in canonical metadata (functions format 3; data format 2). Optional ADDRESS comments bind
 exactly the next C definition or variable; stack one per target. Register current
 anchors with `rebrew source register --dry-run`, then apply. Old source blocks
 and schemas are rejected. See [metadata format](METADATA_FORMAT.md).
@@ -386,7 +386,7 @@ added; users control the directory structure freely.
 ## Source Addresses and Metadata
 
 Function and data identities are qualified `MODULE.0xVA` rows in dedicated
-format-2 stores. C may carry an optional `ADDRESS: MODULE 0xVA` comment immediately
+canonical stores (functions format 3; data format 2). C may carry an optional `ADDRESS: MODULE 0xVA` comment immediately
 above a definition or variable declaration; stack one per target for shared C.
 All state, including STATUS, SIZE, CFLAGS, reconstruction source and BLOCKER,
 is metadata-only. Record support purposes with

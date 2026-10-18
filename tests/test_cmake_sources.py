@@ -131,7 +131,7 @@ def test_emitted_include_sets_variable(tmp_path: Path, monkeypatch: pytest.Monke
     assert out.exit_code == 0, out.output
     assert "set(MYSRC" in out.stdout
     assert "src/shared/a.c" in out.stdout
-    for name in ("rebrew-functions.toml", "rebrew-data.toml", "rebrew-source.toml"):
+    for name in ("rebrew-functions.toml", "rebrew-data.toml"):
         assert f'"${{CMAKE_CURRENT_SOURCE_DIR}}/{name}"' in out.stdout
 
 

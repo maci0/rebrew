@@ -81,7 +81,8 @@ PROVEN records semantic evidence under the proof's assumptions and earns no
 byte-match credit. See [match types](https://github.com/maci0/rebrew/blob/main/docs/MATCH_TYPES.md).
 
 Function/data metadata are CLI/API-managed. Never hand-edit their TOMLs or write
-STATUS in C. Function identity and state live in format-2 `MODULE.0xVA` metadata rows.
+STATUS in C. Function identity and state live in format-3 `MODULE.0xVA` metadata rows;
+addressless evidence and support purposes live under `[source]` in the same store.
 Source can include optional `/* ADDRESS: MODULE 0xVA */` anchors immediately
 above definitions. Retired source tags and old metadata formats are rejected. See
 [metadata ownership](https://github.com/maci0/rebrew/blob/main/docs/METADATA.md).

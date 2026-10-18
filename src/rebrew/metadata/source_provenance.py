@@ -2,36 +2,52 @@
 
 import hashlib
 from collections.abc import Sequence
-from dataclasses import dataclass
+from contextlib import nullcontext
 from functools import lru_cache
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 import tomlkit
 
 from rebrew.c_parser import find_function_name_in_node, mask_msvc_syntax, parse_c_source
-from rebrew.metadata.document import metadata_write_lock
-from rebrew.metadata.functions import validate_identity_file
+from rebrew.metadata.document import (
+    FUNCTION_FORMAT_VERSION,
+    load_metadata_for_write,
+    metadata_format,
+    metadata_write_lock,
+    parse_metadata_doc,
+)
+from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, METADATA_FIELDS
+from rebrew.metadata.source_schema import (
+    AssemblyProvenance,
+    SourceFilePurpose,
+    validate_identity_file,
+    validate_source_files,
+    validate_source_metadata,
+)
 from rebrew.utils import (
     atomic_write_locked,
-    load_toml_for_write_strict,
     load_tomllib,
     preset_module_key,
     read_source_text,
 )
 
-SOURCE_PROVENANCE_FILENAME = "rebrew-source.toml"
+__all__ = [
+    "AssemblyProvenance",
+    "SourceFilePurpose",
+    "SOURCE_PROVENANCE_FILENAME",
+    "function_definition_hashes",
+    "load_source_provenance",
+    "document_assembly",
+    "rename_source_provenance",
+    "load_source_files",
+    "set_source_file",
+    "replace_source_metadata",
+    "consolidate_source_metadata",
+]
 
-
-@dataclass(frozen=True)
-class AssemblyProvenance:
-    """One reviewed definition, bound to its content and a target module."""
-
-    file: str
-    symbol: str
-    module: str
-    source_hash: str
-    evidence: str
+SOURCE_PROVENANCE_FILENAME = "rebrew-functions.toml"
+_FUNCTION_FIELDS = METADATA_FIELDS | frozenset(k.upper() for k in FUNCTION_IDENTITY_FIELDS)
 
 
 def function_definition_hashes(source: str) -> dict[str, str]:
@@ -56,69 +72,27 @@ def function_definition_hashes(source: str) -> dict[str, str]:
     return {name: digest for name, digest in hashes.items() if name not in ambiguous}
 
 
-def _validate(document: Any) -> tuple[AssemblyProvenance, ...]:
-    if (
-        set(document) != {"format", "definitions", "files"}
-        or not isinstance(document["format"], int)
-        or isinstance(document["format"], bool)
-        or document["format"] != 2
-    ):
-        raise ValueError("source metadata requires format = 2, definitions and files")
-    _validate_files(document["files"])
-    definitions = document["definitions"]
-    if not isinstance(definitions, dict):
-        raise ValueError("source provenance definitions must be a table")
-    records = []
-    for file, symbols in definitions.items():
-        if (
-            not file
-            or validate_identity_file(file) != file
-            or PurePosixPath(file).as_posix() != file
-            or "\\" in file
-        ):
-            raise ValueError(f"invalid source provenance file {file!r}")
-        if not isinstance(symbols, dict):
-            raise ValueError(f"source provenance for {file!r} must be a table")
-        for symbol, modules in symbols.items():
-            if not symbol.isidentifier() or not isinstance(modules, dict):
-                raise ValueError(f"invalid source definition {file!r}: {symbol!r}")
-            for module, entry in modules.items():
-                if not module or preset_module_key(module) != module or not isinstance(entry, dict):
-                    raise ValueError(f"invalid source provenance module {module!r}")
-                if set(entry) != {"source_hash", "evidence"}:
-                    raise ValueError(f"invalid source provenance fields for {symbol!r}")
-                digest, evidence = entry["source_hash"], entry["evidence"]
-                if (
-                    not isinstance(digest, str)
-                    or len(digest) != 64
-                    or any(c not in "0123456789abcdef" for c in digest)
-                ):
-                    raise ValueError(f"invalid source hash for {symbol!r}")
-                if not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 2000:
-                    raise ValueError(
-                        f"original-assembly evidence for {symbol!r} must contain 1–2000 characters"
-                    )
-                records.append(AssemblyProvenance(file, symbol, module, digest, evidence))
-    return tuple(records)
-
-
 @lru_cache(maxsize=16)
 def _read(
-    path: Path, fingerprint: tuple[int, int, int]
+    path: Path, fingerprint: tuple[int, int, int, int]
 ) -> tuple[tuple[AssemblyProvenance, ...], tuple["SourceFilePurpose", ...]]:
     document = load_tomllib(path)
-    definitions = _validate(document)
-    return definitions, _validate_files(document["files"])
+    parse_metadata_doc(
+        document, known_fields=_FUNCTION_FIELDS, source=str(path), version=FUNCTION_FORMAT_VERSION
+    )
+    source = document.get("source", {"definitions": {}, "files": {}})
+    return validate_source_metadata(source), validate_source_files(source["files"])
 
 
 def load_source_provenance(directory: Path) -> tuple[AssemblyProvenance, ...]:
     """Read immutable records, rejecting malformed stores instead of trusting evidence."""
     path = (directory / SOURCE_PROVENANCE_FILENAME).resolve()
+    metadata_format(path)
     try:
         stat = path.stat()
     except FileNotFoundError:
         return ()
-    return _read(path, (stat.st_mtime_ns, stat.st_size, stat.st_ino))[0]
+    return _read(path, (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino))[0]
 
 
 def document_assembly(
@@ -145,7 +119,9 @@ def document_assembly(
         if symbol not in hashes:
             raise ValueError(f"{symbol!r} has no unique parseable definition in {relative}")
         entry = {"source_hash": hashes[symbol], "evidence": evidence.strip()}
-        _validate({"format": 2, "definitions": {relative: {symbol: {module: entry}}}, "files": {}})
+        validate_source_metadata(
+            {"definitions": {relative: {symbol: {module: entry}}}, "files": {}}
+        )
     path = directory / SOURCE_PROVENANCE_FILENAME
     report = {
         "file": relative,
@@ -159,13 +135,8 @@ def document_assembly(
         load_source_provenance(directory)
         return report
     with metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
-        doc = load_toml_for_write_strict(path, "source provenance")
-        if path.exists():
-            _validate(doc)
-        else:
-            doc["format"] = 2
-            doc["definitions"] = tomlkit.table()
-            doc["files"] = tomlkit.table()
+        store = load_metadata_for_write(path, "function metadata", known_fields=_FUNCTION_FIELDS)
+        doc = store.setdefault("source", {"definitions": {}, "files": {}})
         definitions = doc.setdefault("definitions", {})
         modules = definitions.get(relative, {}).get(symbol, {})
         if modules.get(module) == entry:
@@ -180,8 +151,7 @@ def document_assembly(
                 doc["definitions"] = tomlkit.table()
         else:
             definitions.setdefault(relative, {}).setdefault(symbol, {})[module] = entry
-        doc["format"] = 2
-        atomic_write_locked(path, tomlkit.dumps(doc))
+        atomic_write_locked(path, tomlkit.dumps(store))
     return report
 
 
@@ -199,8 +169,8 @@ def rename_source_provenance(
     if not edits or not path.exists():
         return
     with metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
-        doc = load_toml_for_write_strict(path, "source provenance")
-        _validate(doc)
+        store = load_metadata_for_write(path, "function metadata", known_fields=_FUNCTION_FIELDS)
+        doc = store.setdefault("source", {"definitions": {}, "files": {}})
         definitions = doc["definitions"]
         changed = False
         if move:
@@ -251,71 +221,34 @@ def rename_source_provenance(
                 definitions[new_relative] = records
                 changed = True
         if changed and not dry_run:
-            atomic_write_locked(path, tomlkit.dumps(doc))
-
-
-@dataclass(frozen=True)
-class SourceFilePurpose:
-    """A target-scoped reason for a support translation unit with no native VA."""
-
-    file: str
-    module: str
-    purpose: str
-
-
-def _validate_files(files: Any) -> tuple[SourceFilePurpose, ...]:
-    if not isinstance(files, dict):
-        raise ValueError("source metadata files must be a table")
-    records = []
-    for file, modules in files.items():
-        if validate_identity_file(file) != file or PurePosixPath(file).as_posix() != file:
-            raise ValueError(f"invalid source metadata file {file!r}")
-        if not isinstance(modules, dict):
-            raise ValueError(f"source file targets for {file!r} must be a table")
-        for module, entry in modules.items():
-            if not module or preset_module_key(module) != module or not isinstance(entry, dict):
-                raise ValueError(f"invalid source file target {module!r}")
-            if (
-                set(entry) != {"purpose"}
-                or not isinstance(entry["purpose"], str)
-                or not entry["purpose"].strip()
-            ):
-                raise ValueError(f"source support file {file!r} requires a non-empty purpose")
-            records.append(SourceFilePurpose(file, module, entry["purpose"]))
-    return tuple(records)
+            atomic_write_locked(path, tomlkit.dumps(store))
 
 
 def load_source_files(directory: Path) -> tuple[SourceFilePurpose, ...]:
     """Read validated file metadata; source comments never supply file purpose."""
     path = (directory / SOURCE_PROVENANCE_FILENAME).resolve()
+    metadata_format(path)
     try:
         stat = path.stat()
     except FileNotFoundError:
         return ()
-    return _read(path, (stat.st_mtime_ns, stat.st_size, stat.st_ino))[1]
+    return _read(path, (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino))[1]
 
 
 def set_source_file(directory: Path, file: str, module: str, purpose: str) -> None:
     """Record a support file's purpose under the shared metadata lock."""
     path = directory / SOURCE_PROVENANCE_FILENAME
     entry = {file: {preset_module_key(module): {"purpose": purpose}}}
-    _validate_files(entry)
+    validate_source_files(entry)
     with metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
-        doc = (
-            load_toml_for_write_strict(path, "source metadata")
-            if path.exists()
-            else tomlkit.document()
-        )
-        if path.exists():
-            _validate(doc)
-        else:
-            doc.update({"format": 2, "definitions": {}, "files": {}})
+        store = load_metadata_for_write(path, "function metadata", known_fields=_FUNCTION_FIELDS)
+        doc = store.setdefault("source", {"definitions": {}, "files": {}})
         modules = doc["files"].setdefault(file, {})
         if modules.get(preset_module_key(module)) == {"purpose": purpose}:
             return
         modules[preset_module_key(module)] = {"purpose": purpose}
-        _validate(doc)
-        atomic_write_locked(path, tomlkit.dumps(doc))
+        validate_source_metadata(doc)
+        atomic_write_locked(path, tomlkit.dumps(store))
 
 
 def replace_source_metadata(
@@ -327,7 +260,7 @@ def replace_source_metadata(
 ) -> None:
     """Replace source metadata from reviewed records, requiring the prior byte digest."""
     doc = tomlkit.document()
-    doc.update({"format": 2, "definitions": {}, "files": {}})
+    doc.update({"definitions": {}, "files": {}})
     for record in definitions:
         modules = doc["definitions"].setdefault(record.file, {}).setdefault(record.symbol, {})
         if record.module in modules:
@@ -338,10 +271,103 @@ def replace_source_metadata(
         if file_record.module in modules:
             raise ValueError(f"duplicate source file {file_record.file}:{file_record.module}")
         modules[file_record.module] = {"purpose": file_record.purpose}
-    _validate(doc)
+    validate_source_metadata(doc)
     path = directory / SOURCE_PROVENANCE_FILENAME
     with metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
         current = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
         if current != expected_hash:
             raise ValueError(f"{path} changed since its records were reviewed")
-        atomic_write_locked(path, tomlkit.dumps(doc))
+        store = load_metadata_for_write(path, "function metadata", known_fields=_FUNCTION_FIELDS)
+        store["source"] = doc
+        atomic_write_locked(path, tomlkit.dumps(store))
+
+
+def consolidate_source_metadata(
+    directory: Path, *, dry_run: bool = False, expected_digest: str | None = None
+) -> dict[str, Any]:
+    """Upgrade reviewed format-2 functions and source evidence to the single format-3 store."""
+    directory = directory.resolve()
+    function_path = directory / SOURCE_PROVENANCE_FILENAME
+    source_path = directory / "rebrew-source.toml"
+    with (
+        nullcontext() if dry_run else metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME),
+        nullcontext() if dry_run else metadata_write_lock(directory, source_path.name),
+    ):
+        function_raw = function_path.read_bytes() if function_path.exists() else None
+        source_raw = source_path.read_bytes() if source_path.exists() else None
+        digest = hashlib.sha256()
+        for name, raw in ((function_path.name, function_raw), (source_path.name, source_raw)):
+            digest.update(name.encode())
+            digest.update(b"\0missing\0" if raw is None else b"\0present\0" + raw)
+        input_digest = digest.hexdigest()
+        store = (
+            tomlkit.parse(function_raw.decode("utf-8-sig"))
+            if function_raw is not None
+            else tomlkit.document()
+        )
+        version = store.get("format", 2)
+        if (not isinstance(version, int) or isinstance(version, bool)) or version not in {
+            2,
+            FUNCTION_FORMAT_VERSION,
+        }:
+            raise ValueError("source consolidation requires format-2 or current format-3 functions")
+        if function_raw is not None:
+            parse_metadata_doc(
+                store,
+                known_fields=_FUNCTION_FIELDS,
+                source=str(function_path),
+                version=version,
+            )
+        imported: dict[str, Any] = {"definitions": {}, "files": {}}
+        if source_raw is not None:
+            old_source = tomlkit.parse(source_raw.decode("utf-8-sig"))
+            if (
+                set(old_source) != {"format", "definitions", "files"}
+                or (
+                    not isinstance(old_source["format"], int)
+                    or isinstance(old_source["format"], bool)
+                )
+                or old_source["format"] != 2
+            ):
+                raise ValueError(
+                    "source consolidation requires format = 2, definitions and files in rebrew-source.toml"
+                )
+            imported = {"definitions": old_source["definitions"], "files": old_source["files"]}
+            validate_source_metadata(imported)
+            if "source" in store and store["source"] != imported:
+                raise ValueError(
+                    "function source section conflicts with rebrew-source.toml; no files changed"
+                )
+            store["source"] = imported
+        records = validate_source_metadata(store.get("source", {"definitions": {}, "files": {}}))
+        files = validate_source_files(store.get("source", {"files": {}})["files"])
+        changed = (
+            function_raw is None or version != FUNCTION_FORMAT_VERSION or source_raw is not None
+        )
+        store["format"] = FUNCTION_FORMAT_VERSION
+        parse_metadata_doc(store, source=str(function_path), version=FUNCTION_FORMAT_VERSION)
+        report = {
+            "dry_run": dry_run,
+            "input_digest": input_digest,
+            "changed": changed,
+            "functions": len(parse_metadata_doc(store, version=FUNCTION_FORMAT_VERSION)),
+            "definitions": len(records),
+            "files": len(files),
+            "retired_source_store": source_raw is not None,
+        }
+        if not dry_run:
+            if expected_digest != input_digest:
+                raise ValueError(
+                    "source metadata inputs changed or --expected-digest was not supplied; preview consolidation again"
+                )
+            if changed:
+                atomic_write_locked(function_path, tomlkit.dumps(store))
+                try:
+                    source_path.unlink(missing_ok=True)
+                except OSError:
+                    if function_raw is None:
+                        function_path.unlink()
+                    else:
+                        atomic_write_locked(function_path, function_raw.decode("utf-8"))
+                    raise
+        return report

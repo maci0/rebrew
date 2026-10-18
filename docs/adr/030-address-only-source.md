@@ -1,6 +1,6 @@
 # 030: Address-only source bindings and dedicated metadata
 
-- **Status**: Accepted
+- **Status**: Amended by 033
 - **Date**: 2026-10
 
 ## Context

@@ -547,7 +547,7 @@ class TestVAHexCase:
 class TestW016Section:
     def test_w016_global_missing_section(self, tmp_path: Path) -> None:
         """GLOBAL without SECTION in metadata fires W016."""
-        metadata_toml = tmp_path / "rebrew-functions.toml"
+        metadata_toml = tmp_path / "rebrew-data.toml"
         write_store_fixture(
             metadata_toml, 'format = 2\n["SERVER.0x10050000"]\nsize = 4\n', encoding="utf-8"
         )
@@ -561,7 +561,7 @@ class TestW016Section:
 
     def test_w016_data_missing_section(self, tmp_path: Path) -> None:
         """DATA without SECTION in metadata fires W016."""
-        metadata_toml = tmp_path / "rebrew-functions.toml"
+        metadata_toml = tmp_path / "rebrew-data.toml"
         write_store_fixture(
             metadata_toml, 'format = 2\n["SERVER.0x10050000"]\nsize = 10\n', encoding="utf-8"
         )
@@ -575,7 +575,7 @@ class TestW016Section:
 
     def test_w016_global_with_section_no_warning(self, tmp_path: Path) -> None:
         """SECTION from the metadata should suppress W016 without inline SECTION."""
-        metadata_toml = tmp_path / "rebrew-functions.toml"
+        metadata_toml = tmp_path / "rebrew-data.toml"
         write_store_fixture(
             metadata_toml,
             'format = 2\n["SERVER.0x10050000"]\nsize = 4\nsection = ".bss"\n',
@@ -1261,7 +1261,7 @@ class TestW020AsmDump:
         metadata_toml = tmp_path / "rebrew-functions.toml"
         write_store_fixture(
             metadata_toml,
-            'format = 2\n["SERVER.0x10008880"]\nblocker = "block-fill prelude: pure C cannot emit; kept as __asm"\n',
+            'format = 3\n["SERVER.0x10008880"]\nblocker = "block-fill prelude: pure C cannot emit; kept as __asm"\n',
             encoding="utf-8",
         )
         content = SourceFixture(
@@ -1363,7 +1363,7 @@ class TestE023NakedAsm:
         metadata_toml = tmp_path / "rebrew-functions.toml"
         write_store_fixture(
             metadata_toml,
-            'format = 2\n["SERVER.0x10008880"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
+            'format = 3\n["SERVER.0x10008880"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
             encoding="utf-8",
         )
         content = SourceFixture(
@@ -1400,7 +1400,7 @@ class TestE023NakedAsm:
         metadata_toml = tmp_path / "rebrew-functions.toml"
         write_store_fixture(
             metadata_toml,
-            'format = 2\n["SERVER.0x10008880"]\ncflags = "/O2 /Gd"\n',
+            'format = 3\n["SERVER.0x10008880"]\ncflags = "/O2 /Gd"\n',
             encoding="utf-8",
         )
         content = SourceFixture(
@@ -2277,7 +2277,7 @@ class TestW029RedundantCflags:
     def test_clean_project_passes(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "EXACT"\nsize = 42\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "EXACT"\nsize = 42\n',
             encoding="utf-8",
         )
         presets, fns = self._redundant(self._cfg(tmp_path))
@@ -2286,7 +2286,7 @@ class TestW029RedundantCflags:
     def test_function_override_redundant(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n',
             encoding="utf-8",
         )
         _presets, fns = self._redundant(self._cfg(tmp_path))
@@ -2295,7 +2295,7 @@ class TestW029RedundantCflags:
     def test_flag_order_does_not_matter(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\ncflags = "/Gd /O2"\n',
+            'format = 3\n["SERVER.0x1000"]\ncflags = "/Gd /O2"\n',
             encoding="utf-8",
         )
         _presets, fns = self._redundant(self._cfg(tmp_path))
@@ -2304,7 +2304,7 @@ class TestW029RedundantCflags:
     def test_extra_flags_not_redundant(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
+            'format = 3\n["SERVER.0x1000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
             encoding="utf-8",
         )
         presets, fns = self._redundant(self._cfg(tmp_path))
@@ -2313,7 +2313,7 @@ class TestW029RedundantCflags:
     def test_function_override_matching_module_preset_is_redundant(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["GAME.0x1000"]\ncflags = "/O2 /Gd"\n',
+            'format = 3\n["GAME.0x1000"]\ncflags = "/O2 /Gd"\n',
             encoding="utf-8",
         )
         cfg = self._cfg(tmp_path, cflags="/O1 /Gd", cflags_presets={"GAME": "/O2 /Gd"})
@@ -2321,7 +2321,7 @@ class TestW029RedundantCflags:
         assert any(hit.module == "GAME" and hit.va == 0x1000 for hit in fns)
 
     def test_module_preset_redundant_with_project(self, tmp_path: Path) -> None:
-        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 3\n", encoding="utf-8")
         cfg = self._cfg(tmp_path, cflags_presets={"GAME": "/O2 /Gd", "MSVCRT": "/O1"})
         presets, _fns = self._redundant(cfg)
         assert any(hit.module == "GAME" for hit in presets)
@@ -2350,7 +2350,7 @@ class TestW029RedundantCflags:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n',
+            'format = 3\n["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n',
             encoding="utf-8",
         )
         cfg = SimpleNamespace(
@@ -2395,7 +2395,7 @@ class TestW029RedundantCflags:
             )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n\n["SERVER.0x2000"]\ncflags = "/O2 /Gd"\n',
+            'format = 3\n["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n\n["SERVER.0x2000"]\ncflags = "/O2 /Gd"\n',
             encoding="utf-8",
         )
         cfg = SimpleNamespace(
@@ -2447,7 +2447,7 @@ class TestW029RedundantCflags:
             metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
             metadata_dir=tmp_path,
         )
-        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 3\n", encoding="utf-8")
         cfg = SimpleNamespace(
             root=tmp_path,
             reversed_dir=src,
@@ -2500,7 +2500,7 @@ class TestW029RedundantCflags:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\nsize = 16\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\nsize = 16\n',
             encoding="utf-8",
         )
         cfg = self._lint_cfg(tmp_path, src)
@@ -2532,7 +2532,7 @@ class TestW029RedundantCflags:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n',
+            'format = 3\n["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n',
             encoding="utf-8",
         )
         cfg = self._lint_cfg(tmp_path, src)
@@ -2560,7 +2560,7 @@ class TestW029RedundantCflags:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "EXACT"\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
         (tmp_path / "rebrew-project.toml").write_text(
@@ -2594,7 +2594,7 @@ class TestW029RedundantCflags:
             encoding="utf-8",
             metadata_fields={"SERVER.0x2000": {"kind": "GLOBAL"}},
         )
-        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 3\n", encoding="utf-8")
         cfg = self._lint_cfg(tmp_path, src)
         (tmp_path / "target.dll").write_bytes(b"MZ")
         cfg.target_binary = tmp_path / "target.dll"
@@ -2629,7 +2629,7 @@ class TestW029RedundantCflags:
             encoding="utf-8",
             metadata_fields={"SERVER.0x2000": {"kind": "GLOBAL"}},
         )
-        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 3\n", encoding="utf-8")
         cfg = self._lint_cfg(tmp_path, src)
         (tmp_path / "target.dll").write_bytes(b"MZ")
         cfg.target_binary = tmp_path / "target.dll"
@@ -2669,7 +2669,7 @@ class TestW029RedundantCflags:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n',
             encoding="utf-8",
         )
         cfg = self._lint_cfg(tmp_path, src)
@@ -2724,7 +2724,7 @@ class TestE004StatusValue:
     def test_unknown_status_flagged(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nstatus = "TOTALLY_MATCHED"\n',
+            'format = 3\n["SERVER.0x10001000"]\nstatus = "TOTALLY_MATCHED"\n',
             encoding="utf-8",
         )
         content = SourceFixture(
@@ -2755,7 +2755,7 @@ class TestE004StatusValue:
         a textual compare warned about `// SIZE: 32` vs metadata `0x20`."""
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nsize = "0x20"\n',
+            'format = 3\n["SERVER.0x10001000"]\nsize = "0x20"\n',
             encoding="utf-8",
         )
         f = _make_c_file(
@@ -2771,7 +2771,7 @@ class TestE004StatusValue:
     def test_known_status_not_flagged(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
         content = SourceFixture(
@@ -2787,7 +2787,7 @@ class TestE008SizeValue:
     def test_non_integer_size_flagged(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nsize = "abc"\n',
+            'format = 3\n["SERVER.0x10001000"]\nsize = "abc"\n',
             encoding="utf-8",
         )
         content = SourceFixture(
@@ -2801,7 +2801,7 @@ class TestE008SizeValue:
     def test_integer_size_ok(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nsize = 8\n',
+            'format = 3\n["SERVER.0x10001000"]\nsize = 8\n',
             encoding="utf-8",
         )
         content = SourceFixture(
@@ -2815,7 +2815,7 @@ class TestE008SizeValue:
     def test_hex_string_size_ok(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nsize = "0x20"\n',
+            'format = 3\n["SERVER.0x10001000"]\nsize = "0x20"\n',
             encoding="utf-8",
         )
         content = SourceFixture(
@@ -3252,7 +3252,7 @@ class TestW031MetadataStore:
     def test_function_fields_share_the_writer_validation(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nsize=-1\nstatus="FINISHED"\ncflags=false\nskip=[]\nfile=7\n',
+            'format = 3\n["SERVER.0x1000"]\nsize=-1\nstatus="FINISHED"\ncflags=false\nskip=[]\nfile=7\n',
             encoding="utf-8",
         )
         warnings = self._warnings(self._cfg(tmp_path))
@@ -3265,17 +3265,23 @@ class TestW031MetadataStore:
         ):
             assert problem in warnings
 
-    @pytest.mark.parametrize("filename", ["rebrew-functions.toml", "rebrew-data.toml"])
-    def test_uppercase_field_is_reported(self, tmp_path: Path, filename: str) -> None:
+    @pytest.mark.parametrize(
+        "filename,version", [("rebrew-functions.toml", 3), ("rebrew-data.toml", 2)]
+    )
+    def test_uppercase_field_is_reported(self, tmp_path: Path, filename: str, version: int) -> None:
         (tmp_path / filename).write_text(
-            'format = 2\n["SERVER.0x1000"]\nSIZE=4\n', encoding="utf-8"
+            f'format = {version}\n["SERVER.0x1000"]\nSIZE=4\n', encoding="utf-8"
         )
         assert "field 'SIZE' must use lower-case spelling" in self._warnings(self._cfg(tmp_path))
 
-    @pytest.mark.parametrize("filename", ["rebrew-data.toml", "rebrew-functions.toml"])
-    def test_duplicate_identity_is_reported(self, tmp_path: Path, filename: str) -> None:
+    @pytest.mark.parametrize(
+        "filename,version", [("rebrew-data.toml", 2), ("rebrew-functions.toml", 3)]
+    )
+    def test_duplicate_identity_is_reported(
+        self, tmp_path: Path, filename: str, version: int
+    ) -> None:
         (tmp_path / filename).write_text(
-            'format = 2\n["SERVER.0x00001000"]\nnote="first"\n["SERVER.0X1000"]\nnote="last"\n',
+            f'format = {version}\n["SERVER.0x00001000"]\nnote="first"\n["SERVER.0X1000"]\nnote="last"\n',
             encoding="utf-8",
         )
         assert "duplicate metadata keys" in self._warnings(self._cfg(tmp_path))
@@ -3302,7 +3308,7 @@ class TestW031MetadataStore:
     def test_clean_store_with_stamps_is_silent(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "EXACT"\nupdated_by = "test"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "EXACT"\nupdated_by = "test"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
             encoding="utf-8",
         )
         write_store_fixture(
@@ -3335,7 +3341,7 @@ class TestW031MetadataStore:
     def test_function_store_unknown_field_is_reported(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nblocked = "typo"\n',
+            'format = 3\n["SERVER.0x1000"]\nblocked = "typo"\n',
             encoding="utf-8",
         )
         assert "unknown field 'blocked'" in self._warnings(self._cfg(tmp_path))
@@ -3343,7 +3349,7 @@ class TestW031MetadataStore:
     def test_marker_identity_fields_are_known(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nfile = "a.c"\nsymbol = "_f"\nname = "f"\nkind = "FUNCTION"\n',
+            'format = 3\n["SERVER.0x1000"]\nfile = "a.c"\nsymbol = "_f"\nname = "f"\nkind = "FUNCTION"\n',
             encoding="utf-8",
         )
         assert self._warnings(self._cfg(tmp_path)) == ""
@@ -3369,7 +3375,7 @@ class TestW031MetadataStore:
     def test_unknown_provenance_tag_is_reported(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nupdated_by = "my-tool"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
+            'format = 3\n["SERVER.0x1000"]\nupdated_by = "my-tool"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
             encoding="utf-8",
         )
         assert "unknown provenance tag 'my-tool'" in self._warnings(self._cfg(tmp_path))
@@ -3377,7 +3383,7 @@ class TestW031MetadataStore:
     def test_missing_and_foreign_format_stamps_are_reported(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         write_store_fixture(
@@ -3392,7 +3398,7 @@ class TestW031MetadataStore:
     def test_unknown_top_level_key_is_reported(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\nfmt = 1\n\n["SERVER.0x1000"]\nstatus = "STUB"\n',
+            'format = 3\nfmt = 1\n\n["SERVER.0x1000"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         assert "top-level 'fmt'" in self._warnings(self._cfg(tmp_path))
@@ -3618,7 +3624,7 @@ class TestW034IdentityPaths:
     def test_relative_path_is_silent(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nfile = "src/a.c"\n',
+            'format = 3\n["SERVER.0x1000"]\nfile = "src/a.c"\n',
             encoding="utf-8",
         )
         assert self._warnings(self._cfg(tmp_path)) == ""
@@ -3626,7 +3632,7 @@ class TestW034IdentityPaths:
     def test_absolute_path_is_reported(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nfile = "/etc/passwd"\n',
+            'format = 3\n["SERVER.0x1000"]\nfile = "/etc/passwd"\n',
             encoding="utf-8",
         )
         assert "must be relative to the project" in self._warnings(self._cfg(tmp_path))
@@ -3634,7 +3640,7 @@ class TestW034IdentityPaths:
     def test_parent_escape_is_reported(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nfile = "../../secret.c"\n',
+            'format = 3\n["SERVER.0x1000"]\nfile = "../../secret.c"\n',
             encoding="utf-8",
         )
         assert "must not escape the project" in self._warnings(self._cfg(tmp_path))
@@ -3678,7 +3684,7 @@ class TestW035UnknownModules:
     def test_declared_modules_are_silent(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["MSVCRT.0x2000"]\nstatus = "EXACT"\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = "STUB"\n\n["MSVCRT.0x2000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
         assert self._warnings(self._cfg(tmp_path, library_modules=["MSVCRT"])) == ""
@@ -3686,7 +3692,7 @@ class TestW035UnknownModules:
     def test_an_unknown_module_is_reported(self, tmp_path: Path) -> None:
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["CLIENT.0x1000"]\nstatus = "STUB"\n',
+            'format = 3\n["CLIENT.0x1000"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         assert "matches no target module" in self._warnings(self._cfg(tmp_path))
@@ -3697,7 +3703,7 @@ class TestW035UnknownModules:
         known, not just the active one's library_modules."""
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["D3DX8.0x45d3f0"]\nstatus = "EXACT"\n',
+            'format = 3\n["D3DX8.0x45d3f0"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
         cfg = self._cfg(tmp_path, all_library_modules=["D3DX8"])

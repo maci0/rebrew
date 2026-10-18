@@ -47,7 +47,9 @@ class TestSourceProvenance:
         assert [r.module for r in load_source_provenance(tmp_path)] == ["SERVER"]
         document_assembly(tmp_path, file, "fill0", "SERVER", None)
         assert load_source_provenance(tmp_path) == ()
-        assert not (tmp_path / "rebrew-functions.toml").exists()
+        from rebrew.metadata.functions import load_metadata
+
+        assert load_metadata(tmp_path) == {}
         assert not (tmp_path / "rebrew-data.toml").exists()
 
     def test_dry_run_creates_no_store_or_lock(self, tmp_path: Path) -> None:
@@ -118,7 +120,7 @@ class TestSourceProvenance:
         file = _source(tmp_path)
         path = tmp_path / SOURCE_PROVENANCE_FILENAME
         content = (
-            'format = 1\n[definitions."helpers.c".fill0.CLIENT]\n'
+            'format = 3\n[source.files]\n[source.definitions."helpers.c".fill0.CLIENT]\n'
             'source_hash = "' + "0" * 64 + '"\nevidence = "Original"\n'
         )
         lines = [line for line in content.splitlines() if not line.startswith(field + " =")]
@@ -178,7 +180,7 @@ class TestAssemblyLint:
         file = _source(tmp_path)
         cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="CLIENT")
         (tmp_path / SOURCE_PROVENANCE_FILENAME).write_text("format = 1.0\ndefinitions = {}")
-        with pytest.raises(ValueError, match="source metadata requires format = 2"):
+        with pytest.raises(ValueError, match="format = 3"):
             lint_file(file, cfg)
 
     def test_legacy_source_encoding_uses_the_same_definition_hash(self, tmp_path: Path) -> None:
@@ -290,8 +292,8 @@ class TestRenameProvenance:
 
         file = _source(tmp_path)
         path = tmp_path / SOURCE_PROVENANCE_FILENAME
-        path.write_text("invalid = [")
         cfg, plan = self._plan(tmp_path)
+        path.write_text("invalid = [")
         with pytest.raises(RenameError, match="provenance"):
             apply_rename_plan(cfg, plan)
         assert file.read_text() == SOURCE

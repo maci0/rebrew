@@ -642,7 +642,7 @@ class TestUnchangedStatusCachePatch:
         # should_promote_status refuses the write and only the cache patch runs.
         write_store_fixture(
             tmp_path / "src" / "rebrew-functions.toml",
-            'format = 2\n["X.0x00001000"]\nstatus = "NEAR_MATCHING"\n',
+            'format = 3\n["X.0x00001000"]\nstatus = "NEAR_MATCHING"\n',
         )
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(

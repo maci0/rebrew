@@ -663,8 +663,14 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
         DATA_METADATA_FILENAME,
         validate_data_field,
     )
-    from rebrew.metadata.document import FORMAT_KEY, FORMAT_VERSION, parse_metadata_key
+    from rebrew.metadata.document import (
+        FORMAT_KEY,
+        FORMAT_VERSION,
+        FUNCTION_FORMAT_VERSION,
+        parse_metadata_key,
+    )
     from rebrew.metadata.functions import PROVENANCE_TAGS, validate_metadata_field
+    from rebrew.metadata.source_schema import validate_source_metadata
     from rebrew.utils import load_tomllib
     from rebrew.workspace.status import KNOWN_STATUSES
 
@@ -693,17 +699,24 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
             results.append(res)
             return
         problems: list[str] = []
+        expected_format = FORMAT_VERSION if data_store else FUNCTION_FORMAT_VERSION
         stamp = doc.get(FORMAT_KEY)
         if stamp is None:
             problems.append(
-                f"no {FORMAT_KEY} stamp (a writer adds {FORMAT_KEY} = {FORMAT_VERSION})"
+                f"no {FORMAT_KEY} stamp (a writer adds {FORMAT_KEY} = {expected_format})"
             )
-        elif stamp != FORMAT_VERSION:
-            problems.append(f"{FORMAT_KEY} = {stamp!r}, this rebrew reads {FORMAT_VERSION}")
+        elif isinstance(stamp, bool) or stamp != expected_format:
+            problems.append(f"{FORMAT_KEY} = {stamp!r}, this rebrew reads {expected_format}")
         known_fields = {f.upper() for f in fields}
         identities: dict[tuple[str, int], str] = {}
         for key, entry in doc.items():
             if key == FORMAT_KEY:
+                continue
+            if key == "source" and not data_store:
+                try:
+                    validate_source_metadata(entry)
+                except ValueError as exc:
+                    problems.append(f"source: {exc}")
                 continue
             if not isinstance(entry, dict):
                 problems.append(
@@ -888,7 +901,7 @@ def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     Warn-only: a stray copy is not itself a defect, it is a thing that will be
     read by accident.
     """
-    store_names = {"rebrew-data.toml", "rebrew-functions.toml", SOURCE_PROVENANCE_FILENAME}
+    store_names = {"rebrew-data.toml", "rebrew-functions.toml", "rebrew-source.toml"}
     dirs: set[Path] = set()
     for attr in ("metadata_dir", "reversed_dir", "shared_dir"):
         value = getattr(cfg, attr, None)

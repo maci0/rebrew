@@ -27,7 +27,7 @@ Externals (the only packages this one may import): `c_parser`, `compiler.toolcha
 - **Commands live outside.** `rebrew source register` (`source_register.py`), `rebrew blocker` and the other commands that edit metadata stay at the package root.
 - **`type_metadata.py` stays outside.** The type store compiles probes and hashes headers, so it imports the compile path this package must not.
 
-- **Current format only.** Format 2 is mandatory. No inline metadata block parser or migration reader. All state, including reconstruction source, STRUCT/CALLERS and support purposes, belongs in the stores.
+- **Current format only.** Functions require format 3; data requires format 2. No inline metadata block parser or ordinary legacy reader; `source consolidate` explicitly migrates reviewed format-2 functions/source stores. All state, including reconstruction source, STRUCT/CALLERS and support purposes, belongs in the stores.
 
 - **History is comparison evidence.** Accepted STATUS transitions append
   `status_history` in the same locked write. Generic field setters cannot forge

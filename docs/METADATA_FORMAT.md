@@ -1,10 +1,11 @@
 # Rebrew Metadata Format
 
-All canonical source state lives in dedicated format-2 TOML stores at
+All canonical source state lives in dedicated TOML stores (functions format 3; data format 2) at
 `cfg.metadata_dir`. The only Rebrew syntax in C is an optional ADDRESS comment
 immediately above the next declaration; see [source addresses](ANNOTATIONS.md).
-Old inline blocks and older metadata formats are rejected. No compatibility or
-migration reader is shipped.
+Ordinary readers reject old inline blocks and older metadata formats. The explicit
+`source consolidate` operation upgrades reviewed format-2 function/source stores;
+preview with `--dry-run --json`, then apply with its `--expected-digest`.
 
 Never hand-edit these files. Use the CLI or the owning metadata APIs, which
 validate writes, acquire the document lock, replace atomically, and write 0444.
@@ -13,7 +14,7 @@ Examples below illustrate managed output.
 ## Functions
 
 ```toml
-format = 2
+format = 3
 
 ["SERVER.0x10001000"]
 file = "src/tick.c"
@@ -96,23 +97,24 @@ binary-scoped baseline. See [BinSync reconciliation](BINSYNC_INTEGRATION.md).
 ## Source purposes and assembly evidence
 
 ```toml
-format = 2
+format = 3
 
-[definitions]
+[source.definitions]
 
-[files."src/link_shims.c".SERVER]
+[source.files."src/link_shims.c".SERVER]
 purpose = "retains the reviewed native link layout"
 ```
 
-`rebrew-source.toml` requires `format`, `definitions` and `files`. `files` stores
+`rebrew-functions.toml` holds a reserved `source` table with `definitions` and
+`files`. `source.files` stores
 a non-empty target-scoped purpose for support code without a native VA. Use
 `rebrew source register FILE --support "reason"` or `set_source_file`.
 
-Assembly records live under `definitions.<file>.<symbol>.<module>`, with exactly
+Assembly records live under `source.definitions.<file>.<symbol>.<module>`, with exactly
 `source_hash` and `evidence`. They identify reviewed original assembly by file,
 C definition, target and current body digest; they do not earn STATUS. Use
 `rebrew source document-assembly` or the provenance owner API. Rename/move writers
 retarget both kinds of source records.
 
 The complete store map is in [metadata ownership](METADATA.md). The breaking
-source/format decision is [ADR 030](adr/030-address-only-source.md).
+source/format decision is [ADR 033](adr/033-consolidated-source-evidence.md).

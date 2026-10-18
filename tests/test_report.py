@@ -44,7 +44,7 @@ _FUNC_B = SourceFixture(
 )
 
 # STATUS lives in rebrew-functions.toml, not inline.
-_METADATA_TOML = 'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n'
+_METADATA_TOML = 'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n'
 
 
 def _write_project(tmp_path: Path, pe_bytes: bytes | None = None) -> None:
@@ -155,7 +155,7 @@ class TestReportCli:
         # Metadata at the project root (the default metadata_dir).
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10002000"]\nblocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
+            'format = 3\n["SERVER.0x10002000"]\nblocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)
@@ -584,7 +584,7 @@ class TestReportPayloadShape:
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         src = tmp_path / "src"
         meta_lines = [
-            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
             '["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n',
         ]
         # Enough extras that page 1 is full and page 2 exists.
@@ -1010,7 +1010,7 @@ class TestStatusLegend:
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n["SERVER.0x10002000"]\nstatus = "COMPILE_ERROR"\n',
+            'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n["SERVER.0x10002000"]\nstatus = "COMPILE_ERROR"\n',
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)
@@ -1026,7 +1026,7 @@ class TestStatusLegend:
     ) -> None:
         """An empty project still prints the four standard cards, so it explains them."""
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
-        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 3\n", encoding="utf-8")
         for source in (tmp_path / "src").glob("*.c"):
             source.write_text("int nothing(void) { return 0; }\n", encoding="utf-8")
         monkeypatch.chdir(tmp_path)
@@ -1049,7 +1049,7 @@ class TestStatusLegend:
         note say the same thing.
         """
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
-        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 3\n", encoding="utf-8")
         for source in (tmp_path / "src").glob("*.c"):
             source.write_text("int nothing(void) { return 0; }\n", encoding="utf-8")
         monkeypatch.chdir(tmp_path)
@@ -1197,7 +1197,7 @@ class TestGeneratedMarkup:
         _write_project(tmp_path, pe_bytes=make_pe(code, imports=[("KERNEL32.dll", ["HeapCreate"])]))
         src = tmp_path / "src"
         meta_lines = [
-            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
             '["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n',
         ]
         for i in range(_TABLE_PAGE_SIZE):
