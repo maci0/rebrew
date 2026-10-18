@@ -1,6 +1,7 @@
 """Tests for rebrew todo prioritized action dashboard."""
 
 import json
+import shlex
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -918,6 +919,74 @@ class TestSetupSteps:
 
 
 class TestCollectAllIntegration:
+    @pytest.mark.parametrize("backend", ["unshare", "docker", "podman"])
+    @pytest.mark.parametrize("raw_state", ["absent", "missing", "existing"])
+    def test_reloc_actions_respect_backend_and_available_raw_image(
+        self, tmp_path: Path, backend: str, raw_state: str
+    ) -> None:
+        (tmp_path / "src").mkdir()
+        raw = tmp_path / "raw link.exe"
+        if raw_state == "existing":
+            raw.write_bytes(b"raw linker output")
+        cfg = _make_cfg(
+            tmp_path,
+            execution_backend=backend,
+            target_name="chosen target",
+            raw_link=None if raw_state == "absent" else raw,
+        )
+        existing = {0x1000: {"status": "RELOC", "symbol": "f", "size": "16"}}
+        items = collect_all(cfg, [], existing, {})  # type: ignore[arg-type]
+        item = next(row for row in items if row.category == CAT_EXACT_ONLY)
+        assert item.va == 0x1000 and item.status == "RELOC"
+        if backend == "unshare" and raw_state == "existing":
+            assert shlex.split(item.command) == [
+                "rebrew",
+                "verify",
+                "--text",
+                "--raw-link",
+                "--built",
+                str(raw),
+                "--target",
+                "chosen target",
+            ]
+        elif backend == "unshare":
+            assert item.command == ""
+            assert "unshare" in item.description and "raw linker image" in item.description
+        else:
+            assert item.command == "rebrew test 0x00001000 --linked"
+
+    @pytest.mark.parametrize("backend", ["unshare", "docker", "podman"])
+    def test_postlink_action_respects_backend(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+    ) -> None:
+        (tmp_path / "src").mkdir()
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "client.dll").write_bytes(b"\x90" * 16)
+        raw = tmp_path / "raw link.dll"
+        raw.write_bytes(b"\x01" * 16)
+        section = SimpleNamespace(va=0x1000, file_offset=0, size=16, raw_size=16)
+        info = SimpleNamespace(sections={".text": section}, text_va=0x1000, text_raw_offset=0)
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda p: info)
+        cfg = _make_cfg(tmp_path, execution_backend=backend, target_name="client.dll", raw_link=raw)
+        existing = {0x1000: {"status": "EXACT", "symbol": "f", "size": "16"}}
+        items = collect_all(cfg, [], existing, {})  # type: ignore[arg-type]
+        item = next(row for row in items if row.category == CAT_POSTLINK)
+        assert "postlink rewrote" in item.description
+        if backend == "unshare":
+            assert shlex.split(item.command) == [
+                "rebrew",
+                "verify",
+                "--text",
+                "--raw-link",
+                "--built",
+                str(raw),
+                "--target",
+                "client.dll",
+            ]
+        else:
+            assert item.command == "rebrew test 0x00001000 --linked"
+
     def test_fresh_project_shows_setup_and_start_functions(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         src_dir = tmp_path / "src"

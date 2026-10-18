@@ -14,6 +14,7 @@ Usage::
 
 import json
 import logging
+import shlex
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1392,6 +1393,21 @@ def collect_all(
         if prev is None or item.roi_score > prev.roi_score:
             best[key] = item
     items = non_va_items + list(best.values())
+
+    if getattr(cfg, "execution_backend", "") == "unshare":
+        raw_link = getattr(cfg, "raw_link", None)
+        command = ""
+        next_step = "build and configure a raw linker image before verification"
+        if raw_link is not None and Path(raw_link).is_file():
+            command = (
+                "rebrew verify --text --raw-link "
+                f"--built {shlex.quote(str(raw_link))} --target {shlex.quote(cfg.target_name)}"
+            )
+            next_step = "compare the configured raw linker image"
+        for item in items:
+            if item.category in {CAT_EXACT_ONLY, CAT_POSTLINK}:
+                item.command = command
+                item.description += f"; unshare cannot run linked comparison; {next_step}"
 
     # Sort by ROI descending
     items.sort(key=lambda x: (-x.roi_score, x.va))
