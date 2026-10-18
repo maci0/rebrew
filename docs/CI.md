@@ -229,7 +229,7 @@ answer is reported on the first attempt.
 Branch protection on `main` must require every job in `ci.yml`; a rule that
 lists a subset leaves the rest advisory. GitHub names the checks after the job
 id, with the `test` matrix expanded per entry, so the required contexts are
-`lint`, `test (3.13.15)`, `test (3.14)`, `pre-commit`, `package`, and
+`lint`, `test (3.13.16)`, `test (3.14)`, `pre-commit`, `package`, and
 `cli-contract`.
 
 | Job | Gate |
