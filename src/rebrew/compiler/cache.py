@@ -737,12 +737,13 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
             if len(name.parts) != 1:
                 continue
             norm_name = unicodedata.normalize("NFC", name.name).casefold()
-            for child in d.iterdir():
-                if (
-                    child.is_file()
-                    and unicodedata.normalize("NFC", child.name).casefold() == norm_name
-                ):
-                    return resolved_path(child)
+            with os.scandir(d) as children:
+                for child in children:
+                    if (
+                        unicodedata.normalize("NFC", child.name).casefold() == norm_name
+                        and child.is_file()
+                    ):
+                        return resolved_path(Path(child.path))
         except OSError:
             continue
     return None

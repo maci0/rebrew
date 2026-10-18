@@ -524,6 +524,30 @@ class TestHeaderDependencyHash:
     entries that include it, and an edit to an unreached header is a hit.
     """
 
+    def test_missing_header_does_not_stat_unrelated_directory_entries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CRT headers absent on the host must not stat the whole source tree."""
+        from rebrew.compiler.cache import header_dependency_hash
+
+        unrelated = tmp_path / "unrelated.c"
+        unrelated.write_text("int f(void) { return 0; }\n")
+        real_stat = Path.stat
+
+        def stat(path: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+            assert path != unrelated, "unrelated files are not include candidates"
+            return real_stat(path, follow_symlinks=follow_symlinks)
+
+        monkeypatch.setattr(Path, "stat", stat)
+        source = "#include <missing_crt.h>\n"
+        missing = header_dependency_hash(source, None, [str(tmp_path)])
+        header = tmp_path / "MISSING_CRT.H"
+        header.write_text("typedef int CRT;\n")
+        found = header_dependency_hash(source, None, [str(tmp_path)])
+        assert found != missing
+        header.write_text("typedef char CRT[32];\n")
+        assert header_dependency_hash(source, None, [str(tmp_path)]) != found
+
     @pytest.mark.skipif(os.name != "posix", reason="Byte filenames require a POSIX filesystem")
     @pytest.mark.parametrize("directive", ['#include "legacy_\udce9.h"', "#include LIB_H"])
     def test_byte_filename_dependency_changes_key(self, tmp_path: Path, directive: str) -> None:
