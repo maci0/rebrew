@@ -101,7 +101,7 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
 # Pinned distributions whose grant obliges a consumer to do more than rely on
 # the wheel's own MIT licence file: reciprocal clauses, source availability, or
 # a notice that has to survive redistribution.  Expressions were read from the
-# locked artifacts: m2c aa869da ``License-Expression: GPL-3.0-only``, pyvex
+# locked artifacts: m2c 708d2d2 ``License-Expression: GPL-3.0-only``, pyvex
 # 9.3.4 ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the
 # MPL-2.0 packages below.  resembl 3.1.1 declares
 # ``License-Expression: GPL-3.0-only``, so the emitted component carries that

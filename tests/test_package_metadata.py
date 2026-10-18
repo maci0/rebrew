@@ -53,7 +53,6 @@ _DISTRIBUTION_TO_IMPORT_NAME = {v: k for k, v in _IMPORT_NAME_TO_DISTRIBUTION.it
 # reason, and it must name the extra or tool env that does provide it.
 _OPTIONAL_IMPORTS = {
     "angr": "prove extra; prove.py / doctor.py raise a clear error without it",
-    "claripy": "prove extra; direct import in prove.py / doctor.py",
     "declib": "binsync extra; only rebrew.binsync.serial touches it",
     "m2c": "m2c dependency group (commit-pinned), never in wheel METADATA; "
     "decompiler.py find_spec-probes it and drops the backend when absent",

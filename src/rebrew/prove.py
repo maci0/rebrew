@@ -215,7 +215,7 @@ def _apply_arg_constraints(
         - ``null``: Force arg == 0.
         - ``nonzero``: Force arg != 0.
     """
-    import claripy
+    from angr import claripy
 
     table: dict[tuple[str, int], Any] = {} if syms is None else syms
 
@@ -437,7 +437,7 @@ def _compare_state_pairs(
     in that case (see :func:`prove_equivalence`), otherwise there is nothing
     to compare and the proof would be trivially true.
     """
-    import claripy
+    from angr import claripy
 
     regs_label = ""
     if check_eax:
@@ -473,14 +473,14 @@ def _compare_state_pairs(
             if not diff_terms:
                 continue  # nothing compared in this pair
 
-            solver = claripy.Solver()  # type: ignore[no-untyped-call]
+            solver = claripy.Solver()
             for expr in s_orig.solver.constraints:
-                solver.add(expr)  # type: ignore[no-untyped-call]
+                solver.add(expr)
             for expr in s_comp.solver.constraints:
-                solver.add(expr)  # type: ignore[no-untyped-call]
-            solver.add(claripy.Or(*diff_terms))  # type: ignore[no-untyped-call]
+                solver.add(expr)
+            solver.add(claripy.Or(*diff_terms))
 
-            if solver.satisfiable():  # type: ignore[no-untyped-call]
+            if solver.satisfiable():
                 can_differ = True
                 try:
                     # One batch_eval call, one model: all counterexample values
@@ -497,7 +497,7 @@ def _compare_state_pairs(
                             exprs.append(m_o)
                         if m_c is not None:
                             exprs.append(m_c)
-                    vals = solver.batch_eval(exprs, 1)[0]  # type: ignore[no-untyped-call]
+                    vals = solver.batch_eval(exprs, 1)[0]
                     it = iter(vals)
                     desc_parts: list[str] = []
                     regs_same = True  # no register compared, nothing differs
@@ -638,7 +638,7 @@ def _fingerprint_args(solver: Any, args: tuple[Any, ...]) -> str:
     on claripy ASTs is identity-based (two same-named ``BVS`` differ), so
     the key is structural: ``(op, name-or-value, children)``.
     """
-    import claripy
+    from angr import claripy
 
     def _key(a: Any) -> Any:
         if isinstance(a, claripy.ast.BV):
@@ -749,7 +749,7 @@ def prove_equivalence(
         )
 
     import angr
-    import claripy
+    from angr import claripy
 
     # Build IAT address → stub address map from LIEF import data (if binary_path given).
     # This seeds concrete call targets for the original binary's IAT-indirect calls,

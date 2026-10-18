@@ -26,19 +26,19 @@ from __future__ import annotations
 # and a commit-pinned git dependency are recorded by name.
 PATH_OR_GIT_LICENSES = {
     "m2c": "GPL-3.0-only",
-    # resembl 3.2.0 declares License-Expression: GPL-3.0-only (PEP 639).
+    # resembl 3.3.0 declares License-Expression: GPL-3.0-only (PEP 639).
     # There is no free-text License field on that artifact.
     "resembl": "GPL-3.0-only",
 }
 
 # ``name==version`` -> the artifact's own declared license string.
 REGISTRY_LICENSES: dict[str, str] = {
-    "angr==9.3.4": "BSD-2-Clause",
-    "angr-data==0.1.1": "BSD-2-Clause",
+    "angr==10.0.4.post1": "BSD-2-Clause",
+    "angr-data==0.2.0": "BSD-2-Clause",
     "annotated-doc==0.0.5": "MIT",
     "annotated-types==0.8.0": "MIT",
     "anyio==4.15.1": "MIT",
-    "archinfo==9.3.4": "BSD-2-Clause",
+    "archinfo==10.0.4": "BSD-2-Clause",
     "arpy==1.1.1": "Simplified BSD",
     "asn1crypto==1.5.1": "MIT",
     "ast-serialize==0.13.1": "MIT",
@@ -50,8 +50,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     "certifi==2026.7.22": "MPL-2.0",
     "cffi==2.1.1": "MIT-0",
     "cfgv==3.5.0": "MIT",
-    "claripy==9.3.4": "BSD-2-Clause",
-    "cle==9.3.4": "BSD-2-Clause",
+    "cle==10.0.4": "BSD-2-Clause",
     "click==8.5.0": "BSD-3-Clause",
     "colorama==0.4.6": "NOASSERTION",
     "cxxheaderparser==2.2.0": "BSD-3-Clause",
@@ -74,7 +73,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     "jpype1==1.5.2": "License :: OSI Approved :: Apache Software License",
     "librt==0.16.0": "MIT",
     "lief==1.0.0": "Apache License 2.0",
-    "lmdb==2.1.1": "OLDAP-2.8",
+    "lmdb==3.0.0": "OLDAP-2.8",
     "markdown-it-py==4.2.0": "OSI Approved :: MIT License",
     "mdurl==0.1.2": "OSI Approved :: MIT License",
     "minidump==0.0.24": "OSI Approved :: MIT License",
@@ -114,7 +113,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     # fallback rule skips); the trove classifier is the declared grant.
     "python-discovery==1.6.3": "OSI Approved :: MIT License",
     "python-flirt==0.10.0": "OSI Approved :: Apache Software License",
-    "pyvex==9.3.4": "BSD-2-Clause AND GPL-2.0-or-later",
+    "pyvex==10.0.4": "BSD-2-Clause AND GPL-2.0-or-later",
     "pyxbe==1.0.4": "MIT",
     "pyxdia==0.1.1": "NOASSERTION",  # full MIT text in a multi-line License field, no classifier
     "pyyaml==6.0.3": "MIT",
@@ -148,6 +147,6 @@ REGISTRY_LICENSES: dict[str, str] = {
     "uefi-firmware==1.16": "BSD-3-Clause",
     "virtualenv==21.14.10": "MIT",
     "wcwidth==0.9.2": "OSI Approved :: MIT License",
-    "z3-solver==4.13.0.0": "MIT License",
+    "z3-solver==5.1.0.0": "MIT License",
     "zstandard==0.25.0": "BSD-3-Clause",
 }

@@ -609,7 +609,7 @@ def angr_project() -> Any:
 
 def _fresh_state_args(project: Any, n_args: int = 4) -> tuple[Any, list[Any]]:
     """Fresh blank state + symbolic args from the shared project."""
-    import claripy
+    from angr import claripy
 
     return project.factory.blank_state(addr=0), [claripy.BVS(f"arg_{i}", 32) for i in range(n_args)]
 
@@ -968,7 +968,7 @@ class TestProveEquivalenceCheckEdxMocked:
         """Build a minimal mock angr state with concrete EAX/EDX values."""
         import types
 
-        import claripy
+        from angr import claripy
 
         state = types.SimpleNamespace()
         state.regs = types.SimpleNamespace()

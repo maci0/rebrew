@@ -3,6 +3,12 @@
 ## [5.0.0] - 2026-10-18
 
 ### Changed
+- Refresh contributor pins to uv 0.13.1 and Resembl 3.3.0, upgrade the
+  hash-pinned build backend to setuptools 84, and update m2c to its current
+  upstream revision.
+- Upgrade the optional prover to angr 10.0.4.post1 and PyVEX 10.0.4. Use
+  angr's bundled Rust Claripy solver; standalone Claripy requires an incompatible
+  Z3 release. PyVEX now supplies its own bitstring compatibility cap.
 - Refresh dependency locks and artifact license records, including current
   NumPy, Typer, mypy, Ruff and compatible transitive updates.
 - **Breaking:** Incidental module imports `rebrew.binsync.export.datetime` and

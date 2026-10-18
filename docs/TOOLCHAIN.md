@@ -1163,7 +1163,7 @@ yara /tmp/test.yar target.dll
 
 | Library | Purpose | Install |
 |---------|---------|--------|
-| **angr** (with **claripy**, **gitpython**) | Symbolic execution + Z3 for `rebrew prove`: the `prove` extra | `uv sync --extra prove` |
+| **angr** (with bundled **Claripy** and **gitpython**) | Symbolic execution + Z3 for `rebrew prove`: the `prove` extra | `uv sync --extra prove` |
 | **declib** | BinSync state I/O for `rebrew binsync*`: the `binsync` extra | `uv sync --extra binsync` |
 
 ### Not Installed (could be added)

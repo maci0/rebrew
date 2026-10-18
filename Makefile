@@ -51,11 +51,11 @@ UV_SYNC_FLAGS ?= --locked --all-extras --group similarity
 # RESEMBL_SHA is the commit that tag must resolve to: tags move, and a
 # same-version checkout on another commit passes the version string check
 # while CI clones this commit.
-RESEMBL_REF ?= v3.2.0
-RESEMBL_SHA ?= dccda874308cf9adbad781678c67625e15a4f73a
+RESEMBL_REF ?= v3.3.0
+RESEMBL_SHA ?= 470f7fffa49fcd87c3e01cde022031fc0eba2fef
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 # Match the CI uv pin so local sync/audit behavior tracks CI.
-UV_VERSION ?= 0.12.14
+UV_VERSION ?= 0.13.1
 
 # Single-file / nodeid override for the edit-test loop:
 #   make test-one T=tests/test_annotation.py
@@ -481,7 +481,7 @@ doctor:
 	    warn-shellcheck) label='shellcheck on PATH (pre-commit shell hook)' ;; \
 	    warn-yamllint) label='yamllint on PATH (pre-commit YAML hook)' ;; \
 	    warn-vnu) label='vnu on PATH (W3C validation of the HTML surfaces)' ;; \
-	    ensure-extras) label="venv extras (angr/claripy, rapidfuzz/resembl)" ;; \
+	    ensure-extras) label="venv extras (angr with bundled Claripy, rapidfuzz/resembl)" ;; \
 	  esac; \
 	  case $$check in \
 	    ensure-resembl|ensure-extras) bucket=setup ;; \

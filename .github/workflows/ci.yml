@@ -41,7 +41,7 @@ jobs:
   lint:
     runs-on: ubuntu-24.04
     # 20, not 10: `uv sync --all-extras` installs the `prove` extra (angr,
-    # claripy, pyvex), the largest dependency tree in the lock, and `make
+    # bundled Claripy, pyvex), the largest dependency tree in the lock, and `make
     # audit` is a live PyPI advisory query. On a cold Actions cache that pair
     # is the whole budget, and killing the job mid-`uv sync` reports a gate
     # that has not run yet as a lint failure.
@@ -191,7 +191,7 @@ jobs:
         # checks (stdlib `ast`, no rebrew import), and shellcheck/yamllint;
         # none reaches an extra. The extras exist for the mypy hook, which
         # `SKIP` below removes because the lint job runs `make mypy`, so
-        # `uv sync --all-extras` installed the `prove` extra (angr, claripy,
+        # `uv sync --all-extras` installed the `prove` extra (angr with Claripy,
         # pyvex: the largest tree in the lock) plus the resembl path dep for a
         # gate this job never invokes. --locked still fails a pyproject.toml
         # edit that never reached uv.lock, which is the point of the flag here.

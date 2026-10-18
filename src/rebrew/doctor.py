@@ -1224,21 +1224,25 @@ def _prove_install_fix(*, optional: bool) -> str:
 
 
 def check_optional_tools() -> CheckResult:
-    """Check availability of optional symbolic-proving tools (angr + claripy).
+    """Check angr and its bundled Claripy solver for symbolic proving.
 
-    ``rebrew prove`` needs both; a half-installed pair (angr without claripy,
-    or claripy without angr) crashes at runtime with a confusing traceback.
+    Import the solver to catch missing or broken optional installations.
     """
     from rebrew.prove import angr_available
 
     has_angr = angr_available()
     claripy_available = False
-    import contextlib
-
-    with contextlib.suppress(ImportError):
-        import claripy  # noqa: F401  # presence probe; name unused
+    angr_logger = logging.getLogger("angr")
+    previous_level = angr_logger.level
+    angr_logger.setLevel(logging.CRITICAL)  # optional unicorn import logs an irrelevant error
+    try:
+        from angr import claripy  # noqa: F401  # presence probe; name unused
 
         claripy_available = True
+    except ImportError:
+        pass
+    finally:
+        angr_logger.setLevel(previous_level)
 
     if has_angr and claripy_available:
         return CheckResult(
@@ -1251,13 +1255,6 @@ def check_optional_tools() -> CheckResult:
             name="Optional tools",
             status=_WARN,
             message="angr installed but claripy is missing — prove will crash",
-            fix=_prove_install_fix(optional=False),
-        )
-    if claripy_available:
-        return CheckResult(
-            name="Optional tools",
-            status=_WARN,
-            message="claripy installed but angr is missing — prove needs both",
             fix=_prove_install_fix(optional=False),
         )
     return CheckResult(

@@ -559,11 +559,11 @@ class TestPackagingMetadata:
         """Isolated ``uv build`` resolves build-system.requires from PyPI.
 
         A range would let a new setuptools patch change wheel layout without
-        a lockfile bump; keep the pin exact and below the 81 cut line.
+        a lockfile bump; keep the verified build backend pin exact.
         """
         data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
         requires = data["build-system"]["requires"]
-        assert requires == ["setuptools==80.10.2"], requires
+        assert requires == ["setuptools==84.0.0"], requires
         assert data["build-system"]["build-backend"] == "setuptools.build_meta"
         constraints = (ROOT / "build-constraints.txt").read_text(encoding="utf-8")
         st_ver = requires[0].removeprefix("setuptools==")
@@ -584,7 +584,7 @@ class TestPackagingMetadata:
             "resembl",
             "GPL-3.0-only",
             "m2c",
-            "aa869da289a565c68f701e734bd74606f1bd5ed4",
+            "708d2d2cb2698f091a92492b328f73b24209f72d",
             "pyvex",
             "BSD-2-Clause AND GPL-2.0-or-later",
             "LibVEX",
@@ -866,7 +866,6 @@ class TestCycloneDxSbom:
             "pyyaml",
             "angr",
             "z3-solver",
-            "claripy",
             "declib",
             "pyghidra",
             "m2c",

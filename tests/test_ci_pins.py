@@ -2305,7 +2305,7 @@ class TestRequireExtras:
     def test_similarity_failure_names_the_sibling_checkout(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        # angr and claripy resolve, the similarity group does not: the message
+        # angr with bundled Claripy resolves, the similarity group does not: the message
         # has to point at the sibling path dependency, which is the fix half
         # the prove extra's message does not mention.
         monkeypatch.setattr(require_extras, "_venv_dir", lambda: tmp_path)
@@ -2323,6 +2323,20 @@ class TestRequireExtras:
         monkeypatch.setattr(require_extras, "_satisfied", lambda modules: True)
         assert require_extras.main() == 0
         assert capsys.readouterr().out == ""
+
+    def test_bundled_claripy_needs_no_standalone_distribution(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(require_extras, "_venv_dir", lambda: tmp_path)
+        probed: list[str] = []
+
+        def find_spec(name: str) -> object | None:
+            probed.append(name)
+            return object() if name in {"angr", "rapidfuzz", "resembl"} else None
+
+        monkeypatch.setattr(require_extras.importlib.util, "find_spec", find_spec)
+        assert require_extras.main() == 0
+        assert probed == ["angr", "rapidfuzz", "resembl"]
 
     def test_probe_resolves_without_importing(self) -> None:
         """find_spec, not import: mypy only needs the package to resolve, and

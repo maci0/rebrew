@@ -448,8 +448,9 @@ class TestCheckOptionalTools:
 
         from rebrew.doctor import _OK, check_optional_tools
 
-        monkeypatch.setitem(sys.modules, "angr", ModuleType("angr"))
-        monkeypatch.setitem(sys.modules, "claripy", ModuleType("claripy"))
+        fake = ModuleType("angr")
+        fake.claripy = ModuleType("claripy")
+        monkeypatch.setitem(sys.modules, "angr", fake)
         result = check_optional_tools()
         assert result.status == _OK
 
