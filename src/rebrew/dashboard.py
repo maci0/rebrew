@@ -1714,7 +1714,9 @@ def _paging_int(raw: str, ceiling: int) -> int | None:
     text = raw.strip(" \t\n\r\f\v")
     if _PAGING_INT_RE.fullmatch(text) is None:
         return None
-    if len(text.removeprefix("-")) > _PAGING_DIGIT_LIMIT:
+    negative = text.startswith("-")
+    digits = text.removeprefix("-").lstrip("0") or "0"
+    if len(digits) > _PAGING_DIGIT_LIMIT:
         # Too long to turn into an int without building one.  Positive, the
         # documented clamp: a value past ``limit``'s ceiling is that ceiling,
         # past ``offset``'s is ``VA_MAX``, and both are numbers a client sent.
@@ -1723,8 +1725,9 @@ def _paging_int(raw: str, ceiling: int) -> int | None:
         # the page past the end of the table (an empty page that reads as "no
         # rows") where the contract says 0, and a negative page size became the
         # page-size cap instead of the default.
-        return None if text.startswith("-") else ceiling
-    return min(int(text), ceiling)
+        return None if negative else ceiling
+    number = int(digits)
+    return min(-number if negative else number, ceiling)
 
 
 def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:

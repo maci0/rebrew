@@ -2886,3 +2886,23 @@ cover default/custom temporary paths and an inner fixture project. Affected
 catalog rows were restored from their prior records through the locked owner;
 no replacement verdict was earned. Replay:
 `make test-one T=tests/test_source_fixture_writes.py`.
+### Temporary layout probes conflict with unshare's private /tmp (2026-10-19)
+
+`rebrew types bind d3.animation-options ... --target Europa1400Gold_TL.exe`
+failed with `unsupported/invalid extra mount overlaps runtime mount`. The
+generated probe was compiled in place under `/tmp/rebrew-types-*`, making the
+compiler request a same-path source mount beneath the runner's private `/tmp`.
+Keep the generated source and object workdir separate; its absolute project
+header remains served by the existing project mount. Preserve the runner's
+mount restrictions. The type-probe regression checks this boundary, and the
+real replay validates sizeof 12 and offsets 0/1/2/9 in both client profiles.
+### Paging property model accepted non-API numeric syntax (2026-10-19)
+
+The full suite found `raw='1\x85'`: Python `int` accepts the C1 whitespace,
+while dashboard paging deliberately accepts only ASCII decimal syntax and
+ASCII surrounding whitespace. Keep that API boundary and align the independent
+integer model with its documented grammar, pinning C1 whitespace, plus signs,
+underscores and Unicode digits as rejected examples. A long leading-zero
+prefix then exposed a real bug: 100 zeros followed by 1 incorrectly clamped to
+the page maximum. Strip leading zeros before the bounded integer conversion;
+preserve fallback/clamping behavior for genuinely large or negative values.
