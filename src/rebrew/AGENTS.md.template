@@ -342,9 +342,9 @@ results are rechecked against current bindings under this policy.
 
 `status --all-targets` selects each target's configured raw link or
 `build/<target>`; an unrelated sole build artifact is not a target's image.
-Use editable project dependencies pointing to the canonical Rebrew/Recoverage
-checkouts. Run tooling through the project's pinned environment, and remove
-legacy interpreter probes, stand-in dependencies and obsolete host tool links.
+Use released Rebrew/Recoverage packages in the project's pinned environment.
+Editable checkouts are an explicit tooling-development opt-in. Remove legacy
+interpreter probes, stand-in dependencies and obsolete host tool links.
 Keep local rules in the preserved project-rules section before refreshing
 generated instructions (see the init skill).
 
