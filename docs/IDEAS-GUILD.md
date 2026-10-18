@@ -2986,3 +2986,28 @@ members. Fresh managed bindings can constrain size and explicit non-bitfield
 offsets, but do not establish the missing members or a namespace for colliding
 private names. The present pure-source model does not follow includes and
 continues to model 32-bit MSVC; no live compiler probe is run during a preview.
+
+### Short blocker text asserted import origin without evidence (2026-10-19)
+
+Guild's blocker-backfill review exposed a size-only provenance claim:
+`blocker_reason("msvc", 6, "")` returned
+`IAT import thunk / jump stub — not a decomp target`. The same helper handles
+new intake functions and existing source-bound STUBs in
+`rebrew source document-unmatched --backfill-blockers`; neither caller supplies
+native import/jump evidence. `todo` treats `not a decomp target` as an explicit
+exclusion, so this guessed reason also hid small game bodies from normal work.
+An absent size (zero) took the same branch.
+
+The size branch now records only a short body or unknown size awaiting native
+review and decompilation. Actual import/library attribution still needs native
+evidence; existing blockers are preserved rather than silently rewritten.
+Regression replay, without a compiler or toolchain runner:
+
+```
+pytest tests/test_intake.py::TestBlockers \
+  tests/test_intake.py::TestIntake::test_full_intake_writes_project \
+  tests/test_document_unmatched.py::TestDocumentUnmatched::test_backfill_small_game_stub_does_not_claim_import_origin
+```
+
+The regression covers helper sizes zero/one/six/eight, an eight-byte intake
+function and a six-byte existing game stub with no import evidence.

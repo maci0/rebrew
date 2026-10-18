@@ -100,6 +100,10 @@ class TestIntake:
         assert other["symbol"] == "_fcn_00401020"
         assert other["name"] == "fcn_00401020"
         assert other["file"] == "src/game/fcn_00401020.c"
+        assert (
+            other["blocker"]
+            == "Short body or unknown size — pending native review and decompilation"
+        )
         # metadata has blocker + STUB
         meta = (tmp_path / "rebrew-functions.toml").read_text()
         assert "blocker" in meta
@@ -395,8 +399,11 @@ class TestIntake:
 
 
 class TestBlockers:
-    def test_thunk_reason(self) -> None:
-        assert "thunk" in blocker_reason("msvc", 6, "")
+    @pytest.mark.parametrize("size", [0, 1, 6, 8])
+    def test_small_size_does_not_establish_import_origin(self, size: int) -> None:
+        assert blocker_reason("msvc", size, "") == (
+            "Short body or unknown size — pending native review and decompilation"
+        )
 
     def test_delphi_reason(self) -> None:
         assert "Delphi" in blocker_reason("delphi", 64, "")
