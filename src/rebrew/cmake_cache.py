@@ -245,9 +245,24 @@ def run_cached_cl(
             if not isinstance(saved["stdout"], str) or not isinstance(saved["stderr"], str):
                 raise ValueError("invalid cached diagnostics")
             if _snapshot(root, spec, args, source, includes, image) == key:
-                _restore(output, data)
-                if _snapshot(root, spec, args, source, includes, image) == key:
-                    replay = (saved["stdout"], saved["stderr"])
+                # A rejected restore must not change what a failed compile leaves.
+                with tempfile.TemporaryDirectory(
+                    prefix=".rebrew-cl-", dir=output.parent
+                ) as directory:
+                    previous = Path(directory) / output.name
+                    had_output = output.exists()
+                    if had_output:
+                        output.replace(previous)
+                    try:
+                        _restore(output, data)
+                        if _snapshot(root, spec, args, source, includes, image) == key:
+                            replay = (saved["stdout"], saved["stderr"])
+                    finally:
+                        if replay is None:
+                            if had_output:
+                                previous.replace(output)
+                            else:
+                                output.unlink(missing_ok=True)
         except (OSError, ValueError, KeyError, TypeError, binascii.Error):
             pass
     if replay is not None:

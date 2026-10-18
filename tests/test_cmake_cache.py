@@ -268,6 +268,45 @@ def test_replay_rechecks_inputs_after_restore(
     assert len(project.state.calls) == 2
 
 
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("failure", ["input-change", "restore-error", "snapshot-error"])
+def test_rejected_replay_restores_output_before_failed_compile(
+    project: Any, monkeypatch: pytest.MonkeyPatch, existing: bool, failure: str
+) -> None:
+    project.invoke()
+    project.output.unlink()
+    before = None
+    if existing:
+        project.output.write_bytes(b"previous output")
+        os.utime(project.output, ns=(100, 100))
+        before = project.output.stat()
+    restore = cmake_cache._restore
+
+    def fail_snapshot(*args):
+        raise OSError("snapshot failed")
+
+    def changed(output, data):
+        restore(output, data)
+        if failure == "restore-error":
+            raise OSError("restore interrupted")
+        if failure == "snapshot-error":
+            monkeypatch.setattr(cmake_cache, "_snapshot", fail_snapshot)
+        else:
+            _replace_same_stat(project.header, b"VALUE 1", b"VALUE 2")
+
+    monkeypatch.setattr(cmake_cache, "_restore", changed)
+    project.state.rc = 2
+    project.state.write = False
+    assert project.invoke() == 2
+    assert len(project.state.calls) == 2
+    if before is None:
+        assert not project.output.exists()
+    else:
+        assert project.output.read_bytes() == b"previous output"
+        after = project.output.stat()
+        assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+
+
 @pytest.mark.parametrize(
     "failure", ["returncode", "missing-output", "unchanged-output", "exception"]
 )

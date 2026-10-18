@@ -3137,6 +3137,9 @@ native controls on plain SP5 `/MT` and Processor Pack `/ML` preserve complete
 COFF bytes, timestamps and diagnostics against uncached controls. Hot calls
 dispatch no compiler; same-stat source/header edits and changed flags miss.
 These bounded controls do not establish a whole-build speedup or raw-image match.
+A rejected cache restore now rolls back the prior output before fallback,
+including its inode and mtime; an initially absent output stays absent if that
+compile fails. Six regressions reject input changes and restore/snapshot errors.
 
 
 ### Literal include resolver misses multicomponent case-insensitive precedence (2026-10-19)
