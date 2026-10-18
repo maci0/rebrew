@@ -409,17 +409,17 @@ add-dep: warn-uv-version
 # `uv run` creates .venv on first use, so the probe cannot go through it on a
 # clean clone: `make doctor` is documented as read-only, and a venv it built
 # itself would then be a half-synced one the next command has to repair.  With
-# no .venv there is nothing to probe, so run the same file with the system
-# python3, which reports the missing-venv case itself.  A host with neither
+# no selected environment there is nothing to probe, so run the same file
+# with system python3, which reports the missing-venv case itself. A host with neither
 # python3 nor uv is told to run make setup first rather than left with a bare
 # "command not found".
 ensure-extras: ensure-uv
-	@if [ -d .venv ]; then \
+	@if [ -d "$${UV_PROJECT_ENVIRONMENT:-.venv}" ]; then \
 	  uv run --frozen --no-sync python tools/require_extras.py --context=mypy $(RESEMBL_DIR); \
 	elif command -v python3 >/dev/null 2>&1; then \
 	  python3 tools/require_extras.py --context=mypy $(RESEMBL_DIR); \
 	else \
-	  echo "ERROR: no .venv and no python3 on PATH, so the 'prove' extra"; \
+	  echo "ERROR: no $${UV_PROJECT_ENVIRONMENT:-.venv} and no python3 on PATH, so the 'prove' extra"; \
 	  echo "and the 'similarity' group cannot be checked."; \
 	  echo "Run 'make setup', or 'uv sync --locked --all-extras --group similarity', then re-run."; \
 	  exit 1; \
@@ -432,12 +432,12 @@ ensure-extras: ensure-uv
 # that never exercised the code CI's test job runs.  CI syncs
 # --all-extras --group similarity, so refusing here is parity, not strictness.
 ensure-test-extras: ensure-uv
-	@if [ -d .venv ]; then \
+	@if [ -d "$${UV_PROJECT_ENVIRONMENT:-.venv}" ]; then \
 	  uv run --frozen --no-sync python tools/require_extras.py --context=test $(RESEMBL_DIR); \
 	elif command -v python3 >/dev/null 2>&1; then \
 	  python3 tools/require_extras.py --context=test $(RESEMBL_DIR); \
 	else \
-	  echo "ERROR: no .venv and no python3 on PATH, so the 'prove' extra"; \
+	  echo "ERROR: no $${UV_PROJECT_ENVIRONMENT:-.venv} and no python3 on PATH, so the 'prove' extra"; \
 	  echo "and the 'similarity' group cannot be checked."; \
 	  echo "Run 'make setup', or 'uv sync --locked --all-extras --group similarity', then re-run."; \
 	  exit 1; \
@@ -447,7 +447,7 @@ ensure-test-extras: ensure-uv
 # unrelated file must stay able to run it, exactly as a missing nasm only warns
 # there.  The skip reason the affected tests print names the same fix.
 warn-test-extras: ensure-uv
-	@if [ -d .venv ]; then \
+	@if [ -d "$${UV_PROJECT_ENVIRONMENT:-.venv}" ]; then \
 	  uv run --frozen --no-sync python tools/require_extras.py --context=test --soft $(RESEMBL_DIR); \
 	elif command -v python3 >/dev/null 2>&1; then \
 	  python3 tools/require_extras.py --context=test --soft $(RESEMBL_DIR); \

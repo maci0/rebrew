@@ -3284,3 +3284,22 @@ The current parser bugfix does not implement that separate feature or claim
 that accepting a variadic declaration proves any caller's va_arg contract.
 Concrete reproduction: provide the above canonical prototype to
 `types reconcile`; current response requires a non-variadic reviewed prototype.
+
+### Extras preflights ignore the selected uv environment (2026-10-19)
+
+A normal writer-validation commit in a fresh Guild upstream worktree failed
+before mypy despite a complete existing `UV_PROJECT_ENVIRONMENT`. The Make
+preflights checked only local `.venv` before choosing system Python, and
+`tools/require_extras.py` independently hard-coded that same directory.
+Both checks now honor the explicit environment, resolving relative paths
+from the project root; diagnostics name that selection. Keep the probes
+read-only: an absent selection is reported without calling `uv run`, creating
+an environment, or accepting a different local `.venv`. Installed groups are
+still checked, including the warning-only single-test path.
+
+Regression replay: `pytest tests/test_ci_pins.py::TestRequireExtras`. Thirteen
+new cases failed before the fix; all 23 focused cases pass after it. Real
+`ensure-extras`, `ensure-test-extras`, and `warn-test-extras` also pass with
+both absolute and relative selections of the existing complete environment,
+`UV_NO_SYNC=1`, and `UV_OFFLINE=1`, without creating local `.venv`. This fix
+does not install dependencies or change the extras required by the gates.

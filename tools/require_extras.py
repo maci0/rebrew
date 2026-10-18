@@ -26,8 +26,10 @@ single-file edit-test loop where an unrelated file must stay runnable.
 ``--no-sync`` matters: the probe must report what is installed, never install
 what is missing.  It also matters that the probe never *creates* ``.venv``:
 ``make doctor`` is documented as read-only, and ``uv run`` builds the venv on
-first use, so on a clean clone the Makefile runs this file with the system
-python3 instead.  The missing-venv case is reported here rather than inferred
+first use, so when the selected environment is absent the Makefile runs this
+file with the system python3 instead. ``UV_PROJECT_ENVIRONMENT`` selects an
+existing environment; relative paths resolve from the project root, as in uv.
+The missing-venv case is reported here rather than inferred
 from a probe of the wrong interpreter.  ``RESEMBL_DIR`` (default
 ``../resembl``) is the sibling path dependency the ``similarity`` group's
 message points at; the Makefile passes its resolved absolute path.
@@ -36,6 +38,7 @@ message points at; the Makefile passes its resolved absolute path.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -108,8 +111,9 @@ def _satisfied(modules: Sequence[str]) -> bool:
 
 
 def _venv_dir() -> Path:
-    """The project virtualenv, named the way ``uv`` names it."""
-    return Path(__file__).resolve().parent.parent / VENV_DIRNAME
+    """The selected uv environment, with relative paths rooted at the project."""
+    root = Path(__file__).resolve().parent.parent
+    return root / (os.environ.get("UV_PROJECT_ENVIRONMENT") or VENV_DIRNAME)
 
 
 def _parse(argv: Sequence[str]) -> tuple[str, bool, str] | None:
@@ -148,8 +152,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     # system python3 precisely so a clean clone stays untouched, and a system
     # interpreter carrying angr would otherwise report the extra as installed
     # and let `make mypy` run into the phantom errors this exists to name.
-    if not _venv_dir().is_dir():
-        print(f"{level}: {VENV_DIRNAME} does not exist, so no optional group is installed.")
+    venv = _venv_dir()
+    if not venv.is_dir():
+        print(f"{level}: {venv} does not exist, so no optional group is installed.")
         print("mypy reports phantom type errors without the 'prove' extra and")
         print("import-not-found without the 'similarity' group (CI's lint job syncs both).")
         print(_GROUPS[0].fix)
@@ -158,7 +163,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for group in _GROUPS:
         if _satisfied(group.modules):
             continue
-        print(f"{level}: the {group.label} is not installed in .venv.")
+        print(f"{level}: the {group.label} is not installed in {venv}.")
         print(f"{group.why[context]}.")
         print(group.fix)
         if group.sibling_hint:
