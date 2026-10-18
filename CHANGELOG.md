@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+- `rebrew lint --help` distinguishes format-3 function metadata from format-2
+  data metadata instead of describing both stores as format 2.
+
 ## [5.1.0] - 2026-10-18
 
 ### Changed

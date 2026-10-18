@@ -2840,3 +2840,13 @@ readelf -SW /bin/true
 uv run --frozen python -W always::RuntimeWarning -c \
   'from rebrew.formats.binary_loader import load_binary; print(load_binary("/bin/true").format)'
 ```
+
+
+### Lint help described both stores as format 2 — fixed (2026-10-18)
+
+Public Rebrew 5.1.0's `lint --help` still said all identity/state used format-2
+metadata after function metadata moved to format 3. The help now distinguishes
+format-3 function metadata from format-2 data metadata. A rendered umbrella CLI
+help regression checks both descriptions against the writers' schema constants;
+the schemas and runtime behavior are unchanged. Replay:
+`make test-one T=tests/test_cli_help_copy.py::TestHelpCopy::test_lint_help_names_current_function_and_data_formats`.
