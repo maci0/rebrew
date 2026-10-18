@@ -481,6 +481,13 @@ are parsed once per path and reused. A second call records no further
 
 - **Fancy-indexing reloc normalization**: 0.7× slower; kept the slice loop.
 - **Replacing `SequenceMatcher`**: changes calibrated scoring; rejected.
+- **Lazy CLI domain mounting**: `app.builtins` activates every domain at
+  import so the umbrella can mount its groups, which imports every command
+  module: 13 `activate()` calls measured ~0.17 s of a fresh `status` process
+  (about 26%). The 0.29 s `--version` still imports the whole command surface.
+  Deferring it needs a custom click group (Typer converts every registered
+  sub-Typer before it parses arguments), which is a composition-layer change
+  rather than a local edit; not attempted here.
 
 ## GA bottleneck: compilation, not scoring
 
