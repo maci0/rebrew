@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Fixed
+- Intake and blocker backfill leave short or unknown-size functions pending
+  native review instead of claiming they are IAT thunks or excluding them from
+  decompilation solely because their size is at most eight bytes.
+
 ## [5.2.0] - 2026-10-19
 
 ### Added

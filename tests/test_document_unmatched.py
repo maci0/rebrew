@@ -201,6 +201,23 @@ class TestDocumentUnmatched:
         assert payload["sizes_written"] == 0
         assert get_entry(project / "src", 0x401020, "SERVER").get("size") == 8
 
+    def test_backfill_small_game_stub_does_not_claim_import_origin(self, project: Path) -> None:
+        """A small source-bound stub has no import or exclusion evidence."""
+        from rebrew.metadata.functions import get_entry, update_field, update_source_status
+
+        update_source_status(project / "src", "STUB", "SERVER", 0x401010)
+        update_field(project / "src", 0x401010, "size", 6, module="SERVER")
+        result = CliRunner().invoke(
+            app, ["source", "document-unmatched", "--backfill-blockers", "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        entry = get_entry(project / "src", 0x401010, "SERVER")
+        assert (
+            entry["blocker"]
+            == "Short body or unknown size — pending native review and decompilation"
+        )
+        assert entry["status"] == "STUB"
+
     def test_backfill_dry_run(self, project: Path) -> None:
         """--dry-run backfill writes nothing."""
 

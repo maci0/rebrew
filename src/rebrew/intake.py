@@ -153,9 +153,9 @@ def _enumerate_functions(binary: Path) -> list[tuple[int, int, str]]:
 
 
 def blocker_reason(family: str, size: int, version_hint: str) -> str:
-    """Why an enumerated function is documented-only (too small, vendor-specific, ...)."""
+    """Describe pending native review or a known compiler-family limitation."""
     if size <= 8:
-        return "IAT import thunk / jump stub — not a decomp target"
+        return "Short body or unknown size — pending native review and decompilation"
     if family == "delphi":
         return (
             "Borland Delphi application code — Delphi ABI not reproducible with rebrew "
