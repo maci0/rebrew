@@ -1236,11 +1236,18 @@ Writes and output:
 | `--all-modules` | flag | `False` | Rename every module's rows of this definition, and every other definition of the name |
 | `--shared-definition` | flag | `False` | Rename every function row bound to one definition; requires MODULE.0xVA; excludes --all-modules, --data, --type, and --field |
 | `--reference-owner` | str, repeatable | — | Reviewed owner of all references in project-relative `FILE=MODULE.0xVA`; requires `--shared-definition` |
-| `--expected-digest` | str | — | Digest from the reviewed reference-ownership preview; required when applying explicit owners |
+| `--expected-digest` | str | — | Digest from a reviewed reference-binding or reference-ownership preview; required when applying explicit owners |
 | `--comments` | flag | `False` | Also rewrite whole-word occurrences inside comments |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+
+Function reference binding (`PLACEHOLDER MODULE.0xVA`) previews an `input_digest`
+and `input_hashes` with `--dry-run --json`. Repeat with `--expected-digest DIGEST`
+to guard the reviewed references, destination source, source/header inventory,
+managed stores, configuration, target binaries and linker edits. Changed inputs
+refuse before writes. Binding changes references only; the destination definition,
+identity and verdict remain unchanged. Apply without a digest remains supported.
 
 When independent definitions coexist in the same target, module membership cannot
 attribute shared declarations or callers. Use `--reference-owner` only after

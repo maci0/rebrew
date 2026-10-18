@@ -3052,3 +3052,22 @@ With compilation mocked but real metadata writes, the regression observes zero
 SIZE writer calls for unchanged inferred/explicit sizes, one for missing/stale
 explicit sizes and a new explicit VA, and one instead of two for an accepted
 `--fix-sizes` correction. It also checks that the expected verdict persists.
+
+### Reference-binding rename omitted its reviewed input digest (2026-10-19)
+
+Guild's `rebrew source rename fcn_004ec960 GOLDTL.0x004ec960 --dry-run --json`
+previewed caller edits without `input_digest`: `plan_function_reference_binding`
+never populated `input_hashes`, and the CLI restricted `--expected-digest` to
+reference-ownership renames. Review could not guard those exact inputs.
+
+Reference bindings now reuse the existing rename context/source snapshot and
+apply guard. The preview includes its digest, and optional guarded apply rejects
+changed caller, header dependency, destination or managed store before writing.
+The destination definition, identity and verdict remain unchanged. No additional
+metadata or native-binding claim is introduced.
+
+Replay without a native compiler:
+
+```
+pytest tests/test_rename.py::TestReferenceBindingDigest
+```

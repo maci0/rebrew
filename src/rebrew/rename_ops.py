@@ -655,6 +655,7 @@ def plan_function_reference_binding(
 
     if selected.store != KIND_FUNCTION or not is_valid_new_name(old_name):
         raise ValueError("function reference binding requires an unbound C function name")
+    context_inputs = _rename_context_inputs(cfg)
     project = _Project(cfg)
     root = getattr(cfg, "root", None) or project.metadata_dir
     retired = set().union(
@@ -751,6 +752,8 @@ def plan_function_reference_binding(
     plan.notes.append(
         f"References bound to {selected.module}.0x{selected.va:08x}; identity unchanged"
     )
+    plan.input_hashes = _rename_source_inputs(project, plan) | context_inputs
+    _check_rename_inputs(cfg, plan)
     return plan
 
 

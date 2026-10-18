@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Fixed
+- Function reference-binding rename previews include an input digest;
+  `--expected-digest` guards apply against changed sources, dependencies and
+  project context without changing the destination identity or verdict.
 - Binary xrefs reports no-base indexed table displacements as `indexed_mem`
   candidates, separate from exact memory and IAT references. Shared scanners
   preserve their exact-reference defaults and expose indexed candidates explicitly.

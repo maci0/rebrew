@@ -178,12 +178,13 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
     reference_owner = option_default(reference_owner, None) or []
     expected_digest = option_default(expected_digest, None)
-    if (reference_owner or expected_digest) and not shared_definition:
+    binding = _parse_identity(new_name) if not (data or type_rename or field_rename) else None
+    if (reference_owner or (expected_digest and binding is None)) and not shared_definition:
         error_exit(
             "--reference-owner and --expected-digest require --shared-definition",
             json_mode=json_output,
         )
-    if expected_digest and not reference_owner:
+    if expected_digest and not reference_owner and binding is None:
         error_exit(
             "--expected-digest requires reviewed --reference-owner selections",
             json_mode=json_output,
@@ -209,7 +210,6 @@ def main(
             json_mode=json_output,
             code=EXIT_ERROR,
         )
-    binding = _parse_identity(new_name) if not (data or type_rename or field_rename) else None
     if binding and (new_file is not None or all_modules or shared_definition):
         error_exit("reference binding does not rename files or identities", json_mode=json_output)
     identity = None if (data or type_rename or field_rename) else _parse_identity(target_ident)
