@@ -287,6 +287,16 @@ def _toolchain_download_hint(path_str: str) -> str:
     return ""
 
 
+def _image_available(cfg: ProjectConfig, image: str) -> bool:
+    """Inspect the same image store as the configured execution backend."""
+    from rebrew.compiler.toolchain import image_present
+
+    backend = getattr(cfg, "execution_backend", "")
+    if backend and backend != "unshare":
+        return image_present(image, runtime=backend)
+    return image_present(image)
+
+
 def check_compiler(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler command is executable."""
     # A 16-bit target needs a profile registered with bits=16 (the same set
@@ -324,32 +334,31 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             fix=f'Set compiler.profile = "{hint}"; analysis/docs work either way.',
         )
 
-    # Docker-only execution: every shipped profile compiles through its
-    # docker image — the image IS the compiler.  Only a profile without a
+    # Every shipped profile compiles through its image. Only a profile without a
     # registry spec (or an image-less plugin one) falls through to the
     # legacy executable check.
-    from rebrew.compiler.toolchain import TOOLCHAINS, image_present
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     _profile = str(getattr(cfg, "compiler_profile", ""))
     _spec = TOOLCHAINS.get(_profile) if _profile else None
     if _spec is not None and _spec.image is not None:
-        if image_present(_spec.image):
+        if _image_available(cfg, _spec.image):
             return CheckResult(
                 name="Compiler",
                 status=_OK,
-                message=f"{_profile} docker image {_spec.image} ready",
+                message=f"{_profile} toolchain image {_spec.image} ready",
             )
         return CheckResult(
             name="Compiler",
             status=_FAIL,
-            message=f"{_profile} docker image {_spec.image} not built",
-            fix=f"Run `rebrew toolchain build {_profile}` (docker-only execution).",
+            message=f"{_profile} toolchain image {_spec.image} not built",
+            fix=f"Run `rebrew toolchain build {_profile}`.",
         )
     if _spec is not None and _spec.runtime != "native":
         return CheckResult(
             name="Compiler",
             status=_FAIL,
-            message=f"{_profile} has no docker image — execution is docker-only",
+            message=f"{_profile} has no toolchain image — host execution is unsupported",
             fix=f"Run `rebrew toolchain build {_profile}` first.",
         )
 
@@ -359,7 +368,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             name="Compiler",
             status=_FAIL,
             message="No compiler command configured",
-            fix="Set [compiler] profile to a docker-backed toolchain, or command for a native compiler.",
+            fix="Set [compiler] profile to an image-backed toolchain, or command for a native compiler.",
         )
 
     try:
@@ -603,13 +612,9 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
 
 
 def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
-    """For docker-backed profiles, report the execution state: the docker
-    image must be built (execution is docker-only — no host wine/dosbox
-    fallback); the vendored tree is informational (it is the byte-identical
-    source the image builds from).  An image-less profile skips (its binary
-    is checked by the generic compiler check)."""
+    """Check the image; a vendored build-source tree cannot replace it."""
     profile = str(getattr(cfg, "compiler_profile", ""))
-    from rebrew.compiler.toolchain import ToolchainError, get_toolchain, image_present
+    from rebrew.compiler.toolchain import ToolchainError, get_toolchain
 
     try:
         spec = get_toolchain(profile)
@@ -617,18 +622,18 @@ def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
         return CheckResult(name="Toolchain", status=_SKIP, message="not a toolchain-backed profile")
     if spec.image is None:
         return CheckResult(
-            name="Toolchain", status=_SKIP, message="not a docker-backed profile (native binary)"
+            name="Toolchain", status=_SKIP, message="not an image-backed profile (native binary)"
         )
 
-    image_ok = image_present(spec.image)
+    image_ok = _image_available(cfg, spec.image)
     host_present = spec.host_path is not None and Path(spec.host_path).exists()
     bits = [f"image {spec.image} pulled"] if image_ok else []
     if host_present:
         bits.append(f"vendored tree {spec.host_path} present (build source)")
     ready = image_ok
     status = _OK if ready else _FAIL
-    message = f"{profile}: {' + '.join(bits) if bits else 'docker image not built'}"
-    fix = "" if ready else f"Run `rebrew toolchain build {profile}` (docker-only execution)."
+    message = f"{profile}: {' + '.join(bits) if bits else 'toolchain image not built'}"
+    fix = "" if ready else f"Run `rebrew toolchain build {profile}`."
     return CheckResult(name="Toolchain", status=status, message=message, fix=fix)
 
 
@@ -662,24 +667,29 @@ def check_cache_backend(cfg: ProjectConfig) -> CheckResult:
 
 
 def check_runner(cfg: ProjectConfig) -> CheckResult:
-    """Check the execution runner.  Docker-backed profiles run through
-    their docker image (wine/wibo config is obsolete for them); native-Linux
-    profiles need no runner."""
+    """Check the selected image backend, probing namespaces for unshare."""
     from rebrew.compiler.toolchain import TOOLCHAINS
 
     _profile = str(getattr(cfg, "compiler_profile", ""))
     _spec = TOOLCHAINS.get(_profile) if _profile else None
     if _spec is not None and _spec.image is not None:
-        from rebrew.compiler.toolchain import image_present
+        from rebrew.compiler.toolchain import ToolchainError, check_experimental_unshare
+        from rebrew.utils import container_runtime
 
-        if image_present(_spec.image):
+        backend = getattr(cfg, "execution_backend", "") or container_runtime()
+        if _image_available(cfg, _spec.image):
+            if backend == "unshare":
+                try:
+                    check_experimental_unshare(_spec)
+                except ToolchainError as exc:
+                    return CheckResult(name="Runner", status=_FAIL, message=f"unshare: {exc}")
             return CheckResult(
-                name="Runner", status=_OK, message=f"docker image {_spec.image} ready"
+                name="Runner", status=_OK, message=f"{backend}: image {_spec.image} ready"
             )
         return CheckResult(
             name="Runner",
             status=_WARN,
-            message=f"docker image {_spec.image} not built",
+            message=f"{backend}: image {_spec.image} not built",
             fix=f"Run `rebrew toolchain build {_profile}`.",
         )
 
@@ -739,33 +749,25 @@ def check_runner(cfg: ProjectConfig) -> CheckResult:
     return CheckResult(name="Runner", status=_WARN, message=f"Unknown runner '{runner}'")
 
 
-def _docker_toolchain_check(cfg: ProjectConfig, name: str, what: str) -> CheckResult | None:
-    """For docker-backed profiles, the image IS the include/lib provider.
-
-    Execution is docker-only: the image encapsulates the compiler AND its
-    include/lib trees (it is built from the vendored toolchain source), so a
-    dangling host ``compiler.includes``/``compiler.libs`` path is not a
-    first-run failure — it is only meaningful for legacy native/wine/wibo
-    profiles.  Returns a CheckResult, or None when the profile is not
-    docker-backed (the caller proceeds with the host-path check).
-    """
-    from rebrew.compiler.toolchain import TOOLCHAINS, image_present
+def _image_toolchain_check(cfg: ProjectConfig, name: str, what: str) -> CheckResult | None:
+    """The image supplies includes/libs; native profiles use host-path checks."""
+    from rebrew.compiler.toolchain import TOOLCHAINS
 
     profile = str(getattr(cfg, "compiler_profile", ""))
     spec = TOOLCHAINS.get(profile) if profile else None
     if spec is None or spec.image is None:
         return None
-    if image_present(spec.image):
+    if _image_available(cfg, spec.image):
         return CheckResult(
             name=name,
             status=_OK,
-            message=f"{profile}: {what} provided by docker image {spec.image}",
+            message=f"{profile}: {what} provided by toolchain image {spec.image}",
         )
     return CheckResult(
         name=name,
         status=_WARN,
-        message=f"{profile}: docker image {spec.image} not built",
-        fix=f"Run `rebrew toolchain build {profile}` (execution is docker-only).",
+        message=f"{profile}: toolchain image {spec.image} not built",
+        fix=f"Run `rebrew toolchain build {profile}`.",
     )
 
 
@@ -792,9 +794,9 @@ def check_includes(cfg: ProjectConfig) -> CheckResult:
             + ", ".join(profiles_16)
             + " (its vendored INCLUDE is staged as C:\\INCLUDE in the sandbox).",
         )
-    docker = _docker_toolchain_check(cfg, "Include path", "includes")
-    if docker is not None:
-        return docker
+    image = _image_toolchain_check(cfg, "Include path", "includes")
+    if image is not None:
+        return image
     inc_path = Path(compiler_dir(cfg.compiler_includes))
     if not inc_path.parts:
         # Explicitly empty means "the toolchain ships its own headers"
@@ -823,9 +825,9 @@ def check_includes(cfg: ProjectConfig) -> CheckResult:
 
 def check_libs(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler lib directory exists."""
-    docker = _docker_toolchain_check(cfg, "Lib path", "libs")
-    if docker is not None:
-        return docker
+    image = _image_toolchain_check(cfg, "Lib path", "libs")
+    if image is not None:
+        return image
     lib_path = Path(compiler_dir(cfg.compiler_libs))
     if not lib_path.parts:
         return CheckResult(

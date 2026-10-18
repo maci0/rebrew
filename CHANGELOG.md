@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Fixed
+- `doctor` checks images in the configured Docker/Podman store and reports the
+  selected runner. Unshare readiness now requires its existing namespace probe,
+  rather than reporting a Docker image as proof that unshare can execute.
 - Dashboard paging preserves small values with long leading-zero prefixes.
   The property-test model follows the API's ASCII decimal grammar rather than
   accepting Python-only numeric spellings.
