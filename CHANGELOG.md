@@ -7,6 +7,15 @@
 - BinSync exports avoid a duplicate global scan. Header dependency resolution
   filters case-insensitive filename candidates before checking file types,
   avoiding a stat of every unrelated source for each missing host CRT header.
+- BinSync type export omits incomplete, ambiguous and unresolved-scope structs
+  instead of inventing a complete prefix layout or choosing the first private
+  definition. File-local typedefs retain their context, omitted embedded types
+  propagate to their containers, and existing remote types/history survive.
+  Annotation-only struct names no longer create zero-size placeholders.
+  Enums and typedefs follow the same conservative name/scope policy; unknown
+  explicit enum values are no longer replaced by invented sequential values.
+- Shared struct layout modeling marks multiple field declarators incomplete
+  instead of silently dropping all but the last member.
 - Dashboard paging preserves small values with long leading-zero prefixes.
   The property-test model follows the API's ASCII decimal grammar rather than
   accepting Python-only numeric spellings.

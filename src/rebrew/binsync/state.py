@@ -1355,7 +1355,7 @@ def _parsed_struct_fields(
         after = f"after member {fields[-1]['name']}" if fields else "at its first member"
         log.warning(
             "struct %s: layout stops %s (a member of unknown size: nested or unknown "
-            "aggregate, bitfield, or function pointer); %d member(s) exported, the rest omitted",
+            "aggregate, bitfield, or function pointer); %d member offset(s) known",
             name or "?",
             after,
             len(fields),
@@ -1376,44 +1376,123 @@ def _struct_name(typedef_text: str) -> str:
     return sm.group(1) if sm else ""
 
 
+def _unsafe_type_names(source: str) -> set[str]:
+    """Names whose scope, conditional selection or repeated definition is unknown."""
+    from rebrew.c_parser import node_text, parse_c_source
+
+    tree, raw = parse_c_source(source)
+    root = tree.root_node
+    allowed = {root}
+    children = [child for child in root.named_children if child.type != "comment"]
+    if len(children) == 1 and children[0].type == "preproc_ifdef":
+        guard = children[0]
+        name = guard.child_by_field_name("name")
+        if (
+            guard.children[0].type == "#ifndef"
+            and name is not None
+            and not any(c.type in {"preproc_else", "preproc_elif"} for c in guard.children)
+            and any(
+                c.type == "preproc_def"
+                and (defined := c.child_by_field_name("name")) is not None
+                and node_text(defined, raw) == node_text(name, raw)
+                for c in guard.named_children
+            )
+        ):
+            allowed.add(guard)
+    counts: dict[str, int] = {}
+    unsafe: set[str] = set()
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        pending.extend(node.named_children)
+        if node.type == "type_definition":
+            text = node_text(node, raw)
+            alias = _typedef_name_and_type(text) if "{" not in text else None
+            name = alias[0] if alias else (_struct_name(text) or _enum_name(text))
+        elif (
+            node.type in {"struct_specifier", "enum_specifier"}
+            and node.child_by_field_name("body") is not None
+            and node.parent.type != "type_definition"
+        ):
+            text = node_text(node, raw)
+            name = _struct_name(text) or _enum_name(text)
+        else:
+            continue
+        if not name:
+            continue
+        counts[name] = counts.get(name, 0) + 1
+        parent = node.parent
+        if parent.type == "declaration":
+            parent = parent.parent
+        if parent not in allowed or node.has_error:
+            unsafe.add(name)
+    return unsafe | {name for name, count in counts.items() if count > 1}
+
+
 def collect_struct_definitions(
     cfg: ProjectConfig,
 ) -> dict[str, tuple[str, list[dict[str, Any]], int | None]]:
     """Collect struct definitions from ``reversed_dir`` headers and sources.
 
-    Returns ``{struct_name: (raw_typedef_text, fields, complete_size)}``. Prefers the
-    header definition when a name appears in both.
+    Returns ``{struct_name: (raw_typedef_text, fields, complete_size)}``.
+    Differing definitions or layouts are omitted: BinSync cannot represent
+    translation-unit-private types under the same name.
     """
-    from rebrew.struct_parser import extract_structs_from_file
+    from rebrew.struct_parser import extract_structs_from_file, extract_type_definitions
     from rebrew.types import parse_structs
     from rebrew.utils import read_source_text
 
     result: dict[str, tuple[str, list[dict[str, Any]], int | None]] = {}
     duplicates: set[str] = set()
-    aliases = type_aliases(cfg)
+    unresolved: set[str] = set()
     for path in _iter_definition_files(cfg):
         try:
             definitions = list(extract_structs_from_file(path))
             if not definitions:
                 continue
             source, _ = read_source_text(path)
+            unsafe = _unsafe_type_names(source)
+            file_aliases = dict(_BUILTIN_TYPE_ALIASES)
+            for text in extract_type_definitions(path):
+                if (
+                    "{" not in text
+                    and (alias := _typedef_name_and_type(text)) is not None
+                    and alias[0] not in unsafe
+                ):
+                    file_aliases[alias[0]] = alias[1]
+            for name in unsafe:
+                file_aliases.pop(name, None)
             # shortcut: include packing is unknown, use preprocessed input to resolve it.
-            parsed = parse_structs(_expand_member_types(source, aliases))
+            parsed = parse_structs(_expand_member_types(source, file_aliases))
             for typedef_text in definitions:
                 name = _struct_name(typedef_text)
                 if not name:
                     continue
-                if name in result:
-                    if " ".join(result[name][0].split()) != " ".join(typedef_text.split()):
-                        duplicates.add(name)
+                if name in unsafe:
+                    unresolved.add(name)
+                    log.warning(
+                        "struct %s in %s: unresolved scope or conditional context; omitted",
+                        name,
+                        path,
+                    )
                     continue
                 struct = parsed.get(name)
-                if struct is not None:
-                    result[name] = (
-                        typedef_text.strip(),
-                        _parsed_struct_fields(name, struct, parsed),
-                        struct.size if struct.complete else None,
-                    )
+                if struct is None:
+                    continue
+                candidate = (
+                    typedef_text.strip(),
+                    _parsed_struct_fields(name, struct, parsed),
+                    struct.size if struct.complete else None,
+                )
+                if name in result:
+                    previous = result[name]
+                    if (
+                        " ".join(previous[0].split()) != " ".join(typedef_text.split())
+                        or previous[1:] != candidate[1:]
+                    ):
+                        duplicates.add(name)
+                else:
+                    result[name] = candidate
         except Exception:
             # One malformed file must not drop every later definition from the export.
             log.warning("struct collection failed for %s; skipped", path, exc_info=True)
@@ -1421,13 +1500,17 @@ def collect_struct_definitions(
         listed = ", ".join(sorted(duplicates)[:_DUPLICATE_LIST_LIMIT])
         more = len(duplicates) - _DUPLICATE_LIST_LIMIT
         log.warning(
-            "%d struct name(s) have more than one differing definition; only the first "
-            "(headers before sources) is synced: %s%s",
+            "%d struct name(s) have more than one differing definition or layout; "
+            "omitted from sync: %s%s",
             len(duplicates),
             listed,
             f" and {more} more" if more > 0 else "",
         )
-    return result
+    return {
+        name: definition
+        for name, definition in result.items()
+        if name not in duplicates | unresolved
+    }
 
 
 #: Duplicate struct names listed by name in the collection warning.
@@ -1437,8 +1520,8 @@ _DUPLICATE_LIST_LIMIT = 10
 def _iter_definition_files(cfg: ProjectConfig) -> list[Path]:
     """Files scanned for type definitions, in preference order.
 
-    Target-local headers first, then the project-shared header tree, then the
-    target's sources; the first definition of a name wins.
+    Target-local headers, then the project-shared header tree, then the
+    target's sources. Collectors must check name collisions across these files.
     """
     reversed_dir = getattr(cfg, "reversed_dir", None)
     if reversed_dir is None:
@@ -1488,8 +1571,8 @@ def _enum_name(definition: str) -> str:
 def _enum_members(definition: str) -> dict[str, int]:
     """``{member: value}`` for an enum body.
 
-    A bare ``IDENT`` (or one whose literal cannot be parsed) takes the
-    previous value + 1, starting at 0.
+    A bare ``IDENT`` takes the previous value + 1, starting at 0.
+    An unknown explicit value invalidates the complete projection.
     """
     match = re.search(r"\{(.*)\}", definition, flags=re.DOTALL)
     if not match:
@@ -1506,12 +1589,12 @@ def _enum_members(definition: str) -> dict[str, int]:
             try:
                 value = int(literal.strip(), 0)
             except ValueError:
-                value = next_value
+                return {}
         else:
             ident = entry
             value = next_value
         if not re.fullmatch(r"[A-Za-z_]\w*", ident):
-            continue
+            return {}
         members[ident] = value
         next_value = value + 1
     return members
@@ -1520,21 +1603,30 @@ def _enum_members(definition: str) -> dict[str, int]:
 def collect_enum_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, dict[str, int]]]:
     """Collect ``{enum_name: (raw_definition, {member: value})}``."""
     from rebrew.struct_parser import extract_enums_from_file
+    from rebrew.utils import read_source_text
 
     result: dict[str, tuple[str, dict[str, int]]] = {}
+    ambiguous: set[str] = set()
     for path in _iter_definition_files(cfg):
         try:
+            source, _ = read_source_text(path)
+            unsafe = _unsafe_type_names(source)
             for text in extract_enums_from_file(path):
                 name = _enum_name(text)
-                if not name or name in result:
+                if not name:
                     continue
                 members = _enum_members(text)
-                if not members:
-                    continue
-                result[name] = (text.strip(), members)
+                if name in unsafe or not members or name in result and result[name][1] != members:
+                    ambiguous.add(name)
+                else:
+                    result[name] = (text.strip(), members)
         except Exception:
             log.warning("enum collection failed for %s; skipped", path, exc_info=True)
-    return result
+    if ambiguous:
+        log.warning(
+            "ambiguous or unresolved enum names omitted from sync: %s", ", ".join(sorted(ambiguous))
+        )
+    return {name: definition for name, definition in result.items() if name not in ambiguous}
 
 
 def _typedef_name_and_type(definition: str) -> tuple[str, str] | None:
@@ -1557,10 +1649,14 @@ def collect_typedef_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, str]
     Struct and enum typedefs are excluded (the struct/enum collectors own them).
     """
     from rebrew.struct_parser import extract_type_definitions
+    from rebrew.utils import read_source_text
 
     result: dict[str, tuple[str, str]] = {}
+    ambiguous: set[str] = set()
     for path in _iter_definition_files(cfg):
         try:
+            source, _ = read_source_text(path)
+            unsafe = _unsafe_type_names(source)
             for text in extract_type_definitions(path):
                 if re.search(r"\b(?:struct|enum)\b", text) or "{" in text:
                     continue
@@ -1568,11 +1664,17 @@ def collect_typedef_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, str]
                 if parsed is None:
                     continue
                 name, underlying = parsed
-                if name and name not in result:
+                if name in unsafe:
+                    ambiguous.add(name)
+                if name in result and result[name][1] != underlying:
+                    ambiguous.add(name)
+                elif name:
                     result[name] = (text.strip(), underlying)
         except Exception:
             log.warning("typedef collection failed for %s; skipped", path, exc_info=True)
-    return result
+    if ambiguous:
+        log.warning("ambiguous typedef names omitted from sync: %s", ", ".join(sorted(ambiguous)))
+    return {name: definition for name, definition in result.items() if name not in ambiguous}
 
 
 def type_sync_records(cfg: ProjectConfig) -> dict[str, dict[str, Any]]:
@@ -1580,7 +1682,31 @@ def type_sync_records(cfg: ProjectConfig) -> dict[str, dict[str, Any]]:
     from rebrew.types import type_size
 
     records: dict[str, dict[str, Any]] = {}
-    for name, (_text, fields, total_size) in collect_struct_definitions(cfg).items():
+    definitions = collect_struct_definitions(cfg)
+    known = {
+        name: StructDef(name, size=size)
+        for name, (_text, _fields, size) in definitions.items()
+        if size is not None and size > 0
+    }
+    while True:
+        missing = {
+            name
+            for name in known
+            if any(type_size(str(field["type"]), known) is None for field in definitions[name][1])
+        }
+        if not missing:
+            break
+        for name in missing:
+            log.warning(
+                "struct %s: embedded type has no unambiguous exported layout; omitted", name
+            )
+            del known[name]
+    for name, (_text, fields, total_size) in definitions.items():
+        if total_size is None or total_size <= 0:
+            log.warning("struct %s: incomplete or zero-size layout omitted from sync", name)
+            continue
+        if name not in known:
+            continue
         members = {}
         next_offset = 0
         for field in fields:
@@ -1590,7 +1716,7 @@ def type_sync_records(cfg: ProjectConfig) -> dict[str, dict[str, Any]]:
             next_offset = offset + size
         records[f"struct.{name}"] = {
             "definition": {
-                "size": total_size if total_size is not None else next_offset,
+                "size": total_size,
                 "members": members,
             }
         }

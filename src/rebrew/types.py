@@ -222,6 +222,8 @@ def _abstract_declarator(node: Any, source: bytes) -> tuple[str, str] | None:
 
 def _parse_field(decl: Any, source: bytes) -> tuple[str, str] | None:
     """Return ``(field name, type spelling)`` for a field_declaration node."""
+    if sum(child.type in _DECLARATOR_TYPES for child in decl.children) != 1:
+        return None
     base_parts: list[str] = []
     declarator = None
     for child in decl.children:

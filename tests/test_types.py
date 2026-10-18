@@ -67,6 +67,11 @@ class TestParseStructs:
         assert not structs["Outer"].complete
         assert structs["Outer"].fields == [("tag", "char", 0)]
 
+    def test_multiple_declarators_do_not_silently_drop_fields(self) -> None:
+        struct = parse_structs("typedef struct { int prefix; int a, b; int tail; } S;")["S"]
+        assert not struct.complete
+        assert struct.fields == [("prefix", "int", 0)]
+
     def test_flat_struct_offsets(self) -> None:
         structs = parse_structs("typedef struct { int x; char y; short z; } Foo;")
         foo = structs["Foo"]

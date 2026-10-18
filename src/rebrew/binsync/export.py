@@ -336,7 +336,8 @@ def main(
 ) -> None:
     """Export Rebrew symbols and types to a BinSync state directory.
 
-    Produces a ``functions/`` tree, ``global_vars.toml``, and ``structs/`` placeholders compatible with BinSync's TOML state format.
+    Produces a ``functions/`` tree, ``global_vars.toml``, and complete local
+    ``structs/`` definitions compatible with BinSync's TOML state format.
     """
     serial.require_declib(json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
@@ -482,9 +483,6 @@ def export_state(
             "empty": True,
         }
 
-    struct_defs: dict[str, tuple[str, list[dict[str, Any]]]] = {
-        e.struct: ("", []) for e in func_entries if e.struct
-    }
     # Merge annotation funcs + catalog-only funcs for export
     all_func_entries: list[object] = list(func_entries) + list(catalog_func_entries)
     local_records = local_sync_records(cfg, all_func_entries + list(global_entries))
@@ -498,8 +496,6 @@ def export_state(
     if not dry_run:
         funcs_dir = outdir / "functions"
         funcs_dir.mkdir(parents=True, exist_ok=True)
-        if struct_defs:
-            (outdir / "structs").mkdir(parents=True, exist_ok=True)
 
     merged_records = {
         key: merge_sync_record(key, fields, remote_records.get(key, {}), baseline)
@@ -520,7 +516,16 @@ def export_state(
     written_funcs: list[str] = []
     comment_artifacts: list[tuple[int, int, str]] = []
     metadata_comments: dict[int, tuple[int, str]] = {}
-    identity_warnings: list[str] = []
+    identity_warnings: list[str] = [
+        f"{key}: no complete unambiguous local definition; preserving existing remote state"
+        for key in remote_records
+        if key.startswith(("struct.", "enum.", "typedef.")) and key not in local_records
+    ]
+    identity_warnings.extend(
+        f"struct.{name}: annotation has no complete unambiguous local layout; no placeholder exported"
+        for name in sorted({entry.struct for entry in func_entries if entry.struct})
+        if f"struct.{name}" not in local_records
+    )
     exported_from: dict[int, str] = {}
     for entry in all_func_entries:
         va = entry.va  # type: ignore[attr-defined]
@@ -605,10 +610,6 @@ def export_state(
 
     written_structs: list[str] = []
     merged_types = {**remote_records, **merged_records}
-    for sname in struct_defs:
-        key = f"struct.{sname}"
-        if key not in baseline or key in remote_records:
-            merged_types.setdefault(key, {"definition": {}})
     for key, record in sorted(merged_types.items()):
         if not key.startswith("struct."):
             continue
