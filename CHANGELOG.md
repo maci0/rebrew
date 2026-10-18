@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [5.0.0] - 2026-10-18
+
 ### Changed
 - Status/todo and verification inventories read registered function and library
   identities from metadata without parsing their C declarations. Source-only

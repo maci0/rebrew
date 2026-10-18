@@ -2735,3 +2735,28 @@ guidance incorrectly promised recompiling every function. Clarify the two layers
 without changing execution or clearing caches. A CLI contract regression rejects
 the old wording and requires both cache layers to be explicit. Replay:
 `uv run --frozen pytest tests/test_cli_contract.py -k no_cache_help_distinguishes`.
+
+
+### README status graphic from canonical reports (2026-10-18)
+
+Guild's retired progress renderer queried an obsolete coverage database and counted
+PROVEN as a byte match. The current CLI has canonical multi-target status JSON
+but no README SVG export (`coverage --help` and `coverage report --help`).
+A reusable renderer should consume that report, separate EXACT/RELOC C and naked
+assembly counts, exclude library/PROVEN verdicts from C recovery, and show raw-file
+agreement separately with a snapshot date. Guild now uses only CLI JSON in its
+small presentation script; it performs no metadata parsing or verification.
+Replay: `rebrew status --all-targets --json | python3 scripts/progress_svg.py`.
+
+
+### Consider consolidating source provenance stores (2026-10-18)
+
+The Guild user questioned the extra `rebrew-source.toml` beside function/data/type
+stores. Its current 61 target-scoped assembly records include addressless helpers,
+and its support-file records include headers; moving everything onto VA-keyed
+function rows would lose those identities. Consider whether a unified schema or
+a coordinated file/definition section in an existing store can reduce maintenance
+without duplicating evidence. Any migration must preserve hashes, target scopes,
+rename behavior, support purposes, locked atomic writes and stale-evidence lint.
+Current readers: `metadata/source_provenance.py`; inspect Guild source metadata
+with `rebrew source document-assembly --help`. No migration is implemented.
