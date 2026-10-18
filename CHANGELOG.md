@@ -1,6 +1,11 @@
 ## [Unreleased]
 
 ### Fixed
+- Source fixtures keep their metadata inside pytest temporary trees, including
+  custom `--basetemp` paths nested in another project. They no longer overwrite
+  an ancestor project's catalog.
+- Generated design principles no longer describe both function and data metadata
+  as format 2; source identity remains separate from source comments.
 - `rebrew lint --help` distinguishes format-3 function metadata from format-2
   data metadata instead of describing both stores as format 2.
 - `todo` no longer suggests unsupported linked comparison with the experimental

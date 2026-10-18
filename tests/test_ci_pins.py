@@ -1433,7 +1433,7 @@ class TestCiPins:
         ini = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         pytest_ini = ini["tool"]["pytest"]["ini_options"]
         assert "tests" in pytest_ini["pythonpath"]
-        assert pytest_ini["addopts"] == ["-p", "pytest_ansi_env"]
+        assert pytest_ini["addopts"] == ["-p", "pytest_ansi_env", "-p", "source_util"]
 
     def test_coverage_floor_matches_pyproject(self) -> None:
         """slipcover ignores [tool.slipcover]; ``make coverage`` passes the floor."""

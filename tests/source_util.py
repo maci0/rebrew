@@ -1,7 +1,10 @@
 """Build source fixtures with address anchors and explicit canonical metadata."""
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, SupportsIndex, override
+
+import pytest
 
 from rebrew.c_parser import find_c_function_definitions, find_extern_variables
 from rebrew.metadata.anchors import parse_address_anchors
@@ -16,10 +19,19 @@ from rebrew.metadata.functions import (
 )
 from rebrew.workspace.config import walk_up_to_root
 
+_pytest_basetemp: Path | None = None
 
-def _pytest_temp_dir(name: str) -> bool:
-    """True for a pytest session temp or an xdist worker temp (``popen-gwN``)."""
-    return name.startswith(("pytest-", "popen-gw"))
+
+@pytest.fixture(scope="session", autouse=True)
+def _source_fixture_boundary(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Confine inferred metadata to the actual pytest temporary tree."""
+    global _pytest_basetemp
+    previous = _pytest_basetemp
+    _pytest_basetemp = tmp_path_factory.getbasetemp()
+    try:
+        yield
+    finally:
+        _pytest_basetemp = previous
 
 
 def write_source(
@@ -40,18 +52,23 @@ def write_source(
         return path.write_text(text, encoding=encoding, **kwargs)
     written = path.write_text(text, encoding=encoding, **kwargs)
     if metadata_dir is None:
-        project = walk_up_to_root(path.parent)
-        fixture_root = next(
-            (
-                parent
-                for parent in (path.parent, *path.parents)
-                if _pytest_temp_dir(parent.parent.name)
-            ),
-            path.parent,
-        )
-        metadata_dir = project or fixture_root
+        source_parent = path.parent.absolute()
+        project = walk_up_to_root(source_parent)
+        fixture_root = None
+        if _pytest_basetemp is not None and source_parent.is_relative_to(_pytest_basetemp):
+            fixture_parts = source_parent.relative_to(_pytest_basetemp).parts
+            fixture_root = (
+                _pytest_basetemp / fixture_parts[0] if fixture_parts else _pytest_basetemp
+            )
+        if (
+            project is not None
+            and fixture_root is not None
+            and not project.is_relative_to(fixture_root)
+        ):
+            project = None
+        metadata_dir = project or fixture_root or source_parent
         if project is not None:
-            for parent in (path.parent, *path.parent.parents):
+            for parent in (source_parent, *source_parent.parents):
                 if (parent / "rebrew-functions.toml").is_file():
                     metadata_dir = parent
                 if parent == project:
