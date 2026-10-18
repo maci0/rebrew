@@ -3,6 +3,10 @@
 ### Fixed
 - `rebrew lint --help` distinguishes format-3 function metadata from format-2
   data metadata instead of describing both stores as format 2.
+- `todo` no longer suggests unsupported linked comparison with the experimental
+  unshare backend. It suggests verification of an existing configured raw linker
+  image with its explicit path and selected target, or keeps the work visible
+  with the missing raw-image prerequisite and no command.
 
 ## [5.1.0] - 2026-10-18
 

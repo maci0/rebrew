@@ -2850,3 +2850,17 @@ format-3 function metadata from format-2 data metadata. A rendered umbrella CLI
 help regression checks both descriptions against the writers' schema constants;
 the schemas and runtime behavior are unchanged. Replay:
 `make test-one T=tests/test_cli_help_copy.py::TestHelpCopy::test_lint_help_names_current_function_and_data_formats`.
+
+
+### Todo suggested unsupported unshare linked comparison — fixed on main (2026-10-18)
+
+Released Rebrew 5.1.0 suggests `test --linked` for RELOC and postlink work even
+when the selected target uses `execution_backend = "unshare"`; the compiler
+explicitly rejects that linked runner. Main now preserves those work rows but
+suggests `verify --text --raw-link` only when the configured raw image exists,
+with an explicit quoted `--built` path and selected `--target`. Without that
+image the row explains the prerequisite and carries no command. Docker and
+Podman suggestions stay unchanged. This does not implement unshare linked
+comparison or claim the raw image is identical; verification must establish it.
+The 5.1.0 artifacts remain unchanged. Replay:
+`make test-one T=tests/test_todo.py::TestCollectAllIntegration`.
