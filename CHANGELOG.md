@@ -16,6 +16,10 @@
   and generated CMake source dependencies include the fragments.
 
 ### Changed
+- **Breaking:** Removed incidental `binsync.export.resolve_global_names` and
+  `binsync.export.resolve_global_types` imports; use
+  `rebrew.binsync.state.resolve_global_names` and
+  `rebrew.binsync.state.resolve_global_types`.
 - **Breaking:** `metadata.functions.library_override_fingerprint` returns the
   store path and all input-file fingerprints instead of a single file's stat.
   Incidental `atomic_write_locked` imports in metadata owner modules are removed;
