@@ -3071,3 +3071,63 @@ Replay without a native compiler:
 ```
 pytest tests/test_rename.py::TestReferenceBindingDigest
 ```
+
+### CMake CL driver bypassed the object cache (2026-10-19)
+
+Guild admitted two shared Gold sources through per-source CMake flag export.
+Unix Make lists target-wide flags.make as a prerequisite of every object, so
+that table change requested 4,458 Gold and 4,847 TL compilations even where the
+individual argv and source were unchanged. cmake_tc.driver_main dispatched the
+native tool unconditionally, unlike test/verify's compile_to_obj cache path.
+The staged test objects cannot replace real CMake outputs: paths, defines and
+flags (including /MT versus /ML) can differ.
+
+A narrow driver cache now reuses the existing cache backend, flag/dependency APIs
+and C AST parser in a separate domain. It captures source and leaf-header bytes,
+rejects unresolved/unsupported inputs and side effects, pins the immutable image
+used by the actual unshare run, and replays exact successful object/diagnostic
+receipts only while before/after inputs agree. Content guards cover preserved
+mtime/size edits; the old stat-only header key is not presented as content proof.
+Complex /D bodies also bypass: a macro can inject __pragma(include_alias(...))
+before a literal include despite ordinary source/header bytes. Both joined and
+split define payloads are restricted to simple identifiers/integer values.
+Nested include search, image-only SDK reconstruction, response files, mutable
+shared Wine prefixes and other compile modes remain uncached. The driver reads
+cache configuration through the same extracted settings owner as full config,
+without per-object binary layout analysis or its incidental diagnostics.
+
+Replay without a native compiler:
+
+```
+pytest tests/test_cmake_cache.py tests/test_cmake_tc.py tests/test_compile_cache.py tests/test_config.py
+```
+
+Guild evidence: .scratch/cmake-driver-cache-audit/findings.md and key-costs.json.
+The first regression dispatched the old mocked runner twice; the guarded path
+restores a removed object and identical stdout/stderr with one dispatch. A real
+two-run native COFF/diagnostic control is prepared separately and remains pending
+an available compiler slot; unit tests do not claim native validation.
+
+
+### Literal include resolver misses multicomponent case-insensitive precedence (2026-10-19)
+
+The shared compiler/cache.py _find_in_dirs case-fold fallback handles only a
+single filename. With source `#include "dir/api.h"`, an earlier quoted source
+directory containing `DIR/api.h` is skipped on a case-sensitive host, while a
+later /I directory's exact `dir/api.h` is selected. Wine may instead read the
+earlier file. This can hash the wrong dependency bytes; matching a later exact
+path does not establish the compiler's input closure.
+
+Replay without a native compiler:
+
+```
+pytest tests/test_cmake_cache.py::test_multicomponent_casefold_ambiguity_bypasses_driver_cache
+```
+
+That driver regression failed before admission repair (one cached invocation
+instead of two uncached invocations). The narrow driver adapter now bypasses
+non-leaf literal spellings, including directory separators, absolute/drive and
+traversal paths. The general resolver is unchanged: a separate repair must
+resolve components case-insensitively in directory search order and test earlier
+case-folded versus later exact paths, ambiguity and traversal boundaries. This
+entry records that remaining shared limitation rather than claiming it fixed.

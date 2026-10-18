@@ -3646,6 +3646,24 @@ and `-v`, which must reach the compiler unchanged. Tool exit codes propagate.
 | `MODE` | cl / link / lib | required | Tool to invoke: cl, link, or lib |
 | `ARGS` | str… | — | Tool arguments (place flags after --) |
 
+For `cl` on the explicit `unshare` backend, ordinary single-source object-only
+commands can reuse the project's configured compile cache. This is a separate
+domain from staged `test`/`verify` objects: cwd, original paths/argv, toolchain
+specification, admitted immutable image, backend identity and source/header
+contents remain part of the identity. A hit atomically materializes the object
+and replays the exact compiler stdout/stderr; it does not earn STATUS.
+
+Admission requires the runner's frozen clock (`SOURCE_DATE_EPOCH`), no time
+builtin tokens, ordinary supported flags with simple identifier/integer defines,
+and complete literal leaf-header resolution on the host. Include spellings must
+be single filenames; directory, absolute and traversal spellings bypass caching. Nested includes, macros/unsupported preprocessing,
+image `CL`/`_CL_` flags, response files, debug/PDB/PCH, dependency, preprocess and
+assembly output commands bypass caching. `/Fd` alone is permitted with the
+nondebug flag set. Docker/Podman shared Wine prefixes and LINK/LIB stay uncached.
+Source and header content changes invalidate entries even if size and mtime are
+preserved; success is published only while before/after inputs still agree.
+Generated CMake files and their mtimes are not modified by cache reuse.
+
 ### `rebrew build objdiff-driver`
 
 `rebrew build objdiff-driver [OPTIONS] TARGET_NAME BASE_OBJECT`

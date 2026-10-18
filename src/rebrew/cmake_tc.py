@@ -455,7 +455,9 @@ def _docker_run(
     return r.returncode
 
 
-def _unshare_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
+def _unshare_run(
+    spec: ToolchainSpec, mode: str, args: list[str], *, image_id: str | None = None
+) -> int:
     """Run CMake tools in a private image overlay, retaining host project paths."""
     from rebrew.compiler.toolchain import cached_image_digest, run_toolchain
 
@@ -474,7 +476,7 @@ def _unshare_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
             command,
             workdir=root,
             project_cwd=Path.cwd(),
-            image_id=cached_image_digest(spec.image),
+            image_id=image_id or cached_image_digest(spec.image),
             execution_backend="unshare",
             timeout=3600,
         )
@@ -521,7 +523,19 @@ def driver_main(
         error_exit("compiler.execution_backend must be docker, podman, or unshare")
     try:
         if backend == "unshare":
-            rc = _unshare_run(spec, mode.value, argv)
+            if mode == ToolMode.CL:
+                from rebrew.cmake_cache import run_cached_cl
+
+                rc = run_cached_cl(
+                    root,
+                    spec,
+                    argv,
+                    lambda image: _unshare_run(
+                        spec, mode.value, argv, **({"image_id": image} if image else {})
+                    ),
+                )
+            else:
+                rc = _unshare_run(spec, mode.value, argv)
         else:
             rc = _docker_run(spec, mode.value, argv, **({"runtime": backend} if backend else {}))
     except ToolchainError as exc:

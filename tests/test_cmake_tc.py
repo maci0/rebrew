@@ -755,3 +755,88 @@ def test_driver_unshare_failure_has_no_fallback(
     assert result.exit_code != 0
     assert "user namespaces blocked" in result.output
     assert result.exception is not None and isinstance(result.exception, SystemExit)
+
+
+def test_driver_reuses_object_and_exact_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An unchanged argv/source compile must survive flags.make invalidation."""
+    from typer.testing import CliRunner
+
+    from rebrew import cmake_tc
+    from rebrew.app.main import app
+    from rebrew.compiler import toolchain
+
+    (tmp_path / "rebrew-project.toml").write_text(
+        '[project]\ndefault_target="game"\n'
+        '[targets.game]\nbinary="original.exe"\nreversed_dir="src"\nmodule="GAME"\n'
+        '[compiler]\nprofile="msvc-6.0-sp5-pp"\nexecution_backend="unshare"\n'
+    )
+    (tmp_path / "src").mkdir()
+    source = tmp_path / "src" / "source.c"
+    source.write_text("int f(void) { return 1; }\n")
+    output = tmp_path / "output.obj"
+    (tmp_path / "original.exe").write_bytes(b"fixture")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1071482016")
+    monkeypatch.setattr(toolchain, "cached_image_digest", lambda *_: "sha256:" + "a" * 64)
+    monkeypatch.setattr(toolchain, "image_environment", lambda *_: {})
+    calls = []
+
+    def run(spec, mode, args, **kwargs):
+        calls.append((spec, mode, args, kwargs))
+        output.write_bytes(b"object fixture")
+        print("source.c\nwarning C4101: fixture")
+        print("stderr fixture", file=sys.stderr)
+        return 0
+
+    monkeypatch.setattr(cmake_tc, "_unshare_run", run)
+    args = [
+        "build",
+        "driver",
+        "cl",
+        "--",
+        "/c",
+        "/O2",
+        "/ML",
+        "/Fdunused/",
+        "/Fooutput.obj",
+        str(source),
+    ]
+    first = CliRunner().invoke(app, args)
+    assert first.exit_code == 0, first.output
+    output.unlink()
+    (tmp_path / "flags.make").write_text("unrelated source flags changed\n")
+    second = CliRunner().invoke(app, args)
+    assert second.exit_code == 0, second.output
+    assert output.read_bytes() == b"object fixture"
+    assert second.stdout == first.stdout
+    assert second.stderr == first.stderr
+    assert len(calls) == 1
+    assert calls[0][3] == {"image_id": "sha256:" + "a" * 64}
+
+
+def test_unshare_bridge_uses_the_cache_admitted_image_without_readmission(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from rebrew import cmake_tc
+    from rebrew.compiler import toolchain
+
+    (tmp_path / "rebrew-project.toml").write_text('[compiler]\nprofile="msvc-6.0-sp5-pp"\n')
+    monkeypatch.chdir(tmp_path)
+    image = "sha256:" + "a" * 64
+    monkeypatch.setattr(
+        toolchain, "cached_image_digest", lambda *_: pytest.fail("must retain admitted identity")
+    )
+    calls = []
+
+    def run(spec, args, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(toolchain, "run_toolchain", run)
+    assert (
+        cmake_tc._unshare_run(TOOLCHAINS["msvc-6.0-sp5-pp"], "cl", ["/c", "f.c"], image_id=image)
+        == 0
+    )
+    assert calls[0]["image_id"] == image

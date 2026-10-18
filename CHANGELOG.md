@@ -12,6 +12,9 @@
   decompilation solely because their size is at most eight bytes.
 
 ### Performance
+- The CMake CL driver reuses content-guarded object/diagnostic receipts for
+  ordinary single-source unshare builds with an admitted image and frozen clock.
+  Unsupported flags, side outputs and unresolved or nested includes stay uncached.
 - Single-function `test` skips the locked SIZE transaction when the selected
   binding already stores that size. Explicit and corrected sizes still persist;
   `--fix-sizes` writes its correction once before the unchanged STATUS pipeline.

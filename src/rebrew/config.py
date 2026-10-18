@@ -2301,6 +2301,46 @@ def _load_lint_settings(project_raw: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _apply_compile_cache_config(cfg: ProjectConfig, raw: dict[str, Any]) -> None:
+    """The shared owner for full-config and build-driver cache settings."""
+    # The store is a pluggable component (rebrew.cache_backends entry-point
+    # group); the keying semantics are shared and fixed.  Unknown cache
+    # keys warn like the other sections.  An unknown or empty *backend*
+    # name fails here so a typo does not wait until the first compile.
+    cache_raw = _as_table(raw.get("cache", {}), "cache")
+    unknown_cache = set(cache_raw) - _KNOWN_CACHE_KEYS
+    if unknown_cache:
+        _config_warn(f"rebrew-project.toml [cache]: unrecognized keys: {sorted(unknown_cache)}")
+    from rebrew.compiler.cache import DEFAULT_CACHE_BACKEND, available_cache_backends
+
+    if "backend" in cache_raw:
+        backend = _as_str(cache_raw.get("backend"), "", "cache.backend").strip()
+        if not backend:
+            raise ConfigError("rebrew-project.toml [cache].backend must not be empty")
+    else:
+        backend = DEFAULT_CACHE_BACKEND
+    known_backends = available_cache_backends()
+    if backend not in known_backends:
+        raise ConfigError(
+            f"rebrew-project.toml [cache].backend = {backend!r} is not a "
+            f"registered backend (known: {', '.join(known_backends)})"
+        )
+    cfg.cache_backend = backend
+
+    if "size_limit_mib" in cache_raw:
+        size_mib = _safe_int(cache_raw.get("size_limit_mib"), 0, "cache.size_limit_mib")
+        if size_mib < 0:
+            raise ConfigError("rebrew-project.toml [cache].size_limit_mib must be >= 0")
+        cfg.cache_size_limit_mib = size_mib
+
+
+def load_compile_cache_config(root: Path) -> ProjectConfig:
+    """Load only cache settings, without unrelated target/binary analysis."""
+    cfg = ProjectConfig(root=root)
+    _apply_compile_cache_config(cfg, load_tomllib(root / "rebrew-project.toml"))
+    return cfg
+
+
 def load_config(
     root: Path | str | None = None,
     target: str | None = None,
@@ -2824,35 +2864,7 @@ def load_config(
     cfg.llm_timeout = llm_timeout(_llm_budget_value(llm_raw, "timeout", "REBREW_LLM_TIMEOUT"))
 
     # --- [cache] section: compile-cache backend selection ---
-    # The store is a pluggable component (rebrew.cache_backends entry-point
-    # group); the keying semantics are shared and fixed.  Unknown cache
-    # keys warn like the other sections.  An unknown or empty *backend*
-    # name fails here so a typo does not wait until the first compile.
-    cache_raw = _as_table(raw.get("cache", {}), "cache")
-    unknown_cache = set(cache_raw) - _KNOWN_CACHE_KEYS
-    if unknown_cache:
-        _config_warn(f"rebrew-project.toml [cache]: unrecognized keys: {sorted(unknown_cache)}")
-    from rebrew.compiler.cache import DEFAULT_CACHE_BACKEND, available_cache_backends
-
-    if "backend" in cache_raw:
-        backend = _as_str(cache_raw.get("backend"), "", "cache.backend").strip()
-        if not backend:
-            raise ConfigError("rebrew-project.toml [cache].backend must not be empty")
-    else:
-        backend = DEFAULT_CACHE_BACKEND
-    known_backends = available_cache_backends()
-    if backend not in known_backends:
-        raise ConfigError(
-            f"rebrew-project.toml [cache].backend = {backend!r} is not a "
-            f"registered backend (known: {', '.join(known_backends)})"
-        )
-    cfg.cache_backend = backend
-
-    if "size_limit_mib" in cache_raw:
-        size_mib = _safe_int(cache_raw.get("size_limit_mib"), 0, "cache.size_limit_mib")
-        if size_mib < 0:
-            raise ConfigError("rebrew-project.toml [cache].size_limit_mib must be >= 0")
-        cfg.cache_size_limit_mib = size_mib
+    _apply_compile_cache_config(cfg, raw)
 
     from rebrew.metadata.storage import validate_backend_settings
 
@@ -2911,6 +2923,7 @@ __all__ = [
     "llm_max_requests",
     "llm_max_tokens",
     "llm_timeout",
+    "load_compile_cache_config",
     "load_config",
     "target_module",
     "parse_bool",

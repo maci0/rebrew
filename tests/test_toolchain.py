@@ -112,6 +112,7 @@ class TestRegistry:
             "docker_available",
             "get_toolchain",
             "image_content_id",
+            "image_environment",
             "image_msvc_env",
             "image_present",
             "invalidate_toolchain_digest",

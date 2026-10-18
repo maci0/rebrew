@@ -706,6 +706,11 @@ def _iter_include_specs(text: str) -> Iterator[tuple[str, str]]:
             yield ("nonliteral", "")
 
 
+def include_specs(text: str) -> Iterator[tuple[str, str]]:
+    """Include spellings and macro markers recognized by the shared resolver."""
+    yield from _iter_include_specs(text)
+
+
 def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
     """Locate *name* in the first of *dirs* that contains it.
 
@@ -957,6 +962,7 @@ def scan_include_closure(
     include_dirs: tuple[str, ...],
     *,
     unresolved: list[tuple[str, tuple[str, ...]]] | None = None,
+    contents: dict[str, bytes] | None = None,
 ) -> tuple[tuple[str, ...], bool, tuple[tuple[int, int, int], ...], bool]:
     """Uncached body of :func:`_resolve_include_paths`.
 
@@ -966,7 +972,9 @@ def scan_include_closure(
     and the snapshot do not describe the same file, so the caller must not
     memoize them.  Each include that resolved nowhere is appended to
     *unresolved* as ``(name, directories searched)``, so the caller can
-    revalidate the memo when one of those headers is created later.
+    revalidate the memo when one of those headers is created later. Optional
+    *contents* captures the exact bytes parsed for each reached header; callers
+    needing content proof must use these bytes rather than the stat-only memo.
     """
     search_dirs: list[Path] = []
     if source_dir:
@@ -1043,6 +1051,8 @@ def scan_include_closure(
             ):
                 consistent = False
             observed[found_str] = (after.st_mtime_ns, after.st_size, after.st_ino)
+            if contents is not None:
+                contents[found_str] = raw
             header_text = raw.decode("utf-8", errors="surrogateescape")
             _scan(header_text, found.parent)
             if fallback:
