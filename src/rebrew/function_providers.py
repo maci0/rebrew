@@ -107,16 +107,16 @@ def _compiled_suffix(stored: str) -> bool:
     return dot >= 0 and stored[dot:].lower() in _COMPILED_SUFFIXES
 
 
-def _parent_is_real(parent: Path, cache: dict[Path, bool]) -> bool:
+def _parent_is_real(parent: str, cache: dict[str, bool]) -> bool:
     """True when *parent* and its ancestors contain no symlink."""
     found = cache.get(parent)
     if found is None:
-        found = parent.resolve() == parent
+        found = os.path.realpath(parent) == parent
         cache[parent] = found
     return found
 
 
-def _base_binding_facts(root: Path, base: Path, reversed_dir: Path) -> tuple[bool, str | None]:
+def _base_binding_facts(root: Path, base: Path, reversed_dir: Path) -> tuple[bool, str | None, str]:
     """Containment and display prefix for rows whose stored path starts at *base*.
 
     ``validate_identity_file`` rejects absolute and ``..`` identities, so a base
@@ -125,16 +125,16 @@ def _base_binding_facts(root: Path, base: Path, reversed_dir: Path) -> tuple[boo
     turns the common in-directory row into a slice instead of a path walk.
     """
     if not base.is_absolute():
-        return False, None
+        return False, None, str(base)
     inside = base.is_relative_to(root)
     if not reversed_dir.is_absolute():
-        return inside, None
+        return inside, None, str(base)
     prefix = os.path.relpath(reversed_dir, base).replace(os.sep, "/")
     if prefix == ".":
-        return inside, ""
+        return inside, "", str(base)
     if prefix == ".." or prefix.startswith("../"):
-        return inside, None
-    return inside, prefix + "/"
+        return inside, None, str(base)
+    return inside, prefix + "/", str(base)
 
 
 def _plain_relative(norm: str) -> bool:
@@ -150,8 +150,8 @@ def _bind_compiled_row(
     root: Path,
     metadata_base: Path,
     reversed_dir: Path,
-    real_parents: dict[Path, bool],
-    base_facts: dict[Path, tuple[bool, str | None]],
+    real_parents: dict[str, bool],
+    base_facts: dict[Path, tuple[bool, str | None, str]],
 ) -> SourceBinding:
     """Same result as :func:`bind_compiled_source` without resolving a plain path.
 
@@ -166,14 +166,20 @@ def _bind_compiled_row(
     validate_identity_file(stored)
     norm = stored if "\\" not in stored else stored.replace("\\", "/")
     base = root if metadata.get("kind", entry.kind) == "LIBRARY" else metadata_base
-    inside, prefix = base_facts[base]
-    source = base / norm
-    if source.is_symlink() or not _parent_is_real(source.parent, real_parents) or not inside:
+    inside, prefix, base_text = base_facts[base]
+    # Path construction dominated this per-row loop; the row only needs the
+    # syscall-facing spelling, and anything unusual falls back below.
+    source_text = os.path.join(base_text, norm)  # noqa: PTH118
+    if (
+        not inside
+        or os.path.islink(source_text)  # noqa: PTH114
+        or not _parent_is_real(os.path.dirname(source_text), real_parents)
+    ):
         return bind_compiled_source(cfg, entry, metadata)
     if prefix is not None and norm.startswith(prefix) and _plain_relative(norm):
         entry.filepath = norm[len(prefix) :]
     else:
-        entry.filepath = rel_display_path(source, reversed_dir)
+        entry.filepath = rel_display_path(Path(source_text), reversed_dir)
     entry.symbol = str(metadata.get("symbol") or entry.symbol)
     entry.status = str(metadata.get("status") or "STUB")
     return entry
@@ -202,7 +208,7 @@ def compiled_source_annotations(
     root = Path(getattr(cfg, "root", cfg.metadata_dir)).resolve()
     metadata_base = Path(cfg.metadata_dir)
     reversed_dir = Path(cfg.reversed_dir)
-    real_parents: dict[Path, bool] = {}
+    real_parents: dict[str, bool] = {}
     base_facts = {
         metadata_base: _base_binding_facts(root, metadata_base, reversed_dir),
         root: _base_binding_facts(root, root, reversed_dir),

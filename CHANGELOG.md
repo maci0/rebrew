@@ -59,10 +59,10 @@
   resolving every path; on 7,000 warm sources the scan measured 97.3ms to
   35.4ms. The gate asserts zero `Path.resolve` calls on the warm path.
 - Compiled-source row binding computes base containment and the display
-  prefix once per call instead of a `Path.is_relative_to` and a
-  `Path.relative_to` walk per function. On 5,000 in-tree rows the build
-  measured 97.6ms to 62.9ms; the gate asserts no display-path walk for a
-  plain row.
+  prefix once per call and walks plain rows with `os.path` strings instead of
+  constructing `Path` objects; the identity validator skips its parsed path
+  for rows without `..`. On 5,000 in-tree rows the build measured 97.6ms to
+  26.4ms; the gate asserts no display-path walk for a plain row.
 - Drop-in metadata reads stat each input once instead of listing the
   directory and then statting the same files again, and a locked edit parses
   the collection once and rewrites only the fragments it touches. On a

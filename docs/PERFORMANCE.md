@@ -87,25 +87,28 @@ the same files because the walk yields one spelling per source.
 
 `compiled_source_annotations` builds one row per function for `status`. The
 base containment and the display prefix depend only on the project paths, so
-they are computed once per call now instead of once per row. Previously every
-in-tree row ran `Path.is_relative_to` plus `rel_display_path`
-(`relative_to`/`as_posix`).
+they are computed once per call instead of once per row. The original row
+code ran `Path.is_relative_to` plus `rel_display_path` (`relative_to`/
+`as_posix`) per function; a second pass replaced the remaining `Path`
+construction with `os.path` string joins and `os.path.islink`, and
+`validate_identity_file` no longer builds a parsed path for the common
+no-`..` identity.
 
-Measured as process CPU time medians (Python 3.13.15, Ryzen 9 9950X, CPU 2),
-5,000 rows under `src/`, project root as the metadata base:
+Measured as process CPU time medians, 5,000 rows under `src/`, project root as
+the metadata base:
 
-| Path | Before | After |
+| Path | Original | After |
 |---|---:|---:|
-| `compiled_source_annotations`, 5,000 rows | 97.6 ms | 62.9 ms |
+| `compiled_source_annotations`, 5,000 rows | 97.6 ms | 26.4 ms |
 
-That is 1.55x on the row build. The `status` sample recorded below spent
-0.118s in that build for 4,995 GOLDTL rows, so the same shape should give back
-roughly 40ms there. Rows with a symlink, an unresolved base, or a path outside
-`root` still go through `bind_compiled_source`, which resolves and raises
-where the old code did; a display prefix that would need normalization falls
-back to `rel_display_path`. Gate:
-`test_plain_rows_do_not_walk_display_paths` asserts zero `rel_display_path`
-calls for plain in-tree rows.
+The two passes measured 97.6 to 61.9 ms, then 61.9 to 26.4 ms. The `status`
+sample recorded below spent 0.118s in that build for 4,995 GOLDTL rows, so the
+same shape should give back roughly 65ms there. Rows with a symlink, an
+unresolved base, or a path outside `root` still go through
+`bind_compiled_source`, which resolves and raises where the old code did; a
+display prefix that would need normalization falls back to
+`rel_display_path`. Gate: `test_plain_rows_do_not_walk_display_paths` asserts
+zero `rel_display_path` calls for plain in-tree rows.
 
 ## Metadata drop-in hot paths (2026-10-19)
 

@@ -24,7 +24,10 @@ def validate_identity_file(value: str) -> str:
     normalised = text.replace("\\", "/")
     if normalised.startswith("/") or (len(normalised) > 1 and normalised[1] == ":"):
         raise ValueError(f"file {value!r} must be relative to the project, not absolute")
-    if ".." in PurePosixPath(normalised).parts:
+    # Only a path containing ".." can have a ".." part; building the parsed
+    # path for every plain row made this the most expensive check in the
+    # compiled-source binding loop.
+    if ".." in normalised and ".." in PurePosixPath(normalised).parts:
         raise ValueError(f"file {value!r} must not escape the project with '..'")
     return text
 
