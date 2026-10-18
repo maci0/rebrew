@@ -5,7 +5,7 @@
 ### Changed
 - Refresh contributor pins to uv 0.13.1 and Resembl 3.3.0, upgrade the
   hash-pinned build backend to setuptools 84, and update m2c to its current
-  upstream revision.
+  upstream revision. Bun and Nu validator pins are refreshed as well.
 - Upgrade the optional prover to angr 10.0.4.post1 and PyVEX 10.0.4. Use
   angr's bundled Rust Claripy solver; standalone Claripy requires an incompatible
   Z3 release. PyVEX now supplies its own bitstring compatibility cap.
@@ -156,6 +156,8 @@
   `rebrew.init_profiles.DEFAULT_REBREW_TOML` take `{module}`.
 
 ### Fixed
+- Install native runner build prerequisites in every Linux CI matrix entry,
+  and report missing compiler/json-c development files before local full runs.
 - The prove extra constrains Bitstring to 4.x because PyVEX 9.x requires
   `ConstBitStream`, removed in Bitstring 5. Metadata tests distinguish valid
   escaped control characters in quoted TOML keys from malformed raw controls.

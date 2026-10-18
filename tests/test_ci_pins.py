@@ -1612,6 +1612,34 @@ class TestCiPins:
         )
         assert "oven-sh/setup-bun@" in test_job
 
+    def test_native_runner_prerequisites_cover_every_python_matrix_entry(self) -> None:
+        import yaml
+
+        job = yaml.safe_load(CI_YML.read_text(encoding="utf-8"))["jobs"]["test"]
+        install = next(
+            step for step in job["steps"] if "ci_apt_install.sh nasm" in step.get("run", "")
+        )
+        assert "if" not in install, "native runner tests execute in every Python matrix entry"
+        for package in ("build-essential", "pkg-config", "libjson-c-dev"):
+            assert package in install["run"].split(), package
+        assert "pkg-config --modversion json-c" in install["run"]
+        for target in ("test", "coverage"):
+            assert "ensure-unshare-build" in _makefile_prereqs(target)
+
+    def test_native_runner_preflight_names_missing_development_files(self, tmp_path: Path) -> None:
+        result = subprocess.run(
+            ["make", "--no-print-directory", "ensure-unshare-build"],
+            cwd=ROOT,
+            env={**os.environ, "PKG_CONFIG_LIBDIR": str(tmp_path), "PKG_CONFIG_PATH": ""},
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode != 0
+        assert "native runner tests need" in result.stdout
+        assert "apt install build-essential pkg-config libjson-c-dev" in result.stdout
+
     def test_vnu_is_preflighted_and_installable_locally(self) -> None:
         """The W3C skip must be visible on the dev path, and its fix runnable.
 

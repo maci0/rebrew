@@ -4,7 +4,9 @@ Suggested gates for reverse-engineering workspaces that use rebrew.
 
 ## Package CI (this repo)
 
-Assembly and vendor tests require nasm and GNU patch; the jobs install both through
+Assembly and vendor tests require nasm and GNU patch. Native runner tests also
+require a C compiler, pkg-config and json-c development files. Every Python matrix
+entry installs `nasm patch build-essential pkg-config libjson-c-dev` through
 `tools/ci_apt_install.sh` with its retry policy.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
@@ -146,7 +148,8 @@ the tag points anywhere else.  `make setup` checks the same commit
 (`RESEMBL_SHA` in the Makefile) so a local checkout on another commit fails
 before `uv sync`, with the checkout command, instead of diverging from CI.
 Every host package the jobs install comes from one helper,
-`tools/ci_apt_install.sh` (nasm for the asm round-trip tests, shellcheck and
+`tools/ci_apt_install.sh` (nasm for the asm round-trip tests,
+`build-essential pkg-config libjson-c-dev` for native runner tests, shellcheck and
 yamllint for the pre-commit gate, jq for the nightly drift result gate): apt
 mirrors flake
 under load, so it retries update and
@@ -158,10 +161,11 @@ with `sudo -n`, because there is no TTY in CI and a password prompt would
 block until the job timeout. `tools/ci_clone_resembl.sh` takes the same
 preflight for `git`, so a host missing the binary reports that instead of
 `git clone resembl failed after 3 attempts`.
-The test job installs `bun` (pinned `bun-version` on `oven-sh/setup-bun`):
+The test job installs Bun 1.4.3 (pinned `bun-version` on `oven-sh/setup-bun`):
 `tests/dashboard_*.mjs` need it, and `test_dashboard.py` skips those scripts
 when it is missing, so a job without it would go green without ever running
-the dashboard JS.
+the dashboard JS. The HTML validator is Nu 26.10.12, pinned by version and
+archive digest in `tools/ci_install_vnu.sh`.
 The package job skips the sibling clone (`clone-resembl: "false"`): its
 lockfile sync uses
 `--no-dev --no-default-groups --no-install-project` (no path dep needed)

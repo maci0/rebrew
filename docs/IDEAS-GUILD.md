@@ -2760,3 +2760,23 @@ without duplicating evidence. Any migration must preserve hashes, target scopes,
 rename behavior, support purposes, locked atomic writes and stale-evidence lint.
 Current readers: `metadata/source_provenance.py`; inspect Guild source metadata
 with `rebrew source document-assembly --help`. No migration is implemented.
+
+
+### Preserve accepted toolchain inputs when upstream removes archives (2026-10-18)
+
+`recompile-toolchains/base-dosemu/Dockerfile` pins two fd35 Debian packages
+whose Launchpad files now return 404. Native smoke failed before this dependency
+refresh (run `38723898730`) and still fails in run `39102305256`; changing the
+version or hash would change the accepted native inputs, not repair availability.
+Keep a durable content-addressed mirror for admitted inputs, verifying the
+original hashes before recording another URL. Cache extraction may recover the
+accepted bytes; rebuilding a similarly named package is not equivalent.
+
+The missing files are `libfdldr35` (librarian `876268288`, SHA-256
+`a250e93e6d323d208a7cc2a998bcd03e9510831bf670d2da94eb5f2b6820f49d`) and
+`libfdpp35` (`876268289`,
+`1baec8711043c75d1e29a4f260e926cb7343c9cc484f8c053970e0e0a7000a2a`), version
+`1.11-10003-1714-6fc57bc+202609081621~ubuntu24.04.1`. Launchpad publications
+`249343552` and `249343554` record removal on 2026-09-27. Replay the Dockerfile's
+URLs with `curl -fIL`, then run `make smoke` in the toolchain repository.
+The MSVC server walkthrough uses its separate base image.

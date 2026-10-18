@@ -25,8 +25,8 @@
 # what was expected.
 set -euo pipefail
 
-VNU_VERSION="26.9.30"
-VNU_SHA256="b8356d98f515a12ffa34407a418115458ea6b15d8203035c43df71711c3ce4e1"
+VNU_VERSION="26.10.12"
+VNU_SHA256="d255011cb0b287ee59f547dd6c1b290bc71adfe76a3c28ac13c20fa0d892c7de"
 VNU_URL="https://github.com/validator/validator/releases/download/latest/vnu.linux.zip"
 
 MAX_ATTEMPTS=3

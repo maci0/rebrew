@@ -6,13 +6,13 @@ External tools that rebrew integrates with or builds on top of.
 
 ## Compile backends
 
-The default backend is the local docker image for the profile's toolchain.
+The default backend runs the profile's toolchain image through Docker.
 Setting `[compiler] recompile_url` (or `REBREW_RECOMPILE_URL`, which wins)
 routes every compile through the sibling [recompile](https://github.com/relumea/recompile)
 service instead: the same pinned images over `POST /api/v1/compile` plus an
 artifact download, with the opt-in `recompile_emit_assembly` training tap.
-The local compile cache keys an object on the inspected image id
-(`sha256:` plus 64 hex) and `docker run` uses that same id with
+For Docker execution, the local compile cache keys an object on the inspected
+image id (`sha256:` plus 64 hex), and `docker run` uses that same id with
 `--pull=never`, so a missing image is an error rather than a daemon pull.
 `--network=none` stays. Toolchain build and pull are separate commands.
 The image tag is display metadata. When that id cannot be read, the
@@ -101,9 +101,10 @@ so measurements from this experiment cannot reuse Docker verdicts.
 
 ## MSVC6 Toolchain (Compile Backend)
 
-Executed only through the docker image `rebrew/msvc:6.0-win32` (the image
-wraps wine; the host never calls CL.EXE directly; execution is docker-only
-for every Windows/DOS toolchain).  The tools inside the image:
+The `rebrew/msvc:6.0-win32` image supplies MSVC6 and its Wine runtime.
+Docker is the default execution backend; Podman and the supported
+[experimental unshare backend](#experimental-unshare-backend) use the same
+toolchain image. There is no host Wine/compiler fallback. The image contains:
 
 | Tool | Purpose |
 |------|---------|
@@ -236,8 +237,8 @@ project defaults.  **Known-library presets** cover the shipped runtimes
 rebrew knows the build settings for. For example, `msvcrt-static` expands to
 `msvc-6.0` + `/O2 /Gd /MT` (the MSVC static CRT), `msvcrt-dynamic` to
 `/MD`, `msvc16-runtime` / `borland-runtime` / `watcom-runtime` for the
-16-bit and Borland/Watcom runtimes.  `rebrew toolchain` docker-only
-execution applies unchanged: the override selects the image.
+16-bit and Borland/Watcom runtimes. The override selects the toolchain image;
+the configured execution backend and its profile restrictions still apply.
 
 
 ## Toolchain standardization (docker-first)
@@ -245,14 +246,14 @@ execution applies unchanged: the override selects the image.
 `rebrew toolchain` (see [CLI.md](CLI.md)) manages compiler toolchains
 through a uniform abstraction (`rebrew.compiler.toolchain`), modeled on Godbolt's
 Compiler Explorer convention: **one container image per toolchain-version**,
-with the compiler behind a wrapper inside the image, so the host invocation
-is always `docker run <image> <compiler> <args>`.  Execution is
-**docker-only for every toolchain**: the images encapsulate the
-runtime (wine / DOSBox / a native Linux compiler) and there is no host
-wine/wibo/dosbox fallback; a missing image is a hard error (run
-`rebrew toolchain build <name>`).  A plugin toolchain registered without an
-image execs its vendored/PATH binary directly (the only image-less path
-left).  The docker build source (Dockerfiles,
+with the compiler behind a wrapper inside the image. **Every shipped toolchain
+is image-backed**: its image supplies Wine, DOSBox or a native Linux compiler.
+Docker is the default local backend; select Podman or, for supported 32-bit
+MSVC/Wine profiles, [experimental unshare](#experimental-unshare-backend)
+through `execution_backend`. There is no host Wine/wibo/DOSBox fallback; a
+missing image is a hard error (run `rebrew toolchain build <name>` or
+`rebrew toolchain pull <name>`). A plugin toolchain registered without an image
+execs its vendored/PATH binary directly. The image build source (Dockerfiles,
 wrappers, the shared `base`) lives in the standalone **recompile-toolchains**
 checkout: the sibling repo (overridable via `REBREW_TOOLCHAINS_DIR`),
 and `rebrew toolchain build`/`vendor` read it from there; rebrew no
@@ -304,14 +305,13 @@ from the sha256-pinned decompals/ido-static-recomp v1.2 release assets; the
 recomp `cc` runs natively, no wine; in the smoke gate, objects byte-identical
 across runs).
 
-**Every registry toolchain with a pinned source has a verified
-containerized path**: the
-docker-only standardization is complete for the whole matrix; there is
-no host wine/dosbox execution path in the compile pipeline anymore (only
-the standalone `rebrew.compiler.msvc16`/`rebrew.compiler.tc16` research
-modules retain legacy sandbox helpers; the Delphi whole-program API uses Docker only).  `rebrew toolchain smoke`
-gates byte-reproducibility for every image-backed profile with a
-golden object hash.
+**Every registry toolchain with a pinned source has a verified containerized
+path.** The compile pipeline has no fallback to host-installed Wine/DOSBox;
+unshare uses the admitted image filesystem. Only the standalone
+`rebrew.compiler.msvc16`/`rebrew.compiler.tc16` research modules retain legacy
+sandbox helpers; the Delphi whole-program API uses Docker only.
+`rebrew toolchain smoke` gates byte-reproducibility for every image-backed
+profile with a golden object hash.
 
 **Source drift is tracked** (`rebrew toolchain check-updates`): every
 GitHub-codeload pin (archaic-msvc, archaic-toolchains, itsmattkc)
@@ -331,12 +331,12 @@ Open Watcom snapshots, decomp.me / archive.org payloads, the 16-bit media
 in the recompile-toolchains checkout) is immutable and reported as static.  Runs on a schedule (or ad-hoc) with `GH_TOKEN` mapped onto the
 resembl-clone and `check-updates` steps for generous API limits.
 
-> **Headless by construction:** every Windows/DOS compile runs inside a
-> docker container; wine runs headless inside the image (no desktop
-> window, no `DISPLAY` needed on the host), so no shipped image-backed profile
+> **Headless by construction:** shipped Windows/DOS profiles use the image
+> runtime through Docker/Podman or, for supported MSVC/Wine profiles, unshare.
+> No desktop window or host `DISPLAY` is needed. No shipped image-backed profile
 > reaches the host Xvfb path (`rebrew/compiler/headless.py` stays live for a plugin
-> toolchain registered without an `image` whose command is `wine`).  The images set `WINEDEBUG=-all` and a
-> fixed wine prefix; nothing wine-related runs on the host.
+> toolchain registered without an `image` whose command is `wine`). Images set
+> `WINEDEBUG=-all` and a Wine prefix; unshare gives each run a private overlay.
 >
 > **wine is the default runtime.**  The shared wrapper (`base/wrapper-common.sh`)
 > selects the PE runtime per run via `REBREW_RUNNER`, defaulting to **wine**
@@ -345,9 +345,8 @@ resembl-clone and `check-updates` steps for generous API limits.
 > some tools**, so rebrew never steers projects toward it: the only shipped
 > wibo-runtime profile is the opt-in `msvc-6.0-win9x`, `rebrew doctor`
 > reports a present wibo binary as informational only, and
-> `rebrew toolchain install-wibo` downloads it but leaves a docker-backed
-> project's `runner` config untouched (the config runner is obsolete for
-> images anyway).
+> `rebrew toolchain install-wibo` downloads it but leaves an image-backed
+> project's `runner` config untouched.
 
 **Image layout convention** (Godbolt-style): Dockerfiles live at
 `<family>/<version>-<arch>/Dockerfile` under the recompile-toolchains
@@ -602,12 +601,12 @@ honor a per-function toolchain:
   metadata) plus flags and the include-dir closure, so functions compiled
   under different images never share cache entries. A compile whose image
   id cannot be read is not cached.
-- **Execution is docker-only (ADR-008).**  The override selects a
-  different *image*, not a patched wine environment: an msvc-5.0 override
-  runs `rebrew/msvc:5.0-win32`, whose compiler loads its own matching
-  C1.DLL/C2.DLL by construction.  The old host-wine machinery that had to
-  retarget `WINEPATH`/`INCLUDE`/`LIB`/`PATH` per override
-  (`vendored_msvc_env`) is gone.
+- **Execution stays image-backed.** The override selects a different image;
+  the configured backend and its profile restrictions still apply. An
+  msvc-5.0 override uses `rebrew/msvc:5.0-win32`, whose compiler loads its own
+  matching C1.DLL/C2.DLL. The old host-Wine machinery that retargeted
+  `WINEPATH`/`INCLUDE`/`LIB`/`PATH` per override (`vendored_msvc_env`) is gone.
+  ADR-008 records the original Docker standardization.
 
 Pick the toolchain with `rebrew test --toolchain <name> --json` on each
 function and compare match counts; the vendored names are the registry
