@@ -35,28 +35,35 @@ _BINARY = b"MZ\x90\x00" + bytes(range(64))
 _EXIT_POLL_SECONDS = 30.0
 
 
-def _wait_for_exit(pid: int) -> bool:
-    """True once *pid* holds no process any more.
+def _wait_for_exit(pid: int, starttime: str | None = None) -> bool:
+    """True once *pid* no longer names the started process.
 
-    A zombie counts as gone: the kernel has already released every resource
-    the process held, and whether init has reaped the entry yet is not
-    something a group-kill controls, so treating it as still running would
-    make the check depend on the init of the machine running the suite.
+    Polls instead of sampling once: a killed process can sit in the table for
+    a moment before the group kill finishes with it, and a loaded machine
+    widens that window. A zombie counts as gone (the kernel released every
+    resource the group-kill controls), and a different start time means the
+    pid was reused after it was reaped.
     """
     deadline = time.monotonic() + _EXIT_POLL_SECONDS
     proc_stat = Path(f"/proc/{pid}/stat")
     while time.monotonic() < deadline:
-        if proc_stat.exists():
+        try:
+            text = proc_stat.read_text(encoding="utf-8", errors="replace")
+        except FileNotFoundError:
             try:
-                fields = proc_stat.read_text(encoding="utf-8", errors="replace").rsplit(")", 1)[-1]
+                os.kill(pid, 0)
             except OSError:
                 return True
-            return fields.split()[0] == "Z"
-        try:
-            os.kill(pid, 0)
+            time.sleep(0.05)
+            continue
         except OSError:
             return True
-        time.sleep(0.1)
+        fields = text.rsplit(")", 1)[-1].split()
+        if fields and fields[0] == "Z":
+            return True
+        if starttime is not None and len(fields) > 19 and fields[19] != starttime:
+            return True
+        time.sleep(0.05)
     return False
 
 
@@ -342,11 +349,16 @@ class TestRunGitProcessGroup:
         """The end-to-end shape: a git that forks a long-lived grandchild has
         both gone by the time run_git returns."""
         pid_file = tmp_path / "grandchild.pid"
+        start_file = tmp_path / "grandchild.start"
         fake = tmp_path / "bin"
         fake.mkdir()
         script = fake / "git"
         script.write_text(
-            "#!/bin/sh\nsleep 30 &\necho $! > " + str(pid_file) + "\nwait\n",
+            "#!/bin/sh\nsleep 30 &\necho $! > "
+            + str(pid_file)
+            + "\nawk '{print $22}' /proc/$!/stat > "
+            + str(start_file)
+            + "\nwait\n",
             encoding="utf-8",
         )
         script.chmod(0o755)
@@ -358,4 +370,7 @@ class TestRunGitProcessGroup:
         assert result.returncode == 1
         assert "timed out" in result.stderr
         grandchild = int(pid_file.read_text(encoding="utf-8").strip())
-        assert _wait_for_exit(grandchild)
+        starttime = (
+            start_file.read_text(encoding="utf-8").strip() or None if start_file.exists() else None
+        )
+        assert _wait_for_exit(grandchild, starttime)
