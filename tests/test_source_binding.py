@@ -448,3 +448,57 @@ class TestCanonicalDefinitionCollision:
                 project_root=cfg.root,
             )
         assert metadata.read_bytes() == before
+
+
+def test_guarded_binding_accepts_variadic_pointer_payload(tmp_path: Path) -> None:
+    from rebrew.source_binding import app
+
+    cfg = _project(tmp_path)
+    source = cfg.reversed_dir / "replacement.c"
+    source.write_text(
+        "#include <stdarg.h>\nchar* replacement(int id, ...) { va_list ap; char* p; va_start(ap,id); p=va_arg(ap,char*); va_end(ap); return p; }\n"
+    )
+    with patch("rebrew.source_binding.require_config", return_value=cfg):
+        args = [
+            "rebind",
+            "0x401000",
+            str(source),
+            "--name",
+            "replacement",
+            "--reason",
+            "native proof",
+            "--json",
+        ]
+        preview = CliRunner().invoke(app, [*args, "--dry-run"])
+        assert preview.exit_code == 0, preview.output
+        digest = cli_payload(preview)["input_digest"]
+        result = CliRunner().invoke(app, [*args, "--expected-digest", digest])
+    assert result.exit_code == 0, result.output
+    row = get_entry(cfg.metadata_dir, 0x401000, "GAME")
+    assert row["name"] == "replacement" and "status" not in row
+    assert row["binding_history"][-1]["previous"]["status"] == "EXACT"
+
+
+def test_malformed_va_arg_binding_preserves_previous_identity(tmp_path: Path) -> None:
+    from rebrew.source_binding import app
+
+    cfg = _project(tmp_path)
+    source = cfg.reversed_dir / "replacement.c"
+    source.write_text("void replacement(int id, ...) { va_arg(ap,char* +); }\n")
+    before = get_entry(cfg.metadata_dir, 0x401000, "GAME")
+    with patch("rebrew.source_binding.require_config", return_value=cfg):
+        result = CliRunner().invoke(
+            app,
+            [
+                "rebind",
+                "0x401000",
+                str(source),
+                "--name",
+                "replacement",
+                "--reason",
+                "proof",
+                "--json",
+            ],
+        )
+    assert result.exit_code == 2
+    assert get_entry(cfg.metadata_dir, 0x401000, "GAME") == before

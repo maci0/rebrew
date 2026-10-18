@@ -347,3 +347,71 @@ class TestRenameProvenance:
         (record,) = load_source_provenance(tmp_path)
         assert record.symbol == "other" and "mov eax, total" in file.read_text()
         assert record.source_hash == function_definition_hashes(file.read_text())["other"]
+
+
+@pytest.mark.parametrize(
+    "type_name",
+    [
+        "char*",
+        "const char *",
+        "unsigned int",
+        "struct Item*",
+        "ALIAS*",
+        "int (*)(int)",
+        "int (*)(int, char*)",
+        "char (*)[4]",
+        "char (*)[sizeof(va_arg(ap, char*))]",
+        "char (*)[sizeof(*va_arg(ap, char*))]",
+        "char (*)[sizeof(0, va_arg(ap, char*))]",
+        "char (*)[sizeof(va_arg(ap, char (*)[sizeof(va_arg(ap, char*))]))]",
+    ],
+)
+def test_definition_hash_accepts_va_arg_types_without_changing_raw_hash(type_name: str) -> None:
+    import hashlib
+
+    body = (
+        "void pick(int id, ...) { va_list ap; va_start(ap,id); va_arg(ap, "
+        + type_name
+        + "); va_end(ap); }"
+    )
+    source = "/* ü before body: va_arg(ap, broken*) */\n" + body + "\n"
+    assert function_definition_hashes(source) == {"pick": hashlib.sha256(body.encode()).hexdigest()}
+    assert function_definition_hashes(source + source) == {}
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "va_arg(ap +, char*)",
+        "va_arg(ap char*)",
+        "va_arg(ap, char* +)",
+        "va_arg(ap, char (*)[sizeof(*va_arg(ap, char* +))])",
+        "va_arg(ap, char* junk +)",
+        "va_arg(, char*)",
+        "va_arg(ap,)",
+        "va_arg(ap, char*, int)",
+        "va_arg(ap, char*",
+        "va_arg(ap,char*); return +",
+    ],
+)
+def test_va_arg_normalization_does_not_admit_malformed_bodies(expression: str) -> None:
+    source = "void broken(int id, ...) { " + expression + "; }"
+    assert "broken" not in function_definition_hashes(source)
+
+
+def test_va_arg_hashes_preserve_comments_literals_and_utf8_coordinates() -> None:
+    import hashlib
+
+    from rebrew.c_parser import mask_va_arg_types
+
+    body = 'void pick(int id, ...) { const char* s="va_arg(ap, broken*)"; /* va_arg(ap, broken*) */ va_arg(ap,\n const char* /* ü */); }'
+    source = "/* ü */\n" + body
+    parsed = mask_va_arg_types(source)
+    assert len(parsed.encode()) == len(source.encode())
+    assert [i for i, b in enumerate(parsed.encode()) if b == 10] == [
+        i for i, b in enumerate(source.encode()) if b == 10
+    ]
+    assert '"va_arg(ap, broken*)"' in parsed and "/* va_arg(ap, broken*) */" in parsed
+    assert function_definition_hashes(source) == {"pick": hashlib.sha256(body.encode()).hexdigest()}
+    changed = source.replace("/* ü */);", "/* é */);")
+    assert function_definition_hashes(source) != function_definition_hashes(changed)

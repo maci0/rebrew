@@ -3212,3 +3212,49 @@ adding Ninja guidance. Prove direct/transitive header invalidation and a no-op
 rebuild, then compare the isolated server's complete raw image. Do not fake the
 compiler version or disable dependencies. Evidence: Guild's
 `.scratch/vc6-showincludes-probe/`; no generator/configuration change was made.
+
+### Valid va_arg pointer types blocked guarded source rebinding (2026-10-19)
+
+Guild's measured d2_SetElementValue definition could not be bound: the C parser
+recognized its definition/signature, but function_definition_hashes returned no
+hash because tree-sitter treats `va_arg(ap,char*)` as an ordinary expression
+call and marks the type operand's star as ERROR. Relaxing all body parse errors
+would admit malformed definitions and weaken binding guards.
+
+The definition-hash parser view now recognizes actual va_arg call nodes,
+validates their second operand separately as a C cast type, and substitutes a
+same-coordinate expression only for structural validation. First-operand and
+surrounding errors remain errors; original bytes still supply the body hash.
+Nested va_arg calls are processed before containing type probes, using the
+normalized bytes so valid sizeof expressions in pointer-to-array types pass.
+Tests cover pointer/qualified/struct/typedef/function-pointer/array-pointer
+variants, duplicate definitions, UTF-8 offsets, literal/comment text, malformed
+syntax and real source binding CLI preview plus digest-guarded apply/refusal.
+Replay: `pytest tests/test_source_provenance.py tests/test_source_binding.py`.
+No compiler or target-specific type default is needed for this parser repair.
+
+The adapter only visits call nodes exposed by tree-sitter. A valid nested call
+hidden by its type interpretation still leaves a false-negative capability gap:
+`function_definition_hashes("void f(int id, ...) { va_list ap; va_arg(ap, char (*)[sizeof((va_arg(ap, char*)))]); }")`
+returns no hash. Supporting such grammar-invisible macro types needs a separate
+parser capability improvement; this repair does not relax malformed-body
+rejection or claim support for every valid C macro type expression.
+
+### Canonical variadic contract reconciliation remains unsupported (2026-10-19)
+
+The same measured Guild setter integration spans 62 caller contexts, seven
+existing canonical-header users and two provider contexts. Existing
+`types reconcile`/source_contracts.reconcile_contract explicitly rejects a
+prototype containing `...`, so it cannot publish the reviewed canonical
+`void __cdecl d2_SetElementValue(int id, ...);` declaration. This integration
+therefore requires explicit reviewed source edits rather than a supported
+variadic reconciliation plan. Conditional payload count/type depends on native
+widget kind/flags; inventing fixed arguments or defaults is not a valid substitute.
+
+A future capability should preview/apply an explicitly reviewed variadic
+signature with the existing source snapshot/digest and rollback writer, retain
+per-context payload-type/arity uncertainty, and require caller verification.
+The current parser bugfix does not implement that separate feature or claim
+that accepting a variadic declaration proves any caller's va_arg contract.
+Concrete reproduction: provide the above canonical prototype to
+`types reconcile`; current response requires a non-variadic reviewed prototype.

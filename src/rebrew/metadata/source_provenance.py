@@ -10,7 +10,12 @@ from typing import Any
 
 import tomlkit
 
-from rebrew.c_parser import find_function_name_in_node, mask_msvc_syntax, parse_c_source
+from rebrew.c_parser import (
+    find_function_name_in_node,
+    mask_msvc_syntax,
+    mask_va_arg_types,
+    parse_c_source,
+)
 from rebrew.metadata.document import (
     FUNCTION_FORMAT_VERSION,
     load_metadata_for_write,
@@ -51,7 +56,7 @@ _FUNCTION_FIELDS = METADATA_FIELDS | frozenset(k.upper() for k in FUNCTION_IDENT
 
 def function_definition_hashes(source: str) -> dict[str, str]:
     """Hash unique, parseable definitions; ambiguous conditional bodies are excluded."""
-    tree, parsed = parse_c_source(mask_msvc_syntax(source))
+    tree, parsed = parse_c_source(mask_va_arg_types(mask_msvc_syntax(source)))
     raw = source.encode("utf-8", errors="surrogateescape")
     hashes: dict[str, str] = {}
     ambiguous: set[str] = set()
