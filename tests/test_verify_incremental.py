@@ -1259,6 +1259,8 @@ class TestIncrementalVerify:
 
         calls: list[int] = []
         _patch_verify(monkeypatch, cfg, entries, calls)
+        # This unit test counts mocked verification, not native batch work.
+        monkeypatch.setattr("rebrew.compiler.compile.precompile_batch", lambda *a, **kw: {})
 
         first = runner.invoke(app, ["--json"])
         assert first.exit_code == 0, first.output

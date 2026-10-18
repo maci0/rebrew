@@ -3164,3 +3164,50 @@ traversal paths. The shared resolver repair is recorded under
 [nested include casing](#nested-include-casing-tracked-the-wrong-search-root--fixed-2026-10-19).
 Its broader path support does not widen the driver's deliberately limited
 admission policy.
+
+### Multi-target verify receipts and compare baselines evicted siblings (2026-10-19)
+
+Guild's sequential Gold -> TL per-file verify reported that the shared
+`.rebrew/verify_cache.toml` belonged to another target/compiler and preserved
+none of 5,019 excluded VAs. The resulting TL cache had seven entries. The
+identity guard correctly refused foreign results, but every target wrote the
+same root-scoped file, making alternate-target verification cold and removing
+status/todo's current cache view. `verify_baseline.toml` had the same collision:
+a sibling's full verify made `--compare` skip a foreign-target baseline.
+
+Existing path owners now isolate both files for multi-target configs under
+`.rebrew/targets/<sha256-of-exact-target-name>/`. Untouched single-target projects retain
+the root paths. Once created, a target namespace remains selected if siblings
+are removed; dangling selected symlinks never revive a legacy file. Locks, cache
+schema, compiler/binary checks and per-entry input checks remain unchanged. An absent isolated file may read an identity-matching
+legacy file; the first actual writer preserves its selected target's rows in
+the new file without moving/deleting legacy data. Existing isolated files are
+authoritative even when stale/corrupt, so fallback cannot resurrect old results.
+Coverage imports/freshness/invalidation use the selected target path as well.
+
+Replay without a native compiler (all verification stages in these regressions
+are mocked; cache/baseline readers and locked writers are real):
+
+```
+pytest tests/test_target_result_cache.py
+```
+
+The Gold -> TL -> Gold scoped-refresh and alternating-baseline cases both
+failed before this repair. The compare CLI regression observes a Gold
+regression after TL saves, rather than skipping its foreign baseline. Additional
+controls cover legacy migration, same-VA verdicts, target-name path safety,
+promotion patches, coverage inputs and unchanged identity rejection.
+
+### VC6 Ninja builds need verified header dependency tracking (2026-10-19)
+
+Ninja could avoid Make's target-wide `flags.make` rebuilds, but switching the
+project generator is not yet safe. CMake 4.4.4 only enables MSVC `/showIncludes`
+tracking above MSVC 1300; these projects use VC6. A real plain-SP5 probe reports
+CL 12.00.8804 and D4002, ignoring `/showIncludes`. It compiles a nested-header
+value correctly but emits no include paths. Processor Pack was not probed.
+
+Establish a supported dependency source and Wine-to-host path mapping before
+adding Ninja guidance. Prove direct/transitive header invalidation and a no-op
+rebuild, then compare the isolated server's complete raw image. Do not fake the
+compiler version or disable dependencies. Evidence: Guild's
+`.scratch/vc6-showincludes-probe/`; no generator/configuration change was made.
