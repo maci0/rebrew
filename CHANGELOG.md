@@ -6,6 +6,9 @@
   project sources and managed metadata are unchanged.
 
 ### Fixed
+- Read-only extras preflights honor absolute and project-relative
+  `UV_PROJECT_ENVIRONMENT` selections, report the selected path in failures,
+  and leave missing environments uncreated.
 - Guarded definition hashing accepts valid typed `va_arg` operands, including
   grammar-exposed nested calls in type expressions, while retaining original-byte
   hashes and malformed-body rejection.

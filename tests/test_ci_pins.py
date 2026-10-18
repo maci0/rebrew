@@ -2428,6 +2428,90 @@ class TestRequireExtras:
     no cause; this names the missing group and the command that installs it.
     """
 
+    @pytest.mark.parametrize("relative", [False, True])
+    def test_selected_environment_is_rooted_at_the_project(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: bool
+    ) -> None:
+        project = tmp_path / "project"
+        environment = project / "selected env"
+        environment.mkdir(parents=True)
+        monkeypatch.setattr(require_extras, "__file__", str(project / "tools/require_extras.py"))
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv(
+            "UV_PROJECT_ENVIRONMENT", environment.name if relative else str(environment)
+        )
+        monkeypatch.setattr(require_extras, "_satisfied", lambda modules: True)
+        assert require_extras._venv_dir() == environment
+        assert require_extras.main() == 0
+
+    @pytest.mark.parametrize("soft", [False, True])
+    def test_selected_environment_still_requires_extras(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        soft: bool,
+    ) -> None:
+        monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", str(tmp_path))
+        monkeypatch.setattr(require_extras, "_satisfied", lambda modules: False)
+        assert require_extras.main(["--soft"] if soft else []) == (0 if soft else 1)
+        output = capsys.readouterr().out
+        assert "'prove' extra" in output
+        assert str(tmp_path) in output
+
+    @pytest.mark.parametrize("target", ["ensure-extras", "ensure-test-extras", "warn-test-extras"])
+    @pytest.mark.parametrize("selection", ["absolute", "relative", "missing", "default"])
+    def test_makefile_uses_only_an_existing_selected_environment(
+        self, tmp_path: Path, target: str, selection: str
+    ) -> None:
+        (tmp_path / "tools").mkdir()
+        (tmp_path / "src").mkdir()
+        shutil.copyfile(ROOT / ".python-version", tmp_path / ".python-version")
+        shutil.copyfile(MAKEFILE, tmp_path / "Makefile")
+        shutil.copyfile(ROOT / "tools/require_extras.py", tmp_path / "tools/require_extras.py")
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        uv = bin_dir / "uv"
+        uv.write_text('#!/bin/sh\nprintf "%s\\n" "$*" > "$PREFLIGHT_UV_CALL"\n')
+        uv.chmod(0o755)
+        calls = tmp_path / "uv-call"
+        environment = tmp_path / "selected env"
+        env = {
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "PREFLIGHT_UV_CALL": str(calls),
+        }
+        env.pop("UV_PROJECT_ENVIRONMENT", None)
+        if selection != "default":
+            env["UV_PROJECT_ENVIRONMENT"] = (
+                environment.name if selection == "relative" else str(environment)
+            )
+        if selection in {"absolute", "relative"}:
+            environment.mkdir()
+        elif selection == "missing":
+            # A local environment must not override an explicitly missing selection.
+            (tmp_path / ".venv").mkdir()
+        result = subprocess.run(
+            ["make", "--no-print-directory", target],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if selection in {"absolute", "relative"}:
+            assert result.returncode == 0, result.stdout + result.stderr
+            arguments = calls.read_text()
+            assert arguments.startswith("run --frozen --no-sync python tools/require_extras.py ")
+            assert not (tmp_path / ".venv").exists()
+        else:
+            assert result.returncode == (0 if target == "warn-test-extras" else 2)
+            assert "does not exist" in result.stdout
+            assert not calls.exists()
+            assert not environment.exists()
+            assert (tmp_path / ".venv").exists() == (selection == "missing")
+
     def test_missing_group_is_named_with_its_fix(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -2497,5 +2581,5 @@ class TestRequireExtras:
         """`uv run` creates .venv, and `make doctor` is documented read-only."""
         recipe = MAKEFILE.read_text(encoding="utf-8")
         recipe = recipe.split("ensure-extras: ensure-uv", 1)[1].split("\n\n", 1)[0]
-        assert "if [ -d .venv ]" in recipe, recipe
+        assert 'if [ -d "$${UV_PROJECT_ENVIRONMENT:-.venv}" ]' in recipe, recipe
         assert "python3 tools/require_extras.py" in recipe, recipe
