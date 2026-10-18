@@ -16,17 +16,18 @@ on a project with `rebrew-project.toml`, 2,000 iterations:
 
 | Path | Before | After |
 |---|---:|---:|
-| `metadata_store()` resolution | 39.5 ms | 11.9 ms |
-| cached `load_metadata`, 4,000-row store | 34.7 ms | 25.3 ms |
-| cached `load_metadata`, store in six fragments | 44.4 ms | 35.4 ms |
+| `metadata_store()` resolution | 39.5 ms | 9.6 ms |
+| cached `load_metadata`, 4,000-row store | 34.7 ms | 21.1 ms |
+| cached `load_metadata`, store in six fragments | 44.4 ms | 29.6 ms |
 
-The after numbers match the pre-storage-layer measurements in
-"Metadata drop-in hot paths" (25.4 / 35.5 ms), so the backend layer is now
-cost-neutral on the read path. The project root is memoized per directory
-(misses are not cached, so a later config is still found), built-in stores
-are cached per identity, and callers that already resolved the path pass
-`resolved=True` to `load_metadata_doc` so the read does not walk every
-component again. Plugin backends are constructed fresh per call.
+The after numbers beat the pre-storage-layer measurements in
+"Metadata drop-in hot paths" (25.4 / 35.5 ms). The project root is memoized
+per directory (misses are not cached, so a later config is still found),
+built-in stores are cached per identity, a project with a config resolves the
+selected store with one dict lookup keyed on the config's stat identity, and
+callers that already resolved the path pass `resolved=True` to
+`load_metadata_doc` so the read does not walk every component again. Plugin
+backends are constructed fresh per call.
 
 Gates: `test_store_resolution_caches_the_project_walk_and_instance` asserts
 zero ancestor walks and one instance across repeated resolution;

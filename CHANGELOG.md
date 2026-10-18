@@ -44,11 +44,11 @@
 
 ### Performance
 - Metadata store resolution memoizes the project-root walk, caches built-in
-  store instances and skips re-resolving a path a caller already resolved.
-  On a project config, 2,000 cached `load_metadata` calls measured 34.7ms to
-  25.3ms (six fragments: 44.4ms to 35.4ms), matching the pre-storage-layer
-  numbers. The gates count ancestor walks, store instances and
-  `Path.resolve` calls.
+  store instances per config identity and skips re-resolving a path a caller
+  already resolved. On a project config, 2,000 cached `load_metadata` calls
+  measured 34.7ms to 21.1ms (six fragments: 44.4ms to 29.6ms), below the
+  pre-storage-layer numbers. The gates count ancestor walks, store instances
+  and `Path.resolve` calls.
 - The umbrella CLI entry point freezes the import-time typer/rich/registry
   graph once (`gc.collect()` then `gc.freeze()`), so full collections no
   longer rescan it while a command walks its data. Fresh-process CPU on a
