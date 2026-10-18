@@ -246,13 +246,33 @@ class TestSizePersistence:
         assert "size = 4" in meta
         assert 'status = "STUB"' in meta, meta
 
-    def test_persists_size_on_promote(self, tmp_path: Path, monkeypatch: Any) -> None:
+    @pytest.mark.parametrize(
+        ("stored_size", "explicit_size", "va", "expected_size_writes"),
+        [
+            (0, 4, 0x1000, 1),
+            (8, 4, 0x1000, 1),
+            (4, 4, 0x1000, 0),
+            (4, None, 0x1000, 0),
+            (4, 4, 0x2000, 1),
+        ],
+    )
+    def test_persists_size_on_promote(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        stored_size: int,
+        explicit_size: int | None,
+        va: int,
+        expected_size_writes: int,
+    ) -> None:
         import shutil
 
         from typer.testing import CliRunner
 
+        import rebrew.test as testmod
         from rebrew.app.main import app as umbrella
         from rebrew.compiler.compile import CompareResult
+        from rebrew.metadata.functions import get_entry
 
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
         (tmp_path / "original").mkdir()
@@ -265,10 +285,13 @@ class TestSizePersistence:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
+        fields = {"kind": "FUNCTION"}
+        if stored_size:
+            fields["size"] = stored_size
         write_source(
             src_dir / "f.c",
             "/* ADDRESS: X 0x1000 */\nint f(void) { return 1; }\n",
-            metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
+            metadata_fields={"X.0x1000": fields},
         )
 
         def _fake_compile(*a, **k):
@@ -282,13 +305,27 @@ class TestSizePersistence:
             )
 
         monkeypatch.setattr("rebrew.test.compile_and_compare", _fake_compile)
+        size_writes: list[int] = []
+        update_field = testmod.update_field
+
+        def record_field(directory, address, key, value, module, **kwargs):
+            if key == "size":
+                size_writes.append(value)
+            return update_field(directory, address, key, value, module, **kwargs)
+
+        monkeypatch.setattr(testmod, "update_field", record_field)
+        args = ["test", "src/x/f.c", "--va", hex(va), "--symbol", "_f"]
+        if explicit_size is not None:
+            args.extend(["--size", str(explicit_size)])
         result = CliRunner().invoke(
             umbrella,
-            ["test", "src/x/f.c", "--va", "0x1000", "--size", "4", "--symbol", "_f"],
+            args,
         )
         assert result.exit_code == 0, result.output
-        meta = (tmp_path / "rebrew-functions.toml").read_text()
-        assert "size = 4" in meta
+        entry = get_entry(tmp_path, va, "X")
+        assert entry["size"] == 4
+        assert entry["status"] == "EXACT"
+        assert size_writes == [4] * expected_size_writes
 
     @pytest.mark.parametrize("selector", [["--va", "0x2000"], []])
     def test_va_promotes_under_selected_module_not_first(
@@ -456,8 +493,11 @@ class TestFixSize:
         return b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xc2\x04\x00"
 
     def test_fixes_size_and_promotes(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from unittest.mock import Mock
+
         from typer.testing import CliRunner
 
+        import rebrew.test as testmod
         from rebrew.app.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
@@ -469,6 +509,8 @@ class TestFixSize:
             "rebrew.test.extract_raw_bytes",
             lambda binpath, va, size: self._real_binary_bytes()[:size],
         )
+        size_writer = Mock(wraps=testmod.update_field)
+        monkeypatch.setattr(testmod, "update_field", size_writer)
         result = CliRunner().invoke(
             umbrella,
             [
@@ -488,6 +530,7 @@ class TestFixSize:
         meta = (tmp_path / "rebrew-functions.toml").read_text()
         assert "size = 12" in meta
         assert 'status = "RELOC"' in meta
+        assert size_writer.call_count == 1
 
     def test_real_mismatch_not_fixed(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner

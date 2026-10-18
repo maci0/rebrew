@@ -26,6 +26,7 @@ import logging
 import math
 import threading
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, TypeGuard
 
@@ -1253,10 +1254,10 @@ def _lint_preamble(
     single-function path (:func:`run_test` and the callback), so the lint
     warnings print exactly once per invocation.
 
-    An explicit ``size`` is authoritative and applied to every annotation
-    before validation, so a fresh function tested with ``--va/--size`` does
-    not report "Invalid SIZE: 0".  ``--va`` SELECTS an annotation in
-    multi-function files, so it is not applied here.
+    An explicit ``size`` is authoritative for validation, so a fresh function
+    tested with ``--va/--size`` does not report "Invalid SIZE: 0". Retain the
+    stored sizes for persistence decisions. ``--va`` SELECTS an annotation
+    in multi-function files, so it is not applied here.
 
     The map is reused across single-file invocations while its inputs match.
     One changed source is read again; the other files' facts stay.
@@ -1279,11 +1280,9 @@ def _lint_preamble(
         project_root=cfg.root,
     )
     lint_annos = [anno for anno in lint_annos if not anno.is_data]
-    if size is not None:
-        for anno in lint_annos:
-            anno.size = size
     for anno in lint_annos:
-        eval_errs, eval_warns = anno.validate(min_va=min_valid_va_for(cfg))
+        evaluated = replace(anno, size=size) if size is not None else anno
+        eval_errs, eval_warns = evaluated.validate(min_va=min_valid_va_for(cfg))
         if not json_output:
             for e in eval_errs:
                 console.print(f"[bold red]LINT ERROR:[/bold red] {untrusted_ident(e)}")
@@ -1532,27 +1531,8 @@ def _run_test_impl(
         )
     ):
         new_size = cmp.full_obj_size
-        # The VA-SELECTED annotation's module, like every other metadata write
-        # in this command: `lint_annos[0]` wrote the size under the file's FIRST
-        # module, creating a phantom entry next to the real one.
-        anno_module = _mod
-        if not dry_run and not no_promote:
-            try:
-                update_field(
-                    cfg.metadata_dir,
-                    section_va,
-                    "size",
-                    new_size,
-                    anno_module,
-                    updated_by="test",
-                )
-            except Exception as exc:  # metadata write is best-effort
-                logging.warning(
-                    "Could not persist fixed SIZE 0x%x: %s (the .c still claims the stale size)",
-                    section_va,
-                    exc,
-                )
-        elif not json_output:
+        # The final SIZE/STATUS path persists this corrected size once.
+        if (dry_run or no_promote) and not json_output:
             console.print(
                 f"[dim]would fix SIZE {size_val or 0} → {new_size} for "
                 f"0x{section_va:x} ({'--dry-run' if dry_run else '--no-promote'})[/dim]"
@@ -1642,7 +1622,16 @@ def _run_test_impl(
         # (diff, near-diag) can resolve it from metadata like STATUS — a
         # hand-written fresh function would otherwise stay at SIZE=0 forever
         # and `rebrew diff` fails with "Invalid SIZE: 0".
-        if size_val and not no_promote and not dry_run:
+        if (
+            size_val
+            and not no_promote
+            and not dry_run
+            and (
+                promote_ann is None
+                or promote_ann.va != va_int_for_promote
+                or promote_ann.size != size_val
+            )
+        ):
             try:
                 update_field(
                     cfg.metadata_dir,
