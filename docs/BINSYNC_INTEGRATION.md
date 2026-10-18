@@ -295,32 +295,37 @@ Named embedded structs defined in that file retain their size and alignment.
 Complete layouts also retain their total size, including natural tail padding.
 Size and members form one reconciled definition, so a push preserves an
 incoming or conflicting layout as a whole. Older member-only baselines retain
-their previously shared member extent when upgraded. Incomplete layouts export
-only the known member extent; their full size remains unknown.
-Simple typedefs (the project's and the Win32 spellings such as
-`DWORD`, `LPVOID`) are expanded in member type nodes, so a `DWORD` member is sized
-and exported as `unsigned long`. Member names, struct tags, array bounds and
-packing directives are preserved. Aggregate typedefs defined in the file take
-precedence over aliases collected from elsewhere. A member whose size the model cannot know (an
-anonymous, incomplete or unknown aggregate, a bitfield, or a function pointer)
-ends the layout:
-it and every later member are left out, never guessed, because declib keys
-members by offset. Each such struct is logged as
-`struct NAME: layout stops after member M ...`. The name is the typedef after
-the outermost `}`, so a nested member aggregate (`struct { ... } check;`) is
-never exported as a type of its own. When one name has several differing
-definitions, the first (headers before sources) is synced and the duplicates
-are logged. This name-keyed projection does not distinguish function/block
-scopes or target ownership when names overlap; reconcile those source
-definitions before treating the exported type set as a clean Ghidra model.
+their previously shared member extent when upgraded.
 
-If function `struct` metadata names a struct that isn't defined in any scanned header,
-a minimal placeholder (no members) is still emitted.
+Incomplete layouts are omitted from outgoing state. A known prefix does not
+establish the full size: anonymous or unknown aggregates, bitfields, function
+pointers and multiple field declarators can stop the model before the end.
+The warning names the last known member. A managed compiler-checked total size
+alone does not establish bit offsets or make those members representable in
+BinSync's byte-offset member map.
+
+Differing definitions or layouts under one name are also omitted, including
+identical source text under different packing. File-local typedefs are expanded
+in their own file; an unrelated source's alias cannot supply a member's width.
+Types with an omitted embedded value type are omitted as well. Block-local,
+repeated and target-conditional definitions are not hoisted into a global type;
+a conventional outer header guard is accepted. These refusals preserve existing
+remote artifacts and their shared baseline. A function's `struct` metadata by
+itself no longer creates a zero-size placeholder.
+
+This remains a source layout model for 32-bit MSVC, not compiler layout proof.
+It does not preprocess target branches or follow includes to recover aliases
+and inherited packing; compiler-context-aware export is tracked in
+`docs/IDEAS-GUILD.md`.
 
 Export also warns (JSON `warnings`) when one VA has two selected source
 identities or a row's name is not a C identifier.
 
 ### Enums and typedefs
+
+Enums and standalone typedefs omit conflicting, private and conditional names.
+An enum with an unparseable explicit value is omitted in full; its later values
+are not guessed from the known prefix. Existing remote types remain preserved.
 
 Enums and standalone typedefs are name-keyed like structs and collected from
 the same header/shared/source scan via tree-sitter.  Each is a **single**
@@ -641,8 +646,9 @@ graph TD
 - **Catalog-only functions**: `rebrew binsync diff` health lists their `name`
   and `size` as pending push, because its local view holds annotations only.
   A BinSync name for one is a conflict until `--create-missing` creates a STUB.
-- **Struct layouts** stop at the first member of unknown size (see
-  [Structs](#structs)); the members after it are not synced.
+- **Struct layouts** with unknown members, conflicting definitions or unresolved
+  scope are omitted from outgoing state (see [Structs](#structs)); existing
+  remote layouts and shared history are preserved.
   Packing inherited from included files, conditional preprocessing and custom
   compiler packing flags require preprocessed input; this source scan does not
   evaluate them.

@@ -824,7 +824,7 @@ reversed_dir = "src/server"
 
 
 class TestBinsyncStructNames:
-    def test_struct_annotation_creates_struct_file(
+    def test_struct_annotation_does_not_invent_a_layout(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from typer.testing import CliRunner
@@ -850,7 +850,7 @@ class TestBinsyncStructNames:
         outdir = tmp_path / "binsync"
         result = CliRunner().invoke(app, ["--json", str(outdir)])
         assert result.exit_code == 0
-        assert (outdir / "structs" / "MyStruct.toml").exists()
+        assert not (outdir / "structs" / "MyStruct.toml").exists()
 
 
 class TestManifest:
@@ -1058,6 +1058,26 @@ class TestBinsyncEnumsAndTypedefs:
         assert payload["typedefs"] == 1
         assert str(payload["enums_file"]).endswith("enums.toml")
         assert str(payload["typedefs_file"]).endswith("typedefs.toml")
+
+    def test_ambiguous_scoped_and_unknown_enums_are_omitted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": self._FOO,
+                "a.h": "typedef enum { A = 1 } Conflicting;\n",
+                "b.c": (
+                    "typedef enum { B = 2 } Conflicting;\n"
+                    "#ifdef OTHER_TARGET\nenum Conditional { C };\n#endif\n"
+                    "void private(void) { enum Local { D }; }\n"
+                    "typedef enum { KNOWN = 4, UNKNOWN = SOME_MACRO, NEXT } Unresolved;\n"
+                ),
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert not (outdir / "enums.toml").exists()
 
     def test_shared_dir_enum_exported(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1348,12 +1368,8 @@ class TestStructLayouts:
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0, result.output
-        assert self._members(outdir, "gz") == {
-            0: ("z_err", "int"),
-            4: ("crc", "unsigned long"),
-            8: ("mode", "char"),
-        }
-        assert self._members(outdir, "VT") == {0: ("count", "int")}
+        assert not (outdir / "structs" / "gz.toml").exists()
+        assert not (outdir / "structs" / "VT.toml").exists()
         assert not (outdir / "structs" / "check.toml").exists()
         assert "struct gz: layout stops after member mode" in caplog.text
         assert "struct VT: layout stops after member count" in caplog.text
@@ -1371,9 +1387,146 @@ class TestStructLayouts:
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0, result.output
-        assert self._members(outdir, "Ent") == {0: ("id", "int")}
+        assert not (outdir / "structs" / "Ent.toml").exists()
         assert "1 struct name(s) have more than one differing definition" in caplog.text
         assert ": Ent" in caplog.text
+
+    def test_same_definition_with_different_packing_is_ambiguous(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        definition = "typedef struct { char tag; int id; } Record;\n"
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": self._FOO,
+                "a.h": definition,
+                "b.c": "#pragma pack(push, 1)\n" + definition,
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert not (outdir / "structs" / "Record.toml").exists()
+
+    def test_private_typedef_context_does_not_change_another_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": self._FOO,
+                "a.c": "typedef short Local; typedef struct { Local id; } Small;\n",
+                "b.c": "typedef int Local; typedef struct { Local id; } Large;\n",
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert self._members(outdir, "Small") == {0: ("id", "short")}
+        assert self._members(outdir, "Large") == {0: ("id", "int")}
+        assert not any(
+            t.name == "Local" for t in _load_artifacts(outdir / "typedefs.toml", "typedef")
+        )
+
+    def test_incomplete_local_preserves_remote_layout_and_baseline(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.binsync.state import load_sync_baseline
+        from rebrew.config import load_config
+
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": self._FOO,
+                "types.h": "typedef struct { int id; int flags; } Record;\n",
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        cfg = load_config(tmp_path)
+        before = load_sync_baseline(cfg, outdir)["struct.Record"]
+        remote = outdir / "structs" / "Record.toml"
+        original = remote.read_bytes()
+        (tmp_path / "src" / "types.h").write_text(
+            "typedef struct { int id; unsigned flags:1; } Record;\n"
+        )
+        result, _ = _invoke(tmp_path, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        assert any(
+            "struct.Record" in warning and "preserving existing remote state" in warning
+            for warning in cli_payload(result)["warnings"]
+        )
+        assert remote.read_bytes() == original
+        assert load_sync_baseline(cfg, outdir)["struct.Record"] == before
+
+    def test_conditional_and_block_types_are_not_global_types(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": self._FOO,
+                "types.h": (
+                    "#ifndef TYPES_H\n#define TYPES_H\n"
+                    "typedef struct { int id; } Public;\n"
+                    "#ifdef OTHER_TARGET\n"
+                    "typedef struct { int id; } Conditional;\n"
+                    "#endif\n#endif\n"
+                ),
+                "private.c": "void f(void) { typedef struct { int id; } Private; }\n",
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert self._members(outdir, "Public") == {0: ("id", "int")}
+        assert not (outdir / "structs" / "Conditional.toml").exists()
+        assert not (outdir / "structs" / "Private.toml").exists()
+
+    def test_unknown_included_alias_is_not_borrowed_from_an_unrelated_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": self._FOO,
+                "a.c": "typedef short Local;\n",
+                "b.c": "typedef struct { Local id; } Record;\n",
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert not (outdir / "structs" / "Record.toml").exists()
+
+    def test_multiple_field_declarators_are_not_exported_as_a_complete_prefix(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": self._FOO,
+                "types.h": "typedef struct { int a, b; int tail; } Record;\n",
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert not (outdir / "structs" / "Record.toml").exists()
+
+    def test_embedded_ambiguous_type_does_not_leave_an_unresolved_layout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": self._FOO,
+                "a.h": (
+                    "typedef struct { int id; } Private;\n"
+                    "typedef struct { Private record; } Holder;\n"
+                ),
+                "b.c": "typedef struct { short id; } Private;\n",
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert not (outdir / "structs" / "Private.toml").exists()
+        assert not (outdir / "structs" / "Holder.toml").exists()
 
     def test_alias_expansion_preserves_member_identifiers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

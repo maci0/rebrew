@@ -2962,3 +2962,27 @@ late case-folded header creation and edits remain visible, and global export
 uses one complete scan. Replay:
 `make test-one T=tests/test_compile_cache.py::TestHeaderDependencyHash` and
 `make test-one T=tests/test_binsync_export.py::TestBinsyncExportGlobals`.
+
+### BinSync type export requires complete, unambiguous layouts (2026-10-19)
+
+The Gold TL push preview selected the first of 159 conflicting private struct
+names, and exported the known prefix as a complete struct when a bitfield or
+unknown member stopped layout. `D3_ANIMATION_OPTIONS` is compiler-bound at 12
+bytes, but the byte-member model stops before its bitfields: size evidence
+cannot supply their bit positions. Export now refuses incomplete/conflicting
+layouts, preserves incoming state and shared history, and keeps local typedef
+widths in their defining file. Conditional/block scope is refused rather than
+hoisted. Multiple field declarators no longer silently lose earlier members.
+Enums/typedefs also refuse conflicting and unresolved-scope names; unknown
+explicit enum values no longer become invented sequential values.
+Replay: `make test-one T=tests/test_binsync_export.py::TestStructLayouts`.
+
+Remaining capability: project/target/TU-aware type export should reuse the
+configured compiler's preprocessing/layout evidence, retaining include packing,
+conditional definitions, aliases and bitfield storage/positions. BinSync's
+byte-offset member map cannot losslessly hold several bitfields at one offset;
+choose a documented representation or decline that type rather than fabricate
+members. Fresh managed bindings can constrain size and explicit non-bitfield
+offsets, but do not establish the missing members or a namespace for colliding
+private names. The present pure-source model does not follow includes and
+continues to model 32-bit MSVC; no live compiler probe is run during a preview.
