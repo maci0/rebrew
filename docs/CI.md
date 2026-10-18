@@ -153,7 +153,8 @@ Every host package the jobs install comes from one helper,
 yamllint for the pre-commit gate, jq for the nightly drift result gate): apt
 mirrors flake
 under load, so it retries update and
-install with a backoff, skips packages already on `PATH`, and fails the step
+install with a backoff, skips tools already on `PATH` and development packages
+whose compiler/make or json-c capabilities are available, and fails the step
 naming the package after the last attempt. A host that cannot install at all
 is named up front rather than retried: the helper requires `apt-get` (and
 `sudo`, when it is not already root) before the first attempt, and elevates

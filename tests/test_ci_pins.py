@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -2047,8 +2048,8 @@ class TestCiAptInstall:
         assert 'retry "apt-get update" run_root apt-get update -qq' in text
         assert "DEBIAN_FRONTEND=noninteractive" in text
         assert "--no-install-recommends" in text
-        # Success is proven by the binary, not by apt's exit code alone.
-        assert "is still not on PATH" in text
+        # Success is proven by the required capability, not apt's exit code alone.
+        assert "is still unavailable" in text
 
     def test_helper_names_a_missing_privilege_or_package_manager(self) -> None:
         """A host without apt-get (or sudo, when not root) fails every retry
@@ -2144,8 +2145,78 @@ class TestCiAptInstall:
             check=False,
         )
         assert result.returncode == 0, result.stdout + result.stderr
-        assert "already on PATH: shellcheck" in result.stdout
+        assert "already available: shellcheck" in result.stdout
         assert "apt-get ran" not in result.stderr
+
+    @pytest.mark.parametrize("package", ["build-essential", "libjson-c-dev", "shellcheck"])
+    @pytest.mark.parametrize("capability", ["present", "installed", "missing"])
+    def test_packages_check_provided_capabilities_after_apt_success(
+        self, tmp_path: Path, package: str, capability: str
+    ) -> None:
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        ready = tmp_path / "ready"
+        calls = tmp_path / "calls"
+        commands = {
+            "build-essential": ("cc", "make"),
+            "libjson-c-dev": (),
+            "shellcheck": ("shellcheck",),
+        }[package]
+        for command in ("env", "seq"):
+            (bindir / command).symlink_to(shutil.which(command))
+        for command, body in {
+            "sudo": '[ "$1" = -n ] && shift; exec "$@"',
+            "sleep": "exit 0",
+            "pkg-config": '[ "$1" = --exists ] && [ "$2" = json-c ] && [ -f "$NATIVE_READY" ]',
+        }.items():
+            path = bindir / command
+            path.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8")
+            path.chmod(0o755)
+        if capability == "present":
+            ready.touch()
+            for command in commands:
+                path = bindir / command
+                path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                path.chmod(0o755)
+        apt = bindir / "apt-get"
+        apt.write_text(
+            f"#!{sys.executable}\n"
+            "import os, sys\nfrom pathlib import Path\n"
+            "Path(os.environ['APT_CALLS']).open('a').write(' '.join(sys.argv[1:]) + '\\n')\n"
+            "if sys.argv[1] == 'install' and os.environ['CAPABILITY'] == 'installed':\n"
+            "    Path(os.environ['NATIVE_READY']).touch()\n"
+            f"    for command in {commands!r}:\n"
+            "        p = Path(os.environ['PATH']) / command\n"
+            "        p.write_text('#!/bin/sh\\nexit 0\\n')\n"
+            "        p.chmod(0o755)\n",
+            encoding="utf-8",
+        )
+        apt.chmod(0o755)
+        result = subprocess.run(
+            ["/bin/bash", str(self.HELPER), package],
+            env={
+                "PATH": str(bindir),
+                "APT_CALLS": str(calls),
+                "NATIVE_READY": str(ready),
+                "CAPABILITY": capability,
+            },
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode == (1 if capability == "missing" else 0), (
+            result.stdout + result.stderr
+        )
+        if capability == "present":
+            assert not calls.exists(), "available capabilities should avoid apt entirely"
+        else:
+            assert calls.read_text().splitlines() == [
+                "update -qq",
+                f"install -y --no-install-recommends {package}",
+            ]
+        if capability == "missing":
+            assert f"apt-get reported success but {package} is still unavailable" in result.stderr
 
     def test_persistent_apt_failure_fails_the_step(self, tmp_path: Path) -> None:
         """Every attempt failing must exit non-zero instead of looping on success."""

@@ -9,9 +9,9 @@
 # Retries match tools/ci_clone_resembl.sh.
 #
 # Usage: bash tools/ci_apt_install.sh <package>...
-# Packages already on PATH are left alone (a runner image that ships one needs
-# no apt round trip). Exits 1 when an update or install still fails after
-# MAX_ATTEMPTS tries, naming the package.
+# Available tools and native development capabilities are left alone (a runner
+# image that ships them needs no apt round trip). Exits 1 when update/install
+# fails after MAX_ATTEMPTS tries, or a required capability stays unavailable.
 set -euo pipefail
 
 MAX_ATTEMPTS=3
@@ -71,14 +71,25 @@ retry() {
   done
 }
 
+# Development packages provide build capabilities rather than a namesake executable.
+package_available() {
+  case "$1" in
+    build-essential) command -v cc >/dev/null 2>&1 && command -v make >/dev/null 2>&1 ;;
+    libjson-c-dev) command -v pkg-config >/dev/null 2>&1 && pkg-config --exists json-c ;;
+    *) command -v "$1" >/dev/null 2>&1 ;;
+  esac
+}
+
 missing=()
 for pkg in "$@"; do
-  if ! command -v "${pkg}" >/dev/null 2>&1; then
+  # This predicate intentionally returns false for an unavailable capability.
+  # shellcheck disable=SC2310
+  if ! package_available "${pkg}"; then
     missing+=("${pkg}")
   fi
 done
 if [[ ${#missing[@]} -eq 0 ]]; then
-  echo "already on PATH: $*"
+  echo "already available: $*"
   exit 0
 fi
 
@@ -87,8 +98,10 @@ retry "apt-get install ${missing[*]}" run_root env DEBIAN_FRONTEND=noninteractiv
   apt-get install -y --no-install-recommends "${missing[@]}"
 
 for pkg in "${missing[@]}"; do
-  if ! command -v "${pkg}" >/dev/null 2>&1; then
-    echo "apt-get reported success but ${pkg} is still not on PATH" >&2
+  # This predicate intentionally returns false for an unavailable capability.
+  # shellcheck disable=SC2310
+  if ! package_available "${pkg}"; then
+    echo "apt-get reported success but ${pkg} is still unavailable" >&2
     exit 1
   fi
 done
