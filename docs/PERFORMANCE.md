@@ -40,17 +40,20 @@ not move with scheduler load.
 typer, click, rich and the registries are imported before the command runs and
 stay live for the process. A command that allocates thousands of rows triggers
 full collections that rescan that import graph. The umbrella entry point now
-runs `gc.collect(); gc.freeze()` once before dispatch, so the startup graph sits
-in the permanent generation while everything allocated afterwards stays
-collectable (watch and server modes still collect their own garbage).
+runs `gc.freeze()` once before dispatch, so the startup graph sits in the
+permanent generation while everything allocated afterwards stays collectable
+(watch and server modes still collect their own garbage). The freeze is not
+preceded by `gc.collect()`: the collect scanned the whole import graph and cost
+about 30 ms of CPU over the command, so unreachable import-time cycles are
+retained for a one-shot CLI instead.
 
 Measured as fresh-process CPU time (Python 3.13.15, Ryzen 9 9950X, CPU 2),
 paired wrappers that differ only in the freeze call:
 
-| Command | No freeze | Freeze |
-|---|---:|---:|
-| `status --json`, 5,000-function synthetic project | 0.863 s | 0.733 s |
-| `--version` | 0.430 s | 0.349 s |
+| Command | No freeze | Collect + freeze | Freeze only |
+|---|---:|---:|---:|
+| `status --json`, 5,000-function synthetic project | 0.863 s | 0.733 s | ~0.65 s |
+| `--version` | 0.430 s | 0.349 s | 0.291 s |
 
 The 5,000-row command is the synthetic project from
 `.scratch/perf-review/`; no guild command was measurable on this checkout.

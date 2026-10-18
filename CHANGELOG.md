@@ -54,10 +54,11 @@
   pre-storage-layer numbers. The gates count ancestor walks, store instances
   and `Path.resolve` calls.
 - The umbrella CLI entry point freezes the import-time typer/rich/registry
-  graph once (`gc.collect()` then `gc.freeze()`), so full collections no
+  graph once (`gc.freeze()`, no full collect first), so full collections no
   longer rescan it while a command walks its data. Fresh-process CPU on a
   5,000-function synthetic project measured 0.863s to 0.733s for
-  `status --json`; `--version` measured 0.430s to 0.349s. The gate is
+  `status --json`, and to about 0.65s without the collect; `--version`
+  measured 0.430s, 0.349s, then 0.291s. The gate is
   `gc.get_freeze_count()`, not a duration.
 - `rebrew todo` caller counts key and display absolute walked sources without
   resolving every path; on 7,000 warm sources the scan measured 97.3ms to
