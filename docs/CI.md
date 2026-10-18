@@ -133,7 +133,7 @@ require a target binary or MSVC toolchain.
 
 Every job that runs `uv sync` first clones the sibling `resembl` repo
 (`maci0/resembl`, tag from the action's `resembl-ref` input, currently
-`v3.3.1`) into the
+`v3.4.0`) into the
 directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
 network flake; each attempt clones into a sibling staging directory that
 replaces `../resembl` by rename only after the SHA check, so a retargeted tag
@@ -229,7 +229,7 @@ answer is reported on the first attempt.
 Branch protection on `main` must require every job in `ci.yml`; a rule that
 lists a subset leaves the rest advisory. GitHub names the checks after the job
 id, with the `test` matrix expanded per entry, so the required contexts are
-`lint`, `test (3.13.15)`, `test (3.14)`, `pre-commit`, `package`, and
+`lint`, `test (3.13.16)`, `test (3.14)`, `pre-commit`, `package`, and
 `cli-contract`.
 
 | Job | Gate |

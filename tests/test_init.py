@@ -420,6 +420,9 @@ class TestInit:
         assert agents_path.exists()
         content = agents_path.read_text()
         assert "prog.exe" in content
+        assert "released Rebrew/Recoverage packages" in content
+        assert "explicit tooling-development opt-in" in content
+        assert "Use editable project dependencies" not in content
 
     def test_creates_directories(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """main() creates original/, src/<target>/, bin/<target>/."""

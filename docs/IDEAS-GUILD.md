@@ -2790,3 +2790,15 @@ The missing files are `libfdldr35` (librarian `876268288`, SHA-256
 `249343552` and `249343554` record removal on 2026-09-27. Replay the Dockerfile's
 URLs with `curl -fIL`, then run `make smoke` in the toolchain repository.
 The MSVC server walkthrough uses its separate base image.
+
+
+### Generated project rules require editable tooling (2026-10-18)
+
+Rebrew 5.0's `AGENTS.md.template` says to use editable canonical Rebrew/Recoverage
+checkouts, contradicting normal project environments pinned to released wheels.
+Refreshing instructions across 45 projects retained that generated requirement;
+the projects must not acquire sibling development checkouts just to run tooling.
+Default generated guidance to released packages in the project's pinned
+environment and reserve editable checkouts for explicit tooling development.
+The generated-output regression rejects the old requirement. Replay:
+`make test-one T=tests/test_init.py::TestInit::test_creates_agents_md`.

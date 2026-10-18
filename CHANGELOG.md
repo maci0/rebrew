@@ -1,6 +1,16 @@
 ## [Unreleased]
 
+## [5.1.0] - 2026-10-18
+
 ### Changed
+- Generated project instructions use released tooling packages in the project's
+  pinned environment by default. Editable checkouts are an explicit tooling
+  development choice, rather than a prerequisite for ordinary project users.
+- Refresh virtualenv to 21.14.11 and the immutable pre-commit-hooks pin to 6.0.0.
+- Refresh the pinned CPython 3.13 baseline to patch 3.13.16; the supported
+  minimum remains Python 3.13.
+- Pin the contributor Resembl checkout to its public 3.4.0 release and immutable
+  source commit.
 - Clarify AppArmor diagnostics and the actual experimental-runner admission
   probe. Exercise read-only image directory timestamps without leaving
   undeletable test fixtures behind.

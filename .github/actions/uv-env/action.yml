@@ -12,7 +12,7 @@ inputs:
   python-version:
     description: Exact Python patch for setup-uv (matches .python-version).
     required: false
-    default: "3.13.15"
+    default: "3.13.16"
   uv-version:
     description: uv installer version (never setup-uv's floating "latest").
     required: false
@@ -20,13 +20,13 @@ inputs:
   resembl-ref:
     description: Tag of maci0/resembl to clone into ../resembl (must match uv.lock).
     required: false
-    default: "v3.3.1"
+    default: "v3.4.0"
   resembl-sha:
     description: >-
       Commit the resembl-ref tag must resolve to. A retargeted tag fails the
       clone instead of silently changing the path dependency.
     required: false
-    default: "ba83f21665515f5d8e3da81f206c25ffbb5755c3"
+    default: "ffcfc83404557601248e7f33c702eb6f83550301"
   clone-resembl:
     description: >-
       Clone the sibling resembl checkout. Set to "false" for jobs whose sync
