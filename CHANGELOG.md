@@ -26,6 +26,8 @@
   decompilation solely because their size is at most eight bytes.
 
 ### Performance
+- Metadata writer validation avoids cloning every row into discarded parser
+  results, preserving schema checks and detached ordinary-reader results.
 - The CMake CL driver reuses content-guarded object/diagnostic receipts for
   ordinary single-source unshare builds with an admitted image and frozen clock.
   Unsupported flags, side outputs and unresolved or nested includes stay uncached.

@@ -3213,6 +3213,32 @@ rebuild, then compare the isolated server's complete raw image. Do not fake the
 compiler version or disable dependencies. Evidence: Guild's
 `.scratch/vc6-showincludes-probe/`; no generator/configuration change was made.
 
+### Metadata writer validation cloned the complete store twice (2026-10-19)
+
+One Guild source-binding dry-run took 71.43 seconds under cProfile against its
+12 MB, 11,774-row function store. `load_metadata_for_write` accounted for
+70.29 seconds: tomlkit parsing took 26.17 seconds and two `parse_metadata_doc`
+validation calls took 43.79 seconds, largely deep-copying syntax-preserving
+rows into results the validators discard. Source discovery and parsing took
+less than one second; this was not an O(N²) source-reference scan.
+
+The shared parser now permits validation callers to avoid detached row copies,
+while its default still returns detached rows. Writer validation retains every
+per-fragment and merged schema/duplicate check, roundtrip documents, storage
+owners, locks and atomic writes. The remaining syntax-preserving parse cost is
+separate; no store cache or selected-row validation bypass was introduced.
+Regression controls forbid validation row clones and retain malformed input,
+fragment collision and ordinary-reader detachment checks.
+The same profiled dry-run after this change took 29.16 seconds; both validation
+passes still ran, now taking 0.57 seconds combined. These are instrumented
+single-run observations, not an unprofiled performance guarantee.
+
+Replay from Guild with the tooling-development checkout on PYTHONPATH:
+`python -m cProfile -o .scratch/source-binding-profile/profile.pstats .venv/bin/rebrew source binding rebind 0x472380 src/Develop/Units/d2.v1/d2_SetElementValue.c --target Europa1400Gold_TL.exe --name d2_SetElementValue --symbol _d2_SetElementValue --reason 'Read-only profile of unchanged binding' --dry-run --json`.
+The already-current binding is refused after the measured loading path; no
+identity/verdict/store edit is requested. Guild evidence and profile tables:
+`.scratch/source-binding-profile/REPORT.md`, `profile.pstats`, `profile-top.txt`.
+
 ### Valid va_arg pointer types blocked guarded source rebinding (2026-10-19)
 
 Guild's measured d2_SetElementValue definition could not be bound: the C parser

@@ -355,8 +355,13 @@ def parse_metadata_doc(
     known_fields: frozenset[str] | None = None,
     source: str = "",
     version: int = FORMAT_VERSION,
+    deepcopy: bool = True,
 ) -> dict[tuple[str, int], dict[str, Any]]:
-    """Read exactly the current qualified-identity metadata schema."""
+    """Read the current qualified-identity schema, returning detached rows by default.
+
+    Validation-only callers may pass ``deepcopy=False`` to avoid cloning rows
+    they discard; all schema and duplicate-identity checks still run.
+    """
     actual_version = doc.get(FORMAT_KEY)
     if (
         not isinstance(actual_version, int) or isinstance(actual_version, bool)
@@ -386,7 +391,7 @@ def parse_metadata_doc(
             ]
             if unknown:
                 raise ValueError(f"{source}: unknown metadata fields in {key}: {unknown}")
-        result[parsed] = copy.deepcopy(value)
+        result[parsed] = copy.deepcopy(value) if deepcopy else value
     return result
 
 
@@ -456,11 +461,13 @@ def load_metadata_for_write(
     doc = store.read(
         description,
         validate=lambda member: parse_metadata_doc(
-            member, known_fields=known_fields, source=str(path), version=version
+            member, known_fields=known_fields, source=str(path), version=version, deepcopy=False
         ),
         roundtrip=True,
     )
     if store.exists():
-        parse_metadata_doc(doc, known_fields=known_fields, source=str(path), version=version)
+        parse_metadata_doc(
+            doc, known_fields=known_fields, source=str(path), version=version, deepcopy=False
+        )
     stamp_format(doc, version=version)
     return doc
