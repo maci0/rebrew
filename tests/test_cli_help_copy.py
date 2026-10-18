@@ -8,10 +8,12 @@ from typing import Any
 import typer
 from rich.cells import cell_len
 from rich.text import Text
+from typer.testing import CliRunner
 
 from rebrew.app.builtins import BUILTIN_COMPONENTS, DOMAIN_COMPONENTS
 from rebrew.app.main import app
 from rebrew.cli import SOURCE_HELP
+from rebrew.metadata.document import FORMAT_VERSION, FUNCTION_FORMAT_VERSION
 
 
 def _surfaces(command: Any, route: str = "rebrew") -> Iterator[tuple[str, Any]]:
@@ -21,6 +23,13 @@ def _surfaces(command: Any, route: str = "rebrew") -> Iterator[tuple[str, Any]]:
 
 
 class TestHelpCopy:
+    def test_lint_help_names_current_function_and_data_formats(self) -> None:
+        result = CliRunner().invoke(app, ["lint", "--help"])
+        assert result.exit_code == 0
+        rendered = " ".join(result.stdout.split())
+        assert f"format-{FUNCTION_FORMAT_VERSION} function metadata" in rendered
+        assert f"format-{FORMAT_VERSION} data metadata" in rendered
+
     def test_source_resolvers_describe_all_supported_input_forms(self) -> None:
         root = typer.main.get_command(app)
         routes = {

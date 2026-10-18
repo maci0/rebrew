@@ -2377,7 +2377,7 @@ app = typer.Typer(
         "  rebrew lint --summary\n\n"
         "  rebrew lint --fix --dry-run\n\n"
         "  rebrew lint --json\n\n"
-        "[dim]Checks C bindings, dedicated metadata, compiler flags, project style, storage declarations, and scaffold drift. Optional ADDRESS comments bind the next definition; all identity/state stays in format-2 metadata. Unsupported inline state is diagnosed, not migrated.[/dim]\n\n"
+        "[dim]Checks C bindings, dedicated metadata, compiler flags, project style, storage declarations, and scaffold drift. Optional ADDRESS comments bind the next definition; all identity/state stays in format-3 function metadata and format-2 data metadata. Unsupported inline state is diagnosed, not migrated.[/dim]\n\n"
         "[bold]Fixes:[/bold]\n\n"
         "  --fix removes redundant compiler flags and backfills known SECTION metadata. Preview with --dry-run; other findings require review.\n\n"
         "[bold]Common findings:[/bold]\n\n"
