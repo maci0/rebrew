@@ -26,6 +26,10 @@
 - The CMake CL driver reuses content-guarded object/diagnostic receipts for
   ordinary single-source unshare builds with an admitted image and frozen clock.
   Unsupported flags, side outputs and unresolved or nested includes stay uncached.
+- The umbrella CLI freezes its startup graph without a preceding full collect,
+  retaining unreachable startup cycles once for the process lifetime, including
+  watch/server modes. Historical fresh-process CPU measured `--version` at
+  0.349s to 0.291s and synthetic 5,000-function `status` at about 0.73s to 0.65s.
 - Single-function `test` skips the locked SIZE transaction when the selected
   binding already stores that size. Explicit and corrected sizes still persist;
   `--fix-sizes` writes its correction once before the unchanged STATUS pipeline.

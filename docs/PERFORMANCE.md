@@ -40,22 +40,29 @@ not move with scheduler load.
 typer, click, rich and the registries are imported before the command runs and
 stay live for the process. A command that allocates thousands of rows triggers
 full collections that rescan that import graph. The umbrella entry point now
-runs `gc.collect(); gc.freeze()` once before dispatch, so the startup graph sits
-in the permanent generation while everything allocated afterwards stays
-collectable (watch and server modes still collect their own garbage).
+runs `gc.freeze()` once before dispatch, so the startup graph sits in the
+permanent generation while everything allocated afterwards stays collectable
+(watch and server modes still collect their own garbage). The freeze is not
+preceded by `gc.collect()`: the collect scanned the whole import graph and cost
+about 30 ms of CPU over the command, so unreachable import-time cycles are
+retained once for the process lifetime, including watch and server modes. This
+also retains any finalizable resources held only by those startup cycles until
+process exit; it does not disable collection of later command allocations.
 
 Measured as fresh-process CPU time (Python 3.13.15, Ryzen 9 9950X, CPU 2),
 paired wrappers that differ only in the freeze call:
 
-| Command | No freeze | Freeze |
-|---|---:|---:|
-| `status --json`, 5,000-function synthetic project | 0.863 s | 0.733 s |
-| `--version` | 0.430 s | 0.349 s |
+| Command | No freeze | Collect + freeze | Freeze only |
+|---|---:|---:|---:|
+| `status --json`, 5,000-function synthetic project | 0.863 s | 0.733 s | ~0.65 s |
+| `--version` | 0.430 s | 0.349 s | 0.291 s |
 
 The 5,000-row command is the synthetic project from
 `.scratch/perf-review/`; no guild command was measurable on this checkout.
 `gc.get_freeze_count()` is the gate:
-`test_startup_freeze_is_one_shot` asserts the first call moves tracked objects
+`test_startup_freeze_does_not_run_a_preliminary_collection` checks that no collect
+is requested and freeze runs exactly once. `test_startup_freeze_is_one_shot`
+asserts the first call moves tracked objects
 to the permanent generation and a second call does not move more, so the
 command's own allocations are not frozen alongside the import graph.
 
@@ -478,6 +485,13 @@ are parsed once per path and reused. A second call records no further
 
 - **Fancy-indexing reloc normalization**: 0.7× slower; kept the slice loop.
 - **Replacing `SequenceMatcher`**: changes calibrated scoring; rejected.
+- **Lazy CLI domain mounting**: `app.builtins` activates every domain at
+  import so the umbrella can mount its groups, which imports every command
+  module: 13 `activate()` calls measured ~0.17 s of a fresh `status` process
+  (about 26%). The 0.29 s `--version` still imports the whole command surface.
+  Deferring it needs a custom click group (Typer converts every registered
+  sub-Typer before it parses arguments), which is a composition-layer change
+  rather than a local edit; not attempted here.
 
 ## GA bottleneck: compilation, not scoring
 

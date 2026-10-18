@@ -207,7 +207,9 @@ def _freeze_startup_objects() -> None:
     if _STARTUP_GC_FROZEN:
         return
     _STARTUP_GC_FROZEN = True
-    gc.collect()
+    # Freeze without a preceding collect: the collect scanned the whole import
+    # graph for ~30ms. Unreachable startup cycles are retained for the process
+    # lifetime, including watch/server modes; later allocations stay collectable.
     gc.freeze()
 
 
