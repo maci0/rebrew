@@ -2167,6 +2167,18 @@ and `0x1042340` had 7 instead of 36 static candidates. Regression tests cover
 filters, and all three shared scanning entry points. Indexed displacement roles
 and register-relative dataflow remain open; this does not infer accessed extents.
 
+Indexed displacement update (2026-10-19): Guild's T&L instruction at 0x545597,
+`mov [eax*4+0x7d1d80],ecx`, was absent from `binary xrefs 0x7d1d80`.
+The explorer now includes a separate `indexed_mem` candidate for a no-base
+indexed operand whose encoded displacement lies in the image. Its instruction
+retains index/scale; it establishes neither the runtime effective address nor
+an API identity, even when the displacement equals an IAT slot. The three
+shared scanning APIs keep exact references by default and accept
+`include_indexed=True` for these candidates. Register-based expressions and
+unknown accessed extents remain unresolved. Regression tests cover loads,
+stores, LEA, push, indirect calls/jumps, immediate references, x86-64, target/kind
+filters and rejection of register-relative/scalar displacements.
+
 ## Surface matched assembly bodies in todo without relying on source metadata (2026-10-17)
 
 Problem: `todo` only emits `naked-reconstruction` for matched functions whose

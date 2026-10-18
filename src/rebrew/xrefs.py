@@ -5,7 +5,8 @@ for absolute references pointing at a target VA and reports each one: the
 referencing instruction's address, its kind (``call`` / ``jmp`` / ``push`` /
 ``iat_call`` / ...), and the disassembled instruction text.  When the target
 is an import-table slot, the imported API name is resolved and shown
-prominently.
+prominently. ``indexed_mem`` rows refer only to an encoded displacement base;
+the instruction text preserves the index and scale, not a resolved API callee.
 
 Usage:
     rebrew binary xrefs <va> [binary]
@@ -211,7 +212,7 @@ def build_xrefs_payload(
         ValueError: The binary cannot be parsed.
     """
     info = load_binary(binary)
-    refs = scan_references(info, target_va=target_va)
+    refs = scan_references(info, target_va=target_va, include_indexed=True)
     if kinds:
         refs = [ref for ref in refs if ref.kind in kinds]
     return _payload(
@@ -297,6 +298,10 @@ def main(
     if import_name is not None:
         console.print(f"[bold]target is import:[/bold] {untrusted_ident(import_name)}")
     counts = Counter(ref["kind"] for ref in refs)
+    if counts["indexed_mem"]:
+        console.print(
+            "[dim]indexed_mem: displacement bases, not resolved addresses or API callees[/dim]"
+        )
     for ref_kind in sorted(counts):
         console.print(f"  [bold]{ref_kind}[/]: {counts[ref_kind]}")
     table = Table(title=f"xrefs to 0x{target_va:08X}")

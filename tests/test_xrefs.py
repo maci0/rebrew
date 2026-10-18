@@ -25,6 +25,42 @@ from rebrew.xrefs import app, build_xrefs_payload
 
 
 class TestXrefsCli:
+    def test_indexed_table_base_is_separate_from_exact_access(self, tmp_path: Path) -> None:
+        table = PROBE_TEXT_VA + 0x80
+        code = b"\x89\x0c\x85" + table.to_bytes(4, "little") + b"\xc3" + b"\x90" * 256
+        path = tmp_path / "indexed.exe"
+        path.write_bytes(make_pe(code))
+        result = CliRunner().invoke(app, ["--json", hex(table), str(path)])
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result)["refs"] == [
+            {
+                "kind": "indexed_mem",
+                "from_va": PROBE_TEXT_VA,
+                "instruction": f"mov dword ptr [eax*4 + {table:#x}], ecx",
+            }
+        ]
+        exact = build_xrefs_payload(path, table, ["mov_mem_store"])
+        assert exact["count"] == 0
+        assert build_xrefs_payload(path, table, ["indexed_mem"])["count"] == 1
+
+    def test_indexed_call_does_not_resolve_an_imported_api(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.xrefs import build_calls_from_payload
+
+        table = PROBE_TEXT_VA + 0x80
+        code = b"\xff\x14\x85" + table.to_bytes(4, "little") + b"\xc3" + b"\x90" * 256
+        path = tmp_path / "indexed-call.exe"
+        path.write_bytes(make_pe(code))
+        monkeypatch.setattr("rebrew.xrefs.parse_import_table", lambda _path: {table: "KnownImport"})
+        payload = build_xrefs_payload(path, table)
+        assert payload["import_name"] == "KnownImport"  # identity of the queried slot only
+        assert payload["refs"][0]["kind"] == "indexed_mem"
+        assert build_xrefs_payload(path, table, ["iat_call"])["count"] == 0
+        calls = build_calls_from_payload(path, PROBE_TEXT_VA, 8)
+        assert calls["callees"][0]["name"].startswith("reg:")
+        assert "KnownImport" not in calls["callees"][0]["name"]
+
     def test_pointer_comparison_xref(self, tmp_path: Path) -> None:
         sentinel = PROBE_TEXT_VA + 0x10
         code = b"\x81\xfb" + sentinel.to_bytes(4, "little") + b"\xc3" + b"\x90" * 32

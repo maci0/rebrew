@@ -2495,7 +2495,10 @@ Image-valued x86 comparison immediates appear as `cmp`, separately from
 `cmp_mem` memory accesses. Like `mov` immediates, these are possible address
 references: numeric constants can coincide with image addresses. The scan does
 not resolve register-relative or indexed memory addresses or establish object
-extents.
+extents. No-base indexed memory displacements appear separately as `indexed_mem`
+candidates, with their index and scale retained in the instruction text. These
+identify an encoded table base, not an exact access or an imported API callee;
+`--kind mov_mem_store` and `--kind iat_call` retain their exact-reference meanings.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
