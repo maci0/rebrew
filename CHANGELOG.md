@@ -6,6 +6,8 @@
   project sources and managed metadata are unchanged.
 
 ### Fixed
+- Guarded definition hashing accepts valid typed `va_arg` operands while retaining
+  original-byte hashes and malformed-body rejection.
 - Compile-cache include resolution matches every relative path component
   case-insensitively within each search directory before trying later roots,
   so differently cased nested headers retain Wine's search priority and edits

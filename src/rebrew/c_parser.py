@@ -2269,6 +2269,59 @@ def mask_msvc_syntax(source: str) -> str:
     return bytes(out).decode("utf-8", errors="surrogateescape")
 
 
+def mask_va_arg_types(source: str) -> str:
+    """Make standard va_arg type operands parseable at unchanged byte offsets.
+
+    The grammar treats va_arg as an ordinary call, whose second argument is an
+    expression rather than a type. Validate that operand as a cast type before
+    replacing it with zero for structural validation. Other syntax, including
+    errors in the first operand or surrounding body, is left to the grammar.
+    This is a parser view only; definition hashes must use the original bytes.
+    """
+    if "va_arg" not in source:
+        return source
+    tree, data = parse_c_source(source)
+    masked = bytearray(data)
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        pending.extend(node.children)
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        args = node.child_by_field_name("arguments")
+        if (
+            function is None
+            or function.type != "identifier"
+            or node_text(function, data) != "va_arg"
+        ):
+            continue
+        if args is None or args.children[-1].type != ")" or args.children[-1].is_missing:
+            continue
+        commas = [child for child in args.children if child.type == ","]
+        if len(commas) != 1:
+            continue
+        start, end = commas[0].end_byte, args.children[-1].start_byte
+        probe = b"(" + data[start:end] + b")0;"
+        cast_tree, _ = parse_c_source(probe)
+        statements = cast_tree.root_node.named_children
+        if cast_tree.root_node.has_error or len(statements) != 1:
+            continue
+        expressions = statements[0].named_children
+        if (
+            len(expressions) != 1
+            or expressions[0].type != "cast_expression"
+            or expressions[0].end_byte != len(probe) - 1
+        ):
+            continue
+        type_node = expressions[0].child_by_field_name("type")
+        if type_node is None:
+            continue
+        masked[start:end] = re.sub(rb"[^\r\n]", b" ", data[start:end])
+        masked[start + type_node.start_byte - 1] = ord("0")
+    return masked.decode("utf-8", errors="surrogateescape")
+
+
 def prototype_name_span(prototype: str) -> tuple[str, int, int] | None:
     """Return the function identifier and its byte span in a C declarator."""
     tree, source = parse_c_source(_mask_cc(prototype.rstrip(";") + ";"))
