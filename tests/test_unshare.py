@@ -845,13 +845,14 @@ class TestUnshareCMakePaths:
         assert (build / "output").read_text() == "CMAKE"
 
 
-def test_unpack_preserves_image_timestamps(tmp_path: Path) -> None:
+@pytest.mark.parametrize("mode", [0o755, 0o555], ids=["writable", "readonly"])
+def test_unpack_preserves_image_timestamps(tmp_path: Path, mode: int) -> None:
     archive = tmp_path / "image.tar"
     with tarfile.open(archive, "w") as out:
         directory = tarfile.TarInfo("bin")
         directory.type = tarfile.DIRTYPE
         directory.mtime = 1200
-        directory.mode = 0o755
+        directory.mode = mode
         out.addfile(directory)
         member = tarfile.TarInfo("bin/tool")
         member.size = 1
@@ -864,10 +865,17 @@ def test_unpack_preserves_image_timestamps(tmp_path: Path) -> None:
         out.addfile(link)
     rootfs = tmp_path / "rootfs"
     rootfs.mkdir()
-    unshare._unpack(archive, rootfs)
-    assert (rootfs / "bin").stat().st_mtime == 1200
-    assert (rootfs / "bin/tool").stat().st_mtime == 1300
-    assert (rootfs / "tool").lstat().st_mtime == 1400
+    try:
+        unshare._unpack(archive, rootfs)
+        assert (rootfs / "bin").stat().st_mtime == 1200
+        assert (rootfs / "bin/tool").stat().st_mtime == 1300
+        assert (rootfs / "tool").lstat().st_mtime == 1400
+        assert (rootfs / "bin").stat().st_mode & 0o777 == mode
+    finally:
+        if (rootfs / "bin").is_dir():
+            (rootfs / "bin").chmod(0o755)
+        shutil.rmtree(rootfs)
+    assert not rootfs.exists()
 
 
 def test_wineprefix_seed_uses_native_runner_and_waits(
