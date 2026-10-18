@@ -56,8 +56,10 @@ def write_source(
         project = walk_up_to_root(source_parent)
         fixture_root = None
         if _pytest_basetemp is not None and source_parent.is_relative_to(_pytest_basetemp):
-            relative = source_parent.relative_to(_pytest_basetemp).parts
-            fixture_root = _pytest_basetemp / relative[0] if relative else _pytest_basetemp
+            fixture_parts = source_parent.relative_to(_pytest_basetemp).parts
+            fixture_root = (
+                _pytest_basetemp / fixture_parts[0] if fixture_parts else _pytest_basetemp
+            )
         if (
             project is not None
             and fixture_root is not None
