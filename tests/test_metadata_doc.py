@@ -227,6 +227,100 @@ class TestParseMetadataDocValidation:
             parse_metadata_doc({"format": version})
 
 
+class TestWriterDocumentValidation:
+    @pytest.mark.parametrize("store, version", [("functions", 3), ("data", 2)])
+    def test_validation_does_not_clone_rows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, store: str, version: int
+    ) -> None:
+        import copy
+
+        import tomlkit
+        from tomlkit.items import Table
+
+        from rebrew.metadata import document
+        from rebrew.metadata.storage import metadata_write_lock
+
+        path = tmp_path / f"rebrew-{store}.toml"
+        original = f"# keep context\nformat = {version}\n" + "".join(
+            f'["S.0x{va:x}"]\nname = "f{va}"\n' for va in range(1, 5)
+        )
+        path.write_text(original)
+        real = copy.deepcopy
+
+        def reject_row_clone(value: Any, *args: Any, **kwargs: Any) -> Any:
+            assert not (isinstance(value, Table) and "name" in value), "cloned metadata row"
+            return real(value, *args, **kwargs)
+
+        monkeypatch.setattr(copy, "deepcopy", reject_row_clone)
+        with metadata_write_lock(tmp_path, path.name):
+            doc = document.load_metadata_for_write(path, "test", known_fields=frozenset({"NAME"}))
+        assert tomlkit.dumps(doc) == original
+        doc["S.0x1"]["name"] = "changed"
+        assert path.read_text() == original
+
+    @pytest.mark.parametrize("fragment", [False, True])
+    @pytest.mark.parametrize(
+        "invalid",
+        [
+            "format = 2\n",
+            'format = 3\n["S.0x2"]\nunknown = 4\n',
+            'format = 3\n[source.files."helper.c".S]\npurpose = ""\n',
+        ],
+    )
+    def test_invalid_input_remains_refused(
+        self, tmp_path: Path, fragment: bool, invalid: str
+    ) -> None:
+        from rebrew.metadata.document import load_metadata_for_write
+        from rebrew.metadata.storage import metadata_write_lock
+
+        path = tmp_path / "rebrew-functions.toml"
+        path.write_text('format = 3\n["S.0x1"]\nname = "f"\n')
+        member = path
+        if fragment:
+            directory = path.with_suffix(".d")
+            directory.mkdir()
+            member = directory / "bad.toml"
+        member.write_text(invalid)
+        before = {p: p.read_bytes() for p in {path, member}}
+        with metadata_write_lock(tmp_path, path.name), pytest.raises(ValueError):
+            load_metadata_for_write(path, "test", known_fields=frozenset({"NAME"}))
+        assert {p: p.read_bytes() for p in before} == before
+
+    @pytest.mark.parametrize("alias", ["S.0x1", "S.0X00000001"])
+    def test_colliding_fragment_identities_remain_refused(self, tmp_path: Path, alias: str) -> None:
+        from rebrew.metadata.document import load_metadata_for_write
+        from rebrew.metadata.storage import metadata_write_lock
+
+        path = tmp_path / "rebrew-functions.toml"
+        path.write_text('format = 3\n["S.0x1"]\nname = "f"\n')
+        directory = path.with_suffix(".d")
+        directory.mkdir()
+        member = directory / "duplicate.toml"
+        member.write_text(f'format = 3\n["{alias}"]\nname = "g"\n')
+        before = {p: p.read_bytes() for p in (path, member)}
+        with metadata_write_lock(tmp_path, path.name), pytest.raises(ValueError, match="duplicate"):
+            load_metadata_for_write(path, "test", known_fields=frozenset({"NAME"}))
+        assert {p: p.read_bytes() for p in before} == before
+
+    def test_default_parser_and_cached_reader_stay_detached(self, tmp_path: Path) -> None:
+        import tomlkit
+
+        from rebrew.metadata.document import parse_metadata_doc
+        from rebrew.metadata.functions import load_metadata
+
+        text = 'format = 3\n["S.0x1"]\nname = "f"\nglobals = ["a"]\n'
+        doc = tomlkit.parse(text)
+        rows = parse_metadata_doc(doc, version=3)
+        rows[("S", 1)]["globals"].append("b")
+        assert doc["S.0x1"]["globals"] == ["a"]
+        path = tmp_path / "rebrew-functions.toml"
+        path.write_text(text)
+        first = load_metadata(tmp_path)
+        first[("S", 1)]["globals"].append("c")
+        assert load_metadata(tmp_path)[("S", 1)]["globals"] == ["a"]
+        assert path.read_text() == text
+
+
 class TestMetadataWriteLock:
     def test_fresh_directory_does_not_crash(self, tmp_path: Path) -> None:
         """First-ever write into a nonexistent metadata root must not raise:
