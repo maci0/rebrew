@@ -2802,3 +2802,41 @@ Default generated guidance to released packages in the project's pinned
 environment and reserve editable checkouts for explicit tooling development.
 The generated-output regression rejects the old requirement. Replay:
 `make test-one T=tests/test_init.py::TestInit::test_creates_agents_md`.
+
+
+### LIEF enum diagnostics for valid GNU SFrame ELF headers (2026-10-18)
+
+Public Rebrew 5.1.0 with LIEF 1.0.0 loads a modern GNU-built `/bin/true`
+successfully but emits two `RuntimeWarning`s from `_load_elf` in
+`src/rebrew/formats/binary_loader.py`. The values are legitimate
+`PT_GNU_SFRAME` (`1685382484`, `0x6474e554`) and `SHT_GNU_SFRAME`
+(`1879048180`, `0x6ffffff4`), both recognized by the host's `readelf`;
+`/usr/include/elf.h` also defines `PT_GNU_SFRAME`. LIEF's enum bindings omit these names; reading
+`Segment.type` or `Section.type` returns the exact integer while warning that
+it "is not a valid TYPE." The image base, sections and code region still load;
+strict warnings-as-errors can instead make the binding raise `SystemError`
+with the `RuntimeWarning` as its cause.
+
+LIEF 1.0.0 is the latest published stable release in
+[PyPI metadata](https://pypi.org/pypi/lief/json) at this observation. Its
+[public ELF API](https://lief.re/doc/latest/formats/elf/python.html) exposes
+no integer `raw_type` accessor for segments or sections. `TYPE.from_value`
+warns and rejects these integers, and `lief.to_json` renders their type as
+`UNKNOWN`, losing the numeric identity. Preserve the existing raw values;
+do not add a parallel ELF parser, global warning filter or patched native
+library to silence the diagnostics. An upstream LIEF enum addition, together
+with a public raw integer accessor for future unknown types, would allow
+Rebrew to classify headers without misleading warnings. When available in a
+published dependency, cover both GNU SFrame types and another unknown numeric
+type, preserve `PT_LOAD` selection and zero file size for `SHT_NOBITS`, and
+assert that unrelated warnings remain visible.
+
+Replay on an ELF containing GNU SFrame headers (`/bin/true` on the observed host;
+SHA-256 `1573301c316fd6297e2352441a9fb42eca9c32f97b3bb7ae1d45d3362811234d`):
+
+```sh
+readelf -lW /bin/true
+readelf -SW /bin/true
+uv run --frozen python -W always::RuntimeWarning -c \
+  'from rebrew.formats.binary_loader import load_binary; print(load_binary("/bin/true").format)'
+```
