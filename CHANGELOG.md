@@ -1,10 +1,15 @@
 ## [Unreleased]
 
+### Changed
+- **Breaking:** `rebrew.compiler.cache.CACHE_SCHEMA_VERSION` moves from 9 to 10.
+  Existing derived compile-cache entries are invalidated and objects recompile;
+  project sources and managed metadata are unchanged.
+
 ### Fixed
 - Compile-cache include resolution matches every relative path component
   case-insensitively within each search directory before trying later roots,
   so differently cased nested headers retain Wine's search priority and edits
-  invalidate the cached object. Existing compile-cache entries are invalidated.
+  invalidate the cached object.
 - Function reference-binding rename previews include an input digest;
   `--expected-digest` guards apply against changed sources, dependencies and
   project context without changing the destination identity or verdict.
