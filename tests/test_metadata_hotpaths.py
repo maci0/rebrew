@@ -15,7 +15,7 @@ from rebrew.metadata.source_provenance import (
     replace_source_metadata,
     set_source_file,
 )
-from rebrew.utils import load_tomllib, read_source_text
+from rebrew.utils import read_source_text
 
 
 class TestBindingWork:
@@ -94,23 +94,38 @@ class TestSourcePurposeWork:
         replace_source_metadata(
             tmp_path, [], [SourceFilePurpose("one.c", "S", "first")], expected_hash=None
         )
+        from rebrew.metadata.storage import metadata_store as real_store
+
         reads = []
-        real = load_tomllib
 
-        def read(path: Path) -> Any:
-            reads.append(path)
-            return real(path)
+        class CountingStore:
+            def __init__(self, inner: Any) -> None:
+                self._inner = inner
 
-        monkeypatch.setattr(source_provenance, "load_tomllib", read)
+            def __getattr__(self, name: str) -> Any:
+                return getattr(self._inner, name)
+
+            def read(self, *args: Any, **kwargs: Any) -> Any:
+                reads.append(1)
+                return self._inner.read(*args, **kwargs)
+
+        monkeypatch.setattr(
+            source_provenance,
+            "metadata_store",
+            lambda path, **kwargs: CountingStore(real_store(path, **kwargs)),
+        )
         original = load_source_files(tmp_path)
         for _ in range(5):
             assert load_source_files(tmp_path) == original
             assert load_source_provenance(tmp_path) == ()
         assert len(reads) == 1
         set_source_file(tmp_path, "one.c", "S", "second")
+        # The edit parses its own store under the lock; the gate is that the
+        # next view read reparses exactly once for the new fingerprint.
+        reads.clear()
         assert load_source_files(tmp_path)[0].purpose == "second"
         assert original[0].purpose == "first"
-        assert len(reads) == 2
+        assert len(reads) == 1
         path = tmp_path / "rebrew-functions.toml"
         path.unlink()
         assert load_source_files(tmp_path) == ()

@@ -9,6 +9,7 @@ import capstone
 import pytest
 from cli_json import cli_payload
 from source_util import write_source
+from tree_snapshot import project_files
 from typer.testing import CliRunner
 
 from rebrew.asm import app
@@ -47,8 +48,7 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
 def _state(root: Path) -> dict[str, tuple[bytes, int]]:
     return {
         str(path.relative_to(root)): (path.read_bytes(), path.stat().st_mtime_ns)
-        for path in root.rglob("*")
-        if path.is_file()
+        for path in project_files(root)
     }
 
 

@@ -10,6 +10,7 @@ import pytest
 from bin_util import make_pe
 from cli_json import cli_payload
 from source_util import write_source
+from tree_snapshot import project_files
 
 from rebrew import coverage_project
 from rebrew.coverage_project import ProjectCoverageError, load_project_coverage
@@ -50,12 +51,12 @@ class TestLiveProjectCoverage:
 
     def test_reads_canonical_metadata_without_creating_exports(self, tmp_path: Path) -> None:
         _project(tmp_path)
-        before = {p.relative_to(tmp_path) for p in tmp_path.rglob("*")}
+        before = {p.relative_to(tmp_path) for p in project_files(tmp_path)}
         view = load_project_coverage(tmp_path)
         assert not view.failures
         assert view.snapshots["good"].functions[0].status == "EXACT"
         assert view.snapshots["good"].sections[".text"].size > 0
-        assert {p.relative_to(tmp_path) for p in tmp_path.rglob("*")} == before
+        assert {p.relative_to(tmp_path) for p in project_files(tmp_path)} == before
 
     def test_metadata_changes_replace_one_immutable_view(self, tmp_path: Path) -> None:
         _project(tmp_path)
@@ -208,7 +209,7 @@ class TestPortableHistoryMigration:
             render_coverage_toml("good", {}, history=[event])
         )
         (portable / "coverage-bad.toml").write_text("[broken")
-        before = {str(p): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        before = {str(p): p.read_bytes() for p in project_files(tmp_path)}
         runner = CliRunner()
         args = ["--root", str(tmp_path), "--snapshots", str(portable), "--json"]
         rejected = runner.invoke(app, [*args, "--dry-run"])
@@ -216,7 +217,7 @@ class TestPortableHistoryMigration:
         preview = runner.invoke(app, [*args, "--target", "good", "--dry-run"])
         assert preview.exit_code == 0, preview.output
         assert cli_payload(preview)["results"][0]["functions_changed"] == 1
-        assert before == {str(p): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        assert before == {str(p): p.read_bytes() for p in project_files(tmp_path)}
         applied = runner.invoke(app, [*args, "--target", "good"])
         assert applied.exit_code == 0, applied.output
         assert load_status_history(tmp_path, "GOOD") == [event]

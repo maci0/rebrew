@@ -54,6 +54,24 @@ includes = "toolchain/msvc/6.0-win32/source/VC98/Include"
 libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 ```
 
+## Metadata storage
+
+Project configuration always stays in `rebrew-project.toml`. The optional
+project-wide storage selection covers functions, data, source evidence, types
+and library settings:
+
+```toml
+[metadata]
+backend = "toml" # default; "sqlite" is experimental
+```
+
+Use `rebrew metadata migrate sqlite --dry-run` followed by
+`rebrew metadata migrate sqlite` to import and select SQLite safely. Use the
+same commands with `toml` to export and switch back. Editing the setting alone
+does not import data, and there is no fallback to inactive stores. See
+[metadata storage](METADATA.md#storage-api-and-backend-selection) for transaction,
+backup and preview contracts.
+
 ## What the Config Loader Provides
 
 | Attribute | Source | Description |

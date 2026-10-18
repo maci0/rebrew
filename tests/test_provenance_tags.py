@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import ast
 import re
+from functools import cache
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -29,8 +31,13 @@ _LITERAL = re.compile(r"""["']?updated_by["']?[=:]\s*["']([a-z0-9-]+)["']""")
 _NOT_A_TAG = frozenset({"updated_by"})
 
 
+@cache
 def _stamped_tags() -> set[str]:
-    """Return every literal provenance tag the shipped writers emit."""
+    """Return every literal provenance tag the shipped writers emit.
+
+    Cached for the process. The three callers read the same tree, and the
+    suite does not rewrite those sources between them.
+    """
     found: set[str] = set()
     for path in sorted(_SRC.rglob("*.py")):
         if path.relative_to(_SRC).as_posix() == "metadata/functions.py":
@@ -58,6 +65,25 @@ def _stamped_tags() -> set[str]:
 
 
 class TestProvenanceVocabulary:
+    def test_tag_scan_parses_each_file_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A second call does not parse. The count does not move with load."""
+        _stamped_tags.cache_clear()
+        parses = 0
+        real_parse = ast.parse
+
+        def counting(source: str, *args: Any, **kwargs: Any) -> ast.AST:
+            nonlocal parses
+            parses += 1
+            tree: ast.AST = real_parse(source, *args, **kwargs)
+            return tree
+
+        monkeypatch.setattr(ast, "parse", counting)
+        first = _stamped_tags()
+        once = parses
+        assert once > 0
+        assert _stamped_tags() is first
+        assert parses == once
+
     def test_every_stamped_tag_is_declared(self) -> None:
         """A writer may not stamp a tag ``rebrew lint`` would report against."""
         undeclared = sorted(_stamped_tags() - PROVENANCE_TAGS)

@@ -5,25 +5,16 @@ Catches nondeterminism (dict ordering, timestamps, unordered iteration)
 in dry-run reporting paths across the file-level and listing CLIs.
 """
 
-import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from source_util import SourceFixture, write_source, write_store_fixture
+from tree_snapshot import digest as _tree_digest
 from typer.testing import CliRunner
 
 runner = CliRunner()
-
-
-def _tree_digest(root: Path) -> dict[str, str]:
-    """Map every file under *root* to a sha256 of its bytes."""
-    return {
-        p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in sorted(root.rglob("*"))
-        if p.is_file()
-    }
 
 
 def _write(path: Path, content: str) -> Path:

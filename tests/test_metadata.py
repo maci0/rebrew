@@ -791,13 +791,13 @@ class TestIdempotentStatusUpdate:
     def test_no_write_on_same_status(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from unittest.mock import Mock
 
-        import rebrew.metadata.functions as metadata
-
         update_source_status(tmp_path, "EXACT", "SERVER", 0x10008880)
         path = tmp_path / METADATA_FILENAME
         before = path.read_bytes()
-        writer = Mock(wraps=metadata.atomic_write_locked)
-        monkeypatch.setattr(metadata, "atomic_write_locked", writer)
+        from rebrew.metadata import files
+
+        writer = Mock(wraps=files.atomic_write_locked)
+        monkeypatch.setattr(files, "atomic_write_locked", writer)
 
         update_source_status(tmp_path, "EXACT", "SERVER", 0x10008880)
 

@@ -9,7 +9,9 @@ list, so the convention is enforced by the suite instead of by review.
 from __future__ import annotations
 
 import ast
+from functools import cache
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -23,8 +25,13 @@ _SRC = Path(__file__).resolve().parent.parent / "src" / "rebrew"
 _SANDBOX_FACTORIES = frozenset({"writable_temp_dir", "make_sandbox_dir"})
 
 
+@cache
 def _shipped_prefixes() -> set[str]:
-    """Return every literal prefix passed to a sandbox factory in ``src/``."""
+    """Return every literal prefix passed to a sandbox factory in ``src/``.
+
+    Cached for the process. Both callers read the same tree, and the suite
+    does not rewrite those sources between them.
+    """
     found: set[str] = set()
     for path in sorted(_SRC.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -42,6 +49,25 @@ def _shipped_prefixes() -> set[str]:
 
 
 class TestSandboxPrefixSweep:
+    def test_prefix_scan_parses_each_file_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A second call does not parse. The count does not move with load."""
+        _shipped_prefixes.cache_clear()
+        parses = 0
+        real_parse = ast.parse
+
+        def counting(source: str, *args: Any, **kwargs: Any) -> ast.AST:
+            nonlocal parses
+            parses += 1
+            tree: ast.AST = real_parse(source, *args, **kwargs)
+            return tree
+
+        monkeypatch.setattr(ast, "parse", counting)
+        first = _shipped_prefixes()
+        once = parses
+        assert once > 0
+        assert _shipped_prefixes() is first
+        assert parses == once
+
     def test_every_shipped_prefix_is_swept(self) -> None:
         """No shipped caller creates a sandbox the sweep cannot reclaim."""
         undeclared = sorted(

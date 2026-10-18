@@ -58,3 +58,4 @@ itself, and the consequences (including trade-offs accepted).
 | 031 | [Live coverage views and explicit portable exports](031-live-coverage-views.md) |
 | 032 | [Explicit local execution and experimental rootless namespaces](032-experimental-unshare.md) |
 | 033 | [Source evidence shares the function metadata store](033-consolidated-source-evidence.md) |
+| 034 | [Managed metadata storage backends](034-metadata-storage-backends.md) |

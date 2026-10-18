@@ -28,6 +28,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from rebrew.metadata.storage import metadata_store
+
 if TYPE_CHECKING:
     from rebrew.compiler.cache import CacheBackend
     from rebrew.compiler.compile import CompareResult, CompareStatus
@@ -1140,7 +1142,7 @@ def main(
                 json_mode=json_output,
             )
         metadata_path = cfg.metadata_dir / "rebrew-data.toml"
-        if not metadata_path.exists():
+        if not metadata_store(metadata_path).exists():
             error_exit(f"data metadata not found: {metadata_path}", json_mode=json_output)
         ref_bytes, ref_sizes = section_symbol_bytes(
             metadata_path=metadata_path,
@@ -2420,7 +2422,7 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     key = (
         target_module_name,
         tuple((str(h), *_stat_identity(h)) for h in headers),
-        (str(metadata_path), *_stat_identity(metadata_path)) if metadata_path else None,
+        metadata_store(metadata_path).fingerprint() if metadata_path else None,
     )
     with _LIBRARY_HEADER_CACHE_LOCK:
         cached = _LIBRARY_HEADER_CACHE.get(key)

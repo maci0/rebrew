@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from cli_json import cli_payload
@@ -53,8 +54,12 @@ class TestLibraryMetadata:
         bad = tmp_path / LIBRARY_METADATA_FILE
         bad.write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
 
-        def _boom(_self: Path) -> object:
-            raise PermissionError(13, "Permission denied")
+        real_stat = Path.stat
+
+        def _boom(_self: Path, **kwargs: Any) -> Any:
+            if _self == bad:
+                raise PermissionError(13, "Permission denied")
+            return real_stat(_self, **kwargs)
 
         monkeypatch.setattr(Path, "stat", _boom)
         with pytest.raises(LibraryOverrideError, match=r"cannot stat rebrew-libraries\.toml"):
@@ -499,11 +504,11 @@ class TestLibraryFingerprintWalk:
         assert calls["n"] == held + 1
         assert found is not None and found[0] == str(library.resolve())
 
-        later = found[1] + 1_000_000_000
+        later = found[1][0][1] + 1_000_000_000
         os.utime(library, ns=(later, later))
         edited = library_override_fingerprint(fn, proj)
         assert calls["n"] == held + 2
-        assert edited is not None and edited[1] == later
+        assert edited is not None and edited[1][0][1] == later
 
         closer = fn / LIBRARY_METADATA_FILE
         closer.write_text('toolchain = "msvc-4.2"\n', encoding="utf-8")

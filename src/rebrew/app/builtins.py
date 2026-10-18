@@ -839,6 +839,13 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
         attr="types_app",
     ),
     CliComponent(
+        name="metadata",
+        module="rebrew.metadata_cli",
+        help="Manage metadata storage and preview backend transfers.",
+        panel=Panel.PROJECT_SETUP,
+        is_group=True,
+    ),
+    CliComponent(
         name="cfg",
         module="rebrew.cfg",
         help="Read and edit rebrew-project.toml programmatically.",

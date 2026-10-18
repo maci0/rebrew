@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from bin_util import append_pe_section, make_pe
+from tree_snapshot import snapshot_with_stat
 
 from rebrew.config import ProjectConfig
 from rebrew.metadata.functions import record_function_identity, set_fields
@@ -42,12 +43,12 @@ class TestOrganizationReview:
         self, tmp_path: Path
     ) -> None:
         a, b, files = _project(tmp_path)
-        before = {p: (p.read_bytes(), p.stat()) for p in tmp_path.rglob("*") if p.is_file()}
+        before = snapshot_with_stat(tmp_path)
         report = review_organization([a, b], files, destination=Path("src/merged.c"))
         assert report["cycle"] and not report["common_definition_order"]
         assert any(p["kind"] == "conflicting_target_orders" for p in report["problems"])
         assert not report["safe_to_reorganize"] and not report["source_changed"]
-        assert before == {p: (p.read_bytes(), p.stat()) for p in tmp_path.rglob("*") if p.is_file()}
+        assert before == snapshot_with_stat(tmp_path)
 
     def test_one_target_order_does_not_claim_link_safety(self, tmp_path: Path) -> None:
         a, _b, files = _project(tmp_path)

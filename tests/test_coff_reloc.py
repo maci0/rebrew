@@ -184,6 +184,109 @@ def test_name_map_does_not_walk_variable_roles(
     assert names.get("shared_value") == 0x401000
 
 
+def test_stored_address_is_not_parsed_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A name the store already has is not a reason to parse the C file.
+
+    The count is ``find_extern_variables`` calls. It stays zero for a stored
+    address and moves when the address is only in the source.
+    """
+    import rebrew.c_parser as c_parser
+
+    (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
+    src = tmp_path / "src"
+    src.mkdir()
+    write_source(
+        src / "g.c",
+        "/* ADDRESS: GAME 0x401000 */\nint shared_value;\n",
+        encoding="utf-8",
+        metadata_fields={"GAME.0x401000": {"kind": "GLOBAL"}},
+    )
+    calls = {"n": 0}
+    real = c_parser.find_extern_variables
+
+    def counting(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(c_parser, "find_extern_variables", counting)
+    names = build_name_to_va(load_config(root=tmp_path), annotations=[])
+    assert calls["n"] == 0
+    assert names.get("shared_value") == 0x401000
+
+    (src / "new.c").write_text(
+        "/* ADDRESS: GAME 0x402000 */\nint only_in_source;\n", encoding="utf-8"
+    )
+    names = build_name_to_va(load_config(root=tmp_path), annotations=[])
+    assert calls["n"] >= 1
+    assert names.get("only_in_source") == 0x402000
+
+
+def test_stored_address_is_not_reread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A later process stats a stored address instead of reading the source.
+
+    The memory cover is cleared so the second call is the disk hit a new
+    ``rebrew`` process takes. Editing the store or the source reads again.
+    The default declaration scan still reads.
+    """
+    import rebrew.data_scan as data_scan
+
+    (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
+    src = tmp_path / "src"
+    src.mkdir()
+    write_source(
+        src / "g.c",
+        "/* ADDRESS: GAME 0x401000 */\nint shared_value;\n",
+        encoding="utf-8",
+        metadata_fields={"GAME.0x401000": {"kind": "GLOBAL"}},
+    )
+    cfg = load_config(root=tmp_path)
+    data_scan._NAME_COVER_CACHE.clear()
+    assert build_name_to_va(cfg, annotations=[]).get("shared_value") == 0x401000
+
+    data_scan._NAME_COVER_CACHE.clear()
+    reads = {"n": 0}
+    from rebrew.utils import read_source_text
+
+    real_read = read_source_text
+
+    def counting_read(*args: Any, **kwargs: Any) -> Any:
+        reads["n"] += 1
+        return real_read(*args, **kwargs)
+
+    monkeypatch.setattr(data_scan, "read_source_text", counting_read)
+    assert build_name_to_va(cfg, annotations=[]).get("shared_value") == 0x401000
+    assert reads["n"] == 0
+
+    data_toml = tmp_path / "rebrew-data.toml"
+    data_toml.chmod(0o644)
+    data_toml.write_text(data_toml.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    data_scan._NAME_COVER_CACHE.clear()
+    assert build_name_to_va(cfg, annotations=[]).get("shared_value") == 0x401000
+    assert reads["n"] >= 1
+
+    reads["n"] = 0
+    data_scan._NAME_COVER_CACHE.clear()
+    assert build_name_to_va(cfg, annotations=[]).get("shared_value") == 0x401000
+    assert reads["n"] == 0
+
+    (src / "g.c").write_text(
+        "/* ADDRESS: GAME 0x401000 */\nint shared_value;\n"
+        "/* ADDRESS: GAME 0x402000 */\nint extra_value;\n",
+        encoding="utf-8",
+    )
+    data_scan._NAME_COVER_CACHE.clear()
+    names = build_name_to_va(cfg, annotations=[])
+    assert names.get("shared_value") == 0x401000
+    assert names.get("extra_value") == 0x402000
+    assert reads["n"] >= 1
+
+    reads["n"] = 0
+    data_scan.scan_globals(src, cfg)
+    assert reads["n"] >= 1
+
+
 def test_function_catalog_scan_is_marker_scoped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -226,8 +329,8 @@ def test_function_catalog_scan_is_marker_scoped(
     monkeypatch.setattr(
         data_mod,
         "scan_globals",
-        lambda _dir, _cfg, *, record_roles, fact_cache, facts_out: SimpleNamespace(
-            data_annotations=[], globals={}
+        lambda _dir, _cfg, *, record_roles, fact_cache, facts_out, declarations=True: (
+            SimpleNamespace(data_annotations=[], globals={})
         ),
     )
     monkeypatch.setattr(dm_mod, "load_data_metadata", lambda _dir: {})

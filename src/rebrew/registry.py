@@ -399,6 +399,7 @@ def refresh_all() -> dict[str, int]:
     from rebrew.formats import binary_loader
     from rebrew.matcher import compiler, mutator
     from rebrew.metadata import functions as metadata
+    from rebrew.metadata import storage as metadata_storage
 
     with _REFRESH_ALL_LOCK:
         counts: dict[str, int] = {}
@@ -408,6 +409,7 @@ def refresh_all() -> dict[str, int]:
         counts["flag_sets"] = len(compiler.refresh_flag_sets()[0])
         compiler.refresh_docker_backed_profiles()
         counts["library_presets"] = len(metadata.refresh_library_presets())
+        counts["metadata_backends"] = len(metadata_storage.refresh_metadata_backends())
         counts.update(toolchain_detect.refresh_detection_tables())
         counts["binary_loaders"] = len(binary_loader.refresh_loaders())
         counts["cache_backends"] = len(compile_cache.refresh_cache_backends())

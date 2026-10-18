@@ -31,6 +31,7 @@ from rebrew.data_ownership import ownership_inputs
 from rebrew.errors import RebrewError
 from rebrew.formats.binary_loader import load_binary
 from rebrew.metadata.functions import load_status_history
+from rebrew.metadata.storage import metadata_inputs, metadata_store
 from rebrew.sources import scan_files
 from rebrew.workspace import read_config, targets_table
 
@@ -101,7 +102,7 @@ def _inputs(
         inventory_path_for(cfg.reversed_dir, cfg),
         cfg.root / ".rebrew" / "verify_cache.toml",
     }
-    paths.update(cfg.metadata_dir.glob("rebrew-*.toml"))
+    paths.update(metadata_inputs(cfg.metadata_dir))
     paths.update(ownership_inputs(cfg))
     roots = {cfg.reversed_dir}
     if cfg.shared_dir is not None:
@@ -112,7 +113,9 @@ def _inputs(
     for root in roots:
         paths.update(_scan(root))
         for parent in (root, *root.parents):
-            paths.add(parent / "rebrew-libraries.toml")
+            library = parent / "rebrew-libraries.toml"
+            paths.add(library)
+            paths.update(metadata_store(library).inputs())
     if cfg.raw_link is not None:
         paths.update((cfg.raw_link, cfg.raw_link.with_suffix(".map")))
     return tuple((str(path), *_stat(path)) for path in sorted(paths))

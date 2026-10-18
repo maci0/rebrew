@@ -20,7 +20,8 @@ arbitrary bytes, in 16- and 32-bit modes, and assert:
 * similarity stays a bounded score for every input pair, never an exception.
 """
 
-import time
+import gc
+import resource
 from typing import Any
 
 import capstone
@@ -242,11 +243,24 @@ def test_self_jump_chain_segments_one_block_per_jump(count: int) -> None:
     densest edge case (one block and one edge per two bytes), and segmenting
     a long extent must stay linear in its length."""
     code = b"\xeb\xfe" * count
-    started = time.perf_counter()
-    graph = build_cfg(code, 0x401000, capstone.CS_MODE_32)
-    elapsed = time.perf_counter() - started
+    # A collection triggered by another test's heap would land inside the
+    # measured region and read as segmenter work. Age the heap first, then
+    # keep the collector from running until the reading is taken.
+    gc.collect()
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        before = resource.getrusage(resource.RUSAGE_SELF)
+        graph = build_cfg(code, 0x401000, capstone.CS_MODE_32)
+        after = resource.getrusage(resource.RUSAGE_SELF)
+    finally:
+        if enabled:
+            gc.enable()
+    cpu = (after.ru_utime - before.ru_utime) + (after.ru_stime - before.ru_stime)
     assert len(graph["blocks"]) == count
     assert graph["edges"] == [(i, i) for i in range(count)]
-    # Loose bound: the quadratic form spent whole seconds on the largest
-    # count, the linear one milliseconds.  Generous so a loaded box cannot flake.
-    assert elapsed < 2.0, f"segmenting {count} self-jumps took {elapsed:.3f}s"
+    # Process CPU, not wall clock: descheduling does not move it. The
+    # quadratic edge scan spent whole seconds on the largest count; the
+    # linear one stays under this band, with room for shared-cache pressure
+    # on a loaded runner.
+    assert cpu < 0.5, f"segmenting {count} self-jumps used {cpu:.3f} CPU-seconds"

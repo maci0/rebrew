@@ -38,6 +38,7 @@ from rebrew.init_profiles import (
     profile_families,
     profile_hint,
 )
+from rebrew.metadata.storage import metadata_store
 
 if TYPE_CHECKING:
     from rebrew.toolchain_detect import ToolchainInfo
@@ -1367,9 +1368,9 @@ def main(
     from rebrew.metadata.data import save_data_metadata
     from rebrew.metadata.functions import save_metadata
 
-    if not (cwd / "rebrew-functions.toml").exists():
+    if not metadata_store(cwd / "rebrew-functions.toml").exists():
         save_metadata(cwd, {})
-    if not (cwd / "rebrew-data.toml").exists():
+    if not metadata_store(cwd / "rebrew-data.toml").exists():
         save_data_metadata(cwd, {}, expected_hash=None)
     console.print("[green]Created rebrew-functions.toml[/]")
     console.print("[green]Created rebrew-data.toml[/]")

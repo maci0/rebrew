@@ -173,7 +173,9 @@ class TestSingleFileNameMap:
         large_source = str(large / "src" / "caller.c")
         cold_map, cold_parses, cold_scans = _measured_preamble(monkeypatch, large_cfg, large_source)
         assert cold_scans == 1
-        assert cold_parses > _FILLER_COUNT
+        # A filler with no address is not a name-map input, so the cold scan
+        # does not parse it.
+        assert cold_parses == 0
         warm_map, warm_parses, warm_scans = _measured_preamble(monkeypatch, large_cfg, large_source)
         import rebrew.test as test_mod
 
@@ -220,7 +222,7 @@ class TestSingleFileNameMap:
         source = str(root / "src" / "caller.c")
         cold_map, cold_parses, cold_scans = _measured_preamble(monkeypatch, cfg, source)
         assert cold_scans == 1
-        assert cold_parses > _FILLER_COUNT
+        assert cold_parses == 0
         assert cold_map["_helper"] == _HELPER_VA
         assert "filler_added" not in cold_map
         filler = root / "src" / "fill" / "filler_0.c"
@@ -231,7 +233,7 @@ class TestSingleFileNameMap:
         test_mod._name_map_cache.clear()
         edited_map, edited_parses, edited_scans = _measured_preamble(monkeypatch, cfg, source)
         assert edited_scans == 1
-        assert edited_parses < _FILLER_COUNT
+        assert 1 <= edited_parses < _FILLER_COUNT
         assert edited_map["_helper"] == _HELPER_VA
         assert edited_map["filler_added"] == edited_map["_filler_added"] == _ADDED_VA
         assert "filler_0" not in edited_map

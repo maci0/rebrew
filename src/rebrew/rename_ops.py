@@ -64,6 +64,7 @@ from rebrew.metadata.bindings import (
     SourceBinding,
     read_source_bindings,
 )
+from rebrew.metadata.storage import input_digest, metadata_store_paths
 from rebrew.sources import iter_sources_and_headers
 from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
 
@@ -1033,7 +1034,7 @@ def _rename_context_inputs(cfg: ProjectConfig) -> dict[str, str]:
     from rebrew.config import load_config
 
     metadata = Path(getattr(cfg, "metadata_dir", None) or cfg.reversed_dir)
-    paths = set(metadata.glob("rebrew-*.toml"))
+    paths = set(metadata_store_paths(metadata))
     root = _root(cfg)
     if root is not None and (root / "rebrew-project.toml").exists():
         paths.add(root / "rebrew-project.toml")
@@ -1044,7 +1045,7 @@ def _rename_context_inputs(cfg: ProjectConfig) -> dict[str, str]:
         binary = getattr(target, "target_binary", None)
         if binary is not None:
             paths.add(Path(binary))
-    return {str(p.resolve()): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
+    return {str(p.resolve()): input_digest(p) for p in paths}
 
 
 def _rename_source_inputs(project: _Project, plan: RenamePlan) -> dict[str, str]:

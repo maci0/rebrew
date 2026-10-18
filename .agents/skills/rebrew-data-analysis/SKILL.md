@@ -140,7 +140,7 @@ DATA metadata lives in a **`rebrew-data.toml`** beside `rebrew-functions.toml` a
 `cfg.metadata_dir`: one level above the source tree (the project root when
 sources live under `src/`) when a store sits there, otherwise the outermost store found walking up to
 the project root, so one store covers every target. The loader does no walk-up of its own
-(it reads exactly `directory / rebrew-data.toml`), so library code must pass
+(it reads `directory / rebrew-data.toml` plus direct `rebrew-data.d/*.toml` fragments), so library code must pass
 `cfg.metadata_dir` rather than the `.c` file's directory.
 New writers emit a declaration with an ADDRESS anchor and record the row.
 All identity and state belong in format-2 `rebrew-data.toml`. Register existing

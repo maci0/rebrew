@@ -12,6 +12,7 @@ from rebrew.config import ProjectConfig, target_module
 from rebrew.formats.binary_loader import load_binary
 from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, METADATA_FILENAME, get_entry
 from rebrew.metadata.native_identity import native_identity_receipt, record_native_identity
+from rebrew.metadata.storage import input_digest, metadata_store
 from rebrew.object_evidence import audit_literals, native_span, object_function
 
 
@@ -28,10 +29,12 @@ def review_native_identity(
     """Require full code, exact typed operands and complete literals before trust."""
     metadata_path = cfg.metadata_dir / METADATA_FILENAME
     metadata_raw, binary_raw, object_raw = (
-        metadata_path.read_bytes(),
+        metadata_store(metadata_path).snapshot(),
         cfg.target_binary.read_bytes(),
         obj.read_bytes(),
     )
+    if metadata_raw is None:
+        raise ValueError("native identity requires function metadata")
     inputs = {
         metadata_path: hashlib.sha256(metadata_raw).hexdigest(),
         cfg.target_binary: hashlib.sha256(binary_raw).hexdigest(),
@@ -96,7 +99,10 @@ def review_native_identity(
         {k: entry[k] for k in FUNCTION_IDENTITY_FIELDS if k in entry},
         reason,
     )
-    if any(hashlib.sha256(p.read_bytes()).hexdigest() != value for p, value in inputs.items()):
+    if any(
+        (metadata_store(p).digest() if p == metadata_path else input_digest(p)) != value
+        for p, value in inputs.items()
+    ):
         raise ValueError("native identity inputs changed during review")
     if not dry_run:
         record_native_identity(

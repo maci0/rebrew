@@ -11,6 +11,8 @@ component's declared service dependencies decide activation order.
 
 from __future__ import annotations
 
+import gc
+
 import typer
 from rich.console import Console
 
@@ -189,8 +191,35 @@ def compose() -> tuple[Context, CoeffectScope]:
 _COMPOSED: tuple[Context, CoeffectScope] = compose()
 
 
+_STARTUP_GC_FROZEN = False
+
+
+def _freeze_startup_objects() -> None:
+    """Move the import-time CLI graph to the permanent generation, once.
+
+    typer/click/rich and the registries are live for the whole process, but a
+    command that walks thousands of rows triggers full collections that
+    rescan them. Frozen objects are not rescanned; everything allocated after
+    this point stays collectable, so watch and server modes keep collecting
+    their own garbage.
+    """
+    global _STARTUP_GC_FROZEN
+    if _STARTUP_GC_FROZEN:
+        return
+    _STARTUP_GC_FROZEN = True
+    gc.collect()
+    gc.freeze()
+
+
 def main() -> None:
     """Package entry point for the ``rebrew`` umbrella CLI."""
+    # The import-time CLI graph (typer options, rich, registries) is live for
+    # the whole process but would be rescanned by every full collection. Move
+    # it to the permanent generation once, before the command allocates:
+    # `rebrew status` on 5,000 functions measured 0.16s of CPU in those scans.
+    # Objects created after this point (including lazy command imports) stay
+    # collectable, so watch and server modes keep collecting their own garbage.
+    _freeze_startup_objects()
     run_cli(app)
 
 

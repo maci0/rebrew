@@ -1,8 +1,57 @@
 """Tests for rebrew.metadata.document: qualified-key algebra, doc parse/build, write lock."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
+
+
+class TestParsedDocumentCache:
+    def test_second_load_does_not_parse_again(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A new process reuses the parsed rows. The parse count does not move with load."""
+        import rebrew.metadata.files as document
+        from rebrew.metadata.functions import clear_metadata_cache, load_metadata
+        from rebrew.utils import load_tomllib
+
+        store = tmp_path / "rebrew-functions.toml"
+        store.write_text(
+            'format = 3\n["GAME.0x00001000"]\nname = "f"\nkind = "FUNCTION"\n',
+            encoding="utf-8",
+        )
+        parses = 0
+        real = load_tomllib
+
+        def counting(path: Path) -> dict[str, Any]:
+            nonlocal parses
+            parses += 1
+            return real(path)
+
+        monkeypatch.setattr(document, "load_tomllib", counting)
+        first = load_metadata(tmp_path, deepcopy=False)
+        assert parses == 1
+        assert first[("GAME", 0x1000)]["name"] == "f"
+        clear_metadata_cache()
+        second = load_metadata(tmp_path, deepcopy=False)
+        assert parses == 1
+        assert second[("GAME", 0x1000)]["name"] == "f"
+
+        store.write_text(
+            'format = 3\n["GAME.0x00001000"]\nname = "g"\nkind = "FUNCTION"\n',
+            encoding="utf-8",
+        )
+        clear_metadata_cache()
+        third = load_metadata(tmp_path, deepcopy=False)
+        assert parses == 2
+        assert third[("GAME", 0x1000)]["name"] == "g"
+
+        (tmp_path / ".rebrew" / "metadata-doc" / "rebrew-functions.toml.json").write_text(
+            "{", encoding="utf-8"
+        )
+        clear_metadata_cache()
+        assert load_metadata(tmp_path, deepcopy=False)[("GAME", 0x1000)]["name"] == "g"
+        assert parses == 3
 
 
 class TestQualifiedKey:
@@ -182,7 +231,7 @@ class TestMetadataWriteLock:
     def test_fresh_directory_does_not_crash(self, tmp_path: Path) -> None:
         """First-ever write into a nonexistent metadata root must not raise:
         the ``.lock`` sidecar open happens before any data-write mkdir."""
-        from rebrew.metadata.document import metadata_write_lock
+        from rebrew.metadata.storage import metadata_write_lock
 
         target = tmp_path / "brand" / "new" / "rebrew-functions.toml"
         with metadata_write_lock(target.parent, target.name):
@@ -197,7 +246,8 @@ class TestMetadataWriteLock:
 
         from thread_util import join_all
 
-        from rebrew.metadata.document import metadata_write_lock, parse_metadata_doc
+        from rebrew.metadata.document import parse_metadata_doc
+        from rebrew.metadata.storage import metadata_write_lock
         from rebrew.utils import atomic_write_text
 
         target = tmp_path / "rebrew-functions.toml"
@@ -231,7 +281,7 @@ class TestMetadataWriteLock:
         """
         import threading
 
-        from rebrew.metadata.document import metadata_write_lock
+        from rebrew.metadata.storage import metadata_write_lock
 
         done = threading.Event()
         result: list[str] = []
@@ -256,7 +306,7 @@ class TestMetadataWriteLock:
         interleave its read-modify-write on the second file."""
         fcntl = pytest.importorskip("fcntl")
 
-        from rebrew.metadata.document import metadata_write_lock
+        from rebrew.metadata.storage import metadata_write_lock
 
         dir_a, dir_b = tmp_path / "a", tmp_path / "b"
         with (

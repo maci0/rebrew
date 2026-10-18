@@ -22,8 +22,9 @@ from pathlib import Path
 import typer
 
 from rebrew.cli import console, error_exit, json_print
-from rebrew.metadata.data import iter_data_symbols
-from rebrew.utils import atomic_write_text, is_safe_c_ident, load_tomllib, read_source_text
+from rebrew.metadata.data import iter_data_symbols, load_data_document
+from rebrew.metadata.storage import metadata_store
+from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -81,7 +82,7 @@ def read_calibrated_tail(path: Path) -> int | None:
 
 def load_data_symbols(metadata: Path) -> list[tuple[int, str, str]]:
     """Sorted ``(address, name, type)`` of the ``.data`` symbols in *metadata*."""
-    doc = load_tomllib(metadata)
+    doc = load_data_document(metadata)
     out = [
         (va, str(val.get("name") or f"g_data_{va:x}"), str(val.get("type", "int")))
         for _, va, val in iter_data_symbols(doc)
@@ -144,10 +145,10 @@ def main(
     """Generate the BSS placeholder TU."""
     root = Path.cwd()
     metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
-    if not metadata.exists():
+    if not metadata_store(metadata).exists():
         if (
             data_metadata == Path("rebrew-data.toml")
-            and (root / "src" / "rebrew-data.toml").exists()
+            and metadata_store(root / "src" / "rebrew-data.toml").exists()
         ):
             metadata = root / "src" / "rebrew-data.toml"
         else:

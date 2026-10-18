@@ -40,6 +40,7 @@ from typer.testing import CliRunner
 from rebrew.cli import EXIT_OK, console, error_exit, json_print
 from rebrew.config import ConfigError, validate_target_name
 from rebrew.metadata.bindings import derive_c_symbol, iter_source_bindings
+from rebrew.metadata.storage import metadata_store
 from rebrew.sources import iter_sources
 from rebrew.utils import (
     SOURCE_CHECKOUT,
@@ -202,9 +203,10 @@ def classify_all(
 
     if metadata_dir is not None:
         meta_base = metadata_dir
-    elif (project / "src" / METADATA_FILENAME).exists() and not (
-        project / METADATA_FILENAME
-    ).exists():
+    elif (
+        metadata_store(project / "src" / METADATA_FILENAME).exists()
+        and not metadata_store(project / METADATA_FILENAME).exists()
+    ):
         meta_base = project / "src"
     else:
         meta_base = project

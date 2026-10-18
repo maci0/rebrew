@@ -32,6 +32,7 @@ from rebrew.cli import (
 )
 from rebrew.data_layout import built_data_va
 from rebrew.formats.binary_loader import load_binary
+from rebrew.metadata.storage import metadata_store
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -105,7 +106,7 @@ def main(
         metadata = Path(cfg.metadata_dir) / "rebrew-data.toml"
     else:
         metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
-    if not metadata.exists():
+    if not metadata_store(metadata).exists():
         error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
     built = option_default(built, None)
     if built is None:

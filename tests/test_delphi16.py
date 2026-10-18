@@ -9,6 +9,48 @@ from bin_util import make_ne
 from rebrew.compiler.delphi16 import Delphi16Error, compile_ne
 from rebrew.compiler.toolchain import RunResult, ToolchainError, image_present
 
+_IMAGE = "rebrew/delphi:1.0-win16"
+
+
+def _runtime_can_bind_mount(directory: Path) -> bool:
+    """True when the container runtime can see a host directory's files.
+
+    A rootless or namespace-sandboxed daemon may resolve a bind-mount source
+    in its own mount namespace: pytest's tmp directory then mounts empty and
+    the compiler reports a missing source. That is an environment limit, not
+    a compiler result, so the integration below skips instead of failing.
+    """
+    import subprocess
+
+    from rebrew.compiler.toolchain import container_runtime
+
+    marker = directory / "mount-probe"
+    marker.write_text("probe", encoding="utf-8")
+    try:
+        proc = subprocess.run(
+            [
+                container_runtime(),
+                "run",
+                "--rm",
+                "--network=none",
+                "-v",
+                f"{directory}:/probe",
+                "--entrypoint",
+                "/bin/sh",
+                _IMAGE,
+                "-c",
+                f"test -f /probe/{marker.name}",
+            ],
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    finally:
+        marker.unlink(missing_ok=True)
+    return proc.returncode == 0
+
 
 def _fake_runner(
     monkeypatch: pytest.MonkeyPatch, *, produce_map: bool = True
@@ -165,7 +207,7 @@ class TestCompileNe:
 
 
 try:
-    _image_available = image_present("rebrew/delphi:1.0-win16")
+    _image_available = image_present(_IMAGE)
 except ToolchainError:
     _image_available = False
 
@@ -176,6 +218,11 @@ class TestDockerIntegration:
         (tmp_path / "MINE.PAS").write_text(
             "unit Mine; interface procedure Touch; implementation procedure Touch; begin end; end.\n"
         )
+        if not _runtime_can_bind_mount(tmp_path):
+            pytest.skip(
+                "container runtime cannot bind-mount the pytest tmp directory "
+                "(sandboxed /tmp); run the suite with TMPDIR on a shared filesystem"
+            )
         source = tmp_path / "HELLO.DPR"
         source.write_text("program Hello; uses Mine; begin Touch; end.\n")
         result = compile_ne(source, tmp_path / "work", extra_args=("-$S-",), map_file=True)

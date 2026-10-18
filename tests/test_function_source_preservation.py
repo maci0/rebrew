@@ -19,7 +19,11 @@ from rebrew.metadata.source_provenance import (
     "writer",
     ["field", "fields", "batch", "rows", "status", "remove", "delete", "replace"],
 )
-def test_function_writers_preserve_addressless_records(tmp_path: Path, writer: str) -> None:
+@pytest.mark.parametrize("backend", ["toml", "sqlite"])
+def test_function_writers_preserve_addressless_records(
+    tmp_path: Path, writer: str, backend: str
+) -> None:
+    (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
     helper = tmp_path / "helper.c"
     helper.write_text("static void fill(void) { __asm { nop } }\n")
     rows = {

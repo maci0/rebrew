@@ -2117,6 +2117,7 @@ class TestRefreshAll:
             "msvc_versions",
             "binary_loaders",
             "cache_backends",
+            "metadata_backends",
             "discoverers",
         }
 

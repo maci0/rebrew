@@ -21,7 +21,8 @@ check (`tools/gen_fixtures.py --check`) and an idempotency sweep
 (`tools/check_idempotency.py --fixture-dir`, which runs the offline `--json`
 CLI surface twice for output determinism and each mutating command twice
 against its own scratch project, requiring the first run to actually change
-it), both version-independent, so the 3.14 entry
+it; derived `.rebrew` read caches are outside the content digest), both
+version-independent, so the 3.14 entry
 skips them; the 3.13 entry also installs the W3C validator through
 `tools/ci_install_vnu.sh`, because `tests/html_validate.py` skips when
 `vnu` is off PATH and the two HTML surfaces (the dashboard shell and

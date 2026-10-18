@@ -263,11 +263,14 @@ class TestThreeWaySync:
         assert {p: p.read_bytes() for p in state.rglob("*.toml")} == before
 
     def test_preview_does_not_create_state_or_baseline(self, tmp_path: Path) -> None:
+        from rebrew.binsync.state import sync_baseline_path
+
         cfg = _project(tmp_path)
         state = tmp_path / "state"
         export_state(cfg, state, dry_run=True)
         assert not state.exists()
-        assert not (tmp_path / ".rebrew").exists()
+        # Derived read caches may create .rebrew; the sync baseline is durable.
+        assert not sync_baseline_path(cfg, state).exists()
 
 
 class TestDurableEvidence:

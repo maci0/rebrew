@@ -7,8 +7,12 @@ code, so compile-time callers (``coff_reloc``) and analysis commands import it
 without pulling in the ``rebrew data list`` Typer app (``rebrew.data``).
 """
 
+import json
 import logging
+import os
+import re
 import struct
+import unicodedata
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -24,7 +28,7 @@ from rebrew.config import (
     inventory_path_for,
 )
 from rebrew.metadata.data import module_visible_to_target
-from rebrew.utils import floor_pct, merged_span_bytes, read_source_text
+from rebrew.utils import floor_pct, merged_span_bytes, read_source_text, rel_display_path
 
 log = logging.getLogger(__name__)
 
@@ -315,6 +319,149 @@ def _usable_scan_fact(facts: object) -> bool:
     )
 
 
+_ADDRESS_VA_RE = re.compile(r"ADDRESS:\s+(\S+)\s+(0x[0-9a-fA-F]+)")
+
+
+def _store_names_the_file(
+    text: str,
+    cfile: Path,
+    metadata_dir: Path,
+    function_entries: dict[tuple[str, int], dict[str, Any]],
+) -> bool:
+    """True when the stores already name every address this file can add.
+
+    The reloc name map only needs those names. A file with no address comment
+    and no data row contributes none. A comment whose address is already
+    stored does not need another C parse to repeat the name.
+    """
+    from rebrew.metadata.data import data_rows_for_path
+
+    rows = data_rows_for_path(metadata_dir, cfile)
+    if any(not (entry.get("name") or entry.get("link_symbol")) for _, _, entry in rows):
+        return False
+    for module, hex_va in _ADDRESS_VA_RE.findall(text):
+        try:
+            va = int(hex_va, 16)
+        except ValueError:
+            return False
+        module_name = unicodedata.normalize("NFC", module)
+        stored = function_entries.get((module_name, va))
+        if isinstance(stored, dict) and (stored.get("name") or stored.get("symbol")):
+            continue
+        if any(
+            row_module == module_name
+            and row_va == va
+            and (entry.get("name") or entry.get("link_symbol"))
+            for row_module, row_va, entry in rows
+        ):
+            continue
+        return False
+    return True
+
+
+# Process-local cover of files whose stored names already answer the reloc
+# map. The disk file is what the next process reads; this dict only avoids
+# parsing that JSON again inside one process.
+_NAME_COVER_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def _path_key(path: Path) -> str:
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
+
+
+def _source_stamp(path: Path) -> list[int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return [stat.st_mtime_ns, stat.st_size, stat.st_ino]
+
+
+def _stamp_list(value: object) -> list[int] | None:
+    if (
+        not isinstance(value, list)
+        or len(value) != 3
+        or any(type(part) is not int for part in value)
+    ):
+        return None
+    return value
+
+
+def _store_stamp(metadata_dir: Path) -> list[list[object]]:
+    """Fingerprint both stores, including drop-in fragments."""
+    from rebrew.config import METADATA_FILENAME
+    from rebrew.metadata.data import DATA_METADATA_FILENAME
+    from rebrew.metadata.storage import metadata_store
+
+    stamp: list[list[object]] = []
+    for name in (METADATA_FILENAME, DATA_METADATA_FILENAME):
+        for part in metadata_store(metadata_dir / name).fingerprint():
+            stamp.append(list(part))
+    return stamp
+
+
+def _begin_name_cover(metadata_dir: Path) -> dict[str, Any]:
+    """Load the cover for *metadata_dir* when the store fingerprint matches."""
+    key = _path_key(metadata_dir)
+    stamp = _store_stamp(metadata_dir)
+    cached = _NAME_COVER_CACHE.get(key)
+    if cached is not None and cached["stamp"] == stamp:
+        return cached
+    files: dict[str, list[int]] = {}
+    cache_path = metadata_dir / ".rebrew" / "name-map-cover.json"
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+        payload = None
+    stored_files = payload.get("files") if isinstance(payload, dict) else None
+    stamp_matches = isinstance(payload, dict) and payload.get("stamp") == stamp
+    if stamp_matches and isinstance(stored_files, dict):
+        for path_key, raw in stored_files.items():
+            parsed = _stamp_list(raw)
+            if isinstance(path_key, str) and parsed is not None:
+                files[path_key] = parsed
+    record = {"dir": metadata_dir, "stamp": stamp, "files": files, "dirty": False}
+    _NAME_COVER_CACHE[key] = record
+    return record
+
+
+def _name_cover_hit(cover: dict[str, Any], cfile: Path) -> bool:
+    stamp = _source_stamp(cfile)
+    if stamp is None:
+        return False
+    return bool(cover["files"].get(_path_key(cfile)) == stamp)
+
+
+def _name_cover_remember(cover: dict[str, Any], cfile: Path) -> None:
+    stamp = _source_stamp(cfile)
+    if stamp is None:
+        return
+    key = _path_key(cfile)
+    if cover["files"].get(key) == stamp:
+        return
+    cover["files"][key] = stamp
+    cover["dirty"] = True
+
+
+def _flush_name_cover(cover: dict[str, Any]) -> None:
+    """Write the cover for the next process. A failure leaves the scan result."""
+    if not cover.get("dirty"):
+        return
+    cache_path = Path(cover["dir"]) / ".rebrew" / "name-map-cover.json"
+    payload = {"stamp": cover["stamp"], "files": cover["files"]}
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = cache_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        os.replace(temporary, cache_path)
+    except OSError:
+        return
+    cover["dirty"] = False
+
+
 def _collect_scan_file_facts(
     cfile: Path,
     src_dir: Path,
@@ -325,12 +472,23 @@ def _collect_scan_file_facts(
     inactive_sources: set[Path],
     record_roles: bool,
     file_roles: dict[str, tuple[set[str], set[str], set[str]]],
+    declarations: bool = True,
+    name_cover: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Parse *cfile* into the facts :func:`_apply_scan_file_facts` replays.
 
     ``None`` means the file could not be read. Callers retry that file next
     time instead of remembering an empty contribution.
     """
+    is_header = cfile.suffix.lower() == ".h"
+    # The reloc name map already has this file's names. A later process
+    # stats the file instead of reading it while the store fingerprint holds.
+    if name_cover is not None and _name_cover_hit(name_cover, cfile):
+        return {
+            "apply": False,
+            "fname": rel_display_path(cfile, src_dir),
+            "header": is_header,
+        }
     from rebrew.c_parser import (
         find_c_function_definitions,
         find_extern_variables,
@@ -338,9 +496,7 @@ def _collect_scan_file_facts(
     )
     from rebrew.metadata.bindings import function_rows_for_file, source_bindings
     from rebrew.metadata.data import data_rows_for_path
-    from rebrew.utils import rel_display_path
 
-    is_header = cfile.suffix.lower() == ".h"
     try:
         # Tolerant read: a legacy-encoded source must not have its
         # non-ASCII bytes silently deleted, which would corrupt string
@@ -355,6 +511,10 @@ def _collect_scan_file_facts(
 
     lines = text.splitlines()
     fname = rel_display_path(cfile, src_dir)
+    if not declarations and _store_names_the_file(text, cfile, metadata_dir, function_entries):
+        if name_cover is not None:
+            _name_cover_remember(name_cover, cfile)
+        return {"apply": False, "fname": fname, "header": is_header}
     stored_modules = tuple(
         module
         for module, _, _ in (
@@ -553,6 +713,7 @@ def scan_globals(
     cfg: ProjectConfig | None = None,
     *,
     record_roles: bool = True,
+    declarations: bool = True,
     fact_cache: dict[str, dict[str, Any]] | None = None,
     facts_out: dict[str, dict[str, Any]] | None = None,
 ) -> ScanResult:
@@ -637,7 +798,19 @@ def scan_globals(
     use_facts = not record_roles
     cached_facts = fact_cache if use_facts else None
     recorded_facts = facts_out if use_facts else None
+    # declarations=False is the reloc name map. It records files the stores
+    # already name so the next process does not read them again.
+    name_cover = _begin_name_cover(metadata_dir) if not declarations else None
     for cfile in iter_sources_and_headers(src_dir, cfg):
+        # A cover hit has no names to add. Callers that keep per-file facts
+        # still take the collect path; verify preparation does not.
+        if (
+            name_cover is not None
+            and cached_facts is None
+            and recorded_facts is None
+            and _name_cover_hit(name_cover, cfile)
+        ):
+            continue
         fact_key = _scan_fact_key(cfile)
         facts = cached_facts.get(fact_key) if cached_facts is not None else None
         if not _usable_scan_fact(facts):
@@ -650,6 +823,8 @@ def scan_globals(
                 inactive_sources=inactive_sources,
                 record_roles=record_roles,
                 file_roles=file_roles,
+                declarations=declarations,
+                name_cover=name_cover,
             )
         if facts is None:
             continue
@@ -672,6 +847,8 @@ def scan_globals(
             mark=_mark,
             header_files=header_files,
         )
+    if name_cover is not None:
+        _flush_name_cover(name_cover)
 
     for (name, va), entry in by_key.items():
         if va and name in result.globals and result.globals[name] is not entry:
@@ -789,6 +966,9 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
             target_name=target_module(cfg),
             metadata_dir=cfg.metadata_dir if cfg else src_dir,
             project_root=getattr(cfg, "root", None),
+            # The data list records identity, size, and section. Calling
+            # conventions are a function-verify concern.
+            with_prototypes=False,
         ):
             if ann.is_data:
                 # Metadata root is cfg.metadata_dir; cfile.parent would

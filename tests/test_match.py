@@ -2279,7 +2279,7 @@ class TestBatchWriteLock:
 
     def test_match_routes_through_flock_lock(self) -> None:
         import rebrew.match_run as match_mod
-        import rebrew.metadata.document as lock_mod
+        import rebrew.metadata.storage as lock_mod
 
         assert match_mod.metadata_write_lock is lock_mod.metadata_write_lock
         assert not hasattr(match_mod, "_metadata_lock")
@@ -2308,10 +2308,12 @@ class TestBatchWriteLock:
         synchronize on the same published Lock (no separate get-then-set)."""
         import threading
 
-        import rebrew.metadata.document as lock_mod
+        import rebrew.metadata.storage as lock_mod
 
         name = "first-touch-probe.toml"
-        lock_mod.METADATA_WRITE_LOCKS.pop(name, None)
+        from rebrew.metadata.locking import METADATA_WRITE_LOCKS
+
+        METADATA_WRITE_LOCKS.pop(name, None)
         total = 0
         barrier = threading.Barrier(8)
 
@@ -2330,7 +2332,7 @@ class TestBatchWriteLock:
         assert total == 200
         # Reentrant: the GA batch holds the lock across update_stub_to_matched,
         # whose STATUS promotion locks the same file again.
-        assert isinstance(lock_mod.METADATA_WRITE_LOCKS[name], type(threading.RLock()))
+        assert isinstance(METADATA_WRITE_LOCKS[name], type(threading.RLock()))
 
 
 class TestFlagSweepDeadline:

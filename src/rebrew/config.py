@@ -41,7 +41,7 @@ from urllib.parse import urlparse
 
 from rebrew.compiler.toolchain_spec import FlagsStyle
 from rebrew.errors import RebrewError
-from rebrew.metadata.document import metadata_write_lock
+from rebrew.metadata.storage import metadata_store, metadata_write_lock
 from rebrew.utils import (
     BYTES_PER_MIB,
     console,
@@ -516,6 +516,7 @@ class ProjectConfig:
     check_known_bindings: bool = False  # reject contradictory mapped native operands
 
     # --- project-level defaults ---
+    metadata_backend: str = "toml"
     project_name: str = ""
     default_jobs: int = DEFAULT_PROJECT_JOBS  # see DEFAULT_PROJECT_JOBS
     output_dir: Path = field(default_factory=lambda: Path())
@@ -771,11 +772,11 @@ class ProjectConfig:
         # The outermost store found wins, so every target of a multi-target
         # project reads and writes the same file.
         outermost: Path | None = None
-        if (self.reversed_dir / METADATA_FILENAME).exists():
+        if metadata_store(self.reversed_dir / METADATA_FILENAME).exists():
             outermost = self.reversed_dir
         candidate = parent
         while True:
-            if (candidate / METADATA_FILENAME).exists():
+            if metadata_store(candidate / METADATA_FILENAME).exists():
                 outermost = candidate
             if candidate == candidate.parent:
                 break
@@ -855,6 +856,7 @@ class ProjectConfig:
             "llm_max_tokens": self.llm_max_tokens,
             "llm_timeout": self.llm_timeout,
             "cache_backend": self.cache_backend,
+            "metadata_backend": self.metadata_backend,
             # The resolved cap, not the raw field: 0 means "unset" and falls
             # back to the backend default, which is the value that matters.
             "cache_size_limit_mib": self.cache_size_limit_mib or DEFAULT_CACHE_SIZE_LIMIT_MIB,
@@ -2147,7 +2149,7 @@ def find_root(start: Path | str | None = None) -> Path:
 # Known TOML keys — validated at load time to catch typos
 # ---------------------------------------------------------------------------
 
-_KNOWN_TOP_KEYS = {"targets", "compiler", "project", "link", "llm", "cache"}
+_KNOWN_TOP_KEYS = {"targets", "compiler", "project", "link", "llm", "cache", "metadata"}
 
 _KNOWN_CACHE_KEYS = {"backend", "size_limit_mib"}
 
@@ -2851,6 +2853,13 @@ def load_config(
         if size_mib < 0:
             raise ConfigError("rebrew-project.toml [cache].size_limit_mib must be >= 0")
         cfg.cache_size_limit_mib = size_mib
+
+    from rebrew.metadata.storage import validate_backend_settings
+
+    try:
+        cfg.metadata_backend = validate_backend_settings(raw.get("metadata", {}))
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
 
     cfg.validate()
     return cfg

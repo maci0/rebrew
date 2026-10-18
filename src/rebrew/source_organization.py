@@ -18,6 +18,7 @@ from rebrew.config import ProjectConfig, load_config, target_module
 from rebrew.formats.binary_loader import load_binary
 from rebrew.formats.pe_headers import SECTION_ENTRY_SIZE, pe_layout
 from rebrew.metadata.bindings import FUNCTION_KINDS, read_source_bindings
+from rebrew.metadata.storage import input_exists, metadata_store_paths, snapshot_input
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.source_contracts import contract_contexts
 from rebrew.source_selection import collect_target_sources
@@ -77,14 +78,16 @@ def review_organization(
                 )
             ),
         }
+        candidates.update(metadata_store_paths(cfg.metadata_dir))
         for source in paths:
             for parent in (source.parent, *source.parents):
                 if parent == cfg.root.resolve().parent:
                     break
-                candidates.add(parent / "rebrew-libraries.toml")
+                library = parent / "rebrew-libraries.toml"
+                candidates.add(library)
         for candidate in candidates:
-            if candidate.is_file():
-                inputs.setdefault(candidate, candidate.read_bytes())
+            if input_exists(candidate):
+                inputs.setdefault(candidate, snapshot_input(candidate))
             else:
                 absent_inputs.add(candidate)
     definitions: dict[str, dict[str, Any]] = {}
@@ -178,7 +181,7 @@ def review_organization(
         contexts, missing = contract_contexts(cfg, selected_sources=active)
         unknown.extend({"target": cfg.target_name, **item} for item in missing)
         for path in contexts:
-            inputs.setdefault(path, path.read_bytes())
+            inputs.setdefault(path, snapshot_input(path))
         header_locals: list[dict[str, Any]] = []
         for header, users in contexts.items():
             if header in paths:
@@ -304,8 +307,8 @@ def review_organization(
                 continue
             graph[after].add(before)
             edges.append({"target": cfg.target_name, "before": before, "after": after})
-        for path in cfg.metadata_dir.glob("rebrew-*.toml"):
-            inputs.setdefault(path, path.read_bytes())
+        for path in metadata_store_paths(cfg.metadata_dir):
+            inputs.setdefault(path, snapshot_input(path))
         if (cfg.root / "rebrew-project.toml").is_file():
             inputs.setdefault(
                 cfg.root / "rebrew-project.toml", (cfg.root / "rebrew-project.toml").read_bytes()
@@ -345,8 +348,8 @@ def review_organization(
                 "resolution": "review native bindings or split source units; do not choose one target's order",
             }
         )
-    if any(path.read_bytes() != raw for path, raw in inputs.items()) or any(
-        path.exists() for path in absent_inputs
+    if any(snapshot_input(path) != raw for path, raw in inputs.items()) or any(
+        input_exists(path) for path in absent_inputs
     ):
         raise ValueError("organization review inputs changed while reading")
     input_hashes = {

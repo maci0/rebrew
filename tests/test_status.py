@@ -690,7 +690,7 @@ class TestCollectStatus:
         (src / "function_structure.json").write_text("[]", encoding="utf-8")
 
         cache_dir = tmp_path / ".rebrew"
-        cache_dir.mkdir()
+        cache_dir.mkdir(exist_ok=True)
         cache_data = {
             "version": 2,
             "target": "test",
@@ -744,7 +744,7 @@ class TestCollectStatus:
         src.mkdir()
         (src / "function_structure.json").write_text("[]", encoding="utf-8")
         cache_dir = tmp_path / ".rebrew"
-        cache_dir.mkdir()
+        cache_dir.mkdir(exist_ok=True)
         (cache_dir / "verify_cache.toml").write_text(
             cache_text(
                 {
@@ -889,7 +889,7 @@ class TestCollectStatus:
 
         # Verify cache says func_b is MISMATCH and func_c is COMPILE_ERROR
         cache_dir = tmp_path / ".rebrew"
-        cache_dir.mkdir()
+        cache_dir.mkdir(exist_ok=True)
         cache_data = {
             "version": 2,
             "target": "test",
@@ -959,7 +959,7 @@ class TestCollectStatus:
             encoding="utf-8",
         )
         cache_dir = tmp_path / ".rebrew"
-        cache_dir.mkdir()
+        cache_dir.mkdir(exist_ok=True)
         (cache_dir / "verify_cache.toml").write_text(
             cache_text(
                 {
@@ -1005,7 +1005,7 @@ class TestCollectStatus:
 
         update_source_status(tmp_path, "EXACT", "TEST", 0x1000, clear_blockers=False)
         cache_dir = tmp_path / ".rebrew"
-        cache_dir.mkdir()
+        cache_dir.mkdir(exist_ok=True)
         (cache_dir / "verify_cache.toml").write_text(
             cache_text(
                 {

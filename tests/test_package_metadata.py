@@ -24,6 +24,7 @@ import importlib
 import re
 import sys
 import tomllib
+from functools import cache
 from importlib.metadata import distribution
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -86,6 +87,8 @@ _PIN_ONLY_REQUIREMENTS = {
     "RCE-class advisory fix (3.1.58+) that angr's own range does not",
     "idna": "httpx pulls it for IDNA; the floor forces the Unicode-property DoS "
     "fix (3.15+) through httpx's tree, which is left unpinned upstream",
+    "bitstring": "pyvex (the prove extra) imports ConstBitStream from it; the <5 "
+    "cap keeps a bitstring major that removed that API from breaking angr",
 }
 
 # ``rebrew`` itself is the package under test, not a dependency of itself.
@@ -121,8 +124,14 @@ def _imported_modules(root: Path = SRC) -> set[str]:
     """Top-level modules imported, statically or by name, under ``root``.
 
     One parse per file. The static import walk and the dynamic-helper walk
-    used to each read and parse the tree.
+    used to each read and parse the tree. A repeated call for the same path
+    reuses that result. The suite does not rewrite a path it has already scanned.
     """
+    return _imported_modules_cached(root)
+
+
+@cache
+def _imported_modules_cached(root: Path) -> set[str]:
     found: set[str] = set()
     paths = [root] if root.is_file() else root.rglob("*.py")
     for path in paths:
@@ -392,9 +401,13 @@ class TestDevTreeDependencies:
             return real_parse(source, filename, *args, **kwargs)
 
         monkeypatch.setattr(ast, "parse", _count)
+        _imported_modules_cached.cache_clear()
         found = _imported_modules(tree)
         assert {"os", "json", "sys"} <= found
         assert sorted(parsed) == sorted(str(path) for path in tree.glob("*.py"))
+        parsed.clear()
+        assert _imported_modules(tree) == found
+        assert parsed == []
 
     def test_every_dev_tree_import_is_declared(self) -> None:
         stdlib = set(sys.stdlib_module_names)

@@ -3,6 +3,206 @@
 Measured facts about where rebrew's hot paths spend time, and what was done
 (and deliberately *not* done) about it.
 
+## Metadata store resolution (2026-10-19)
+
+The backend-neutral storage layer resolves a logical store per cached read,
+so `metadata_store()` is on the same hot path as the document fingerprint.
+The first version walked the project ancestors, re-read the config, rebuilt
+the backend tuple and constructed a new store object on every call; a
+whole-tree scan calls it once per source file.
+
+Measured as process CPU time medians (Python 3.13.15, Ryzen 9 9950X, CPU 2)
+on a project with `rebrew-project.toml`, 2,000 iterations:
+
+| Path | Before | After |
+|---|---:|---:|
+| `metadata_store()` resolution | 39.5 ms | 11.9 ms |
+| cached `load_metadata`, 4,000-row store | 34.7 ms | 25.3 ms |
+| cached `load_metadata`, store in six fragments | 44.4 ms | 35.4 ms |
+
+The after numbers match the pre-storage-layer measurements in
+"Metadata drop-in hot paths" (25.4 / 35.5 ms), so the backend layer is now
+cost-neutral on the read path. The project root is memoized per directory
+(misses are not cached, so a later config is still found), built-in stores
+are cached per identity, and callers that already resolved the path pass
+`resolved=True` to `load_metadata_doc` so the read does not walk every
+component again. Plugin backends are constructed fresh per call.
+
+Gates: `test_store_resolution_caches_the_project_walk_and_instance` asserts
+zero ancestor walks and one instance across repeated resolution;
+`test_hot_load_does_not_resolve_an_already_resolved_path` asserts zero
+`Path.resolve` calls on repeated cached reads. Both count calls, so they do
+not move with scheduler load.
+
+## CLI startup object graph (2026-10-19)
+
+typer, click, rich and the registries are imported before the command runs and
+stay live for the process. A command that allocates thousands of rows triggers
+full collections that rescan that import graph. The umbrella entry point now
+runs `gc.collect(); gc.freeze()` once before dispatch, so the startup graph sits
+in the permanent generation while everything allocated afterwards stays
+collectable (watch and server modes still collect their own garbage).
+
+Measured as fresh-process CPU time (Python 3.13.15, Ryzen 9 9950X, CPU 2),
+paired wrappers that differ only in the freeze call:
+
+| Command | No freeze | Freeze |
+|---|---:|---:|
+| `status --json`, 5,000-function synthetic project | 0.863 s | 0.733 s |
+| `--version` | 0.430 s | 0.349 s |
+
+The 5,000-row command is the synthetic project from
+`.scratch/perf-review/`; no guild command was measurable on this checkout.
+`gc.get_freeze_count()` is the gate:
+`test_startup_freeze_is_one_shot` asserts the first call moves tracked objects
+to the permanent generation and a second call does not move more, so the
+command's own allocations are not frozen alongside the import graph.
+
+## Todo caller counts (2026-10-19)
+
+`_caller_counts` reuses `.rebrew/extern-names.json`, but a warm scan used to
+resolve every source path twice: once for the cache key and once inside
+`rel_display_path` for the matched-file filter. A walked source path is
+already real and absolute, so the key is its spelling and the display path is
+a prefix slice; only a relative spelling or a shared-root file falls back to
+the resolving helpers.
+
+Measured as process CPU time medians (Python 3.13.15, Ryzen 9 9950X, CPU 2),
+7,000 sources with one extern each, matched-file filter active, the tree walk
+shared outside the timed call:
+
+| Path | Before | After |
+|---|---:|---:|
+| warm `_caller_counts`, 7,000 files | 97.3 ms | 35.4 ms |
+
+That is 2.75x on the warm caller-count path; including its own tree walk the
+same workload measures 133.8 ms to 65.0 ms (2.06x). The recorded `todo`
+sample below spent 0.183s in caller counts. Gate:
+`test_warm_scan_does_not_resolve_absolute_paths` asserts zero `Path.resolve`
+calls for a warm scan over an absolute `reversed_dir`; counts still identify
+the same files because the walk yields one spelling per source.
+
+## Compiled-source row binding (2026-10-19)
+
+`compiled_source_annotations` builds one row per function for `status`. The
+base containment and the display prefix depend only on the project paths, so
+they are computed once per call now instead of once per row. Previously every
+in-tree row ran `Path.is_relative_to` plus `rel_display_path`
+(`relative_to`/`as_posix`).
+
+Measured as process CPU time medians (Python 3.13.15, Ryzen 9 9950X, CPU 2),
+5,000 rows under `src/`, project root as the metadata base:
+
+| Path | Before | After |
+|---|---:|---:|
+| `compiled_source_annotations`, 5,000 rows | 97.6 ms | 62.9 ms |
+
+That is 1.55x on the row build. The `status` sample recorded below spent
+0.118s in that build for 4,995 GOLDTL rows, so the same shape should give back
+roughly 40ms there. Rows with a symlink, an unresolved base, or a path outside
+`root` still go through `bind_compiled_source`, which resolves and raises
+where the old code did; a display prefix that would need normalization falls
+back to `rel_display_path`. Gate:
+`test_plain_rows_do_not_walk_display_paths` asserts zero `rel_display_path`
+calls for plain in-tree rows.
+
+## Metadata drop-in hot paths (2026-10-19)
+
+Drop-in fragments are read on every cached metadata load and rewritten by every
+locked edit, so both paths cost what the number of fragments makes them cost.
+Measured as process CPU time medians (Python 3.13.15, Ryzen 9 9950X, CPU 2).
+
+A 4,000-row functions store, one store versus six fragments:
+
+| Path | Before | After |
+|---|---:|---:|
+| fingerprint, 2,000 calls, one file | 7.54 ms | 5.43 ms |
+| fingerprint, 2,000 calls, six fragments | 61.36 ms | 19.72 ms |
+| cached `load_metadata`, 2,000 calls, one file | 27.33 ms | 25.42 ms |
+| cached `load_metadata`, 2,000 calls, six fragments | 77.18 ms | 35.50 ms |
+| one `update_field` edit, six fragments | 4,346 ms | 2,560 ms |
+| one `update_field` edit, one file | 1,552 ms | 1,370 ms |
+
+`metadata_fingerprint` walks the drop-in directory itself with `os.scandir`
+and stats each file once. It used to go through `metadata_paths`, which
+stats the main file and stats every fragment to answer `is_file`, then stats
+all of them again. The write path no longer parses the whole collection a
+second time to re-check duplicates (the caller already loaded and validated
+it), and it deep-copies and renders only the members the edit touches. A
+single-file store takes the unchanged direct-write fast path.
+
+The remaining cost against a single-file store is one directory check per
+cached read, because a new or removed fragment has to be visible without a
+restart. Cached `load_metadata` on one file measured 11.2 µs per call before
+drop-in support and 12.7 µs after; a 100-file binding scan measures
+about 4-7% slower for the same reason. Paying it per read is the price of
+live discovery; a project with six fragments now pays 17.8 µs per scan
+instead of 38.6 µs.
+
+Gates, not thresholds: `test_fingerprint_stats_each_input_once` asserts one
+`Path.stat` for the main file and one `os.scandir` for the directory
+regardless of fragment count, and
+`test_edit_parses_and_dumps_only_the_owning_fragment` asserts six fragment
+loads (three in the caller's load, three in the write) and two `tomlkit.dumps`
+renders for an edit that changes one record. Both counts are independent of
+scheduler load.
+
+## Status, todo, and verify preparation (2026-10-18)
+
+Measured with process CPU time (`getrusage`) on the guild-rebrew tree, one
+sample each, scheduler wait excluded.
+
+| Command | Before | After, warm store |
+|---|---:|---:|
+| `status` server.dll | 2.722s | 0.445s |
+| `status` Europa1400Gold_TL.exe | 3.346s | 1.150s |
+| `todo` server.dll | 4.173s | 1.474s |
+| verify preparation, server.dll | 9.951s | 1.452s |
+
+The function store is an 11MB TOML. The first load in a process still parses
+it. Later processes read the parsed rows from `.rebrew/metadata-doc/` when
+the store's fingerprint matches, and a changed store parses again. The gate
+is `TestParsedDocumentCache.test_second_load_does_not_parse_again`: one
+`tomllib` load, then zero, then one more after the text changes.
+
+Verify preparation was spending 7.278s inside `build_name_to_va`, reparsing
+sources whose addresses the stores already name. That call now skips the C
+parse for those files. An address that is only in the source is still parsed.
+The gate is `test_stored_address_is_not_parsed_again`.
+
+A second pass stores the two results that were still re-done in every
+process. `rebrew todo` writes `.rebrew/extern-names.json`, keyed by file
+stamp. A source that does not contain `extern` is stored empty, with no parse.
+A byte-matched caller is ignored after that lookup, so the count for a
+matched file stays the same. Verify preparation writes
+`.rebrew/name-map-cover.json` for files the stores already name, and a
+later process stats those files. The source and header list is one
+directory walk. On guild-rebrew, one warm sample moved
+server `todo` from 1.474s to 0.914s, of which caller counts were 0.183s
+(251 functions, 0 actions), and server verify preparation from 1.452s to
+1.019s, with 10 source reads. The gates are the extern-parser call count,
+the source-read count, and the one-walk source list.
+
+A later sample on the same tree, still process CPU:
+
+| Command | Warm sample |
+|---|---:|
+| `status` Europa1400Gold_TL.exe | 0.825s (4,995/4,996 covered) |
+| `todo` server.dll | 0.611s (251 functions, 0 actions) |
+| verify preparation, server.dll | 0.954s (316 entries, 10 source reads) |
+
+Compiled-source rows for a plain relative path use that path directly.
+A symlink, or a directory that does not resolve to itself, still resolves.
+On GOLDTL that row build was 0.333s and is 0.118s in the status sample.
+The verify cache writes `.rebrew/verify_cache.json` after a TOML parse;
+the next process loads that document (0.045s for three status reads, where
+the TOML parse alone had been 0.164s). `rebrew todo` walks the source tree
+once and hands that list to the inventory and the caller count. `rebrew data`
+still spends 4.612s in `scan_globals` recording types and use sites. Its
+separate annotation walk skips function-prototype parses; one sample of
+that walk was 3.339s and returned 664 rows. The new gates are the symlink
+rejection, the verify-cache parse count, and the prototype call count.
+
 ## Metadata-backed inventories (2026-10-18)
 
 Status/todo and verification preparation use stored function identities without
@@ -250,6 +450,25 @@ name-visit count for a 1-statement body and a 400-statement body).
 recompile client's `sleep` seam and asserts the backoff delays. One delay is
 recorded per retried attempt. The test does not wait on the clock, so the
 retry count does not move with scheduler load.
+
+The packaging pointer scan reads every module and parses only those whose
+text contains `docs/`. Docstrings are dropped in that same walk. The gate is
+`TestUserFacingDocPointers.test_pointer_scan_skips_files_that_do_not_name_docs`:
+one `ast.parse` for a file that names a doc, and zero for a file that does not.
+That count does not move with scheduler load.
+
+`test_self_jump_chain_segments_one_block_per_jump` bounds the self-jump
+segmenter with process CPU time (`getrusage`), and
+`test_enumerate_ne_functions_sweep_is_bounded` bounds the NE sweep with the
+bytes fed to the disassembler. Neither gate reads the wall clock.
+
+Import and class scans of the package walk statements
+(`tests/stmt_walk.py`), not every expression. A 400-term arithmetic
+expression has the same statement count as a 2-term one
+(`test_expression_size_does_not_change_the_statement_count`). Provenance
+tags, sandbox prefixes, exception classes, and the dependency import set
+are parsed once per path and reused. A second call records no further
+`ast.parse`. Those counts do not move with scheduler load.
 
 ## What was measured and rejected
 

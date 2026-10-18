@@ -451,12 +451,41 @@ class TestLoadVerifyCacheRaw:
         cfg = SimpleNamespace(root=tmp_path)
         assert vc_mod.load_verify_cache_raw(cfg) == {"version": 1}
         assert len(vc_mod._VERIFY_CACHE_MEMO) == 1
+        assert (cache_dir / "verify_cache.json").is_file()
         path.write_text("version = 2\n", encoding="utf-8")
         assert vc_mod.load_verify_cache_raw(cfg) == {"version": 2}
         assert len(vc_mod._VERIFY_CACHE_MEMO) == 1
         only_key = next(iter(vc_mod._VERIFY_CACHE_MEMO))
         assert only_key[0] == str(path)
         assert vc_mod._VERIFY_CACHE_MEMO[only_key] == {"version": 2}
+
+    def test_verify_cache_json_skips_the_toml_parse(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A second process reads the decoded document and does not parse TOML."""
+        from types import SimpleNamespace
+
+        import rebrew.verify_cache as vc_mod
+
+        monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        (cache_dir / "verify_cache.toml").write_text(
+            'version = 1\ncontext_hash = ""\n', encoding="utf-8"
+        )
+        cfg = SimpleNamespace(root=tmp_path)
+        assert vc_mod.load_verify_cache_raw(cfg) == {"version": 1, "context_hash": None}
+        monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
+        calls = {"n": 0}
+        real = vc_mod._read_cache_document
+
+        def counting(path: Path) -> dict:
+            calls["n"] += 1
+            return real(path)
+
+        monkeypatch.setattr(vc_mod, "_read_cache_document", counting)
+        assert vc_mod.load_verify_cache_raw(cfg) == {"version": 1, "context_hash": None}
+        assert calls["n"] == 0
 
     def test_verify_cache_memo_misses_same_size_rename_over(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

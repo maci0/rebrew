@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from cli_json import cli_payload
+from tree_snapshot import snapshot, snapshot_with_stat
 
 from rebrew.config import ProjectConfig
 from rebrew.metadata.functions import record_function_identity
@@ -163,11 +164,11 @@ class TestContractReconciliation:
         self, tmp_path: Path
     ) -> None:
         cfg = _project(tmp_path)
-        before = {p: (p.read_bytes(), p.stat()) for p in tmp_path.rglob("*") if p.is_file()}
+        before = snapshot_with_stat(tmp_path)
         preview = reconcile_contract(
             [cfg], "queue", Path("src/api.h"), "int queue(int value)", dry_run=True
         )
-        assert before == {p: (p.read_bytes(), p.stat()) for p in tmp_path.rglob("*") if p.is_file()}
+        assert before == snapshot_with_stat(tmp_path)
         assert preview["verification_required"] and len(preview["calls"]) == 1
         metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
         reconcile_contract(
@@ -197,10 +198,10 @@ class TestContractReconciliation:
     )
     def test_bad_replacement_writes_nothing(self, tmp_path: Path, prototype: str) -> None:
         cfg = _project(tmp_path)
-        before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        before = snapshot(tmp_path)
         with pytest.raises(ValueError):
             reconcile_contract([cfg], "queue", Path("src/api.h"), prototype)
-        assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        assert before == snapshot(tmp_path)
 
     def test_stale_preview_rejected(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
@@ -357,7 +358,7 @@ class TestReleaseContractControls:
         malformed.write_text("int queue(int x) { if (\n")
         if header:
             (cfg.reversed_dir / "user.c").write_text('#include "api.h"\n')
-        before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        before = snapshot(tmp_path)
         report = audit_contracts(cfg, name="queue")
         assert any(
             row["file"] == str(malformed) and "parse errors" in row["reason"]
@@ -373,15 +374,15 @@ class TestReleaseContractControls:
         assert cli_payload(result)["unknown"]
         with pytest.raises(ValueError, match="incomplete"):
             reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
-        assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        assert before == snapshot(tmp_path)
 
     def test_unused_canonical_header_parse_errors_block_writes(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
         (cfg.reversed_dir / "api.h").write_text("int queue(int value);\nint broken(\n")
-        before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        before = snapshot(tmp_path)
         with pytest.raises(ValueError, match="canonical header.*parse errors"):
             reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
-        assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        assert before == snapshot(tmp_path)
 
     @pytest.mark.parametrize("convention", ["", "__cdecl", "__stdcall", "__fastcall", "WINAPI"])
     @pytest.mark.parametrize("return_type", ["int", "void", "void *"])
@@ -395,14 +396,14 @@ class TestReleaseContractControls:
         )
         proposed_return = "void *" if return_type == "void *" else "void"
         prototype = f"{proposed_return} {convention} queue(int value)"
-        before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        before = snapshot(tmp_path)
         if return_type == "int":
             with pytest.raises(ValueError, match="return statements"):
                 reconcile_contract([cfg], "queue", Path("src/api.h"), prototype, dry_run=True)
         else:
             preview = reconcile_contract([cfg], "queue", Path("src/api.h"), prototype, dry_run=True)
             assert preview["verification_required"]
-        assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        assert before == snapshot(tmp_path)
 
 
 class TestCallbackTypedefContracts:

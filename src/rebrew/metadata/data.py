@@ -8,6 +8,7 @@ replacement. Data comparison evidence remains separate from ordinary edit stamps
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -25,7 +26,6 @@ from rebrew.metadata.document import (
     build_metadata_key_index,
     load_metadata_doc,
     load_metadata_for_write,
-    metadata_write_lock,
     pop_metadata_doc_cache,
     qualified_key,
     resolve_metadata_key,
@@ -42,7 +42,7 @@ from rebrew.metadata.functions import (
     validate_identity_file,
     validate_provenance_table,
 )
-from rebrew.utils import atomic_write_locked
+from rebrew.metadata.storage import metadata_store, metadata_write_lock
 
 if TYPE_CHECKING:
     from rebrew.metadata.bindings import SourceBinding
@@ -93,6 +93,7 @@ def data_file_index(
         "data metadata",
         deepcopy=False,
         known_fields=DATA_METADATA_FIELDS,
+        resolved=True,
     )
     if not cached:
         return {}
@@ -244,6 +245,7 @@ __all__ = [
     "data_status_bucket",
     "data_definition_hash",
     "load_data_metadata",
+    "load_data_document",
     "save_data_metadata",
     "iter_data_symbols",
     "get_data_entry",
@@ -384,14 +386,31 @@ def module_visible_to_target(module: str, cfg: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def load_data_document(path: Path) -> dict[str, Any]:
+    """Read a data store by filename, including its drop-ins, as a qualified-key document."""
+    path = path.resolve()
+    rows = load_metadata_doc(
+        path,
+        _data_metadata_cache,
+        "data metadata",
+        deepcopy=False,
+        known_fields=DATA_METADATA_FIELDS,
+        resolved=True,
+    )
+    return {
+        "format": 2,
+        **{qualified_key(module, va): dict(row) for (module, va), row in rows.items()},
+    }
+
+
 def load_data_metadata(directory: Path | str | Any) -> dict[tuple[str, int], dict[str, Any]]:
-    """Load ``rebrew-data.toml`` from *directory*.
+    """Load ``rebrew-data.toml`` and its ``.d/*.toml`` fragments from *directory*.
 
     *directory* must be the metadata root (``cfg.metadata_dir``), path string, or config.  There is
-    no walk-up — the file is expected at exactly ``directory / rebrew-data.toml``.
+    no walk-up — the main file and drop-in directory live directly under *directory*.
 
     Returns a mapping of ``{(module, va_int): {field_name: value}}``.
-    Returns an empty dict if no metadata file is found or it cannot be parsed.
+    Returns an empty dict when the store is absent; malformed or unreadable files raise.
 
     Args:
         directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
@@ -399,13 +418,6 @@ def load_data_metadata(directory: Path | str | Any) -> dict[tuple[str, int], dic
     """
     dir_path = resolve_metadata_dir(directory)
     path = (dir_path / DATA_METADATA_FILENAME).resolve()
-    if not path.exists():
-        # Drop any parse of a file that has since been deleted: the early
-        # return bypasses load_metadata_doc, which pops on a missing path, so
-        # the table would otherwise stay pinned for the process lifetime.
-        pop_metadata_doc_cache(_data_metadata_cache, path)
-        return {}
-
     # Shared loader: tomllib reads (fast), mtime-keyed cache — same
     # mechanism as rebrew-functions.toml (metadata/functions.py).  deepcopy=False:
     # this function already returns a shallow copy of the outer map and
@@ -416,6 +428,7 @@ def load_data_metadata(directory: Path | str | Any) -> dict[tuple[str, int], dic
         "data metadata",
         deepcopy=False,
         known_fields=DATA_METADATA_FIELDS,
+        resolved=True,
     )
     # Return a shallow copy of outer dict + each entry dict so callers cannot
     # mutate the cached object and corrupt subsequent reads.
@@ -447,6 +460,7 @@ def get_data_entry(directory: Path | str | Any, va: int, module: str) -> dict[st
         "data metadata",
         deepcopy=False,
         known_fields=DATA_METADATA_FIELDS,
+        resolved=True,
     )
     entry = cached.get((unicodedata.normalize("NFC", module), va))
     return dict(entry) if entry is not None else {}
@@ -464,7 +478,7 @@ def set_data_field(
 ) -> None:
     """Set one field for *(module, va)* in the data metadata.
 
-    Writes directly to ``directory / rebrew-data.toml``.  No walk-up.
+    Updates the owning file, or the main TOML for a new record. No walk-up.
     Uses in-place ``tomlkit`` editing to preserve formatting and comments.
 
     Args:
@@ -529,7 +543,7 @@ def set_data_fields_batch(
         changed_entries = _patch_data_document(doc, updates, now=now)
         if changed_entries:
             stamp_format(doc)
-            atomic_write_locked(path, tomlkit.dumps(doc))
+            metadata_store(path).write(doc, "metadata")
             _invalidate_data_cache(path)
     return changed_entries
 
@@ -552,10 +566,8 @@ _DATA_PATCH_FIELDS = frozenset(
 
 def _data_document_digest(path: Path) -> str:
     """Hash complete input bytes, distinguishing an absent store from an empty one."""
-    try:
-        content = b"present\0" + path.read_bytes()
-    except FileNotFoundError:
-        content = b"absent\0"
+    raw = metadata_store(path).snapshot()
+    content = b"absent\0" if raw is None else b"present\0" + raw
     return hashlib.sha256(content).hexdigest()
 
 
@@ -624,7 +636,7 @@ def patch_data_fields_batch(
             doc, digest, changed = prepare()
             if changed:
                 stamp_format(doc)
-                atomic_write_locked(path, tomlkit.dumps(doc))
+                metadata_store(path).write(doc, "metadata")
                 _invalidate_data_cache(path)
     return {"dry_run": dry_run, "input_digest": digest, "changed": changed}
 
@@ -719,7 +731,7 @@ def delete_data_entries_batch(directory: Path | str | Any, targets: list[tuple[s
         return 0
     dir_path = resolve_metadata_dir(directory)
     path = (dir_path / DATA_METADATA_FILENAME).resolve()
-    if not path.exists():
+    if not metadata_store(path).exists():
         return 0
     removed = 0
     with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
@@ -738,7 +750,7 @@ def delete_data_entries_batch(directory: Path | str | Any, targets: list[tuple[s
             removed += 1
         if removed:
             stamp_format(doc)
-            atomic_write_locked(path, tomlkit.dumps(doc))
+            metadata_store(path).write(doc, "metadata")
             _invalidate_data_cache(path)
     return removed
 
@@ -778,7 +790,11 @@ def move_data_entry(
         raise ValueError(f"VA must be non-negative, got {new_va:#x}")
     dir_path = resolve_metadata_dir(directory)
     path = dir_path / DATA_METADATA_FILENAME
-    with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
+    with (
+        contextlib.nullcontext()
+        if dry_run
+        else metadata_write_lock(dir_path, DATA_METADATA_FILENAME)
+    ):
         doc = load_metadata_for_write(path, "data metadata", known_fields=DATA_METADATA_FIELDS)
         index = build_metadata_key_index(doc)
         old_key = index.get((module, old_va))
@@ -822,7 +838,7 @@ def move_data_entry(
         stamp_provenance(table, "data", now=now)
         doc[qualified_key(module, new_va)] = table
         stamp_format(doc)
-        atomic_write_locked(path, tomlkit.dumps(doc))
+        metadata_store(path).write(doc, "metadata")
         _invalidate_data_cache(path)
     return moved
 
@@ -897,7 +913,7 @@ def record_data_rows(metadata_dir: Path | str | Any, rows: list[dict[str, Any]])
                     changed = True
         if changed:
             stamp_format(doc)
-            atomic_write_locked(path, tomlkit.dumps(doc))
+            metadata_store(path).write(doc, "metadata")
             _invalidate_data_cache(path)
 
 
@@ -990,7 +1006,6 @@ def save_data_metadata(
     directory: Path, rows: dict[tuple[str, int], dict[str, Any]], *, expected_hash: str | None
 ) -> None:
     """Write reviewed complete data rows, preserving their existing verdict evidence."""
-    import hashlib
 
     from rebrew.metadata.document import build_metadata_doc
 
@@ -998,13 +1013,16 @@ def save_data_metadata(
         key: {field: validate_data_field(field, value) for field, value in row.items()}
         for key, row in rows.items()
     }
-    doc = build_metadata_doc(
-        validated, ("file", "name", "kind", "type", "size", "section", "status")
-    )
     path = directory / DATA_METADATA_FILENAME
     with metadata_write_lock(directory, DATA_METADATA_FILENAME):
-        current = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+        existing = load_metadata_for_write(path, "data metadata", known_fields=DATA_METADATA_FIELDS)
+        doc = build_metadata_doc(
+            validated,
+            ("file", "name", "kind", "type", "size", "section", "status"),
+            existing=existing,
+        )
+        current = metadata_store(path).digest()
         if current != expected_hash:
             raise ValueError(f"{path} changed since its rows were reviewed")
-        atomic_write_locked(path, tomlkit.dumps(doc))
+        metadata_store(path).write(doc, "metadata")
         pop_metadata_doc_cache(_data_metadata_cache, path.resolve())

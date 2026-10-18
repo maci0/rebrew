@@ -4,6 +4,11 @@
 # Copy and adapt this file to rebrew-project.toml in your project root.
 # =============================================================================
 
+# Managed metadata storage (project configuration itself always stays TOML).
+# Use `rebrew metadata migrate sqlite --dry-run` before switching existing data.
+# [metadata]
+# backend = "toml" # default; "sqlite" is experimental
+
 # -----------------------------------------------------------------------------
 # Project-level Settings
 # -----------------------------------------------------------------------------

@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from bin_util import make_coff_obj, make_pe
+from tree_snapshot import snapshot_with_stat
 
 from rebrew.coff_reloc import build_name_to_va
 from rebrew.config import ProjectConfig
@@ -167,11 +168,11 @@ class TestReviewedNativeIdentity:
             b"\xb8" + struct.pack("<I", 0x401008) + b"\xc3\xcc\xccabc\0",
             _object(b"abc\0"),
         )
-        before = {p: (p.read_bytes(), p.stat()) for p in tmp_path.rglob("*") if p.is_file()}
+        before = snapshot_with_stat(tmp_path)
         preview = review_native_identity(
             cfg, 0x401000, obj, "_helper", reason="review", dry_run=True
         )
-        assert before == {p: (p.read_bytes(), p.stat()) for p in tmp_path.rglob("*") if p.is_file()}
+        assert before == snapshot_with_stat(tmp_path)
         assert "_helper" not in build_name_to_va(cfg)
         original = get_entry(cfg.metadata_dir, 0x401000, "GAME")
         review_native_identity(

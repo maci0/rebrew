@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import ast
 import json
+from functools import cache
 from pathlib import Path
 from typing import Any
 
 import pytest
+from stmt_walk import iter_statements
 
 from rebrew.compiler.recompile_client import RecompileError
 from rebrew.compiler.toolchain import ToolchainError
@@ -41,17 +43,20 @@ def _package_root() -> Path:
     return Path(rebrew.__file__).parent
 
 
+@cache
 def _exception_classes() -> list[tuple[Path, ast.ClassDef]]:
     """Every public exception class defined in the package, by source file.
 
     Membership is by base class, not by name: a class counts when it derives
     from a stdlib exception or from another class in this set.  Resolved to a
     fixpoint so a two-level hierarchy inside the package is followed.
+    The result is cached for the process: the suite does not rewrite these
+    sources between the two callers, and a second call does not parse again.
     """
     all_classes: list[tuple[Path, ast.ClassDef]] = []
     for path in sorted(_package_root().rglob("*.py")):
         tree = ast.parse(path.read_text(), filename=str(path))
-        for node in ast.walk(tree):
+        for node in iter_statements(tree):
             if isinstance(node, ast.ClassDef):
                 all_classes.append((path, node))
 
@@ -148,6 +153,25 @@ class TestHierarchyCoverage:
     AST-level so a new error class is caught without importing optional
     extras (angr, declib) that the suite does not install.
     """
+
+    def test_exception_scan_parses_each_file_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A second call does not parse. The count does not move with load."""
+        _exception_classes.cache_clear()
+        parses = 0
+        real_parse = ast.parse
+
+        def counting(source: str, *args: Any, **kwargs: Any) -> ast.AST:
+            nonlocal parses
+            parses += 1
+            tree: ast.AST = real_parse(source, *args, **kwargs)
+            return tree
+
+        monkeypatch.setattr(ast, "parse", counting)
+        first = _exception_classes()
+        once = parses
+        assert once > 0
+        assert _exception_classes() is first
+        assert parses == once
 
     def test_no_public_error_escapes_rebrew_error(self) -> None:
         classes = _exception_classes()

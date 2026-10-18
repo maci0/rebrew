@@ -44,7 +44,7 @@ class TestDataPatch:
 
         updates = [_update(name="g"), _update(size=4), _update(0x402000, type="int")]
         preview = patch_data_fields_batch(tmp_path, updates, dry_run=True)
-        with patch("rebrew.metadata.data.atomic_write_locked", wraps=atomic_write_locked) as write:
+        with patch("rebrew.metadata.files.atomic_write_locked", wraps=atomic_write_locked) as write:
             result = patch_data_fields_batch(
                 tmp_path, updates, expected_digest=preview["input_digest"]
             )
@@ -92,7 +92,7 @@ class TestDataPatch:
         from collections.abc import Iterator
         from contextlib import contextmanager
 
-        from rebrew.metadata.document import metadata_write_lock
+        from rebrew.metadata.storage import metadata_write_lock
 
         path = _measured(tmp_path)
         preview = patch_data_fields_batch(tmp_path, [_update(note="reviewed")], dry_run=True)

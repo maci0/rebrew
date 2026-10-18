@@ -348,11 +348,28 @@ def iter_sources_and_headers(
 
     Sources come first so a ``.c`` definition is recorded before a header
     redeclaration of the same name. A header the source-extension list
-    already includes is not yielded twice.
+    already includes is not yielded twice. One directory walk feeds both
+    halves, including the shared root when it is a different tree.
     """
-    sources = list(iter_sources(directory, cfg))
-    seen = {path.resolve() for path in sources}
-    return sources + [path for path in iter_headers(directory, cfg) if path.resolve() not in seen]
+    dir_path, cfg = _resolve_dir_and_cfg(directory, cfg)
+    extensions = {ext.lower() for ext in (source_exts(cfg) or [".c"])}
+    wanted = extensions | {".h"}
+    scanned = scan_files(dir_path)
+    files = _files_matching(dir_path, lambda path: path.suffix.lower() in wanted, scanned=scanned)
+    shared = _should_include_shared(dir_path, cfg)
+    if shared is not None:
+        shared_scan = scan_files(shared)
+        extra = _files_matching(
+            shared, lambda path: path.suffix.lower() in wanted, scanned=shared_scan
+        )
+        files = sorted(set(files) | set(extra))
+    sources = [path for path in files if path.suffix.lower() in extensions]
+    headers = [
+        path
+        for path in files
+        if path.suffix.lower() == ".h" and path.suffix.lower() not in extensions
+    ]
+    return sources + headers
 
 
 __all__ = [

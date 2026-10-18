@@ -20,6 +20,7 @@ from rebrew.metadata.data import (
     DATA_STATUS_VERIFIED,
     data_definition_hash,
     iter_data_symbols,
+    load_data_document,
 )
 
 
@@ -65,9 +66,8 @@ def verify_data_bytes(
     """
     from rebrew.data_layout import data_symbol_size
     from rebrew.metadata.data import module_visible_to_target
-    from rebrew.utils import load_tomllib
 
-    db = load_tomllib(metadata_path)
+    db = load_data_document(metadata_path)
     matched = 0
     mismatched: list[dict[str, Any]] = []
     missing: list[str] = []
@@ -217,9 +217,8 @@ def section_symbol_bytes(
     from rebrew.data_layout import data_symbol_size
     from rebrew.formats.binary_loader import load_binary
     from rebrew.metadata.data import module_visible_to_target
-    from rebrew.utils import load_tomllib
 
-    db = load_tomllib(metadata_path)
+    db = load_data_document(metadata_path)
     info = load_binary(binary_path)
     by_va: dict[int, bytes] = {}
     sizes: dict[int, int] = {}

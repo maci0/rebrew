@@ -3,6 +3,7 @@
 import hashlib
 from collections.abc import Sequence
 from contextlib import nullcontext
+from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,6 @@ from rebrew.metadata.document import (
     FUNCTION_FORMAT_VERSION,
     load_metadata_for_write,
     metadata_format,
-    metadata_write_lock,
     parse_metadata_doc,
 )
 from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, METADATA_FIELDS
@@ -25,9 +25,8 @@ from rebrew.metadata.source_schema import (
     validate_source_files,
     validate_source_metadata,
 )
+from rebrew.metadata.storage import metadata_store, metadata_write_lock
 from rebrew.utils import (
-    atomic_write_locked,
-    load_tomllib,
     preset_module_key,
     read_source_text,
 )
@@ -74,9 +73,9 @@ def function_definition_hashes(source: str) -> dict[str, str]:
 
 @lru_cache(maxsize=16)
 def _read(
-    path: Path, fingerprint: tuple[int, int, int, int]
+    path: Path, backend: str, root: Path, fingerprint: tuple[tuple[str, int, int, int, int], ...]
 ) -> tuple[tuple[AssemblyProvenance, ...], tuple["SourceFilePurpose", ...]]:
-    document = load_tomllib(path)
+    document = metadata_store(path, backend=backend, root=root).read("source metadata")
     parse_metadata_doc(
         document, known_fields=_FUNCTION_FIELDS, source=str(path), version=FUNCTION_FORMAT_VERSION
     )
@@ -88,11 +87,9 @@ def load_source_provenance(directory: Path) -> tuple[AssemblyProvenance, ...]:
     """Read immutable records, rejecting malformed stores instead of trusting evidence."""
     path = (directory / SOURCE_PROVENANCE_FILENAME).resolve()
     metadata_format(path)
-    try:
-        stat = path.stat()
-    except FileNotFoundError:
-        return ()
-    return _read(path, (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino))[0]
+    store = metadata_store(path)
+    fingerprint = store.fingerprint()
+    return _read(path, store.name, store.root, fingerprint)[0] if fingerprint else ()
 
 
 def document_assembly(
@@ -151,7 +148,7 @@ def document_assembly(
                 doc["definitions"] = tomlkit.table()
         else:
             definitions.setdefault(relative, {}).setdefault(symbol, {})[module] = entry
-        atomic_write_locked(path, tomlkit.dumps(store))
+        metadata_store(path).write(store, "function metadata")
     return report
 
 
@@ -166,9 +163,9 @@ def rename_source_provenance(
     """Follow mechanical source renames without making stale evidence current."""
     directory = directory.resolve()
     path = directory / SOURCE_PROVENANCE_FILENAME
-    if not edits or not path.exists():
+    if not edits or not metadata_store(path).exists():
         return
-    with metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
+    with nullcontext() if dry_run else metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
         store = load_metadata_for_write(path, "function metadata", known_fields=_FUNCTION_FIELDS)
         doc = store.setdefault("source", {"definitions": {}, "files": {}})
         definitions = doc["definitions"]
@@ -221,18 +218,16 @@ def rename_source_provenance(
                 definitions[new_relative] = records
                 changed = True
         if changed and not dry_run:
-            atomic_write_locked(path, tomlkit.dumps(store))
+            metadata_store(path).write(store, "function metadata")
 
 
 def load_source_files(directory: Path) -> tuple[SourceFilePurpose, ...]:
     """Read validated file metadata; source comments never supply file purpose."""
     path = (directory / SOURCE_PROVENANCE_FILENAME).resolve()
     metadata_format(path)
-    try:
-        stat = path.stat()
-    except FileNotFoundError:
-        return ()
-    return _read(path, (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino))[1]
+    store = metadata_store(path)
+    fingerprint = store.fingerprint()
+    return _read(path, store.name, store.root, fingerprint)[1] if fingerprint else ()
 
 
 def set_source_file(directory: Path, file: str, module: str, purpose: str) -> None:
@@ -248,7 +243,7 @@ def set_source_file(directory: Path, file: str, module: str, purpose: str) -> No
             return
         modules[preset_module_key(module)] = {"purpose": purpose}
         validate_source_metadata(doc)
-        atomic_write_locked(path, tomlkit.dumps(store))
+        metadata_store(path).write(store, "function metadata")
 
 
 def replace_source_metadata(
@@ -274,12 +269,12 @@ def replace_source_metadata(
     validate_source_metadata(doc)
     path = directory / SOURCE_PROVENANCE_FILENAME
     with metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
-        current = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+        current = metadata_store(path).digest()
         if current != expected_hash:
             raise ValueError(f"{path} changed since its records were reviewed")
         store = load_metadata_for_write(path, "function metadata", known_fields=_FUNCTION_FIELDS)
         store["source"] = doc
-        atomic_write_locked(path, tomlkit.dumps(store))
+        metadata_store(path).write(store, "function metadata")
 
 
 def consolidate_source_metadata(
@@ -288,24 +283,29 @@ def consolidate_source_metadata(
     """Upgrade reviewed format-2 functions and source evidence to the single format-3 store."""
     directory = directory.resolve()
     function_path = directory / SOURCE_PROVENANCE_FILENAME
-    source_path = directory / "rebrew-source.toml"
+    selected = metadata_store(function_path)
+    if selected.name != "toml":
+        raise ValueError("source consolidation requires the TOML backend; migrate to toml first")
+    legacy = metadata_store(directory / "rebrew-source.toml")
+    source_path = legacy.path
     with (
         nullcontext() if dry_run else metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME),
         nullcontext() if dry_run else metadata_write_lock(directory, source_path.name),
     ):
-        function_raw = function_path.read_bytes() if function_path.exists() else None
-        source_raw = source_path.read_bytes() if source_path.exists() else None
+        function_raw = selected.snapshot()
+        source_raw = legacy.snapshot()
         digest = hashlib.sha256()
         for name, raw in ((function_path.name, function_raw), (source_path.name, source_raw)):
             digest.update(name.encode())
             digest.update(b"\0missing\0" if raw is None else b"\0present\0" + raw)
         input_digest = digest.hexdigest()
         store = (
-            tomlkit.parse(function_raw.decode("utf-8-sig"))
+            selected.read("legacy function metadata", roundtrip=True)
             if function_raw is not None
             else tomlkit.document()
         )
         version = store.get("format", 2)
+        before_store = deepcopy(store)
         if (not isinstance(version, int) or isinstance(version, bool)) or version not in {
             2,
             FUNCTION_FORMAT_VERSION,
@@ -320,7 +320,7 @@ def consolidate_source_metadata(
             )
         imported: dict[str, Any] = {"definitions": {}, "files": {}}
         if source_raw is not None:
-            old_source = tomlkit.parse(source_raw.decode("utf-8-sig"))
+            old_source = legacy.read("legacy source metadata", roundtrip=True)
             if (
                 set(old_source) != {"format", "definitions", "files"}
                 or (
@@ -361,13 +361,13 @@ def consolidate_source_metadata(
                     "source metadata inputs changed or --expected-digest was not supplied; preview consolidation again"
                 )
             if changed:
-                atomic_write_locked(function_path, tomlkit.dumps(store))
+                selected.write(store, "function metadata")
                 try:
-                    source_path.unlink(missing_ok=True)
+                    legacy.remove()
                 except OSError:
                     if function_raw is None:
-                        function_path.unlink()
+                        selected.remove()
                     else:
-                        atomic_write_locked(function_path, function_raw.decode("utf-8"))
+                        selected.write(before_store, "function metadata")
                     raise
         return report

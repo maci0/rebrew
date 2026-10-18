@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import struct
 import tempfile
-import time
 from contextlib import suppress
 from pathlib import Path
 
@@ -377,10 +376,13 @@ def test_enumerate_ne_functions_sweep_is_bounded(fill: bytes) -> None:
 
     Every offset is a prolog candidate and none of them reaches a ``ret``,
     so each candidate decodes the rest of the segment.  The decode budget
-    caps that; without it a 64 KiB segment takes hours.
+    caps the bytes fed to the disassembler.  That byte count does not move
+    with scheduler load; without the budget a 64 KiB segment takes hours.
     """
+    import capstone
+
     from rebrew.formats.binary_model import BinaryInfo
-    from rebrew.formats.ne_loader import NeSegment, enumerate_ne_functions
+    from rebrew.formats.ne_loader import SWEEP_DECODE_BUDGET, NeSegment, enumerate_ne_functions
 
     segment = fill * 4096
     info = BinaryInfo(path=Path("fuzz.ne"), format="ne", _data=segment)
@@ -389,6 +391,20 @@ def test_enumerate_ne_functions_sweep_is_bounded(fill: bytes) -> None:
             index=1, file_offset=0, length=len(segment), flags=0, min_allocation=0, is_code=True
         )
     ]
-    started = time.monotonic()
-    assert isinstance(enumerate_ne_functions(info), list)
-    assert time.monotonic() - started < 30.0
+    fed = 0
+    real_disasm = capstone.Cs.disasm
+
+    def counting(self: capstone.Cs, code: bytes, offset: int, count: int = 0) -> object:
+        nonlocal fed
+        fed += len(code)
+        return real_disasm(self, code, offset, count)
+
+    capstone.Cs.disasm = counting
+    try:
+        assert isinstance(enumerate_ne_functions(info), list)
+        # The sweep stops at SWEEP_DECODE_BUDGET. Dedup then disassembles a
+        # truncated outer body, which is outside that budget. Twice the budget
+        # still rejects an uncapped sweep, whose cost is candidates times length.
+        assert fed <= SWEEP_DECODE_BUDGET * 2
+    finally:
+        capstone.Cs.disasm = real_disasm

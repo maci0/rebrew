@@ -17,7 +17,7 @@ declib BinSync state I/O: the artifact layer a `rebrew binsync` push/pull moves 
 | `git.py` | Sandboxed git invocations against that envelope |
 | `cli.py` | `rebrew binsync` umbrella: `push` / `pull` / `summary` (defined here) plus `init` / `diff` / `overlay` mounted as subcommands |
 
-Externals (the only top-level packages this one may import): `c_parser`, `catalog`, `cli`, `config`, `cross_import`, `data_scan`, `formats.binary_loader`, `metadata.bindings`, `metadata.document`, `metadata.data`, `metadata.functions`, `naming`, `rename_ops`, `sources`, `struct_parser`, `types`, `utils`, `verify_hash`. `declib` is imported only here, behind the `[binsync]` extra.
+Externals (the only top-level packages this one may import): `c_parser`, `catalog`, `cli`, `config`, `cross_import`, `data_scan`, `formats.binary_loader`, `metadata.bindings`, `metadata.document`, `metadata.data`, `metadata.functions`, `metadata.storage`, `naming`, `rename_ops`, `sources`, `struct_parser`, `types`, `utils`, `verify_hash`. `declib` is imported only here, behind the `[binsync]` extra.
 
 ## Contracts
 

@@ -1047,11 +1047,23 @@ def read_source_bindings(
     metadata_dir: Path | None = None,
     *,
     project_root: Path | None = None,
+    with_prototypes: bool = True,
 ) -> list[SourceBinding]:
-    """Read address anchors and canonical metadata; comments carry no state."""
+    """Read address anchors and canonical metadata; comments carry no state.
+
+    *with_prototypes* recovers calling conventions from definitions. A caller
+    that only needs identity, size, and section leaves it false and skips
+    that parse.
+    """
     text, _ = read_source_text(filepath)
     return source_bindings(
-        text, filepath, target_name, base_dir, metadata_dir, project_root=project_root
+        text,
+        filepath,
+        target_name,
+        base_dir,
+        metadata_dir,
+        project_root=project_root,
+        with_prototypes=with_prototypes,
     )
 
 

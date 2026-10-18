@@ -85,6 +85,7 @@ if TYPE_CHECKING:
     from rebrew.matcher.scoring import SimilarityUnavailable as SimilarityUnavailable
     from rebrew.metadata.functions import LibraryOverrideError as LibraryOverrideError
     from rebrew.metadata.model import MetadataValidationError as MetadataValidationError
+    from rebrew.metadata.sqlite import MetadataStorageError as MetadataStorageError
     from rebrew.orphans import OrphanInventoryError as OrphanInventoryError
     from rebrew.pdb_export import PdbExportError as PdbExportError
     from rebrew.registry import RegistryError as RegistryError
@@ -245,6 +246,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "LibIndexUnavailable": ("rebrew.doctor", "LibIndexUnavailable"),
     "McpApplyAborted": ("rebrew.ghidra.client", "McpApplyAborted"),
     "McpError": ("rebrew.ghidra.client", "McpError"),
+    "MetadataStorageError": ("rebrew.metadata.sqlite", "MetadataStorageError"),
     "MetadataValidationError": ("rebrew.metadata.model", "MetadataValidationError"),
     "Msvc16Error": ("rebrew.compiler.msvc16", "Msvc16Error"),
     "NeParseError": ("rebrew.formats.ne_loader", "NeParseError"),
@@ -347,6 +349,7 @@ __all__ = [
     "McpApplyAborted",
     "McpError",
     "McpErrorKind",
+    "MetadataStorageError",
     "MetadataValidationError",
     "Msvc16Error",
     "NeParseError",

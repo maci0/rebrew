@@ -948,6 +948,7 @@ def _name_map_identity(cfg: ProjectConfig) -> str:
     """Hash of name-map inputs other than per-file source and header stats."""
     from rebrew.config import METADATA_FILENAME, target_module
     from rebrew.metadata.data import DATA_METADATA_FILENAME
+    from rebrew.metadata.storage import metadata_store
     from rebrew.sources import source_exts
     from rebrew.utils import binary_fingerprint, preset_module_key
 
@@ -974,8 +975,8 @@ def _name_map_identity(cfg: ProjectConfig) -> str:
     _feed(hasher, f"metadata {metadata_dir}")
     _feed(hasher, f"shared {getattr(cfg, 'shared_dir', '') or ''}")
     _feed(hasher, f"binary {binary_fingerprint(binary) if binary else ''}")
-    _feed(hasher, f"functions {_stat_token(metadata_dir / METADATA_FILENAME)!r}")
-    _feed(hasher, f"data {_stat_token(metadata_dir / DATA_METADATA_FILENAME)!r}")
+    _feed(hasher, f"functions {metadata_store(metadata_dir / METADATA_FILENAME).fingerprint()!r}")
+    _feed(hasher, f"data {metadata_store(metadata_dir / DATA_METADATA_FILENAME).fingerprint()!r}")
     return hasher.hexdigest()
 
 

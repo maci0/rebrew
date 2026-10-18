@@ -317,7 +317,6 @@ class TestRenameProvenance:
     def test_failed_provenance_write_restores_the_source_and_move(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import source_provenance
         from rebrew.rename_ops import RenameError, apply_rename_plan
 
         file = _source(tmp_path)
@@ -329,7 +328,7 @@ class TestRenameProvenance:
         def fail_write(*args: object, **kwargs: object) -> None:
             raise OSError("cannot write provenance")
 
-        monkeypatch.setattr(source_provenance, "atomic_write_locked", fail_write)
+        monkeypatch.setattr("rebrew.metadata.files.atomic_write_locked", fail_write)
         with pytest.raises(RenameError, match="cannot write provenance"):
             apply_rename_plan(cfg, plan)
         assert file.read_text() == SOURCE

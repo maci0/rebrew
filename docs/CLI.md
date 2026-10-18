@@ -153,6 +153,7 @@ reference section with its current arguments, options, and defaults.
 | [`rebrew recommend`](#rebrew-recommend) | 1 | Deterministic project advice: TU layout, hygiene, next steps. |
 | [`rebrew sync`](#rebrew-sync) | 8 | Exchange metadata with Ghidra through BinSync and perform structural operations. |
 | [`rebrew data`](#rebrew-data) | 17 | Inspect global data, edit metadata, and generate declarations and layout repairs. |
+| [`rebrew metadata`](#rebrew-metadata) | 1 | Preview and apply a managed-metadata backend transfer. |
 | [`rebrew blocker`](#rebrew-blocker) | 4 | Record, inspect, and clear function blockers in dedicated metadata. |
 | [`rebrew orphans`](#rebrew-orphans) | 4 | List or prune metadata rows without a live source binding. |
 | [`rebrew types`](#rebrew-types) | 7 | Manage type identities; check layouts; apply types to C signatures. |
@@ -205,6 +206,7 @@ discovered components merge on top.  Conflict and failure policy per group:
 | Binary loader | `rebrew.binary_loaders` | `module:attr`: `(path, fmt) -> BinaryInfo \| None`; runs when LIEF cannot parse the file, so a novel container format can be loaded |
 | MSVC version table | `rebrew.msvc_versions` | `module:attr`: zero-arg callable returning `dict["build:<n>" \| "linker:<M>.<m>", list[profile]]`; a plugin MSVC-derivative declares which exact builds it byte-matches, joining the version-exact `suggested_profiles` (union per key) |
 | Compile-cache backend | `rebrew.cache_backends` | `module:attr`: factory `(cache_dir, size_limit) -> CacheBackend` (get/put/volume/count/clear/close/stats; `stats()` must carry `entries`, `volume_mib`, `size_limit_mib`, the `session_*` counters are optional); selected via `[cache] backend` in `rebrew-project.toml`; the keying semantics are shared and not pluggable |
+| Metadata backend | `rebrew.metadata_backends` | `module:attr`: zero-arg provider returning `dict[name, factory]`; each factory `(logical_path, project_root) -> MetadataStore` implements `metadata.storage.MetadataStore`. Selected project-wide through `[metadata].backend`; domain validation and verdict ownership are shared. |
 | Function discoverer | `rebrew.discoverers` | `module:attr`: `(binary: Path) -> list[(va, size, name)]`; merged into `rebrew binary functions` by entry-point name; return `[]` when nothing is found (a raise, or anything but a list of `(int >= 0, int >= 0, str)` tuples, is skipped with a warning) |
 
 CLI tools (packaged and third-party) mount through `rebrew.app.plugin`.
@@ -1004,6 +1006,26 @@ exception on a zero status, counts as 2. The shared-twins lane runs
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+
+### `rebrew metadata`
+
+Select and transfer the four managed metadata stores. TOML is the default;
+SQLite is experimental and project-wide. `rebrew-project.toml` stays in TOML.
+
+```bash
+rebrew metadata migrate sqlite --dry-run --json
+rebrew metadata migrate sqlite --expected-digest <input_digest-from-preview>
+rebrew metadata migrate toml --dry-run
+rebrew metadata migrate toml
+```
+
+`rebrew metadata migrate BACKEND` validates and copies the active stores,
+verifies the destination, and then updates `[metadata].backend`. The source is
+retained. Destination-only documents listed by the preview are removed so old
+settings cannot reappear after switching back. `--expected-digest` rejects
+changes to either side since preview. Previews create no files. Existing domain
+commands and their STATUS/provenance rules work with either backend. See
+[metadata storage](METADATA.md#storage-api-and-backend-selection).
 
 ## Source
 
@@ -2917,6 +2939,35 @@ Extract the .rsrc section raw bytes to output.
 | `PE` | path | required | PE to extract the .rsrc section from |
 | `--output` / `-o` | path | `resource.rsrc` | Output file |
 | `--json` | flag | `False` | Output results as JSON |
+
+## Metadata
+
+### `rebrew metadata`
+
+`rebrew metadata [OPTIONS] COMMAND [ARGS]…`
+
+Manage the managed-metadata storage backend. Projects default to TOML; the
+experimental SQLite backend stores the same logical documents in one
+`rebrew-metadata.sqlite3` and is selected by `[metadata] backend = "sqlite"`
+in `rebrew-project.toml`. Transfers are reviewed: the command verifies every
+store before writing, and `--expected-digest` refuses a store that changed
+since its transfer was reviewed.
+
+### `rebrew metadata migrate`
+
+`rebrew metadata migrate [OPTIONS] BACKEND`
+
+Copy all managed stores to `toml` or `sqlite` in one transaction and select
+the destination backend after verification. `--dry-run` previews the transfer
+without writing; `--json` emits the report as JSON.
+
+| Option | Value | Default | Description |
+| --- | --- | --- | --- |
+| `BACKEND` | `toml` / `sqlite` | required | Destination backend |
+| `--dry-run` | flag | `False` | Preview changes without writing |
+| `--expected-digest` | sha256 | none | Refuse a store changed since review |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` | name | default target | Project target |
 
 ## Data
 

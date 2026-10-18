@@ -149,6 +149,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "metadata.document",
             "metadata.data",
             "metadata.functions",
+            "metadata.storage",
             "naming",
             "rename_ops",
             "sources",

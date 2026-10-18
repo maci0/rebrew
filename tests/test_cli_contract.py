@@ -716,12 +716,17 @@ class TestScriptDispatch:
         ``rebrew.cli`` imports it to serve ``require_config()``, which leaves
         the name importable from the wrong module; nothing should take it.
         """
+        from stmt_walk import iter_statements
+
         offenders = []
         for path in sorted(PACKAGE_ROOT.rglob("*.py")):
             if "__pycache__" in path.parts:
                 continue
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
+            text = path.read_text(encoding="utf-8")
+            if "load_config" not in text:
+                continue
+            tree = ast.parse(text)
+            for node in iter_statements(tree):
                 if isinstance(node, ast.ImportFrom) and node.module == "rebrew.cli":
                     names = [a.name for a in node.names if a.name == "load_config"]
                     if names:

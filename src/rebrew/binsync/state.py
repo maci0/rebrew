@@ -1617,6 +1617,7 @@ def incoming_type_records(state_dir: Path) -> dict[str, dict[str, Any]]:
 
 def sync_watch_paths(cfg: ProjectConfig, state_dir: Path) -> list[Path]:
     """All inputs that can change the integration projection, including new sources."""
+    from rebrew.metadata.storage import metadata_store
     from rebrew.sources import iter_sources
 
     paths = set(iter_sources(cfg.reversed_dir, cfg))
@@ -1624,14 +1625,9 @@ def sync_watch_paths(cfg: ProjectConfig, state_dir: Path) -> list[Path]:
     paths.update(
         Path(root) for root in (cfg.reversed_dir, getattr(cfg, "shared_dir", None)) if root
     )
-    paths.update(
-        cfg.metadata_dir / name
-        for name in (
-            "rebrew-functions.toml",
-            "rebrew-data.toml",
-            "rebrew-libraries.toml",
-        )
-    )
+    for name in ("rebrew-functions.toml", "rebrew-data.toml", "rebrew-libraries.toml"):
+        store = cfg.metadata_dir / name
+        paths.update(metadata_store(store).inputs())
     root = getattr(cfg, "root", None)
     if root:
         paths.add(Path(root) / "rebrew-project.toml")

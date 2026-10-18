@@ -14,8 +14,10 @@ from __future__ import annotations
 import contextlib
 import copy
 import hashlib
+import json
 import logging
 import math
+import os
 import re
 import threading
 import tomllib
@@ -561,6 +563,40 @@ def _read_cache_document(cache_path: Path) -> dict[str, Any]:
     return raw
 
 
+def _verify_json_path(cache_path: Path) -> Path:
+    return cache_path.with_suffix(".json")
+
+
+def _read_verify_json(cache_path: Path, st: os.stat_result) -> dict[str, Any] | None:
+    """Decoded document when the sidecar matches *st*, else None."""
+    token = [st.st_mtime_ns, st.st_size, st.st_ino]
+    try:
+        payload = json.loads(_verify_json_path(cache_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(payload, dict) or payload.get("fingerprint") != token:
+        return None
+    document = payload.get("document")
+    if not isinstance(document, dict):
+        return None
+    return document
+
+
+def _write_verify_json(cache_path: Path, st: os.stat_result, document: dict[str, Any]) -> None:
+    """Store *document* for the next process. A failure leaves the TOML path working."""
+    path = _verify_json_path(cache_path)
+    payload = {
+        "fingerprint": [st.st_mtime_ns, st.st_size, st.st_ino],
+        "document": document,
+    }
+    try:
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        os.replace(temporary, path)
+    except (OSError, TypeError, ValueError):
+        return
+
+
 def _invalidate_verify_cache_memo(cache_path: Path) -> None:
     """Drop every memo entry for *cache_path* after a write.
 
@@ -575,6 +611,10 @@ def _invalidate_verify_cache_memo(cache_path: Path) -> None:
     """
     with _VERIFY_CACHE_MEMO_LOCK:
         _drop_memo_for(_memo_path_key(cache_path))
+    try:
+        _verify_json_path(cache_path).unlink(missing_ok=True)
+    except OSError:
+        return
 
 
 def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
@@ -597,13 +637,18 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
         if key in _VERIFY_CACHE_MEMO:
             cached = _VERIFY_CACHE_MEMO[key]
             return copy.deepcopy(cached) if cached is not None else None
-    raw: dict[str, Any] | None
-    try:
-        raw = _read_cache_document(cache_path)
-    except (OSError, ValueError) as exc:
-        # Log so a corrupt cache is not mistaken for a cold start.
-        logging.getLogger(__name__).warning("Ignoring corrupt verify cache %s: %s", cache_path, exc)
-        raw = None
+    raw = _read_verify_json(cache_path, st)
+    if raw is None:
+        try:
+            raw = _read_cache_document(cache_path)
+        except (OSError, ValueError) as exc:
+            # Log so a corrupt cache is not mistaken for a cold start.
+            logging.getLogger(__name__).warning(
+                "Ignoring corrupt verify cache %s: %s", cache_path, exc
+            )
+            raw = None
+        else:
+            _write_verify_json(cache_path, st, raw)
     with _VERIFY_CACHE_MEMO_LOCK:
         # Another thread may have filled the same key while we decoded.
         if key in _VERIFY_CACHE_MEMO:

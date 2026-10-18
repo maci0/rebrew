@@ -1,6 +1,7 @@
 """Compiled library identities and evidence for prebuilt link providers."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from cli_json import cli_payload
@@ -287,6 +288,56 @@ class TestCompiledSources:
         source.symlink_to(tmp_path.parent / "outside.c")
         with pytest.raises(ValueError):
             bind_compiled_source(cfg, SourceBinding(), {"file": "vendor.c"})
+        from rebrew.function_providers import compiled_source_annotations
+
+        with pytest.raises(ValueError):
+            compiled_source_annotations(
+                cfg,
+                metadata={
+                    ("GAME", 0x1000): {
+                        "file": "vendor.c",
+                        "kind": "FUNCTION",
+                        "name": "vendor",
+                        "symbol": "_vendor",
+                    }
+                },
+            )
+
+    def test_plain_rows_do_not_walk_display_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An in-tree row under a real directory resolves its display path by prefix.
+
+        The base containment and display prefix depend only on the project
+        paths, so doing them per row made the status binding loop walk the
+        filesystem once per function.
+        """
+        from rebrew import function_providers as providers
+        from rebrew.utils import rel_display_path
+
+        cfg = _project(tmp_path)
+        for i in range(3):
+            (cfg.reversed_dir / f"f{i}.c").write_text(f"int f{i}(void) {{ return {i}; }}\n")
+        metadata = {
+            ("GAME", 0x1000 + i * 0x10): {
+                "file": f"src/f{i}.c",
+                "kind": "FUNCTION",
+                "name": f"f{i}",
+                "symbol": f"_f{i}",
+            }
+            for i in range(3)
+        }
+        calls = {"n": 0}
+        real = rel_display_path
+
+        def counting(*args: Any, **kwargs: Any) -> str:
+            calls["n"] += 1
+            return str(real(*args, **kwargs))
+
+        monkeypatch.setattr("rebrew.function_providers.rel_display_path", counting)
+        rows = providers.compiled_source_annotations(cfg, metadata=metadata)
+        assert [row.filepath for row in rows] == ["f0.c", "f1.c", "f2.c"]
+        assert calls["n"] == 0
 
 
 class TestProviderEvidence:

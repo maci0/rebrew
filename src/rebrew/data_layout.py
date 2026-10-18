@@ -35,7 +35,7 @@ from typing import Any
 
 from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.formats.binary_loader import load_binary
-from rebrew.metadata.data import iter_data_symbols
+from rebrew.metadata.data import iter_data_symbols, load_data_document
 from rebrew.sources import files_with_ext
 from rebrew.utils import atomic_write_text as atomic_write_text
 from rebrew.utils import (
@@ -354,7 +354,7 @@ def data_symbols(
     ``section=".bss"`` (``rebrew data set --type`` / the Ghidra import), so a
     ``.data``-only read silently drops them.
     """
-    db = load_tomllib(metadata)
+    db = load_data_document(metadata)
     wanted = None if section is None else {section} if isinstance(section, str) else set(section)
     return {
         str(val["name"]): va
@@ -1466,7 +1466,7 @@ def _merged_definition_line(dtyp: str, dsize: int | None, name: str, def_line: s
 
 def _data_symbol_types(metadata: Path) -> dict[str, tuple[int, str]]:
     """``{name: (full VA, type)}`` for the .data symbols in the metadata."""
-    db = load_tomllib(metadata)
+    db = load_data_document(metadata)
     return {
         str(val["name"]): (va, str(val.get("type", "int")))
         for _, va, val in iter_data_symbols(db)

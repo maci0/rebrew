@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
+from tree_snapshot import snapshot, top_level_snapshot
 
 from rebrew import rename_ops
 from rebrew.rename_ops import rename_function_everywhere
@@ -333,13 +334,13 @@ class TestRenameTargetIsolation:
                 {"TL.0x402000": {"kind": "FUNCTION"}, "SERVER.0x10002000": {"kind": "FUNCTION"}},
             )
         ambiguous = _src(tmp_path, "common.c" if mixed else "common.h", text)
-        original = {p: p.read_bytes() for p in tmp_path.iterdir()}
+        original = top_level_snapshot(tmp_path)
         with pytest.raises(rename_ops.RenameError, match="ambiguous") as excinfo:
             rename_function_everywhere(
                 _cfg(tmp_path), primary, "old_fn", "_old_fn", "new_fn", dry_run=dry_run
             )
         assert ambiguous in excinfo.value.files
-        assert {p: p.read_bytes() for p in tmp_path.iterdir()} == original
+        assert top_level_snapshot(tmp_path) == original
 
     def test_unrelated_main_tokens_do_not_block_real_users(self, tmp_path: Path) -> None:
         """Comments, strings and locals are not function references.
@@ -532,14 +533,14 @@ class TestRenameTargetIsolation:
                 },
             ),
         )
-        original = {path: path.read_bytes() for path in tmp_path.iterdir()}
+        original = top_level_snapshot(tmp_path)
         with pytest.raises(rename_ops.RenameError, match="ambiguous") as excinfo:
             rename_function_everywhere(
                 _cfg(tmp_path), gold, "main", "_main", "WinMain", rename_file=False
             )
         assert shared in excinfo.value.files
         assert both in excinfo.value.files
-        assert {path: path.read_bytes() for path in tmp_path.iterdir()} == original
+        assert top_level_snapshot(tmp_path) == original
 
     def test_empty_vectorcall_name_does_not_rename_another_target(self, tmp_path: Path) -> None:
         """``hook@@12`` with an empty name owns only its module.
@@ -1634,7 +1635,7 @@ class TestFunctionReferenceBinding:
             ".c",
         )
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
-        before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        before = snapshot(tmp_path)
         result = CliRunner().invoke(
             app, ["--json", *(["--dry-run"] if preview else []), "placeholder", "CLIENT.0x1000"]
         )
@@ -2036,7 +2037,7 @@ class TestReviewedReferenceOwners:
             owners[_src(tmp_path, "unused.c", "int other;\n")] = owner
         else:
             del owners[header]
-        before = {p: p.read_bytes() for p in tmp_path.iterdir() if p.is_file()}
+        before = top_level_snapshot(tmp_path)
         with pytest.raises(rename_ops.RenameError):
             rename_ops.plan_symbol_rename(
                 cfg,
@@ -2047,7 +2048,7 @@ class TestReviewedReferenceOwners:
                 definition_file=a,
                 reference_owners=owners,
             )
-        assert before == {p: p.read_bytes() for p in tmp_path.iterdir() if p.is_file()}
+        assert before == top_level_snapshot(tmp_path)
 
     @pytest.mark.parametrize("keep", [False, True])
     def test_same_target_definition_uses_explicit_reference_owner(
@@ -2111,7 +2112,7 @@ class TestReviewedReferenceOwners:
                 "new-source": tmp_path / "new.c",
             }[changed]
             path.write_bytes((path.read_bytes() if path.exists() else b"") + b"\n/* changed */\n")
-        before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        before = snapshot(tmp_path)
         with pytest.raises(rename_ops.RenameError, match="inputs changed"):
             rename_ops.apply_rename_plan(cfg, plan)
-        assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        assert before == snapshot(tmp_path)

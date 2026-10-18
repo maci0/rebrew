@@ -14,8 +14,9 @@ Usage::
 
 import json
 import logging
+import os
 import shlex
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -982,7 +983,104 @@ def _collect_library_candidates(
     return items
 
 
-def _caller_counts(cfg: ProjectConfig, matched_files: set[str] | None = None) -> dict[str, int]:
+# Process-local extern names. The JSON file is the next process's cache.
+_EXTERN_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def _extern_path_key(path: Path) -> str:
+    # The source walk yields real absolute paths, so only a relative spelling
+    # (or a symlinked config root) needs the component walk.
+    if path.is_absolute():
+        return str(path)
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
+
+
+def _display_path(path: Path, base: Path, base_text: str) -> str:
+    """``rel_display_path`` without a path walk for a plain descendant."""
+    text = str(path)
+    if text.startswith(base_text):
+        relative = text[len(base_text) :]
+        if relative and "//" not in relative and "/./" not in relative:
+            return relative
+    from rebrew.utils import rel_display_path
+
+    return rel_display_path(path, base)
+
+
+def _extern_source_stamp(path: Path) -> list[int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return [stat.st_mtime_ns, stat.st_size, stat.st_ino]
+
+
+def _extern_cache_dir(cfg: ProjectConfig) -> Path:
+    directory = getattr(cfg, "metadata_dir", None) or cfg.reversed_dir
+    return Path(directory)
+
+
+def _extern_entry(raw: object) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    stamp = raw.get("stamp")
+    names = raw.get("names")
+    if (
+        not isinstance(stamp, list)
+        or len(stamp) != 3
+        or any(type(part) is not int for part in stamp)
+        or not isinstance(names, list)
+        or any(not isinstance(name, str) for name in names)
+    ):
+        return None
+    return {"stamp": stamp, "names": names}
+
+
+def _begin_extern_cache(directory: Path) -> dict[str, Any]:
+    key = _extern_path_key(directory)
+    cached = _EXTERN_CACHE.get(key)
+    if cached is not None:
+        return cached
+    files: dict[str, dict[str, Any]] = {}
+    cache_path = directory / ".rebrew" / "extern-names.json"
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+        payload = None
+    if isinstance(payload, dict):
+        for path_key, raw in payload.items():
+            parsed = _extern_entry(raw)
+            if isinstance(path_key, str) and parsed is not None:
+                files[path_key] = parsed
+    record: dict[str, Any] = {"dir": directory, "files": files, "dirty": False}
+    _EXTERN_CACHE[key] = record
+    return record
+
+
+def _flush_extern_cache(cache: dict[str, Any]) -> None:
+    """Write extern names for the next process. A failure leaves the counts."""
+    if not cache.get("dirty"):
+        return
+    cache_path = Path(cache["dir"]) / ".rebrew" / "extern-names.json"
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = cache_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(cache["files"], separators=(",", ":")), encoding="utf-8")
+        os.replace(temporary, cache_path)
+    except OSError:
+        return
+    cache["dirty"] = False
+
+
+def _caller_counts(
+    cfg: ProjectConfig,
+    matched_files: set[str] | None = None,
+    *,
+    scanned: Sequence[Path] | None = None,
+) -> dict[str, int]:
     """Count unresolved callers per callee name from extern declarations.
 
     Scans reversed sources for ``extern`` function declarations: each file
@@ -993,30 +1091,45 @@ def _caller_counts(cfg: ProjectConfig, matched_files: set[str] | None = None) ->
     *matched_files* (relative paths, from the metadata store) are skipped: a
     caller that is already byte-matched no longer needs its callees
     implemented, so it must not add ROI or an "unblocks N caller(s)" note.
+    The skip happens after the name lookup, so a matched file still fills
+    the cache. Unchanged sources reuse ``.rebrew/extern-names.json``. A
+    source that does not contain ``extern`` is stored empty and is not parsed.
     """
     from rebrew.c_parser import find_extern_function_names
     from rebrew.sources import iter_sources
-    from rebrew.utils import rel_display_path
+    from rebrew.utils import read_source_text
 
     counts: dict[str, int] = {}
     try:
-        files = list(iter_sources(cfg.reversed_dir, cfg))
+        files = list(iter_sources(cfg.reversed_dir, cfg, scanned=scanned))
     except OSError:
         return counts
+    cache = _begin_extern_cache(_extern_cache_dir(cfg))
+    base = Path(cfg.reversed_dir)
+    base_text = str(base).rstrip("/") + "/"
     for path in files:
-        if matched_files and rel_display_path(path, cfg.reversed_dir) in matched_files:
+        key = _extern_path_key(path)
+        stamp = _extern_source_stamp(path)
+        entry = cache["files"].get(key)
+        if stamp is not None and entry is not None and entry["stamp"] == stamp:
+            names = entry["names"]
+        else:
+            try:
+                text = read_source_text(path)[0]
+            except OSError as exc:
+                # Its externs contribute no call counts, which would misrank the
+                # work list.  Say which file was dropped.
+                log.warning("skipping unreadable source %s: %s", path, exc)
+                continue
+            names = [] if "extern" not in text else find_extern_function_names(text)
+            if stamp is not None:
+                cache["files"][key] = {"stamp": stamp, "names": names}
+                cache["dirty"] = True
+        if matched_files and _display_path(path, base, base_text) in matched_files:
             continue
-        try:
-            from rebrew.utils import read_source_text
-
-            text = read_source_text(path)[0]
-        except OSError as exc:
-            # Its externs contribute no call counts, which would misrank the
-            # work list.  Say which file was dropped.
-            log.warning("skipping unreadable source %s: %s", path, exc)
-            continue
-        for callee in find_extern_function_names(text):
+        for callee in names:
             counts[callee] = counts.get(callee, 0) + 1
+    _flush_extern_cache(cache)
     return counts
 
 
@@ -1329,6 +1442,8 @@ def collect_all(
     existing: dict[int, dict[str, str]],
     covered_vas: dict[int, str],
     exclude_vas: set[int] | None = None,
+    *,
+    scanned: Sequence[Path] | None = None,
 ) -> list[TodoItem]:
     """Collect and rank all todo items by ROI score (descending).
 
@@ -1359,7 +1474,11 @@ def collect_all(
     }
     items.extend(
         _collect_active_functions(
-            existing, size_by_va, name_by_va, verify_entries, _caller_counts(cfg, matched_files)
+            existing,
+            size_by_va,
+            name_by_va,
+            verify_entries,
+            _caller_counts(cfg, matched_files, scanned=scanned),
         )
     )
 
@@ -1518,8 +1637,11 @@ def main(
     ):
         return
     cfg = require_config(target=target, json_mode=json_output)
+    from rebrew.sources import scan_files
+
+    tree = scan_files(cfg.reversed_dir)
     try:
-        ghidra_funcs, existing, covered_vas = load_data(cfg)
+        ghidra_funcs, existing, covered_vas = load_data(cfg, tree=tree)
         from rebrew.naming import external_vas, scope_to_target
 
         # Before scoping: external .lib rows carry library modules
@@ -1540,7 +1662,12 @@ def main(
     except (OSError, json.JSONDecodeError, KeyError) as exc:
         error_exit(f"Failed to load project data: {exc}", json_mode=json_output)
     all_items = collect_all(
-        cfg, ghidra_funcs, existing, covered_vas, exclude_vas=library_vas | pseudo_vas
+        cfg,
+        ghidra_funcs,
+        existing,
+        covered_vas,
+        exclude_vas=library_vas | pseudo_vas,
+        scanned=tree,
     )
 
     # Coverage stats (always computed for JSON, optional for terminal)

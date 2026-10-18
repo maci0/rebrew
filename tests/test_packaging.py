@@ -195,7 +195,9 @@ class TestPackagingMetadata:
         import subprocess
 
         proc = subprocess.run(
-            ["git", "tag", "-l", "v*"],
+            # Only tags on this history: a maintenance branch carries the
+            # release line it was cut from, not another branch's later tags.
+            ["git", "tag", "--merged", "HEAD", "-l", "v*"],
             cwd=ROOT,
             check=False,
             capture_output=True,
@@ -1230,23 +1232,30 @@ class TestUserFacingDocPointers:
 
     @staticmethod
     def _user_facing_strings(path: Path) -> Iterator[tuple[int, str]]:
-        """``(lineno, text)`` for every string literal that is not a docstring.
+        """``(lineno, text)`` for string literals that mention ``docs/``.
 
         Comments never reach the AST and a docstring is always the child of a
         bare ``Expr`` statement, so both contributor-facing forms drop out.
+        The pointer this scan looks for contains the characters ``docs/``.
+        A file without those characters cannot match, so it is not parsed.
+        One walk records docstring nodes before their values, which is the
+        order ``ast.walk`` yields a parent and its children.
         """
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        docstrings = {
-            id(child)
-            for parent in ast.walk(tree)
-            if isinstance(parent, ast.Expr)
-            for child in ast.iter_child_nodes(parent)
-        }
+        text = path.read_text(encoding="utf-8")
+        if "docs/" not in text:
+            return
+        tree = ast.parse(text)
+        docstrings: set[int] = set()
         for node in ast.walk(tree):
+            if isinstance(node, ast.Expr):
+                for child in ast.iter_child_nodes(node):
+                    docstrings.add(id(child))
+                continue
             if (
                 isinstance(node, ast.Constant)
                 and isinstance(node.value, str)
                 and id(node) not in docstrings
+                and "docs/" in node.value
             ):
                 yield node.lineno, node.value
 
@@ -1261,6 +1270,42 @@ class TestUserFacingDocPointers:
             "user-facing text points at a docs/ file the install does not ship; "
             f'qualify it as "the rebrew repo\'s docs/…": {unqualified}'
         )
+
+    def test_pointer_scan_skips_files_that_do_not_name_docs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Parse count is the cost of the scan. It does not move with load.
+
+        A module with no ``docs/`` text is not parsed. A docstring that names
+        a doc is not a user-facing string. A real string is.
+        """
+        path = tmp_path / "note.py"
+        path.write_text(
+            '"""see docs/TOOLCHAIN.md"""\n'
+            'MSG = "see docs/TOOLCHAIN.md"\n'
+            'OK = "see the rebrew repo docs/TOOLCHAIN.md"\n'
+            "x = 1\n",
+            encoding="utf-8",
+        )
+        parses = 0
+        real_parse = ast.parse
+
+        def counting(source: str, *args: Any, **kwargs: Any) -> ast.AST:
+            nonlocal parses
+            parses += 1
+            return real_parse(source, *args, **kwargs)
+
+        monkeypatch.setattr(ast, "parse", counting)
+        assert list(self._user_facing_strings(path)) == [
+            (2, "see docs/TOOLCHAIN.md"),
+            (3, "see the rebrew repo docs/TOOLCHAIN.md"),
+        ]
+        assert parses == 1
+
+        plain = tmp_path / "plain.py"
+        plain.write_text("x = 1\n", encoding="utf-8")
+        assert list(self._user_facing_strings(plain)) == []
+        assert parses == 1
 
 
 class TestSdistManifest:

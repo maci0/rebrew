@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import tomlkit
-
 from rebrew.metadata.document import (
     build_metadata_key_index,
     load_metadata_for_write,
-    metadata_write_lock,
     resolve_metadata_key,
     stamp_format,
 )
@@ -27,7 +23,8 @@ from rebrew.metadata.functions import (
     validate_identity_file,
     validate_provenance_table,
 )
-from rebrew.utils import atomic_write_locked, is_safe_c_ident, preset_module_key
+from rebrew.metadata.storage import input_digest, metadata_store, metadata_write_lock
+from rebrew.utils import is_safe_c_ident, preset_module_key
 
 # History stores only the claim and its measurement, never another copy of history.
 _PREVIOUS_FIELDS = frozenset(FUNCTION_IDENTITY_FIELDS) | {
@@ -195,14 +192,14 @@ def change_source_binding(
 
     def prepare() -> tuple[Any, dict[str, Any]]:
         for input_path, expected in (expected_inputs or {}).items():
-            if hashlib.sha256(input_path.read_bytes()).hexdigest() != expected:
+            if input_digest(input_path) != expected:
                 raise ValueError(f"binding review input changed: {input_path}")
-        before = path.read_bytes()
-        digest = hashlib.sha256(before).hexdigest()
+        before = metadata_store(path).snapshot()
+        digest = metadata_store(path).digest()
         if expected_digest is not None and digest != expected_digest:
             raise ValueError("function metadata changed since preview; review a new preview")
         doc = load_metadata_for_write(path, "function metadata", known_fields=fields)
-        if path.read_bytes() != before:
+        if metadata_store(path).snapshot() != before:
             raise ValueError("function metadata changed while reading; retry")
         key = resolve_metadata_key(doc, module, va)
         if key not in doc:
@@ -266,6 +263,6 @@ def change_source_binding(
         with metadata_write_lock(directory, METADATA_FILENAME):
             doc, report = prepare()
             stamp_format(doc)
-            atomic_write_locked(path, tomlkit.dumps(doc))
+            metadata_store(path).write(doc, "metadata")
             # The normal reader's stat fingerprint notices the atomic replacement.
     return report

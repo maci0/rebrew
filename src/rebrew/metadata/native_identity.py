@@ -3,26 +3,18 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import tomlkit
-
-from rebrew.metadata.document import (
-    load_metadata_for_write,
-    metadata_write_lock,
-    resolve_metadata_key,
-    stamp_format,
-)
+from rebrew.metadata.document import load_metadata_for_write, resolve_metadata_key, stamp_format
 from rebrew.metadata.functions import (
     FUNCTION_IDENTITY_FIELDS,
     METADATA_FIELDS,
     METADATA_FILENAME,
     resolve_metadata_dir,
 )
-from rebrew.utils import atomic_write_locked
+from rebrew.metadata.storage import input_digest, metadata_store, metadata_write_lock
 
 
 def validate_native_identity(value: Any) -> dict[str, Any]:
@@ -85,10 +77,12 @@ def record_native_identity(
     directory = resolve_metadata_dir(directory)
     path = directory / METADATA_FILENAME
     with metadata_write_lock(directory, METADATA_FILENAME):
-        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_digest:
+        if metadata_store(path).digest() != expected_digest:
             raise ValueError("native identity metadata changed since review")
         for input_path, digest in expected_inputs.items():
-            if hashlib.sha256(input_path.read_bytes()).hexdigest() != digest:
+            if (
+                metadata_store(path).digest() if input_path == path else input_digest(input_path)
+            ) != digest:
                 raise ValueError(f"native identity input changed: {input_path}")
         doc = load_metadata_for_write(
             path,
@@ -105,7 +99,7 @@ def record_native_identity(
             raise ValueError("native library claim changed since review")
         entry["native_identity"] = evidence
         stamp_format(doc)
-        atomic_write_locked(path, tomlkit.dumps(doc))
+        metadata_store(path).write(doc, "metadata")
 
 
 def native_identity_receipt(

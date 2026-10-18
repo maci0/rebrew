@@ -15,12 +15,11 @@ from typing import Any
 
 from rebrew.c_parser import CALLING_CONVENTION, is_pointer_to_array
 from rebrew.config import ProjectConfig, target_module
-from rebrew.metadata.data import iter_data_symbols
+from rebrew.metadata.data import iter_data_symbols, load_data_document
 from rebrew.utils import (
     atomic_write_text,
     c_comment_safe,
     is_safe_c_ident,
-    load_tomllib,
     read_source_text,
     split_source_lines,
     strip_generated_timestamp,
@@ -98,7 +97,7 @@ def annotate_globals(
     from rebrew.sources import iter_sources
     from rebrew.utils import rel_display_path
 
-    db = load_tomllib(metadata)
+    db = load_data_document(metadata)
     skipped_unnamed = 0
     symbols: dict[str, tuple[str, int, bool]] = {}
     for module, addr, val in iter_data_symbols(db, section=None):

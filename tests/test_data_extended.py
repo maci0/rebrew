@@ -123,6 +123,35 @@ class TestScanGlobalsBranches:
     def test_scan_data_annotations_missing_dir(self, tmp_path: Path) -> None:
         assert scan_data_annotations(tmp_path / "nope") == []
 
+    def test_data_annotation_scan_skips_function_prototypes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The data list does not need calling conventions, so it does not parse them."""
+        import rebrew.c_parser as c_parser
+
+        cfg = _cfg(tmp_path)
+        write_source(
+            cfg.reversed_dir / "g.c",
+            "/* ADDRESS: SERVER 0x2000 */\nint g_data;\n"
+            "/* ADDRESS: SERVER 0x1000 */\nint helper(void) { return g_data; }\n",
+            encoding="utf-8",
+            metadata_fields={
+                "SERVER.0x2000": {"kind": "GLOBAL"},
+                "SERVER.0x1000": {"kind": "FUNCTION"},
+            },
+        )
+        calls = {"n": 0}
+        real = c_parser.function_signatures
+
+        def counting(text: str) -> dict:
+            calls["n"] += 1
+            return real(text)
+
+        monkeypatch.setattr(c_parser, "function_signatures", counting)
+        entries = scan_data_annotations(cfg.reversed_dir, cfg)
+        assert any(row["name"] == "g_data" and row["va"] == "0x00002000" for row in entries)
+        assert calls["n"] == 0
+
 
 class TestEmitExternDecl:
     def test_no_type_is_omitted(self) -> None:

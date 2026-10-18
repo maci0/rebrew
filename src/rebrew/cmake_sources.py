@@ -31,6 +31,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import target_module
+from rebrew.metadata.storage import metadata_store
 from rebrew.source_selection import collect_target_sources
 from rebrew.utils import (
     atomic_write_text,
@@ -101,10 +102,26 @@ def main(
         "set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS\n"
         '  "${CMAKE_CURRENT_SOURCE_DIR}/rebrew-project.toml"\n',
     ]
-    for name in ("rebrew-functions.toml", "rebrew-data.toml"):
-        metadata = (cfg.metadata_dir / name).relative_to(cfg.root).as_posix()
+    metadata_stores = [
+        metadata_store(cfg.metadata_dir / name)
+        for name in ("rebrew-functions.toml", "rebrew-data.toml")
+    ]
+    for dependency in sorted(
+        {p for store in metadata_stores for p in store.inputs() if p.suffix != ".d"}
+    ):
+        metadata = dependency.relative_to(cfg.root).as_posix()
         lines.append(f'  "${{CMAKE_CURRENT_SOURCE_DIR}}/{metadata}"\n')
     lines.append(")\n\n")
+    if metadata_stores[0].name == "toml":
+        lines.append("file(GLOB _rebrew_metadata_dropins CONFIGURE_DEPENDS\n")
+        for store in metadata_stores:
+            dropins = store.path.with_suffix(".d").relative_to(cfg.root).as_posix()
+            lines.append(f'  "${{CMAKE_CURRENT_SOURCE_DIR}}/{dropins}/*.toml"\n')
+        lines.append(")\n")
+        lines.append(
+            "set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "
+            "${_rebrew_metadata_dropins})\n\n"
+        )
     lines.append(f"set({var}\n")
     for rel in rels:
         lines.append(f'  "${{CMAKE_CURRENT_SOURCE_DIR}}/{rel}"\n')

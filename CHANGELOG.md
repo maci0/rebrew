@@ -1,5 +1,103 @@
 ## [Unreleased]
 
+## [5.2.0] - 2026-10-19
+
+### Added
+- Managed metadata uses one storage API for functions, data, source evidence,
+  types and library settings. TOML remains the default; experimental SQLite
+  stores the same documents transactionally in `rebrew-metadata.sqlite3`.
+  `rebrew metadata migrate <sqlite|toml>` previews, validates and verifies a
+  transfer before selecting it. Project configuration remains TOML.
+- Managed metadata supports optional `rebrew-functions.d`, `rebrew-data.d`,
+  `rebrew-types.d`, and `rebrew-libraries.d` directories
+  containing TOML fragments. Duplicate records are rejected; locked edits
+  preserve each record's file, while new records use the main TOML. Metadata
+  caches, review guards, data/layout readers, live coverage, BinSync watches
+  and generated CMake source dependencies include the fragments.
+
+### Changed
+- **Breaking:** `metadata.functions.library_override_fingerprint` returns the
+  store path and all input-file fingerprints instead of a single file's stat.
+  Incidental `atomic_write_locked` imports in metadata owner modules are removed;
+  import it from `rebrew.utils` when needed. Other removed incidental imports
+  are `data_annotate.load_tomllib`, `gen_link_stubs.load_tomllib`,
+  `library.atomic_write_text`, `library.load_toml_for_write`,
+  `metadata.document.load_toml_for_write_strict`,
+  `metadata.functions.load_toml_for_write_strict`,
+  `metadata.source_provenance.load_toml_for_write_strict`, and
+  `type_metadata.load_toml_for_write_strict`; import these helpers from
+  `rebrew.utils`.
+- **Breaking:** metadata storage is backend-neutral. `metadata_write_lock`,
+  `file_lock` and `METADATA_WRITE_LOCKS` moved from `metadata.document` to
+  `metadata.storage` / `metadata.locking`, and `metadata.document` no longer
+  re-exports `load_tomllib`; import it from `rebrew.utils` (same for
+  `metadata.source_provenance.load_tomllib` and
+  `metadata.functions.read_toml_text`). Removed incidental
+  `metadata.functions.metadata_format` is owned by `metadata.document.metadata_format`. `load_metadata_for_write` now returns
+  the writable document mapping in every owner module (`metadata.document`,
+  `metadata.functions`, `metadata.data`, `metadata.binding_history`,
+  `metadata.native_identity`). `app.main.BUILTIN_COMPONENTS` and
+  `app.builtins.BUILTIN_COMPONENTS` gained the `metadata` command.
+- The idempotency sweep digests project content, excluding the derived
+  `.rebrew` read caches a first run may create. Test snapshots of read-only
+  and preview commands use the same boundary.
+
+### Performance
+- Metadata store resolution memoizes the project-root walk, caches built-in
+  store instances and skips re-resolving a path a caller already resolved.
+  On a project config, 2,000 cached `load_metadata` calls measured 34.7ms to
+  25.3ms (six fragments: 44.4ms to 35.4ms), matching the pre-storage-layer
+  numbers. The gates count ancestor walks, store instances and
+  `Path.resolve` calls.
+- The umbrella CLI entry point freezes the import-time typer/rich/registry
+  graph once (`gc.collect()` then `gc.freeze()`), so full collections no
+  longer rescan it while a command walks its data. Fresh-process CPU on a
+  5,000-function synthetic project measured 0.863s to 0.733s for
+  `status --json`; `--version` measured 0.430s to 0.349s. The gate is
+  `gc.get_freeze_count()`, not a duration.
+- `rebrew todo` caller counts key and display absolute walked sources without
+  resolving every path; on 7,000 warm sources the scan measured 97.3ms to
+  35.4ms. The gate asserts zero `Path.resolve` calls on the warm path.
+- Compiled-source row binding computes base containment and the display
+  prefix once per call instead of a `Path.is_relative_to` and a
+  `Path.relative_to` walk per function. On 5,000 in-tree rows the build
+  measured 97.6ms to 62.9ms; the gate asserts no display-path walk for a
+  plain row.
+- Drop-in metadata reads stat each input once instead of listing the
+  directory and then statting the same files again, and a locked edit parses
+  the collection once and rewrites only the fragments it touches. On a
+  4,000-row store split into six fragments, 2,000 cached loads measured
+  77.18ms to 35.50ms, and one record edit 4,346ms to 2,560ms. The gates are
+  the stat, directory-read, fragment-load and render counts.
+- `rebrew status`, `rebrew todo`, and verify preparation reuse a parsed
+  metadata document across processes, and the reloc name map does not parse
+  a source whose addresses the stores already name. On guild-rebrew, warm
+  process CPU moved from 2.722s to 0.445s for server `status` and from
+  9.951s to 1.452s for server verify preparation. The gates are the parse
+  count and the C-parser call count, which do not move with scheduler load.
+- `rebrew todo` reuses extern names from `.rebrew/extern-names.json`, and
+  verify preparation reuses `.rebrew/name-map-cover.json`, checking the
+  stamp of a covered source. The source and header listing is one directory
+  walk. On guild-rebrew, warm process CPU moved from 1.474s to 0.914s for
+  server `todo` and from 1.452s to 1.019s for server verify preparation.
+  The gates are the extern-parser call count, the source-read count, and
+  the source-list equality.
+- Compiled-source paths that are not symlinks skip per-row resolution, the
+  verify cache reuses `.rebrew/verify_cache.json` after the first TOML
+  parse, and `rebrew todo` walks the source tree once. On guild-rebrew, one
+  warm sample was 0.825s for Europa1400Gold_TL.exe `status` (4,995/4,996
+  covered), 0.611s for server `todo`, and 0.954s for server verify
+  preparation. `rebrew data` annotation listing skips function-prototype
+  parses. The gates are the symlink rejection, the verify-cache parse
+  count, and the prototype call count.
+- The packaging doc-pointer scan parses a module only when its text contains
+  `docs/`, in one AST walk. Import and class scans walk statements, so a
+  larger expression does not add visits. Provenance, sandbox-prefix,
+  exception, and dependency scans parse each path once and reuse it. The
+  gates are those parse and statement counts. Self-jump CFG segmentation is
+  gated on process CPU time, and the NE function sweep on bytes fed to the
+  disassembler. None of these gates read the wall clock.
+
 ### Fixed
 - Dashboard paging preserves small values with long leading-zero prefixes.
   The property-test model follows the API's ASCII decimal grammar rather than
@@ -17,6 +115,7 @@
   unshare backend. It suggests verification of an existing configured raw linker
   image with its explicit path and selected target, or keeps the work visible
   with the missing raw-image prerequisite and no command.
+
 
 ## [5.1.0] - 2026-10-18
 

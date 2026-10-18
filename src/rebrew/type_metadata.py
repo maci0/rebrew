@@ -13,11 +13,9 @@ import tomlkit
 
 from rebrew.c_parser import mask_msvc_syntax, parse_c_source
 from rebrew.config import ProjectConfig
-from rebrew.metadata.document import metadata_write_lock
 from rebrew.metadata.functions import validate_identity_file
+from rebrew.metadata.storage import metadata_store, metadata_write_lock
 from rebrew.utils import (
-    atomic_write_locked,
-    load_toml_for_write_strict,
     preset_module_key,
     read_source_text,
 )
@@ -67,7 +65,7 @@ def struct_definition_names(source: str) -> set[str]:
     return {name for name, count in counts.items() if count == 1}
 
 
-def _validate(doc: Any) -> list[dict[str, Any]]:
+def validate_type_document(doc: Any) -> list[dict[str, Any]]:
     if (
         set(doc) != {"format", "types"}
         or not isinstance(doc["format"], int)
@@ -155,9 +153,10 @@ def _validate(doc: Any) -> list[dict[str, Any]]:
 def load_types(directory: Path) -> list[dict[str, Any]]:
     """Read and validate the managed store, without creating it."""
     path = directory / TYPE_METADATA_FILENAME
-    if not path.exists():
+    store = metadata_store(path)
+    if not store.exists():
         return []
-    return _validate(load_toml_for_write_strict(path, "type metadata"))
+    return validate_type_document(store.read("type metadata", validate=validate_type_document))
 
 
 def _inputs(cfg: ProjectConfig, file: Path, symbol: str, cflags: str) -> dict[str, str]:
@@ -277,25 +276,29 @@ def bind_type(
         "cflags": flags,
         **_inputs(cfg, file, symbol, flags),
     }
-    record = _validate({"format": 1, "types": {identity: {module: entry}}})[0]
+    record = validate_type_document({"format": 1, "types": {identity: {module: entry}}})[0]
     path = directory / TYPE_METADATA_FILENAME
-    preview = load_toml_for_write_strict(path, "type metadata")
-    if path.exists():
-        _validate(preview)
+    preview = metadata_store(path).read(
+        "type metadata", validate=validate_type_document, roundtrip=True
+    )
+    if metadata_store(path).exists():
+        validate_type_document(preview)
     else:
         preview["format"] = 1
         preview["types"] = tomlkit.table()
     preview["types"].setdefault(identity, {})[module] = entry
-    _validate(preview)
+    validate_type_document(preview)
     if not dry_run:
         compile_type(cfg, record)
     report = {**record, "dry_run": dry_run, "compiler_checked": not dry_run}
     if dry_run:
         return report
     with metadata_write_lock(directory, TYPE_METADATA_FILENAME):
-        doc = load_toml_for_write_strict(path, "type metadata")
-        if path.exists():
-            _validate(doc)
+        doc = metadata_store(path).read(
+            "type metadata", validate=validate_type_document, roundtrip=True
+        )
+        if metadata_store(path).exists():
+            validate_type_document(doc)
         else:
             doc["format"] = 1
             doc["types"] = tomlkit.table()
@@ -307,8 +310,8 @@ def bind_type(
         if doc["types"].get(identity, {}).get(module) == entry:
             return report
         doc["types"].setdefault(identity, {})[module] = entry
-        _validate(doc)
-        atomic_write_locked(path, tomlkit.dumps(doc))
+        validate_type_document(doc)
+        metadata_store(path).write(doc, "type metadata")
     return report
 
 

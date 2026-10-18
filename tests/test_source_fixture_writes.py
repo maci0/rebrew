@@ -9,7 +9,8 @@ from source_util import write_source
 
 from rebrew.metadata.anchors import parse_address_anchors
 from rebrew.metadata.bindings import derive_c_symbol
-from rebrew.metadata.functions import atomic_write_locked, load_metadata, update_source_status
+from rebrew.metadata.functions import load_metadata, update_source_status
+from rebrew.utils import atomic_write_locked
 
 _TEXT = "/* ADDRESS: SERVER 0x10003000 */\n\nint extra(void) { return 0; }\n"
 _KEY = ("SERVER", 0x10003000)
@@ -30,7 +31,7 @@ class TestWriteSourceOneEdit:
             writes.append(Path(filepath))
             real(filepath, text, encoding=encoding)
 
-        monkeypatch.setattr("rebrew.metadata.functions.atomic_write_locked", spy)
+        monkeypatch.setattr("rebrew.metadata.files.atomic_write_locked", spy)
         source = tmp_path / "extra.c"
         write_source(
             source,

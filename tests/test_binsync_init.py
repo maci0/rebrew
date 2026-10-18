@@ -29,7 +29,10 @@ pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not ins
 _BINARY = b"MZ\x90\x00" + bytes(range(64))
 
 #: Seconds a killed process may take to disappear from the process table.
-_EXIT_POLL_SECONDS = 5.0
+#: Generous on purpose: the poll is a bounded liveness check, so a wedged
+#: child still fails, while a runner under heavy parallel load (the full
+#: suite plus other jobs) may need more than a few seconds to reap the group.
+_EXIT_POLL_SECONDS = 30.0
 
 
 def _wait_for_exit(pid: int) -> bool:

@@ -7,7 +7,89 @@ of the surface is *derived snapshots and caches*, not competing sources of
 truth.  Pages 6–7 of [architecture.drawio](architecture.drawio) draw the
 same tiers and the data/globals/layout pipeline.
 
+## Storage API and backend selection
+
+The four managed stores below use `rebrew.metadata.storage.metadata_store(path)`.
+Its `MetadataStore` protocol owns persistence, discovery, fingerprints, review
+snapshots and transactions. Domain APIs still own validation, identities,
+provenance and earned verdicts. Call `rebrew.metadata.functions`,
+`rebrew.metadata.data`, `rebrew.metadata.source_provenance`, `rebrew.type_metadata`
+or the library API when changing records. A storage handle stays bound to its
+backend; domain write locks select storage again after acquiring the project
+configuration lock.
+
+TOML remains the default. Experimental SQLite is enabled per project:
+
+```bash
+rebrew metadata migrate sqlite --dry-run --json
+rebrew metadata migrate sqlite --expected-digest <input_digest-from-preview>
+rebrew metadata migrate toml --dry-run
+rebrew metadata migrate toml
+```
+
+Migration validates all four store schemas, discovers nested library settings, verifies
+copied documents, and only then writes `[metadata] backend = "sqlite"` (or
+`"toml"`) in `rebrew-project.toml`. Project configuration stays in TOML.
+Changing that setting manually selects storage without importing existing data;
+inactive metadata is never used as a fallback. Previews create no storage files.
+The report lists inactive destination documents that will be removed because
+they are absent from the active source. Source files remain available after a
+transfer. A failed transfer leaves the source selected; retry to replace any
+incomplete inactive destination.
+
+SQLite uses the canonical project-root `rebrew-metadata.sqlite3` database,
+protected by its `.lock` sidecar and mode 0444 at rest. Back up the database as
+durable project data; ignore its `.lock` and transient `-journal`. It stores each
+logical document using TOML encoding to preserve existing value types. A
+transaction can cover all four stores in that database. This experimental
+backend adds no relational query API or performance promise. See
+[ADR 034](adr/034-metadata-storage-backends.md).
+
+Assembly evidence on definitions without a VA and target-scoped support-file
+purposes live under `[source]` in format-3 `rebrew-functions.toml`, including
+function drop-ins. They share the function store and its storage transaction;
+there is no separate active source store.
+
+## Metadata drop-in directories (TOML backend)
+
+Each managed store may be split between its optional main TOML and TOML files
+immediately inside a sibling directory:
+
+| Main file | Drop-ins |
+|---|---|
+| `rebrew-functions.toml` | `rebrew-functions.d/*.toml` |
+| `rebrew-data.toml` | `rebrew-data.d/*.toml` |
+| `rebrew-types.toml` | `rebrew-types.d/*.toml` |
+| `rebrew-libraries.toml` | `rebrew-libraries.d/*.toml` |
+
+For example, `rebrew-functions.d/game.toml` and
+`rebrew-functions.d/runtime.toml` can hold different function records. Each
+fragment is a complete document in that store's existing schema, including
+its `format` and required tables. Library settings retain their existing
+schema without a format marker. Names are arbitrary; only direct files with
+the `.toml` suffix are read, in filename order after the main file. Nested
+directories and backup files are ignored. No project configuration option is
+needed, and `rebrew-project.toml` is unchanged.
+
+These files partition records: duplicate identities are errors, even when
+the fields agree or the VA has a different hexadecimal spelling. Source
+records are unique by file/symbol/module or file/module; type records by
+identity/module; library settings by field. Library walk-up still selects
+the nearest directory containing settings.
+
+Use the existing CLI and owner APIs for edits. Updates and removals go back
+to the file holding the record; new records go into the main TOML. Writers
+retain comments in existing files, use the main store's `.toml.lock` for the
+whole collection, and write mode 0444. Review digests and live caches include
+all fragments and notice added, removed, renamed and edited files. Multi-file
+write failures roll back prior files; each replacement is atomic, but the
+collection is not a crash-atomic transaction. Keep all fragments in version
+control, with the same ownership and earned-STATUS rules as the main stores.
+
 ## The four tiers
+
+The canonical managed filenames below are logical document names. With SQLite
+selected, their durable contents live in `rebrew-metadata.sqlite3` instead.
 
 | Tier | Stores | Contract |
 |---|---|---|

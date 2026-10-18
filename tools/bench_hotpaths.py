@@ -63,6 +63,18 @@ def measure(fn: Callable[[], Any], repeat: int = 7) -> dict[str, Any]:
     }
 
 
+def _write_project_config(root: Path) -> None:
+    """Give a synthetic project the config every real project has.
+
+    Metadata backend selection walks ancestors for this file; without it each
+    read pays the walk, which no real project does.
+    """
+    (root / "rebrew-project.toml").write_text(
+        '[project]\nname = "bench"\ndefault_target = "SERVER"\n[compiler]\nprofile = "msvc-6.0"\n',
+        encoding="utf-8",
+    )
+
+
 def bench_annotation_parsing() -> dict[str, Any]:
     """read_source_bindings over a synthetic 200-function .c."""
     from rebrew.metadata.bindings import read_source_bindings
@@ -376,6 +388,7 @@ def bench_status_aggregation() -> dict[str, Any]:
 
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
+        _write_project_config(root)
         src_dir = root / "src" / "SERVER"
         src_dir.mkdir(parents=True)
         rows: list[dict[str, object]] = []
@@ -494,6 +507,7 @@ def _binding_tree(data_count: int, anchors: bool) -> dict[str, Any]:
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
+        _write_project_config(root)
         paths = []
         functions = {}
         data = {}
@@ -564,6 +578,7 @@ def bench_source_purposes() -> dict[str, Any]:
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
+        _write_project_config(root)
         definitions = [
             AssemblyProvenance(f"f{i}.c", f"f{i}", "SERVER", "a" * 64, "Reviewed original assembly")
             for i in range(200)

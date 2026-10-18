@@ -60,8 +60,21 @@ def _unreleased() -> str:
 
     text = CHANGELOG.read_text(encoding="utf-8")
     notes = _section(text, "## [Unreleased]")
-    tagged = subprocess.run(
-        ["git", "tag", "--list", f"v{__version__}"],
+    heading = f"## [{__version__}]"
+    if heading in text and not _released_on_this_history(f"v{__version__}"):
+        notes += _section(text, heading)
+    return notes
+
+
+def _released_on_this_history(tag: str) -> bool:
+    """True when *tag* exists and is an ancestor of HEAD.
+
+    The surface delta compares against the last reachable tag, so a version
+    tagged on another branch is not shipped here: its changelog section still
+    describes changes carried by this history and must count as pending notes.
+    """
+    listed = subprocess.run(
+        ["git", "tag", "--list", tag],
         cwd=ROOT,
         check=False,
         capture_output=True,
@@ -69,11 +82,18 @@ def _unreleased() -> str:
         encoding="utf-8",
         errors="replace",
     )
-    if not tagged.stdout.strip():
-        heading = f"## [{__version__}]"
-        if heading in text:
-            notes += _section(text, heading)
-    return notes
+    if not listed.stdout.strip():
+        return False
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", tag, "HEAD"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return ancestor.returncode == 0
 
 
 def _last_tag() -> str:

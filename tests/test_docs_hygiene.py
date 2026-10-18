@@ -27,6 +27,8 @@ import ast
 import re
 from pathlib import Path
 
+from stmt_walk import iter_statements
+
 from rebrew.app.builtins import BUILTIN_COMPONENTS
 from rebrew.app.plugin import Panel
 
@@ -466,7 +468,7 @@ def _imported_modules(pkg: Path) -> set[str]:
         if "__pycache__" in path.parts:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
+        for node in iter_statements(tree):
             if isinstance(node, ast.ImportFrom):
                 if node.module == "rebrew":
                     # `from rebrew import sources` names rebrew.sources; a dunder
@@ -540,7 +542,7 @@ def test_no_module_imports_another_modules_private_name() -> None:
         if module.startswith(_PRIVATE_IMPORT_EXEMPT):
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
+        for node in iter_statements(tree):
             if (
                 isinstance(node, ast.ImportFrom)
                 and node.module

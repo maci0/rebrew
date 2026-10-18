@@ -521,9 +521,9 @@ class TestGADeadline:
         assert random.getstate() == before
         assert isinstance(ga.rng_seed, int)
 
-    def test_past_deadline_returns_immediately(self, tmp_path: Path) -> None:
-        import time
-
+    def test_past_deadline_returns_immediately(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from rebrew.match_ga import BinaryMatchingGA
 
         ga = BinaryMatchingGA(
@@ -538,16 +538,24 @@ class TestGADeadline:
             pop_size=4,
             num_jobs=1,
         )
-        t0 = time.monotonic()
-        src, score = ga.run(deadline=time.monotonic() - 1)
-        assert time.monotonic() - t0 < 5  # no compile happened
+        compiles = {"n": 0}
+
+        def counting_compile(src: str) -> Any:
+            compiles["n"] += 1
+            raise AssertionError("compiled past a deadline that had already passed")
+
+        monkeypatch.setattr(ga, "_compile_source", counting_compile)
+        # The injected clock is the only time source the loop reads.
+        src, score = ga.run(deadline=99.0, clock=lambda: 100.0)
+        assert compiles["n"] == 0
         assert src is None
         assert score == float("inf")
 
-    def test_future_deadline_runs_at_least_one_gen(self, tmp_path: Path) -> None:
-        import time
-
+    def test_future_deadline_runs_at_least_one_gen(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from rebrew.match_ga import BinaryMatchingGA
+        from rebrew.matcher import BuildResult
 
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
@@ -561,10 +569,13 @@ class TestGADeadline:
             pop_size=4,
             num_jobs=1,
         )
-        ga.run(deadline=time.monotonic() + 60)
+        monkeypatch.setattr(ga, "_compile_source", lambda src: BuildResult(ok=False))
+        ticks = iter([100.0, 100.25, 100.75])
+        ga.run(deadline=200.0, clock=lambda: next(ticks))
         # best_score starts as inf; the previous `or best_score == inf` branch
-        # passed even when no generation ran. Require elapsed time from a gen.
-        assert ga.elapsed_sec > 0
+        # passed even when no generation ran. Require the generation's own
+        # elapsed time, measured on the injected clock.
+        assert ga.elapsed_sec == 0.5
 
     def test_deadline_reads_the_injected_clock(self, tmp_path: Path) -> None:
         """The generation budget comes from *clock*, not from wall time.
@@ -652,8 +663,9 @@ class TestGADeadline:
             num_jobs=1,
         )
         # Simulate an NTP step backwards mid-generation: the wall clock reads
-        # one hour earlier after the generation started.  elapsed_sec must be
-        # measured with the monotonic clock and stay a small positive value.
+        # one hour earlier after the generation started. elapsed_sec must come
+        # from the injected clock, not from time.time, so the run reports the
+        # generation's real cost instead of a negative hour.
         real_time = time.time()
         calls = {"n": 0}
 
@@ -662,8 +674,9 @@ class TestGADeadline:
             return real_time if calls["n"] == 1 else real_time - 3600.0
 
         monkeypatch.setattr(time, "time", fake_time)
-        ga.run(deadline=None)
-        assert 0 < ga.elapsed_sec < 60
+        ticks = iter([100.0, 100.5])
+        ga.run(deadline=None, clock=lambda: next(ticks))
+        assert ga.elapsed_sec == 0.5
 
 
 _SIBLING_G = (
@@ -3119,6 +3132,8 @@ class TestSingleCompileSeam:
         freeze a second, unsubstitutable binding."""
         import ast
 
+        from stmt_walk import iter_statements
+
         root = Path(__file__).resolve().parent.parent / "src" / "rebrew"
         owner = "rebrew.matcher.compiler"
         offenders: list[str] = []
@@ -3127,8 +3142,11 @@ class TestSingleCompileSeam:
             module = "rebrew." + ".".join(rel.parts)
             if module == owner or module.startswith("rebrew.matcher."):
                 continue
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
+            text = path.read_text(encoding="utf-8")
+            if "build_candidate" not in text:
+                continue
+            tree = ast.parse(text)
+            for node in iter_statements(tree):
                 if isinstance(node, ast.ImportFrom) and any(
                     alias.name in {"build_candidate", "build_candidate_obj_only"}
                     for alias in node.names

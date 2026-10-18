@@ -317,6 +317,9 @@ def build_name_to_va(
             cfg.reversed_dir,
             cfg,
             record_roles=False,
+            # Names already stored do not need another C parse. An address
+            # the store does not name still parses, so a new anchor is kept.
+            declarations=False,
             fact_cache=scan_facts,
             facts_out=scan_facts_out,
         )

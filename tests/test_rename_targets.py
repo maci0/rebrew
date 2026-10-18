@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from cli_json import cli_payload
 from source_util import SourceFixture, write_source
+from tree_snapshot import snapshot as _snapshot
 
 _PROJECT = """\
 [project]
@@ -208,10 +209,6 @@ def _row(rows: dict[str, Any], module: str, va: int) -> dict[str, Any]:
         if mod == module and va_text.startswith("0x") and int(va_text, 16) == va:
             return value
     raise KeyError(f"{module}.0x{va:x}")
-
-
-def _snapshot(root: Path) -> dict[Path, bytes]:
-    return {p: p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
 
 
 def _response(root: Path, target: str, text: str) -> Path:

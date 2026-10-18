@@ -671,7 +671,7 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     )
     from rebrew.metadata.functions import PROVENANCE_TAGS, validate_metadata_field
     from rebrew.metadata.source_schema import validate_source_metadata
-    from rebrew.utils import load_tomllib
+    from rebrew.metadata.storage import metadata_store
     from rebrew.workspace.status import KNOWN_STATUSES
 
     results: list[LintResult] = []
@@ -682,10 +682,10 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
         *,
         data_store: bool,
     ) -> None:
-        if not path.is_file():
+        if not metadata_store(path).exists():
             return
         try:
-            doc = load_tomllib(path)
+            doc = metadata_store(path).read("metadata lint")
         except (OSError, ValueError) as exc:
             # Returning here would report a clean run over a store this check
             # could not read, losing every W031 finding it holds.
@@ -800,15 +800,15 @@ def _check_W034_identity_paths(cfg: ProjectConfig) -> list[LintResult]:
     """
     from rebrew.metadata.data import DATA_METADATA_FILENAME
     from rebrew.metadata.functions import validate_identity_file
-    from rebrew.utils import load_tomllib
+    from rebrew.metadata.storage import metadata_store
 
     results: list[LintResult] = []
     for filename in ("rebrew-functions.toml", DATA_METADATA_FILENAME):
         path = (Path(cfg.metadata_dir) / filename).resolve()
-        if not path.is_file():
+        if not metadata_store(path).exists():
             continue
         try:
-            doc = load_tomllib(path)
+            doc = metadata_store(path).read("metadata identity lint")
         except (OSError, ValueError) as exc:
             # An unreadable store hides every W034 finding in it, which reads
             # as a clean run over identities this check never saw.
@@ -901,7 +901,9 @@ def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     Warn-only: a stray copy is not itself a defect, it is a thing that will be
     read by accident.
     """
-    store_names = {"rebrew-data.toml", "rebrew-functions.toml", "rebrew-source.toml"}
+    from rebrew.metadata.storage import project_metadata_stores
+
+    store_names = {"rebrew-data.toml", "rebrew-functions.toml", SOURCE_PROVENANCE_FILENAME}
     dirs: set[Path] = set()
     for attr in ("metadata_dir", "reversed_dir", "shared_dir"):
         value = getattr(cfg, attr, None)
@@ -909,7 +911,8 @@ def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
             dirs.add(Path(value).resolve())
     results: list[LintResult] = []
     skip = {".git", "build", ".scratch", "node_modules", ".venv"}
-    for path in sorted(cfg.root.rglob("*.toml")):
+    for store in project_metadata_stores(cfg.root, recursive=True):
+        path = store.path
         if path.name not in store_names:
             continue
         if any(part in skip for part in path.parts):

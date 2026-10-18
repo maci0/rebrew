@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import replace
@@ -98,6 +99,86 @@ def bind_compiled_source(
     )
 
 
+_COMPILED_SUFFIXES = {".c", ".cpp", ".cc", ".cxx"}
+
+
+def _compiled_suffix(stored: str) -> bool:
+    dot = stored.rfind(".")
+    return dot >= 0 and stored[dot:].lower() in _COMPILED_SUFFIXES
+
+
+def _parent_is_real(parent: Path, cache: dict[Path, bool]) -> bool:
+    """True when *parent* and its ancestors contain no symlink."""
+    found = cache.get(parent)
+    if found is None:
+        found = parent.resolve() == parent
+        cache[parent] = found
+    return found
+
+
+def _base_binding_facts(root: Path, base: Path, reversed_dir: Path) -> tuple[bool, str | None]:
+    """Containment and display prefix for rows whose stored path starts at *base*.
+
+    ``validate_identity_file`` rejects absolute and ``..`` identities, so a base
+    that is lexically inside *root* keeps every row inside it. The prefix is the
+    stored-path spelling of ``reversed_dir`` relative to the same base, which
+    turns the common in-directory row into a slice instead of a path walk.
+    """
+    if not base.is_absolute():
+        return False, None
+    inside = base.is_relative_to(root)
+    if not reversed_dir.is_absolute():
+        return inside, None
+    prefix = os.path.relpath(reversed_dir, base).replace(os.sep, "/")
+    if prefix == ".":
+        return inside, ""
+    if prefix == ".." or prefix.startswith("../"):
+        return inside, None
+    return inside, prefix + "/"
+
+
+def _plain_relative(norm: str) -> bool:
+    """True when *norm* needs no path normalization before slicing its prefix."""
+    return "/./" not in norm and "//" not in norm and not norm.startswith("./")
+
+
+def _bind_compiled_row(
+    cfg: ProjectConfig,
+    entry: SourceBinding,
+    metadata: dict[str, Any],
+    *,
+    root: Path,
+    metadata_base: Path,
+    reversed_dir: Path,
+    real_parents: dict[Path, bool],
+    base_facts: dict[Path, tuple[bool, str | None]],
+) -> SourceBinding:
+    """Same result as :func:`bind_compiled_source` without resolving a plain path.
+
+    A stored relative path under a real directory matches the resolved display
+    path. A symlink, or a path that is not lexically inside the project, still
+    goes through the resolving binder. Containment and the display prefix are
+    facts of the base, computed once per call instead of a path walk per row.
+    """
+    stored = str(metadata.get("file", ""))
+    if not stored or not _compiled_suffix(stored):
+        return entry
+    validate_identity_file(stored)
+    norm = stored if "\\" not in stored else stored.replace("\\", "/")
+    base = root if metadata.get("kind", entry.kind) == "LIBRARY" else metadata_base
+    inside, prefix = base_facts[base]
+    source = base / norm
+    if source.is_symlink() or not _parent_is_real(source.parent, real_parents) or not inside:
+        return bind_compiled_source(cfg, entry, metadata)
+    if prefix is not None and norm.startswith(prefix) and _plain_relative(norm):
+        entry.filepath = norm[len(prefix) :]
+    else:
+        entry.filepath = rel_display_path(source, reversed_dir)
+    entry.symbol = str(metadata.get("symbol") or entry.symbol)
+    entry.status = str(metadata.get("status") or "STUB")
+    return entry
+
+
 def compiled_source_annotations(
     cfg: ProjectConfig,
     *,
@@ -118,24 +199,46 @@ def compiled_source_annotations(
             return []
         metadata = load_metadata(metadata_dir, deepcopy=False)
     target_module_name = preset_module_key(target_module(cfg))
+    root = Path(getattr(cfg, "root", cfg.metadata_dir)).resolve()
+    metadata_base = Path(cfg.metadata_dir)
+    reversed_dir = Path(cfg.reversed_dir)
+    real_parents: dict[Path, bool] = {}
+    base_facts = {
+        metadata_base: _base_binding_facts(root, metadata_base, reversed_dir),
+        root: _base_binding_facts(root, root, reversed_dir),
+    }
     results: list[SourceBinding] = []
     for (module, va), entry in metadata.items():
-        stored = str(entry.get("file", ""))
-        if (
-            preset_module_key(module) != target_module_name
-            or entry.get("kind") not in {"FUNCTION", "LIBRARY"}
-            or Path(stored).suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"}
-        ):
+        if preset_module_key(module) != target_module_name:
+            continue
+        kind = entry.get("kind")
+        if kind not in {"FUNCTION", "LIBRARY"}:
+            continue
+        stored = entry.get("file") or ""
+        if not isinstance(stored, str):
+            stored = str(stored)
+        if not _compiled_suffix(stored):
             continue
         annotation = SourceBinding(
             module=module,
             va=va,
             name=str(entry.get("name") or ""),
             symbol=str(entry.get("symbol") or ""),
-            kind=str(entry["kind"]),
+            kind=str(kind),
         )
         apply_metadata_entry(annotation, entry)
-        results.append(bind_compiled_source(cfg, annotation, entry))
+        results.append(
+            _bind_compiled_row(
+                cfg,
+                annotation,
+                entry,
+                root=root,
+                metadata_base=metadata_base,
+                reversed_dir=reversed_dir,
+                real_parents=real_parents,
+                base_facts=base_facts,
+            )
+        )
     return results
 
 

@@ -42,6 +42,7 @@ from rebrew.config import (
     load_config,
 )
 from rebrew.errors import RebrewError
+from rebrew.metadata.storage import metadata_store
 from rebrew.utils import md5_file, read_json_text
 
 logger = logging.getLogger(__name__)
@@ -924,9 +925,9 @@ def check_metadata_files(cfg: ProjectConfig) -> CheckResult:
     func_toml = metadata_dir / "rebrew-functions.toml"
     data_toml = metadata_dir / "rebrew-data.toml"
     missing: list[str] = []
-    if not func_toml.exists():
+    if not metadata_store(func_toml).exists():
         missing.append("rebrew-functions.toml")
-    if not data_toml.exists():
+    if not metadata_store(data_toml).exists():
         missing.append("rebrew-data.toml")
 
     if missing:

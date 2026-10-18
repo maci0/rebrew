@@ -177,12 +177,18 @@ def _normalize(obj: Any) -> Any:
     return obj
 
 
+#: Derived read caches live here. A first run may create them without touching
+#: project content, so they are outside the idempotency digest.
+_RUNTIME_CACHE_DIR = ".rebrew"
+
+
 def tree_digest(root: Path) -> dict[str, str]:
-    """``relative path -> sha256`` for every regular file under *root*.
+    """``relative path -> sha256`` for every project file under *root*.
 
     Content only, not mode or mtime: a command that rewrites a file with the
     same bytes is as safe as one that skips it, and a re-run that only touches
-    mtimes must not read as a change.
+    mtimes must not read as a change. Files under the runtime cache directory
+    are excluded for the same reason they are gitignored: they are derived.
     """
     import hashlib
 
@@ -190,7 +196,10 @@ def tree_digest(root: Path) -> dict[str, str]:
     for path in sorted(root.rglob("*")):
         if path.is_symlink() or not path.is_file():
             continue
-        out[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+        relative = path.relative_to(root)
+        if _RUNTIME_CACHE_DIR in relative.parts:
+            continue
+        out[relative.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return out
 
 

@@ -14,7 +14,6 @@ import logging
 import math
 import os
 import threading
-import tomllib
 import typing
 import unicodedata
 from collections import OrderedDict
@@ -31,21 +30,19 @@ from rebrew.errors import RebrewError
 from rebrew.metadata.document import (
     FUNCTION_FORMAT_VERSION,
     MetadataDocCache,
+    MetadataDocFingerprint,
     build_metadata_doc,
     build_metadata_key_index,
     clear_metadata_doc_cache,
     load_metadata_doc,
     load_metadata_for_write,
-    metadata_format,
-    metadata_write_lock,
     pop_metadata_doc_cache,
     resolve_metadata_key,
     stamp_format,
 )
 from rebrew.metadata.source_schema import validate_identity_file
+from rebrew.metadata.storage import metadata_store, metadata_write_lock
 from rebrew.utils import (
-    atomic_write_locked,
-    read_toml_text,
     resolved_path,
     toml_safe,
 )
@@ -124,6 +121,7 @@ __all__ = [
     "METADATA_FIELD_TYPES",
     "SYNC_FIELD_RULES",
     "validate_provenance_table",
+    "validate_library_document",
     "record_verification",
     "METADATA_FILENAME",
     "all_library_presets",
@@ -189,9 +187,12 @@ def resolve_metadata_dir(directory: Path | str | Any) -> Path:
     p = Path(directory)
     if (
         p.name == "src"
-        and not (p / METADATA_FILENAME).exists()
-        and not (p / "rebrew-data.toml").exists()
-        and ((p.parent / METADATA_FILENAME).exists() or (p.parent / "rebrew-data.toml").exists())
+        and not metadata_store(p / METADATA_FILENAME).exists()
+        and not metadata_store(p / "rebrew-data.toml").exists()
+        and (
+            metadata_store(p.parent / METADATA_FILENAME).exists()
+            or metadata_store(p.parent / "rebrew-data.toml").exists()
+        )
     ):
         return p.parent
     return p
@@ -263,13 +264,13 @@ def load_metadata(
     *,
     deepcopy: bool = True,
 ) -> dict[tuple[str, int], dict[str, Any]]:
-    """Load ``rebrew-functions.toml`` from *directory*.
+    """Load ``rebrew-functions.toml`` and its ``.d/*.toml`` fragments from *directory*.
 
     *directory* must be the metadata root (``cfg.metadata_dir``), path string, or config.  There is
-    no walk-up — the file is expected at exactly ``directory / rebrew-functions.toml``.
+    no walk-up — the main file and drop-in directory live directly under *directory*.
 
     Returns a mapping of ``{(module, va_int): {field_name: value}}``.
-    Returns an empty dict if no metadata file is found or it cannot be parsed.
+    Returns an empty dict when the store is absent; malformed or unreadable files raise.
 
     Results are cached in-memory keyed by resolved path and file mtime.
     Call :func:`clear_metadata_cache` to force a re-read.
@@ -291,17 +292,13 @@ def load_metadata(
     # with an lstat.  A symlink re-pointed mid-process is the only way the
     # answer changes, and the doc cache re-stats the file on every read.
     path = _resolved_metadata_path(str(dir_path))
-    metadata_format(path)
-    if not path.exists():
-        pop_metadata_doc_cache(_metadata_cache, path)
-        return {}
-
     return load_metadata_doc(
         path,
         _metadata_cache,
         "metadata",
         deepcopy=deepcopy,
         known_fields=_KNOWN_METADATA_FIELDS,
+        resolved=True,
     )
 
 
@@ -330,19 +327,19 @@ def save_metadata(
     dir_path = resolve_metadata_dir(directory)
     path = (dir_path / METADATA_FILENAME).resolve()
     safe = {key: {f: toml_safe(v) for f, v in entry.items()} for key, entry in data.items()}
-    doc = build_metadata_doc(safe, _CANONICAL_ORDER, version=FUNCTION_FORMAT_VERSION)
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         if expected_hash != "":
-            import hashlib
-
-            current = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+            current = metadata_store(path).digest()
             if current != expected_hash:
                 raise ValueError(f"{path} changed since its rows were reviewed")
-        current_doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        if "source" in current_doc:
-            doc["source"] = current_doc["source"]
+        existing = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
+        doc = build_metadata_doc(
+            safe, _CANONICAL_ORDER, existing=existing, version=FUNCTION_FORMAT_VERSION
+        )
+        if "source" in existing:
+            doc["source"] = existing["source"]
         stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
-        atomic_write_locked(path, tomlkit.dumps(doc))
+        metadata_store(path).write(doc, "metadata")
         pop_metadata_doc_cache(_metadata_cache, path)
 
 
@@ -578,7 +575,7 @@ def _set_field(
     """Set one field for *(module, va)* in the metadata.  **Private** — use
     :func:`update_field` or :func:`update_source_status` instead.
 
-    Writes directly to ``directory / rebrew-functions.toml``.  No walk-up.
+    Updates the owning file, or the main TOML for a new record. No walk-up.
     Uses in-place ``tomlkit`` editing to preserve formatting and comments.
 
     *updated_by* stamps the row's ``updated_by`` / ``updated_at`` pair in the
@@ -592,7 +589,7 @@ def _set_field(
 
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = typing.cast(dict[str, Any], doc)
+        doc_dict = doc
         _, entry = _ensure_entry_table(doc_dict, module, va)
 
         # Same-value short-circuit (mirrors set_fields / update_statuses_batch):
@@ -605,7 +602,7 @@ def _set_field(
         if updated_by:
             stamp_provenance(entry, updated_by, now=now)
         stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
-        atomic_write_locked(path, tomlkit.dumps(doc))
+        metadata_store(path).write(doc, "metadata")
         pop_metadata_doc_cache(_metadata_cache, path)
 
 
@@ -686,7 +683,7 @@ def set_fields(
 
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = typing.cast(dict[str, Any], doc)
+        doc_dict = doc
         _, entry = _ensure_entry_table(doc_dict, module, va)
 
         changed = False
@@ -708,7 +705,7 @@ def set_fields(
             if updated_by:
                 stamp_provenance(entry, updated_by, now=now)
             stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
-            atomic_write_locked(path, tomlkit.dumps(doc))
+            metadata_store(path).write(doc, "metadata")
             pop_metadata_doc_cache(_metadata_cache, path)
 
 
@@ -746,7 +743,7 @@ def set_fields_batch(
     changed_entries = 0
     with metadata_write_lock(metadata_dir, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = typing.cast(dict[str, Any], doc)
+        doc_dict = doc
         key_index = build_metadata_key_index(doc_dict)
         for u in updates:
             module = u.get("module") or ""
@@ -786,7 +783,7 @@ def set_fields_batch(
             changed_entries += 1
         if changed_entries:
             stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
-            atomic_write_locked(path, tomlkit.dumps(doc))
+            metadata_store(path).write(doc, "metadata")
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed_entries
 
@@ -893,7 +890,7 @@ def import_status_history(
     changed = 0
     with metadata_write_lock(root, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = typing.cast(dict[str, Any], doc)
+        doc_dict = doc
         index = build_metadata_key_index(doc_dict)
         for va, events in prepared.items():
             _, entry = _ensure_entry_table(doc_dict, module, va, index)
@@ -904,7 +901,7 @@ def import_status_history(
                 changed += 1
         if changed and not dry_run:
             stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
-            atomic_write_locked(path, tomlkit.dumps(doc))
+            metadata_store(path).write(doc, "metadata")
             pop_metadata_doc_cache(_metadata_cache, path)
     return changed
 
@@ -966,7 +963,7 @@ def record_function_rows(
     path = (dir_path / METADATA_FILENAME).resolve()
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = typing.cast(dict[str, Any], doc)
+        doc_dict = doc
         key_index = build_metadata_key_index(doc_dict)
         changed = False
         for row in rows:
@@ -997,7 +994,7 @@ def record_function_rows(
                 stamp_provenance(entry, updated_by)
         if changed:
             stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
-            atomic_write_locked(path, tomlkit.dumps(doc))
+            metadata_store(path).write(doc, "metadata")
         pop_metadata_doc_cache(_metadata_cache, path)
 
 
@@ -1114,12 +1111,12 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
         return 0
     dir_path = resolve_metadata_dir(metadata_dir)
     path = (dir_path / METADATA_FILENAME).resolve()
-    if not path.exists():
+    if not metadata_store(path).exists():
         return 0
     changed_entries = 0
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = typing.cast(dict[str, Any], doc)
+        doc_dict = doc
         key_index = build_metadata_key_index(doc_dict)
         for u in updates:
             module = u.get("module") or ""
@@ -1155,7 +1152,7 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
                 changed_entries += 1
         if changed_entries:
             stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
-            atomic_write_locked(path, tomlkit.dumps(doc))
+            metadata_store(path).write(doc, "metadata")
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed_entries
 
@@ -1172,12 +1169,12 @@ def delete_entries_batch(metadata_dir: Path | str | Any, targets: list[tuple[str
         return 0
     dir_path = resolve_metadata_dir(metadata_dir)
     path = (dir_path / METADATA_FILENAME).resolve()
-    if not path.exists():
+    if not metadata_store(path).exists():
         return 0
     removed = 0
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = typing.cast(dict[str, Any], doc)
+        doc_dict = doc
         key_index = build_metadata_key_index(doc_dict)
         for module, va in targets:
             if not module:
@@ -1192,7 +1189,7 @@ def delete_entries_batch(metadata_dir: Path | str | Any, targets: list[tuple[str
             removed += 1
         if removed:
             stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
-            atomic_write_locked(path, tomlkit.dumps(doc))
+            metadata_store(path).write(doc, "metadata")
         pop_metadata_doc_cache(_metadata_cache, path)
     return removed
 
@@ -1220,14 +1217,14 @@ def _mutate_entry_doc(
             return False
 
         # Use dict access for type checking on tomlkit Container
-        doc_dict = typing.cast(dict[str, Any], doc)
+        doc_dict = doc
         toml_key = resolve_metadata_key(doc_dict, module, va)
         if toml_key not in doc_dict:
             return False
         if not mutate(doc_dict, toml_key):
             return False
         stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
-        atomic_write_locked(path, tomlkit.dumps(doc))
+        metadata_store(path).write(doc, "metadata")
         pop_metadata_doc_cache(_metadata_cache, path)
         return True
 
@@ -1236,7 +1233,7 @@ def _delete_field(directory: Path | str | Any, va: int, key: str, module: str) -
     """Remove *key* from the metadata entry for *(module, va)*.  **Private** —
     use :func:`remove_field` instead.
 
-    Reads/writes directly at ``directory / rebrew-functions.toml``.  No walk-up.
+    Reads the collection and updates the owning file. No walk-up.
     Returns True if removed.
     """
 
@@ -1555,7 +1552,7 @@ def update_statuses_batch(
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         # Single read for the whole batch
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = typing.cast(dict[str, Any], doc)
+        doc_dict = doc
         key_index = build_metadata_key_index(doc_dict)
 
         for u in updates:
@@ -1659,7 +1656,7 @@ def update_statuses_batch(
         # Single write for the whole batch
         if changed:
             stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
-            atomic_write_locked(path, tomlkit.dumps(doc))
+            metadata_store(path).write(doc, "metadata")
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed
 
@@ -1953,7 +1950,7 @@ _LIBRARY_PRESETS_ALL: dict[str, dict[str, str]] = _merged_library_presets()
 
 #: Held across the re-discovery and the rebind of :data:`_LIBRARY_PRESETS_ALL`.
 #: ``verify --jobs N`` resolves library overrides from worker threads through
-#: :func:`all_library_presets`, :func:`_validate_library_override`, and
+#: :func:`all_library_presets`, :func:`validate_library_document`, and
 #: :func:`apply_library_presets`, so a concurrent refresh must publish the new
 #: snapshot in one section rather than rebind the global under them.
 _LIBRARY_PRESETS_LOCK = threading.Lock()
@@ -1999,7 +1996,7 @@ def all_library_presets() -> dict[str, dict[str, str]]:
 #: wholesale when full — library files per project are few.
 #: Guarded: ``rebrew verify --jobs N`` resolves overrides from worker threads and
 #: the clear-then-store eviction is a multi-step mutation on a shared dict.
-_LIBRARY_META_CACHE: dict[str, tuple[tuple[int, int, int], dict[str, Any]]] = {}
+_LIBRARY_META_CACHE: dict[str, tuple[MetadataDocFingerprint, dict[str, Any]]] = {}
 _LIBRARY_META_CACHE_MAX = 64
 _LIBRARY_CACHE_LOCK = threading.Lock()
 
@@ -2010,7 +2007,7 @@ _LIBRARY_CACHE_LOCK = threading.Lock()
 LIBRARY_OVERRIDE_KEYS = frozenset({"toolchain", "cflags", "library"})
 
 
-def _validate_library_override(path: Path, raw: dict[str, Any]) -> None:
+def validate_library_document(path: Path, raw: dict[str, Any]) -> None:
     """Warn on a hand-written ``rebrew-libraries.toml`` that will not apply.
 
     A value that is not a string raises :class:`LibraryOverrideError`:
@@ -2056,7 +2053,7 @@ def parse_library_metadata(path: Path) -> dict[str, Any]:
     Returns ``{}`` for an absent file.  Raises :class:`LibraryOverrideError`
     on malformed TOML, a non-dict document, or a non-string field value.
     Unrecognized keys, an unknown toolchain name, and an unknown preset name
-    warn (:func:`_validate_library_override`) and are otherwise ignored, the
+    warn (:func:`validate_library_document`) and are otherwise ignored, the
     same rule ``rebrew-project.toml`` applies to unknown keys.
 
     Memoized per process behind an ``mtime_ns``+``size``+inode stat guard:
@@ -2068,30 +2065,28 @@ def parse_library_metadata(path: Path) -> dict[str, Any]:
     property tests rely on this).
     """
     key = str(path.resolve())
+    store = metadata_store(path)
     try:
-        st = path.stat()
-    except FileNotFoundError:
+        fp = store.fingerprint()
+    except OSError as exc:
+        raise LibraryOverrideError(f"cannot stat {LIBRARY_METADATA_FILE} at {path}: {exc}") from exc
+    if not fp:
         with _LIBRARY_CACHE_LOCK:
             _LIBRARY_META_CACHE.pop(key, None)
         return {}
-    except OSError as exc:
-        # A present-but-unreadable file is not an absent one: returning {}
-        # here makes the caller believe the library file was consulted and had
-        # no overrides, so every function in the directory silently compiles
-        # with the project default flags.  Fail loud, like a malformed file.
-        raise LibraryOverrideError(f"cannot stat {LIBRARY_METADATA_FILE} at {path}: {exc}") from exc
-    fp = (st.st_mtime_ns, st.st_size, st.st_ino)
     with _LIBRARY_CACHE_LOCK:
         cached = _LIBRARY_META_CACHE.get(key)
         if cached is not None and cached[0] == fp:
             return dict(cached[1])
     try:
-        raw = tomllib.loads(read_toml_text(path))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raw = store.read(
+            "library override", validate=lambda doc: validate_library_document(path, doc)
+        )
+    except (OSError, ValueError) as exc:
         raise LibraryOverrideError(f"bad {LIBRARY_METADATA_FILE} at {path}: {exc}") from exc
     if not isinstance(raw, dict):
         raise LibraryOverrideError(f"{path} must be a TOML table")
-    _validate_library_override(path, raw)
+    validate_library_document(path, raw)
     with _LIBRARY_CACHE_LOCK:
         # Re-check: another worker may have filled it while we parsed.
         cached = _LIBRARY_META_CACHE.get(key)
@@ -2140,7 +2135,7 @@ def nearest_library_metadata_path(
     walk = cur
     while True:
         candidate = walk / LIBRARY_METADATA_FILE
-        if candidate.exists():
+        if metadata_store(candidate).exists():
             return candidate
         if root_p is not None and walk == root_p:
             break
@@ -2162,7 +2157,7 @@ _LIBRARY_FP_MEMO: OrderedDict[
     tuple[
         tuple[tuple[str, int, int], ...],
         tuple[str, int, int],
-        tuple[str, int, int, int] | None,
+        tuple[str, MetadataDocFingerprint] | None,
     ],
 ] = OrderedDict()
 _LIBRARY_FP_MEMO_MAX = 256
@@ -2206,6 +2201,10 @@ def _library_watch_ids(
         if ident is None:
             return None
         dirs.append((str(walk), ident[0], ident[1]))
+        dropins = walk / Path(LIBRARY_METADATA_FILE).with_suffix(".d")
+        dropin_id = _library_stat_id(str(dropins), follow=True)
+        if dropin_id is not None:
+            dirs.append((str(dropins), dropin_id[0], dropin_id[1]))
         if root_p is not None and walk == root_p:
             break
         if walk.parent == walk:
@@ -2217,7 +2216,7 @@ def _library_watch_ids(
 def _library_watch_unchanged(
     dirs: tuple[tuple[str, int, int], ...],
     link: tuple[str, int, int],
-    found: tuple[str, int, int, int] | None,
+    found: tuple[str, MetadataDocFingerprint] | None,
 ) -> bool:
     """True while the watched directories, the start path, and the file match."""
     if _library_stat_id(link[0], follow=False) != (link[1], link[2]):
@@ -2228,16 +2227,15 @@ def _library_watch_unchanged(
     if found is None:
         return True
     try:
-        st = os.stat(found[0])  # noqa: PTH116
+        return metadata_store(Path(found[0])).fingerprint() == found[1]
     except OSError:
         return False
-    return (st.st_mtime_ns, st.st_size, st.st_ino) == found[1:]
 
 
 def library_override_fingerprint(
     start_dir: str | Path, root: str | Path | None = None
-) -> tuple[str, int, int, int] | None:
-    """``(path, mtime_ns, size, inode)`` of the nearest library override file.
+) -> tuple[str, MetadataDocFingerprint] | None:
+    """Path and input-file fingerprints of the nearest library override store.
 
     The cache key for a memoized override resolution: the walk plus one stat,
     no parse, so a caller that memoizes the resolution still notices a
@@ -2248,6 +2246,11 @@ def library_override_fingerprint(
     file instead of resolving the walk again.  A new file, a removed file,
     or an in-place edit still returns the fresh fingerprint.
     """
+    if metadata_store(Path(start_dir) / LIBRARY_METADATA_FILE).name != "toml":
+        found_store = nearest_library_metadata_path(start_dir, root)
+        return (
+            (str(found_store), metadata_store(found_store).fingerprint()) if found_store else None
+        )
     key = (os.fspath(start_dir), "" if root is None else os.fspath(root))
     with _LIBRARY_CACHE_LOCK:
         cached = _LIBRARY_FP_MEMO.get(key)
@@ -2257,19 +2260,15 @@ def library_override_fingerprint(
                 _LIBRARY_FP_MEMO.move_to_end(key)
         return cached[2]
     found = nearest_library_metadata_path(start_dir, root)
-    result: tuple[str, int, int, int] | None
+    result: tuple[str, MetadataDocFingerprint] | None
     if found is None:
         result = None
     else:
         try:
-            st = found.stat()
+            result = (str(found), metadata_store(found).fingerprint())
         except OSError as exc:
-            # The memo key must still name the file that applies: returning None
-            # reads as "no override file here", so a `rebrew library set` write
-            # stays invisible for the rest of the process.
             logger.warning("cannot stat library override %s, key is stale: %s", found, exc)
             return None
-        result = (str(found), st.st_mtime_ns, st.st_size, st.st_ino)
     watched = _library_watch_ids(start_dir, root)
     if watched is None:
         return result

@@ -24,7 +24,12 @@ from rebrew.compiler.compile import effective_compile_flags, extract_include_dir
 from rebrew.compiler.overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig, target_module
 from rebrew.metadata.bindings import read_source_bindings
-from rebrew.metadata.document import metadata_write_lock
+from rebrew.metadata.storage import (
+    input_digest,
+    metadata_store_paths,
+    metadata_write_lock,
+    snapshot_input,
+)
 from rebrew.rename_ops import FileChange, RenamePlan, SourceEdit, apply_rename_plan
 from rebrew.source_selection import collect_target_sources
 from rebrew.types import type_size
@@ -395,10 +400,10 @@ def _resolved_contract_sites(
 
 def audit_contracts(cfg: ProjectConfig, *, name: str | None = None) -> dict[str, Any]:
     """Compare physical declarations, definitions and return-consuming call sites."""
-    selection_inputs = [p for p in cfg.metadata_dir.glob("rebrew-*.toml") if p.is_file()]
+    selection_inputs = list(metadata_store_paths(cfg.metadata_dir))
     if (cfg.root / "rebrew-project.toml").is_file():
         selection_inputs.append(cfg.root / "rebrew-project.toml")
-    input_hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in selection_inputs}
+    input_hashes = {str(p): input_digest(p) for p in selection_inputs}
     contexts, unknown = contract_contexts(cfg)
     source_units = sorted({str(unit) for units in contexts.values() for unit in units})
     sites: list[ContractSite] = []
@@ -569,10 +574,7 @@ def audit_contracts(cfg: ProjectConfig, *, name: str | None = None) -> dict[str,
                 "sites": [asdict(site) for site in claims],
             }
         )
-    if any(
-        hashlib.sha256(Path(path).read_bytes()).hexdigest() != digest
-        for path, digest in input_hashes.items()
-    ):
+    if any(input_digest(Path(path)) != digest for path, digest in input_hashes.items()):
         raise ValueError("contract inputs changed during audit")
     return {
         "input_hashes": input_hashes,
@@ -709,10 +711,10 @@ def reconcile_contract(
     for cfg in cfgs:
         contexts, _unknown = contract_contexts(cfg)
         inputs.update(contexts)
-        inputs.update(p for p in cfg.metadata_dir.glob("rebrew-*.toml") if p.is_file())
+        inputs.update(metadata_store_paths(cfg.metadata_dir))
         if (cfg.root / "rebrew-project.toml").is_file():
             inputs.add(cfg.root / "rebrew-project.toml")
-    original = {path: path.read_bytes() for path in inputs}
+    original = {path: snapshot_input(path) for path in inputs}
     if original[header] != header_raw:
         raise ValueError("canonical header changed after audit")
     for audit in reports:
@@ -875,11 +877,11 @@ def reconcile_contract(
         "verification_required": True,
         "verdicts_changed": False,
     }
-    if any(path.read_bytes() != raw for path, raw in original.items()):
+    if any(snapshot_input(path) != raw for path, raw in original.items()):
         raise ValueError("contract inputs changed during planning")
     if not dry_run:
         with metadata_write_lock(cfgs[0].metadata_dir, "rebrew-functions.toml"):
-            if any(path.read_bytes() != raw for path, raw in original.items()):
+            if any(snapshot_input(path) != raw for path, raw in original.items()):
                 raise ValueError("contract inputs changed before publication")
             for cfg, audit in zip(cfgs, reports, strict=True):
                 current, _ = collect_target_sources(cfg, target_module(cfg))

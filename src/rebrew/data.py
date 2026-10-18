@@ -34,6 +34,7 @@ from rebrew.data_scan import (
     scan_globals,
     verify_bss_layout,
 )
+from rebrew.metadata.storage import metadata_store
 from rebrew.utils import atomic_write_text, untrusted_ident
 
 app = typer.Typer(
@@ -393,7 +394,7 @@ def execute_data(
         from rebrew.data_layout import fix_ownership as fix_data_ownership
 
         metadata = cfg.metadata_dir / "rebrew-data.toml"
-        if not metadata.exists():
+        if not metadata_store(metadata).exists():
             error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
         if layout_audit:
             if section not in (".data", ".rdata"):
@@ -541,7 +542,7 @@ def execute_data(
         from rebrew.data_annotate import annotate_globals
 
         metadata = cfg.metadata_dir / "rebrew-data.toml"
-        if not metadata.exists():
+        if not metadata_store(metadata).exists():
             error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
         per_file, skipped_unnamed = annotate_globals(src_dir, metadata, dry_run=dry_run, cfg=cfg)
         total = sum(per_file.values())

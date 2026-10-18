@@ -49,7 +49,7 @@ from rebrew.match_sweep import (
 from rebrew.matcher import GACheckpoint, SolutionEntry, iter_ga_runs, load_ga_runs
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
 from rebrew.metadata.bindings import read_source_bindings
-from rebrew.metadata.document import metadata_write_lock
+from rebrew.metadata.storage import metadata_write_lock
 from rebrew.utils import (
     atomic_write_text,
     filename_component,

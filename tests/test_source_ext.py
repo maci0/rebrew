@@ -18,6 +18,7 @@ from rebrew.sources import (
     iter_headers,
     iter_library_headers,
     iter_sources,
+    iter_sources_and_headers,
     scan_files,
     source_glob,
 )
@@ -97,6 +98,18 @@ class TestScanFiles:
         assert iter_sources(src, cfg, scanned=tree) == iter_sources(src, cfg)
         assert iter_library_headers(src, cfg, scanned=tree) == iter_library_headers(src, cfg)
         assert iter_headers(src, cfg) == files_with_ext(src, {".h"})
+
+    def test_sources_and_headers_share_one_walk(self, tmp_path: Path) -> None:
+        """Sources stay ahead of headers, and a header extension is not listed twice."""
+        src = self._tree(tmp_path)
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=src, target_name="t", module="T")
+        sources = iter_sources(src, cfg)
+        headers = [path for path in iter_headers(src, cfg) if path not in set(sources)]
+        assert iter_sources_and_headers(src, cfg) == sources + headers
+        cfg.source_ext = ".c,.cpp,.h"
+        combined = iter_sources_and_headers(src, cfg)
+        assert len(combined) == len(set(combined))
+        assert any(path.name == "library_zlib.h" for path in combined)
 
 
 # ---------------------------------------------------------------------------

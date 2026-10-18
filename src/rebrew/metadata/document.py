@@ -11,12 +11,13 @@ The pure source schema and :mod:`rebrew.utils` are its only dependencies, so
 both stores and their readers can depend on it without a cycle.
 """
 
-import contextlib
 import copy
+import json
 import logging
+import os
 import threading
 import unicodedata
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,7 @@ import tomlkit
 from tomlkit import TOMLDocument
 
 from rebrew.metadata.source_schema import validate_source_metadata
-from rebrew.utils import file_lock, load_toml_for_write_strict, load_tomllib
+from rebrew.metadata.storage import metadata_store
 
 FORMAT_KEY = "format"
 FORMAT_VERSION = 2
@@ -47,7 +48,7 @@ def stamp_format(doc: Any, *, version: int | None = None) -> None:
 def metadata_format(path: Path) -> int:
     """Select the current schema and refuse the retired separate source store."""
     if path.name == "rebrew-functions.toml":
-        if (path.parent / "rebrew-source.toml").exists():
+        if metadata_store(path.parent / "rebrew-source.toml").exists():
             raise ValueError(
                 "separate rebrew-source.toml is retired; run rebrew source consolidate --dry-run"
             )
@@ -56,79 +57,6 @@ def metadata_format(path: Path) -> int:
 
 
 logger = logging.getLogger(__name__)
-
-#: Per-file thread locks for :func:`metadata_write_lock` (one lock per
-#: metadata filename so the function and data stores don't contend).  Public
-#: so a caller can assert the batch write gate publishes one lock per
-#: filename rather than re-creating it per acquisition.
-#: Reentrant: a caller may hold the lock across a compound operation whose
-#: helpers take it again (the GA batch splices a stub and promotes its STATUS
-#: through ``update_source_status`` inside the same critical section).
-METADATA_WRITE_LOCKS: dict[str, threading.RLock] = {}
-_METADATA_WRITE_LOCKS_LOCK = threading.Lock()
-
-#: Per-thread reentrancy depth per resolved metadata path, so a nested acquisition
-#: skips the ``flock`` (a second fd would deadlock against the first).
-_METADATA_WRITE_DEPTH = threading.local()
-
-
-@contextlib.contextmanager
-def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
-    """Thread + cross-process lock around a metadata read-modify-write.
-
-    Shared by ``metadata/functions.py`` (``rebrew-functions.toml``) and
-    ``metadata/data.py`` (``rebrew-data.toml``).  The thread lock serializes
-    in-process writers (``rebrew verify --jobs``, GA batch promotion); an
-    advisory ``flock`` on a ``.lock`` sidecar serializes *concurrent
-    processes* (e.g. ``rebrew verify --watch`` in one terminal while
-    ``rebrew test`` promotes in another — without it, interleaved
-    read-modify-writes silently drop one process's STATUS promotion).
-
-    Reentrant within one thread: a nested acquisition on the same filename
-    yields without re-``flock``ing (the flock is held until the outermost
-    exit), so a compound critical section can call helpers that lock again.
-    """
-    path = (directory / filename).resolve()
-    # Reject directory-traversal filenames (e.g. "../../etc/passwd") — the
-    # lock file is derived from this path and would otherwise escape the
-    # project root.
-    if Path(filename).name != filename or "/" in filename or "\\" in filename:
-        raise ValueError(f"invalid metadata filename: {filename!r}")
-    # Create the target directory before opening the ``.lock`` sidecar: the
-    # first-ever write into a fresh metadata root would otherwise crash with
-    # FileNotFoundError inside the lock acquisition (the data write itself
-    # only runs later, inside atomic_write_text's own mkdir).  exist_ok
-    # keeps concurrent creators safe.
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with _METADATA_WRITE_LOCKS_LOCK:
-        if filename not in METADATA_WRITE_LOCKS:
-            METADATA_WRITE_LOCKS[filename] = threading.RLock()
-        lock = METADATA_WRITE_LOCKS[filename]
-    depth: dict[str, int] | None = getattr(_METADATA_WRITE_DEPTH, "depth", None)
-    if depth is None:
-        depth = {}
-        _METADATA_WRITE_DEPTH.depth = depth
-    # Depth is per resolved path, not per filename: a nested lock on the
-    # same-named file in another root must still take that root's flock.
-    key = str(path)
-    with lock:
-        if depth.get(key, 0):
-            # Reentrant: this thread already holds the lock and the flock.
-            # Re-opening the sidecar and flocking a second fd would block
-            # against the first, so only track the depth here.
-            depth[key] += 1
-            try:
-                yield
-            finally:
-                depth[key] -= 1
-            return
-        depth[key] = 1
-        try:
-            with file_lock(path.with_suffix(path.suffix + ".lock")):
-                yield
-        finally:
-            depth.pop(key, None)
-
 
 #: Serializes in-memory metadata-doc cache mutations (``rebrew-functions.toml``
 #: / ``rebrew-data.toml``).  ``rebrew verify --jobs N`` fills the cache from
@@ -140,10 +68,10 @@ _METADATA_DOC_CACHE_LOCK = threading.Lock()
 #: parsed table until exit.  Eviction is FIFO on insertion order.
 _METADATA_DOC_CACHE_MAX = 64
 
-#: ``(st_mtime_ns, st_size, st_ino)`` of a metadata TOML.  mtime alone misses
+#: Path and ``(mtime_ns, ctime_ns, size, ino)`` for every metadata input.  mtime alone misses
 #: another process's rewrite inside one timestamp tick (coarse filesystems,
 #: ``cp -p``); the atomic-rename writers always produce a new inode.
-MetadataDocFingerprint = tuple[int, int, int, int]
+MetadataDocFingerprint = tuple[tuple[str, int, int, int, int], ...]
 MetadataDocCache = dict[Path, tuple[MetadataDocFingerprint, dict[tuple[str, int], dict[str, Any]]]]
 
 
@@ -164,6 +92,79 @@ def clear_metadata_doc_cache(
         cache.clear()
 
 
+def _doc_cache_file(path: Path) -> Path:
+    """Parsed-document cache beside the project, not beside the locked store."""
+    return path.parent / ".rebrew" / "metadata-doc" / f"{path.name}.json"
+
+
+def _fingerprint_token(
+    fingerprint: tuple[tuple[str, int, int, int, int], ...],
+    known_fields: frozenset[str] | None,
+) -> list[Any]:
+    return [
+        [list(part) for part in fingerprint],
+        sorted(known_fields) if known_fields is not None else None,
+    ]
+
+
+def _read_doc_cache(
+    path: Path,
+    fingerprint: tuple[tuple[str, int, int, int, int], ...],
+    known_fields: frozenset[str] | None,
+) -> dict[tuple[str, int], dict[str, Any]] | None:
+    """Return a previously parsed document, or None when the cache is absent or stale.
+
+    The cache is JSON written by this process. A truncated or foreign file
+    misses and the TOML is parsed again.
+    """
+    try:
+        payload = json.loads(_doc_cache_file(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(payload, dict) or payload.get("fingerprint") != _fingerprint_token(
+        fingerprint, known_fields
+    ):
+        return None
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return None
+    result: dict[tuple[str, int], dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, list) or len(row) != 3:
+            return None
+        module, va, fields = row
+        if (
+            not isinstance(module, str)
+            or isinstance(va, bool)
+            or not isinstance(va, int)
+            or not isinstance(fields, dict)
+        ):
+            return None
+        result[(module, va)] = fields
+    return result
+
+
+def _write_doc_cache(
+    path: Path,
+    fingerprint: tuple[tuple[str, int, int, int, int], ...],
+    known_fields: frozenset[str] | None,
+    result: dict[tuple[str, int], dict[str, Any]],
+) -> None:
+    """Store *result* for the next process. A failure leaves the TOML path working."""
+    cache_path = _doc_cache_file(path)
+    payload = {
+        "fingerprint": _fingerprint_token(fingerprint, known_fields),
+        "rows": [[module, va, fields] for (module, va), fields in result.items()],
+    }
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = cache_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        os.replace(temporary, cache_path)
+    except OSError:
+        return
+
+
 def load_metadata_doc(
     path: Path,
     cache: MetadataDocCache,
@@ -171,6 +172,7 @@ def load_metadata_doc(
     *,
     deepcopy: bool = True,
     known_fields: frozenset[str] | None = None,
+    resolved: bool = False,
 ) -> dict[tuple[str, int], dict[str, Any]]:
     """Parse a qualified-key metadata TOML (``rebrew-functions.toml`` /
     ``rebrew-data.toml``) into ``{(module, va): fields}``.
@@ -181,7 +183,9 @@ def load_metadata_doc(
     tomllib (strict, ~10x faster than tomlkit); round-trip preservation is
     only needed for WRITES, which still use tomlkit.
 
-    *path* is resolved for stable cache keys.  *cache* is the caller's
+    *path* is resolved for stable cache keys unless the caller already did
+    (``resolved=True``; a whole-tree scan calls this once per source file).
+    *cache* is the caller's
     stat-fingerprinted in-memory cache (invalidated by write helpers).  Returns an
     empty dict only when the file is missing. Invalid or unreadable stores raise.  Pass *known_fields*
     (the store's closed field set, upper case) to have a hand-edited key that
@@ -192,17 +196,18 @@ def load_metadata_doc(
     overlays (annotation finalize, skip checks) pass ``deepcopy=False``
     to avoid cloning the whole table once per source file.
     """
-    path = path.resolve()
-    metadata_format(path)
+    if not resolved:
+        path = path.resolve()
+    version = metadata_format(path)
+    store = metadata_store(path)
     try:
-        st = path.stat()
-    except FileNotFoundError:
-        pop_metadata_doc_cache(cache, path)
-        return {}
+        current_fp = store.fingerprint()
     except OSError:
         pop_metadata_doc_cache(cache, path)
         raise
-    current_fp: MetadataDocFingerprint = (st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino)
+    if not current_fp:
+        pop_metadata_doc_cache(cache, path)
+        return {}
     with _METADATA_DOC_CACHE_LOCK:
         cached = cache.get(path)
         if cached is not None and cached[0] == current_fp:
@@ -210,11 +215,19 @@ def load_metadata_doc(
             # status promotion), and an aliased dict would corrupt the cache.
             return copy.deepcopy(cached[1]) if deepcopy else cached[1]
 
-    doc = load_tomllib(path)
+    result = _read_doc_cache(path, current_fp, known_fields)
+    if result is None:
+        parsed: list[dict[tuple[str, int], dict[str, Any]]] = []
 
-    result = parse_metadata_doc(
-        doc, known_fields=known_fields, source=str(path), version=metadata_format(path)
-    )
+        def validate(doc: Any) -> None:
+            rows = parse_metadata_doc(
+                doc, known_fields=known_fields, source=str(path), version=version
+            )
+            parsed[:] = [rows]
+
+        store.read(description, validate=validate)
+        result = parsed[0] if parsed else {}
+        _write_doc_cache(path, current_fp, known_fields, result)
     with _METADATA_DOC_CACHE_LOCK:
         # Re-check: a writer may have invalidated (or another reader filled)
         # while we parsed — prefer a fresher entry if one landed.
@@ -402,6 +415,7 @@ def build_metadata_doc(
     data: dict[tuple[str, int], dict[str, Any]],
     canonical_order: Sequence[str],
     *,
+    existing: dict[str, Any] | None = None,
     version: int = FORMAT_VERSION,
 ) -> TOMLDocument:
     """Render ``{(module, va): fields}`` into a TOML document.
@@ -412,6 +426,7 @@ def build_metadata_doc(
     """
     doc = tomlkit.document()
     stamp_format(doc, version=version)
+    index = build_metadata_key_index(existing) if existing is not None else None
     for module, va_int in sorted(data):
         entry = data[(module, va_int)]
         if not entry:
@@ -423,17 +438,29 @@ def build_metadata_doc(
         for field, val in entry.items():
             if field not in canonical_order:
                 tbl[field] = val
-        doc[qualified_key(module, va_int)] = tbl
+        key = (
+            resolve_metadata_key(existing, module, va_int, index=index)
+            if existing is not None
+            else qualified_key(module, va_int)
+        )
+        doc[key] = tbl
     return doc
 
 
 def load_metadata_for_write(
     path: Path, description: str, *, known_fields: frozenset[str] | None = None
-) -> TOMLDocument:
+) -> dict[str, Any]:
     """Open a current metadata document under the caller's write lock."""
     version = metadata_format(path)
-    doc = load_toml_for_write_strict(path, description)
-    if path.exists():
+    store = metadata_store(path)
+    doc = store.read(
+        description,
+        validate=lambda member: parse_metadata_doc(
+            member, known_fields=known_fields, source=str(path), version=version
+        ),
+        roundtrip=True,
+    )
+    if store.exists():
         parse_metadata_doc(doc, known_fields=known_fields, source=str(path), version=version)
     stamp_format(doc, version=version)
     return doc

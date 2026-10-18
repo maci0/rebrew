@@ -154,6 +154,89 @@ class TestCallerCounts:
         # a.c's own function is byte-matched, so it no longer needs helper.
         assert _caller_counts(cfg, {"a.c"}) == {"helper": 1}
 
+    def test_extern_names_are_reused_across_processes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A new process reuses stored extern names and still applies the match filter.
+
+        The parser count is the gate. A source without the word ``extern``
+        is not parsed. Editing one file parses that file again.
+        """
+        import rebrew.c_parser as c_parser
+        import rebrew.todo as todo
+
+        cfg = _make_cfg(tmp_path)
+        cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.reversed_dir / "a.c").write_text(
+            "extern int helper(void);\nint matched(void) { return helper(); }\n",
+            encoding="utf-8",
+        )
+        (cfg.reversed_dir / "b.c").write_text(
+            "extern int helper(void);\nint other(void) { return helper(); }\n",
+            encoding="utf-8",
+        )
+        (cfg.reversed_dir / "c.c").write_text("int local(void) { return 1; }\n", encoding="utf-8")
+        calls = {"n": 0}
+        real = c_parser.find_extern_function_names
+
+        def counting(source: str) -> list[str]:
+            calls["n"] += 1
+            return real(source)
+
+        monkeypatch.setattr(c_parser, "find_extern_function_names", counting)
+        todo._EXTERN_CACHE.clear()
+        assert todo._caller_counts(cfg) == {"helper": 2}
+        assert calls["n"] == 2
+
+        todo._EXTERN_CACHE.clear()
+        assert todo._caller_counts(cfg) == {"helper": 2}
+        assert calls["n"] == 2
+        assert todo._caller_counts(cfg, {"a.c"}) == {"helper": 1}
+        assert calls["n"] == 2
+
+        (cfg.reversed_dir / "b.c").write_text(
+            "extern int helper(void);\nextern int other(void);\n",
+            encoding="utf-8",
+        )
+        todo._EXTERN_CACHE.clear()
+        assert todo._caller_counts(cfg) == {"helper": 2, "other": 1}
+        assert calls["n"] == 3
+
+    def test_warm_scan_does_not_resolve_absolute_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A warm scan keys and displays absolute walked paths without a resolve walk.
+
+        ``cfg.reversed_dir`` is absolute in a loaded project, so the cache key
+        is the spelling and the display path is a prefix slice. Resolving every
+        source per scan made the caller-count loop walk the filesystem per file.
+        """
+        import rebrew.todo as todo
+        from rebrew.sources import scan_files
+
+        cfg = _make_cfg(tmp_path)
+        cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.reversed_dir / "a.c").write_text(
+            "extern int helper(void);\nint a(void) { return helper(); }\n",
+            encoding="utf-8",
+        )
+        (cfg.reversed_dir / "b.c").write_text("int b(void) { return 1; }\n", encoding="utf-8")
+        scanned = scan_files(cfg.reversed_dir)
+        todo._EXTERN_CACHE.clear()
+        assert todo._caller_counts(cfg, scanned=scanned) == {"helper": 1}
+
+        todo._EXTERN_CACHE.clear()
+        calls = {"n": 0}
+        real = Path.resolve
+
+        def counting(self: Path, *args: Any, **kwargs: Any) -> Path:
+            calls["n"] += 1
+            return real(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "resolve", counting)
+        assert todo._caller_counts(cfg, {"a.c"}, scanned=scanned) == {}
+        assert calls["n"] == 0
+
 
 class TestCollectors:
     @pytest.mark.parametrize(
@@ -1433,7 +1516,7 @@ class TestTodoCli:
         else:
             monkeypatch.setattr(
                 "rebrew.todo.load_data",
-                lambda cfg: (ghidra_funcs or [], existing or {}, covered_vas or {}),
+                lambda cfg, **_kw: (ghidra_funcs or [], existing or {}, covered_vas or {}),
             )
         return CliRunner().invoke(app, args or [])
 
