@@ -5,7 +5,7 @@ from pathlib import Path
 import typer
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config, run_standalone
-from rebrew.config import module_marker
+from rebrew.config import target_module
 from rebrew.metadata.source_provenance import document_assembly
 from rebrew.utils import console, untrusted_ident
 
@@ -47,7 +47,7 @@ def main(
     source = file if file.is_absolute() else cfg.root / file
     try:
         report = document_assembly(
-            cfg.metadata_dir, source, symbol, module_marker(cfg), evidence, dry_run=dry_run
+            cfg.metadata_dir, source, symbol, target_module(cfg), evidence, dry_run=dry_run
         )
     except (OSError, ValueError, ImportError) as exc:
         error_exit(str(exc), json_mode=json_output)
@@ -57,7 +57,7 @@ def main(
         action = "clear" if clear else "record"
         verb = f"Would {action}" if dry_run else ("Cleared" if clear else "Recorded")
         console.print(
-            f"{verb} source assembly provenance for {untrusted_ident(symbol)} ({untrusted_ident(module_marker(cfg))})"
+            f"{verb} source assembly provenance for {untrusted_ident(symbol)} ({untrusted_ident(target_module(cfg))})"
         )
 
 

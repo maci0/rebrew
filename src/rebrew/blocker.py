@@ -35,7 +35,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import module_marker
+from rebrew.config import target_module
 from rebrew.metadata.bindings import min_valid_va_for
 
 _EPILOG = (
@@ -67,7 +67,6 @@ def resolve_function(
     """
     from rebrew.cli import resolve_source_arg
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import target_marker
 
     va_from_flag = va_override is not None
     va_int: int | None = parse_va(va_override, json_mode=json_mode) if va_override else None
@@ -77,7 +76,7 @@ def resolve_function(
     if va_int is None and re.match(r"^0[xX][0-9a-fA-F]+$", raw.strip()):
         va_int = parse_va(raw.strip(), json_mode=json_mode)
         # Bare VA without a file — module comes from config marker.
-        module = module_marker(cfg)
+        module = target_module(cfg)
         if not module:
             error_exit(
                 "Cannot determine module for bare VA — pass a file path or set a marker",
@@ -94,7 +93,7 @@ def resolve_function(
     # If still not a file, treat as unresolved symbol/VA lookup failure.
     if not source_path.is_file():
         # Allow bare symbol that resolve_source_arg may have returned as Path
-        # even when not found — try metadata lookup with cfg.marker?
+        # even when not found — try metadata lookup with cfg.module?
         # Fail with actionable message instead of writing to wrong key.
         error_exit(
             f"Cannot resolve function {raw!r} to a source file or VA "
@@ -104,7 +103,7 @@ def resolve_function(
 
     annos = read_source_bindings(
         source_path,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )
@@ -145,7 +144,7 @@ def resolve_function(
     if va_from_flag and va_int is not None:
         # Use the explicit VA as target; keep module from matched ann if any,
         # else from first annotation.
-        return ann.module or module_marker(cfg), va_int
+        return ann.module or target_module(cfg), va_int
 
     return ann.module, int(ann.va)
 

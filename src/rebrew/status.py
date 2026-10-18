@@ -611,6 +611,7 @@ def effective_status(ann_status: str, cached: str | None) -> str:
     verdict (the next verify/test replaces PROVEN), and SKIP is user parking.
     Metadata STUB wins over the cache's SIZE_MISMATCH/MISSING_SIZE/STUB (a
     stub's size mismatch is expected); every other cached verdict wins.
+    A sourced function without either status defaults to STUB.
     """
     from rebrew.metadata.functions import canonical_status
 
@@ -624,7 +625,7 @@ def effective_status(ann_status: str, cached: str | None) -> str:
         and (cache == "STUB" or cache in STUB_PLACEHOLDER_STATUSES)
     ):
         return ann
-    return cache or ann
+    return cache or ann or "STUB"
 
 
 #: Fill bytes the linker and compiler place between functions.
@@ -736,7 +737,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # Before scoping: external .lib rows carry library modules
         # (D3DX8, MSVCRT, …) and must leave the denominators whatever the
         # module — identified external code is not pending work.  The flag
-        # is `targets.<name>.external_libs` (plus LIBRARY marker rows).
+        # is `targets.<name>.external_libs` (plus LIBRARY binding rows).
         library_vas = external_vas(existing, getattr(cfg, "external_libs", None))
         existing = scope_to_target(existing, cfg)
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
@@ -1461,10 +1462,13 @@ def _render_terminal(report: StatusReport) -> None:
     # The honest split (ct-recomp's NAKED vs PURE_C_EXACT): decompiled_pct
     # excludes them so mass-generated skeletons can't inflate progress.
     if report.naked_matched:
+        # A function count, same split as decompiled_pct. A bare percentage
+        # here sat under the code-account percentage and read as a second one.
+        decompiled = max(0, report.matched_functions - report.naked_matched)
         summary_lines.append(
-            f"[magenta]{report.decompiled_pct}% decompiled[/magenta]"
+            f"[magenta]{decompiled}/{report.total_functions} functions decompiled[/magenta]"
             f"  [dim]({report.naked_matched} naked reconstructions, {report.naked_bytes:,}B"
-            " byte-exact but not decompiled — implement the C bodies)[/dim]"
+            " byte-exact but not decompiled; implement the C bodies)[/dim]"
         )
 
     # Repeat the gap only when the status table is not already a byte ledger.
@@ -1501,7 +1505,7 @@ def _render_terminal(report: StatusReport) -> None:
         verify_color = "green" if v.failed == 0 else "yellow"
         stale_suffix = "  [yellow]stale[/yellow]" if v.stale else ""
         summary_lines.append(
-            f"Last verify  [{verify_color}]{v.passed - v.library_passed}/"
+            f"Verify cache  [{verify_color}]{v.passed - v.library_passed}/"
             f"{v.total - v.library_total} byte-matched[/{verify_color}]"
             f", [red]{v.failed - (v.library_total - v.library_passed)} failed[/red]"
             + (

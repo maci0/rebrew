@@ -165,7 +165,7 @@ def test_data_cli_exposes_explicit_library_owners(
         reversed_dir=src,
         target_binary=tmp_path / "missing.dll",
         metadata_dir=tmp_path,
-        marker="SERVER",
+        module="SERVER",
         source_ext=".c",
         external_libs={},
         target_name="SERVER",

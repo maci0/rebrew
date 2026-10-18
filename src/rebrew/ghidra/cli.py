@@ -12,13 +12,26 @@ state dir are created in Ghidra via MCP, so "add a function to the state →
 it appears in Ghidra" works with no external plugin.
 """
 
+import contextlib
+import io
+import json
 import logging
+import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 import typer
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_cli
+from rebrew.cli import (
+    CREATE_MISSING_HELP,
+    EXIT_ERROR,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+    run_cli,
+)
 from rebrew.config import ConfigError, inventory_path_for, validate_http_url
 from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
 from rebrew.ghidra.commands import (
@@ -78,31 +91,62 @@ def _probe_program_path(endpoint: str, program_path: str, json_output: bool) -> 
         )
 
 
+class _JsonCapture(io.StringIO):
+    """Stdout stand-in that records one compact JSON document."""
+
+    @override
+    def isatty(self) -> bool:
+        return False
+
+
+def _load_captured_json(text: str) -> dict[str, Any]:
+    stripped = text.strip()
+    if not stripped:
+        return {}
+    payload = json.loads(stripped)
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
 def _mcp_apply(
     ops: list[dict[str, Any]],
     endpoint: str,
     program_path: str,
     json_output: bool,
     cfg: Any = None,
-) -> None:
+    *,
+    report: bool = True,
+) -> tuple[int, int]:
     """Apply *ops* and report (success, error) counts.
 
     ReVa MCP is the default transport; when the config names ``ghidra_backend
     = "cli"`` (or MCP is unreachable), the ghidra-cli binary backend applies
     the same structural ops — the no-MCP escape hatch for the ops that remain.
+
+    A completed apply with ``errors > 0`` keeps the progress document and
+    exits ``EXIT_ERROR``. ``report=False`` returns the counts so a caller can
+    fold them into one document.
     """
     if not ops:
-        if not json_output:
-            console.print("[dim]No operations to apply.[/dim]")
-        return
+        if report:
+            if json_output:
+                json_print({"applied": 0, "errors": 0, "operations": 0})
+            else:
+                console.print("[dim]No operations to apply.[/dim]")
+        return 0, 0
 
-    def _report(ok: int, err: int) -> None:
-        if json_output:
-            json_print({"applied": ok, "errors": err, "operations": len(ops)})
-            return
-        console.print(f"[green]Applied {ok} operation(s)[/green]")
-        if err:
-            console.print(f"[red]{err} error(s)[/red]")
+    def _report(ok: int, err: int) -> tuple[int, int]:
+        if report:
+            if json_output:
+                json_print({"applied": ok, "errors": err, "operations": len(ops)})
+            else:
+                console.print(f"[green]Applied {ok} operation(s)[/green]")
+                if err:
+                    console.print(f"[red]{err} error(s)[/red]")
+            if err:
+                raise typer.Exit(code=EXIT_ERROR)
+        return ok, err
 
     def _apply_cli() -> tuple[int, int]:
         from rebrew.ghidra.cli_backend import apply_commands_via_cli, resolve_ghidra_cli
@@ -111,8 +155,7 @@ def _mcp_apply(
         return apply_commands_via_cli(ops, program=program_path, ghidra_cli=ghidra_cli)
 
     if cfg is not None and getattr(cfg, "ghidra_backend", "reva") == "cli":
-        _report(*_apply_cli())
-        return
+        return _report(*_apply_cli())
 
     from rebrew.ghidra.client import McpApplyAborted, McpError, apply_commands_via_mcp
 
@@ -142,9 +185,8 @@ def _mcp_apply(
                 f"[yellow]warning:[/yellow] MCP unavailable ({exc}); "
                 "applying via ghidra-cli instead"
             )
-        _report(*_apply_cli())
-        return
-    _report(ok, err)
+        return _report(*_apply_cli())
+    return _report(ok, err)
 
 
 def _preview_ops(ops: list[dict[str, Any]], json_output: bool) -> None:
@@ -187,7 +229,8 @@ def execute_sync(
         error_exit("sync push and sync pull are mutually exclusive", json_mode=json_output)
     if watch and json_output:
         error_exit(
-            "sync watch does not support --json; omit --json to monitor changes", json_mode=True
+            "sync watch does not support JSON output; omit -o json to monitor changes",
+            json_mode=True,
         )
     if watch and not push:
         error_exit("watch requires an export operation", json_mode=json_output)
@@ -250,7 +293,21 @@ def execute_sync(
             accept_local=accept_local,
             create_missing=create_missing,
         )
-        print_import_result(result, json_output=json_output, dry_run=dry_run)
+        chain_json = bool(create_functions and json_output)
+        import_doc: dict[str, Any] | None = None
+        if chain_json:
+            captured = _JsonCapture()
+            try:
+                with contextlib.redirect_stdout(captured):
+                    print_import_result(result, json_output=True, dry_run=dry_run)
+            except typer.Exit:
+                text = captured.getvalue()
+                if text:
+                    sys.stdout.write(text if text.endswith("\n") else text + "\n")
+                raise
+            import_doc = _load_captured_json(captured.getvalue())
+        else:
+            print_import_result(result, json_output=json_output, dry_run=dry_run)
         if create_functions:
             from typing import cast
 
@@ -265,13 +322,34 @@ def execute_sync(
                     for va in touched
                 ]
                 if dry_run:
-                    _preview_ops(ops, json_output)
+                    creation = {"dry_run": True, "operations": len(ops)}
+                    if not chain_json:
+                        _preview_ops(ops, json_output)
                 else:
                     if needs_mcp:
                         program_path = _probe_program_path(endpoint, program_path, json_output)
-                    _mcp_apply(ops, endpoint, program_path, json_output, cfg)
-            elif not json_output:
-                console.print("[dim]Nothing imported — no functions to create.[/dim]")
+                    ok, err = _mcp_apply(
+                        ops,
+                        endpoint,
+                        program_path,
+                        json_output,
+                        cfg,
+                        report=not chain_json,
+                    )
+                    creation = {"applied": ok, "errors": err, "operations": len(ops)}
+            else:
+                creation = (
+                    {"dry_run": True, "operations": 0}
+                    if dry_run
+                    else {"applied": 0, "errors": 0, "operations": 0}
+                )
+                if not json_output:
+                    console.print("[dim]Nothing imported. No functions to create.[/dim]")
+            if chain_json and import_doc is not None:
+                import_doc["create_functions"] = creation
+                json_print(import_doc)
+                if creation.get("errors"):
+                    raise typer.Exit(code=EXIT_ERROR)
         return
 
     # --- MCP structural ops ---
@@ -306,11 +384,15 @@ def execute_sync(
         ]
         structural_ops += build_bookmark_commands(entries, program_path)
 
-    if structural_ops:
+    if create_functions or bookmarks:
         if dry_run:
             _preview_ops(structural_ops, json_output)
-        else:
+        elif structural_ops:
             _mcp_apply(structural_ops, endpoint, program_path, json_output, cfg)
+        elif json_output:
+            json_print({"applied": 0, "errors": 0, "operations": 0})
+        else:
+            console.print("[dim]No operations to apply.[/dim]")
 
     if pull_data:
         pull_data_cmd(cfg, endpoint, program_path, dry_run, json_output=json_output)
@@ -358,7 +440,9 @@ def pull(
         False, "--accept-local", help="Keep local names on pull conflicts (records provenance)"
     ),
     create_missing: bool = typer.Option(
-        False, "--create-missing", help="Create STUB files for BinSync functions not in the catalog"
+        False,
+        "--create-missing",
+        help=CREATE_MISSING_HELP,
     ),
     create_functions: bool = typer.Option(
         False,
@@ -404,6 +488,21 @@ def summary(
     execute_sync(state_dir=state_dir, json_output=json_output, target=target, summary=True)
 
 
+def _context_requests_json(ctx: typer.Context | None) -> bool:
+    """True when a parent ``-o json`` / ``--output json`` selected JSON.
+
+    Typer keeps that value on its own click context, not the standalone click
+    stack, so the command context has to be passed in.
+    """
+    current: Any = ctx
+    while current is not None:
+        params = current.params or {}
+        if "output_format" in params and params["output_format"] is not None:
+            return str(params["output_format"]) == "json"
+        current = current.parent
+    return False
+
+
 @app.command(
     "watch",
     epilog=(
@@ -413,13 +512,20 @@ def summary(
     ),
 )
 def watch(
+    ctx: typer.Context,
     state_dir: Path | None = typer.Option(
         None, "--state-dir", help="BinSync state directory (default: configured binsync_state_dir)"
     ),
     target: str | None = TargetOption,
 ) -> None:
     """Watch sources and export changes until interrupted."""
-    execute_sync(state_dir=state_dir, json_output=False, target=target, push=True, watch=True)
+    execute_sync(
+        state_dir=state_dir,
+        json_output=_context_requests_json(ctx),
+        target=target,
+        push=True,
+        watch=True,
+    )
 
 
 @app.command(

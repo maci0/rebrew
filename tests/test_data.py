@@ -326,8 +326,8 @@ class TestScanGlobals:
             ),
         )
         cfg = SimpleNamespace(
-            marker="SERVER",
-            all_markers={"SERVER", "GOLD", "GOLDTL"},
+            module="SERVER",
+            target_modules={"SERVER", "GOLD", "GOLDTL"},
             source_ext=".c",
             metadata_dir=tmp_path,
         )
@@ -354,8 +354,8 @@ class TestScanGlobals:
             ),
         )
         cfg = SimpleNamespace(
-            marker="SERVER",
-            all_markers={"SERVER", "GOLD", "GOLDTL"},
+            module="SERVER",
+            target_modules={"SERVER", "GOLD", "GOLDTL"},
             source_ext=".c",
             metadata_dir=tmp_path,
         )
@@ -404,8 +404,8 @@ def test_migrated_foreign_data_in_shared_source_stays_scoped(
         ],
     )
     cfg = SimpleNamespace(
-        marker="GOLDTL",
-        all_markers={"SERVER", "GOLDTL"},
+        module="GOLDTL",
+        target_modules={"SERVER", "GOLDTL"},
         source_ext=".c",
         metadata_dir=tmp_path,
     )
@@ -415,7 +415,7 @@ def test_migrated_foreign_data_in_shared_source_stays_scoped(
     assert client.to_dict()["summary"]["multiple_definitions"] == 1
     assert "g_shared" in client.globals
 
-    server = scan_globals(tmp_path, SimpleNamespace(**{**vars(cfg), "marker": "SERVER"}))
+    server = scan_globals(tmp_path, SimpleNamespace(**{**vars(cfg), "module": "SERVER"}))
     assert server.globals["g_server_only"].va == 0x10027078
     assert server.globals["g_server_only"].defined_in == ["shared.c"]
 
@@ -427,20 +427,20 @@ def test_function_pointer_declaration_not_treated_as_function() -> None:
     assert [v.name for v in find_extern_variables(line)] == ["g_callback"]
 
 
-@pytest.mark.parametrize("store", ["rebrew-functions.toml", "rebrew-data.toml"])
-def test_migrated_file_retains_target_scope(tmp_path: Path, store: str) -> None:
+@pytest.mark.parametrize("store,version", [("rebrew-functions.toml", 3), ("rebrew-data.toml", 2)])
+def test_migrated_file_retains_target_scope(tmp_path: Path, store: str, version: int) -> None:
     """Removing inline identity must not introduce foreign declarations or owners."""
     _write_c(tmp_path, "server.c", "extern int g_value;\n")
     _write_c(tmp_path, "client.c", "char *g_value;\nextern int g_client;\n")
     _write_c(tmp_path, "shared.c", "extern int g_shared;\n")
     _write_c(tmp_path, "runtime.c", "extern int g_runtime;\n")
     (tmp_path / store).write_text(
-        'format = 2\n["SERVER.0x1000"]\nfile = "server.c"\nname = "g_value"\n["GOLD.0x2000"]\nfile = "client.c"\nname = "g_value"\n["MSVCRT.0x3000"]\nfile = "runtime.c"\nname = "g_runtime"\n',
+        f'format = {version}\n["SERVER.0x1000"]\nfile = "server.c"\nname = "g_value"\n["GOLD.0x2000"]\nfile = "client.c"\nname = "g_value"\n["MSVCRT.0x3000"]\nfile = "runtime.c"\nname = "g_runtime"\n',
         encoding="utf-8",
     )
     cfg = SimpleNamespace(
-        marker="SERVER",
-        all_markers={"SERVER", "GOLD"},
+        module="SERVER",
+        target_modules={"SERVER", "GOLD"},
         source_ext=".c",
         metadata_dir=tmp_path,
     )
@@ -449,8 +449,8 @@ def test_migrated_file_retains_target_scope(tmp_path: Path, store: str) -> None:
     assert result.globals["g_value"].defined_in == []
     assert result.type_conflicts == []
     cfg = SimpleNamespace(
-        marker="GOLD",
-        all_markers={"SERVER", "GOLD"},
+        module="GOLD",
+        target_modules={"SERVER", "GOLD"},
         source_ext=".c",
         metadata_dir=tmp_path,
     )
@@ -1164,7 +1164,7 @@ class TestBuildDispatchKnownFunctions:
             target_name="SERVER",
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_binary=tmp_path / "fake.dll",
             source_ext=".c",
             iat_thunks=[],
@@ -1299,7 +1299,7 @@ def test_data_combines_metadata_mutations(monkeypatch, tmp_path: Path) -> None:
         root=tmp_path,
         reversed_dir=tmp_path,
         target_binary=tmp_path / "reference.dll",
-        marker="SERVER",
+        module="SERVER",
     )
     monkeypatch.setattr("rebrew.data.require_config", lambda **kwargs: cfg)
     result = CliRunner().invoke(

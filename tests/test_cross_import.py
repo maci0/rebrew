@@ -66,7 +66,7 @@ def _dst_cfg(tmp_path: Path, rev: Path) -> Any:
         metadata_dir=tmp_path,
         target_binary=tmp_path / "b.exe",
         source_ext=".c",
-        marker="DST",
+        module="DST",
         posix_style=False,
     )
 
@@ -221,7 +221,7 @@ class TestExtractSingleFunction:
             metadata_dir=tmp_path,
             target_binary=tmp_path / "server.dll",
             source_ext=".c",
-            marker="SERVER",
+            module="SERVER",
             posix_style=True,
         )
         cfg_dst = SimpleNamespace(
@@ -231,7 +231,7 @@ class TestExtractSingleFunction:
             metadata_dir=tmp_path,
             target_binary=tmp_path / "goldtl.exe",
             source_ext=".c",
-            marker="DST",
+            module="DST",
             posix_style=False,
         )
         write_source(
@@ -392,7 +392,7 @@ class TestTargetBytes:
 
 class TestImportMechanics:
     def _cfg(
-        self, tmp_path: Path, target: str, binary: Path, marker: str | None = None
+        self, tmp_path: Path, target: str, binary: Path, module: str | None = None
     ) -> SimpleNamespace:
         rev = tmp_path / f"src_{target}"
         rev.mkdir(parents=True, exist_ok=True)
@@ -403,7 +403,7 @@ class TestImportMechanics:
             metadata_dir=tmp_path,
             target_binary=binary,
             source_ext=".c",
-            marker=marker if marker is not None else target,
+            module=module if module is not None else target,
             posix_style=False,
         )
 
@@ -414,7 +414,7 @@ class TestImportMechanics:
         target name, so filtering by ``target_name`` finds nothing and every
         cross-import reports an empty source set.
         """
-        cfg = self._cfg(tmp_path, "fixture.dll", tmp_path / "a.exe", marker="FIXT")
+        cfg = self._cfg(tmp_path, "fixture.dll", tmp_path / "a.exe", module="FIXT")
         write_source(
             cfg.reversed_dir / "f1.c",
             "/* ADDRESS: FIXT 0x00401040 */\n\nint f1(void){ return 1; }\n",
@@ -422,7 +422,7 @@ class TestImportMechanics:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["FIXT.0x00401040"]\nstatus = "EXACT"\nsize = 11\n',
+            'format = 3\n["FIXT.0x00401040"]\nstatus = "EXACT"\nsize = 11\n',
         )
         assert ci.annotations_by_va(cfg) == {0x401040: ("EXACT", "f1.c")}
 
@@ -833,7 +833,7 @@ class TestSizelessMatching:
         return SimpleNamespace(
             root=tmp_path,
             target_name=target,
-            marker=target,
+            module=target,
             reversed_dir=rev,
             metadata_dir=tmp_path,
             target_binary=binary,
@@ -1234,7 +1234,7 @@ class TestSharedImport:
             metadata_dir=tmp_path,
             target_binary=tmp_path / "a.exe",
             source_ext=".c",
-            marker="SRC",
+            module="SRC",
             posix_style=False,
         )
         dst_rev = tmp_path / "src_DST"
@@ -1288,7 +1288,7 @@ class TestPromoteToShared:
             target_name="SRC",
             reversed_dir=rev,
             shared_dir=shared,
-            marker="SRC",
+            module="SRC",
         )
 
     def test_promote_moves_preserving_path(self, tmp_path: Path) -> None:
@@ -1409,7 +1409,7 @@ class TestPromoteToShared:
             metadata_dir=tmp_path,
             target_binary=tmp_path / "a.exe",
             source_ext=".c",
-            marker="SRC",
+            module="SRC",
             posix_style=False,
         )
         dst_rev = tmp_path / "src_DST"
@@ -1517,7 +1517,7 @@ class TestSharedSupersede:
             metadata_dir=tmp_path,
             target_binary=tmp_path / "a.exe",
             source_ext=".c",
-            marker="SRC",
+            module="SRC",
             posix_style=False,
         )
         cfg_dst = _dst_cfg(tmp_path, dst_rev)
@@ -1768,7 +1768,7 @@ class TestSharedSupersede:
         self._ok_verify(monkeypatch)
         first = ci.import_shared_function(dst, src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
         assert first["action"] == "imported-shared" and stub.exists()
-        other = SimpleNamespace(**{**vars(dst), "target_name": "OTHER", "marker": "OTHER"})
+        other = SimpleNamespace(**{**vars(dst), "target_name": "OTHER", "module": "OTHER"})
         last = ci.import_shared_function(other, src, 0x501040, A_F1, "f1.c", 11, dst_file="stub.c")
         assert last["action"] == "imported-shared" and not stub.exists()
         for module, va in [("DST", B_F1), ("OTHER", 0x501040)]:
@@ -2031,7 +2031,7 @@ class TestSharedCflagsPortable:
             metadata_dir=tmp_path,
             target_binary=tmp_path / "a.exe",
             source_ext=".c",
-            marker="SRC",
+            module="SRC",
             posix_style=False,
         )
         cfg_dst = _dst_cfg(tmp_path, dst_rev)
@@ -2079,7 +2079,7 @@ class TestSharedDryRunPath:
             target_name="SRC",
             reversed_dir=rev,
             shared_dir=shared,
-            marker="SRC",
+            module="SRC",
         )
         dst_rev = tmp_path / "src" / "DST"
         dst_rev.mkdir(parents=True)
@@ -2088,7 +2088,7 @@ class TestSharedDryRunPath:
             target_name="DST",
             reversed_dir=dst_rev,
             metadata_dir=tmp_path,
-            marker="DST",
+            module="DST",
         )
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dry_run=True)
         assert res["action"] == "would-import-shared"
@@ -2127,33 +2127,15 @@ class TestUnifiedTreeMarkerMove:
             metadata_dir=tmp_path,
             target_binary=tmp_path / "a.exe",
             source_ext=".c",
-            marker="SRC",
+            module="SRC",
             posix_style=False,
         )
 
     def _cfgs(self, tmp_path: Path) -> tuple[SimpleNamespace, SimpleNamespace]:
         """SRC and DST configs over ONE tree — the unified layout."""
         src = self._cfg(tmp_path)
-        dst = SimpleNamespace(**{**vars(src), "target_name": "DST", "marker": "DST"})
+        dst = SimpleNamespace(**{**vars(src), "target_name": "DST", "module": "DST"})
         return src, dst
-
-    def test_place_shared_marker_leaves_text_unchanged(self) -> None:
-        """A destination VA not yet claimed stays out of the file text.
-
-        Regression: guild-rebrew plant.c got `GOLDTL 0x4bcbd0` stacked on the
-        first function while the import verified the source function. The row
-        is recorded by the caller. The text is not edited.
-        """
-        text = SourceFixture(
-            "/* ADDRESS: DST 0x4bcb80 */\n/* ADDRESS: SRC 0x401000 */\nint f1(void){ return 1; }\n\n/* ADDRESS: SRC 0x401010 */\nint f2(void){ return 2; }\n",
-            {
-                "DST.0x4bcb80": {"kind": "FUNCTION"},
-                "SRC.0x401000": {"kind": "FUNCTION"},
-                "SRC.0x401010": {"kind": "FUNCTION"},
-            },
-        )
-        out = ci._place_shared_marker(text, "DST", 0x4BCBD0, 11, "SRC", 0x401010, superseded=False)
-        assert out == text
 
     def test_copy_refuses_when_source_body_is_in_destination_file(self, tmp_path: Path) -> None:
         src, dst = self._cfgs(tmp_path)
@@ -2463,10 +2445,10 @@ class TestVerifiedSymbolFollowsTheBlock:
             metadata_dir=tmp_path,
             target_binary=tmp_path / "a.exe",
             source_ext=".c",
-            marker="SRC",
+            module="SRC",
             posix_style=False,
         )
-        cfg_dst = SimpleNamespace(**{**vars(cfg_src), "target_name": "DST", "marker": "DST"})
+        cfg_dst = SimpleNamespace(**{**vars(cfg_src), "target_name": "DST", "module": "DST"})
         (rev / "f.c").write_text(
             self.MULTI + "\n/* ADDRESS: DST 0x401040 */\nint old_second(void){ return 0; }\n",
             encoding="utf-8",
@@ -2500,7 +2482,7 @@ class TestImportSize:
 
     A stale destination registry size (an old skeleton's ``// SIZE:``) made
     the import verify only a prefix and report EXACT MATCH; the next
-    ``rebrew verify --full`` then flagged SIZE_MISMATCH (guild-rebrew round
+    ``rebrew verify --no-cache`` then flagged SIZE_MISMATCH (guild-rebrew round
     1412 — GOLD 0x00449d80 claimed 23 bytes, the body is 25).
     """
 
@@ -2580,14 +2562,14 @@ class TestVerifiedSymbolShapes:
             metadata_dir=tmp_path,
             target_binary=tmp_path / "a.exe",
             source_ext=".c",
-            marker="SRC",
+            module="SRC",
             posix_style=False,
         )
         cfg_dst = SimpleNamespace(
             **{
                 **vars(cfg_src),
                 "target_name": "DST",
-                "marker": "DST",
+                "module": "DST",
                 "reversed_dir": tmp_path / "src_DST",
             }
         )
@@ -2687,11 +2669,11 @@ class TestMergedInventoryEntry:
             metadata_dir=tmp_path,
             target_binary=tmp_path / "a.exe",
             source_ext=".c",
-            marker="SRC",
+            module="SRC",
             posix_style=False,
         )
         cfg_dst = SimpleNamespace(
-            **{**vars(cfg_src), "target_name": "DST", "marker": "DST", "target_binary": dst_bin}
+            **{**vars(cfg_src), "target_name": "DST", "module": "DST", "target_binary": dst_bin}
         )
         write_source(
             rev / "f.c",

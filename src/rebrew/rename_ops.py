@@ -49,6 +49,7 @@ from rebrew.c_rename import (
     declares_ordinary,
     definitions,
     file_scope_type,
+    function_reference_occurrences,
     member_sites,
     name_regex,
     non_external_function_declarations,
@@ -57,7 +58,7 @@ from rebrew.c_rename import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.errors import RebrewError
-from rebrew.function_providers import bind_library_source
+from rebrew.function_providers import bind_compiled_source
 from rebrew.metadata.bindings import (
     FUNCTION_KINDS,
     SourceBinding,
@@ -323,9 +324,9 @@ class _Project:
         if getattr(cfg, "root", None) is not None:
             # Include every target's providers so an independent vendor twin still collides.
             for (module, va), row in load_metadata(self.metadata_dir, deepcopy=False).items():
-                if row.get("kind") == "LIBRARY":
-                    entry = bind_library_source(
-                        cfg, SourceBinding(module=module, va=va, kind="LIBRARY"), row
+                if row.get("kind") in {"FUNCTION", "LIBRARY"}:
+                    entry = bind_compiled_source(
+                        cfg, SourceBinding(module=module, va=va, kind=str(row["kind"])), row
                     )
                     if entry.filepath:
                         library_sources.append((Path(cfg.reversed_dir) / entry.filepath).resolve())
@@ -468,15 +469,29 @@ def _root(cfg: ProjectConfig) -> Path | None:
     return Path(root) if root else None
 
 
-def _ordinary_collisions(project: _Project, new_name: str) -> list[tuple[Path, int]]:
-    """Sites where *new_name* already names something in the ordinary namespace."""
+def _ordinary_collisions(
+    project: _Project, new_name: str, modules: frozenset[str] | None = None
+) -> list[tuple[Path, int]]:
+    """Sites where *new_name* already names something in the ordinary namespace.
+
+    *modules* limits the check to files that can link with the selected
+    definition. A file bound only to other targets is not a duplicate. An
+    unscoped file, or a selected definition with no module, keeps the global
+    check.
+    """
     roles = ORDINARY_ROLES | {ROLE_MACRO_NAME}
-    return [
-        (path, occ.line)
-        for path in project.containing(new_name)
-        for occ in occurrences(project.parsed(path), new_name)
-        if occ.role in roles
-    ]
+    sites: list[tuple[Path, int]] = []
+    for path in project.containing(new_name):
+        if modules is not None:
+            found = project.modules(path)
+            if found is not None and not found & modules:
+                continue
+        sites.extend(
+            (path, occ.line)
+            for occ in occurrences(project.parsed(path), new_name)
+            if occ.role in roles
+        )
+    return sites
 
 
 def _row_name_collisions(
@@ -554,7 +569,7 @@ def _linker_reference_changes(
         mapping = {
             old: new
             for module, names in symbols.items()
-            if preset_module_key(module) == preset_module_key(target.marker)
+            if preset_module_key(module) == preset_module_key(target.module)
             for old, new in names.items()
         }
         if not mapping:
@@ -575,7 +590,7 @@ def _linker_reference_changes(
                 mapping: dict[str, str] = mapping,
                 text: str = text,
                 edits: list[SourceEdit] = edits,
-                marker: str = preset_module_key(target.marker),
+                target_module_name: str = preset_module_key(target.module),
                 path: Path = path,
             ) -> str:
                 """Change internal symbols while preserving export names and other options."""
@@ -588,7 +603,9 @@ def _linker_reference_changes(
                     if option.upper() == "ALTERNATENAME"
                     else [binding.rsplit("=", 1)[-1]]
                 )
-                if any((marker, name) in (ambiguous_symbols or set()) for name in referred):
+                if any(
+                    (target_module_name, name) in (ambiguous_symbols or set()) for name in referred
+                ):
                     raise RenameError(
                         "ambiguous linker reference to independent same-target definitions; review linker ownership",
                         files=[path],
@@ -630,19 +647,47 @@ def plan_function_reference_binding(
     The explicit destination identity asserts that the placeholder's references
     mean this function. Its definition, identity and verification are unchanged.
     """
+    from rebrew.metadata.binding_history import historical_source_files
     from rebrew.metadata.bindings import library_bindings_for_file
-    from rebrew.metadata.functions import get_entry
+    from rebrew.metadata.functions import get_entry, load_metadata
+    from rebrew.metadata.source_provenance import load_source_files
 
     if selected.store != KIND_FUNCTION or not is_valid_new_name(old_name):
         raise ValueError("function reference binding requires an unbound C function name")
     project = _Project(cfg)
+    root = getattr(cfg, "root", None) or project.metadata_dir
+    retired = set().union(
+        *(
+            historical_source_files(entry, project.metadata_dir, root)
+            for entry in load_metadata(project.metadata_dir, deepcopy=False).values()
+        )
+    )
+    retained = {str(e.get("file") or "") for e in project.data_rows().values()}
+    retained.update(e.file for e in load_source_files(project.metadata_dir))
+    inactive = {
+        path
+        for path in project.paths
+        if path.suffix.lower() != _HEADER_SUFFIX
+        and path.resolve() in retired
+        and not project.annotations(path)
+        and project.stored_file(path) not in retained
+    }
     row = get_entry(project.metadata_dir, selected.va, selected.module)
     new_name = rename_source_name(str(row.get("name") or ""), str(row.get("symbol") or ""))
     destination = project.path_for_stored(str(row.get("file") or ""))
     if destination is None or not is_valid_new_name(new_name):
         raise RenameError("binding destination has no project function definition", files=[])
-    defs = {p: definitions(project.parsed(p), new_name) for p in project.containing(new_name)}
-    found_defs = [(p, d.kind, d.static) for p, found in defs.items() for d in found]
+    defs = {
+        p: definitions(project.parsed(p), new_name)
+        for p in project.containing(new_name)
+        if p not in inactive
+    }
+    found_defs = [
+        (p, d.kind, d.static)
+        for p, found in defs.items()
+        for d in found
+        if not d.definitely_inactive
+    ]
     library_identity = (
         row.get("kind") == "LIBRARY"
         and destination.suffix.lower() == ".h"
@@ -660,7 +705,7 @@ def plan_function_reference_binding(
         )
     if old_name == new_name or _row_name_collisions(project, old_name):
         raise RenameError("binding source must be an unbound placeholder", files=[])
-    hits = project.containing(old_name)
+    hits = [p for p in project.containing(old_name) if p not in inactive]
     if any(
         rename_source_name(e.name, e.symbol) == old_name
         for path in hits
@@ -745,7 +790,16 @@ def plan_symbol_rename(
     kind = KIND_DATA if store == KIND_DATA else KIND_FUNCTION
     plan = RenamePlan(kind=kind, old_name=old_name, new_name=new_name)
 
-    hits = project.containing(old_name)
+    candidates = project.containing(old_name)
+    if store == KIND_FUNCTION:
+        hits = [
+            path
+            for path in candidates
+            if definitions(project.parsed(path), old_name)
+            or function_reference_occurrences(project.parsed(path), old_name)
+        ]
+    else:
+        hits = candidates
     defs = {p: definitions(project.parsed(p), old_name) for p in hits}
     external = {p for p, found in defs.items() if any(not d.static for d in found)}
     statics = {p for p, found in defs.items() if found and all(d.static for d in found)}
@@ -808,12 +862,23 @@ def plan_symbol_rename(
         )
 
     for path in sorted(rename_set, key=str):
-        roles = ORDINARY_ROLES | ({ROLE_COMMENT} if comments else set())
-        spans = [
-            (o.start, o.end, o.line, o.column, o.role)
-            for o in occurrences(project.parsed(path), old_name)
-            if o.role in roles
-        ]
+        parsed = project.parsed(path)
+        if store == KIND_FUNCTION:
+            refs = function_reference_occurrences(parsed, old_name)
+            if comments:
+                refs.extend(
+                    occurrence
+                    for occurrence in occurrences(parsed, old_name)
+                    if occurrence.role == ROLE_COMMENT
+                )
+            spans = [(o.start, o.end, o.line, o.column, o.role) for o in refs]
+        else:
+            roles = ORDINARY_ROLES | ({ROLE_COMMENT} if comments else set())
+            spans = [
+                (o.start, o.end, o.line, o.column, o.role)
+                for o in occurrences(parsed, old_name)
+                if o.role in roles
+            ]
         change = _file_change(project, path, spans, new_name)
         if change is not None:
             plan.files.append(change)
@@ -821,7 +886,18 @@ def plan_symbol_rename(
     _plan_symbol_rows(project, plan, chosen, rename_set, selected, store)
     _check_acknowledged(plan, selected, all_modules=all_modules, require_ack=require_ack)
 
-    collisions = _ordinary_collisions(project, new_name)
+    collision_modules: frozenset[str] | None = None
+    if store == KIND_FUNCTION and chosen:
+        visible: set[str] = set()
+        for path in chosen:
+            found = project.modules(path)
+            if found is None:
+                visible.clear()
+                break
+            visible |= found
+        else:
+            collision_modules = frozenset(visible)
+    collisions = _ordinary_collisions(project, new_name, collision_modules)
     if collisions:
         raise RenameError(
             f"cannot rename {old_name} to {new_name}: {new_name} is already used at "
@@ -1552,7 +1628,7 @@ def rename_function_everywhere(
     actual_old_name = rename_source_name(old_name, old_sym)
     if not actual_old_name:
         raise ValueError(
-            f"cannot rename {filepath}: old name is empty (missing FUNCTION marker or symbol)"
+            f"cannot rename {filepath}: old name is empty (missing FUNCTION binding or symbol)"
         )
     plan = plan_symbol_rename(
         cfg,

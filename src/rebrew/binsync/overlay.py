@@ -68,7 +68,7 @@ from rebrew.cli import (
     require_config,
     run_standalone,
 )
-from rebrew.config import ProjectConfig, module_marker
+from rebrew.config import ProjectConfig, target_module
 from rebrew.cross_import import (
     annotations_by_va,
     cross_match,
@@ -651,7 +651,7 @@ def overlay_state(
                     mapping[src_va] = (dst_va, section)
             skipped += sum(len(group) for group in by_section.values()) - len(mapping)
 
-            mod = wanted_module or module_marker(cfg)
+            mod = wanted_module or target_module(cfg)
             for src_va, (dst_va, section) in sorted(mapping.items()):
                 entry = globals_by_va.get(src_va, {})
                 bs_name = (entry.get("name") or "").strip()

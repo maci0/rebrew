@@ -175,9 +175,6 @@ def test_skeleton_marker_style_matches_profile() -> None:
 
     def rendered(profile: str) -> str:
         return _render_skeleton(
-            marker="FUNCTION",
-            cfg_marker="MAIN",
-            va=0x42E,
             xref_context=None,
             decomp_code=None,
             decomp_backend="",

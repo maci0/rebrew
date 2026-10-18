@@ -477,7 +477,7 @@ class TestAsmJsonSchema:
             target_binary=tmp_path / "fake.dll",
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             compiler_profile="msvc",
             capstone_arch=CS_ARCH_X86,
@@ -537,7 +537,7 @@ arch = "x86_32"
 reversed_dir = "src/SERVER"
 bin_dir = "bin/SERVER"
 source_ext = ".c"
-marker = "SERVER"
+module = "SERVER"
 """
 
     def _project(self, tmp_path: Path) -> Path:
@@ -579,7 +579,7 @@ class TestRebrewTestBatchDir:
             root=tmp_path,
             reversed_dir=tmp_path / "src" / "server.dll",
             metadata_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
 
@@ -898,7 +898,7 @@ class TestForceStatus:
             metadata_dir=tmp_path,
             root=tmp_path,
             target_name="SERVER",
-            marker="SERVER",
+            module="SERVER",
             default_jobs=1,
         )
         cfg.reversed_dir.mkdir(exist_ok=True)
@@ -913,7 +913,7 @@ class TestForceStatus:
 
         monkeypatch.setattr("rebrew.test.require_config", lambda target=None, json_mode=False: cfg)
         monkeypatch.setattr("rebrew.test.require_source_arg", lambda cfg, s, **_kw: s)
-        monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg, **_kw: {})
         monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec")
         ann = SourceBinding(
             va=0x1000,
@@ -1072,7 +1072,7 @@ class TestSinglePathExitCodes:
             metadata_dir=tmp_path,
             root=tmp_path,
             target_name="X",
-            marker="X",
+            module="X",
             default_jobs=1,
         )
         (tmp_path / "x.bin").write_bytes(b"\x90" * 8)
@@ -1086,7 +1086,7 @@ class TestSinglePathExitCodes:
         )
         monkeypatch.setattr("rebrew.test.require_config", lambda target=None, json_mode=False: cfg)
         monkeypatch.setattr("rebrew.test.require_source_arg", lambda cfg, s, **_kw: s)
-        monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg: {"_f": 0x1000})
+        monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg, **_kw: {"_f": 0x1000})
         monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
         monkeypatch.setattr(
             "rebrew.compiler.overrides.resolve_compile_overrides", lambda *a, **k: (None, "/O2")
@@ -1241,7 +1241,7 @@ class TestRebrewTestBatchDirShared:
             root=tmp_path,
             reversed_dir=tmp_path / "src" / "server.dll",
             metadata_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
 

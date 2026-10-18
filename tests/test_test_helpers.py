@@ -214,7 +214,7 @@ class TestSizePersistence:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
-            '[targets.x]\nbinary = "original/x.exe"\nmarker = "SERVER"\n'
+            '[targets.x]\nbinary = "original/x.exe"\nmodule = "SERVER"\n'
             '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src_dir = tmp_path / "src" / "x"
@@ -314,7 +314,7 @@ class TestSizePersistence:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
-            f'[targets.x]\nbinary = "original/x.exe"\nmarker = "{marker}"\n'
+            f'[targets.x]\nbinary = "original/x.exe"\nmodule = "{marker}"\n'
             '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src_dir = tmp_path / "src" / "x"
@@ -571,7 +571,7 @@ class TestFixSize:
         # not the project's target marker, so `marker = ""` keeps both).
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
-            '[targets.x]\nbinary = "original/x.exe"\nmarker = ""\n'
+            '[targets.x]\nbinary = "original/x.exe"\nmodule = ""\n'
             '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src = tmp_path / "src" / "x" / "f.c"
@@ -642,7 +642,7 @@ class TestUnchangedStatusCachePatch:
         # should_promote_status refuses the write and only the cache patch runs.
         write_store_fixture(
             tmp_path / "src" / "rebrew-functions.toml",
-            'format = 2\n["X.0x00001000"]\nstatus = "NEAR_MATCHING"\n',
+            'format = 3\n["X.0x00001000"]\nstatus = "NEAR_MATCHING"\n',
         )
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(
@@ -702,7 +702,7 @@ class TestMultiUnchangedStatusCachePatch:
             target_binary=str(tmp_path / "x.bin"),
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="X",
+            module="X",
             default_jobs=1,
             compile_timeout=60,
         )
@@ -778,7 +778,7 @@ class TestRefusedPromotionSkipsCache:
             target_binary=str(tmp_path / "x.bin"),
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="X",
+            module="X",
             default_jobs=1,
             compile_timeout=60,
         )
@@ -950,7 +950,7 @@ class TestMultiFixSize:
             target_binary=str(tmp_path / "x.bin"),
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="X",
+            module="X",
             default_jobs=1,
             compile_timeout=60,
         )
@@ -1020,7 +1020,7 @@ class TestMultiFixSize:
             target_binary=str(tmp_path / "x.bin"),
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="X",
+            module="X",
             default_jobs=1,
             compile_timeout=60,
         )
@@ -1094,7 +1094,7 @@ class TestMultiFixSize:
             target_binary=str(tmp_path / "x.bin"),
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="X",
+            module="X",
             default_jobs=1,
             compile_timeout=60,
         )
@@ -1338,7 +1338,7 @@ class TestMultiCachePatchDelta:
             target_binary=str(tmp_path / "x.bin"),
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="X",
+            module="X",
             default_jobs=1,
             compile_timeout=60,
         )
@@ -1641,7 +1641,7 @@ class TestMultiBlockerSource:
             target_binary=tmp_path / "x.bin",
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="X",
+            module="X",
             default_jobs=1,
             compile_timeout=60,
         )

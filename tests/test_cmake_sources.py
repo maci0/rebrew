@@ -31,14 +31,14 @@ binary = "original/server.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/server_dll"
-marker = "SERVER"
+module = "SERVER"
 
 [targets.client_exe]
 binary = "original/client.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/shared"
-marker = "CLIENT"
+module = "CLIENT"
 
 [compiler]
 profile = "msvc-6.0"
@@ -74,7 +74,7 @@ def test_stacked_file_belongs_to_both_targets(tmp_path: Path) -> None:
 
     for target, count in (("server_dll", 1), ("client_exe", 1)):
         cfg = _load(root=tmp_path, target=target)
-        own, foreign = collect_target_sources(cfg, cfg.marker)
+        own, foreign = collect_target_sources(cfg, cfg.module)
         assert len(own) == count, (target, own, foreign)
 
 
@@ -131,7 +131,7 @@ def test_emitted_include_sets_variable(tmp_path: Path, monkeypatch: pytest.Monke
     assert out.exit_code == 0, out.output
     assert "set(MYSRC" in out.stdout
     assert "src/shared/a.c" in out.stdout
-    for name in ("rebrew-functions.toml", "rebrew-data.toml", "rebrew-source.toml"):
+    for name in ("rebrew-functions.toml", "rebrew-data.toml"):
         assert f'"${{CMAKE_CURRENT_SOURCE_DIR}}/{name}"' in out.stdout
 
 
@@ -154,6 +154,51 @@ def test_json_reports_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     payload = cli_payload(out)
     assert payload["files"] == []
     assert payload["excluded"] == ["src/shared/only_client.c"]
+
+
+@pytest.mark.parametrize("archive", ["vendor/runtime.lib", r"vendor\runtime.lib"])
+def test_relative_archive_reaches_cmake_as_a_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, archive: str
+) -> None:
+    """Relative archive items otherwise become -lvendor/runtime.lib or .lib.lib."""
+    cmake = shutil.which("cmake")
+    compiler = shutil.which("cc")
+    if not cmake or not compiler:
+        pytest.skip("CMake and a C compiler are required")
+    cfg = _project(tmp_path, {"src/server_dll/main.c": "int main(void) { return 0; }\n"})
+    cfg.external_libs = {"RUNTIME": archive, "SYSTEM": "KERNEL32.lib"}
+    monkeypatch.setattr("rebrew.cmake_sources.require_config", lambda **_kw: cfg)
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "sources.cmake"
+    result = CliRunner().invoke(app, ["--output", str(output), "--json"])
+    assert result.exit_code == 0, result.output
+    assert cli_payload(result)["external_libs"] == [archive, "KERNEL32.lib"]
+    (tmp_path / "vendor").mkdir()
+    library = tmp_path / "vendor/runtime.lib"
+    library.touch()
+    (tmp_path / "CMakeLists.txt").write_text(
+        "cmake_minimum_required(VERSION 3.19)\nproject(archive_path C)\n"
+        "include(sources.cmake)\nadd_executable(example ${REBREW_SOURCES})\n"
+        "target_link_libraries(example PRIVATE ${REBREW_EXTERNAL_LIBS})\n"
+    )
+    subprocess.run(
+        [
+            cmake,
+            "-S",
+            str(tmp_path),
+            "-B",
+            str(tmp_path / "build"),
+            "-G",
+            "Unix Makefiles",
+            f"-DCMAKE_C_COMPILER={compiler}",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    command = (tmp_path / "build/CMakeFiles/example.dir/link.txt").read_text()
+    assert str(library) in command
+    assert "-lvendor" not in command and "runtime.lib.lib" not in command
 
 
 def test_config_change_regenerates_library_order(tmp_path: Path) -> None:
@@ -231,7 +276,7 @@ def test_migrated_library_sources_keep_target_scope(tmp_path: Path, metadata_in_
     ]:
         cfg = load_config(root=tmp_path, target=target)
         assert cfg.metadata_dir == metadata
-        own, foreign = collect_target_sources(cfg, cfg.marker)
+        own, foreign = collect_target_sources(cfg, cfg.module)
         assert {f.relative_to(tmp_path).as_posix() for f in own} == expected
         assert {f.relative_to(tmp_path).as_posix() for f in foreign} == {
             "src/shared/client_lib.c" if target == "server_dll" else "src/shared/server_lib.c"
@@ -261,7 +306,7 @@ def test_shared_helper_outside_metadata_root(tmp_path: Path, purpose_module: str
         symbol="_owner",
         size=8,
     )
-    cfg = ProjectConfig(root=tmp_path, reversed_dir=source, shared_dir=shared, marker="SERVER")
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=source, shared_dir=shared, module="SERVER")
     assert cfg.metadata_dir == source.parent
     own, foreign = collect_target_sources(cfg, "SERVER")
     assert helper in own and helper not in foreign

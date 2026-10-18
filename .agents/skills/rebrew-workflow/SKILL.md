@@ -9,20 +9,8 @@ description: >-
 license: MIT
 ---
 
-```mermaid
-graph TD
-    Pick[Pick a function<br/>rebrew todo --json] --> Skeleton[Generate skeleton<br/>rebrew skeleton 0x&lt;VA&gt;]
-    Skeleton --> Asm[Review disassembly<br/>rebrew binary asm show 0x&lt;VA&gt;]
-    Asm --> Write[Write C source<br/>edit .c file]
-    Write --> Test{Test the match<br/>rebrew test}
-    Test -->|EXACT / RELOC| Verify[Verify progress<br/>rebrew verify]
-    Test -->|COMPILE ERROR| Write
-    Test -->|NEAR_MATCHING| Diff[Investigate diffs<br/>rebrew diff]
-    Diff -->|edit fixes it| Write
-    Diff -->|still stuck| Matching[Hand off to<br/>rebrew-matching]
-    Verify --> Lint[Lint bindings and metadata<br/>rebrew lint]
-    Lint --> RoundTrip[Round-trip validation<br/>rebrew build round-trip --json]
-```
+Work loop: `todo` → library check → native review → C → `test`/`diff` →
+`verify`/lint. Use the matching skill when ordinary edits stop improving bytes.
 
 # Rebrew Workflow
 
@@ -33,10 +21,25 @@ skills, not executables. Build tools also use the umbrella: CMake invokes
 they pass through unchanged. Regenerate old CMake/objdiff configs after updating.
 
 Project workflow commands find `rebrew-project.toml` by walking up from the
-working directory. Binary inspection subcommands can also accept a
-binary path. Use `--json` for structured output. In a multi-target project pass `--target NAME`; the default target is used
-otherwise, and the batch commands (`test` / `verify` / `lint` / `status` / `todo`)
-take `--all-targets` instead. For address-anchor and metadata details, see
+working directory. Binary inspection subcommands can also accept a binary
+path. Use `--json` (`Output results as JSON`). `--dry-run` means `Preview
+changes without writing`. Watch loops reject `--json`; use a one-shot run.
+Run `rebrew <command> --help` before combining flags.
+
+`--all` is every eligible item in the selected target. It does not select
+other targets. In a multi-target project pass `--target NAME`; the default
+target is used otherwise. `--all-targets` repeats the command for every
+configured target and does not change item selection. It excludes `--target`.
+`--source-targets` repeats the command for targets bound to one source file.
+It excludes `--target` and `--all-targets`. `rebrew verify` covers every
+function in the selected target and reuses cached results. `--no-cache`
+rechecks them without saved verdicts; compiler objects may be cached. There is no verify `--full`.
+`rebrew source rename --all-modules` renames module rows. It is not `--all`.
+Destructive commands (`rebrew cache clear`, `rebrew cfg target remove`,
+`rebrew cfg module remove`, `rebrew coverage catalog --fix-sizes`,
+`rebrew source merge`, `rebrew source split`) refuse a non-terminal stdin. `--json`
+on those writes also requires `--force`. Pass `--force` to skip the prompt.
+A piped answer does not approve. Address anchors and metadata:
 `references/annotation-format.md`.
 
 ## Before Writing a Helper
@@ -48,13 +51,9 @@ public APIs, scoped scratch experiments and migrating reusable gaps upstream.
 
 ## When NOT to use this skill
 
-- No `rebrew-project.toml` yet (bare directory, or a binary not yet onboarded) →
-  use `rebrew-intake` (`rebrew intake <binary>`), or `rebrew-init` to teach the
-  scaffold and profile choice
-- New binary onboarding (FLIRT scan, catalog, triage) → use `rebrew-intake`
-- Deep byte-level matching / GA / flag sweep / prove → use `rebrew-matching`
-- Global variables, `.bss` gaps, dispatch tables → use `rebrew-data-analysis`
-- Ghidra push/pull operations → use `rebrew-ghidra-sync`
+Use `rebrew-intake` for new binaries, `rebrew-init` for setup, `rebrew-matching`
+for stalled matches, `rebrew-data-analysis` for globals, and `rebrew-ghidra-sync`
+for Ghidra/BinSync integration.
 
 ## 1. Pick a Function
 
@@ -101,12 +100,10 @@ function source counts do not measure matched bytes.
 > hashes differently from the image's copy: delete the cached archive to
 > re-extract, or drop `--stock-lib` for that run.
 
-Globals follow the same library attribution rule. An extern is a user declaration,
-not a storage owner. Reuse game/subsystem headers for game globals and the CRT
-header for runtime globals; stock libraries supply CRT storage. Record interior
-views against their backing object. For ownership or header consolidation, use
-the global ownership reference in `rebrew-data-analysis`; reverify known
-matches after changing declarations.
+An extern is a declaration, not a storage owner. Keep game and CRT declarations
+in their owning headers; stock libraries supply CRT storage. Record interior
+views against their backing. See `rebrew-data-analysis` for ownership and header
+consolidation; reverify matches after declaration changes.
 
 ## 2. Generate Skeleton
 
@@ -119,7 +116,9 @@ rebrew skeleton --batch 10                         # generate 10 skeletons (smal
 rebrew skeleton 0x<VA> --force                     # overwrite if the file already exists
 ```
 
-The skeleton writes a pure-C stub and records identity and SIZE in
+`rebrew skeleton --batch` excludes a function VA, `--name`, `--output`, and
+`--append` (help says `Excludes --batch.`). The skeleton writes a pure-C stub
+and records identity and SIZE in
 `rebrew-functions.toml` (SIZE is required for test/verify to extract target
 bytes). It prints the exact `rebrew test` command to run next: use it.
 
@@ -151,7 +150,7 @@ Rebrew filters source bindings by the active `--target`. Several targets may sha
 > set/clear`, the locked owner APIs for metadata changes. Files are mode 0444
 > (`atomic_write_locked`). SIZE and CFLAGS are metadata-owned;
 > Reconstruction source, STRUCT/CALLERS and support purposes are metadata-only.
-> `rebrew source register` records address-bound identities. All state belongs in format-2 stores; no old source blocks or schemas are read. See `references/annotation-format.md`.
+> `rebrew source register` records address-bound identities. Functions and addressless source evidence/purposes use format-3 `rebrew-functions.toml`; data uses format 2. Ordinary readers reject old schemas; use `rebrew source consolidate --dry-run --json`, then apply with its `--expected-digest` to migrate reviewed format-2 functions/source stores. See `references/annotation-format.md`.
 
 `ORIGINS` records the external source of each imported field; `VERIFICATION`
 records comparison evidence independently of ordinary edits. Note edits preserve
@@ -159,16 +158,14 @@ that evidence. Re-run `test`/`verify` when source, headers, or compiler inputs c
 
 ## 4. Implement and Test
 
-Iteratively edit source and compile-compare against the target binary:
-
 ```bash
 rebrew test src/bench/<file>.c          # compile + byte-compare; auto-updates STATUS
 rebrew test src/bench/<file>.c --json   # JSON output with byte-level mismatches
 rebrew test src/bench/<file>.c --no-promote          # skip STATUS update
 rebrew test 0x<VA> --json                  # find by VA (also accepts a symbol name)
 rebrew test src/bench/<file>.c --va 0x10001000 \
-    --symbol _myfunc --size 64 --cflags "/O1 /Gd"        # override metadata for ad-hoc tests
-rebrew test --all --json                   # batch test all reversed .c files
+    --symbol _myfunc --size 64 --cflags "/O1 /Gd"        # one file; --va/--symbol/--size/--cflags exclude --all
+rebrew test --all --json                   # every reversed .c file in the selected target
 rebrew test --all --module GAME --json     # batch mode, filter by module
 rebrew test --all --dir src/bench/ --json    # restrict to subdir
 rebrew test --all --jobs 8 --json              # parallel compile (default from config)
@@ -180,7 +177,9 @@ rebrew diagnose probe src/bench/<file>.c --json    # read-only ruler: strict + g
 On a multi-function file, `--va` selects the metadata binding at that VA (its symbol
 and fallback size come from it, the same rule as diff/match/prove). Pass
 `--symbol` too to override the symbol explicitly; with no `--va`/`--symbol`/
-`--size`, every bound function in the file is tested.
+`--size`, every bound function in the file is tested. `--va`, `--symbol`,
+`--size`, `--cflags`, `--toolchain`, and `--target-bin` exclude `--all`.
+`--dir`, `--module`, and `--jobs` require `--all`.
 
 **`--dry-run` previews without applying changes.** `test` single-file: compile
 + preview STATUS; `test --all --dry-run`: list only; `prove` / `verify`:
@@ -202,8 +201,6 @@ A linked EXACT stays EXACT on an object RELOC while its raw-link evidence holds
 clean diff; do not use it to drop an asm BLOCKER. Exit: `0` EXACT/RELOC · `1`
 NEAR/STUB · `2` compile/extract error.
 
-For a byte diff of the current state:
-
 ```bash
 rebrew diff src/bench/<file>.c        # byte diff vs target
 rebrew diff 0x<VA> --json                # JSON diff + structural similarity + blockers
@@ -220,15 +217,15 @@ GA/prove → `rebrew-matching`.
 
 ## 5. File Organization and Dependency Graph
 
-Splitting/merging source files and reading the call graph:
-`references/file-organization.md`.
+For splitting/merging and call graphs, read `references/file-organization.md`.
 
 ## 6. Verify and Track Progress
 
 `rebrew doctor` for health, `rebrew verify --compare` as the CI regression gate
 against `.rebrew/verify_baseline.toml`, `rebrew lint --json` (with `--fix` to
-reject forbidden inline metadata). Full flag set, `orphans`/`types`/`text-audit`,
-live coverage / optional snapshot export, and decomp.me: `references/verify-and-progress.md`.
+reject forbidden inline metadata). Full flag set, `rebrew orphans`, `rebrew types`,
+and `rebrew build check-text-placement`, live coverage, optional snapshot export,
+and decomp.me: `references/verify-and-progress.md`.
 `rebrew coverage serve` serves the same coverage data read-only at
 http://127.0.0.1:8000 (`--port` rebinds); start it only when the user asks for
 the UI, and stop it when they are done: it blocks until then.
@@ -243,8 +240,10 @@ rebrew build round-trip --dry-run             # preview without writing <binary>
 ```
 
 Round-trip needs canonical SIZE in `rebrew-functions.toml`: backfill it with
-`rebrew coverage catalog --fix-sizes`.
+`rebrew coverage catalog --fix-sizes`. Pass `--force` when stdin is not a
+terminal, and whenever `--json` is set. A piped answer does not approve.
 PROVEN is skipped. Full fallback/drift rules: `references/round-trip.md`.
 
-Shipped profiles compile only in Docker; no host wine/wibo fallback.
+Shipped profiles use pinned toolchain images through the configured backend
+(Docker, Podman or supported experimental unshare); no host wine/wibo fallback.
 Toolchain and link/inspection commands: `references/advanced-commands.md`.

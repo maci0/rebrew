@@ -128,7 +128,7 @@ class TestDefineRemaining:
             root=tmp_path,
             reversed_dir=tmp_path / "src",
             target_binary=tmp_path / "original" / "x.dll",
-            marker="TEST",
+            module="TEST",
         )
 
     def test_defines_asm_referenced_string(

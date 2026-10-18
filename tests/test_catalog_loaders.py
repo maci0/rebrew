@@ -232,7 +232,7 @@ class TestScanReversedDirLibraryHeaders:
             },
             metadata_dir=tmp_path,
         )
-        cfg = SimpleNamespace(metadata_dir=tmp_path, marker="SERVER", source_ext=".c")
+        cfg = SimpleNamespace(metadata_dir=tmp_path, module="SERVER", source_ext=".c")
         entries = scan_reversed_dir(src, cfg=cfg)
         assert any(e.va == 0x1000 and e.kind == "LIBRARY" for e in entries)
 
@@ -257,7 +257,7 @@ class TestScanReversedDirLibraryHeaders:
             },
         )
         cfg = SimpleNamespace(
-            metadata_dir=tmp_path, marker="SERVER", source_ext=".c", root=tmp_path
+            metadata_dir=tmp_path, module="SERVER", source_ext=".c", root=tmp_path
         )
         entries = scan_reversed_dir(src, cfg=cfg)
         got = [e for e in entries if e.va == 0x1000]
@@ -286,7 +286,7 @@ class TestScanReversedDirLibraryHeaders:
 
         update_source_status(tmp_path, "NEAR_MATCHING", "SERVER", 0x1000, force=True)
         set_fields(tmp_path, 0x1000, {"blocker": "1B diff"}, module="SERVER")
-        cfg = SimpleNamespace(metadata_dir=tmp_path, marker="SERVER", source_ext=".c")
+        cfg = SimpleNamespace(metadata_dir=tmp_path, module="SERVER", source_ext=".c")
         entries = scan_reversed_dir(src, cfg=cfg)
         lib = next(e for e in entries if e.va == 0x1000)
         assert lib.status == "NEAR_MATCHING"

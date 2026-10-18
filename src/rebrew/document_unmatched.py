@@ -9,7 +9,7 @@ in ``rebrew-functions.toml``, without re-running init/toolchain-link/rizin.
 
 Already-documented functions are left untouched: a VA is considered
 documented when a ``fcn_<va>.c`` file exists in the reversed dir or any
-source file carries a FUNCTION/STUB marker for it (covers renamed files).
+source file carries a FUNCTION/STUB binding for it (covers renamed files).
 
 Shared logic lives in ``rebrew.intake.classify_all`` / ``blocker_reason``
 (the canonical writers) — this command only decides *which* VAs are
@@ -33,12 +33,10 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.config import target_module
 from rebrew.intake import classify_all
 from rebrew.metadata.bindings import iter_source_bindings
-from rebrew.sources import (
-    iter_sources,
-    target_marker,
-)
+from rebrew.sources import iter_sources
 
 app = typer.Typer(
     help="Document unmatched functions as STUB skeletons + blockers.",
@@ -48,7 +46,7 @@ app = typer.Typer(
         "  rebrew source document-unmatched --dry-run\n\n"
         "  # Write STUB .c + blocker for every unmatched function\n"
         "  rebrew source document-unmatched\n\n"
-        "[dim]Skips VAs that already have a fcn_<va>.c file or a bound function metadata row. Idempotent — re-running after documenting reports zero unmatched.[/dim]"
+        "[dim]Skips VAs that already have a fcn_<va>.c file or a bound function metadata row. Idempotent: re-running after documenting reports zero unmatched.[/dim]"
     ),
 )
 
@@ -60,11 +58,11 @@ _PROFILE_FAMILY: dict[str, str] = {
 
 
 def _documented_vas(src_dir: Path, cfg: Any) -> set[int]:
-    """VAs already covered by a stub file or a FUNCTION/STUB marker."""
+    """VAs already covered by a stub file or a FUNCTION/STUB binding."""
     documented: set[int] = set()
     for _path, anns in iter_source_bindings(
         iter_sources(src_dir, cfg),
-        target=target_marker(cfg),
+        target=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):
@@ -88,7 +86,7 @@ def main(
         False,
         "--backfill-blockers",
         help="Write a BLOCKER for every existing STUB function that lacks one "
-        "(the lint W005 class — stubs documented before document-unmatched "
+        "(the lint W005 class: stubs documented before document-unmatched "
         "existed), and record available SIZE metadata so the stub stays "
         "testable",
     ),
@@ -128,7 +126,7 @@ def main(
         # function's fields thousands of times to read two scalars.
         metadata = load_metadata(cfg.metadata_dir, deepcopy=False)
         for va, info in existing.items():
-            module = info.get("module") or cfg.marker
+            module = info.get("module") or cfg.module
             entry = metadata.get((unicodedata.normalize("NFC", module), va)) or {}
             if info.get("status") == "STUB" and not entry.get("blocker"):
                 size = int(info.get("size") or 0)
@@ -193,7 +191,7 @@ def main(
     written = classify_all(
         cfg.root,
         src_dir,
-        cfg.marker,
+        cfg.module,
         unmatched,
         family,
         "",

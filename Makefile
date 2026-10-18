@@ -5,7 +5,7 @@
 	warn-yamllint \
 	warn-vnu \
 	vnu \
-	ensure-bash \
+	ensure-bash ensure-unshare-build \
 	smoke-wheel \
 	require-dist \
 	ensure-extras \
@@ -51,11 +51,11 @@ UV_SYNC_FLAGS ?= --locked --all-extras --group similarity
 # RESEMBL_SHA is the commit that tag must resolve to: tags move, and a
 # same-version checkout on another commit passes the version string check
 # while CI clones this commit.
-RESEMBL_REF ?= v3.2.0
-RESEMBL_SHA ?= dccda874308cf9adbad781678c67625e15a4f73a
+RESEMBL_REF ?= v3.3.1
+RESEMBL_SHA ?= ba83f21665515f5d8e3da81f206c25ffbb5755c3
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 # Match the CI uv pin so local sync/audit behavior tracks CI.
-UV_VERSION ?= 0.12.14
+UV_VERSION ?= 0.13.1
 
 # Single-file / nodeid override for the edit-test loop:
 #   make test-one T=tests/test_annotation.py
@@ -145,7 +145,7 @@ UV_RUN_TOOLS := uv run --no-project --offline --python $(PYTHON_PIN)
 
 help:
 	@printf '%s\n' \
-		'  make doctor             # report every missing prerequisite (uv, resembl, nasm, bun, shellcheck, yamllint, vnu, extras)' \
+		'  make doctor             # report every missing prerequisite (uv, resembl, nasm, bun, cc/json-c, shellcheck, yamllint, vnu, extras)' \
 		'  make setup              # uv sync (locked + extras + similarity) + pre-commit/pre-push hooks' \
 		'  make add-dep ADD_DEP_SPEC=<spec>  # uv add <spec> (pyproject.toml + uv.lock), then the license-table step' \
 		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
@@ -268,6 +268,15 @@ warn-nasm:
 	if ! command -v nasm >/dev/null 2>&1; then \
 	  echo "WARNING: nasm not on PATH (required for make test, same as CI; asm round-trip tests skip in make test-one)."; \
 	  echo "Install it before running tests: e.g. apt install nasm / pacman -S nasm / dnf install nasm"; \
+	fi
+
+# The native unshare tests compile the runner before checking its mount policy.
+ensure-unshare-build:
+	@set -eu; \
+	if ! command -v cc >/dev/null 2>&1 || ! command -v pkg-config >/dev/null 2>&1 || ! pkg-config --exists json-c; then \
+	  echo "ERROR: native runner tests need cc, pkg-config and json-c development files."; \
+	  echo "Install them, then re-run: apt install build-essential pkg-config libjson-c-dev"; \
+	  exit 1; \
 	fi
 
 # tests/dashboard_*.mjs drive the dashboard's JS through a stub DOM; the
@@ -470,7 +479,7 @@ warn-test-extras: ensure-uv
 doctor:
 	@set -u; \
 	rc=0; setup_rc=0; uv_rc=0; \
-	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-bun warn-shellcheck warn-yamllint warn-vnu ensure-extras; do \
+	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-bun ensure-unshare-build warn-shellcheck warn-yamllint warn-vnu ensure-extras; do \
 	  case $$check in \
 	    ensure-uv) label='uv on PATH' ;; \
 	    warn-uv-version) label="uv >= $(UV_VERSION) (CI pin)" ;; \
@@ -478,10 +487,11 @@ doctor:
 	    ensure-bash) label='bash on PATH (make clone-resembl)' ;; \
 	    ensure-nasm) label='nasm on PATH (make test; optional for test-one)' ;; \
 	    ensure-bun) label='bun on PATH (dashboard interaction tests; optional for test-one)' ;; \
+	    ensure-unshare-build) label='cc, pkg-config and json-c (native runner tests)' ;; \
 	    warn-shellcheck) label='shellcheck on PATH (pre-commit shell hook)' ;; \
 	    warn-yamllint) label='yamllint on PATH (pre-commit YAML hook)' ;; \
 	    warn-vnu) label='vnu on PATH (W3C validation of the HTML surfaces)' ;; \
-	    ensure-extras) label="venv extras (angr/claripy, rapidfuzz/resembl)" ;; \
+	    ensure-extras) label="venv extras (angr with bundled Claripy, rapidfuzz/resembl)" ;; \
 	  esac; \
 	  case $$check in \
 	    ensure-resembl|ensure-extras) bucket=setup ;; \
@@ -533,7 +543,7 @@ doctor:
 # help/status text.  The pytest plugin ``pytest_ansi_env`` sets the same
 # trio for bare ``uv run pytest``; export here too so the recipe stays
 # self-documenting and covers any non-pytest child processes.
-test: ensure-nasm ensure-bun warn-vnu ensure-uv ensure-test-extras
+test: ensure-nasm ensure-bun ensure-unshare-build warn-vnu ensure-uv ensure-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/ -v --tb=short
 
@@ -545,7 +555,7 @@ test-one: warn-nasm warn-bun ensure-uv warn-test-extras
 
 # Coverage floor (AGENTS.md: ratchet up, never down).  slipcover ignores
 # [tool.slipcover] fail_under, so the floor is passed on the command line.
-coverage: ensure-nasm ensure-bun warn-vnu ensure-uv ensure-test-extras
+coverage: ensure-nasm ensure-bun ensure-unshare-build warn-vnu ensure-uv ensure-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen python -m slipcover --fail-under $(COV_FLOOR) -m pytest tests/ -q --tb=short
 

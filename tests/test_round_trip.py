@@ -488,7 +488,7 @@ class TestLoadCatalogs:
             dll_exports={0x5000: "ExportFn"},
             reversed_dir=tmp_path / "src",
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
 
@@ -505,7 +505,7 @@ class TestLoadCatalogs:
         )
         write_store_fixture(
             cfg.reversed_dir / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
         funcs, data = _load_catalogs(cfg)
@@ -624,7 +624,7 @@ class TestLoadCatalogs:
         cfg = SimpleNamespace(
             reversed_dir=tmp_path / "src",
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             cflags="/O2 /Gd",
             dll_exports={},
@@ -653,7 +653,7 @@ class TestCollectSpliceSet:
         return SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             cflags="/O2 /Gd",
         )
@@ -862,7 +862,7 @@ class TestRoundTripGoldenPe:
             target_name="SERVER",
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             dll_exports={},
@@ -1448,7 +1448,7 @@ class TestFixHeaders:
             target_binary=tmp_path / "golden.dll",
             reversed_dir=tmp_path / "src" / "SERVER",
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             dll_exports={},

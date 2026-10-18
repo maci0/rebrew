@@ -5,8 +5,8 @@ it doesn't crash and that all commands found in SKILL.md files are actually
 registered in the CLI.  Does NOT invoke real rebrew commands; it only confirms
 ``--help`` works and referenced flags are registered on the resolved command.
 
-Note: This test spawns subprocesses via ``uv run rebrew <subcommand> --help``,
-so it requires the package to be installed (editable install is fine).
+Note: validation renders ``--help`` on the composed command tree. It does not
+spawn a process per subcommand.
 """
 
 from __future__ import annotations
@@ -30,11 +30,8 @@ class TestValidateSkillCommands:
     def _validate_once(self) -> bool:
         """Run the full validation ONCE per session and cache the boolean.
 
-        The validation spawns one ``rebrew <subcommand> --help`` subprocess per
-        unique subcommand (~3s) — running it in both tests doubled the suite's
-        slowest non-docker cost.  The subprocess test below still exercises the
-        CLI entrypoint end-to-end; this fixture only serves the in-process API
-        test.
+        Help is rendered on the composed command tree. Sharing that result
+        keeps the two tests that only need the boolean from rendering twice.
         """
         spec = importlib.util.spec_from_file_location("validate_skill_commands", _SCRIPT)
         assert spec is not None

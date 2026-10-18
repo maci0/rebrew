@@ -16,8 +16,8 @@ def _project(root: Path) -> Any:
     return SimpleNamespace(
         root=root,
         metadata_dir=root,
-        marker="A",
-        all_markers=["A", "B"],
+        module="A",
+        target_modules=["A", "B"],
         target_binary=root / "a.exe",
         compiler_profile="test",
         cflags="",
@@ -193,7 +193,7 @@ class TestTypeMetadata:
         cfg = _project(tmp_path)
         monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "stride", "native stride", {})
-        cfg.marker = "B"
+        cfg.module = "B"
         cfg.base_cflags = "/DGOLD"
         bind_type(
             cfg, "engine.item", Path("types.h"), "ITEM", 4, 8, "allocation", "partial view", {}

@@ -1147,6 +1147,34 @@ class TestPatchVerifyCacheEntries:
 
 
 class TestIncrementalVerify:
+    def test_scoped_save_status_describes_the_whole_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from io import StringIO
+
+        from rich.console import Console
+
+        import rebrew.status as status
+
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "func_a.c").write_text("int func_a(void) { return 1; }\n")
+        entries_a, results_a = _row("func_a", 0x1000)
+        entries_b, results_b = _func_b_row(cfg)
+        results_b[0].update(status="COMPILE_ERROR", passed=False)
+        cache_path = cfg.root / ".rebrew" / "verify_cache.toml"
+        save_verify_cache(cache_path, cfg, results_a + results_b, entries_a + entries_b)
+        save_verify_cache(cache_path, cfg, results_a, entries_a, preserve_keys={"0x00002000"})
+
+        info = status._load_verify_info(cfg)
+        assert info is not None
+        assert (info.passed, info.failed, info.total) == (1, 1, 2)
+        buf = StringIO()
+        monkeypatch.setattr(status, "console", Console(file=buf, width=120))
+        status._render_terminal(status.StatusReport(total_functions=2, verify_info=info))
+        out = buf.getvalue()
+        assert "Verify cache  1/2 byte-matched, 1 failed" in out
+        assert "this run" not in out
+
     def test_changing_native_symbol_invalidates_cached_body(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1261,7 +1289,7 @@ class TestIncrementalVerify:
         assert calls == [0x10001000]
 
         calls.clear()
-        full_run = runner.invoke(app, ["--json", "--full"])
+        full_run = runner.invoke(app, ["--json", "--no-cache"])
         assert full_run.exit_code == 0, full_run.output
         assert sorted(calls) == [0x10001000, 0x10002000]
 
@@ -1969,6 +1997,83 @@ class TestCflagsEquivalent:
 class TestEntryFingerprint:
     """The per-entry cache identity shared by the hit check and the writer."""
 
+    @pytest.mark.parametrize("changed", ["source", "header"])
+    @pytest.mark.parametrize("operation", ["touch", "edit"])
+    def test_warm_fingerprint_reuses_bodies_and_closure_until_inputs_change(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        changed: str,
+        operation: str,
+    ) -> None:
+        from rebrew.compiler import cache
+
+        cfg = _make_cfg(tmp_path)
+        source = cfg.reversed_dir / "a.c"
+        header = cfg.reversed_dir / "h.h"
+        source.write_text('#include "h.h"\nint a(void) { return VALUE; }\n')
+        header.write_text("#define VALUE 1\n")
+        entry = SimpleNamespace(filepath="a.c", size=4, cflags="", module="", toolchain="")
+        reads: list[Path] = []
+        scans: list[None] = []
+        read_bytes = Path.read_bytes
+        scan = cache.scan_include_closure
+
+        def counted_read(path: Path) -> bytes:
+            if path in (source, header):
+                reads.append(path)
+            return read_bytes(path)
+
+        def counted_scan(*args: Any, **kwargs: Any) -> Any:
+            scans.append(None)
+            return scan(*args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_bytes", counted_read)
+        monkeypatch.setattr(cache, "scan_include_closure", counted_scan)
+        first = entry_fingerprint(cfg, entry)
+        assert first is not None
+        assert reads == [source, header]
+        assert len(scans) == 1
+
+        reads.clear()
+        scans.clear()
+        assert entry_fingerprint(cfg, entry) == first
+        assert reads == []
+        assert scans == []
+
+        path = source if changed == "source" else header
+        if operation == "touch":
+            st = path.stat()
+            os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+        else:
+            with path.open("a") as stream:
+                stream.write("\n#define EDITED 1\n")
+        after = entry_fingerprint(cfg, entry)
+        assert after is not None
+        if changed == "source":
+            assert reads.count(source) == 1
+            assert after.mtime_ns != first.mtime_ns
+            assert (after.source_hash != first.source_hash) == (operation == "edit")
+            assert len(scans) == (1 if operation == "edit" else 0)
+        else:
+            assert reads == [header]
+            assert len(scans) == 1
+            assert after.source_hash == first.source_hash
+            assert after.headers_fp != first.headers_fp
+
+    def test_library_override_edit_invalidates_warm_fingerprint(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text("int a(void) { return 1; }\n")
+        override = cfg.reversed_dir / "rebrew-libraries.toml"
+        override.write_text('cflags = "/O1"\n')
+        entry = SimpleNamespace(filepath="a.c", size=4, cflags="", module="", toolchain="")
+        before = entry_fingerprint(cfg, entry)
+        assert before is not None and before.cflags == "/O1"
+        assert entry_fingerprint(cfg, entry) == before
+        override.write_text('cflags = "/O2 /Gd"\n')
+        after = entry_fingerprint(cfg, entry)
+        assert after is not None and after.cflags == "/O2 /Gd"
+
     def test_missing_source_path_is_a_miss(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         entry = SimpleNamespace(filepath="", size=4, cflags="", module="", toolchain="")
@@ -2064,6 +2169,75 @@ def _write_hit_sources(cfg: ProjectConfig) -> tuple[Path, Path]:
             metadata_fields={f"SERVER.0x{va:08X}": {"kind": "FUNCTION", "size": 16}},
         )
     return shared, other
+
+
+def _binding_row(
+    symbol: str,
+    bound_va: int | None,
+    *,
+    status: str,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """One ``relocation_bindings`` row in the shape the compare writer stores.
+
+    A null ``bound_va`` is omitted. The verify-cache TOML writer drops nulls,
+    so an unresolved row survives the round trip without that key.
+    """
+    row: dict[str, Any] = {
+        "offset": offset,
+        "symbol": symbol,
+        "kind": "abs32",
+        "typed": True,
+        "status": status,
+    }
+    if bound_va is not None:
+        row["bound_va"] = bound_va
+    return row
+
+
+def _seed_known_binding_cache(
+    tmp_path: Path,
+    evidence_for: Any,
+) -> tuple[ProjectConfig, list[Any]]:
+    """Cache written with ``check_known_bindings`` on, plus per-entry evidence."""
+    from rebrew.catalog.loaders import scan_reversed_dir
+    from rebrew.verify_cache import save_verify_cache
+
+    cfg = _make_cfg(tmp_path)
+    cfg.check_known_bindings = True
+    _write_hit_sources(cfg)
+    found = [
+        entry
+        for entry in scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
+        if not str(getattr(entry, "filepath", "")).endswith(".h")
+    ]
+    assert len(found) == 2
+    rows = []
+    for entry in found:
+        row: dict[str, Any] = {
+            "status": "EXACT",
+            "va": f"0x{entry.va:08x}",
+            "size": entry.size,
+            "filepath": entry.filepath,
+            "name": entry.name,
+            "symbol": entry.symbol,
+            "module": entry.module,
+            "delta": 0,
+            "match_percent": 100.0,
+            "passed": True,
+            "message": "EXACT MATCH",
+            "similarity": 1.0,
+            "reg_delta": 0,
+            "effective_match": True,
+            "diff_lines": 0,
+            "context_hash": None,
+        }
+        evidence = evidence_for(entry)
+        if evidence is not None:
+            row["relocation_bindings"] = evidence
+        rows.append(row)
+    save_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg, rows, found)
+    return cfg, found
 
 
 def _seed_current_cache(tmp_path: Path) -> tuple[ProjectConfig, Path, Path]:
@@ -2197,7 +2371,7 @@ class TestCurrentWriterCacheIdentity:
         for path in cfg.reversed_dir.glob("*.c"):
             text = path.read_text(encoding="utf-8")
             path.write_text(text.replace("ADDRESS: SERVER ", "ADDRESS: CLIENT "), encoding="utf-8")
-        cfg.marker = "CLIENT"
+        cfg.module = "CLIENT"
         assert _prepare_cached(cfg) == (2, 0)
 
     def test_context_digest_change_misses(self, tmp_path: Path) -> None:
@@ -2217,6 +2391,86 @@ class TestCurrentWriterCacheIdentity:
         assert _prepare_cached(cfg) == (2, 2)
         monkeypatch.setattr(verify_hash, "_compare_logic_hash", lambda: "f" * 64)
         assert _prepare_cached(cfg) == (2, 0)
+
+
+class TestKnownBindingCacheAdmission:
+    """``check_known_bindings`` serves a row only when recorded bindings still resolve.
+
+    The hit counter is ``prepare_entries``'s cached count. A wrong ``bound_va``
+    or a name that gained a VA misses that row. An unrelated catalog addition
+    does not, and a conflict reuses the row while its ``bound_va`` is unchanged.
+    """
+
+    def test_warm_cache_hits_when_bound_vas_match(self, tmp_path: Path) -> None:
+        def evidence(entry: Any) -> list[dict[str, Any]]:
+            rows = [
+                _binding_row(entry.name, entry.va, status="VALIDATED"),
+            ]
+            if entry.name == "fa":
+                rows.append(_binding_row("fb", 0x10001010, status="CONFLICT", offset=4))
+            return rows
+
+        cfg, _found = _seed_known_binding_cache(tmp_path, evidence)
+        assert _prepare_cached(cfg) == (2, 2)
+
+    def test_wrong_bound_va_misses(self, tmp_path: Path) -> None:
+        cfg, _found = _seed_known_binding_cache(
+            tmp_path,
+            lambda entry: [_binding_row(entry.name, entry.va + 1, status="VALIDATED")],
+        )
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_newly_resolved_symbol_misses(self, tmp_path: Path) -> None:
+        cfg, _found = _seed_known_binding_cache(
+            tmp_path,
+            lambda entry: [
+                _binding_row(entry.name, entry.va, status="VALIDATED"),
+                _binding_row("helper", None, status="UNRESOLVED", offset=4),
+            ],
+        )
+        assert _prepare_cached(cfg) == (2, 2)
+        cfg.dll_exports = {0x5000: "helper"}
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_resolved_symbol_that_disappears_misses(self, tmp_path: Path) -> None:
+        cfg, _found = _seed_known_binding_cache(
+            tmp_path,
+            lambda entry: [
+                _binding_row(entry.name, entry.va, status="VALIDATED"),
+                _binding_row("helper", 0x5000, status="CONFLICT", offset=4),
+            ],
+        )
+        cfg.dll_exports = {0x5000: "helper"}
+        assert _prepare_cached(cfg) == (2, 2)
+        cfg.dll_exports = {}
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_missing_or_masked_evidence_misses(self, tmp_path: Path) -> None:
+        cfg, _found = _seed_known_binding_cache(tmp_path, lambda _entry: None)
+        assert _prepare_cached(cfg) == (2, 0)
+        cfg, _found = _seed_known_binding_cache(
+            tmp_path,
+            lambda entry: [
+                _binding_row(entry.name, entry.va, status="VALIDATED"),
+                {
+                    "offset": 4,
+                    "symbol": "",
+                    "kind": "mask",
+                    "typed": False,
+                    "status": "UNSUPPORTED",
+                },
+            ],
+        )
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_unrelated_catalog_entry_still_hits(self, tmp_path: Path) -> None:
+        cfg, _found = _seed_known_binding_cache(
+            tmp_path,
+            lambda entry: [_binding_row(entry.name, entry.va, status="VALIDATED")],
+        )
+        assert _prepare_cached(cfg) == (2, 2)
+        cfg.dll_exports = {0x9999: "unrelated"}
+        assert _prepare_cached(cfg) == (2, 2)
 
 
 class TestResultRowCopy:

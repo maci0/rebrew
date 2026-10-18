@@ -11,7 +11,7 @@ same tiers and the data/globals/layout pipeline.
 
 | Tier | Stores | Contract |
 |---|---|---|
-| **Canonical (durable)** | pure C sources, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-source.toml`, `rebrew-types.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | Source/config are editable; identity and other non-derivable evidence are CLI/API-managed. Optional ADDRESS anchors bind declarations; old inline blocks and earlier schemas are rejected. Derived views are rebuilt from these plus the binary; recorded history is identified separately below. |
+| **Canonical (durable)** | pure C sources, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-types.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | Source/config are editable; identity and other non-derivable evidence are CLI/API-managed. Optional ADDRESS anchors bind declarations; old inline blocks and earlier schemas are rejected. Derived views are rebuilt from these plus the binary; recorded history is identified separately below. |
 | **Derived, VCS-intended** | `src/<target>/function_structure.json` (discovery inventory), `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (`rebrew build layout`, `rebrew binary functions`, `rebrew coverage catalog`, `rebrew build link-stubs`, `rebrew data fix-bss`, `rebrew data header`, signature tools).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
 | **Derived, gitignored (build output)** | `snapshots/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew coverage export --output snapshots/` / `rebrew verify` / `rebrew binary extract` / `rebrew coverage report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.toml` (the old `db/verify_results.json` snapshot was unguarded and is no longer written; see `verify_cache.load_baseline`). |
 | **Cache (delete-safe)** | `.rebrew/verify_cache.toml`, `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, `.rebrew/source-backups/*.orig`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache; it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce, each record is fsynced before `rebrew match run` reports the run so a host that loses power does not take the win with it, and only the non-winning lines are capped (newest `_LOSS_RECORD_RETENTION`, wins kept forever).  `.rebrew/source-backups/` holds a copy of a `.c` that `rebrew match climb` / `rebrew match qualifiers` is about to rewrite in place: it exists only while that run is in flight, is removed when the run finishes, and is the way back to the pre-run bytes after a kill that runs no cleanup (SIGKILL, OOM, power cut).  `rebrew skeleton --force` keeps its backup after a clean replacement (`*.pre-skeleton.*.orig`).  They accumulate one file per rewrite; prune the directory when the migration or the overwrite is confirmed good.  There is no per-run build diskcache: same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
@@ -29,14 +29,13 @@ control and ignore its `.lock`. `types check`/lint W031 report stale evidence;
 reviewing a changed definition/context. A type has no instance address and
 these records create no game progress or function/data verdict.
 
-`rebrew-source.toml` is managed by `rebrew source document-assembly` (API:
-`rebrew.metadata.source_provenance.document_assembly`) with the shared locked, atomic
-0444 writer. Keep `rebrew-source.toml` in version control and ignore its
-`rebrew-source.toml.lock` coordination file, just like the function/data locks.
-It records reviewed original-assembly evidence for a definition
-without requiring a VA. `format = 2` and
-`definitions."metadata-relative/file.c".C_symbol.MODULE` identify each record;
-each definition record has `source_hash` and `evidence`; the separate `files` table records target-scoped support purposes. The SHA-256 binds the parsed
+The format-3 `rebrew-functions.toml` includes addressless source evidence under
+`source.definitions."metadata-relative/file.c".C_symbol.MODULE`, with
+`source_hash` and `evidence` fields. `source.files.FILE.MODULE` records support
+purposes. `rebrew source document-assembly` and `source register --support` use
+the same function-store lock and atomic 0444 writer; keep the function store in
+version control and ignore its `.lock`. Ordinary function/data comments remain
+in their existing fields. The SHA-256 binds the parsed
 definition text, including its signature/body/comments, to the selected target.
 The review record neither asserts compiled reachability nor creates a byte
 STATUS. Renames, moves and definition edits require clearing the old record
@@ -98,7 +97,7 @@ supplies its own tag.
 - **Identity paths are gated.**  The `file` field is joined onto the project
   root by `verify`, `rename` and BinSync, so `validate_identity_file` refuses an
   absolute path or a `..` segment at the write, and W034 reports rows written
-  before that gate.  W035 reports a row whose module matches no target marker or
+  before that gate.  W035 reports a row whose module matches no target module or
   library module: invisible to `status`/`todo`, which filter by module.
 - **The store is found by directory, not by search.**  A reader is handed
   `metadata_dir` (plus `reversed_dir` and `shared_dir`) and reads whatever is
@@ -325,15 +324,20 @@ provenance rather than a byte verdict; recording them does not verify storage.
 
 ## Current source contract
 
-All stores use format 2. Qualified `MODULE.0xVA` tables hold function/data
+Functions use format 3; data uses format 2. Qualified `MODULE.0xVA` tables hold function/data
 identity and state; `kind` classifies the row. Source accepts only optional
 ADDRESS anchors immediately above C declarations. `source = "naked"`, structure
 and caller information are function metadata. Assembly evidence and support file
-purposes use the `definitions` and `files` tables in `rebrew-source.toml`.
+purposes use `[source.definitions]` and `[source.files]` in the function store.
+BinSync manifests retain schema 2: synchronized field records did not change
+when the local function container gained its addressless source section.
 
 `rebrew source register` records current declaration-bound identities without
 importing state from comments. Older schemas and inline blocks are rejected;
-no legacy migration reader is shipped. See [source addresses](ANNOTATIONS.md)
+ordinary readers have no legacy fallback. To upgrade, preview
+`rebrew source consolidate --dry-run --json`, then apply with its
+`--expected-digest`. This explicit one-shot migration preserves function rows,
+verdicts and source receipts before retiring `rebrew-source.toml`. See [source addresses](ANNOTATIONS.md)
 and [ADR 030](adr/030-address-only-source.md).
 
 Source `file` identities use exact paths relative to the resolved metadata root.

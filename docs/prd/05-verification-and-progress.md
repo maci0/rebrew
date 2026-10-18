@@ -84,7 +84,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   baseline lives in `.rebrew/verify_baseline.toml` and needs no flag).
 - `--compare` diffs against the last saved report and flags regressions
   (STATUS downgrades, new compile errors).
-- `--full` ignores cache hits and re-verifies everything (edits to shared
+- `--no-cache` ignores cache hits and re-verifies everything (edits to shared
   headers or include dirs otherwise invalidate the affected cache entries
   automatically).
 - `--summary` prints a STATUS breakdown table.
@@ -196,7 +196,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 1. After rebuilding a toolchain image (`rebrew toolchain build`), the
    user runs `rebrew verify` and observes spurious COMPILE_ERROR rows.
 2. `rebrew cache clear` deletes the cached `.obj` files.
-3. `rebrew verify --full` rebuilds everything from scratch.
+3. `rebrew verify --no-cache` rebuilds everything from scratch.
 
 ### Story 5: End-to-end reassembly check before shipping
 
@@ -218,7 +218,7 @@ rebrew verify [file.c] [OPTIONS]
   -o, --output PATH (explicit export only; no default report file)
   -s, --summary
       --compare
-      --full
+      --no-cache
       --fix-sizes
       --dry-run
       --dir TEXT
@@ -289,13 +289,13 @@ rebrew build round-trip [OPTIONS]
 
 ## Open Questions / Known Limitations
 
-- `verify` does not detect *header* changes; users must add `--full` after
+- `verify` does not detect *header* changes; users must add `--no-cache` after
   editing any shared header. (FIXED: the verify cache now fingerprints every
   reachable header per entry, through `VerifyCacheEntry.headers_fp` in
   `verify_cache.py`, computed by `verify_hash.entry_headers_fp` delegating to
   `compile_cache.header_dependency_hash`; the cache-wide `headers_hash` is
   informational only, so editing a shared header re-verifies exactly the
-  entries whose sources reach it; `--full` remains available for a hard
+  entries whose sources reach it; `--no-cache` remains available for a hard
   reset.)
 - `verify --compare` baseline lives in a single local gitignored file
   (`.rebrew/verify_baseline.toml`, with target/compiler/binary identity

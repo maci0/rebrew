@@ -20,7 +20,7 @@ import typer
 from rebrew.cli import EXIT_MISMATCH, error_exit, json_print, parse_va
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compiler.compile import resolve_compiler_env
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, target_module
 from rebrew.formats.binary_loader import capstone_mode_for_arch, extract_raw_bytes
 from rebrew.match_batch import (
     StubInfo,
@@ -38,7 +38,6 @@ from rebrew.metadata.bindings import (
     read_function_fields,
     read_source_bindings,
 )
-from rebrew.sources import target_marker
 from rebrew.utils import fold_ident, read_compile_source
 
 if TYPE_CHECKING:
@@ -163,7 +162,7 @@ def resolve_build_params(
         error_exit(f"Source file not found: {seed_c}", json_mode=json_output)
     annos = read_source_bindings(
         seed_c_path,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )

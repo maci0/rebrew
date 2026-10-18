@@ -50,7 +50,7 @@ def test_problems_name_a_hand_edited_out_of_range_value(tmp_path: Path) -> None:
     from rebrew.metadata.functions import metadata_path
 
     metadata_path(tmp_path).write_text(
-        'format = 2\n["MAIN.0x00001000"]\nstatus = "FINISHED"\nsize = -4\nblocker_delta = -1\n',
+        'format = 3\n["MAIN.0x00001000"]\nstatus = "FINISHED"\nsize = -4\nblocker_delta = -1\n',
         encoding="utf-8",
     )
     e = _entry(tmp_path)
@@ -434,7 +434,7 @@ class TestCoercionRejectsWrongTypes:
 
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x1000"]\nstatus = 5\n',
+            'format = 3\n["SERVER.0x1000"]\nstatus = 5\n',
             encoding="utf-8",
         )
         entry = MetadataEntry.load(tmp_path, 0x1000, "SERVER")

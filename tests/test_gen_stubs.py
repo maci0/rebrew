@@ -53,6 +53,15 @@ class TestDemangle:
     def test_stdcall(self) -> None:
         assert demangle_cdecl("_thread_proc@4") == "thread_proc"
 
+    def test_stdcall_arity_and_import_slot(self) -> None:
+        assert gen_stubs.stdcall_arity("_WinMain@16") == 4
+        assert gen_stubs.stdcall_arity("_nop@0") == 0
+        assert gen_stubs.stdcall_arity("_foo@3") is None
+        assert gen_stubs.stdcall_arity("@fast@8") is None
+        assert gen_stubs.stdcall_arity("__imp__WSAStartup@8") is None
+        assert gen_stubs.is_import_symbol("__imp__WSAStartup@8") is True
+        assert gen_stubs.is_import_symbol("_WinMain@16") is False
+
     def test_vectorcall_and_fastcall(self) -> None:
         """``name@@N`` and ``@name@N`` demangle to the C name.
 
@@ -100,6 +109,7 @@ class TestExternParsing:
         assert vector["type"] == "void"
         content = generate_stubs(["_foo@4"], {"foo": info})
         assert "int WINAPI foo(int a)" in content
+        assert "#define WINAPI __stdcall" in content
         assert "__cdecl" not in content
 
     def test_array(self) -> None:
@@ -165,8 +175,62 @@ class TestSimplify:
     def test_primitive_kept(self) -> None:
         assert simplify_type_for_stub("int") == "int"
 
+    def test_declspec_unknown_and_empty_types(self) -> None:
+        assert simplify_type_for_stub("spec(dllimport) int") == "int"
+        assert simplify_type_for_stub("__declspec(dllimport) int") == "int"
+        assert simplify_type_for_stub("") == "int"
+        assert simplify_type_for_stub("const Vec3*") == "void*"
+        assert simplify_type_for_stub("const char*") == "const char*"
+        assert simplify_type_for_stub("unsigned int") == "unsigned int"
+
+    def test_stub_types_need_no_project_headers(self) -> None:
+        imported = parse_extern_decl(
+            "extern spec(dllimport) int __stdcall bind(int, const void*, int);"
+        )
+        assert imported is not None
+        content = generate_stubs(["_bind@12"], {"bind": imported})
+        assert "int __stdcall bind(int a, const void* b, int c)" in content
+        assert "dllimport" not in content
+        implicit = parse_extern_decl("extern __stdcall f_5eb120(int);")
+        assert implicit is not None
+        content = generate_stubs(["_f_5eb120@4"], {"f_5eb120": implicit})
+        assert "int __stdcall f_5eb120(int a)" in content
+        direct = parse_extern_decl(
+            "extern int __stdcall DirectInput8Create(HINSTANCE hinst, DWORD version,"
+            " const void* iid, void** out, void* outer);"
+        )
+        assert direct is not None
+        content = generate_stubs(["_DirectInput8Create@20"], {"DirectInput8Create": direct})
+        assert "HINSTANCE" not in content
+        assert "DWORD" not in content
+        assert (
+            "int __stdcall DirectInput8Create(int hinst, unsigned int version, "
+            "const void* iid, void** out, void* outer)"
+        ) in content
+        vectors = parse_extern_decl("extern __stdcall f(Vec3*, Mat4*, char*);")
+        assert vectors is not None
+        content = generate_stubs(["_f@12"], {"f": vectors})
+        assert "int __stdcall f(void* a, void* b, char* c)" in content
+
 
 class TestParamNames:
+    @pytest.mark.parametrize(
+        ("params", "expected"),
+        [
+            (
+                "(int n, const char* name, int f, float a, int b, void*)",
+                "(int n, const char* name, int f, float a, int b, void* f_1)",
+            ),
+            ("(int, int a)", "(int a_1, int a)"),
+            (
+                "(int f, int f_1, int c, int d, int e, void*)",
+                "(int f, int f_1, int c, int d, int e, void* f_2)",
+            ),
+        ],
+    )
+    def test_generated_names_do_not_collide(self, params: str, expected: str) -> None:
+        assert ensure_param_names(params) == expected
+
     def test_names_added(self) -> None:
         assert ensure_param_names("(int, char*, void*)") == "(int a, char* b, void* c)"
 
@@ -221,8 +285,9 @@ class TestGenerate:
         assert "int __cdecl write_log(char* a)" in content
         assert "\treturn 0;" in content
         assert 'char s_D__foo_1002c748[1] = "";' in content
-        # no extern info -> guessed global
-        assert "int thread_proc = 0;" in content
+        # ``_thread_proc@4`` is stdcall. A data object does not resolve it.
+        assert "int __stdcall thread_proc(int a)" in content
+        assert "int thread_proc = 0;" not in content
 
     def test_specials_and_bss(self) -> None:
         specials = {
@@ -265,6 +330,62 @@ class TestGenerate:
         }
         content = generate_stubs(["_crt_locked_call4a"], externs)
         assert "int __cdecl crt_locked_call4a(void* a, int b, int c, void* d)" in content
+
+    def test_import_slot_is_omitted_and_winmain_is_stdcall(self) -> None:
+        content = generate_stubs(
+            ["__imp__WSAStartup@8", "_WinMain@16", "_g_counter", "_nop@0"],
+            {
+                "g_counter": {
+                    "name": "g_counter",
+                    "type": "int",
+                    "is_func": False,
+                    "calling_conv": None,
+                    "params": None,
+                    "full_decl": "extern int g_counter;",
+                    "is_array": False,
+                    "array_size": None,
+                }
+            },
+        )
+        assert "WSAStartup" not in content
+        assert "_imp_" not in content
+        assert "int g_counter = 0;" in content
+        assert "int __stdcall WinMain(int a, int b, int c, int d)" in content
+        assert "int __stdcall nop(void)" in content
+
+    def test_stdcall_decoration_beats_cdecl_and_a_different_slot_count(self) -> None:
+        cdecl = parse_extern_decl("extern int __cdecl thread_proc(int);")
+        assert cdecl is not None
+        content = generate_stubs(["_thread_proc@4"], {"thread_proc": cdecl})
+        assert "int __stdcall thread_proc(int a)" in content
+        assert "__cdecl thread_proc" not in content
+        wide = parse_extern_decl("extern int __stdcall thread_proc(int, int);")
+        assert wide is not None
+        content = generate_stubs(["_thread_proc@4"], {"thread_proc": wide})
+        assert "int __stdcall thread_proc(int a)\n" in content
+        doubled = parse_extern_decl("extern int WINAPI foo(double);")
+        assert doubled is not None
+        content = generate_stubs(["_foo@8"], {"foo": doubled})
+        assert "int __stdcall foo(int a, int b)" in content
+        assert "double" not in content
+
+    def test_matching_stdcall_extern_is_kept(self) -> None:
+        info = parse_extern_decl("extern void CALLBACK tick(void*);")
+        assert info is not None
+        content = generate_stubs(["_tick@4"], {"tick": info})
+        assert "void CALLBACK tick(void* a)" in content
+        assert "int __stdcall tick" not in content
+
+    def test_stdcall_spelling_wins_when_the_c_name_collides(self) -> None:
+        content = generate_stubs(["_thread_proc", "_thread_proc@4"], {})
+        assert "int __stdcall thread_proc(int a)" in content
+        assert "int thread_proc = 0;" not in content
+        assert "int __cdecl thread_proc" not in content
+
+    def test_odd_byte_suffix_is_not_stdcall(self) -> None:
+        content = generate_stubs(["_foo@3"], {})
+        assert "__stdcall" not in content
+        assert "int foo = 0;" in content
 
     def test_guess_functions_by_name(self) -> None:
         content = generate_stubs(["_free_node", "_mystery_global"], {})
@@ -675,7 +796,8 @@ class TestUnsafeSymbolFilter:
     def test_ident_names_still_emitted(self) -> None:
         content = generate_stubs(["_write_log", "_thread_proc@4"], {})
         assert "int __cdecl write_log(void)" in content
-        assert "int thread_proc = 0;" in content
+        assert "int __stdcall thread_proc(int a)" in content
+        assert "int thread_proc = 0;" not in content
 
 
 class TestHexArrayBound:

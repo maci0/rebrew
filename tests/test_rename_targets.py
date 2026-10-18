@@ -27,17 +27,17 @@ command = "CL.EXE"
 
 [targets."server.dll"]
 binary = "server.dll"
-marker = "SERVER"
+module = "SERVER"
 reversed_dir = "src"
 
 [targets."tl.exe"]
 binary = "tl.exe"
-marker = "GOLDTL"
+module = "GOLDTL"
 reversed_dir = "src"
 
 [targets."gold.exe"]
 binary = "gold.exe"
-marker = "GOLD"
+module = "GOLD"
 reversed_dir = "src"
 """
 
@@ -1013,6 +1013,61 @@ class TestStaticAndRollback:
 
 
 class TestSelectedFunctionAliases:
+    def test_reference_binding_rejects_a_disabled_destination(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _project(tmp_path)
+        destination = root / "src" / "command" / "lobby.c"
+        destination.write_text("#if 0\n" + destination.read_text() + "#endif\n")
+        (root / "src" / "caller.c").write_text("void use(void) { fcn_pending(1); }\n")
+        before = _snapshot(root)
+        result = _run(root, monkeypatch, "fcn_pending", "SERVER.0x10002000", "--dry-run")
+        assert result.exit_code == 2, result.output
+        assert "one external function definition" in result.output
+        assert _snapshot(root) == before
+
+    @pytest.mark.parametrize(
+        ("prefix", "suffix", "allowed"),
+        [
+            ("#if 0\n", "#endif\n", True),
+            ("#if 0\n#if UNKNOWN\n", "#endif\n#endif\n", True),
+            ("#if UNKNOWN\n#elif 0\n", "#endif\n", True),
+            ("#if UNKNOWN\n", "#endif\n", False),
+            ("#if 0\n#else\n", "#endif\n", False),
+            ("#if 0\n#elif 1\n", "#endif\n", False),
+        ],
+        ids=["disabled", "nested-disabled", "disabled-elif", "unknown", "live-else", "live-elif"],
+    )
+    def test_reference_binding_ignores_only_proven_disabled_destination_copies(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        prefix: str,
+        suffix: str,
+        allowed: bool,
+    ) -> None:
+        root = _project(tmp_path)
+        copy = root / "src" / "copy.c"
+        copy.write_text(prefix + "void lb_SendLobbyConfig(int player) {}\n" + suffix)
+        caller = root / "src" / "caller.c"
+        caller.write_text("void fcn_pending(int);\nvoid use(void) { fcn_pending(1); }\n")
+        before = _snapshot(root)
+        rows = (root / "rebrew-functions.toml").read_bytes()
+        preview = _run(root, monkeypatch, "fcn_pending", "SERVER.0x10002000", "--dry-run", "--json")
+        assert _snapshot(root) == before
+        if not allowed:
+            assert preview.exit_code == 2, preview.output
+            assert "one external function definition" in preview.output
+            return
+        assert preview.exit_code == 0, preview.output
+        result = _run(root, monkeypatch, "fcn_pending", "SERVER.0x10002000")
+        assert result.exit_code == 0, result.output
+        assert caller.read_text() == (
+            "void lb_SendLobbyConfig(int);\nvoid use(void) { lb_SendLobbyConfig(1); }\n"
+        )
+        assert copy.read_text() == prefix + "void lb_SendLobbyConfig(int player) {}\n" + suffix
+        assert (root / "rebrew-functions.toml").read_bytes() == rows
+
     @pytest.mark.parametrize("dry_run", [False, True])
     def test_source_can_catch_up_with_its_already_renamed_row(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dry_run: bool

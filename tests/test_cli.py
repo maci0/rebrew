@@ -124,6 +124,72 @@ class TestMissingTargetArgument:
         assert result.exit_code == 2 and "requires an argument" in result.output
 
 
+_TARGET_PROJECT = (
+    '[project]\ndefault_target = "beta"\n'
+    '[targets.alpha]\nbinary = "alpha.exe"\nreversed_dir = "src"\n'
+    '[targets.beta]\nbinary = "beta.exe"\nreversed_dir = "src"\n'
+    '[compiler]\nprofile = "gcc-14.2.0"\n'
+)
+
+
+class TestRootOutputTargetListing:
+    """A bare ``--target`` uses the same output choice as a normal invoke."""
+
+    def _project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "rebrew-project.toml").write_text(_TARGET_PROJECT, encoding="utf-8")
+        monkeypatch.chdir(project)
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [["-o", "json"], ["--output", "json"], ["--output=json"]],
+    )
+    def test_root_json_lists_targets_on_stdout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, prefix: list[str]
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+
+        self._project(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, [*prefix, "test", "--target"])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout) == {
+            "targets": ["alpha", "beta"],
+            "default_target": "beta",
+        }
+        assert "Configured targets:" not in result.stderr
+        assert result.stdout.strip() != ""
+
+    def test_root_text_wins_over_command_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+
+        self._project(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["-o", "text", "test", "--json", "--target"])
+        assert result.exit_code == 0, result.output
+        assert result.stdout.strip() == ""
+        assert "Configured targets:" in result.stderr
+        assert "beta (default)" in result.stderr
+
+    def test_command_json_still_lists_targets(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+
+        self._project(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["test", "--json", "--target"])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["default_target"] == "beta"
+        assert "Configured targets:" not in result.stderr
+
+
 class TestErrorExit:
     def test_plain_stderr_and_exit(self, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(typer.Exit) as exc_info:
@@ -549,7 +615,7 @@ class TestResolveSourceArg:
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(
-            reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c", marker="GAME"
+            reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c", module="GAME"
         )
 
     def test_direct_path_that_exists(self, tmp_path: Path) -> None:
@@ -630,7 +696,7 @@ class TestSelectAnnotation:
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(
-            reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c", marker="GAME"
+            reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c", module="GAME"
         )
 
     def _write_two(self, tmp_path: Path) -> Path:
@@ -727,7 +793,7 @@ class TestSelectAnnotation:
         )
         cfg = self._cfg(tmp_path)
         cfg.metadata_dir = tmp_path
-        cfg.marker = module
+        cfg.module = module
         path, anno, va_int = select_annotation(cfg, "0x2000", None)
         assert path == src
         assert (anno.module, anno.va, anno.symbol, anno.size, va_int) == (
@@ -914,7 +980,7 @@ class TestResolveSourceArgUnderscore:
             metadata_dir=tmp_path,
             source_ext=".c",
             shared_dir=None,
-            marker="SERVER",
+            module="SERVER",
             target_name="SERVER",
         )
 
@@ -952,7 +1018,7 @@ class TestResolveSourceArgExactStem:
         underscored.write_text("int foo(void) { return 1; }\n", encoding="utf-8")
         exact = src / "foo.c"
         exact.write_text("int foo(void) { return 2; }\n", encoding="utf-8")
-        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, target_name="T", marker="T")
+        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, target_name="T", module="T")
         monkeypatch.setattr("rebrew.cli.iter_sources", lambda d, c: sorted([underscored, exact]))
         assert resolve_source_arg(cfg, "foo") == exact
 
@@ -1211,18 +1277,20 @@ class TestConfirmAbort:
 
         return app
 
-    def test_accept_proceeds(self) -> None:
+    def test_accept_proceeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from typer.testing import CliRunner
 
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         result = CliRunner().invoke(self._app(), input="y\n")
         assert result.exit_code == 0
         # The prompt must have been asked: without the question, "y" is unused
         # input and the command would exit 0 either way.
         assert "Delete everything?" in result.stderr
 
-    def test_decline_exits_two(self) -> None:
+    def test_decline_exits_two(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from typer.testing import CliRunner
 
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         result = CliRunner().invoke(self._app(), input="n\n")
         assert result.exit_code == EXIT_ERROR
         assert "Delete everything?" in result.stderr
@@ -1234,6 +1302,79 @@ class TestConfirmAbort:
         result = CliRunner().invoke(self._app(), input="")
         assert result.exit_code == EXIT_ERROR
         assert "--force" in result.stderr
+
+    def test_piped_yes_does_not_approve(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: False)
+
+        def _read(*_args: object, **_kwargs: object) -> bool:
+            pytest.fail("confirmation read stdin")
+
+        monkeypatch.setattr("rebrew.cli.typer.confirm", _read)
+        result = CliRunner().invoke(self._app(), input="y\n")
+        assert result.exit_code == EXIT_ERROR
+        assert "stdin is not a terminal" in result.stderr
+        assert "--force" in result.stderr
+        assert result.stdout == ""
+
+    def test_piped_yes_is_confirmation_required(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: False)
+        monkeypatch.setattr(sys, "argv", ["rebrew", "--json"])
+        result = CliRunner().invoke(self._app(), input="y\n")
+        assert result.exit_code == EXIT_ERROR
+        error = json.loads(result.stderr.strip().splitlines()[-1])["error"]
+        assert error["kind"] == "confirmation_required"
+        assert error["hint"] == "Pass --force to skip the prompt."
+        assert "stdin is not a terminal" in error["message"]
+        assert result.stdout == ""
+
+    def test_non_tty_names_the_given_skip_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.cli import confirm_abort
+
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: False)
+        app = typer.Typer()
+
+        @app.command()
+        def main() -> None:
+            confirm_abort("Remove it?", skip_flag="--yes")
+
+        result = CliRunner().invoke(app, input="y\n")
+        assert result.exit_code == EXIT_ERROR
+        assert "pass --yes" in result.stderr
+        assert "Pass --yes to skip the prompt." in result.stderr
+
+    def test_open_pipe_does_not_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import os
+        import threading
+
+        from rebrew.cli import confirm_abort
+
+        read_fd, write_fd = os.pipe()
+        reader = os.fdopen(read_fd, "r")
+        monkeypatch.setattr(sys, "stdin", reader)
+        held: dict[str, object] = {}
+
+        def _run() -> None:
+            try:
+                confirm_abort("Delete everything?")
+            except typer.Exit as exc:
+                held["code"] = exc.exit_code
+
+        worker = threading.Thread(target=_run)
+        worker.start()
+        worker.join(1.0)
+        blocked = worker.is_alive()
+        os.close(write_fd)
+        if blocked:
+            worker.join(1.0)
+        reader.close()
+        assert not blocked
+        assert held.get("code") == EXIT_ERROR
 
 
 class TestResolveStoredSymbol:
@@ -1259,7 +1400,7 @@ class TestResolveStoredSymbol:
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_name="server",
             source_ext=".c",
         )
@@ -1281,6 +1422,6 @@ class TestResolveStoredSymbol:
             metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "symbol": "_chosen", "size": 4}},
         )
         cfg = SimpleNamespace(
-            reversed_dir=tmp_path, metadata_dir=tmp_path, marker="SERVER", source_ext=".c"
+            reversed_dir=tmp_path, metadata_dir=tmp_path, module="SERVER", source_ext=".c"
         )
         assert resolve_source_arg(cfg, "chosen") == named

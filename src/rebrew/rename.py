@@ -15,6 +15,7 @@ import typer
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import (
     EXIT_ERROR,
+    EXPECTED_DIGEST_HELP,
     TargetOption,
     console,
     error_exit,
@@ -148,8 +149,7 @@ def main(
         False,
         "--all-modules",
         help=(
-            "Rename the rows of every module bound to the definition, and every other "
-            "definition of the name"
+            "Rename every module's rows of this definition, and every other definition of the name"
         ),
     ),
     shared_definition: bool = typer.Option(
@@ -165,7 +165,7 @@ def main(
     expected_digest: str | None = typer.Option(
         None,
         "--expected-digest",
-        help="Require the input digest from a reviewed reference-ownership preview",
+        help=EXPECTED_DIGEST_HELP,
     ),
     comments: bool = typer.Option(
         False, "--comments", help="Also rewrite whole-word occurrences inside comments"
@@ -412,7 +412,7 @@ def _plan_function(
         old_sym = getattr(match, "symbol", "") or old_name
         rel = getattr(match, "filepath", "")
         va = getattr(match, "va", 0)
-        module = getattr(match, "module", "") or getattr(cfg, "marker", "")
+        module = getattr(match, "module", "") or getattr(cfg, "module", "")
         try:
             filepath = (Path(cfg.reversed_dir) / rel).resolve()
             filepath.relative_to(Path(cfg.reversed_dir).resolve())
@@ -530,7 +530,7 @@ def _plan_data(
     identity = _parse_identity(target_ident)
     va_ident = _parse_va(target_ident)
     target_norm = unicodedata.normalize("NFC", target_ident)
-    marker = preset_module_key(getattr(cfg, "marker", "") or "")
+    target_module_name = preset_module_key(getattr(cfg, "module", "") or "")
 
     def named(key: tuple[str, int], row: dict[str, Any]) -> bool:
         if identity is not None:
@@ -542,7 +542,7 @@ def _plan_data(
         return target_norm == stored or (va_ident is not None and key[1] == va_ident)
 
     candidates = [key for key, row in rows.items() if named(key, row)]
-    own = [key for key in candidates if preset_module_key(key[0]) == marker]
+    own = [key for key in candidates if preset_module_key(key[0]) == target_module_name]
     picked = own or candidates
     if len(picked) > 1:
         listed = ", ".join(f"{m}.0x{v:08x}" for m, v in picked)

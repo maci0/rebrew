@@ -122,7 +122,7 @@ class TestCatalogCli:
         canonical value and the run reports one update."""
         cfg = _patch(monkeypatch, tmp_path)
         cfg.source_ext = ".c"
-        cfg.marker = "T"
+        cfg.module = "T"
         func_c = cfg.reversed_dir / "func.c"
         write_source(
             func_c,
@@ -151,6 +151,7 @@ class TestCatalogCli:
                 }
             },
         )
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         r = runner.invoke(catalog_cli.app, ["--fix-sizes"], input="y\n")
         assert r.exit_code == 0
         assert "Updated 1 SIZE annotations" in r.output
@@ -168,7 +169,7 @@ class TestCatalogCli:
         """A file whose SIZE already matches the registry is not re-parsed."""
         cfg = _patch(monkeypatch, tmp_path)
         cfg.source_ext = ".c"
-        cfg.marker = "T"
+        cfg.module = "T"
         write_source(
             cfg.reversed_dir / "func.c",
             "/* ADDRESS: T 0x1000 */\n\nint f_a(void) { return 0; }\n",
@@ -202,6 +203,7 @@ class TestCatalogCli:
             return real_parse(path, *a, **k)  # type: ignore[arg-type]
 
         monkeypatch.setattr(catalog_cli, "read_source_bindings", spy)
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         r = runner.invoke(catalog_cli.app, ["--fix-sizes"], input="y\n")
         assert r.exit_code == 0
         assert "Updated 0 SIZE annotations" in r.output
@@ -378,8 +380,8 @@ class TestRunCatalog:
     def test_summary_prints_status_progress(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """The summary's progress lines are `rebrew status`'s, library code
-        excluded; the byte figure is named "identified", not coverage."""
+        """The summary's progress lines are `rebrew status`'s. Annotated spans
+        print as Identified spans."""
         root = _write_project(tmp_path)
         (root / "original" / "function_structure.json").write_text(
             json.dumps(
@@ -395,7 +397,7 @@ class TestRunCatalog:
         )
         write_store_fixture(
             root / "rebrew-functions.toml",
-            'format = 2\n["GAME.0x10001000"]\nstatus = "EXACT"\n["GAME.0x10002000"]\nkind = "LIBRARY"\nfile = "original/library_msvc.h"\n',
+            'format = 3\n["GAME.0x10001000"]\nstatus = "EXACT"\n["GAME.0x10002000"]\nkind = "LIBRARY"\nfile = "original/library_msvc.h"\n',
             encoding="utf-8",
         )
         cfg = load_config(root=root)
@@ -405,7 +407,7 @@ class TestRunCatalog:
         err = capsys.readouterr().err
         assert "Byte-matched: 1/1 functions" in err
         assert "Library identified: 1" in err
-        assert "Identified:" in err
+        assert "Identified spans:" in err
         assert "Coverage:" not in err
         assert "total_functions" not in payload
         assert set(payload) >= {"identified_bytes", "identified_pct"}

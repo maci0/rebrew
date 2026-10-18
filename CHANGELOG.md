@@ -1,12 +1,347 @@
 ## [Unreleased]
 
+## [5.0.0] - 2026-10-18
+
+### Changed
+- **Breaking:** Function metadata now requires format 3 and includes addressless
+  assembly evidence and support file purposes under `[source]`; data stays format 2.
+  Preview `rebrew source consolidate --dry-run --json`, then apply with the returned
+  `--expected-digest` to preserve all function rows, verdicts and source receipts
+  while retiring `rebrew-source.toml`. Ordinary readers have no legacy fallback.
+  `metadata.source_provenance.SOURCE_PROVENANCE_FILENAME` and the imported
+  `lint.SOURCE_PROVENANCE_FILENAME` now name `rebrew-functions.toml`;
+  `app.builtins.DOMAIN_COMPONENTS` includes `source consolidate`. Incidental
+  `metadata.functions.load_toml_for_write_strict` and
+  `metadata.source_provenance.load_toml_for_write_strict` imports are removed;
+  use `rebrew.utils.load_toml_for_write_strict` for strict TOML input.
+- Refresh contributor pins to uv 0.13.1 and Resembl 3.3.1, upgrade the
+  hash-pinned build backend to setuptools 84, and update m2c to its current
+  upstream revision. Bun and Nu validator pins are refreshed as well.
+- Upgrade the optional prover to angr 10.0.4.post1 and PyVEX 10.0.4. Use
+  angr's bundled Rust Claripy solver; standalone Claripy requires an incompatible
+  Z3 release. PyVEX now supplies its own bitstring compatibility cap.
+- Refresh dependency locks and artifact license records, including current
+  NumPy, Typer, mypy, Ruff and compatible transitive updates.
+- **Breaking:** Incidental module imports `rebrew.binsync.export.datetime` and
+  `rebrew.pe_info.datetime` are now named `dt`, following the updated linter.
+- Status/todo and verification inventories read registered function and library
+  identities from metadata without parsing their C declarations. Source-only
+  files retain source validation, and verification recovers calling conventions
+  from declarations when a stored symbol is absent. Malformed anchors in
+  registered files no longer zero the status report.
+- **Breaking:** Updated documentation constants `rebrew.init.MSVC_CONSTRAINTS`,
+  `rebrew.init.MSVC7_CONSTRAINTS`, `rebrew.init_profiles.MSVC_CONSTRAINTS` and
+  `rebrew.init_profiles.MSVC7_CONSTRAINTS` describe configured image backends
+  rather than Docker-only execution. Callers comparing their literal text must
+  accept the new guidance. `rebrew.struct_recover.EXIT_ERROR` is no longer an
+  incidental re-export; use `rebrew.cli.EXIT_ERROR`.
+- `verify --no-cache` help distinguishes the verification-result cache from the
+  compiler-object cache; execution and cache retention are unchanged.
+- **Breaking:** `rebrew.types_cli.contracts_cmd` now uses the shared
+  `AllTargetsOption` default for its `all_targets` parameter. The CLI option
+  keeps its selection behavior; Python command wrappers should pass a boolean
+  explicitly rather than depending on the Typer option object.
+- Native unshare prepares a Wine prefix once per versioned image cache instead
+  of repeating first-time setup for every compile; each run retains its private
+  overlay. Image extraction preserves file, directory and symlink timestamps.
+- `rebrew test --dir`, `--module`, and `--jobs` require `--all`. Passing them
+  for one file exits 2 instead of being ignored. Repeated flags that do the
+  same job (`--jobs`, `--built`, `--watch`, `--expected-digest`,
+  `--create-missing`, compile `--cflags` and `--size`) share one help sentence.
+- **Breaking:** Selection flags name one axis each. `--all` is every eligible
+  item in the selected target. `--all-targets` repeats the command for every
+  configured target. `--source-targets` repeats it for targets bound to one
+  source file. `rebrew verify --no-cache` skips saved verdicts for the functions already
+  selected; compiler objects may still be reused. `verify --full` is removed.
+- CMake CL/LINK/LIB drivers honor the project-level compiler execution backend,
+  including native unshare with immutable image admission, same-path project
+  mounts, private Wine prefixes, response files and timestamp pinning.
+- `types contracts` extracts declarations once per physical source/header
+  instead of repeating that work for each including translation unit. Reports
+  retain each unit's typedef context, call sites and uncertainty checks.
+- `verify --data` and `verify --whole-binary` check existing images without
+  scanning or compiling function sources. Add `--functions` for the combined
+  checks; an explicit source scope and `--text` still verify functions.
+  Image-only checks preserve function caches and comparison baselines and
+  do not initialize a compiler runner.
+- **Breaking:** Removed incidental `rebrew.source_contracts.resolve_include_flags`
+  and `rebrew.source_contracts.safe_shlex_split` imports. Use
+  `rebrew.compiler.compile.resolve_include_flags` and
+  `rebrew.utils.safe_shlex_split` respectively. Effective compiler flag
+  composition is now public as `rebrew.compiler.compile.effective_compile_flags`.
+- **Breaking:** Compiled providers use `rebrew.function_providers.bind_compiled_source`
+  and `rebrew.function_providers.compiled_source_annotations`, including game
+  functions. Removed library-only helpers and incidental re-exports are
+  `rebrew.function_providers.bind_library_source`,
+  `rebrew.function_providers.compiled_library_annotations`,
+  `rebrew.rename_ops.bind_library_source` and
+  `rebrew.source_selection.bind_library_source`.
+- **Breaking:** Target configuration uses `[targets.<name>].module`,
+  `ProjectConfig.module` and `ProjectConfig.target_modules` instead of `marker`
+  and `all_markers`. Retain the old values when renaming keys: they identify
+  durable metadata rows. The removed key is rejected, with no alias or reader.
+- **Breaking:** Use `rebrew.config.target_module(cfg)` for resolved namespaces.
+  The raw workspace helpers are `rebrew.workspace.target_module(name, entry)`
+  and `rebrew.workspace.config.target_module(name, entry)`. Removed resolver
+  imports (including incidental re-exports) are:
+  `rebrew.asm.module_marker`,
+  `rebrew.asm.target_marker`,
+  `rebrew.binsync.importer.module_marker`,
+  `rebrew.binsync.overlay.module_marker`,
+  `rebrew.blocker.module_marker`,
+  `rebrew.catalog.loaders.module_marker`,
+  `rebrew.catalog.loaders.target_marker`,
+  `rebrew.cli.target_marker`,
+  `rebrew.climb.module_marker`,
+  `rebrew.climb.target_marker`,
+  `rebrew.cmake_sources.target_marker`,
+  `rebrew.config.module_marker`,
+  `rebrew.coverage_history.module_marker`,
+  `rebrew.coverage_project.module_marker`,
+  `rebrew.cross_import.target_marker`,
+  `rebrew.data.module_marker`,
+  `rebrew.data_annotate.module_marker`,
+  `rebrew.depgraph.target_marker`,
+  `rebrew.describe.target_marker`,
+  `rebrew.document_assembly.module_marker`,
+  `rebrew.document_unmatched.target_marker`,
+  `rebrew.drift_cli.target_marker`,
+  `rebrew.function_providers.module_marker`,
+  `rebrew.gen_layout.module_marker`,
+  `rebrew.imports.module_marker`,
+  `rebrew.lib_match.module_marker`,
+  `rebrew.link_anchors.target_marker`,
+  `rebrew.link_order.module_marker`,
+  `rebrew.match_sweep.target_marker`,
+  `rebrew.merge_sweep.target_marker`,
+  `rebrew.naming.module_marker`,
+  `rebrew.naming.target_marker`,
+  `rebrew.native_review.module_marker`,
+  `rebrew.objdiff_project.target_marker`,
+  `rebrew.order_sources.module_marker`,
+  `rebrew.prove.target_marker`,
+  `rebrew.report.target_marker`,
+  `rebrew.round_trip.target_marker`,
+  `rebrew.skeleton.target_marker`,
+  `rebrew.source_binding.target_marker`,
+  `rebrew.source_contracts.module_marker`,
+  `rebrew.source_organization.module_marker`,
+  `rebrew.source_units.target_marker`,
+  `rebrew.sources.target_marker`,
+  `rebrew.splat_config.target_marker`,
+  `rebrew.symbol_addrs.target_marker`,
+  `rebrew.test.target_marker`,
+  `rebrew.verify.module_marker`,
+  `rebrew.workspace.target_marker`,
+  `rebrew.workspace.config.target_marker`.
+- **Breaking:** Namespace arguments use `target_module_name` in
+  `rebrew.cmake_flags.collect`,
+  `rebrew.cmake_sources.collect_target_sources`,
+  `rebrew.data_annotate.annotate_globals`,
+  `rebrew.document_unmatched.classify_all`,
+  `rebrew.gen_layout.gen_crt_imports`,
+  `rebrew.gen_layout.gen_data_restore`,
+  `rebrew.intake.classify_all`,
+  `rebrew.intake.prune_stale_stubs`,
+  `rebrew.link_order.file_va`,
+  `rebrew.link_order.order_sources`,
+  `rebrew.order_sources.main`,
+  `rebrew.order_sources.order_sources`,
+  `rebrew.recommend.recommend_foreign_sources`,
+  `rebrew.source_contracts.collect_target_sources`,
+  `rebrew.source_organization.collect_target_sources`,
+  `rebrew.source_selection.collect_target_sources`.
+  `rebrew.data_annotate.annotate_globals` drops its unused namespace argument.
+  `rebrew.order_sources.main` exposes `--module` instead of `--marker`.
+  `rebrew.link_order.file_va` no longer borrows another target's address when
+  the selected module is absent. Omit the module to request an unfiltered order.
+- **Breaking:** `rebrew.cmake_flags.CODE_MARKERS` is `CODE_KINDS`;
+  `rebrew.lint.LintResult.marker_line` is `binding_line`, and lint's synthetic
+  `MARKER` key is `KIND`. Splat `SourceBinding.marker` is `declaration` and
+  `ImportPlan.marker` is `module` (JSON keys follow those names).
+  `rebrew.recommend.recommend_stale_markers` is `recommend_stale_addresses`;
+  recommendation kind `stale-markers` is `stale-addresses`.
+  `rebrew.config.KNOWN_TARGET_KEYS` and its `rebrew.cfg.KNOWN_TARGET_KEYS`
+  re-export use `module`. Generated config templates
+  `rebrew.init.DEFAULT_REBREW_TOML` and
+  `rebrew.init_profiles.DEFAULT_REBREW_TOML` take `{module}`.
+
 ### Fixed
+- Enable and probe unprivileged user namespaces on disposable Ubuntu CI runners,
+  so native unshare integration tests execute under AppArmor instead of failing
+  before the helper can start. User host security settings are unchanged.
+- Install native runner build prerequisites in every Linux CI matrix entry,
+  and report missing compiler/json-c development files before local full runs.
+- Metadata tests distinguish valid escaped control characters in quoted TOML
+  keys from malformed raw controls.
+- `build check-text-placement` prefers the supplied image's sibling MSVC map,
+  including builds outside the default directory. Both it and `verify --text`
+  fail on missing expected functions; an empty placement result no longer passes.
+- Function reference binding ignores explicitly retired source-only providers,
+  preserving their historical text. Files still selected by another function,
+  data row or support binding remain collision checks.
+- Relative metadata-root cache keys include the working directory, so
+  in-process commands switching projects cannot read the previous project's
+  function store. Full symlink resolution remains memoized.
+- Oversized MSVC compile batches use response files rather than overflowing
+  the Wine/Win32 command line and falling back to one compiler launch per file.
+  A readable source stays on the command line for image-wrapper compatibility;
+  compiler flag order and POSIX batching are preserved.
+- Known-binding verification can reuse unchanged result-cache rows. Each
+  operand's recorded symbol address is checked against the current catalog;
+  moved, newly resolved, disappeared, or missing binding evidence forces a
+  fresh comparison without disabling operand validation.
+- Data placement retains linker-owned DLL import slots from MSVC maps without
+  attributing them to static archive storage. Imports linked at another address
+  are reported as displaced when the reference VA has no built bytes.
+- Lint E023 no longer accepts `REBREW_ALLOW_NAKED` in source or compiler flags
+  as permission for a whole-function assembly reconstruction. A build switch
+  does not establish original assembly provenance; minor padding remains allowed.
+- `build symbol-stubs` chooses unused names for unnamed parameters, including
+  names declared later in the signature, so mixed named/unnamed prototypes do
+  not generate duplicate parameter definitions.
+- `build symbol-stubs` defines `WINAPI`, `CALLBACK`, and `APIENTRY` as
+  `__stdcall` in the stub translation unit. Those names are macros, and a
+  definition that uses the bare word is a syntax error without the header
+  that provides them.
+- `build symbol-stubs` simplifies every pasted parameter and return type
+  to C types the stub translation unit can compile with only `time.h`.
+  `__declspec` and a `spec()` macro are removed, an empty return type
+  becomes `int`, and an unknown word becomes `int` or `void*`. A dllimport
+  stub did not define the symbol.
+- `build symbol-stubs` emits an MSVC `_Name@N` symbol as `int __stdcall Name`
+  with `N/4` int parameters, unless `--specials` or a matching `__stdcall`,
+  `WINAPI`, `CALLBACK`, or `APIENTRY` prototype already has that slot count.
+  `__imp_` import slots are omitted. A decorated symbol with no usable
+  prototype used to become a cdecl data object, which does not resolve
+  `_Name@N`. When two linker symbols demangle to one C name, the stdcall
+  spelling is the one emitted.
+- `source rename` no longer treats comments, string literals, or variable and
+  parameter bindings as function references. Direct calls, function-pointer and
+  address uses, external declarations, macro bodies, and MSVC assembly operands
+  still count. A reference that can see two providers, including an independent
+  `main`, remains ambiguous. The new-name collision is limited to files that can
+  link with the selected definition, so another target may use the same name.
+  `source register` refreshes the MSVC decoration of
+  the same C name from a parsed prototype, so a stdcall definition keeps `@N`.
+- `build cmake-flags --cmake-target` scopes generated source flags and target
+  definitions to a named CMake build target. Shared sources in one build tree
+  retain each target's compile context instead of using the last included table.
+- Source contract and organization include scans reuse compilation's effective
+  flags, including the shared source root for nested sources. Local headers
+  reached through that implicit root are now included in context fingerprints;
+  unresolved SDK headers remain explicit.
+- `build cmake-flags --sources-file` restricts flag checks and output to the
+  selected build inputs. Unlisted conflicting translation units no longer
+  reject a scoped request; an empty list emits no files, while an unscoped
+  request still validates every annotated translation unit.
+- Hex and CFG `binary asm show --output` now write the selected text/JSON view; previews preserve files and write failures report structured errors.
+- Prototype replacement finds definitions after MSVC inline assembly while
+  preserving the assembly and all non-signature source bytes.
+- Function reference binding ignores destination copies in proven literal
+  `#if 0`/`#elif 0` bodies and rejects a destination that exists only there.
+  Unknown conditions and potentially active alternate definitions still refuse.
+- Source-binding errors now identify the file containing a malformed ADDRESS
+  anchor, including when a batch CMake flag scan encounters it.
+- `build cmake-sources` emits relative external archive paths as project-root
+  file paths, preserving bare toolchain library names. CMake no longer turns
+  paths such as `references/dxsdk8/lib/d3dx8.lib` into `d3dx8.lib.lib`.
+- `data set --section` accepts `.text` for embedded data such as compiler
+  jump tables, including layout spans that allocate no independent storage.
+- Managed `FUNCTION` source bindings outside the reversed tree now participate in
+  status, todo, skeleton, verification, catalog, build selection and rename scans,
+  preserving their classification and metadata-relative paths. Existing MiniZip
+  implementations no longer appear as missing source or invite duplicate stubs.
+- Sourced functions without a recorded status default to `STUB` in status and
+  todo, rather than appearing in an unlabeled row or a separate unknown bucket.
+- Screens that sit next to the code account name their own measure. `rebrew status`
+  prints naked reconstructions as `N/M functions decompiled`, and `Verify cache`
+  as `N/M byte-matched`, including older verdicts preserved by scoped runs.
+  The HTML report card for that percentage is `Code account`;
+  when `.text` is unknown, the byte-matched card says the percentage is of functions.
+  `rebrew verify --summary` keeps the four byte-comparison classification rows visible
+  and lists every additional outcome, including `SIZE_MISMATCH` and `INTERNAL_ERROR`.
+  `rebrew data list --summary` heads annotated type-sized spans
+  `Annotated %`. Catalog `--summary` labels that span figure `Identified spans`.
+  `rebrew verify --data` captions its bar as symbols compared and floors that
+  percentage.
+- Refreshed project address-anchor examples use the configured module, even
+  when it differs from the target name.
 - Renaming a native-only function identity now reports its missing source binding
   and the registration step, rather than claiming an empty path escapes the source
   roots. The command still refuses to invent a source provider or change the row.
 - Function dossiers now show target-scoped native-only managed names, extents and
   notes before a C provider exists, including caller/callee labels. Historical
   comparison state does not become a source verdict for an unbound identity.
+- Confirmation rejects non-terminal stdin before reading. `cache clear`,
+  `cfg target remove`, `cfg module remove`, `coverage catalog --fix-sizes`,
+  `source merge`, and `source split` need a terminal or `--force`. A piped
+  answer does not approve (exit 2).
+- A bare `--target` listing follows the root `-o`/`--output` choice.
+  `rebrew -o json test --target` prints `{"targets","default_target"}` on
+  stdout. `-o text` wins over that command's `--json`.
+- `rebrew test --all` rejects `--cflags`, `--toolchain`, `--size`, `--va`,
+  `--symbol`, and `--target-bin` (exit 2). `--dir`, `--module`, and `--jobs`
+  require `--all`.
+- `rebrew skeleton --batch` rejects a function VA, `--name`, `--output`, and
+  `--append` (exit 2).
+- clispec classifies a writer by its full command path. `lint`, `diff`,
+  `binary extract show`, and `binary asm show` are `non_idempotent`.
+  `--no-wizard`, `--no-copy`, `--no-annotate`, `--no-compare-obj`, and
+  `--no-seed-solved` are published on the same parameter as the positive
+  spelling. `--json` is per-command, not a global flag. `-o`/`--output`
+  before the command still selects JSON. `lint --quiet` stays the lint
+  report flag.
+- `recommend --apply` records a child only when it exits 0. Failures are
+  reported, and the command exits with the highest child status. A missing
+  status, or an exception on a zero status, counts as 2. The shared-twins
+  lane passes `--force` to `source merge --shared`, so the merge does not
+  wait on stdin.
+- `sync bookmarks`, `sync create-functions`, and creation chained from
+  `sync pull` exit 2 when `errors` is non-zero, after the progress report.
+  `sync pull --create-functions --json` is one JSON document.
+  An empty `sync bookmarks --dry-run --json` prints one JSON document.
+- `rebrew -o json sync watch` exits 2 before export or the watch loop.
+- `binary asm show --verify` and `binary asm batch --verify` exit 1 on a
+  byte or size mismatch and 2 when NASM is missing or produces no bytes.
+  A batch exits 2 when any check cannot run.
+- `match batch --all-targets` keeps a compiler or config exception as exit
+  2, including `--dry-run`. Mismatch counts stay exit 1.
+- `prove --all` rejects a non-zero `--start-offset` or `--end-offset`.
+  `--ceiling` and `--max-delta` require `--all` and exclude each other.
+  Those cases exit 2.
+- `types recover --functions` cannot be combined with `--filter` or `--all`
+  (exit 2). When every decompiler fails, the structured error goes to stderr.
+
+### Performance
+- Reading a git ref's public import surface lists the tree once and reads
+  every Python blob in one `git cat-file --batch`. Each module is parsed once.
+  Constant substitution reuses that tree and skips function bodies, which the
+  descriptors do not include. The gates are two git commands for a package of
+  any size, one `ast.parse` per file, and a name-visit count that stays put
+  when a function body grows.
+- The recompile artifact-download property no longer waits out backoff. It
+  records the delays through the client's `sleep` seam, and the retry count
+  is the length of that list.
+- Aligned climb scoring (`rebrew match climb --objective aligned`) keeps
+  difflib's blocks with `autojunk` off, and counts token positions read instead
+  of walking every copy of a repeated opcode. The 2200-instruction pair-vs-hunk
+  case stays under one quadratic pass.
+- Skill-command validation renders `--help` on the composed command tree once,
+  not one process per subcommand.
+- Single-file `rebrew test` reuses the active target's name-to-VA map from
+  `.rebrew/name_to_va_cache.json` when sources, metadata, exports, and the
+  target binary are unchanged. A failed catalog scan is not cached.
+  `rebrew test --all` still recompiles every selected file.
+- The single-file name-map check counts C parses and global scans. A warm
+  preamble on a 2000-file tree does no global scan and the same number of
+  parses as that file in a handful-file project.
+- A single-file name map reuses parsed facts for unchanged sources. Editing
+  one file re-parses that file, not the rest of the reversed tree.
+- A full pytest suite (`make test`, or bare `uv run --frozen pytest`) runs on
+  pytest-xdist workers. `make coverage`, `--collect-only`, and a single file
+  or node id stay one process. `update_statuses_batch` can record function
+  identity in the same write as STATUS.
 
 ## [4.3.0] - 2026-10-16
 

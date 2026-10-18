@@ -22,6 +22,7 @@ import typer
 
 from rebrew.analysis import Insn, iter_instructions
 from rebrew.cli import (
+    CFLAGS_HELP,
     SOURCE_HELP,
     TargetOption,
     console,
@@ -215,9 +216,7 @@ def main(
     source: str = typer.Argument(..., help=SOURCE_HELP),
     va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
     size: int | None = typer.Option(None, "--size", help="Window in bytes (default: real body)"),
-    cflags: str | None = typer.Option(
-        None, "--cflags", help="Compiler flags (default: from metadata)"
-    ),
+    cflags: str | None = typer.Option(None, "--cflags", help=CFLAGS_HELP),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:

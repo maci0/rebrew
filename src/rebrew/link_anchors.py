@@ -8,9 +8,9 @@ import typer
 from rebrew.c_parser import find_variable_roles
 from rebrew.c_rename import ParsedSource, definitions
 from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, target_module
 from rebrew.metadata.bindings import FUNCTION_KINDS, iter_source_bindings
-from rebrew.sources import iter_sources, target_marker
+from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, preset_module_key
 
 app = typer.Typer(
@@ -28,18 +28,18 @@ def anchor_symbols(
     cfg: ProjectConfig, data_sources: list[Path], symbols: list[str], data_prefix: str
 ) -> dict[str, Any]:
     """Keep native function symbols verbatim, sorted by selected-target VA."""
-    marker = target_marker(cfg)
+    target_module_name = target_module(cfg)
     rows: dict[int, str] = {}
     for _path, annotations in iter_source_bindings(
         list(iter_sources(cfg)),
-        target=marker,
+        target=target_module_name,
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):
         for ann in annotations:
             if ann.kind not in FUNCTION_KINDS or ann.kind == "LIBRARY":
                 continue
-            if preset_module_key(ann.module) != preset_module_key(marker or ""):
+            if preset_module_key(ann.module) != preset_module_key(target_module_name or ""):
                 continue
             if not ann.symbol:
                 raise ValueError(f"function 0x{ann.va:x} has no native symbol")

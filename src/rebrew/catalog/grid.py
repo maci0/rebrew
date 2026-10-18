@@ -56,7 +56,7 @@ _STATUS_COUNTERS = {status: group[0] for group in _STATUS_PRIORITY for status in
 def count_statuses(by_va: dict[int, list[SourceBinding]]) -> dict[str, int]:
     """Count function VAs by highest-priority status present.
 
-    GLOBAL/DATA markers are excluded.  Returns a dict keyed by the five
+    GLOBAL/DATA bindings are excluded.  Returns a dict keyed by the five
     status groups: EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB.
     """
     counters = dict.fromkeys((group[0] for group in _STATUS_PRIORITY), 0)
@@ -88,7 +88,7 @@ def covered_bytes(
     falling back to the annotation's own size.  Both callers previously
     diverged — the CLI counted 0 for registry-missing VAs while the old
     CATALOG.md generator counted the annotation size — so the summary and
-    report disagreed.  GLOBAL/DATA markers are excluded.
+    report disagreed.  GLOBAL/DATA bindings are excluded.
 
     The ranges are merged and clipped to *section* (``(va, size)``) rather
     than summed.  Both steps are load-bearing on real projects: summing
@@ -263,7 +263,7 @@ def build_coverage_data(
     """
     by_va: dict[int, list[SourceBinding]] = {}
     for e in entries:
-        # GLOBAL/DATA markers describe data globals, not code functions
+        # GLOBAL/DATA bindings describe data globals, not code functions
         if e.is_data:
             continue
         by_va.setdefault(e.va, []).append(e)

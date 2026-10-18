@@ -49,7 +49,7 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "target_binary": tmp_path / "fake.dll",
         "reversed_dir": src,
         "metadata_dir": tmp_path,
-        "marker": "SERVER",
+        "module": "SERVER",
         "source_ext": ".c",
         "db_dir": tmp_path / "db",
         "default_jobs": 2,
@@ -603,6 +603,142 @@ class TestDiffReports:
 
 
 class TestVerifyCli:
+    def test_data_only_never_starts_function_verification_or_checks_runner(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from bin_util import append_pe_section, make_pe
+
+        import rebrew.compiler.toolchain as toolchain
+        import rebrew.verify as verify_mod
+        from rebrew.metadata.data import set_data_fields_batch
+
+        cfg = _cfg(tmp_path, execution_backend="unshare")
+        image = append_pe_section(make_pe(b"\xc3"), ".data", bytes(4))
+        cfg.target_binary.write_bytes(image)
+        built = tmp_path / "built.dll"
+        built.write_bytes(image)
+        set_data_fields_batch(tmp_path, [])
+        (tmp_path / "rebrew-data.toml").write_text("format = 2\n")
+        self._patch_flow(monkeypatch, cfg, passed=0)
+
+        def unexpected(*args: Any, **kwargs: Any) -> Any:
+            pytest.fail("data-only verification must not enter the compiler pipeline")
+
+        monkeypatch.setattr(verify_mod, "run_batch", unexpected)
+        monkeypatch.setattr(toolchain, "check_experimental_unshare", unexpected)
+        monkeypatch.setattr(verify_mod, "save_verify_cache", unexpected)
+        import rebrew.verify_cache as verify_cache
+
+        monkeypatch.setattr(verify_cache, "save_baseline", unexpected)
+        result = CliRunner().invoke(verify_mod.app, ["--data", "--built", str(built), "--json"])
+        assert result.exit_code == 0, result.output
+        report = cli_payload(result)
+        assert report["functions_checked"] is False
+        assert report["summary"]["total"] == 0
+
+    @pytest.mark.parametrize("selection", [["--functions"], ["src/SERVER/f.c"]])
+    def test_data_can_explicitly_include_function_checks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, selection: list[str]
+    ) -> None:
+        from bin_util import make_pe
+
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path)
+        cfg.target_binary.write_bytes(make_pe(b"\xc3"))
+        built = tmp_path / "built.dll"
+        built.write_bytes(cfg.target_binary.read_bytes())
+        (tmp_path / "rebrew-data.toml").write_text("format = 2\n")
+        self._patch_flow(monkeypatch, cfg, passed=1)
+        if selection[0] != "--functions":
+            selection = [str(cfg.reversed_dir / "f.c")]
+        result = CliRunner().invoke(
+            verify_mod.app, ["--data", "--built", str(built), "--json", *selection]
+        )
+        assert result.exit_code == 0, result.output
+        report = cli_payload(result)
+        assert report["functions_checked"] is True
+        assert report["summary"]["total"] == 1
+
+    def test_displaced_import_is_not_printed_as_a_missing_api(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from bin_util import append_pe_section, make_pe
+
+        from rebrew.formats.binary_loader import load_binary
+        from rebrew.metadata.data import set_data_fields_batch
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        image = append_pe_section(make_pe(b"\xc3"), ".rdata", bytes(4))
+        cfg.target_binary.write_bytes(image)
+        reference_va = load_binary(cfg.target_binary).sections[".rdata"].va
+        built_path = tmp_path / "built.dll"
+        built_path.write_bytes(make_pe(b"\xc3"))
+        name = "__imp__LeaveCriticalSection@4"
+        built_path.with_suffix(".map").write_text(
+            f" 0002:00000060 {name} 004b7060 KERNEL32:KERNEL32.dll\n"
+        )
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": reference_va,
+                    "fields": {
+                        "name": name,
+                        "size": 4,
+                        "section": ".rdata",
+                        "storage_kind": "import",
+                    },
+                }
+            ],
+        )
+        self._patch_flow(monkeypatch, cfg, passed=0)
+        result = CliRunner().invoke(app, ["--data", "--dry-run", "--built", str(built_path)])
+        assert result.exit_code == EXIT_MISMATCH, result.output
+        assert f"DISPLACED {name}" in result.output
+        assert f"MISSING {name}" not in result.output
+        assert "no bytes at reference VA" in " ".join(result.output.split())
+
+    def test_data_terminal_caption_floors_compared_share(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from bin_util import append_pe_section, make_pe
+
+        from rebrew.formats.binary_loader import load_binary
+        from rebrew.metadata.data import set_data_fields_batch
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        image = append_pe_section(make_pe(b"\xc3"), ".data", b"abcdefgh")
+        cfg.target_binary.write_bytes(image)
+        section = load_binary(cfg.target_binary).sections[".data"]
+        built = bytearray(image)
+        built[section.file_offset] ^= 1
+        built_path = tmp_path / "built.dll"
+        built_path.write_bytes(built)
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": section.va + offset,
+                    "fields": {"name": name, "size": 1, "section": ".data"},
+                }
+                for name, offset in (
+                    ("drifted", 0),
+                    ("matched", 1),
+                    ("unchecked", section.size + 1),
+                )
+            ],
+        )
+        self._patch_flow(monkeypatch, cfg, passed=0)
+        result = CliRunner().invoke(app, ["--data", "--raw-link", "--built", str(built_path)])
+        assert result.exit_code == EXIT_MISMATCH, result.output
+        assert "data: 1 matched, 1 mismatched, 0 missing (2 of 3 symbols compared)" in result.output
+        assert "66.6% of symbols compared" in result.output
+
     @pytest.mark.parametrize("acknowledgement", ["flag", "configured", "none"])
     def test_section_copy_warning_requires_an_unacknowledged_image(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, acknowledgement: str
@@ -661,7 +797,7 @@ class TestVerifyCli:
         from rebrew.metadata.data import get_data_entry, set_data_fields_batch
         from rebrew.verify import app
 
-        cfg = _cfg(tmp_path, all_markers={"SERVER", "OTHER"})
+        cfg = _cfg(tmp_path, target_modules={"SERVER", "OTHER"})
         cfg.target_binary.write_bytes(append_pe_section(make_pe(b"\xc3"), ".data", b"abcdefgh"))
         sec = load_binary(cfg.target_binary).sections[".data"]
         built = bytearray(cfg.target_binary.read_bytes())
@@ -1548,6 +1684,7 @@ class TestPrintResults:
         assert "EXACT" in out
         assert "STUB" in out
         assert "PROVEN" in out
+        assert "PROVEN" in out.split("STATUS Breakdown", 1)[1]
 
     def test_fail_details_render(self, monkeypatch: pytest.MonkeyPatch) -> None:
         results = [

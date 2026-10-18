@@ -378,7 +378,7 @@ class TestImportsMark:
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(
-            marker="SERVER",
+            module="SERVER",
             target_name="server.dll",
             reversed_dir=tmp_path / "src" / "SERVER",
             metadata_dir=tmp_path / "src",

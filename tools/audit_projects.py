@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
                         total_files += 1
                         try:
                             read_source_bindings(
-                                c, target_name=cfg.marker or None, metadata_dir=meta_root
+                                c, target_name=cfg.module or None, metadata_dir=meta_root
                             )
                         except Exception as e:
                             bad_files += 1

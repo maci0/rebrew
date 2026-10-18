@@ -16,7 +16,7 @@ from rebrew.analysis import (
 )
 from rebrew.catalog import cached_function_list
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, target_module
 from rebrew.formats.binary_loader import (
     extract_bytes_at_va,
     function_extent_from_bytes,
@@ -24,7 +24,6 @@ from rebrew.formats.binary_loader import (
 )
 from rebrew.formats.binary_model import BinaryInfo
 from rebrew.metadata.functions import load_metadata
-from rebrew.sources import target_marker
 from rebrew.workspace.status import MATCHED_STATUSES
 
 app = typer.Typer(
@@ -148,15 +147,15 @@ def collect_source_units(cfg: ProjectConfig) -> dict[str, Any]:
     """Join native path evidence with the selected target's managed bindings."""
     info = load_binary(cfg.target_binary)
     rows = load_metadata(cfg.metadata_dir)
-    module = target_marker(cfg)
+    module = target_module(cfg)
     bindings: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for (marker, va), row in rows.items():
+    for (target_module_name, va), row in rows.items():
         if row.get("file") and row.get("name"):
             key = (str(row["file"]), str(row["name"]))
-            bindings.setdefault(key, []).append({"module": marker, "va": va})
+            bindings.setdefault(key, []).append({"module": target_module_name, "va": va})
     functions = {int(f["va"]): dict(f) for f in cached_function_list(cfg)}
-    for (marker, va), row in rows.items():
-        if marker != module:
+    for (target_module_name, va), row in rows.items():
+        if target_module_name != module:
             continue
         function = functions.setdefault(va, {"va": va})
         function.update(row)

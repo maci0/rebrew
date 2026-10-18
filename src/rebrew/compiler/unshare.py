@@ -30,7 +30,7 @@ __all__ = ["UnshareError", "backend_identity", "prepare_backend", "run_unshare"]
 
 _PREPARE_LOCK = threading.RLock()
 _SOURCE = Path(__file__).with_name("unshare_runner.c")
-_CACHE_ABI = "1"
+_CACHE_ABI = "2"
 
 
 class UnshareError(RebrewError, RuntimeError):
@@ -120,7 +120,7 @@ def _helper(root: Path) -> Path:
 def _unpack(archive: Path, destination: Path) -> None:
     """Extract local image contents before links; never write through a link."""
     links: list[tarfile.TarInfo] = []
-    directories: list[tuple[Path, int]] = []
+    directories: list[tuple[Path, int, float]] = []
     with tarfile.open(archive) as stream:
         for member in stream:
             relative = PurePosixPath(member.name)
@@ -131,7 +131,7 @@ def _unpack(archive: Path, destination: Path) -> None:
                 links.append(member)
             elif member.isdir():
                 target.mkdir(parents=True, exist_ok=True)
-                directories.append((target, member.mode & 0o1777))
+                directories.append((target, member.mode & 0o1777, member.mtime))
             elif member.isfile():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 source = stream.extractfile(member)
@@ -140,6 +140,7 @@ def _unpack(archive: Path, destination: Path) -> None:
                 with source, target.open("xb") as output:
                     shutil.copyfileobj(source, output)
                 target.chmod(member.mode & 0o1777)
+                os.utime(target, (member.mtime, member.mtime))
             elif not (member.ischr() or member.isblk() or member.isfifo()):
                 raise UnshareError(f"unsupported image archive entry: {member.name}")
         # Absolute symlinks refer to container paths. Install them only after all
@@ -151,17 +152,19 @@ def _unpack(archive: Path, destination: Path) -> None:
                 raise UnshareError(f"image link parent escapes rootfs: {member.name}")
             if member.issym():
                 target.symlink_to(member.linkname)
+                os.utime(target, (member.mtime, member.mtime), follow_symlinks=False)
             else:
                 original = destination / member.linkname
                 if not original.resolve().is_relative_to(destination) or not original.is_file():
                     raise UnshareError(f"unsafe image hard link: {member.name}")
                 os.link(original, target)
-    for directory, mode in reversed(directories):
+    for directory, mode, mtime in reversed(directories):
         directory.chmod(mode)
+        os.utime(directory, (mtime, mtime), follow_symlinks=False)
 
 
 def _image(root: Path, image_id: str) -> tuple[Path, dict[str, Any]]:
-    directory = root / "images" / image_id.removeprefix("sha256:")
+    directory = root / "images-v2" / image_id.removeprefix("sha256:")
     manifest = directory / "image.json"
     if manifest.is_file() and (directory / "rootfs").is_dir():
         info = json.loads(manifest.read_text())
@@ -203,6 +206,7 @@ def _image(root: Path, image_id: str) -> tuple[Path, dict[str, Any]]:
         filesystem.mkdir()
         _unpack(archive, filesystem)
         archive.unlink()
+        _initialize_wineprefix(filesystem, info, _helper(root))
         (staging / "image.json").write_text(json.dumps(info) + "\n")
         staging.replace(directory)
     finally:
@@ -214,6 +218,47 @@ def _image(root: Path, image_id: str) -> tuple[Path, dict[str, Any]]:
         if staging.exists():
             shutil.rmtree(staging)
     return directory / "rootfs", info
+
+
+def _remove_bundle(bundle: Path) -> None:
+    """Remove private overlay work, including overlayfs mode-000 directories."""
+    for parent, directories, _ in os.walk(bundle, topdown=True, followlinks=False):
+        for name in directories:
+            directory = Path(parent) / name
+            if not directory.is_symlink():
+                directory.chmod(directory.stat().st_mode | 0o700)
+    remove_temp_dir(bundle)
+
+
+def _initialize_wineprefix(rootfs: Path, info: dict[str, Any], helper: Path) -> None:
+    """Seed Wine once before publishing the image cache; compiles keep private overlays."""
+    bundle = writable_temp_dir("rebrew_unshare_")
+    try:
+        for child in ("rootfs", "upper", "overlay-work", "work"):
+            (bundle / child).mkdir()
+        prefix = rootfs / "opt/wineprefix"
+        if not prefix.resolve().is_relative_to(rootfs.resolve()):
+            raise UnshareError("cached Wine prefix escapes the prepared image")
+        prefix.mkdir(parents=True, exist_ok=True)
+        profile = _profile(
+            rootfs,
+            info,
+            bundle,
+            [
+                "-c",
+                "WINEPREFIX=/work /usr/bin/wine wineboot -u && WINEPREFIX=/work /usr/bin/wineserver -w",
+            ],
+            "/bin/sh",
+            prefix,
+            [],
+            {},
+        )
+        path = bundle / "config.json"
+        path.write_text(json.dumps(profile) + "\n")
+        result = _command([str(helper), str(path)], timeout=120)
+        _require_success(result, "cannot initialize cached Wine prefix")
+    finally:
+        _remove_bundle(bundle)
 
 
 def prepare_backend() -> Path:
@@ -236,7 +281,16 @@ def _profile(
     workdir: Path,
     mounts: list[tuple[str, str]],
     env: dict[str, str],
+    project_cwd: Path | None = None,
 ) -> dict[str, Any]:
+    destination = "/work"
+    cwd = "/work"
+    if project_cwd is not None:
+        destination = str(workdir.resolve())
+        resolved_cwd = project_cwd.resolve()
+        if not resolved_cwd.is_relative_to(workdir.resolve()):
+            raise UnshareError("CMake cwd must be inside the mounted project root")
+        cwd = str(resolved_cwd)
     config = info["Config"]
     command = [entrypoint] if entrypoint else config.get("Entrypoint")
     if (
@@ -248,6 +302,7 @@ def _profile(
         raise UnshareError("experimental image requires one absolute entrypoint")
     environment = dict(item.split("=", 1) for item in config.get("Env", []) if "=" in item)
     environment.update(env)
+    environment.setdefault("XDG_CACHE_HOME", "/tmp")
     if (
         environment.get("HOME") != "/home/rebrew"
         or environment.get("WINEPREFIX") != "/opt/wineprefix"
@@ -275,17 +330,18 @@ def _profile(
             "source": "shm",
             "options": ["nosuid", "noexec", "nodev", "mode=1777", "size=65536k"],
         },
-        {
-            "destination": "/work",
-            "type": "bind",
-            "source": str(workdir.resolve()),
-            "options": ["rbind", "rw", "nosuid", "nodev"],
-        },
+        # A same-path project under /tmp must not be hidden by this mount.
         {
             "destination": "/tmp",
             "type": "tmpfs",
             "source": "tmpfs",
             "options": ["nosuid", "nodev", "mode=1777"],
+        },
+        {
+            "destination": destination,
+            "type": "bind",
+            "source": str(workdir.resolve()),
+            "options": ["rbind", "rw", "nosuid", "nodev"],
         },
     ]
     for destination in ("/opt/wineprefix", "/home/rebrew"):
@@ -313,7 +369,7 @@ def _profile(
             "user": {"uid": 1000, "gid": 1000},
             "args": [*command, *args],
             "env": [f"{k}={v}" for k, v in environment.items()],
-            "cwd": "/work",
+            "cwd": cwd,
             "capabilities": {
                 k: [] for k in ("bounding", "effective", "inheritable", "permitted", "ambient")
             },
@@ -361,6 +417,7 @@ def run_unshare(
     mounts: list[tuple[str, str]],
     env: dict[str, str],
     timeout: int,
+    project_cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run one compiler in disposable namespaces; never fall back to Docker."""
     if (
@@ -381,7 +438,9 @@ def run_unshare(
             rootfs, info = _image(root, image_id)
         for child in ("rootfs", "upper", "overlay-work"):
             (bundle / child).mkdir()
-        profile = _profile(rootfs, info, bundle, args, entrypoint, workdir, mounts, env)
+        profile = _profile(
+            rootfs, info, bundle, args, entrypoint, workdir, mounts, env, project_cwd
+        )
         path = bundle / "config.json"
         path.write_text(json.dumps(profile) + "\n")
         result = _command([str(helper), str(path)], timeout=timeout)
@@ -391,11 +450,4 @@ def run_unshare(
     except (OSError, ValueError, KeyError, TypeError, tarfile.TarError) as exc:
         raise UnshareError(f"experimental runner preparation failed: {exc}") from exc
     finally:
-        # Overlayfs creates a mode-000 work directory. Namespace teardown has
-        # already completed; change only this private tree, never follow links.
-        for parent, directories, _ in os.walk(bundle, topdown=True, followlinks=False):
-            for name in directories:
-                directory = Path(parent) / name
-                if not directory.is_symlink():
-                    directory.chmod(directory.stat().st_mode | 0o700)
-        remove_temp_dir(bundle)
+        _remove_bundle(bundle)

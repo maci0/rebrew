@@ -129,7 +129,7 @@ you what to attack next.
 
 ### `rebrew lint`
 
-- Validates optional ADDRESS anchors, dedicated format-2 function/data/source
+- Validates optional ADDRESS anchors, dedicated canonical function/data
   metadata, source declarations, compiler settings, and project conventions.
 - E024 rejects inline state or obsolete marker blocks. No old schema or migration
   parser is supported. Full diagnostics are maintained in

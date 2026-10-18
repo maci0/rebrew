@@ -12,7 +12,7 @@ Rebrew uses Resembl's assembly-similarity scoring core and configured
 compiler containers. External tools interoperate through documented file
 formats, including coverage documents and BinSync state directories.
 Optional ADDRESS-only source anchors bind declarations; identity and state
-live in managed format-2 metadata.
+live in managed canonical metadata (functions format 3; data format 2).
 
 [ECOSYSTEM.md](ECOSYSTEM.md) covers these public boundaries. Open
 [architecture.drawio](architecture.drawio) in diagrams.net for the public
@@ -68,11 +68,11 @@ flowchart LR
 | `rebrew/app/main.py` | Umbrella CLI. Provides `app` (and the re-exported `console`), then `activate()`s packaged `CliComponent`s plus `rebrew.commands` / `rebrew.multicommands` plugins |
 | `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `error_exit`, `json_print`, exit codes |
 | `rebrew/errors.py` | `RebrewError`, the base every public exception type inherits alongside its original `RuntimeError`/`ValueError`/`FileNotFoundError` base: one `except` clause for library consumers. Re-exports every public error class by lazy attribute, so `from rebrew.errors import DosboxError` works without knowing the defining submodule. Imports no other `rebrew` module at module scope (leaf module; stdlib only). `to_dict()` serializes `_STRUCTURED_FIELDS` (`kind`, `name`, `status_code`, `group`; a subclass extends the tuple for anything more it carries), coercing `Path` to `str` so the result survives `json.dumps`, and `from_dict()` rebuilds the named class, so a persisted failure still branches on the same data |
-| `rebrew/sources.py` | Source-tree discovery: `source_exts`, `source_glob`, `target_marker`, `scan_files`, `iter_sources`, `iter_library_headers` (pure pathlib/config logic, importable by library modules; a command that needs several views of one tree scans it once via `scan_files` and passes `scanned=`). `source_roots` + `contained_path` own the metadata `file` field: every join of an annotation's `file` onto a source tree resolves through `contained_path(roots, value)`, which returns `None` for a value that is empty, absolute, or escapes every root |
+| `rebrew/sources.py` | Source-tree discovery: `source_exts`, `source_glob`, `target_module`, `scan_files`, `iter_sources`, `iter_library_headers` (pure pathlib/config logic, importable by library modules; a command that needs several views of one tree scans it once via `scan_files` and passes `scanned=`). `source_roots` + `contained_path` own the metadata `file` field: every join of an annotation's `file` onto a source tree resolves through `contained_path(roots, value)`, which returns `None` for a value that is empty, absolute, or escapes every root |
 | `rebrew/limits.py` | `NO_MAX_SIZE` / `NO_DELTA`, the "bound not measured" sentinels behind `--max-size` and `--max-delta`. A leaf so `match_run` can recognise an unset bound without importing the `skeleton` or `match_batch` command modules |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/workspace/` | Workspace-root discovery and the target list (`find_root`, `db_dir`, `default_target`, `config.py`'s resolved view, `status.py`, `va.py`). Stdlib-only leaf, so a tool needing just the project's directories and target names never pulls in LIEF, capstone, or tree-sitter. It resolves no coverage data: `db_dir` names the directory, `coverage_toml.py` reads it |
-| `rebrew/metadata/bindings.py` | AST-bound optional ADDRESS comments plus dedicated format-2 metadata; `iter_source_bindings` batch loader |
+| `rebrew/metadata/bindings.py` | AST-bound optional ADDRESS comments plus dedicated canonical metadata (functions format 3; data format 2); `iter_source_bindings` batch loader |
 | `rebrew/metadata/functions.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELD_TYPES`, `METADATA_FIELDS`, `SYNC_FIELD_RULES`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata/model.py` (`MetadataEntry`) |
 | `rebrew/decompiler.py` | Pluggable decompiler backends for pseudo-C (`r2`/`rz` ghidra and dec, Ghidra via the ReVa MCP bridge, m2c for MIPS/PPC/ARM/SH), registered through the `rebrew.decompiler_backends` entry-point group. `fetch_decompilation` is the one entry point `rebrew skeleton --decomp` calls; `"auto"` picks the first backend that answers |
 | `rebrew/llm_seed.py` | Optional LLM-assisted GA seeding for `rebrew match run --seed-llm`: asks the `[llm]` endpoint for alternative C, keeps only tree-sitter-valid single-function snippets, injects them as extra seeds. Off by default; with no endpoint the flag warns and the GA runs unchanged |
@@ -152,11 +152,11 @@ would be a second answer to that question. See
 ## The compile → compare → STATUS/BLOCKER loop
 
 1. `read_source_bindings()` joins optional ADDRESS anchors bound through the C
-   AST with canonical format-2 function/data identities. Metadata-only rows remain
+   AST with canonical function (format 3)/data (format 2) identities. Metadata-only rows remain
    valid. Legacy source blocks and older schemas are rejected.
 2. Canonical stores supply every field, including size, flags, status, provenance,
    reconstruction source and structural information. Source purposes and assembly
-   evidence live in `rebrew-source.toml`.
+   evidence live in `rebrew-functions.toml` under `[source]`.
 3. `compile_and_compare()` compiles the source in the pinned toolchain
    image (`compiler/toolchain.py`; docker-only for every shipped profile, including
    gcc/clang/mingw; images built from the configured toolchain source) and

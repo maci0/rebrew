@@ -6,10 +6,10 @@ from typing import Any
 
 from rebrew.lint import (
     LintResult,
-    _check_E001_marker,
+    _check_E001_kind,
     _check_E002_va,
     _check_E013_duplicate_va,
-    _check_E015_marker_consistency,
+    _check_E015_kind_consistency,
     _check_W005_blocker,
     _check_W015_va_case,
     _check_W018_cflags,
@@ -18,14 +18,14 @@ from rebrew.lint import (
 
 def _result() -> LintResult:
     r = LintResult(filepath=Path("x.c"))
-    r.marker_line = 3
+    r.binding_line = 3
     return r
 
 
 class TestRuleChecks:
     def test_E001_invalid_marker(self) -> None:
         r = _result()
-        _check_E001_marker(r, "NOTAMARKER")
+        _check_E001_kind(r, "NOTAMARKER")
         assert any(e[1] == "E001" for e in r.errors)
 
     def test_E002_valid_va(self) -> None:
@@ -63,10 +63,10 @@ class TestRuleChecks:
         _check_W018_cflags(r, {"CFLAGS": "/O2"}, SimpleNamespace(base_cflags=""))
         assert r.warnings == []
 
-    def test_E015_library_module_marker_mismatch(self) -> None:
+    def test_E015_library_target_module_mismatch(self) -> None:
         r = _result()
         cfg = SimpleNamespace(library_modules={"MSVCRT"})
-        _check_E015_marker_consistency(r, "FUNCTION", "MSVCRT", "EXACT", cfg)
+        _check_E015_kind_consistency(r, "FUNCTION", "MSVCRT", "EXACT", cfg)
         # A LIBRARY-origin module with a FUNCTION marker is inconsistent.
         assert any(e[1] == "E015" for e in r.errors)
 
@@ -90,16 +90,16 @@ class TestE015StubStatus:
 
     def test_function_marker_with_stub_status_ok(self) -> None:
         r = LintResult(filepath=Path("x.c"))
-        _check_E015_marker_consistency(r, "FUNCTION", "SERVER", "STUB", self._cfg())
+        _check_E015_kind_consistency(r, "FUNCTION", "SERVER", "STUB", self._cfg())
         assert r.errors == []
 
     def test_stub_marker_with_stub_status_ok(self) -> None:
         r = LintResult(filepath=Path("x.c"))
-        _check_E015_marker_consistency(r, "STUB", "SERVER", "STUB", self._cfg())
+        _check_E015_kind_consistency(r, "STUB", "SERVER", "STUB", self._cfg())
         assert r.errors == []
 
     def test_function_marker_with_library_module_fires(self) -> None:
         r = LintResult(filepath=Path("x.c"))
         cfg = SimpleNamespace(library_modules={"MSVCRT"})
-        _check_E015_marker_consistency(r, "FUNCTION", "MSVCRT", "EXACT", cfg)
+        _check_E015_kind_consistency(r, "FUNCTION", "MSVCRT", "EXACT", cfg)
         assert any(e[1] == "E015" for e in r.errors)

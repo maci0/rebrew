@@ -31,7 +31,7 @@ from rebrew.compiler.recompile_client import (
     _same_origin_artifact_url,
     compile_source,
 )
-from rebrew.utils import RETRYABLE_HTTP_STATUS
+from rebrew.utils import RETRYABLE_HTTP_STATUS, retry_backoff_delay
 
 _BASE = "http://svc.local:8080"
 _ARTIFACT = b"\x00OBJ-BYTES"
@@ -327,17 +327,24 @@ def test_foreign_hosts_are_always_refused(host: str) -> None:
 def test_failed_artifact_download_never_re_posts_the_compile(get_status: int, retries: int) -> None:
     """With ``emit_assembly=True`` a compile the service already ran is not
     re-POSTed, however many artifact retries follow: one compile, one
-    ``train.jsonl`` row."""
+    ``train.jsonl`` row.
+
+    Backoff goes through the ``sleep`` seam. The recorded delays are the
+    retry count: one delay per attempt except the last, and none when the
+    status is not retried. The test does not wait on the clock.
+    """
     client = _Client(
         _Resp(200, json_body={"status": "ok", "artifact_url": "/a.obj"}),
         _Resp(get_status, text="gone"),
     )
+    slept: list[float] = []
     with pytest.raises(RecompileError) as ei:
-        _run(client, emit_assembly=True, retries=retries)
+        _run(client, emit_assembly=True, retries=retries, sleep=slept.append)
     assert ei.value.kind == "http"
     assert client.calls.count("post") == 1
     expected_gets = retries + 1 if get_status in RETRYABLE_HTTP_STATUS else 1
     assert client.calls.count("get") == expected_gets
+    assert slept == [retry_backoff_delay(attempt) for attempt in range(expected_gets - 1)]
 
 
 @settings(max_examples=20, deadline=None)

@@ -324,10 +324,10 @@ class TestValidateEdgeBranches:
         errors, _warnings = ann.validate()
         assert any("suspicious" in e for e in errors)
 
-    def test_invalid_marker_reported(self) -> None:
+    def test_invalid_kind_reported(self) -> None:
         ann = SourceBinding(va=0x10001000, kind="NOTAMARKER")
         errors, _warnings = ann.validate()
-        assert any("Invalid marker type" in e for e in errors)
+        assert any("Invalid metadata kind" in e for e in errors)
 
 
 class TestAnnotationValidateBranches:

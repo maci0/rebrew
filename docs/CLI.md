@@ -15,9 +15,12 @@ See [ADR 027](adr/027-build-hooks-under-umbrella.md).
 
 Most tools support `--target / -t` to select a target from `rebrew-project.toml` and
 read defaults (binary path, reversed_dir, compiler settings) from the project config.
-A final `--target` lists configured targets without running the command:
-`rebrew status --target` or `rebrew status --json --target`. With no selection
-flag, the command uses the project default target.
+A final `--target` lists configured targets without running the command.
+The listing uses that command's output choice. `rebrew status --target` is
+text. `rebrew status --json --target` and `rebrew -o json test --target` print
+`{"targets","default_target"}` on stdout. `-o text` before the command wins
+over `--json`. With no selection flag, the command uses the project default
+target.
 Commands that inspect standalone artifacts can accept an input path without
 project selection; each command's help lists its accepted inputs and defaults.
 `rebrew init` and `rebrew intake` use `--target/-t` to name the target being
@@ -33,7 +36,9 @@ so they parse after the subcommand name as well
 as before it (`rebrew -vv diff` and `rebrew diff -vv` agree).  A tool that
 declares one of these flags itself keeps its own meaning: `rebrew lint --quiet`
 still means "errors only", not "logs at warning".  `REBREW_LOG_LEVEL` sets the
-level when neither flag is given.
+level when neither flag is given. `--json` is not one of these shared flags.
+Each command that prints JSON declares `--json` itself. `rebrew --json <command>`
+exits 2. `rebrew -o json <command>` and `rebrew <command> --json` select JSON.
 
 New to rebrew?  Start with the [first-run walkthrough](ONBOARDING.md)
 (`rebrew init` → `rebrew intake` → `rebrew doctor` in ~5 minutes).
@@ -54,8 +59,22 @@ rebrew verify            Bulk-verify all reversed functions
 |---------|-------|---------|----------|
 | `rebrew test <file>` | Single function | No | Iterating on one function |
 | `rebrew test --all` | Batch (all files) | No | Verify's engine, always recompiles |
-| `rebrew verify` | Batch (incremental) | Yes | CI / bulk status check (`--compare` regression baseline; `rebrew match batch` finds matches, `rebrew verify --full` re-checks all sans cache, `--no-promote` measures without writing) |
+| `rebrew verify` | Batch (incremental) | Yes | CI / bulk status check (`--compare` regression baseline; `rebrew match batch` finds matches, `rebrew verify --no-cache` recompiles the selected functions, `--no-promote` measures without writing) |
 | `rebrew match run <file>` | Single function | No | GA engine to find byte-perfect match |
+
+## Selection flags
+
+These flags name different axes.
+
+| Flag | Selects |
+|------|---------|
+| `--all` | Every eligible item in the selected target. Omit the subject argument. `test --all` rejects `--cflags`, `--toolchain`, `--size`, `--va`, `--symbol`, and `--target-bin` (exit 2). `--dir`, `--module`, and `--jobs` require `--all`. |
+| `--target NAME` | One configured target. |
+| `--all-targets` | Every configured target. Each target keeps that command's own item selection. |
+| `--source-targets` | Every target bound to one source file. Excludes `--target` and `--all-targets`. |
+| `--no-cache` | On `verify` only: recompile the functions already selected. `verify` already covers every function. `test --all` always recompiles. |
+
+`source rename --all-modules` renames every module's rows of one definition.
 
 Byte-match ladder (best → worst): `EXACT` → `RELOC` → `NEAR_MATCHING` → `STUB`.
 `PROVEN` is a side path: semantic equivalence via `rebrew prove` when bytes still
@@ -83,16 +102,23 @@ every code.
 
 Status messages, progress, warnings, and errors go to **stderr**; only
 `--json` documents (and piped data like `rebrew cfg show`) go to **stdout**.
-`rebrew <cmd> --json` writes one JSON document to stdout. A pipe stays text
+`rebrew <cmd> --json` writes one JSON document to stdout. `--json` is
+per-command: placing it before the command name exits 2. A pipe stays text
 unless `--json` or `-o json` is set. `-o` / `--output` before the subcommand
 selects `auto`, `text`, or `json`; `auto` stays text, and a command's own
 `-o` is still a destination path. In JSON mode the last stderr line of a
 failure is `{"error":{"kind","message","hint"}}`. Exit 1 is a mismatch
 outcome, not an error kind: the report stays on stdout.
+A confirmation prompt rejects non-terminal stdin before reading it.
+`cache clear`, `cfg target remove`, `cfg module remove`,
+`coverage catalog --fix-sizes`, `source merge`, and `source split` need a
+terminal or `--force`. A piped answer does not approve. The refusal exits 2.
+In JSON mode the kind is `confirmation_required`, and those writes require
+`--force` instead of prompting.
 `rebrew schema` prints the clispec 0.3 document with no project and no network.
-Continuous watch
-modes are terminal-only: `--watch --json` is rejected; `sync watch` has no JSON option and rejects it
-before project loading or execution. For one-shot structured results, omit watch.
+Continuous watch modes are terminal-only. `--watch --json` is rejected.
+`sync watch` has no `--json` option. `rebrew -o json sync watch` exits 2
+before export or the watch loop. For one structured result, use `sync push --json`.
 For example,
 `rebrew verify --json | jq` and `rebrew test src/f.c --json | python -c 'import json,sys; json.load(sys.stdin)'`
 work without a `--quiet` flag.
@@ -236,7 +262,8 @@ value; the Meaning column explains configuration-derived defaults.
 `--fix-sizes` uses evidence specific to each operation: `test` accepts a compiled
 size only when all common bytes match, `verify` records binary-derived extents,
 and `coverage catalog` writes canonical registry sizes with confirmation
-(`--json` requires `--force`). `--module` filters metadata modules in batch
+(`--json` or a non-terminal stdin requires `--force`; a piped answer does not
+approve). `--module` filters metadata modules in batch
 `test`, `verify`, and `build order-sources`; it is unrelated to provenance.
 `verify --skip-libraries` excludes library-attributed rows.
 
@@ -261,19 +288,23 @@ or flags, `test` compiles with the pin (the shipped link's flags) instead of
 the project default.  `--cflags` on such a file is a loud error rather than a
 silent metadata write that the build never honors.
 
+`rebrew test --all` exits 2 when combined with `--cflags`, `--toolchain`, `--size`,
+`--va`, `--symbol`, or `--target-bin`. Those flags select one function.
+`--dir`, `--module`, and `--jobs` require `--all` and exit 2 without it.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `SOURCE` | str | — | Source file, symbol name, or VA (hex) (omit with --all) |
-| `--va` | str | — | Target VA in hex (default: from metadata) |
-| `--symbol` | str | — | Compiled symbol name (default: from metadata or source definition) |
-| `--target-bin` | path | — | Raw function byte slice to compare against |
-| `--size` | int | — | Size in bytes |
-| `--cflags` | str | — | Compiler flags |
-| `--toolchain` | str | — | Compiler profile (e.g. msvc-5.0); overrides the project default |
-| `--all` | flag | `False` | Batch test all reversed .c files |
-| `--dir` | path | — | With --all, restrict to this subdirectory |
-| `--module` | str | — | With --all, filter by module (e.g. GAME) |
-| `--jobs` / `-j` | int | — | Number of parallel compile jobs (with --all) |
+| `--va` | str | — | Target VA in hex (default: from metadata). Excludes --all |
+| `--symbol` | str | — | Compiled symbol name (default: from metadata or source definition). Excludes --all |
+| `--target-bin` | path | — | Raw function byte slice to compare against. Excludes --all |
+| `--size` | int | — | Size in bytes. Excludes --all |
+| `--cflags` | str | — | Compiler flags. Excludes --all |
+| `--toolchain` | str | — | Compiler profile (e.g. msvc-5.0); overrides the project default. Excludes --all |
+| `--all` | flag | `False` | Every reversed .c file in the selected target. Does not select other targets. |
+| `--dir` | path | — | Restrict to this subdirectory of reversed_dir. Requires --all (exit 2 without it) |
+| `--module` | str | — | Restrict to one module (e.g. GAME). Requires --all (exit 2 without it) |
+| `--jobs` / `-j` | int | — | Parallel jobs (default: project.jobs, or 4). Requires --all (exit 2 without it) |
 | `--no-promote` | flag | `False` | Measure without metadata writes. Otherwise records STATUS and explicit --cflags/--toolchain/--size overrides for future runs. Use this when trying candidate settings |
 | `--force-status` | flag | `False` | Write the STATUS even where the promotion policy refuses it: unpark a SKIP function or replace a STUB with SIZE_MISMATCH (single-function only) |
 | `--fix-sizes` | flag | `False` | Fix stale SIZE metadata when all common bytes match: writes the compiled size into metadata and reclassifies as EXACT/RELOC.  No-op when the mismatch is a real byte difference |
@@ -283,8 +314,8 @@ silent metadata write that the build never honors.
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
-| `--all-targets` | flag | `False` | Run across EVERY configured target (default: project default target only). |
-| `--source-targets` | flag | `False` | Run only targets bound to the explicit source file; report unbound targets as skipped |
+| `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
+| `--source-targets` | flag | `False` | Repeat this command for every target bound to the given source file. Unbound targets are skipped. Excludes --target and --all-targets. |
 
 With `--source-targets`, SOURCE must be an existing path relative to the current
 directory (or absolute). Target bindings are preflighted before compilation;
@@ -304,7 +335,7 @@ MSVC/Wine backend. For a project default, set `[compiler] execution_backend =
 
 ```mermaid
 graph TD
-    Start[rebrew verify] --> Collect[collect bound sources<br/>--full to bypass cache]
+    Start[rebrew verify] --> Collect[collect bound sources<br/>--no-cache to recompile]
     Collect --> Compile[compile each .c with its CFLAGS<br/>parallel --jobs N]
     Compile --> Compare[byte-compare vs target<br/>reloc-aware · padding-tolerant]
     Compare --> Classify{result}
@@ -434,10 +465,10 @@ Output prefixes for unambiguous parsing:
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `FILE` | path | — | Restrict to one source file (e.g. src/x/foo.c) for per-file CI gating |
-| `--jobs` / `-j` | int | — | Number of parallel compile jobs (default: from project.jobs or 4) |
+| `--jobs` / `-j` | int | — | Parallel jobs (default: project.jobs, or 4) |
 | `--summary` / `-s` | flag | `False` | Show summary table with STATUS breakdown and match percentages |
 | `--compare` | flag | `False` | Compare against last saved report and detect regressions |
-| `--full` | flag | `False` | Force full verification, ignoring cached results |
+| `--no-cache` | flag | `False` | Recompile every selected function. The default reuses unchanged cached results. |
 | `--fix-sizes` | flag | `False` | Correct stored SIZE from the binary-derived size: stale sizes (false SIZE_MISMATCH) and missing sizes (MISSING_SIZE stubs, which rebrew test refuses) are both backfilled into metadata |
 | `--dir` | path | — | Restrict to this subdirectory of reversed_dir |
 | `--module` | str | — | Restrict to one module (e.g. GAME) |
@@ -446,7 +477,7 @@ Output prefixes for unambiguous parsing:
 | `--skip-libraries` | flag | `False` | Exclude library-origin functions from verification. Game code only: source-built and statically linked library rows are left out of the compile and the count |
 | `--prune-orphans` | flag | `False` | Prune orphaned metadata rows (earned results are preserved) before verifying — same scan as `rebrew orphans prune` |
 | `--data` | flag | `False` | Byte-compare built .data/.rdata against the reference, per metadata symbol |
-| `--built` | path | — | Built image for data, text, or whole-binary checks (default: build/<target>) |
+| `--built` | path | — | Built image (default: build/<target>) |
 | `--raw-link` | flag | `False` | Confirm --built is an unmodified raw link. Required for --data DRIFT writes and --text linked EXACT promotion unless --built matches configured raw_link. Postlink byte copies cannot establish these verdicts |
 | `--link-map` | path | — | MSVC link map of --built for --data and --text placement (default: the built image's .map beside it). Data symbols the map puts at their reference VA become EXACT, others DISPLACED; --text promotes only functions the map places at their VA |
 | `--text` | flag | `False` | Check .text function placement against metadata addresses (position-alignment gate). With an acknowledged raw link, a RELOC function placed at its VA whose linked bytes equal the reference becomes EXACT (linked EXACT) |
@@ -457,8 +488,8 @@ Output prefixes for unambiguous parsing:
 | `--json` | flag | `False` | Output results as JSON |
 | `--root` | path | — | Project root directory (default: auto-detected from rebrew-project.toml). |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
-| `--all-targets` | flag | `False` | Run across EVERY configured target (default: project default target only). |
-| `--source-targets` | flag | `False` | Run only targets bound to the explicit source file; report unbound targets as skipped |
+| `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
+| `--source-targets` | flag | `False` | Repeat this command for every target bound to the given source file. Unbound targets are skipped. Excludes --target and --all-targets. |
 With `--source-targets`, FILE uses an explicit current-directory-relative or
 absolute path, including with `--root`. Eligibility, skips and failure isolation
 follow `test --source-targets`. This excludes target/all-target selection, watch,
@@ -479,7 +510,7 @@ this replaced truncated longer functions mid-code and reported a wrong
 disassembly extent runs past it; a truncated discovery entry),
 skeleton warns with the real extent and suggests `rebrew binary asm show --size <extent>` /
 `rebrew test --fix-sizes`; JSON output carries `size_warning`.
-| `--batch N` | Generate N skeletons (smallest first) |
+| `--batch N` | Generate N skeletons (smallest first). Excludes a function VA, --name, --output, and --append (exit 2) |
 | `--min-size N` | Minimum function size (default 10) |
 | `--max-size N` | Maximum function size (default 9999) |
 | `--skip-fragments` | (batch) Exclude entries whose first bytes look like data/misaligned fragments (no common function-start prefix) |
@@ -490,20 +521,20 @@ Strict source/data proof callers can use `rebrew.coff_reloc.smart_reloc_compare(
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `VA` | str | — | Function VA in hex (e.g. 0x10003da0) |
-| `--name` | str | — | Custom function name |
-| `--batch` | int range (≥ 0) | — | Generate N skeletons (smallest first; 0 generates none) |
+| `VA` | str | — | Function VA in hex (e.g. 0x10003da0). Excludes --batch |
+| `--name` | str | — | Custom function name. Excludes --batch |
+| `--batch` | int range (≥ 0) | — | Generate N skeletons (smallest first; 0 generates none). Excludes a function VA, --name, --output, and --append (exit 2) |
 | `--skip-fragments` | flag | `False` | (batch) Exclude entries whose first bytes look like data/fragments (no common function-start prefix) — don't waste skeleton slots on non-code |
 | `--min-size` | int | `10` | Minimum function size |
 | `--max-size` | int | `9999` | Maximum function size |
 | `--force` | flag | `False` | Overwrite existing files |
-| `--append` | path | — | Append function to an existing .c file (multi-function file) |
+| `--append` | path | — | Append function to an existing .c file (multi-function file). Excludes --batch |
 | `--decomp` | flag | `False` | Embed decompilation in skeleton |
 | `--decomp-body` | flag | `False` | With --decomp: embed the complete validated C implementation |
 | `--decompiler` | str | `auto` | Decompiler backend: auto, r2ghidra, r2dec, ghidra, kuna, m2c |
 | `--xrefs` | flag | `False` | Fetch cross-references from Ghidra and embed in skeleton |
 | `--endpoint` | str | `http://localhost:8080/mcp/message` | ReVa MCP endpoint URL |
-| `--output` / `-o` | path | — | Output file path |
+| `--output` / `-o` | path | — | Output file path. Excludes --batch |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
@@ -558,7 +589,7 @@ health is `rebrew doctor`'s job, not lint's.
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
-| `--all-targets` | flag | `False` | Run across EVERY configured target (default: project default target only). |
+| `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 
 ### `rebrew decompile`
 
@@ -728,10 +759,16 @@ count. Library rows stay out of that total; their bytes stay in the code
 account. A `LIBRARY` row whose `file` names a source outside the reversed
 tree, such as vendored zlib, is included the same way. The status table under a known `.text` size lists counts and bytes
 and does not add a per-status percentage. Without per-status bytes the table
-falls back to `Count %`. The data byte percentage covers initialized `.data`
+falls back to `Count %`. Sourced functions without a status in either metadata
+or the verification cache default to `STUB`.
+The data byte percentage covers initialized `.data`
 and `.rdata`. The symbol table beside it is a count, including `.bss`, and
 does not print a second percentage while the byte percentage is shown.
-`decompiled_pct` excludes matched `source = "naked"` in function metadata assembly reconstructions.
+`decompiled_pct` excludes matched `source = "naked"` assembly reconstructions.
+When any of those are byte-matched, the terminal prints `N/M functions decompiled`.
+`Verify cache` prints `N/M byte-matched` across cached game-function verdicts,
+including older verdicts preserved by scoped runs. Its timestamp is the cache's
+last modification time, not a per-function verification time.
 PROVEN is semantic evidence and earns no byte-match credit.
 
 Executable accounting reconciles as:
@@ -780,7 +817,7 @@ Unavailable byte measurements are omitted or null; they are not measured zeroes.
 | --- | --- | --- | --- |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
-| `--all-targets` | flag | `False` | Run across EVERY configured target (default: project default target only). |
+| `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 
 ### `rebrew todo`
 
@@ -836,7 +873,7 @@ every named symbol. An unknown data spelling is unchecked in both.
 | `--stats` / `-s` | flag | `False` | Show coverage stats header |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
-| `--all-targets` | flag | `False` | Run across EVERY configured target (default: project default target only). |
+| `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 
 ### `rebrew doctor`
 
@@ -875,6 +912,26 @@ Print the clispec 0.3 JSON document for this CLI. The document is JSON on
 stdout and does not read a project, a credential, or the network. A command
 path keeps that command and any command under it.
 
+`global_args` are `--output`/`-o` (`auto`, `text`, or `json`; default `auto`),
+`--verbose`/`-v`, `--quiet`/`-q`, and `--version`/`-V`. `--json` is not in
+that list. It is an argument of each command that declares it.
+`rebrew --json <command>` exits 2. `rebrew -o json <command>` and
+`rebrew <command> --json` select JSON. `rebrew -o text <command> --json` stays
+text.
+
+Effects follow the full command path, not the last word. `lint`, `diff`,
+`binary extract show`, and `binary asm show` are `non_idempotent`. The same
+last word on another command stays `read_only` (`binsync diff`, `skills show`,
+`blocker show`, `binary extract list`).
+
+A negative boolean spelling is the `negative` field of the positive parameter,
+not its own argument: `--no-wizard` (`init`), `--no-copy` (`cfg target add`),
+`--no-annotate` (`binary asm show`), `--no-compare-obj` (`match run`), and
+`--no-seed-solved` (`match batch`).
+
+`lint --quiet`/`-q` remains the lint report flag (errors only). It is not the
+shared log `--quiet`.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `COMMAND` | str | — | Command path to include. Matching commands and their children are kept. |
@@ -895,16 +952,22 @@ On success, updates `STATUS` from `NEAR_MATCHING`/`SIZE_MISMATCH` → `PROVEN`. 
 
 **Memory side effects**: By default only return registers (EAX, optionally EDX) are compared. Functions that write to globals or output-pointer arguments can therefore pass even when their memory effects differ. Pass `--watch-va` (repeatable) or set `prove_constraints.watched_vas = [0x...]` in the function metadata to also compare the first 4 bytes at each watched address between the original and compiled executions; an address mapped on only one side counts as a difference. Keep the watched set small (<10) to avoid Z3 blowup.
 
+`--start-offset` and `--end-offset` slice one function. A non-zero offset
+combined with `--all` exits 2. A zero offset is the full function and is
+accepted with `--all`. `--ceiling` and `--max-delta` require `--all` and
+exclude each other. Either flag without `--all`, or both flags together,
+exits 2. These rejections happen before symbolic execution.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `SOURCE` | str | — | Source file, symbol name, or VA (hex) (omit with --all) |
-| `--all` | flag | `False` | Prove all NEAR_MATCHING/SIZE_MISMATCH functions |
-| `--ceiling` | flag | `False` | With --all, restrict to GA_CEILING functions; excludes --max-delta |
-| `--max-delta` | int | — | With --all, cap recorded blocker_delta in bytes; excludes --ceiling |
+| `--all` | flag | `False` | Every eligible NEAR_MATCHING or SIZE_MISMATCH function in the selected target. Does not select other targets. |
+| `--ceiling` | flag | `False` | With --all, restrict to GA_CEILING functions. Requires --all. Excludes --max-delta (exit 2) |
+| `--max-delta` | int | — | With --all, cap recorded blocker_delta in bytes. Requires --all. Excludes --ceiling (exit 2) |
 | `--timeout` | int | `60` | Seconds before giving up |
 | `--loop-bound` | int | `10` | Max loop iterations for angr |
-| `--start-offset` | int | `0` | Start byte offset within the function (0-based) |
-| `--end-offset` | int | `0` | End byte offset within the function (0 = full function) |
+| `--start-offset` | int | `0` | Start byte offset within one function (0-based). Excludes --all when non-zero (exit 2) |
+| `--end-offset` | int | `0` | End byte offset within one function (0 means the full function). Excludes --all when non-zero (exit 2) |
 | `--check-edx` | flag | `False` | Also compare EDX register (forced on when return type is 64-bit) |
 | `--watch-va` | str (repeatable) | — | Also compare 4 bytes of memory at this VA (hex, repeatable; adds to prove_constraints.watched_vas) |
 | `--stub-thunks` | flag | `False` | Stub every absolute thunk address the compiled blob references via DIR32 (including thunks LIEF did not list as imports), seeding both sides' IAT slots so indirect thunk calls terminate instead of dead-ending the CFG at address 0 |
@@ -922,18 +985,22 @@ Deterministic project advice across lanes (read-only by default):
 | Lane | Kinds | Source |
 |------|-------|--------|
 | TU layout | `merge`, `split`, `move`, `flag-split`, `fix-sizes`, `cluster-fill` | `cu-map` clusters vs source files; merges carry the exact `rebrew source merge ... --consolidate` command, CFLAGS-divergent merges flagged to reconcile first; `flag-split` fires when one file mixes per-function flag sets; `fix-sizes` points at unsized functions; `cluster-fill` skeletons unreversed VAs inside a reversed cluster via `--append` |
-| Hygiene | `link-order`, `orphans`, `matched-orphans`, `lint-fixable`, `lint-errors`, `duplicate-globals`, `stale-markers`, `shared-twins`, `foreign-sources`, `data-drift`, `start-data`, `build-check`, `stale-cache` | CMake VA-order drift, prunable metadata orphans (matched held back), matched orphans needing repaired source bindings, `lint --fix` repairs (W029/W016), E-code errors per file, W021 global collisions, W028 stale bound addresses, identical per-target twins for `rebrew source merge --shared`, files excluded from this target's build, DRIFT/unchecked data symbols, stale build/ flags, sources newer than verify cache |
+| Hygiene | `link-order`, `orphans`, `matched-orphans`, `lint-fixable`, `lint-errors`, `duplicate-globals`, `stale-addresses`, `shared-twins`, `foreign-sources`, `data-drift`, `start-data`, `build-check`, `stale-cache` | CMake VA-order drift, prunable metadata orphans (matched held back), matched orphans needing repaired source bindings, `lint --fix` repairs (W029/W016), E-code errors per file, W021 global collisions, W028 stale bound addresses, identical per-target twins for `rebrew source merge --shared`, files excluded from this target's build, DRIFT/unchecked data symbols, stale build/ flags, sources newer than verify cache |
 | Next | `stub-sort`, `verify-failures`, `missing-externs`, `default-names`, `backfill-blockers`, `next-action`, `merge-sweep` | Unannotated inventory functions, COMPILE/EXTRACT/MISSING_SIZE cache failures, undefined extern callees, decompiler default names, bare STUBs, highest-ROI `todo` item pointer, `rebrew match partitions --dry-run` when partitions unproven |
 
 `--apply` executes only safe mechanical lanes (`lint --fix`,
 `rebrew build link-order --apply`, `orphans --prune`, `rebrew source merge --shared` twins); TU
-merge/split/move stay advisory.
+merge/split/move stay advisory. A child is recorded only when it exits 0
+with no exception. Failures are reported (`failed` under `--json`) and the
+command exits with the highest child status. A missing status, or an
+exception on a zero status, counts as 2. The shared-twins lane runs
+`source merge --shared --force`, so the merge does not read stdin.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--category` / `-c` | tu / hygiene / next | — | Filter lanes: tu, hygiene, next |
 | `--min-confidence` | float | `0.0` | Skip TU clusters below this confidence |
-| `--apply` | flag | `False` | Auto-fix safe lanes (lint, link-order, orphans, twins) |
+| `--apply` | flag | `False` | Auto-fix safe lanes (lint, link-order, orphans, twins). Records children that exit 0. Exits with the highest child status. Twins merge passes --force |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
@@ -1000,16 +1067,36 @@ Find prior documented findings mentioning a native address or address range.
 | `--json` | flag | `False` | Output results as JSON |
 | `--root` | path | — | Project root directory (default: auto-detected from rebrew-project.toml). |
 
+### `rebrew source consolidate`
+
+`rebrew source consolidate [OPTIONS]`
+
+Preview the migration from format-2 `rebrew-functions.toml` and optional
+`rebrew-source.toml` with `--dry-run --json`. Review the reported counts and
+`input_digest`, then apply with `--expected-digest DIGEST`. The selected target
+chooses the metadata root; shared roots need migrating once. The operation
+preserves function rows, verdicts, assembly hashes and support purposes in
+format-3 functions, then removes the retired source store. Data remains format 2.
+Stale digests and conflicting existing source sections refuse without writes;
+ordinary readers never fall back to the retired store.
+
+| Option | Meaning |
+| --- | --- |
+| `--dry-run` | Preview changes without writing |
+| `--expected-digest` | Reviewed preview input digest; required to apply |
+| `--json` | Output results as JSON |
+| `--target` / `-t` | Select the configured target's metadata root |
+
 ### `rebrew source register`
 
 `rebrew source register [OPTIONS] [SOURCE]`
 
 Register optional `ADDRESS: MODULE 0xVA` comments immediately above the next C
-function definition, variable or constant in format-2 metadata. Stacked targets
+function definition, variable or constant in canonical metadata (functions format 3; data format 2). Stacked targets
 bind one declaration. Without SOURCE, scan configured sources and headers.
 Validate the full selection before writing; preserve existing fields and verdicts.
 With one SOURCE, `--support REASON` records a target-scoped file purpose in
-`rebrew-source.toml`. Old source blocks and older store formats are rejected.
+`rebrew-functions.toml` under `[source.files]`. Old source blocks and older store formats are rejected.
 See [source addresses](ANNOTATIONS.md).
 
 | Argument or option | Type | Default | Meaning |
@@ -1124,7 +1211,7 @@ Writes and output:
 | `--data` | flag | `False` | Rename a global (data row, definition, declarations, uses); excludes --type and --field |
 | `--type` | flag | `False` | Rename a struct/union/enum tag or typedef name; excludes --data and --field |
 | `--field` | flag | `False` | Rename a struct/union member given as STRUCT.MEMBER; excludes --data and --type |
-| `--all-modules` | flag | `False` | Rename the rows of every module bound to the definition, and every other definition of the name |
+| `--all-modules` | flag | `False` | Rename every module's rows of this definition, and every other definition of the name |
 | `--shared-definition` | flag | `False` | Rename every function row bound to one definition; requires MODULE.0xVA; excludes --all-modules, --data, --type, and --field |
 | `--reference-owner` | str, repeatable | — | Reviewed owner of all references in project-relative `FILE=MODULE.0xVA`; requires `--shared-definition` |
 | `--expected-digest` | str | — | Digest from the reviewed reference-ownership preview; required when applying explicit owners |
@@ -1321,13 +1408,13 @@ definitions inside preprocessor conditionals are refused before writes. Every
 row bound to the selected definition follows its new file. Optional ADDRESS
 anchors remain declaration-bound; no legacy blocks are read.
 
-With `--va`, extract a **single function** into its own file (into a subdirectory named after the source file, such as `multi_c/`) and remove it from the original. This also rewrites the source, so a non-interactive run passes `--force`. `--dry-run` previews the move and writes nothing. This is useful for isolating a function to iterate on independently.
+With `--va`, extract a **single function** into its own file (into a subdirectory named after the source file, such as `multi_c/`) and remove it from the original. This also rewrites the source, so a non-interactive run passes `--force`. A piped answer does not approve the prompt. `--dry-run` previews the move and writes nothing. This is useful for isolating a function to iterate on independently.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `SOURCE` | path | required | Path to a multi-function source file |
 | `--va` | str | — | Extract a single function by VA (hex) into its own file |
-| `--force` | flag | `False` | Overwrite existing output files; also skips the --va extraction prompt |
+| `--force` | flag | `False` | Overwrite existing output files; also skips the --va extraction prompt. Without it, stdin must be a terminal; a piped answer does not approve |
 | `--output` / `-o` | path | — | Output directory |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
@@ -1345,11 +1432,12 @@ file. Reconstruction provenance remains scoped to each function identity.
 Use `--shared` only for identical bodies across targets: one definition carries
 stacked ADDRESS anchors and one metadata row per target. Different bodies are
 refused. Preview with `--dry-run`; `--force` permits noninteractive application.
+A piped answer does not approve the prompt.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `SOURCES` | path… | required | Input source files (or directories) |
-| `--force` | flag | `False` | Overwrite existing output and skip merge/delete confirmation prompts |
+| `--force` | flag | `False` | Overwrite existing output and skip merge/delete confirmation prompts. Without it, stdin must be a terminal; a piped answer does not approve |
 | `--delete` | flag | `False` | Delete input files after successful merge |
 | `--consolidate` | flag | `False` | Hoist unique includes/externs/typedefs/intrinsics to the top of the merged TU |
 | `--shared` | flag | `False` | Combine identical bodies across targets into one definition with stacked ADDRESS anchors; retarget all input metadata rows. Different bodies are refused |
@@ -1510,10 +1598,9 @@ rebrew source document-assembly src/game.c --symbol fill0 --target client \
 rebrew source document-assembly src/game.c --symbol fill0 --target client --clear
 ```
 
-The CLI owns `rebrew-source.toml` in `cfg.metadata_dir`, using the same locked,
-atomic writer as other metadata. Do not edit it by hand.
-Ignore `rebrew-source.toml.lock` in the project's `.gitignore`, like the
-function/data lock files; keep the canonical `rebrew-source.toml` in version control.
+The CLI records evidence under `[source.definitions]` in format-3
+`rebrew-functions.toml` at `cfg.metadata_dir`, sharing its lock and atomic writer.
+Do not edit it by hand; keep it in version control and ignore its `.lock`.
 Records bind the metadata-relative file, C identifier, target module and SHA-256 of the parsed
 definition's source text (signature and body, including comments). A duplicate
 or unparseable definition refuses before writing; malformed existing stores
@@ -1615,6 +1702,12 @@ rebrew match run src/game/f.c --seed 7 --json
 
 Select project functions and run `--algorithm ga`, `flags`, or `flags-then-ga`. `--target` and `--all-targets` are mutually exclusive. `--max-stubs 0` means unlimited; `--max-size 0` disables the upper size cap. `--seed-llm` is confined to `match run`.
 
+`--all-targets` continues after a compiler or config exception on one target.
+`errors` counts those targets, and the command exits 2, including
+`--dry-run`. `--json` prints one aggregate (`matched`, `failed`, `errors`)
+before that exit. A non-zero `failed` count exits 1. `--dry-run` returns
+before compiling, so `failed` stays 0 on that preview.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--algorithm` | ga / flags / flags-then-ga | `ga` | Search: ga, flags, flags-then-ga |
@@ -1642,7 +1735,7 @@ Select project functions and run `--algorithm ga`, `flags`, or `flags-then-ga`. 
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
-| `--all-targets` | flag | `False` | Run the selected search across every configured target |
+| `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 
 ### `rebrew match flags`
 
@@ -1688,8 +1781,8 @@ rebrew match toolchains src/game/f.c --toolchains msvc-6.0,msvc-7.0 --json
 | `--symbol` | str | — | Symbol to match (default: C definition or metadata) |
 | `--va` | str | — | Target VA in hex (default: from metadata) |
 | `--size` | int | — | Target size (default: stored SIZE) |
-| `--jobs` / `-j` | int | — | With --flags: parallel compiles (default: from config) |
-| `--tier` | quick / targeted / normal / thorough / full | `targeted` | With --flags: quick, targeted, normal, thorough, or full |
+| `--jobs` / `-j` | int | — | Parallel jobs (default: project.jobs, or 4). Requires --flags |
+| `--tier` | quick / targeted / normal / thorough / full | `targeted` | Flag sweep tier: quick, targeted, normal, thorough, or full. Requires --flags |
 | `--flags` | flag | `False` | Search flags for each compiler profile |
 | `--toolchains` | str | `""` | Comma-separated profiles or version prefixes to compare (e.g. msvc-6.0,7.0) |
 | `--exclude-toolchains` | str | `""` | Comma-separated profiles or version prefixes to exclude |
@@ -2023,7 +2116,7 @@ aborting the batch).
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `SOURCE` | str | — | Source file, symbol name, or VA (hex) (omit with --all) |
-| `--all` | flag | `False` | Classify all NEAR_MATCHING functions; excludes SOURCE and --va |
+| `--all` | flag | `False` | Every NEAR_MATCHING function in the selected target. Does not select other targets. |
 | `--va` | str | — | Target VA in hex (default: from metadata) |
 | `--size` | int | — | Target size in bytes (default: from metadata) |
 | `--fix-blocker` | flag | `False` | Write the verdict as BLOCKER metadata for the function (skipped on a match) |
@@ -2146,7 +2239,7 @@ pass): one line per function with dispatch/case counts and the exact
 | --- | --- | --- | --- |
 | `VA` | str | — | Function VA in hex (omit with --all) |
 | `--window` | int | `512` | Disassembly window size |
-| `--all` | flag | `False` | Scan every function-list entry (report those with dispatches) |
+| `--all` | flag | `False` | Every function-list entry in the selected target. Does not select other targets. |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 
@@ -2376,6 +2469,12 @@ cross-references.
 Cross-reference explorer: every code location that references the given
 address (calls, jmps, data references).
 
+Image-valued x86 comparison immediates appear as `cmp`, separately from
+`cmp_mem` memory accesses. Like `mov` immediates, these are possible address
+references: numeric constants can coincide with image addresses. The scan does
+not resolve register-relative or indexed memory addresses or establish object
+extents.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `VA` | str | required | Target address in hex (0x prefix optional) |
@@ -2461,7 +2560,7 @@ missing.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `--built` | path | — | Built image to compare (default: build/<target>) |
+| `--built` | path | — | Built image (default: build/<target>) |
 | `--link-map` | path | — | MSVC link map of --built for symbol names (default: the built image's .map beside it) |
 | `--pairs` | str | — | START:END hex VA range: pair reference and built operands at shared sites whose reference target is inside it |
 | `--limit` | int | `50` | Max sites printed per list (0 = none; JSON lists all) |
@@ -2549,6 +2648,12 @@ warns and extends the dump to the disassembly extent; an explicit `--size`
 is honored as-is (warn only).  The JSON report carries `stale_size` and the
 pre-extension `requested_size`.
 
+`--verify` assembles the NASM listing and compares it with the original bytes.
+A byte or size mismatch exits 1. `--json` writes that report to stdout
+(`roundtrip_pass`, `roundtrip_message`) and then exits. NASM missing, or NASM
+producing no bytes, exits 2. In JSON mode the structured error is on stderr
+and stdout is empty.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `VA` | str | — | Function VA in hex |
@@ -2560,7 +2665,7 @@ pre-extension `requested_size`.
 | `--hints` | flag | `False` | (hex) Annotate decompiler-relevant codegen patterns |
 | `--bin` | path | — | (nasm) Raw .bin file |
 | `--label` | str | — | (nasm) Label name for the function |
-| `--verify` | flag | `False` | (nasm) Verify round-trip: assemble and compare |
+| `--verify` | flag | `False` | (nasm) Verify round-trip: assemble and compare. Exit 1 on a byte or size mismatch. Exit 2 when NASM is missing or produces no bytes |
 | `--stats` | flag | `False` | (nasm) Print statistics instead of source on stdout |
 | `--inline-c` | flag | `False` | (nasm) Output an exact-bytes naked C skeleton: raw _emit/.byte emission behind the REBREW_ALLOW_NAKED fence + a plain-C fallback. A written file records identity in rebrew-functions.toml; source = naked is stored only in metadata |
 | `--base-va` | str | `0` | (nasm) Base VA for --bin files |
@@ -2580,6 +2685,11 @@ metadata. JSON emits one summary with `output`, `total`, `ok`, `failed`,
 Counts use the selected inventory after size/stub filters; `skipped` counts
 extraction failures.
 
+`--verify` checks each written listing. A byte or size mismatch exits 1.
+NASM missing, or NASM producing no bytes, exits 2. One check that cannot run
+makes the batch exit 2. `--json` prints the summary first (`failed` counts
+checks that did not pass), then exits 1 or 2.
+
 Choose a dedicated output directory. Its resolved subtree is excluded from
 inputs, so repeated runs, including through symlinks, retain stable filenames
 and identities. Output equal to or above any configured source root is rejected
@@ -2595,7 +2705,7 @@ rebrew binary asm batch --json
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--stubs` | flag | `False` | (nasm) Batch: STUB functions only |
-| `--verify` | flag | `False` | (nasm) Verify round-trip: assemble and compare |
+| `--verify` | flag | `False` | (nasm) Verify round-trip: assemble and compare. Exit 1 on a byte or size mismatch. Exit 2 when NASM is missing or produces no bytes |
 | `--inline-c` | flag | `False` | (nasm) Output an exact-bytes naked C skeleton: raw _emit/.byte emission behind the REBREW_ALLOW_NAKED fence + a plain-C fallback. Each written file records identity in rebrew-functions.toml; source = naked is stored only in metadata |
 | `--output` / `-o` | path | — | Output directory for batch assembly |
 | `--dry-run` | flag | `False` | Preview changes without writing |
@@ -2839,7 +2949,7 @@ automatic maps or archives leave attribution unknown; the scan never downloads
 libraries. Map addresses can differ from reference VAs, so match symbol names.
 DLL import slots, uncertain aliases, and unselected archive members are excluded.
 
-Metadata changes use `data set`: choose exactly one field (`--type`, `--name`, `--size`, `--section`, `--file`, `--storage-kind`, `--backing`, `--link-symbol`, `--kind`, or `--note`) and repeat `0xVA=VALUE` for multiple records. A size change clears stored verification. `data move 0xOLD 0xNEW` re-addresses one row. No operation treats a declaration, alias, or interior view as another storage allocation.
+Metadata changes use `data set`: combine fields (`--type`, `--name`, `--size`, `--section`, `--file`, `--storage-kind`, `--backing`, `--link-symbol`, `--kind`, or `--note`) and repeat `0xVA=VALUE` for multiple records. A size change clears stored verification. Sections include `.data`, `.rdata`, `.bss`, and `.text` for embedded data such as compiler jump tables; use `--storage-kind 0xVA=span` for a layout view without an independent allocation. `data move 0xOLD 0xNEW` re-addresses one row. No operation treats a declaration, alias, or interior view as another storage allocation.
 
 `data header --output/-o FILE` generates declarations; physical section grouping does not establish game/CRT ownership. Preview and reconcile the generated header with canonical subsystem and CRT headers. `data layout` separates audit, fill, own, fix-ownership, and converge. Establish full extents and provenance before emitting storage. Convergence measures the existing build; it does not re-link between rounds.
 
@@ -2866,6 +2976,8 @@ Use `rebrew data <operation> --help` for exact arguments and examples.
 `rebrew data list [OPTIONS]`
 
 Inventory globals and report section summaries or conflicts.
+The `Annotated %` column is the share of each section covered by the union
+of annotated type-sized spans.
 
 
 ```bash
@@ -2879,7 +2991,7 @@ rebrew data list --json
 | `--summary` | flag | `False` | Show section-level summary only |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
-| `--all-targets` | flag | `False` | Run across EVERY configured target (default: project default target only). |
+| `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 
 `--all-targets` reports every target independently in configured order, using its
 own raw link map. An explicit `--link-map` cannot be used with the sweep.
@@ -2915,7 +3027,7 @@ rebrew data set --type 0x401000=int --dry-run --json
 | `--file` | str (repeatable) | `[]` | Set the source file that defines a global: 0xVA=PATH (repeatable) |
 | `--kind` | str (repeatable) | `[]` | Set a global's kind: 0xVA=GLOBAL&#124;DATA&#124;VTABLE&#124;STRING (repeatable) |
 | `--note` | str (repeatable) | `[]` | Set a global's free-text note: 0xVA=TEXT (repeatable); keeps its verdict |
-| `--expected-digest` | str | — | Require the complete input digest from a reviewed preview |
+| `--expected-digest` | str | — | Require the input digest from a reviewed preview |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
@@ -3270,6 +3382,10 @@ rebrew types apply 0x401000 --param 0 --type int --dry-run
 
 Omit `--limit` to decompile all selected functions; `--limit 0` selects none.
 `--dry-run` requires `--output` to preview an intended header append.
+`--functions` cannot be combined with `--filter` or `--all` (exit 2), before
+decompilation. When every selected function returns no decompilation, the
+command exits 2. In JSON mode that structured error is on stderr and stdout
+is empty.
 
 Recover struct definitions by decompiling functions and aggregating their
 member-access offsets per pointer base.  Parses `->field_N` /
@@ -3298,9 +3414,9 @@ or a Ghidra MCP endpoint.  For guild-rebrew-style projects this is the
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `--functions` | str | — | Comma-separated VAs to decompile |
-| `--all` | flag | `False` | Decompile every function bound in metadata |
-| `--filter` | str | — | Only functions whose name contains SUBSTR |
+| `--functions` | str | — | Comma-separated VAs to decompile. Excludes --all and --filter (exit 2) |
+| `--all` | flag | `False` | Every function bound in metadata in the selected target. Does not select other targets. |
+| `--filter` | str | — | Only functions whose name contains SUBSTR. Excludes --functions (exit 2) |
 | `--decompiler` | str | `kuna` | Decompiler backend: auto, r2ghidra, r2dec, ghidra, kuna, m2c |
 | `--limit` | int | — | Cap functions decompiled (default: unlimited; 0 = none) |
 | `--output` / `-o` | path | — | Append recovered definitions to this header; required with --dry-run |
@@ -3502,8 +3618,11 @@ include(${CMAKE_BINARY_DIR}/rebrew-cflags.cmake)
 A translation unit is compiled with one flag set, so a file whose functions
 resolve to different **codegen** flags is reported as an error (split the file
 or align the metadata) and nothing is emitted for it.  `--sources-file` names
-the file list the build compiles, so a source with no metadata binding still gets an
-entry (its project default) instead of silently losing its flags. The selected
+the file list the build compiles and restricts checks and output to those inputs.
+An empty list emits no files. Conflicts in unlisted TUs cannot reject this build;
+omitting the option still checks all annotated sources. A listed source with no
+metadata binding still gets an entry (its project default) instead of silently
+losing its flags. The selected
 target's `defines` are emitted as `COMPILE_DEFINITIONS` for every entry, including
 listed support sources, so CMake selects the same shared-source branch as
 `test` and `verify`. JSON reports them in `defines`. Metadata `/D` defines
@@ -3513,9 +3632,18 @@ a note.  Shared sources
 (`src/shared`) are collected for every target through their own metadata bindings:
 a shared TU is flagless in the build without this.
 
+When several CMake build targets compile the same source, pass
+`--cmake-target <build-target-name>` for each table and include it after declaring
+that CMake target. The emitted flags and definitions then apply only to that
+target, regardless of table inclusion order. `--target` selects the Rebrew
+configuration; `--cmake-target` names the CMake build target, which can differ.
+JSON reports the latter in `cmake_target` (`null` when omitted). Omitting this
+option retains source-wide properties for existing single-target builds.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `--sources-file` | path | — | Build source list: one project-relative path per line. Emits resolved metadata flags or project defaults for every listed source, including files without bindings |
+| `--sources-file` | path | — | Restrict to this build source list: one project-relative path per line. Emits resolved metadata flags or project defaults for every listed source, including files without bindings |
+| `--cmake-target` | str | — | Scope flags and definitions to this CMake build target; include the table after declaring it |
 | `--output` / `-o` | path | `build/rebrew-cflags.cmake` | CMake include to write |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
@@ -3545,7 +3673,7 @@ files. Pairs with `rebrew build cmake-flags` (per-file CFLAGS) and
 
 Verify that `build/` still says what CMake wrote. `build/` is gitignored in every
 rebrew project, so a hand-edited `build.make` is invisible to `git status`, to
-`rebrew lint` and to `rebrew verify --full`, while silently redefining what any
+`rebrew lint` and to `rebrew verify --no-cache`, while silently redefining what any
 measurement taken from that tree means. Measured on guild-rebrew: a toolchain-pin
 sweep left the tree reporting 58% residue and a 290,816-byte deliverable against
 the correct 286,720 / 8628, with `cmake --build` still nominally succeeding.
@@ -3708,7 +3836,7 @@ the culprit while the symbol rows show the victims. Terminal mode prints a
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--data-metadata` | path | — | Data metadata file (default: configured metadata directory/rebrew-data.toml) |
-| `--built` | path | — | Built binary to inspect (default: build/<target>) |
+| `--built` | path | — | Built image (default: build/<target>) |
 | `--limit` | int | `15` | Max misplaced symbols to print (0 = none) |
 | `--cut` | str | — | VA of a .data cut. Score size shifts of the bytes after it |
 | `--shift-step` | int | `8` | Bytes between candidate size shifts |
@@ -3720,16 +3848,17 @@ the culprit while the symbol rows show the victims. Terminal mode prints a
 
 `rebrew build check-text-placement [OPTIONS]`
 
-Post-edit check: walk the link's object files (objdump, link order), compute
-each function's current `.text` VA, and compare against the annotated VA
-(the `MODULE.0xVA` row or a declaration-bound ADDRESS anchor). Per-function OK/MISPLACED/MISSING with address
-deltas; exits 1 on any misplaced function. When no build objects are found,
-actual VAs fall back to exported-symbol lookup on the built binary. The
-position-alignment gate `postlink` assumes but never checks.
+Compare linked function addresses against the annotated VAs (the `MODULE.0xVA`
+rows or declaration-bound ADDRESS anchors). The supplied image's sibling MSVC
+map takes precedence, including for an alternate build directory. Without a
+map, estimate placement from the link's object contributions; when no objects
+are found, fall back to the image's exports. Per-function OK/MISPLACED/MISSING
+rows include address deltas; missing or misplaced functions exit 1. An empty
+map does not trigger fallback or turn missing expected functions into success.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `--built` | path | — | Built binary to inspect (default: build/<target>) |
+| `--built` | path | — | Built image (default: build/<target>) |
 | `--limit` | int | `15` | Max misplaced functions to print (0 = none) |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
@@ -4024,8 +4153,10 @@ re-compresses the same bytes.
 function lists with `fuzzy_match_percent` (EXACT/RELOC → 100,
 NEAR_MATCHING/PROVEN → cached `match_percent`, else 0) and whole-binary measures
 (`total_code` from `.text`, `total_functions` from the function registry,
-`complete_*` mapped onto matched bytes; a byte-matched function is placed
-correctly by construction).  Upload the file as a GitHub Actions artifact
+`matched_code` from matched bytes with libraries included and alignment
+padding excluded, `complete_code` and `complete_code_percent` from the status
+code account). A byte-matched function is placed
+correctly by construction.  Upload the file as a GitHub Actions artifact
 named `<version>_report` containing `report.json`, then register the repo
 at decomp.dev/manage/new.
 
@@ -4161,7 +4292,8 @@ library identified, and the code account when the section size is known) are
 `rebrew status`'s own figures, including the caption
 `Matched functions, identified libraries, and alignment padding.`  `identified_bytes` / `identified_pct` in
 `--json` are the `.text` bytes claimed by any bound function, stubs and
-library code included; `registry` is the inventory size.  The coverage
+library code included, and the terminal prints that figure as `Identified spans`.
+`registry` is the inventory size.  The coverage
 document `rebrew coverage export --output snapshots/` writes stores the same globals: this target's
 module's metadata plus library modules.
 
@@ -4173,8 +4305,8 @@ module's metadata plus library modules.
 | `--summary` | flag | `False` | Print summary table (stderr) |
 | `--export-ghidra` | flag | `False` | Print Ghidra function-list export instructions (mutually exclusive with --json) |
 | `--export-ghidra-labels` | flag | `False` | Generate ghidra_data_labels.json from detected tables |
-| `--fix-sizes` | flag | `False` | Update stored SIZE to canonical sizes (requires --force with --json) |
-| `--force` | flag | `False` | Skip the --fix-sizes confirmation prompt |
+| `--fix-sizes` | flag | `False` | Update stored SIZE to canonical sizes (requires --force with --json or when stdin is not a terminal) |
+| `--force` | flag | `False` | Skip the --fix-sizes confirmation prompt. Without it, stdin must be a terminal; a piped answer does not approve |
 | `--json` | flag | `False` | Output results as JSON |
 | `--root` | path | — | Project root directory (default: auto-detected from rebrew-project.toml). |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
@@ -4196,6 +4328,10 @@ operations. These routes retain different effects, as specified in ADR 028.
 Field synchronization is BinSync-primary: `sync push`, `pull`, `summary`, and `watch` use the shared state directory (`--state-dir` or the configured target default). Ghidra’s BinSync plugin relays fields. `sync create-functions`, `bookmarks`, and `pull-data` use the configured MCP transport for structural operations.
 
 `sync pull --create-functions` remains a useful explicit chain: imported fields are accepted through BinSync first, then imported VAs are created structurally. Conflicts require an explicit acceptance policy; previews and failed synchronization do not advance the binary-scoped reconciliation baseline.
+
+`sync pull --create-functions --json` is one JSON document, with creation
+under `create_functions`. `sync bookmarks`, `sync create-functions`, and that
+chained creation exit 2 when `errors` is non-zero, after the progress report.
 
 
 Use `rebrew sync <operation> --help` for exact arguments and examples.
@@ -4239,6 +4375,11 @@ Import fields and optionally create the accepted functions. In a BinSync repo
 every other user's branch is imported, as `rebrew binsync pull` does (without
 its fetch).
 
+`--create-functions --json` prints one document. `create_functions` holds
+`applied`, `errors`, and `operations` after an apply, or `dry_run` and
+`operations` on a preview. A non-zero `errors` count exits 2 after that
+document.
+
 
 ```bash
 rebrew sync pull --dry-run --json
@@ -4278,6 +4419,7 @@ rebrew sync summary --json
 `rebrew sync watch [OPTIONS]`
 
 This continuous operation is terminal-only and has no `--json` option.
+`rebrew -o json sync watch` exits 2 before export or the watch loop.
 Use `sync push --json` for one structured result.
 
 Watch sources and export changes until interrupted.
@@ -4298,6 +4440,9 @@ rebrew sync watch
 
 Create missing functions through the configured structural backend.
 
+A completed apply prints its progress, then exits 2 when `errors` is non-zero.
+`--json` prints `applied`, `errors`, and `operations` on stdout before that exit.
+
 
 ```bash
 rebrew sync create-functions --dry-run --json
@@ -4315,6 +4460,11 @@ rebrew sync create-functions --dry-run --json
 `rebrew sync bookmarks [OPTIONS]`
 
 Apply status bookmarks through the structural backend.
+
+A completed apply prints its progress, then exits 2 when `errors` is non-zero.
+`--json` prints `applied`, `errors`, and `operations` on stdout before that exit.
+`--dry-run --json` prints one document. An empty preview has `dry_run` true
+and `operations` 0.
 
 
 ```bash
@@ -4879,7 +5029,7 @@ Remove a rebrew-libraries.toml (revert to project defaults).
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `VA` | str | — | Virtual address to match (hex, e.g. 0x10006c00) |
-| `--all` | flag | `False` | Match all LIBRARY metadata entries |
+| `--all` | flag | `False` | Every LIBRARY metadata entry in the selected target. Does not select other targets. |
 | `--fix-source` | flag | `False` | Record library source provenance in metadata |
 | `--index` | flag | `False` | Show CRT source index without matching |
 | `--dry-run` | flag | `False` | Preview changes without writing |
@@ -5059,7 +5209,7 @@ build\intel\mt_obj\initctyp.obj
 | `LIBRARY` | str | required | Archive path, or an external_libs key/spec from rebrew-project.toml |
 | `--member` / `-m` | str (repeatable) | — | Only this member (full archive name or basename, repeatable) |
 | `--refs` | str | — | List the members with an undefined reference to SYMBOL; excludes --defines |
-| `--defines` | str | — | List the members that define SYMBOL (section, COMMON, alias, import); excludes --refs |
+| `--defines` | str | — | List the members that define SYMBOL (section, absolute, COMMON, alias, import); excludes --refs |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 
@@ -5465,7 +5615,7 @@ rebrew cfg target remove my-game --dry-run --json
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `NAME` | str | required | Target name to remove |
-| `--force` | flag | `False` | Skip confirmation prompt |
+| `--force` | flag | `False` | Skip confirmation prompt. Without it, stdin must be a terminal; a piped answer does not approve |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 
@@ -5538,7 +5688,7 @@ rebrew cfg module remove GAME --dry-run
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `MODULE` | str | required | Module name to remove |
-| `--force` | flag | `False` | Skip confirmation prompt |
+| `--force` | flag | `False` | Skip confirmation prompt. Without it, stdin must be a terminal; a piped answer does not approve |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
@@ -5791,7 +5941,7 @@ Delete all cached .obj files.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `--force` | flag | `False` | Skip confirmation prompt |
+| `--force` | flag | `False` | Skip confirmation prompt. Without it, stdin must be a terminal; a piped answer does not approve |
 | `--json` | flag | `False` | Output results as JSON |
 | `--root` | path | — | Project root directory (default: auto-detected from rebrew-project.toml). |
 

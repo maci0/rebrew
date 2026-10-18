@@ -260,7 +260,7 @@ workflows, and limitations.
 
 ### Gap: `rebrew verify` does not detect shared-header changes
 
-- **Gap:** PRD explicitly lists this limitation. Users must run `rebrew verify --full`
+- **Gap:** PRD explicitly lists this limitation. Users must run `rebrew verify --no-cache`
   after any header edit; otherwise stale cache hits hide regressions.
 - **Evidence:** `src/rebrew/verify.py` cache lookup uses the per-file cache key
   derived from compile flags + source bytes; headers are not in the key.

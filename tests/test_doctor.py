@@ -44,7 +44,7 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "metadata_dir": tmp_path,
         "bin_dir": tmp_path / "bin",
         "source_ext": ".c",
-        "marker": None,
+        "module": None,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -529,7 +529,7 @@ class TestCheckFlirtSigs:
 
 
 class TestCheckOptionalToolsClaripy:
-    """angr/claripy pairing — half-installed pairs must be flagged."""
+    """The bundled Claripy solver must import with angr."""
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(root=tmp_path)
@@ -540,10 +540,34 @@ class TestCheckOptionalToolsClaripy:
 
         from rebrew.doctor import check_optional_tools
 
-        for name in ("angr", "claripy"):
-            monkeypatch.setitem(sys.modules, name, ModuleType(name))
+        fake = ModuleType("angr")
+        fake.claripy = ModuleType("claripy")
+        monkeypatch.setitem(sys.modules, "angr", fake)
         result = check_optional_tools()
         assert result.status == _OK
+
+    def test_probe_silences_optional_engine_log_and_restores_level(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+        import sys
+        from types import ModuleType
+
+        from rebrew.doctor import check_optional_tools
+
+        class FakeAngr(ModuleType):
+            def __getattr__(self, name: str) -> ModuleType:
+                if name == "claripy":
+                    logging.getLogger("angr").error("optional engine unavailable")
+                    return ModuleType("claripy")
+                raise AttributeError(name)
+
+        monkeypatch.setitem(sys.modules, "angr", FakeAngr("angr"))
+        angr_logger = logging.getLogger("angr")
+        previous_level = angr_logger.level
+        assert check_optional_tools().status == _OK
+        assert "optional engine unavailable" not in caplog.text
+        assert angr_logger.level == previous_level
 
     def test_angr_without_claripy_warns(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -554,7 +578,7 @@ class TestCheckOptionalToolsClaripy:
         from rebrew.doctor import check_optional_tools
 
         monkeypatch.setitem(sys.modules, "angr", ModuleType("angr"))
-        monkeypatch.setitem(sys.modules, "claripy", None)
+        monkeypatch.delitem(sys.modules, "angr.claripy", raising=False)
         result = check_optional_tools()
         assert result.status == _WARN
         assert "claripy" in result.message
@@ -573,7 +597,7 @@ class TestCheckOptionalToolsClaripy:
         monkeypatch.setitem(sys.modules, "angr", None)
         result = check_optional_tools()
         assert result.status == _WARN
-        assert "both" in result.message
+        assert "missing" in result.message
 
     def test_neither_warns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import sys
@@ -933,9 +957,9 @@ class TestCheckBinsyncState:
             ],
             check=True,
         )
-        import datetime
+        import datetime as dt
 
-        old = int(datetime.datetime.now(datetime.UTC).timestamp() - 30 * 86400)
+        old = int(dt.datetime.now(dt.UTC).timestamp() - 30 * 86400)
         # Identity via env, not repo/global config: a CI runner has none set,
         # and the amend would fail with "please tell me who you are".
         subprocess.run(

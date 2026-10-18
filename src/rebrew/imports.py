@@ -25,7 +25,7 @@ from rebrew.cli import (
     require_config,
     resolve_binary_arg,
 )
-from rebrew.config import module_marker
+from rebrew.config import target_module
 from rebrew.formats.import_table import find_import_stubs, parse_imports
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.utils import pe_name_token, read_source_text, untrusted_text
@@ -85,7 +85,7 @@ def mark_import_stubs(
     from rebrew.naming import load_existing_vas
     from rebrew.utils import atomic_write_text
 
-    marker = module_marker(cfg)
+    target_module_name = target_module(cfg)
     out_file = Path(cfg.reversed_dir) / "library_imports.h"
     existing, encoding = read_source_text(out_file) if out_file.exists() else ("", "utf-8")
 
@@ -115,7 +115,7 @@ def mark_import_stubs(
         token = pe_name_token(stubs[va])
         record_function_identity(
             cfg.metadata_dir,
-            module=marker,
+            module=target_module_name,
             va=va,
             file=file_rel,
             kind="LIBRARY",

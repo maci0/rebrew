@@ -21,7 +21,15 @@ import tomlkit
 import typer
 from typer.models import TyperPath
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.cli import (
+    EXPECTED_DIGEST_HELP,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    parse_va,
+    require_config,
+)
 from rebrew.metadata.document import metadata_write_lock
 from rebrew.metadata.functions import (
     LIBRARY_METADATA_FILE,
@@ -65,7 +73,7 @@ def bind_source_cmd(
     target: str | None = TargetOption,
 ) -> None:
     """Bind an identified library function to a source file we compile ourselves."""
-    from rebrew.config import module_marker
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import library_bindings_for_file
     from rebrew.metadata.functions import get_entry, record_function_rows
     from rebrew.sources import iter_library_headers
@@ -73,13 +81,13 @@ def bind_source_cmd(
 
     cfg = require_config(target=target, json_mode=json_output)
     address = parse_va(va, json_mode=json_output)
-    marker = preset_module_key(module_marker(cfg))
+    target_module_name = preset_module_key(target_module(cfg))
     known = any(
-        entry.va == address and preset_module_key(entry.module or "") == marker
+        entry.va == address and preset_module_key(entry.module or "") == target_module_name
         for header in iter_library_headers(cfg.reversed_dir, cfg)
         for entry in library_bindings_for_file(header, metadata_dir=cfg.metadata_dir)
     )
-    existing = get_entry(cfg.metadata_dir, address, module_marker(cfg))
+    existing = get_entry(cfg.metadata_dir, address, target_module(cfg))
     known = known or existing.get("kind") == "LIBRARY"
     if not known:
         error_exit(
@@ -102,7 +110,7 @@ def bind_source_cmd(
     if not dry_run:
         record_function_rows(
             cfg.metadata_dir,
-            [{"module": module_marker(cfg), "va": address, "identity": identity}],
+            [{"module": target_module(cfg), "va": address, "identity": identity}],
         )
     payload = {"va": f"0x{address:08x}", "provider": "compiled", **identity, "dry_run": dry_run}
     if json_output:
@@ -123,7 +131,7 @@ def review_native_cmd(
     symbol: str = typer.Option(..., "--symbol", help="Exact native object symbol to establish"),
     reason: str = typer.Option(..., "--reason", help="Reviewed identity evidence"),
     expected_digest: str | None = typer.Option(
-        None, "--expected-digest", help="Require input digest from a reviewed preview"
+        None, "--expected-digest", help=EXPECTED_DIGEST_HELP
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

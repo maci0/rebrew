@@ -156,6 +156,7 @@ class TestUnshareProfile:
         profile = calls[0]
         assert profile["process"]["args"] == ["/bin/probe", "/c", "file name.c"]
         assert "SOURCE_DATE_EPOCH=123" in profile["process"]["env"]
+        assert "XDG_CACHE_HOME=/tmp" in profile["process"]["env"]
         assert profile["root"]["readonly"]
         assert profile["process"]["noNewPrivileges"]
         assert all(value == [] for value in profile["process"]["capabilities"].values())
@@ -381,6 +382,11 @@ def _native_rootfs(tmp_path: Path) -> Path:
 #include <sys/prctl.h>
 #include <unistd.h>
 int main(int argc, char **argv) {
+    if (argc > 3 && !strcmp(argv[1], "cmake")) {
+        char cwd[4096]; if (!getcwd(cwd,sizeof(cwd)) || strcmp(cwd,argv[2])) return 30;
+        FILE *f=fopen(argv[3], "r"); if (!f) return 31; fclose(f);
+        f=fopen("output", "w"); if (!f) return 32; fputs("CMAKE",f); fclose(f); return 0;
+    }
     if (argc > 1 && !strcmp(argv[1], "fail")) return 7;
     if (argc > 1 && !strcmp(argv[1], "exit125")) { fputs("compiler exit 125\n", stderr); return 125; }
     if (getuid() != 1000 || getgid() != 1000 || prctl(PR_GET_NO_NEW_PRIVS,0,0,0,0) != 1) return 10;
@@ -447,8 +453,9 @@ class TestUnshareNative:
         (sdk / "value.h").write_text("SEVEN\n")
         env = {"HOST_NET": str(Path("/proc/self/ns/net").readlink())}
 
+        # Namespace exit can wait for host RCU grace periods during parallel builds.
         def invoke(
-            work: Path, args: list[str], timeout: int = 5
+            work: Path, args: list[str], timeout: int = 20
         ) -> subprocess.CompletedProcess[str]:
             work.mkdir(exist_ok=True)
             return unshare.run_unshare(
@@ -742,6 +749,8 @@ class TestUnshareImagePreparation:
             return subprocess.CompletedProcess(args, 0, "", "")
 
         monkeypatch.setattr(unshare, "_command", command)
+        monkeypatch.setattr(unshare, "_helper", lambda *_: tmp_path / "helper")
+        monkeypatch.setattr(unshare, "_initialize_wineprefix", lambda *_: None)
         if fail_export:
             with pytest.raises(unshare.UnshareError, match="export failed"):
                 unshare._image(tmp_path, _IMAGE_ID)
@@ -752,4 +761,170 @@ class TestUnshareImagePreparation:
             assert unshare._image(tmp_path, _IMAGE_ID) == (filesystem, info)
             assert len(commands) == before
         assert commands[-1][1:3] == ["rm", "--force"]
-        assert not list((tmp_path / "images").glob("prepare-*"))
+        assert not list((tmp_path / "images-v2").glob("prepare-*"))
+
+
+class TestUnshareCMakePaths:
+    def test_same_path_project_and_nested_cwd(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        calls = _fake_execution(monkeypatch, tmp_path)
+        build = tmp_path / "build space"
+        build.mkdir()
+        unshare.run_unshare(
+            _IMAGE_ID,
+            [],
+            entrypoint=None,
+            workdir=tmp_path,
+            mounts=[],
+            env={},
+            timeout=5,
+            project_cwd=build,
+        )
+        profile = calls[0]
+        assert profile["process"]["cwd"] == str(build)
+        mount = profile["mounts"][5]
+        assert mount["destination"] == mount["source"] == str(tmp_path)
+        assert mount["options"] == ["rbind", "rw", "nosuid", "nodev"]
+
+    def test_cwd_outside_project_rejected(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _fake_execution(monkeypatch, tmp_path)
+        with pytest.raises(unshare.UnshareError, match="inside the mounted project"):
+            unshare.run_unshare(
+                _IMAGE_ID,
+                [],
+                entrypoint=None,
+                workdir=tmp_path,
+                mounts=[],
+                env={},
+                timeout=5,
+                project_cwd=tmp_path.parent,
+            )
+
+    @pytest.mark.parametrize(
+        "destination", ["/", "/proc/x", "/dev/x", "/opt/wineprefix/x", "/home/rebrew", "/home"]
+    )
+    def test_native_rejects_runtime_overlap(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, destination: str
+    ) -> None:
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        helper = unshare.prepare_backend()
+        profile = unshare._profile(tmp_path, _info(), tmp_path, [], None, tmp_path, [], {})
+        profile["mounts"][5]["destination"] = destination
+        profile["mounts"][5]["source"] = destination
+        path = tmp_path / "invalid.json"
+        path.write_text(json.dumps(profile))
+        result = subprocess.run([str(helper), str(path)], capture_output=True, text=True)
+        assert result.returncode == 125
+        assert "project mount overlaps runtime mount" in result.stderr
+
+    def test_native_same_path_project_under_tmp(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        rootfs = _native_rootfs(tmp_path)
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        monkeypatch.setattr(unshare, "_image", lambda *_: (rootfs, _info()))
+        project = tmp_path / "project space"
+        build = project / "nested" / "build"
+        build.mkdir(parents=True)
+        source = project / "input.c"
+        source.write_text("input")
+        result = unshare.run_unshare(
+            _IMAGE_ID,
+            ["cmake", str(build), str(source)],
+            entrypoint=None,
+            workdir=project,
+            mounts=[],
+            env={},
+            timeout=5,
+            project_cwd=build,
+        )
+        assert result.returncode == 0, result.stderr
+        assert (build / "output").read_text() == "CMAKE"
+
+
+def test_unpack_preserves_image_timestamps(tmp_path: Path) -> None:
+    archive = tmp_path / "image.tar"
+    with tarfile.open(archive, "w") as out:
+        directory = tarfile.TarInfo("bin")
+        directory.type = tarfile.DIRTYPE
+        directory.mtime = 1200
+        directory.mode = 0o755
+        out.addfile(directory)
+        member = tarfile.TarInfo("bin/tool")
+        member.size = 1
+        member.mtime = 1300
+        out.addfile(member, io.BytesIO(b"x"))
+        link = tarfile.TarInfo("tool")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "/bin/tool"
+        link.mtime = 1400
+        out.addfile(link)
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+    unshare._unpack(archive, rootfs)
+    assert (rootfs / "bin").stat().st_mtime == 1200
+    assert (rootfs / "bin/tool").stat().st_mtime == 1300
+    assert (rootfs / "tool").lstat().st_mtime == 1400
+
+
+def test_wineprefix_seed_uses_native_runner_and_waits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    rootfs = tmp_path / "image"
+    rootfs.mkdir()
+    helper = tmp_path / "runner"
+    calls = []
+
+    def command(args, **kwargs):
+        profile = json.loads(Path(args[1]).read_text())
+        calls.append(profile)
+        assert profile["process"]["args"] == [
+            "/bin/sh",
+            "-c",
+            "WINEPREFIX=/work /usr/bin/wine wineboot -u && WINEPREFIX=/work /usr/bin/wineserver -w",
+        ]
+        prefix = next(m for m in profile["mounts"] if m["destination"] == "/work")
+        assert prefix["source"] == str(rootfs / "opt/wineprefix")
+        (Path(prefix["source"]) / ".update-timestamp").write_text("seed")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(unshare, "_command", command)
+    unshare._initialize_wineprefix(rootfs, _info(), helper)
+    assert (rootfs / "opt/wineprefix/.update-timestamp").read_text() == "seed"
+    assert len(calls) == 1
+    private = next(m for m in calls[0]["mounts"] if m["destination"] == "/home/rebrew")
+    assert not Path(private["source"]).parents[2].exists()
+
+
+def test_seed_rejects_prefix_link_outside_image(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    rootfs = tmp_path / "image"
+    rootfs.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (rootfs / "opt").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(
+        unshare, "_command", lambda *_args, **_kwargs: pytest.fail("must not execute")
+    )
+    with pytest.raises(unshare.UnshareError, match="escapes the prepared image"):
+        unshare._initialize_wineprefix(rootfs, _info(), tmp_path / "runner")
+    assert not (outside / "wineprefix").exists()
+
+
+def test_failed_seed_cleans_private_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    rootfs = tmp_path / "image"
+    rootfs.mkdir()
+    configs = []
+
+    def fail(args, **kwargs):
+        configs.append(Path(args[1]))
+        return subprocess.CompletedProcess(args, 1, "", "wineboot failed")
+
+    monkeypatch.setattr(unshare, "_command", fail)
+    with pytest.raises(unshare.UnshareError, match="wineboot failed"):
+        unshare._initialize_wineprefix(rootfs, _info(), tmp_path / "runner")
+    assert len(configs) == 1 and not configs[0].parent.exists()

@@ -549,7 +549,7 @@ class TestCli:
             target_binary=tmp_path / "x.exe",
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
         )
@@ -590,7 +590,7 @@ class TestCli:
             target_binary=tmp_path / "x.exe",
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
         )

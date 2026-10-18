@@ -32,14 +32,9 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, require_config
+from rebrew.config import target_module
 from rebrew.metadata.bindings import iter_source_bindings
-from rebrew.sources import (
-    contained_path,
-    iter_sources,
-    source_exts,
-    source_roots,
-    target_marker,
-)
+from rebrew.sources import contained_path, iter_sources, source_exts, source_roots
 from rebrew.utils import atomic_write_bytes, atomic_write_text
 
 _EPILOG = (
@@ -146,7 +141,7 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
     Returns the unit descriptors (name, target_path, base_path).
     """
     sources = list(iter_sources(cfg.reversed_dir, cfg))
-    marker = target_marker(cfg)
+    target_module_name = target_module(cfg)
     units: list[dict[str, Any]] = []
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -154,7 +149,7 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
 
     for path, annos in iter_source_bindings(
         sources,
-        target=marker,
+        target=target_module_name,
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):
@@ -216,13 +211,13 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
     toolchain/flag resolution as ``rebrew test``/``verify``.
     """
     rel = base_object.as_posix()
-    marker = "build/objdiff/current/"
-    idx = rel.find(marker)
+    target_module_name = "build/objdiff/current/"
+    idx = rel.find(target_module_name)
     if idx >= 0:
         # Strip the base dir whether the path arrived relative
         # ("build/objdiff/current/funcs/a.c.o") or absolute — objdiff
         # passes the configured base_path verbatim, which may be either.
-        rel = rel[idx + len(marker) :]
+        rel = rel[idx + len(target_module_name) :]
     if not rel.endswith(".o"):
         error_exit(f"rebrew build objdiff-driver: unexpected object path {base_object}")
     source_rel = rel[: -len(".o")]
@@ -243,7 +238,7 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
 
     annos = read_source_bindings(
         source,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )

@@ -139,7 +139,7 @@ def run_catalog(
             console.print(CODE_ACCOUNT_CAPTION)
             console.print(ratio_bar(accounted, progress.total_text_bytes))
         console.print(
-            f"Identified: {identified_pct:.1f}% of .text ({covered}/{text_size} bytes) "
+            f"Identified spans: {identified_pct:.1f}% of .text ({covered}/{text_size} bytes) "
             "claimed by an annotated function, stubs and library code included"
         )
         if text_size:
@@ -202,8 +202,9 @@ def run_catalog(
             )
 
     if fix_sizes:
+        from rebrew.config import target_module
         from rebrew.metadata.bindings import grow_function_extent
-        from rebrew.sources import iter_sources, target_marker
+        from rebrew.sources import iter_sources
         from rebrew.utils import rel_display_path
 
         # The scan above already parsed every source file; keep only the
@@ -224,7 +225,7 @@ def run_catalog(
                 continue
             parsed = read_source_bindings(
                 cfile,
-                target_name=target_marker(cfg),
+                target_name=target_module(cfg),
                 metadata_dir=cfg.metadata_dir,
                 project_root=getattr(cfg, "root", None),
             )

@@ -4,7 +4,7 @@ Environment/setup health only (does not inspect the decompiled corpus):
 config file, target binary, arch/format, toolchain alignment, compiler
 image/executable, runner, include/lib paths, function-list existence,
 source-dir existence, metadata-file existence, and integration tooling
-(angr, FLIRT, Ghidra).  Source-corpus checks — annotation markers,
+(angr, FLIRT, Ghidra).  Source-corpus checks — metadata bindings,
 metadata placement, VA-vs-function-list consistency, and per-function
 settings like cflags redundancy — live in ``rebrew lint``.  Doctor answers
 "can this project work?", not "is the decompiled corpus internally
@@ -966,7 +966,7 @@ def check_shared_sources(cfg: ProjectConfig) -> CheckResult:
 
     Single-target projects need nothing.  Multi-target projects sharing one
     codebase (same game logic in several binaries) want ``src/shared`` with
-    one ``// FUNCTION: <target> <va>`` marker per target (ADR-010) plus
+    one ``// ADDRESS: <module> <va>`` anchor per target (ADR-010) plus
     ``cross-import --shared`` instead of per-target copies that drift apart.
     Warns when the project has several targets but no shared dir, or when the
     configured shared dir does not exist.
@@ -993,7 +993,7 @@ def check_shared_sources(cfg: ProjectConfig) -> CheckResult:
             status=_WARN,
             message=f"{len(targets)} targets sharing one codebase but {shared} is missing",
             fix=f"Create with: mkdir -p {shlex.quote(str(shared))} — then `rebrew source import-related "
-            "--from <src> --shared` stacks one marker per target on one file.",
+            "--from <src> --shared` stacks one address anchor per target on one file.",
         )
     return CheckResult(
         name="Shared sources",
@@ -1224,21 +1224,25 @@ def _prove_install_fix(*, optional: bool) -> str:
 
 
 def check_optional_tools() -> CheckResult:
-    """Check availability of optional symbolic-proving tools (angr + claripy).
+    """Check angr and its bundled Claripy solver for symbolic proving.
 
-    ``rebrew prove`` needs both; a half-installed pair (angr without claripy,
-    or claripy without angr) crashes at runtime with a confusing traceback.
+    Import the solver to catch missing or broken optional installations.
     """
     from rebrew.prove import angr_available
 
     has_angr = angr_available()
     claripy_available = False
-    import contextlib
-
-    with contextlib.suppress(ImportError):
-        import claripy  # noqa: F401  # presence probe; name unused
+    angr_logger = logging.getLogger("angr")
+    previous_level = angr_logger.level
+    angr_logger.setLevel(logging.CRITICAL)  # optional unicorn import logs an irrelevant error
+    try:
+        from angr import claripy  # noqa: F401  # presence probe; name unused
 
         claripy_available = True
+    except ImportError:
+        pass
+    finally:
+        angr_logger.setLevel(previous_level)
 
     if has_angr and claripy_available:
         return CheckResult(
@@ -1251,13 +1255,6 @@ def check_optional_tools() -> CheckResult:
             name="Optional tools",
             status=_WARN,
             message="angr installed but claripy is missing — prove will crash",
-            fix=_prove_install_fix(optional=False),
-        )
-    if claripy_available:
-        return CheckResult(
-            name="Optional tools",
-            status=_WARN,
-            message="claripy installed but angr is missing — prove needs both",
             fix=_prove_install_fix(optional=False),
         )
     return CheckResult(

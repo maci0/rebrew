@@ -26,9 +26,15 @@ import typer
 from typer.models import TyperPath
 
 from rebrew.cli import (
+    CFLAGS_HELP,
     EXIT_ERROR,
     EXIT_MISMATCH,
+    JOBS_HELP,
+    SIZE_HELP,
     SOURCE_HELP,
+    TIER_HELP,
+    WATCH_FILE_HELP,
+    AllTargetsOption,
     TargetOption,
     console,
     error_exit,
@@ -266,27 +272,29 @@ def execute_search(
         total_matched = 0
         total_failed = 0
 
-        def _run_target(name: str) -> tuple[int, int]:
-            # One broken target (unresolvable config, unexpected error) must
-            # not discard the other targets' completed GA runs: in parallel
-            # mode every future has already been submitted, so letting the
-            # exception escape would drop results of targets that ran to
-            # completion after it.  Count the failure and keep aggregating
-            # (same contract as _run_stub: failed>0 → EXIT_MISMATCH).
+        def _run_target(name: str) -> tuple[int, int, bool]:
+            # One broken target (unresolvable config, compiler exception) must
+            # not discard the other targets' completed runs. The exception is
+            # an infrastructure failure, not a mismatch count.
             try:
                 target_cfg = load_config(cfg.root, target=name) if len(names) > 1 else cfg
                 if not json_output:
                     console.print(f"\n[bold cyan]=== Target {untrusted_ident(name)} ===[/]")
                 # Per-target detail stays on stderr (console); stdout gets one
                 # aggregate JSON document when --json is active.
-                return run_all_batch(cfg=target_cfg, jobs=per_target_jobs, json_output=False)
+                matched, failed = run_all_batch(
+                    cfg=target_cfg, jobs=per_target_jobs, json_output=False
+                )
+                return matched, failed, False
+            except typer.Exit:
+                raise
             except Exception as exc:
-                log.warning("Target %s failed — counted as failed", name, exc_info=True)
+                log.warning("Target %s failed", name, exc_info=True)
                 console.print(
                     f"  [yellow]warning:[/yellow] target {untrusted_ident(name)} failed: "
                     f"{type(exc).__name__}: {exc}"
                 )
-                return 0, 1
+                return 0, 0, True
 
         # Parallel targets: split --jobs across targets so total wine
         # concurrency stays bounded (~jobs).  Cap concurrent targets at
@@ -300,16 +308,21 @@ def execute_search(
         parallel = len(names) > 1 and jobs > 1
         n_parallel = min(len(names), jobs) if parallel else 1
         per_target_jobs = max(1, jobs // n_parallel) if parallel else jobs
+        infra_errors = 0
         if parallel:
             with interruptible_pool(n_parallel) as executor:
-                for m, f in executor.map(_run_target, names):  # order preserved
+                for m, f, infra in executor.map(_run_target, names):  # order preserved
                     total_matched += m
                     total_failed += f
+                    if infra:
+                        infra_errors += 1
         else:
             for name in names:
-                m, f = _run_target(name)
+                m, f, infra = _run_target(name)
                 total_matched += m
                 total_failed += f
+                if infra:
+                    infra_errors += 1
         if json_output:
             json_print(
                 {
@@ -317,6 +330,7 @@ def execute_search(
                     "targets": names,
                     "matched": total_matched,
                     "failed": total_failed,
+                    "errors": infra_errors,
                     "total": total_matched + total_failed,
                 }
             )
@@ -325,6 +339,11 @@ def execute_search(
                 f"\n[bold]All targets: {total_matched} matched, {total_failed} failed "
                 f"across {len(names)} target(s)[/]"
             )
+        # A compiler or config exception is infrastructure, including previews.
+        # Mismatch counts stay exit 1, and a dry run does not hide them as success
+        # when the run itself failed to start.
+        if infra_errors:
+            raise typer.Exit(code=EXIT_ERROR)
         # Same exit contract as Batch: 1 = no match found (any failed stub).
         if total_failed > 0 and not dry_run:
             raise typer.Exit(code=EXIT_MISMATCH)
@@ -535,7 +554,7 @@ def run(
     ),
     cflags: str | None = typer.Option(
         None,
-        help="Compiler flags (default: resolved metadata/config)",
+        help=CFLAGS_HELP,
         rich_help_panel="Build inputs",
     ),
     symbol: str | None = typer.Option(
@@ -551,7 +570,7 @@ def run(
         rich_help_panel="Build inputs",
     ),
     target_size: int | None = typer.Option(
-        None, "--size", help="Target size (default: stored SIZE)", rich_help_panel="Build inputs"
+        None, "--size", help=SIZE_HELP, rich_help_panel="Build inputs"
     ),
     out_dir: str = typer.Option(
         "output/ga_runs",
@@ -582,7 +601,7 @@ def run(
         None,
         "--jobs",
         "-j",
-        help="Parallel jobs (default: from config)",
+        help=JOBS_HELP,
         rich_help_panel="GA Tuning",
     ),
     ignore_lint: bool = typer.Option(
@@ -632,7 +651,7 @@ def run(
         False,
         "--seed-kuna",
         help=(
-            "Seed the GA's initial population with Kuna's decompilation of the target function (github.com/Noelo-Lab/kuna — requires the `kuna` binary on PATH).  The output is compilability-fixed (rebrew source fix) before injection"
+            "Seed the GA's initial population with Kuna's decompilation of the target function (github.com/Noelo-Lab/kuna, requires the `kuna` binary on PATH). The output is compilability-fixed (rebrew source fix) before injection"
         ),
         rich_help_panel="Seeding",
     ),
@@ -646,7 +665,7 @@ def run(
     watch: bool = typer.Option(
         False,
         "--watch",
-        help="Watch the seed source and re-run the GA on every change (terminal only; no --json)",
+        help=WATCH_FILE_HELP,
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -699,7 +718,7 @@ def batch(
     tier: Literal["quick", "targeted", "normal", "thorough", "full"] = typer.Option(
         "targeted",
         "--tier",
-        help="Flag sweep tier: quick, targeted, normal, thorough, or full",
+        help=TIER_HELP,
         rich_help_panel="Search",
         metavar="TIER",
     ),
@@ -725,7 +744,7 @@ def batch(
         None,
         "--jobs",
         "-j",
-        help="Parallel jobs (default: from config)",
+        help=JOBS_HELP,
         rich_help_panel="GA Tuning",
     ),
     skip_recent_hours: int = typer.Option(
@@ -823,12 +842,7 @@ def batch(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
-    all_targets: bool = typer.Option(
-        False,
-        "--all-targets",
-        help="Run the selected search across every configured target",
-        rich_help_panel=None,
-    ),
+    all_targets: bool = AllTargetsOption,
 ) -> None:
     """Run matching over selected project functions."""
     if algorithm not in ("ga", "flags", "flags-then-ga"):
@@ -888,7 +902,7 @@ def flags(
     ),
     cflags: str | None = typer.Option(
         None,
-        help="Compiler flags (default: resolved metadata/config)",
+        help=CFLAGS_HELP,
         rich_help_panel="Build inputs",
     ),
     symbol: str | None = typer.Option(
@@ -904,19 +918,19 @@ def flags(
         rich_help_panel="Build inputs",
     ),
     target_size: int | None = typer.Option(
-        None, "--size", help="Target size (default: stored SIZE)", rich_help_panel="Build inputs"
+        None, "--size", help=SIZE_HELP, rich_help_panel="Build inputs"
     ),
     jobs: int | None = typer.Option(
         None,
         "--jobs",
         "-j",
-        help="Parallel jobs (default: from config)",
+        help=JOBS_HELP,
         rich_help_panel="Search",
     ),
     tier: Literal["quick", "targeted", "normal", "thorough", "full"] = typer.Option(
         "targeted",
         "--tier",
-        help="Flag sweep tier: quick, targeted, normal, thorough, or full",
+        help=TIER_HELP,
         rich_help_panel="Search",
         metavar="TIER",
     ),
@@ -959,7 +973,7 @@ def toolchains(
     seed_c: str | None = typer.Argument(..., metavar="source", help=SOURCE_HELP),
     cflags: str | None = typer.Option(
         None,
-        help="Compiler flags (default: resolved metadata/config)",
+        help=CFLAGS_HELP,
         rich_help_panel="Build inputs",
     ),
     symbol: str | None = typer.Option(
@@ -975,19 +989,19 @@ def toolchains(
         rich_help_panel="Build inputs",
     ),
     target_size: int | None = typer.Option(
-        None, "--size", help="Target size (default: stored SIZE)", rich_help_panel="Build inputs"
+        None, "--size", help=SIZE_HELP, rich_help_panel="Build inputs"
     ),
     jobs: int | None = typer.Option(
         None,
         "--jobs",
         "-j",
-        help="With --flags: parallel compiles (default: from config)",
+        help=f"{JOBS_HELP}. Requires --flags",
         rich_help_panel="Search",
     ),
     tier: Literal["quick", "targeted", "normal", "thorough", "full"] = typer.Option(
         "targeted",
         "--tier",
-        help="With --flags: quick, targeted, normal, thorough, or full",
+        help=f"{TIER_HELP}. Requires --flags",
         rich_help_panel="Search",
         metavar="TIER",
     ),

@@ -30,8 +30,8 @@ from rebrew.recommend import (
     recommend_next_action,
     recommend_orphans,
     recommend_shared_twins,
+    recommend_stale_addresses,
     recommend_stale_cache,
-    recommend_stale_markers,
     recommend_start_data,
     recommend_stub_sort,
     recommend_verify_failures,
@@ -380,7 +380,7 @@ class TestRound3Lanes:
             reversed_dir=tmp_path,
             metadata_dir=tmp_path,
             source_ext=".c",
-            marker="GAME",
+            module="GAME",
             target_name="GAME",
             ignored_symbols=(),
         )
@@ -421,12 +421,12 @@ class TestRound4Lanes:
         assert recommend_duplicate_globals([("a.c", "g_x")]) == []
 
     def test_stale_markers_groups_per_file(self) -> None:
-        recs = recommend_stale_markers([("a.c", "0x1000"), ("a.c", "0x1100")])
+        recs = recommend_stale_addresses([("a.c", "0x1000"), ("a.c", "0x1100")])
         assert len(recs) == 1
         assert recs[0].command == "rebrew lint a.c"
 
     def test_stale_markers_empty_is_silent(self) -> None:
-        assert recommend_stale_markers([]) == []
+        assert recommend_stale_addresses([]) == []
 
     def test_start_data_lists_unchecked(self) -> None:
         rec = recommend_start_data([("m", 0x2000, "g_a"), ("m", 0x2004, "g_b")])
@@ -513,5 +513,38 @@ class TestApplyDispatch:
         )
         _apply_safe(cfg, [rec], json_mode=True)
         assert len(calls) == 1
-        if kind != "shared-twins":
+        if kind == "shared-twins":
+            assert "--force" in calls[0]
+        else:
             assert calls[0][-2:] == ["--target", "SERVER"]
+
+    def test_failed_child_is_not_recorded_as_applied(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        import json
+
+        import typer
+        from typer.testing import CliRunner
+
+        from rebrew.recommend import Recommendation, _apply_safe
+
+        def invoke(self: Any, application: Any, args: list[str]) -> SimpleNamespace:
+            return SimpleNamespace(exit_code=2, exception=None)
+
+        monkeypatch.setattr(CliRunner, "invoke", invoke)
+        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER")
+        rec = Recommendation(
+            kind="lint-fixable",
+            cluster_id=0,
+            functions=[],
+            confidence=1.0,
+            command="rebrew lint --fix",
+            files=[],
+            applyable=True,
+        )
+        with pytest.raises(typer.Exit) as caught:
+            _apply_safe(cfg, [rec], json_mode=True)
+        assert caught.value.exit_code == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["applied"] == []
+        assert payload["failed"] == ["lint --fix (2)"]

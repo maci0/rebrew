@@ -6,7 +6,8 @@ unreferenced COMDAT code, so a member can be loaded only for its data: its
 ``.data``/``.bss`` still occupy the image and its undefined symbols still pull
 further members (``__imp_*`` references pull import-library members).  This
 command answers, per member: section names, sizes, alignment and COMDAT flag;
-external definitions with their section; COMMON (communal) data with its size;
+external definitions with their section; absolute symbols with their value;
+COMMON (communal) data with its size;
 weak aliases; and undefined references.  ``--refs`` and ``--defines`` invert
 that table for one symbol.
 
@@ -44,6 +45,7 @@ _SCN_CNT_UNINITIALIZED_DATA = 0x80
 _SCN_LNK_COMDAT = 0x1000
 _SCN_ALIGN_SHIFT = 20
 _SCN_ALIGN_MASK = 0xF
+_SYM_ABSOLUTE = -1
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -143,6 +145,10 @@ def inspect_coff(member: str, body: bytes) -> dict[str, Any]:
         if index > 0:
             section = sections[index - 1]["name"] if index <= len(sections) else None
             defined.append({"name": name, "section": section, "section_index": index})
+        elif index == _SYM_ABSOLUTE:
+            defined.append(
+                {"name": name, "section": None, "section_index": index, "value": int(sym.value)}
+            )
         elif index < 0:
             defined.append({"name": name, "section": None, "section_index": index})
         elif sym.value:
@@ -173,12 +179,18 @@ def inspect_archive(path: Path) -> list[dict[str, Any]]:
 
 
 def definitions_of(row: dict[str, Any], symbol: str) -> list[str]:
-    """How *row* defines *symbol*: ``section:<name>``, ``common``, ``alias``, ``import``."""
+    """How *row* defines *symbol*: section, absolute value, common, alias or import."""
     if row["kind"] == "import":
         return ["import"] if symbol in row["defines"] else []
     if row["kind"] != "coff":
         return []
-    found = [f"section:{d['section']}" for d in row["defined"] if d["name"] == symbol]
+    found = [
+        f"absolute:{d['value']:#x}"
+        if d["section_index"] == _SYM_ABSOLUTE
+        else f"section:{d['section']}"
+        for d in row["defined"]
+        if d["name"] == symbol
+    ]
     found += ["common" for c in row["common"] if c["name"] == symbol]
     found += ["alias" for a in row["aliases"] if a["name"] == symbol]
     return found
@@ -259,7 +271,15 @@ def _print_member(row: dict[str, Any]) -> None:
         align = s["align"] if s["align"] is not None else "-"
         _say(f"  #{s['index']:<3} {s['name']:<10} size 0x{s['size']:x} align {align} {flags}")
     for label, items in (
-        ("defined", [f"{d['name']} ({d['section']}#{d['section_index']})" for d in row["defined"]]),
+        (
+            "defined",
+            [
+                f"{d['name']} (absolute {d['value']:#x})"
+                if d["section_index"] == _SYM_ABSOLUTE
+                else f"{d['name']} ({d['section']}#{d['section_index']})"
+                for d in row["defined"]
+            ],
+        ),
         ("common", [f"{c['name']} (0x{c['size']:x})" for c in row["common"]]),
         ("aliases", [f"{a['name']} -> {a['target']}" for a in row["aliases"]]),
         ("undefined", row["undefined"]),
@@ -287,7 +307,7 @@ def main(
     defines: str | None = typer.Option(
         None,
         "--defines",
-        help="List the members that define SYMBOL (section, COMMON, alias, import); excludes --refs",
+        help="List the members that define SYMBOL (section, absolute, COMMON, alias, import); excludes --refs",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

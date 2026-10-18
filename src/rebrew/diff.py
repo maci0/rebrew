@@ -27,6 +27,7 @@ from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
     SOURCE_HELP,
+    WATCH_FILE_HELP,
     TargetOption,
     console,
     error_exit,
@@ -551,7 +552,7 @@ def main(
     watch: bool = typer.Option(
         False,
         "--watch",
-        help="Watch the seed source and re-diff on every change (terminal only; no --json)",
+        help=WATCH_FILE_HELP,
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

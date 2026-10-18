@@ -54,7 +54,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.compression import precompress
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, target_module
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
 from rebrew.formats.binary_loader import load_binary
 from rebrew.formats.import_table import find_import_stubs, parse_imports
@@ -64,11 +64,7 @@ from rebrew.metadata.bindings import (
     library_bindings_for_file,
     min_valid_va_for,
 )
-from rebrew.sources import (
-    iter_library_headers,
-    iter_sources,
-    target_marker,
-)
+from rebrew.sources import iter_library_headers, iter_sources
 from rebrew.status import StatusReport, collect_status
 from rebrew.status_style import (
     DISPLAY_STATUSES,
@@ -506,7 +502,7 @@ def _page(title: str, target: str, active: str, body: str) -> str:
 
 def _target_name(cfg: ProjectConfig) -> str:
     """Best-effort human-readable target name for page titles."""
-    return getattr(cfg, "target_name", "") or getattr(cfg, "marker", "") or "rebrew"
+    return getattr(cfg, "target_name", "") or getattr(cfg, "module", "") or "rebrew"
 
 
 def _display_name(ann: SourceBinding, src: Path) -> str:
@@ -561,7 +557,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     sources = iter_sources(reversed_path, cfg)
     for src, annos in iter_source_bindings(
         sources,
-        target=target_marker(cfg),
+        target=target_module(cfg),
         metadata_dir=metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):
@@ -682,9 +678,9 @@ def _render_index(
 ) -> list[tuple[str, str]]:
     """Render index.html (+ ``index-pN.html`` when the table exceeds one page)."""
     sc = report.status_counts
-    # One percentage. With a known .text size it is the byte share; the
-    # function figures stay counts. Without a size, the function share is
-    # the percentage and the byte card says the size was not measured.
+    # One percentage. With a known .text size the code-account card is that
+    # share and Byte-matched is a count. Without a size, Byte-matched carries
+    # the function share and the code-account card says the size was not measured.
     over_text_html = ""
     if report.total_text_bytes > 0:
         matched_card = f"{report.matched_functions}/{report.total_functions}"
@@ -700,8 +696,8 @@ def _render_index(
                 counted += f" plus {report.padding_bytes} bytes of alignment fill"
             text_card = "100%+"
             over_text_html = (
-                f"<p class='note'>Byte coverage counts {counted}, more than the "
-                f"{report.total_text_bytes}-byte .text section, so byte coverage "
+                f"<p class='note'>The code account counts {counted}, more than the "
+                f"{report.total_text_bytes}-byte .text section, so it "
                 "is shown as 100%+. Re-run <code>rebrew coverage export --output snapshots/</code> if the "
                 "SIZE fields are stale.</p>"
             )
@@ -709,7 +705,8 @@ def _render_index(
             text_card = f"{report.byte_coverage_pct}%"
     else:
         matched_card = (
-            f"{report.matched_functions}/{report.total_functions} ({report.matched_pct}%)"
+            f"{report.matched_functions}/{report.total_functions}"
+            f" ({report.matched_pct}% of functions)"
         )
         text_card = "n/a"
     cards: list[tuple[str, str]] = [
@@ -719,7 +716,7 @@ def _render_index(
         ("PROVEN", str(sc.get("PROVEN", 0))),
         ("NEAR_MATCHING", str(sc.get("NEAR_MATCHING", 0))),
         ("STUB", str(sc.get("STUB", 0))),
-        ("Of .text", text_card),
+        ("Code account", text_card),
     ]
     # Any non-standard statuses (MISMATCH, COMPILE_ERROR, ...) get their own card.
     standard = set(DISPLAY_STATUSES)
@@ -1438,11 +1435,11 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     from rebrew.workspace.status import FUZZY_STATUSES, MATCHED_STATUSES
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
-    marker = target_marker(cfg)
+    target_module_name = target_module(cfg)
     annos_by_file: list[tuple[str, list[Any]]] = []
     for path, annos in iter_source_bindings(
         sources,
-        target=marker,
+        target=target_module_name,
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):
@@ -1628,7 +1625,7 @@ _EPILOG = (
     "                                            report.json for decomp.dev\n\n"
     "  rebrew coverage report --json  # Machine-readable summary\n\n"
     "[dim]Generates a self-contained static HTML site (function index, strings, "
-    "imports, call graph) with all styling inlined — no external assets.  "
+    "imports, call graph) with all styling inlined, no external assets.  "
     "Long tables paginate; a call graph over 32 KB of Mermaid moves to "
     "callgraph.mmd.  `--decomp-dev` instead emits the objdiff report v2 JSON "
     "the decomp.dev progress hub ingests from a GitHub Actions artifact.[/dim]"

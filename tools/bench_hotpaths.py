@@ -130,7 +130,7 @@ def bench_catalog_grid() -> dict[str, Any]:
             'arch = "x86_32"\n'
             'reversed_dir = "src/SERVER"\n'
             'bin_dir = "bin/SERVER"\n'
-            'marker = "SERVER"\n\n'
+            'module = "SERVER"\n\n'
             "[compiler]\n"
             'profile = "mingw-16.2.0"\n'
             'command = "i686-w64-mingw32-gcc"\n'
@@ -403,7 +403,7 @@ def bench_status_aggregation() -> dict[str, Any]:
             arch="x86_32",
             root=root,
             reversed_dir=src_dir,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
 

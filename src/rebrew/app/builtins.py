@@ -25,6 +25,12 @@ from rebrew.cli import console
 DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     "source": (
         CliComponent(
+            name="consolidate",
+            module="rebrew.source_consolidate",
+            help="Fold source evidence into the format-3 function metadata store.",
+            panel="",
+        ),
+        CliComponent(
             name="organize",
             module="rebrew.source_organize",
             is_group=True,

@@ -127,6 +127,30 @@ def _run(args: list[str]) -> dict[str, Any]:
 
 
 class TestListing:
+    @pytest.mark.parametrize("value", [0, 0x12345678])
+    def test_absolute_symbol_is_not_section_storage(self, tmp_path: Path, value: int) -> None:
+        lib = tmp_path / "absolute.lib"
+        body = _coff([(".text", b"\xc3", _TEXT_COMDAT)], [("__except_list", value, -1, _EXTERNAL)])
+        lib.write_bytes(make_lib_archive([("absolute.obj", body)]))
+        row = _run([str(lib)])["members"][0]
+        assert row["defined"] == [
+            {
+                "name": "__except_list",
+                "section": None,
+                "section_index": -1,
+                "value": value,
+            }
+        ]
+        assert row["undefined"] == []
+        assert row["common"] == []
+        assert _run([str(lib), "--defines", "__except_list"])["members"] == [
+            {"member": "absolute.obj", "how": f"absolute:{value:#x}"}
+        ]
+        result = CliRunner().invoke(app, ["library", "inspect", str(lib)])
+        assert result.exit_code == 0
+        assert f"__except_list (absolute {value:#x})" in result.output
+        assert "None#-1" not in result.output
+
     def test_coff_member_sections_and_symbols(self, tmp_path: Path) -> None:
         out = _run([str(_write_lib(tmp_path)), "--member", "mbctype.obj"])
         assert out["count"] == 1

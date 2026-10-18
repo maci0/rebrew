@@ -32,6 +32,18 @@ import typer
 from typer.models import OptionInfo
 
 from rebrew.app.builtins import BUILTIN_COMPONENTS
+from rebrew.cli import (
+    ALL_ITEMS_HELP_SUFFIX,
+    ALL_TARGETS_HELP,
+    BUILT_IMAGE_HELP,
+    CREATE_MISSING_HELP,
+    EXPECTED_DIGEST_HELP,
+    JOBS_HELP,
+    MIN_STRING_LEN_HELP,
+    NO_CACHE_HELP,
+    WATCH_FILE_HELP,
+    WATCH_TREE_HELP,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_ROOT = ROOT / "src" / "rebrew"
@@ -46,6 +58,7 @@ VA_HELP_ALLOWED = frozenset(
         "Disambiguate VA in a multi-function file (hex)",
         # Class B: direct VA selection, default from the file's annotation.
         "Target VA in hex (default: from metadata)",
+        "Target VA in hex (default: from metadata). Excludes --all.",
         # Class C: kept distinct — bulk/artifact scoping, not target selection.
         "VA in hex (e.g. 0x10009310)",
         "Check a single function VA (hex) instead of the whole .text",
@@ -120,6 +133,85 @@ class TestSharedOptionHelp:
                 if "--jobs" in (option.param_decls or []) and "-j" not in option.param_decls:
                     bad.append((component, command, name))
         assert not bad, f"--jobs must keep its -j short form: {bad}"
+
+    def test_selection_flags_keep_one_meaning(self) -> None:
+        """``--all``, ``--all-targets``, and ``--no-cache`` each name one axis.
+
+        clispec asks for one flag name per idea. ``--all`` is every eligible
+        item in the selected target. ``--all-targets`` repeats the command.
+        ``verify --no-cache`` skips saved verdicts for functions already selected.
+        """
+        item_bad = []
+        target_bad = []
+        full_bad = []
+        cache_bad = []
+        for comp, cmd, fn in _command_functions():
+            for opt in _options(fn).values():
+                decls = set(opt.param_decls or [])
+                help_text = opt.help or ""
+                where = (comp, cmd, help_text)
+                if "--all" in decls and not (
+                    help_text.startswith("Every ") and help_text.endswith(ALL_ITEMS_HELP_SUFFIX)
+                ):
+                    item_bad.append(where)
+                if "--all-targets" in decls and help_text != ALL_TARGETS_HELP:
+                    target_bad.append(where)
+                if "--full" in decls:
+                    full_bad.append(where)
+                if "--no-cache" in decls and help_text != NO_CACHE_HELP:
+                    cache_bad.append(where)
+        assert not item_bad, f"--all help drifted: {item_bad}"
+        assert not target_bad, f"--all-targets help drifted: {target_bad}"
+        assert not full_bad, f"--full is not a selection flag: {full_bad}"
+        assert not cache_bad, f"--no-cache help drifted: {cache_bad}"
+
+    def test_no_cache_help_distinguishes_result_and_object_caches(self) -> None:
+        """Fresh verification can reuse compiled objects; help must say so."""
+        assert "verification-result cache" in NO_CACHE_HELP
+        assert "compiler-object cache" in NO_CACHE_HELP
+        assert "Recompile every" not in NO_CACHE_HELP
+
+    def test_repeated_flags_share_one_sentence(self) -> None:
+        """The same flag spells the same help when it does the same job."""
+        allowed = {
+            "--expected-digest": {EXPECTED_DIGEST_HELP},
+            "--create-missing": {CREATE_MISSING_HELP},
+            "--jobs": {
+                JOBS_HELP,
+                f"{JOBS_HELP}. Requires --all",
+                f"{JOBS_HELP}. Requires --flags",
+            },
+            "--built": {BUILT_IMAGE_HELP},
+            "--watch": {WATCH_FILE_HELP, WATCH_TREE_HELP},
+            "--min-len": {MIN_STRING_LEN_HELP},
+        }
+        bad = []
+        for comp, cmd, fn in _command_functions():
+            for opt in _options(fn).values():
+                for flag, helps in allowed.items():
+                    if flag in (opt.param_decls or []) and (opt.help or "") not in helps:
+                        bad.append((comp, cmd, flag, opt.help))
+        assert not bad, f"shared flag help drifted: {bad}"
+
+    def test_test_scope_flags_require_all(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import typer
+
+        from rebrew.test import main
+
+        monkeypatch.setattr("rebrew.test.require_config", lambda **_kwargs: object())
+        for kwargs in ({"batch_dir": "src"}, {"origin": "GAME"}, {"jobs": 2}):
+            with pytest.raises(typer.Exit) as caught:
+                main(
+                    source=None,
+                    all_sources=False,
+                    context=None,
+                    watch=False,
+                    all_targets=False,
+                    source_targets=False,
+                    json_output=True,
+                    **kwargs,
+                )
+            assert caught.value.exit_code == 2
 
     def test_json_help_is_uniform(self) -> None:
         bad = []
@@ -640,25 +732,37 @@ class TestScriptDispatch:
 class TestComposedHelp:
     """Nested help and examples must remain usable after route migrations."""
 
-    def test_every_route_renders_help_and_version(self) -> None:
-        from typer.testing import CliRunner
+    def test_every_route_renders_help_and_version(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from click.testing import CliRunner
 
         from rebrew.app.main import app
 
+        builds: list[int] = []
+        real_get_command = typer.main.get_command
+
+        def _count_builds(typer_instance: Any) -> Any:
+            builds.append(1)
+            return real_get_command(typer_instance)
+
+        monkeypatch.setattr(typer.main, "get_command", _count_builds)
         command = typer.main.get_command(app)
         pending = [((), command)]
         runner = CliRunner()
         while pending:
             path, current = pending.pop()
-            result = runner.invoke(app, [*path, "--help"], env={"COLUMNS": "200"})
+            result = runner.invoke(command, [*path, "--help"], env={"COLUMNS": "200"})
             assert result.exit_code == 0, (path, result.output)
             assert "Examples:" in result.output, path
             assert "Exit codes:" in result.output, path
-            version = runner.invoke(app, [*path, "--version"])
+            version = runner.invoke(command, [*path, "--version"])
             assert version.exit_code == 0, (path, version.output)
             assert version.stdout.startswith("rebrew "), path
             for name, child in getattr(current, "commands", {}).items():
                 pending.append(((*path, name), child))
+        # Typer rebuilds the click tree, and re-inspects every callback, on each
+        # CliRunner.invoke. One build serves every route. The count does not
+        # move when the machine is busy.
+        assert builds == [1]
 
     def test_help_examples_name_real_operations_flags_and_required_arguments(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -167,8 +167,9 @@ class TestTemplateRendering:
         result = DEFAULT_REBREW_TOML.format(
             project_name="myproject",
             target_name="game.exe",
+            module_name="GAME",
             binary_name="game.exe",
-            marker="GAME",
+            module="GAME",
             compiler_profile="msvc-6.0",
             compiler_command="wine CL.EXE",
             compiler_includes="tools/include",
@@ -187,7 +188,7 @@ class TestTemplateRendering:
             project_name="test",
             target_name="t",
             binary_name="t.exe",
-            marker="T",
+            module="T",
             compiler_profile="msvc-6.0",
             compiler_command="cl",
             compiler_includes="inc",
@@ -206,6 +207,7 @@ class TestTemplateRendering:
         result = template.format(
             project_name="myproject",
             target_name="game.exe",
+            module_name="GAME",
             binary_name="game.exe",
             binary_format="pe",
             arch="x86_32",
@@ -737,7 +739,7 @@ class TestInitTemplate:
             project_name="p",
             target_name="t",
             binary_name="t.dll",
-            marker="T",
+            module="T",
             compiler_profile="msvc-6.0",
             compiler_command="",
             compiler_includes="inc",
@@ -771,7 +773,7 @@ class TestInitTemplate:
             project_name="p",
             target_name="t",
             binary_name="t.dll",
-            marker="T",
+            module="T",
             compiler_profile="msvc-6.0",
             compiler_command="",
             compiler_includes="inc",
@@ -1881,3 +1883,16 @@ class TestRefreshAgentsPrunesStaleSkills:
 
         self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
         assert outside.read_text(encoding="utf-8") == "keep me\n"
+
+
+def test_refresh_address_example_uses_configured_module(tmp_path: Path) -> None:
+    from rebrew.init import _refresh_agents
+
+    config = tmp_path / "rebrew-project.toml"
+    config.write_text(
+        '[targets."server.dll"]\nbinary = "server.dll"\nmodule = "SERVER"\n[compiler]\nprofile = "msvc-6.0"\n'
+    )
+    _refresh_agents(tmp_path, config, json_output=False)
+    text = (tmp_path / "AGENTS.md").read_text()
+    assert "/* ADDRESS: SERVER 0x10001234 */" in text
+    assert "/* ADDRESS: server.dll " not in text

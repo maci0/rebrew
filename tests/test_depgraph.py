@@ -60,7 +60,7 @@ class TestExtractCallees:
 class TestBuildGraph:
     def _cfg(self, d) -> SimpleNamespace:
         """Minimal cfg so build_graph overlays the per-dir metadata."""
-        return SimpleNamespace(metadata_dir=d, marker=None, source_ext=".c", shared_dir=None)
+        return SimpleNamespace(metadata_dir=d, module=None, source_ext=".c", shared_dir=None)
 
     def _make_c_file(self, d, name, va, status, origin, externs=None) -> None:
         """Helper to create a minimal .c file with annotations."""

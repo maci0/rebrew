@@ -167,7 +167,7 @@ class TestFetchXrefContext:
 class TestSkeletonWithXrefs:
     def _cfg(self) -> ProjectConfig:
         cfg = ProjectConfig(root=Path("/tmp"))
-        cfg.marker = "SERVER"
+        cfg.module = "SERVER"
         cfg.cflags_presets = {"GAME": "/O2 /Gd"}
         return cfg
 

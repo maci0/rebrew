@@ -1,4 +1,4 @@
-"""Locked format-2 function identity, state, provenance and verification store.
+"""Locked format-3 function identity, state, provenance and verification store.
 
 All fields belong in rebrew-functions.toml at cfg.metadata_dir. Source accepts
 only optional declaration-bound addresses. Granular writes validate the current
@@ -21,7 +21,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import tomlkit
@@ -29,20 +29,22 @@ import tomlkit
 from rebrew.config import METADATA_FILENAME
 from rebrew.errors import RebrewError
 from rebrew.metadata.document import (
+    FUNCTION_FORMAT_VERSION,
     MetadataDocCache,
     build_metadata_doc,
     build_metadata_key_index,
     clear_metadata_doc_cache,
     load_metadata_doc,
     load_metadata_for_write,
+    metadata_format,
     metadata_write_lock,
     pop_metadata_doc_cache,
     resolve_metadata_key,
     stamp_format,
 )
+from rebrew.metadata.source_schema import validate_identity_file
 from rebrew.utils import (
     atomic_write_locked,
-    load_toml_for_write_strict,
     read_toml_text,
     resolved_path,
     toml_safe,
@@ -234,6 +236,9 @@ _RESOLVED_METADATA_PATHS_LOCK = threading.Lock()
 
 def _resolved_metadata_path(directory: str) -> Path:
     """``<directory>/rebrew-functions.toml`` resolved, memoized per directory."""
+    # Relative roots change meaning after chdir; absolute avoids repeating
+    # the expensive symlink resolution while keeping projects independent.
+    directory = str(Path(directory).absolute())
     with _RESOLVED_METADATA_PATHS_LOCK:
         hit = _RESOLVED_METADATA_PATHS.get(directory)
         if hit is not None:
@@ -286,6 +291,7 @@ def load_metadata(
     # with an lstat.  A symlink re-pointed mid-process is the only way the
     # answer changes, and the doc cache re-stats the file on every read.
     path = _resolved_metadata_path(str(dir_path))
+    metadata_format(path)
     if not path.exists():
         pop_metadata_doc_cache(_metadata_cache, path)
         return {}
@@ -324,7 +330,7 @@ def save_metadata(
     dir_path = resolve_metadata_dir(directory)
     path = (dir_path / METADATA_FILENAME).resolve()
     safe = {key: {f: toml_safe(v) for f, v in entry.items()} for key, entry in data.items()}
-    doc = build_metadata_doc(safe, _CANONICAL_ORDER)
+    doc = build_metadata_doc(safe, _CANONICAL_ORDER, version=FUNCTION_FORMAT_VERSION)
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         if expected_hash != "":
             import hashlib
@@ -332,8 +338,10 @@ def save_metadata(
             current = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
             if current != expected_hash:
                 raise ValueError(f"{path} changed since its rows were reviewed")
-        load_toml_for_write_strict(path, "metadata")
-        stamp_format(doc)
+        current_doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
+        if "source" in current_doc:
+            doc["source"] = current_doc["source"]
+        stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -596,7 +604,7 @@ def _set_field(
         entry[key] = safe
         if updated_by:
             stamp_provenance(entry, updated_by, now=now)
-        stamp_format(doc)
+        stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -631,28 +639,6 @@ PROVENANCE_TAGS: frozenset[str] = frozenset(
         "verify",
     }
 )
-
-
-def validate_identity_file(value: str) -> str:
-    """Return *value* when it is a project-relative source path.
-
-    The stored ``file`` identity is joined onto a project root by several
-    consumers (``verify`` compiles it, ``rename`` rewrites it, BinSync reads
-    it), and an absolute path or ``..`` segment makes that join read whatever
-    the file's author chose (``docs/THREAT_MODEL.md`` records the exposure).
-    Rejecting it at the one write gate keeps a cloned project's metadata from
-    naming a path outside the clone.  An empty value stays empty: a row
-    without identity is legal, and ``record_function_rows`` skips it.
-    """
-    text = str(value).strip()
-    if not text:
-        return ""
-    normalised = text.replace("\\", "/")
-    if normalised.startswith("/") or (len(normalised) > 1 and normalised[1] == ":"):
-        raise ValueError(f"file {value!r} must be relative to the project, not absolute")
-    if ".." in PurePosixPath(normalised).parts:
-        raise ValueError(f"file {value!r} must not escape the project with '..'")
-    return text
 
 
 def stamp_provenance(
@@ -721,7 +707,7 @@ def set_fields(
         if changed:
             if updated_by:
                 stamp_provenance(entry, updated_by, now=now)
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
             pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -799,7 +785,7 @@ def set_fields_batch(
                 stamp_provenance(entry, tag, now=now)
             changed_entries += 1
         if changed_entries:
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed_entries
@@ -917,10 +903,38 @@ def import_status_history(
                 entry["status_history"] = merged
                 changed += 1
         if changed and not dry_run:
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
             pop_metadata_doc_cache(_metadata_cache, path)
     return changed
+
+
+def _identity_updates(
+    entry: dict[str, Any],
+    identity: Any,
+    *,
+    overwrite_name: bool,
+) -> dict[str, Any]:
+    """Identity keys to write, using :func:`record_function_rows`' rules.
+
+    Empty values are skipped. ``name`` is left alone when the row already has
+    one, unless ``overwrite_name``. A retired binding is not rewritten here.
+    """
+    if not identity:
+        return {}
+    from rebrew.metadata.binding_history import retired_binding
+
+    if retired_binding(entry):
+        raise ValueError("retired source bindings require an explicit reviewed rebind")
+    updates: dict[str, Any] = {}
+    for key, value in identity.items():
+        if key not in FUNCTION_IDENTITY_FIELDS:
+            raise ValueError(f"unknown function identity field {key!r}")
+        if value and not (key == "name" and entry.get("name") and not overwrite_name):
+            stored = validate_identity_file(str(value)) if key == "file" else str(value)
+            if stored:
+                updates[key] = toml_safe(stored)
+    return updates
 
 
 def record_function_rows(
@@ -970,17 +984,9 @@ def record_function_rows(
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
                 updates[key] = toml_safe(validate_metadata_field(key, value))
-            from rebrew.metadata.binding_history import retired_binding
-
-            if row.get("identity") and retired_binding(entry):
-                raise ValueError("retired source bindings require an explicit reviewed rebind")
-            for key, value in (row.get("identity") or {}).items():
-                if key not in FUNCTION_IDENTITY_FIELDS:
-                    raise ValueError(f"unknown function identity field {key!r}")
-                if value and not (key == "name" and entry.get("name") and not overwrite_name):
-                    stored = validate_identity_file(str(value)) if key == "file" else str(value)
-                    if stored:
-                        updates[key] = toml_safe(stored)
+            updates.update(
+                _identity_updates(entry, row.get("identity"), overwrite_name=overwrite_name)
+            )
             row_changed = False
             for key, value in updates.items():
                 if entry.get(key) != value:
@@ -990,7 +996,7 @@ def record_function_rows(
             if updated_by and row_changed:
                 stamp_provenance(entry, updated_by)
         if changed:
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -1148,7 +1154,7 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
             if changed:
                 changed_entries += 1
         if changed_entries:
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed_entries
@@ -1185,7 +1191,7 @@ def delete_entries_batch(metadata_dir: Path | str | Any, targets: list[tuple[str
             key_index.pop((norm_mod, va_int), None)
             removed += 1
         if removed:
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return removed
@@ -1220,7 +1226,7 @@ def _mutate_entry_doc(
             return False
         if not mutate(doc_dict, toml_key):
             return False
-        stamp_format(doc)
+        stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
         return True
@@ -1517,8 +1523,12 @@ def update_statuses_batch(
     *updates*: list of dicts with keys ``module``, ``va``, ``new_status``
     and optional ``clear_blockers`` (default True), ``force`` (default
     False), ``updated_by`` (provenance tag; when set, also records
-    ``updated_at``), and ``fields`` (non-STATUS fields applied in the same
-    atomic write, even if STATUS stays parked). Returns the number of entries
+    ``updated_at``), ``fields`` (non-STATUS fields applied in the same
+    atomic write, even if STATUS stays parked), and ``identity`` (keys from
+    :data:`FUNCTION_IDENTITY_FIELDS`, same empty-value and ``overwrite_name``
+    rules as :func:`record_function_rows`; ``overwrite_name`` on the row
+    defaults false). Identity, the verdict, and fields land in one write.
+    Returns the number of entries
     written, including a same-status write that stripped a stale blocker or
     changed associated fields. *now* fixes that
     one instant for every row the batch stamps, so a replay lands the same
@@ -1575,6 +1585,16 @@ def update_statuses_batch(
             if retired_binding(entry):
                 raise ValueError("a retired source binding cannot receive a comparison verdict")
 
+            identity_changed = False
+            for key, value in _identity_updates(
+                entry,
+                u.get("identity"),
+                overwrite_name=bool(u.get("overwrite_name", False)),
+            ).items():
+                if entry.get(key) != value:
+                    entry[key] = value
+                    identity_changed = True
+
             clear_blockers = u.get("clear_blockers", True)
             force = u.get("force", False)
 
@@ -1589,7 +1609,7 @@ def update_statuses_batch(
                 or force
                 or should_promote_status(current_status, new_status)
             )
-            row_changed = bool(status_change)
+            row_changed = bool(status_change) or identity_changed
             if status_change:
                 if current_status and current_status != new_status:
                     event = _history_event(
@@ -1638,7 +1658,7 @@ def update_statuses_batch(
 
         # Single write for the whole batch
         if changed:
-            stamp_format(doc)
+            stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed
@@ -1655,7 +1675,7 @@ def merge_into_binding(ann: SourceBinding, directory: Path | str | Any) -> Sourc
     The metadata wins for every field it defines.
 
     Lookup uses the qualified key ``(ann.module, ann.va)``.  Multi-target
-    ``.c`` files (with multiple ``// FUNCTION: MODULE 0xVA`` markers) each
+    ``.c`` files (with multiple ``// ADDRESS: MODULE 0xVA`` anchors) each
     receive their own metadata entry and are merged in isolation.
 
     Args:

@@ -167,13 +167,13 @@ def _built_va(name: str, fields: dict[str, Any], built_symbols: dict[str, int]) 
 def link_map_symbols(text: str) -> dict[str, int]:
     """Data symbol name -> VA from an MSVC link map; the first row of a name wins.
 
-    Functions are left out: a data row never names code, and a function that
-    shares a data row's name would otherwise give it a code address.
+    Functions are left out: a data row never names code. Import slots are
+    included for placement, independently of static archive storage ownership.
     """
     from rebrew.data_ownership import parse_link_map
 
     out: dict[str, int] = {}
-    for sym in parse_link_map(text):
+    for sym in parse_link_map(text, include_imports=True):
         if not sym.is_function:
             out.setdefault(sym.name, sym.va)
     return out

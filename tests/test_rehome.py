@@ -21,11 +21,11 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
     (tmp_path / "src").mkdir(exist_ok=True)
     write_store_fixture(
         tmp_path / "rebrew-functions.toml",
-        'format = 2\n["SERVER.0x1000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a.c"\nkind = "FUNCTION"\n',
+        'format = 3\n["SERVER.0x1000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a.c"\nkind = "FUNCTION"\n',
         encoding="utf-8",
     )
     return SimpleNamespace(
-        root=tmp_path, metadata_dir=tmp_path, marker="SERVER", target_name="SERVER"
+        root=tmp_path, metadata_dir=tmp_path, module="SERVER", target_name="SERVER"
     )
 
 
@@ -59,7 +59,7 @@ def test_binds_row_to_named_definition(tmp_path: Path) -> None:
     meta = tmp_path / "rebrew-functions.toml"
     write_store_fixture(
         meta,
-        'format = 2\n["SERVER.0x1000"]\nname = "fcn_00001000"\nsymbol = "_fcn_00001000@8"\nfile = "src/a.c"\nkind = "FUNCTION"\n',
+        'format = 3\n["SERVER.0x1000"]\nname = "fcn_00001000"\nsymbol = "_fcn_00001000@8"\nfile = "src/a.c"\nkind = "FUNCTION"\n',
         encoding="utf-8",
     )
     (tmp_path / "src" / "shared.c").write_text(
@@ -93,7 +93,7 @@ format = "pe"
 arch = "x86_32"
 reversed_dir = "src"
 source_ext = ".c"
-marker = "SERVER"
+module = "SERVER"
 
 [compiler]
 profile = "mingw-16.2.0"
@@ -101,7 +101,7 @@ command = "i686-w64-mingw32-gcc"
 cflags = "-O2"
 """
 
-_FUNCTIONS_TOML = 'format = 2\n["SERVER.0x1000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a/x.c"\nkind = "FUNCTION"\nstatus = "EXACT"\n\n["CLIENT.0x5000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a/x.c"\nkind = "FUNCTION"\n\n["SERVER.0x2000"]\nname = "other"\nsymbol = "_other"\nfile = "src/a/z.c"\nkind = "FUNCTION"\n'
+_FUNCTIONS_TOML = 'format = 3\n["SERVER.0x1000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a/x.c"\nkind = "FUNCTION"\nstatus = "EXACT"\n\n["CLIENT.0x5000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a/x.c"\nkind = "FUNCTION"\n\n["SERVER.0x2000"]\nname = "other"\nsymbol = "_other"\nfile = "src/a/z.c"\nkind = "FUNCTION"\n'
 
 _DATA_TOML = 'format = 2\n["SERVER.0x3000"]\nname = "g_count"\nfile = "src/a/x.c"\n\n["SERVER.0x4000"]\nname = "g_other"\nfile = "src/a/z.c"\n'
 

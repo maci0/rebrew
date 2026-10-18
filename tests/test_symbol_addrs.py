@@ -31,15 +31,15 @@ TEXT_VA = 0x1000
 
 
 def _fake_ann(
-    va: int, name: str, marker: str = "FUNCTION", symbol: str = "", size: int = 0
+    va: int, name: str, module: str = "FUNCTION", symbol: str = "", size: int = 0
 ) -> SimpleNamespace:
     return SimpleNamespace(
         va=va,
         name=name,
         symbol=symbol,
-        kind=marker,
+        kind=module,
         size=size,
-        is_data=marker in ("GLOBAL", "DATA"),
+        is_data=module in ("GLOBAL", "DATA"),
     )
 
 
@@ -56,7 +56,7 @@ def _patch(
         root=tmp_path,
         target_name="T",
         metadata_dir=tmp_path,
-        marker="T",
+        module="T",
         source_ext=".c",
     )
     cfg.reversed_dir.mkdir(exist_ok=True)
@@ -123,8 +123,8 @@ class TestSymbolAddrs:
             tmp_path,
             [
                 _fake_ann(0x1000, "func_a"),
-                _fake_ann(0x2000, "", marker="GLOBAL"),  # excluded (marker)
-                _fake_ann(0x3000, "", marker="FUNCTION"),  # excluded (unnamed)
+                _fake_ann(0x2000, "", module="GLOBAL"),  # excluded (marker)
+                _fake_ann(0x3000, "", module="FUNCTION"),  # excluded (unnamed)
             ],
         )
         out = tmp_path / "symbol_addrs.csv"

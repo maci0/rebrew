@@ -14,11 +14,11 @@ default_target = "server"
 [targets.server]
 binary = "server.dll"
 reversed_dir = "src"
-marker = "SERVER"
+module = "SERVER"
 [targets.client]
 binary = "client.exe"
 reversed_dir = "src"
-marker = "CLIENT"
+module = "CLIENT"
 """)
         source = tmp_path / "src"
         source.mkdir()

@@ -18,11 +18,14 @@ pinned docker image).
 ## Bootstrap (clean clone)
 
 Needs **uv** (CI pins `uv-version` in `.github/actions/uv-env/action.yml`,
-currently `0.12.14`), **Python 3.13+** (see `.python-version`), **nasm** on `PATH`
+currently `0.13.1`), **Python 3.13+** (see `.python-version`), **nasm** on `PATH`
 (CI installs nasm for asm round-trip tests), and **bun** on `PATH` (the
 `tests/dashboard_*.mjs` interaction tests skip without it, so a host with no
 bun cannot run the dashboard JS exercised by CI; `make test` fails on a
-missing bun, while `make test-one` only warns).
+missing bun, while `make test-one` only warns). Native runner tests also need
+**cc**, **pkg-config** and **json-c development files**; on Debian/Ubuntu install
+`build-essential pkg-config libjson-c-dev`. `make test`, `make coverage` and
+`make doctor` check these before running the suite.
 `make clone-resembl` also needs
 **bash**: it runs `tools/ci_clone_resembl.sh`, and the target says so instead of
 printing `bash: not found`.  **shellcheck** is optional locally
@@ -37,7 +40,7 @@ CI job uses) into `~/.cache/rebrew/vnu` and prints the `export PATH=` line to
 eval.  `uv sync` also
 needs the sibling
 [`resembl`](https://github.com/maci0/resembl) checkout at `../resembl`: the
-path pin in `pyproject.toml` / `uv.lock` (tag `v3.2.0`, same as CI's
+path pin in `pyproject.toml` / `uv.lock` (tag `v3.3.1`, same as CI's
 `resembl-ref`).  Without it, sync fails with a cryptic “Distribution not found”
 path error; `make setup` fails closed if `uv` is missing, if `../resembl`'s
 `version` does not match `RESEMBL_REF`, or if that checkout's `HEAD` is not
@@ -51,7 +54,7 @@ commit cannot be checked.
 git clone https://github.com/maci0/rebrew.git
 cd rebrew
 make doctor                   # report every missing prerequisite, with the fix for each
-make clone-resembl            # clones sibling resembl pin (tag v3.2.0) into ../resembl
+make clone-resembl            # clones sibling resembl pin (tag v3.3.1) into ../resembl
 make setup                    # uv sync --locked --all-extras --group similarity + pre-commit/pre-push hooks
 make vnu                      # optional: the W3C HTML gate skips without it, CI runs it
 make test-one T=tests/test_annotation.py   # smoke the edit-test loop
@@ -59,14 +62,14 @@ make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 
 `make doctor` is read-only and runs every preflight the other targets use (uv
 and its version, the sibling `../resembl` checkout, bash, nasm, bun, shellcheck,
-yamllint, vnu, and
+yamllint, vnu, cc/pkg-config/json-c, and
 the `prove` extra / `similarity` group in `.venv`), so a host missing several of
 them sees all of them at once instead of one failed target at a time.  It
 separates the two that the next two bootstrap steps install (`../resembl` and
 the venv extras) from a host tool the bootstrap cannot install, so on a clean
 clone it exits 0 and prints `make clone-resembl` / `make setup` as the next
-step, and it exits non-zero only for a missing uv, bash, nasm or bun.  Every
-line still prints its own fix.  The
+step, and it exits non-zero only for a missing uv, bash, nasm, bun or native
+runner build prerequisites. Every line still prints its own fix. The
 checks still guard their own targets: a missing nasm surfaces at `make test`
 whether or not `make doctor` was run.
 
@@ -169,7 +172,7 @@ Python SDK examples belong in [PYTHON_API.md](docs/PYTHON_API.md), not the READM
 
 ## Versioning and releases
 
-Rebrew is 4.x.  From `1.0.0` the CLI command names and the config schema are
+Rebrew is 5.x.  From `1.0.0` the CLI command names and the config schema are
 frozen: removing or renaming a command/flag, or changing a config key's
 meaning, takes a major version bump and a `**Breaking:**` changelog entry.
 On-disk format bumps (`coverage-<target>.toml` `version`, compile-cache schema)

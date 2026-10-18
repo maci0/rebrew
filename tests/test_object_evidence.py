@@ -35,7 +35,7 @@ def _project(
     binary = tmp_path / "native.exe"
     binary.write_bytes(make_pe(native))
     cfg = ProjectConfig(
-        root=tmp_path, reversed_dir=tmp_path / "src", target_binary=binary, marker="GAME"
+        root=tmp_path, reversed_dir=tmp_path / "src", target_binary=binary, module="GAME"
     )
     cfg.reversed_dir.mkdir()
     object_path = tmp_path / "helper.obj"

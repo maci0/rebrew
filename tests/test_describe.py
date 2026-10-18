@@ -32,7 +32,7 @@ default_target = "game"
 
 [targets.game]
 binary = "game.exe"
-marker = "GAME"
+module = "GAME"
 reversed_dir = "src"
 [compiler]
 profile = "msvc-6.0"
@@ -49,7 +49,7 @@ _PROBE_C = SourceFixture(
 )
 
 _PROBE_META = (
-    'format = 2\n["GAME.0x00401000"]\nstatus = "EXACT"\n\n["GAME.0x00401034"]\nstatus = "STUB"\n'
+    'format = 3\n["GAME.0x00401000"]\nstatus = "EXACT"\n\n["GAME.0x00401034"]\nstatus = "STUB"\n'
 )
 
 _FUNCTIONS_TXT = """\

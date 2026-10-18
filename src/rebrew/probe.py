@@ -24,6 +24,8 @@ from typing import Any
 import typer
 
 from rebrew.cli import (
+    CFLAGS_HELP,
+    SIZE_HELP,
     SOURCE_HELP,
     TargetOption,
     console,
@@ -72,12 +74,8 @@ def matched_reloc_count(ref_raw: bytes, cand: bytes, relocs: set[int], size: int
 def main(
     source: str = typer.Argument(..., help=SOURCE_HELP),
     va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
-    size: int | None = typer.Option(
-        None, "--size", help="Target size in bytes (default: from metadata)"
-    ),
-    cflags: str | None = typer.Option(
-        None, "--cflags", help="Compiler flags (default: from metadata)"
-    ),
+    size: int | None = typer.Option(None, "--size", help=SIZE_HELP),
+    cflags: str | None = typer.Option(None, "--cflags", help=CFLAGS_HELP),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:

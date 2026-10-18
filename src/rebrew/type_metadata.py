@@ -263,7 +263,7 @@ def bind_type(
     directory = cfg.metadata_dir.resolve()
     file = (directory / file).resolve()
     relative = file.relative_to(directory).as_posix()
-    module = preset_module_key(cfg.marker)
+    module = preset_module_key(cfg.module)
     flags = cfg.cflags if cflags is None else cflags
     entry = {
         "file": relative,
@@ -317,13 +317,13 @@ def check_types(cfg: ProjectConfig, *, compile_layouts: bool = False) -> list[di
     try:
         records = load_types(cfg.metadata_dir)
     except (ValueError, OSError) as exc:
-        return [{"id": "", "module": cfg.marker, "issue": f"invalid type store: {exc}"}]
-    known = {preset_module_key(m) for m in (getattr(cfg, "all_markers", None) or [cfg.marker])}
+        return [{"id": "", "module": cfg.module, "issue": f"invalid type store: {exc}"}]
+    known = {preset_module_key(m) for m in (getattr(cfg, "target_modules", None) or [cfg.module])}
     for record in records:
         issue = ""
         if record["module"] not in known:
             issue = "unknown target module"
-        elif record["module"] != preset_module_key(cfg.marker):
+        elif record["module"] != preset_module_key(cfg.module):
             continue
         else:
             try:

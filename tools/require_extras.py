@@ -62,8 +62,9 @@ class _Group(NamedTuple):
 # about the larger dependency tree first.
 _GROUPS: tuple[_Group, ...] = (
     _Group(
-        modules=("angr", "claripy"),
-        label="'prove' extra (angr, claripy)",
+        # angr 10 bundles Claripy; probing its dotted name would import angr.
+        modules=("angr",),
+        label="'prove' extra (angr with bundled Claripy)",
         why={
             "mypy": (
                 "mypy reports phantom type errors without it (CI's lint job syncs --all-extras)"

@@ -293,7 +293,7 @@ class TestProveCLIStatusGuard:
         # i.e. the project root for reversed_dir="src".
         metadata_toml = tmp_path / "rebrew-functions.toml"
         write_store_fixture(
-            metadata_toml, f'format = 2\n["GAME.0x00001000"]\nstatus = "{status}"\nsize = 16\n'
+            metadata_toml, f'format = 3\n["GAME.0x00001000"]\nstatus = "{status}"\nsize = 16\n'
         )
         # Real PE fixture (parseable) — downstream needs a valid binary.
         import shutil
@@ -337,7 +337,7 @@ class TestProveCLIStatusGuard:
         toml = proj_dir / "rebrew-functions.toml"
         write_store_fixture(
             toml,
-            'format = 2\n["GAME.0x00001000"]\nstatus = "STUB"\nsize = 16\nblocker = "scheduler phase shift, instruction-identical to reference"\n',
+            'format = 3\n["GAME.0x00001000"]\nstatus = "STUB"\nsize = 16\nblocker = "scheduler phase shift, instruction-identical to reference"\n',
         )
         result = self._invoke(proj_dir, src, monkeypatch)
         assert result.exit_code != 0
@@ -609,7 +609,7 @@ def angr_project() -> Any:
 
 def _fresh_state_args(project: Any, n_args: int = 4) -> tuple[Any, list[Any]]:
     """Fresh blank state + symbolic args from the shared project."""
-    import claripy
+    from angr import claripy
 
     return project.factory.blank_state(addr=0), [claripy.BVS(f"arg_{i}", 32) for i in range(n_args)]
 
@@ -968,7 +968,7 @@ class TestProveEquivalenceCheckEdxMocked:
         """Build a minimal mock angr state with concrete EAX/EDX values."""
         import types
 
-        import claripy
+        from angr import claripy
 
         state = types.SimpleNamespace()
         state.regs = types.SimpleNamespace()
@@ -1045,7 +1045,7 @@ class TestPrepareProveInputsDir32:
             target_binary=tmp_path / "x.dll",
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
         (tmp_path / "x.dll").write_bytes(b"\x00" * 64)
@@ -1116,7 +1116,7 @@ class TestPrepareProveInputsDir32:
             target_binary=tmp_path / "x.dll",
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
         (tmp_path / "x.dll").write_bytes(b"\x00" * 64)
@@ -1179,14 +1179,14 @@ def _watch_va_run(
     )
     write_store_fixture(
         src / "rebrew-functions.toml",
-        'format = 2\n["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n',
+        'format = 3\n["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n',
         encoding="utf-8",
     )
     cfg = SimpleNamespace(
         root=tmp_path,
         reversed_dir=src,
         metadata_dir=src,
-        marker="GAME",
+        module="GAME",
         source_ext=".c",
         target_binary=tmp_path / "game.exe",
     )
@@ -1267,7 +1267,7 @@ class TestProveInputsWatchedVasMetadata:
             target_binary=tmp_path / "x.dll",
             metadata_dir=tmp_path,
             reversed_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
         (tmp_path / "x.dll").write_bytes(b"\x00" * 64)
@@ -1367,7 +1367,7 @@ class TestMaxDeltaFilter:
             default_jobs=1,
             target_name="T",
             source_ext=".c",
-            marker="T",
+            module="T",
         )
         annos = [self._anno(0x1000, 2), self._anno(0x2000, 40), self._anno(0x3000, None)]
         monkeypatch.setattr("rebrew.prove.read_source_bindings", lambda *a, **k: annos)
@@ -1470,7 +1470,7 @@ class TestProveCeilingFilter:
         metadata_toml = tmp_path / "rebrew-functions.toml"
         write_store_fixture(
             metadata_toml,
-            'format = 2\n["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\nblocker = "GA_CEILING: register-only byte delta (effective match)"\n["GAME.0x00002000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n',
+            'format = 3\n["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\nblocker = "GA_CEILING: register-only byte delta (effective match)"\n["GAME.0x00002000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n',
         )
         shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")
         calls: list[str] = []
@@ -1656,7 +1656,7 @@ class TestPromoteAlreadyMatched:
         va = 0x1000
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            f'format = 2\n["GAME.0x{va:08x}"]\nstatus = "NEAR_MATCHING"\nsize = 8\n',
+            f'format = 3\n["GAME.0x{va:08x}"]\nstatus = "NEAR_MATCHING"\nsize = 8\n',
             encoding="utf-8",
         )
         cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
@@ -1714,7 +1714,7 @@ class TestPromoteAlreadyMatched:
         va = 0x1000
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            f'format = 2\n["GAME.0x{va:08x}"]\nstatus = "SKIP"\nsize = 8\n',
+            f'format = 3\n["GAME.0x{va:08x}"]\nstatus = "SKIP"\nsize = 8\n',
             encoding="utf-8",
         )
         cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
@@ -1750,7 +1750,7 @@ class TestDecoratedNameSelection:
 
         (tmp_path / "rebrew-project.toml").write_text(
             '[targets.GAME]\nbinary = "game.exe"\nreversed_dir = "src"\n'
-            'source_ext = ".c"\nmarker = "GAME"\n',
+            'source_ext = ".c"\nmodule = "GAME"\n',
             encoding="utf-8",
         )
         shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")
@@ -1776,7 +1776,7 @@ class TestDecoratedNameSelection:
         )
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["GAME.0x00003000"]\nstatus = "EXACT"\n["GAME.0x00004000"]\nstatus = "STUB"\n["GAME.0x00001000"]\nstatus = "EXACT"\n["GAME.0x00002000"]\nstatus = "STUB"\n',
+            'format = 3\n["GAME.0x00003000"]\nstatus = "EXACT"\n["GAME.0x00004000"]\nstatus = "STUB"\n["GAME.0x00001000"]\nstatus = "EXACT"\n["GAME.0x00002000"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)
@@ -1794,3 +1794,42 @@ class TestDecoratedNameSelection:
             app, ["--json", "--target", "GAME", "hook"], catch_exceptions=False
         )
         assert "Status is 'STUB'" in asked_hook.output, asked_hook.output
+
+
+class TestProveSelectionFlags:
+    """Slice offsets are single-function. Ceiling and max-delta are batch-only."""
+
+    def test_illegal_combinations_exit_2_before_angr(self) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.prove import app
+
+        runner = CliRunner()
+        cases = [
+            (["--all", "--start-offset", "4"], "--start-offset and --end-offset"),
+            (["--all", "--end-offset", "8"], "--start-offset and --end-offset"),
+            (["--ceiling"], "--ceiling and --max-delta require --all"),
+            (["--max-delta", "4"], "--ceiling and --max-delta require --all"),
+            (["--all", "--ceiling", "--max-delta", "4"], "mutually exclusive"),
+        ]
+        for args, message in cases:
+            result = runner.invoke(app, [*args, "--json"])
+            assert result.exit_code == 2, result.output
+            assert message in cli_payload(result)["error"]
+            assert result.stdout.strip() == ""
+
+    def test_help_states_the_combinations_without_an_em_dash(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.prove import app
+
+        monkeypatch.setenv("COLUMNS", "200")
+        result = CliRunner().invoke(app, ["--help"])
+        assert result.exit_code == 0, result.output
+        rendered = result.output
+        assert "Requires --all" in rendered
+        assert "Excludes --all" in rendered
+        assert "Excludes --max-delta" in rendered
+        assert "\u2014" not in rendered

@@ -27,7 +27,7 @@ default_target = "game"
 
 [targets.game]
 binary = "game.exe"
-marker = "GAME"
+module = "GAME"
 reversed_dir = "src"
 [compiler]
 profile = "msvc-6.0"
@@ -174,7 +174,7 @@ class TestTextAuditCli:
 
         def _capture(root: Path, binary: Path) -> dict[str, int]:
             seen.append(binary)
-            return ta.exported_symbol_vas(binary)
+            return {"alpha": FAKE_TEXT_VA}
 
         monkeypatch.setattr(ta, "collect_actual_vas", _capture)
         result = CliRunner().invoke(app, ["--built", "build/other.dll", "--json"])
@@ -250,11 +250,79 @@ class TestTextAuditCli:
         # beta has no .text symbol in the build — MISSING, not misplaced.
         _patch_layout(monkeypatch, objects=[(0x20, {"alpha": 0})])
         result = CliRunner().invoke(app, ["--json"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         payload = cli_payload(result)
         assert payload["missing"] == 1
         assert payload["misplaced"] == 0
         assert payload["misplaced_list"][0]["status"] == "MISSING"
+
+    def test_sibling_map_in_other_build_directory_precedes_objects(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.data_layout as dl
+        from rebrew.text_audit import app
+
+        monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C, "b.c": _TWO_FILES_B}))
+        built = tmp_path / "isolated" / "game.exe"
+        built.parent.mkdir()
+        built.write_bytes(make_pe(b"\xc3"))
+        built.with_suffix(".map").write_text(
+            " 0001:00000000 _alpha 00001000 f first.obj\n"
+            " 0001:00000020 _beta 00001020 f second.obj\n"
+            " 0002:00000000 _data 00002000 first.obj\n"
+        )
+
+        def refuse_objects(_root: Path) -> list[Path]:
+            raise AssertionError("Map placement takes precedence over the object walk")
+
+        monkeypatch.setattr(dl, "link_objects", refuse_objects)
+        result = CliRunner().invoke(app, ["--built", str(built), "--json"])
+        assert result.exit_code == 0, result.output
+        payload = cli_payload(result)
+        assert (payload["found"], payload["correct"], payload["missing"]) == (2, 2, 0)
+
+    @pytest.mark.parametrize("map_rows", ["", " 0001:00000010 _alpha 00001010 f first.obj\n"])
+    def test_map_missing_or_displaced_does_not_fall_back_to_matching_objects(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, map_rows: str
+    ) -> None:
+        from rebrew.text_audit import app
+
+        monkeypatch.chdir(_project(tmp_path))
+        built = tmp_path / "build" / "game.exe"
+        built.write_bytes(make_pe(b"\xc3"))
+        built.with_suffix(".map").write_text(map_rows)
+        _patch_layout(monkeypatch, objects=[(16, {"alpha": 0})])
+        result = CliRunner().invoke(app, ["--built", str(built), "--json"])
+        assert result.exit_code == 1, result.output
+        payload = cli_payload(result)
+        assert payload["correct"] == 0
+        assert payload["missing"] + payload["misplaced"] == 1
+
+    def test_all_missing_without_map_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.text_audit import app
+
+        monkeypatch.chdir(_project(tmp_path))
+        (tmp_path / "build" / "game").write_bytes(make_pe(b"\xc3"))
+        _patch_layout(monkeypatch, fail=FileNotFoundError("no objects"))
+        result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code == 1, result.output
+        payload = cli_payload(result)
+        assert (payload["found"], payload["missing"]) == (0, 1)
+
+    def test_sibling_map_does_not_hide_invalid_built_image(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.text_audit import app
+
+        monkeypatch.chdir(_project(tmp_path))
+        built = tmp_path / "build" / "game.exe"
+        built.write_bytes(b"MZ")
+        built.with_suffix(".map").write_text(" 0001:00000000 _alpha 00001000 f first.obj\n")
+        result = CliRunner().invoke(app, ["--built", str(built), "--json"])
+        assert result.exit_code == 2, result.output
+        assert "cannot read the build's .text layout" in result.output
 
     def test_objdump_failure_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.text_audit import app
@@ -375,6 +443,14 @@ class TestDecoratedTextSymbols:
         monkeypatch.setattr(ta, "built_text_va", lambda _binary: 0x1000)
         actual = ta.collect_actual_vas(tmp_path, tmp_path / "game.exe")
         assert actual == {"_foo": 0x1000, "foo": 0x1004, "hook": 0x1008}
+
+        (tmp_path / "game.map").write_text(
+            " 0001:00000000 __foo 00001000 f first.obj\n"
+            " 0001:00000004 _foo 00001004 f first.obj\n"
+            " 0001:00000008 _hook@12 00001008 f second.obj\n"
+            " 0002:00000000 _data 00002000 first.obj\n"
+        )
+        assert ta.collect_actual_vas(tmp_path, tmp_path / "game.exe") == actual
 
         pe = _export_pe(tmp_path / "game.dll", ["__foo", "_foo", "hook@@12"])
         assert ta.exported_symbol_vas(pe) == {"_foo": 0x401000, "foo": 0x401004, "hook": 0x401008}

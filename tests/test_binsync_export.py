@@ -823,7 +823,7 @@ class TestBinsyncStructNames:
             root=tmp_path,
             reversed_dir=tmp_path / "src" / "SERVER",
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
         )
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
@@ -1414,7 +1414,7 @@ class TestExportIdentityWarnings:
         # tool recorded it.
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10002000"]\nfile = "lib.c"\nkind = "LIBRARY"\nname = "(static, no archive symbol)"\nsize = 4\n',
+            'format = 3\n["SERVER.0x10002000"]\nfile = "lib.c"\nkind = "LIBRARY"\nname = "(static, no archive symbol)"\nsize = 4\n',
             encoding="utf-8",
         )
         result, outdir = _invoke(tmp_path, monkeypatch, "--json")

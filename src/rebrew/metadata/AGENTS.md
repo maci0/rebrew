@@ -18,11 +18,16 @@ Externals (the only packages this one may import): `c_parser`, `compiler.toolcha
 
 ## Contracts
 
+- **Name the distinct concepts.** Config `module` selects the target namespace;
+  metadata `kind` classifies a row; optional `ADDRESS` comments are source anchors.
+  Resolved consumers use `rebrew.config.target_module(cfg)`.
+
 - **Writers lock and write 0444.** Store writes go through `utils.atomic_write_locked` under `document.metadata_write_lock`; a new writer reuses them instead of opening the TOML itself.
+- **Identity can share a STATUS write.** `update_statuses_batch` accepts `identity` (the same keys and empty-value rules as `record_function_rows`) in that locked edit. `overwrite_name` defaults off, so a verdict does not replace a stored name unless the caller asks.
 - **Commands live outside.** `rebrew source register` (`source_register.py`), `rebrew blocker` and the other commands that edit metadata stay at the package root.
 - **`type_metadata.py` stays outside.** The type store compiles probes and hashes headers, so it imports the compile path this package must not.
 
-- **Current format only.** Format 2 is mandatory. No inline metadata block parser or migration reader. All state, including reconstruction source, STRUCT/CALLERS and support purposes, belongs in the stores.
+- **Current format only.** Functions require format 3; data requires format 2. No inline metadata block parser or ordinary legacy reader; `source consolidate` explicitly migrates reviewed format-2 functions/source stores. All state, including reconstruction source, STRUCT/CALLERS and support purposes, belongs in the stores.
 
 - **History is comparison evidence.** Accepted STATUS transitions append
   `status_history` in the same locked write. Generic field setters cannot forge

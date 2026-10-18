@@ -197,7 +197,7 @@ class TestStickiness:
         _mock(monkeypatch)
         _verify(tmp_path, "--text", "--raw-link")
         evidence = _stored(tmp_path)["verification"]
-        report = _verify(tmp_path, *(["--full"] if full else []))
+        report = _verify(tmp_path, *(["--no-cache"] if full else []))
         assert _row(report)["status"] == "EXACT"
         entry = _stored(tmp_path)
         assert entry["status"] == "EXACT"
@@ -231,7 +231,7 @@ class TestStickiness:
         _mock(monkeypatch)
         _verify(tmp_path, "--text", "--raw-link")
         _VERDICT["status"] = "NEAR_MATCHING"
-        report = _verify(tmp_path, "--full")
+        report = _verify(tmp_path, "--no-cache")
         assert _row(report)["status"] == "NEAR_MATCHING"
         assert _stored(tmp_path)["status"] == "NEAR_MATCHING"
 

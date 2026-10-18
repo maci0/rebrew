@@ -6,7 +6,16 @@ from typing import Any
 
 import typer
 
-from rebrew.cli import SOURCE_HELP, TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import (
+    EXPECTED_DIGEST_HELP,
+    SOURCE_HELP,
+    AllTargetsOption,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+)
 
 app = typer.Typer(
     help="Manage types, audit contracts, reconcile headers, and check layouts.",
@@ -278,9 +287,7 @@ def contracts_cmd(
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
-    all_targets: bool = typer.Option(
-        False, "--all-targets", help="Audit every configured target independently"
-    ),
+    all_targets: bool = AllTargetsOption,
 ) -> None:
     """Audit C declaration contracts separately from native byte matches."""
     from rebrew.cli import all_targets_run
@@ -317,7 +324,7 @@ def reconcile_cmd(
     header: Path = typer.Argument(..., help="Existing canonical subsystem header"),
     prototype: str = typer.Option(..., "--prototype", help="Complete reviewed C prototype"),
     expected_digest: str | None = typer.Option(
-        None, "--expected-digest", help="Require input digest from a reviewed preview"
+        None, "--expected-digest", help=EXPECTED_DIGEST_HELP
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

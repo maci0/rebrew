@@ -803,7 +803,7 @@ def write_coverage_toml(
     Returns the paths written, in dataset order.  Writes nothing else — the
     caller reports.
     """
-    from rebrew.config import load_config, module_marker
+    from rebrew.config import load_config, target_module
 
     db_directory = output_dir.resolve()
     db_directory.mkdir(parents=True, exist_ok=True)
@@ -822,7 +822,7 @@ def write_coverage_toml(
             from rebrew.metadata.functions import load_status_history
 
             cfg = load_config(root_dir, target=target_name)
-            history = load_status_history(cfg, module_marker(cfg))
+            history = load_status_history(cfg, target_module(cfg))
         # The whole read-modify-write holds one write lock per target, like the
         # other tool-owned stores.  atomic_write_text alone stops a torn file
         # but not a lost update: two builders for one target (the dashboard
@@ -840,7 +840,7 @@ def write_coverage_toml(
                     from rebrew.metadata.functions import import_status_history
 
                     if import_status_history(
-                        cfg, module_marker(cfg), [dict(row) for row in prior.history], dry_run=True
+                        cfg, target_module(cfg), [dict(row) for row in prior.history], dry_run=True
                     ):
                         raise CoverageTomlError(
                             f"{path}: history has not been imported; run "

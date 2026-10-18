@@ -20,8 +20,10 @@ from rich.table import Table
 
 from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
 from rebrew.cli import (
+    SIZE_HELP,
     SOURCE_HELP,
     TargetOption,
+    all_items_option,
     console,
     error_exit,
     json_print,
@@ -211,11 +213,12 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     status NEAR_MATCHING and a known size.  Per-function failures are recorded
     in the results list instead of aborting the batch.
     """
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import iter_sources, target_marker
+    from rebrew.sources import iter_sources
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
-    tm = target_marker(cfg)
+    tm = target_module(cfg)
     candidates: list[tuple[Path, Any]] = []
     all_annos: list[Any] = []
     skipped_files: list[str] = []
@@ -358,13 +361,9 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(None, help=SOURCE_HELP + " (omit with --all)"),
-    all_funcs: bool = typer.Option(
-        False, "--all", help="Classify all NEAR_MATCHING functions; excludes SOURCE and --va"
-    ),
+    all_funcs: bool = all_items_option("NEAR_MATCHING function"),
     va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
-    size: int | None = typer.Option(
-        None, "--size", help="Target size in bytes (default: from metadata)"
-    ),
+    size: int | None = typer.Option(None, "--size", help=SIZE_HELP),
     fix_blocker: bool = typer.Option(
         False,
         "--fix-blocker",
@@ -385,8 +384,8 @@ def main(
             print(catalog_markdown(), end="")
         return
 
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import target_marker
 
     cfg = require_config(target=target, json_mode=json_output)
 
@@ -416,7 +415,7 @@ def main(
 
     annos = read_source_bindings(
         source_path,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )

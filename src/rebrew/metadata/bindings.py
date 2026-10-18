@@ -45,12 +45,12 @@ def min_valid_va_for(cfg: Any) -> int:
 
 
 def kind_for_module(module: str, status: str, library_modules: set[str] | None = None) -> str:
-    """Derive expected marker type from module name and status.
+    """Derive expected kind type from module name and status.
 
     Args:
-        module: Module identifier from the marker line (e.g. "SERVER", "MSVCRT").
+        module: Module identifier from metadata (e.g. "SERVER", "MSVCRT").
         status: Status string (e.g. "EXACT", "STUB").
-        library_modules: Set of module names that should use LIBRARY marker.
+        library_modules: Set of module names that should use LIBRARY kind.
                          Defaults to empty set if not provided.
 
     Returns:
@@ -173,7 +173,7 @@ class SourceBinding:
     locals: dict[str, Any] = field(default_factory=dict)
     comments: dict[str, Any] = field(default_factory=dict)
     section: str = ""  # .data, .rdata, .bss — used by DATA annotations
-    line: int = 0  # 1-based line number of the marker in the source file
+    line: int = 0  # 1-based line number of the kind in the source file
     prove_constraints: dict[str, Any] = field(default_factory=dict)
     updated_by: str = ""
     updated_at: str = ""
@@ -242,7 +242,7 @@ class SourceBinding:
 
     @property
     def is_data(self) -> bool:
-        """True for data annotations (GLOBAL/DATA/VTABLE/STRING markers) — never compiled."""
+        """True for data annotations (GLOBAL/DATA/VTABLE/STRING kinds) — never compiled."""
         return self.kind in DATA_KINDS
 
     @property
@@ -250,7 +250,7 @@ class SourceBinding:
         """True for compilable code annotations (FUNCTION/LIBRARY/STUB).
 
         An empty ``kind`` also counts, so a caller scanning raw records
-        can read this before the marker has been resolved.
+        can read this before the kind has been resolved.
         """
         if not self.kind:
             return True
@@ -304,15 +304,15 @@ class SourceBinding:
         warnings: list[str] = []
 
         if self.kind and self.kind not in SYMBOL_KINDS:
-            errors.append(f"Invalid marker type: {self.kind}")
+            errors.append(f"Invalid metadata kind: {self.kind}")
 
         if self.va < min_va:
             errors.append(f"VA 0x{self.va:x} is suspicious (below 0x{min_va:x})")
 
-        # Only code annotations carry a byte size.  A data marker
+        # Only code annotations carry a byte size.  A data kind
         # (GLOBAL/DATA/VTABLE/STRING, see DATA_KINDS) describes a global whose
         # extent lives in rebrew-data.toml, so demanding size > 0 here rejected
-        # files that `rebrew lint` accepts: one data marker in an
+        # files that `rebrew lint` accepts: one data kind in an
         # otherwise-valid source made `rebrew diff --fix-blocker` abort with
         # "Invalid SIZE: 0" and refuse to refresh that function's blocker.
         if not self.is_data and self.size <= 0:
@@ -334,24 +334,24 @@ class SourceBinding:
                 if _CFLAGS_GLUED_RE.match(flag)
             )
 
-        # Check marker consistency against module name.  A STUB-status function
-        # may keep either its STUB or FUNCTION marker (status lives in
+        # Check kind consistency against module name.  A STUB-status function
+        # may keep either its STUB or FUNCTION kind (status lives in
         # rebrew-functions.toml). LIBRARY may use the binary's target module:
         # vendored source is still target-scoped, even when attributed to a library.
         _lib = library_modules or set()
         if self.module in _lib or self.kind == "LIBRARY":
-            expected_marker = "LIBRARY"
-            marker_ok = self.kind == "LIBRARY"
+            expected_kind = "LIBRARY"
+            kind_ok = self.kind == "LIBRARY"
         elif self.status == "STUB":
-            expected_marker = "FUNCTION"
-            marker_ok = self.kind in ("FUNCTION", "STUB")
+            expected_kind = "FUNCTION"
+            kind_ok = self.kind in ("FUNCTION", "STUB")
         else:
-            expected_marker = "FUNCTION"
-            marker_ok = self.kind == "FUNCTION"
-        if self.kind and not marker_ok:
+            expected_kind = "FUNCTION"
+            kind_ok = self.kind == "FUNCTION"
+        if self.kind and not kind_ok:
             warnings.append(
-                f"Marker {self.kind} inconsistent with module {self.module!r} "
-                f"(expected {expected_marker})"
+                f"Kind {self.kind} inconsistent with module {self.module!r} "
+                f"(expected {expected_kind})"
             )
 
         if self.status == "STUB" and not self.blocker:
@@ -364,7 +364,7 @@ class SourceBinding:
             )
 
         if self.status == "NEAR_MATCHING" and self.kind == "STUB":
-            warnings.append(f"Contradictory: status is {self.status} but marker is STUB")
+            warnings.append(f"Contradictory: status is {self.status} but kind is STUB")
 
         return errors, warnings
 
@@ -621,7 +621,7 @@ def file_backed_by_metadata(
 ) -> bool:
     """True when a store row's ``file`` matches *filepath*.
 
-    A pure-C source has no marker line. Lint treats it as annotated when
+    A pure-C source has no kind line. Lint treats it as annotated when
     either store already names it, and ignores it when neither does.
     *function_entries* and *data_entries* are the caller's already-loaded
     maps; omitted maps are read from *metadata_dir*. Explicit LIBRARY source
@@ -699,22 +699,26 @@ def _function_annotations_from_metadata(
     text: str | None = None,
     prototypes_needed: bool = True,
     anchored_prototypes: dict[str, str] | None = None,
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
+    rows: list[tuple[str, int, dict[str, Any]]] | None = None,
 ) -> list[SourceBinding]:
     """Function rows from ``rebrew-functions.toml`` whose ``file`` matches."""
     from rebrew.metadata.functions import apply_metadata_entry, load_metadata
 
-    entries_by_key = load_metadata(metadata_dir, deepcopy=False)
-    if not entries_by_key:
-        return []
-
-    matches = function_rows_for_file(
-        filepath, metadata_dir, entries_by_key, project_root=project_root
-    )
+    if rows is None:
+        entries_by_key = (
+            load_metadata(metadata_dir, deepcopy=False)
+            if function_entries is None
+            else function_entries
+        )
+        rows = function_rows_for_file(
+            filepath, metadata_dir, entries_by_key, project_root=project_root
+        )
 
     rel = rel_display_path(filepath, base_dir)
     results: list[SourceBinding] = []
     prototypes: _DefinitionPrototypes | None = None
-    for module, va, entry in matches:
+    for module, va, entry in rows:
         if target_name and module and preset_module_key(module) != preset_module_key(target_name):
             continue
         ann = SourceBinding(
@@ -780,6 +784,8 @@ def _data_annotations_from_metadata(
     target_name: str | None,
     base_dir: Path | None,
     metadata_dir: Path,
+    *,
+    rows: list[tuple[str, int, dict[str, Any]]] | None = None,
 ) -> list[SourceBinding]:
     """Data rows from ``rebrew-data.toml`` whose ``file`` matches.
 
@@ -791,23 +797,24 @@ def _data_annotations_from_metadata(
     from rebrew.metadata.data import data_rows_for_path
     from rebrew.metadata.functions import as_metadata_int
 
-    rows = data_rows_for_path(metadata_dir, filepath)
+    if rows is None:
+        rows = data_rows_for_path(metadata_dir, filepath)
     rel = rel_display_path(filepath, base_dir)
     results: list[SourceBinding] = []
     for module, va, entry in rows:
         if target_name and module and preset_module_key(module) != preset_module_key(target_name):
             continue
-        raw_marker = entry.get("kind")
-        if raw_marker:
-            marker = str(raw_marker)
-            if marker not in DATA_KINDS:
+        raw_kind = entry.get("kind")
+        if raw_kind:
+            kind = str(raw_kind)
+            if kind not in DATA_KINDS:
                 continue
         else:
-            marker = "DATA"
+            kind = "DATA"
         ann = SourceBinding(
             va=va,
             module=module,
-            kind=marker,
+            kind=kind,
             name=str(entry.get("name") or ""),
             filepath=rel,
         )
@@ -837,6 +844,9 @@ def iter_source_bindings(
     target: str | None = None,
     metadata_dir: Path | None = None,
     project_root: Path | None = None,
+    base_dir: Path | None = None,
+    inventory_only: bool = False,
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
 ) -> list[tuple[Path, list[SourceBinding]]]:
     """Parse annotations from each source in *sources*, skipping failures.
 
@@ -845,17 +855,58 @@ def iter_source_bindings(
     :func:`read_source_bindings`.
 
     :param sources: List of paths returned by :func:`rebrew.sources.iter_sources`.
-    :param target:  Optional marker string passed through to
-        ``read_source_bindings`` (use :func:`rebrew.sources.target_marker` to obtain it).
+    :param target:  Optional module string passed through to
+        ``read_source_bindings`` (use :func:`rebrew.config.target_module` to obtain it).
     :param metadata_dir: Parent of ``reversed_dir`` where ``rebrew-functions.toml``
         lives.  When ``None``, metadata is not merged (only source annotations
         are parsed).
+    :param inventory_only: Read stored identities without source prototypes or
+        anchor validation. Only files absent from both stores are parsed.
     """
+    data_index: dict[str, list[tuple[str, int, dict[str, Any]]]] = {}
+    if inventory_only and metadata_dir is not None:
+        from rebrew.metadata.data import data_file_index
+        from rebrew.metadata.functions import load_metadata, resolve_metadata_dir
+
+        metadata_dir = resolve_metadata_dir(metadata_dir)
+        project_root = project_root or _binding_project_root(metadata_dir)
+        if function_entries is None:
+            function_entries = load_metadata(metadata_dir, deepcopy=False)
+        data_index = data_file_index(metadata_dir)
     results: list[tuple[Path, list[SourceBinding]]] = []
     for src in sources:
         try:
+            if inventory_only and metadata_dir is not None and function_entries is not None:
+                rows = function_rows_for_file(
+                    src, metadata_dir, function_entries, project_root=project_root
+                )
+                rel = os.path.relpath(src.resolve(), metadata_dir.resolve()).replace(os.sep, "/")
+                data_rows = data_index.get(rel, [])
+                if rows or data_rows:
+                    annos = _function_annotations_from_metadata(
+                        src,
+                        target,
+                        base_dir,
+                        metadata_dir,
+                        project_root=project_root,
+                        prototypes_needed=False,
+                        rows=rows,
+                    )
+                    annos.extend(
+                        _data_annotations_from_metadata(
+                            src, target, base_dir, metadata_dir, rows=data_rows
+                        )
+                    )
+                    annos.sort(key=lambda ann: ann.va)
+                    if annos:
+                        results.append((src, annos))
+                    continue
             annos = read_source_bindings(
-                src, target_name=target, metadata_dir=metadata_dir, project_root=project_root
+                src,
+                target_name=target,
+                base_dir=base_dir,
+                metadata_dir=metadata_dir,
+                project_root=project_root,
             )
         except Exception:
             # Any per-source failure (parse error, I/O, encoding) silently
@@ -875,7 +926,7 @@ def read_function_fields(
 
     Delegates to the canonical ``read_source_bindings`` parser so that every tool
     agrees on what the annotations say, then reshapes the result into the
-    ``{KEY: value}`` dict format that callers expect. Marker entries map to
+    ``{KEY: value}`` dict format that callers expect. Kind entries map to
     the VA string only (for example ``{"FUNCTION": "0x10001a60"}``).
 
     Args:
@@ -947,7 +998,12 @@ def span_contains_factory(spans: list[tuple[int, int]]) -> Callable[[int], bool]
     return contains
 
 
-def library_inventory_bindings(metadata_dir: Path, base_dir: Path) -> list[SourceBinding]:
+def library_inventory_bindings(
+    metadata_dir: Path,
+    base_dir: Path,
+    *,
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
+) -> list[SourceBinding]:
     """LIBRARY rows whose ``file`` is a ``library_*.h`` header.
 
     Identities live in ``rebrew-functions.toml`` and do not require a header
@@ -956,7 +1012,11 @@ def library_inventory_bindings(metadata_dir: Path, base_dir: Path) -> list[Sourc
     """
     from rebrew.metadata.functions import apply_metadata_entry, load_metadata
 
-    entries_by_key = load_metadata(metadata_dir, deepcopy=False)
+    entries_by_key = (
+        load_metadata(metadata_dir, deepcopy=False)
+        if function_entries is None
+        else function_entries
+    )
     results: list[SourceBinding] = []
     for (module, va), entry in entries_by_key.items():
         if str(entry.get("kind", "")) != "LIBRARY":
@@ -1018,7 +1078,10 @@ def source_bindings(
         raise ValueError(
             f"{filepath}:{line}: {forbidden_key} is not a source field; use dedicated metadata"
         )
-    anchors = parse_address_anchors(text)
+    try:
+        anchors = parse_address_anchors(text)
+    except ValueError as exc:
+        raise ValueError(f"{filepath}: {exc}") from exc
     rows = _annotations_from_metadata(
         filepath,
         target_name,
@@ -1215,14 +1278,25 @@ def remove_binding_field(
 
 
 def library_bindings_for_file(
-    filepath: Path, metadata_dir: Path | None = None
+    filepath: Path,
+    metadata_dir: Path | None = None,
+    *,
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
+    inventory_only: bool = False,
 ) -> list[SourceBinding]:
     """Read library identities from metadata; a header carries no inventory state."""
     if metadata_dir is None:
         return []
     return [
         a
-        for a in _function_annotations_from_metadata(filepath, None, None, metadata_dir)
+        for a in _function_annotations_from_metadata(
+            filepath,
+            None,
+            None,
+            metadata_dir,
+            function_entries=function_entries,
+            prototypes_needed=not inventory_only,
+        )
         if a.kind == "LIBRARY"
     ]
 

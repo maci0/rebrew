@@ -66,9 +66,9 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
     """
     from rebrew.catalog import scan_reversed_dir
     from rebrew.catalog.loaders import load_function_structure
+    from rebrew.config import target_module
     from rebrew.metadata.data import load_data_metadata
     from rebrew.metadata.functions import load_metadata
-    from rebrew.sources import target_marker
 
     live: set[tuple[str, int]] = set()
     for entry in scan_reversed_dir(cfg.reversed_dir, cfg=cfg):
@@ -100,11 +100,14 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
                 known_vas.add(int(va))
         except (TypeError, ValueError):
             continue
-    marker = target_marker(cfg)
+    target_module_name = target_module(cfg)
     fn_orphans = [
         (module, va, "rebrew-functions.toml")
         for (module, va) in sorted(load_metadata(cfg.metadata_dir, deepcopy=False))
-        if (not marker or preset_module_key(module) == preset_module_key(marker))
+        if (
+            not target_module_name
+            or preset_module_key(module) == preset_module_key(target_module_name)
+        )
         and (module, va) not in live
         and va not in known_vas
     ]
@@ -112,7 +115,10 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
     data_orphans = [
         (module, va, "rebrew-data.toml")
         for (module, va) in sorted(data_entries)
-        if (not marker or preset_module_key(module) == preset_module_key(marker))
+        if (
+            not target_module_name
+            or preset_module_key(module) == preset_module_key(target_module_name)
+        )
         and (module, va) not in live
         and va not in known_vas
         # Import slots (.idata/.edata) never have source markers by design —
@@ -193,7 +199,7 @@ def manage_orphans(
     json_output: bool = False,
     target: str | None = None,
 ) -> None:
-    """List orphaned metadata blocks (VA with no source marker); --prune deletes them."""
+    """List orphaned metadata blocks (VA with no source binding); --prune deletes them."""
     cfg = require_config(target=target, json_mode=json_output)
     try:
         fn_orphans, data_orphans = find_orphans(cfg)

@@ -47,8 +47,14 @@ from rebrew.catalog import (
     scan_reversed_dir,
 )
 from rebrew.cli import (
+    BUILT_IMAGE_HELP,
+    DIR_HELP,
     EXIT_ERROR,
     EXIT_MISMATCH,
+    JOBS_HELP,
+    MODULE_HELP,
+    NO_CACHE_HELP,
+    WATCH_TREE_HELP,
     AllTargetsOption,
     RootOption,
     SourceTargetsOption,
@@ -65,14 +71,14 @@ from rebrew.compiler.compile import (
     clears_blocker,
 )
 from rebrew.compiler.overrides import resolve_compile_overrides_cached
-from rebrew.config import ProjectConfig, inventory_path_for, module_marker
+from rebrew.config import ProjectConfig, inventory_path_for, target_module
 from rebrew.linked_exact import linked_image_current
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
-from rebrew.metadata.bindings import SourceBinding, min_valid_va_for
+from rebrew.metadata.bindings import SourceBinding, min_valid_va_for, read_source_bindings
 from rebrew.metadata.document import canonical_va_key
 from rebrew.metadata.functions import should_promote_status
 from rebrew.sources import contained_path, source_roots
-from rebrew.status_style import STATUS_COLORS
+from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS, STATUS_LEGEND_ORDER
 from rebrew.utils import (
     atomic_write_text,
     floor_pct,
@@ -162,7 +168,7 @@ def _fenced_naked_note(cfile: Path) -> str:
 
 
 def _entry_symbol(entry: Any) -> str:
-    """COFF symbol for *entry*, synthesizing it for legacy marker-only entries.
+    """COFF symbol for *entry*, synthesizing it for entries without a stored COFF symbol.
 
     A stored symbol is kept. An empty symbol uses the prototype when that
     is vectorcall (``hook@@4``), fastcall (``@keeps@4``), or stdcall
@@ -225,7 +231,7 @@ def verify_entry(
 
     if entry.va < min_valid_va_for(cfg):
         # A VA below the valid floor is an annotation problem (a data-range
-        # VA that slipped past the marker filter), NOT a compile failure —
+        # VA that slipped past the module filter), NOT a compile failure —
         # labeling it COMPILE_ERROR showed a bogus "compile error" in the
         # summary and tripped the CI gate as if the source failed to build.
         # The floor is arch-aware: 16-bit DOS targets address code from
@@ -256,7 +262,7 @@ def verify_entry(
         # for post-compile extraction failures), so the summary and CI gate
         # don't blame the .c file.  When the function list is available and
         # the annotation VA is not a function in it, the likeliest cause is a
-        # stale annotation (binary updated since the marker was written) —
+        # stale annotation (binary updated since the binding was recorded) —
         # say so instead of a bare tooling error.
         hint = ""
         try:
@@ -267,7 +273,7 @@ def verify_entry(
                 hint = (
                     f" (annotation VA 0x{entry.va:x} is not a function in the "
                     "current function list — stale annotation? re-run "
-                    "`rebrew intake` or edit the marker VA)"
+                    "`rebrew intake` or correct the metadata binding VA)"
                 )
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             # Best-effort hint: narrow the catch so a broken cache or config
@@ -428,7 +434,7 @@ app = typer.Typer(
         "  rebrew verify --jobs 8  # Use 8 parallel compile jobs\n\n"
         "  rebrew verify --target mygame  # Verify a specific target\n\n"
         "  rebrew verify --compare  # Compare against last run, detect regressions\n\n"
-        "  rebrew verify --full --jobs 8  # Force full re-verify with 8 workers\n\n"
+        "  rebrew verify --no-cache --jobs 8  # Recheck every selected function\n\n"
         "  rebrew verify --summary  # Show detailed STATUS breakdown table\n\n"
         "  # Promote RELOC to EXACT where the raw link is byte-identical\n"
         "  rebrew verify --text --raw-link\n\n"
@@ -691,7 +697,7 @@ def main(
         None,
         "--jobs",
         "-j",
-        help="Number of parallel compile jobs (default: from project.jobs or 4)",
+        help=JOBS_HELP,
     ),
     output_path: str | None = typer.Option(
         None,
@@ -714,8 +720,8 @@ def main(
     ),
     full: bool = typer.Option(
         False,
-        "--full",
-        help="Force full verification, ignoring cached results",
+        "--no-cache",
+        help=NO_CACHE_HELP,
     ),
     fix_sizes: bool = typer.Option(
         False,
@@ -728,10 +734,10 @@ def main(
     batch_dir: str | None = typer.Option(
         None,
         "--dir",
-        help="Restrict to this subdirectory of reversed_dir",
+        help=DIR_HELP,
         click_type=TyperPath(path_type=str),
     ),
-    origin: str | None = typer.Option(None, "--module", help="Restrict to one module (e.g. GAME)"),
+    origin: str | None = typer.Option(None, "--module", help=MODULE_HELP),
     no_promote: bool = typer.Option(
         False,
         "--no-promote",
@@ -740,7 +746,7 @@ def main(
     watch: bool = typer.Option(
         False,
         "--watch",
-        help="Re-verify all sources whenever any .c file changes (terminal only; no --json)",
+        help=WATCH_TREE_HELP,
     ),
     nolib: bool = typer.Option(
         False,
@@ -753,17 +759,24 @@ def main(
         False,
         "--prune-orphans",
         help="Prune orphaned metadata rows (earned results are preserved) "
-        "before verifying — same scan as `rebrew orphans prune`",
+        "before verifying, same scan as `rebrew orphans prune`",
     ),
     data: bool = typer.Option(
         False,
         "--data",
-        help="Byte-compare built .data/.rdata against the reference, per metadata symbol",
+        help="Compare built .data/.rdata without compiling functions; add --functions "
+        "to run both checks",
+    ),
+    functions: bool = typer.Option(
+        False,
+        "--functions",
+        help="Also compile/verify functions with --data or --whole-binary "
+        "(the default when no image-only check is selected)",
     ),
     built: Path | None = typer.Option(
         None,
         "--built",
-        help="Built image for data, text, or whole-binary checks (default: build/<target>)",
+        help=BUILT_IMAGE_HELP,
     ),
     raw_link: bool = typer.Option(
         False,
@@ -789,8 +802,8 @@ def main(
     whole_binary: bool = typer.Option(
         False,
         "--whole-binary",
-        help="Compare built binary against the reference: sections, "
-        "exports, imports, resources, headers",
+        help="Compare built binary sections, exports, imports, resources and headers "
+        "without compiling functions; add --functions to run both checks",
     ),
     context: Path | None = typer.Option(
         None,
@@ -820,6 +833,17 @@ def main(
     # call from a test would feed min(jobs, fresh_count) an object.
     jobs = option_default(jobs, None)
     experimental_unshare = option_default(experimental_unshare, False)
+    functions = option_default(functions, False)
+    check_functions = bool(
+        functions
+        or text
+        or file
+        or batch_dir
+        or origin
+        or context
+        or fix_sizes
+        or not (data or whole_binary)
+    )
     if all_targets:
         # Per-target artifacts would collide: one watch loop blocks the
         # sweep, one --output file is overwritten by every target, one
@@ -875,6 +899,7 @@ def main(
             nolib=nolib,
             prune_orphans=prune_orphans,
             data=data,
+            functions=functions,
             built=None,
             raw_link=raw_link,
             link_map=None,
@@ -907,7 +932,9 @@ def main(
     ):
         return
     cfg = require_config(target=target, json_mode=json_output, root=root)
-    if experimental_unshare or getattr(cfg, "execution_backend", "") == "unshare":
+    if check_functions and (
+        experimental_unshare or getattr(cfg, "execution_backend", "") == "unshare"
+    ):
         import copy
 
         from rebrew.compiler.compile import recompile_url
@@ -970,7 +997,7 @@ def main(
     # and, later, named only msvc-1.52, which hid the other object pipelines.)
     from rebrew.formats.binary_loader import is_ne
 
-    if getattr(cfg, "target_binary", None) and is_ne(cfg.target_binary):
+    if check_functions and getattr(cfg, "target_binary", None) and is_ne(cfg.target_binary):
         from rebrew.compiler.toolchain import TOOLCHAINS
         from rebrew.toolchain_detect import bitness16_profiles
 
@@ -1030,6 +1057,7 @@ def main(
                 nolib=nolib,
                 prune_orphans=prune_orphans,
                 data=data,
+                functions=functions,
                 built=built,
                 raw_link=raw_link,
                 link_map=link_map,
@@ -1234,10 +1262,15 @@ def main(
                 f"data: {data_report['matched']} matched, "
                 f"{len(data_report['mismatched'])} mismatched, "
                 f"{len(data_report['missing'])} missing "
-                f"({data_report['compared']} of {data_report['total']} symbols compared, "
-                f"{data_report['coverage']:.0%} of symbols)"
+                f"({data_report['compared']} of {data_report['total']} symbols compared)"
             )
             if data_report["total"]:
+                # The bar is symbols that had bytes to compare. The matched
+                # count is the sentence above; this percentage is not that.
+                console.print(
+                    f"  {floor_pct(data_report['compared'], data_report['total'])}% "
+                    "of symbols compared"
+                )
                 console.print(ratio_bar(data_report["compared"], data_report["total"]))
             if data_report["not_comparable"]:
                 console.print(
@@ -1250,10 +1283,19 @@ def main(
                     f"  [red]FAIL[/red] {untrusted_ident(m['name'])} ({m['va']}): "
                     f"first diff at +{m['first_diff']}"
                 )
+            displaced_names = {row["name"]: row for row in data_report["displaced"]}
             for name in data_report["missing"][:_DISPLAY_ROWS_MAX]:
-                console.print(
-                    f"  [yellow]MISSING[/yellow] {untrusted_ident(name)} (no built bytes)"
-                )
+                if name in displaced_names:
+                    row = displaced_names[name]
+                    console.print(
+                        f"  [yellow]DISPLACED[/yellow] {untrusted_ident(name)} "
+                        f"({row['va']} -> {row['built_va']}; no bytes at reference VA)"
+                    )
+                else:
+                    console.print(
+                        f"  [yellow]MISSING[/yellow] {untrusted_ident(name)} "
+                        "(no built bytes at reference VA)"
+                    )
 
     text_report: dict[str, Any] | None = None
     text_built: Path | None = None
@@ -1261,7 +1303,7 @@ def main(
     text_mapped: set[tuple[str, int]] | None = None
     placed_vas: set[int] = set()
     if text:
-        from rebrew.text_audit import audit_text, collect_actual_vas
+        from rebrew.text_audit import audit_text, collect_actual_vas, map_function_vas
 
         built_path = built or (cfg.root / "build" / cfg.target_name)
         text_built = built_path
@@ -1277,14 +1319,10 @@ def main(
         text_map = link_map or built_path.with_suffix(".map")
         if text_map.is_file():
             from rebrew.data_ownership import parse_link_map
-            from rebrew.rename_ops import c_name_from_symbol
 
             symbols = parse_link_map(text_map.read_text(encoding="utf-8", errors="replace"))
             text_mapped = {(s.name, s.va) for s in symbols if s.is_function}
-            actual: dict[str, int] = {}
-            for symbol in symbols:
-                if symbol.is_function:
-                    actual.setdefault(c_name_from_symbol(symbol.name), symbol.va)
+            actual = map_function_vas(symbols)
             placement_source = str(text_map)
         elif link_map is not None:
             error_exit(f"link map not found: {link_map}", json_mode=json_output)
@@ -1389,19 +1427,36 @@ def main(
                             "regenerate with rebrew build layout"
                         )
 
-    batch = run_batch(
-        cfg,
-        full=full,
-        json_output=json_output,
-        jobs=jobs,
-        dry_run=dry_run,
-        batch_dir=batch_dir,
-        origin_filter=origin,
-        batch_file=file,
-        nolib=nolib,
-        no_promote=no_promote,
-        context=compile_context,
-    )
+    if check_functions:
+        batch = run_batch(
+            cfg,
+            full=full,
+            json_output=json_output,
+            jobs=jobs,
+            dry_run=dry_run,
+            batch_dir=batch_dir,
+            origin_filter=origin,
+            batch_file=file,
+            nolib=nolib,
+            no_promote=no_promote,
+            context=compile_context,
+        )
+    else:
+        batch = BatchResult(
+            entries=[],
+            total=0,
+            passed=0,
+            failed=0,
+            fail_details=[],
+            results=[],
+            deferred=[],
+            size_divergences=[],
+            missing_sizes=[],
+            duplicate_vas=[],
+            library_excluded=0,
+            excluded_keys=set(),
+            cached_count=0,
+        )
     if text_report is not None and text_built is not None:
         if text_mapped is not None:
             # Every verified function, bound library sources included: the map
@@ -1435,6 +1490,7 @@ def main(
         compile_context=compile_context,
         fix_sizes=fix_sizes,
         orphans_pruned=orphans_pruned,
+        functions_checked=check_functions,
     )
 
 
@@ -1736,6 +1792,7 @@ def _save_report(
     compile_context: "CompileContext | None",
     fix_sizes: bool,
     orphans_pruned: int,
+    functions_checked: bool = True,
     no_promote: bool = False,
     now: datetime | None = None,
 ) -> None:
@@ -1769,6 +1826,7 @@ def _save_report(
         library_providers=batch.library_providers,
         now=now,
     )
+    report["functions_checked"] = functions_checked
 
     # Warn only on ACTIONABLE divergences.  An EXACT/RELOC annotation
     # size is byte-match evidence that `_partition_size_fixes` deliberately
@@ -1843,7 +1901,7 @@ def _save_report(
     if diff_mode and previous_report is not None:
         # A scope flag leaves the baseline whole-project, so without this the
         # out-of-scope entries read as `removed`.
-        scope = {str(r.get("va")) for r in results} or None
+        scope = ({str(r.get("va")) for r in results} or None) if functions_checked else set()
         diff_result = diff_reports(previous_report, report, scope=scope)
     data_failed = 0
     if data_report is not None:
@@ -1851,11 +1909,11 @@ def _save_report(
             data_report.get("missing") or ()
         )
     whole_failed = bool(whole_report is not None and not whole_report.get("match"))
-    text_misplaced = text_report["misplaced"] if text_report else 0
+    text_failures = text_report["misplaced"] + text_report["missing"] if text_report else 0
     gate_failed = _gate_fails(
         diff_result,
         failed,
-        text_misplaced=text_misplaced,
+        text_failed=text_failures,
         data_failed=data_failed,
         whole_failed=whole_failed,
     )
@@ -1865,7 +1923,7 @@ def _save_report(
     # only when the supplied context matches exactly (prepare_entries).
     # --no-promote still saves the cache/baseline/report; it only skips
     # rebrew-functions.toml (STATUS, SIZE, orphan prune).
-    if not dry_run and not (diff_mode and gate_failed):
+    if functions_checked and not dry_run and not (diff_mode and gate_failed):
         cache_path = cache_path_for(cfg)
         try:
             save_verify_cache(
@@ -1889,7 +1947,12 @@ def _save_report(
     # compare the whole corpus against a one-file baseline and report every
     # out-of-scope function as `new`.  (The current run's own diff is
     # scope-filtered above, so it reports no out-of-scope `removed` rows.)
-    if not dry_run and not (diff_mode and gate_failed) and not batch.excluded_keys:
+    if (
+        functions_checked
+        and not dry_run
+        and not (diff_mode and gate_failed)
+        and not batch.excluded_keys
+    ):
         from rebrew.verify_cache import save_baseline
 
         try:
@@ -1924,6 +1987,11 @@ def _save_report(
         else:
             json_print(report)
 
+        _raise_if_regression(gate_failed)
+        return
+
+    if not functions_checked:
+        console.print("[dim]Function verification skipped (image-only check).[/dim]")
         _raise_if_regression(gate_failed)
         return
 
@@ -1994,7 +2062,7 @@ def _apply_size_fixes(cfg: Any, size_divergences: list[dict[str, Any]], dry_run:
     updates: list[dict[str, Any]] = []
     for d in size_divergences:
         va = int(d["va"], 16)
-        module = d.get("module") or cfg.marker
+        module = d.get("module") or cfg.module
         updates.append({"module": module, "va": va, "fields": {"size": d["binary_size"]}})
     if not dry_run and updates:
         # One TOML read-modify-write for the whole batch (per-entry writes
@@ -2008,7 +2076,7 @@ def _gate_fails(
     diff_result: dict[str, Any] | None,
     failed: int,
     *,
-    text_misplaced: int = 0,
+    text_failed: int = 0,
     data_failed: int = 0,
     whole_failed: bool = False,
 ) -> bool:
@@ -2017,14 +2085,14 @@ def _gate_fails(
     With a baseline (*diff_result*), only regressions and newly-broken
     entries fail the run — pre-existing failures are the baseline's
     business.  Without a baseline, any failed function fails the run.
-    A misplaced ``--text`` function fails the gate in both modes: placement
+    A missing or misplaced ``--text`` function fails the gate in both modes: placement
     drift means the link no longer reproduces the reference layout, which no
     byte-level verdict covers.  The same applies to ``--data`` symbol
     mismatches/missing entries and a failed ``--whole-binary`` compare —
     auxiliary gates that were requested must fail the command when they
     detect drift (exit-code contract: "Failures or regressions detected").
     """
-    if text_misplaced or data_failed or whole_failed:
+    if text_failed or data_failed or whole_failed:
         return True
     if diff_result is not None:
         if diff_result["regressions"]:
@@ -2197,7 +2265,7 @@ def scope_entries(
     paths filter identically.  *batch_dir* resolves against
     ``cfg.reversed_dir`` with real path containment (a raw string prefix
     also matched sibling directories).  *origin_filter* matches the
-    annotation's module — ORIGIN is derivable from the FUNCTION-marker
+    annotation's module — ORIGIN is derivable from the FUNCTION-binding
     module, which is also what test's old ``origin`` attribute check meant
     (it matched nothing since SourceBinding has no such field).
 
@@ -2340,17 +2408,17 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     The parse runs outside the lock and the publish inside it, so two
     workers racing on the same key both parse but only one entry survives.
     """
-    from rebrew.function_providers import compiled_library_annotations
+    from rebrew.function_providers import compiled_source_annotations
     from rebrew.metadata.bindings import library_bindings_for_file, library_inventory_bindings
     from rebrew.metadata.functions import METADATA_FILENAME
     from rebrew.sources import iter_library_headers
 
-    marker = preset_module_key(module_marker(cfg))
+    target_module_name = preset_module_key(target_module(cfg))
     headers = list(iter_library_headers(cfg.reversed_dir, cfg))
     metadata_dir = getattr(cfg, "metadata_dir", None)
     metadata_path = Path(metadata_dir) / METADATA_FILENAME if metadata_dir else None
     key = (
-        marker,
+        target_module_name,
         tuple((str(h), *_stat_identity(h)) for h in headers),
         (str(metadata_path), *_stat_identity(metadata_path)) if metadata_path else None,
     )
@@ -2366,7 +2434,7 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     rows: dict[int, dict[str, str]] = {}
     for header in headers:
         for e in library_bindings_for_file(header, metadata_dir=metadata_dir):
-            if preset_module_key(e.module or "") in ("", marker):
+            if preset_module_key(e.module or "") in ("", target_module_name):
                 rows[e.va] = {
                     "kind": e.kind or "LIBRARY",
                     "module": e.module or "",
@@ -2375,14 +2443,16 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
                 }
     if metadata_dir is not None:
         for e in library_inventory_bindings(metadata_dir, cfg.reversed_dir):
-            if e.va not in rows and preset_module_key(e.module or "") in ("", marker):
+            if e.va not in rows and preset_module_key(e.module or "") in ("", target_module_name):
                 rows[e.va] = {
                     "kind": "LIBRARY",
                     "module": e.module or "",
                     "name": e.name,
                     "symbol": e.symbol,
                 }
-    for entry in compiled_library_annotations(cfg):
+    for entry in compiled_source_annotations(cfg):
+        if entry.kind != "LIBRARY":
+            continue
         rows[entry.va] = {
             "kind": "LIBRARY",
             "module": entry.module,
@@ -2476,7 +2546,7 @@ def prepare_entries(
     ghidra_json_path = inventory_path_for(reversed_dir, cfg)
 
     console.print(f"Scanning {untrusted_ident(reversed_dir)}...")
-    entries = scan_reversed_dir(reversed_dir, cfg=cfg)
+    entries = scan_reversed_dir(reversed_dir, cfg=cfg, inventory_only=True)
     funcs = cached_function_list(cfg)
     registry = build_function_registry(funcs, cfg, ghidra_json_path, cfg.target_binary)
 
@@ -2499,6 +2569,25 @@ def prepare_entries(
     from rebrew.function_providers import select_source_bindings
 
     selected, duplicate_vas = select_source_bindings(cfg, entries)
+    prototypes: dict[Path, list[SourceBinding]] = {}
+    for entry in selected:
+        if entry.is_data or entry.symbol or entry.prototype:
+            continue
+        cfile = contained_path(source_roots(cfg), entry.filepath)
+        if cfile is None or not cfile.is_file():
+            continue
+        # Incomplete identities still need the declaration's calling convention.
+        if cfile not in prototypes:
+            prototypes[cfile] = read_source_bindings(
+                cfile,
+                target_name=target_module(cfg),
+                metadata_dir=cfg.metadata_dir,
+                project_root=getattr(cfg, "root", None),
+            )
+        for binding in prototypes[cfile]:
+            if (binding.module, binding.va, binding.name) == (entry.module, entry.va, entry.name):
+                entry.prototype = binding.prototype
+                break
     for entry in selected:
         if entry.is_data:
             data_count += 1
@@ -2508,7 +2597,7 @@ def prepare_entries(
             unique_entries.append(entry)
     # Only selected identities enter the call catalog. Stale duplicates must
     # not introduce additional names or count a managed library as game code.
-    from rebrew.coff_reloc import CatalogScanError, build_name_to_va
+    from rebrew.coff_reloc import CatalogScanError, binding_evidence_current, build_name_to_va
 
     try:
         name_to_va = build_name_to_va(
@@ -2542,12 +2631,10 @@ def prepare_entries(
     results: list[dict[str, Any]] = []
 
     cache_path = cache_path_for(cfg)
-    # Recheck the current catalog for this policy; compiled objects still cache.
-    verify_cache_obj = (
-        None
-        if full or getattr(cfg, "check_known_bindings", False)
-        else load_verify_cache(cache_path, cfg)
-    )
+    # --no-cache remeasures everything. check_known_bindings still reads the file:
+    # each row is admitted only when its recorded bound_va values match
+    # name_to_va. A hash of the whole catalog would miss on every STATUS write.
+    verify_cache_obj = None if full else load_verify_cache(cache_path, cfg)
     entries_cache: dict[str, VerifyCacheEntry] = (
         verify_cache_obj.entries if verify_cache_obj else {}
     )
@@ -2613,6 +2700,13 @@ def prepare_entries(
             continue
         if fp.source_hash != cached_entry.source_hash:
             continue
+        # Known-binding mode refuses a row whose operand proof is missing or
+        # whose catalog VA moved. Conflicts stay cached while bound_va is the
+        # same value. Masked rows have no bound_va and miss.
+        if getattr(cfg, "check_known_bindings", False) and not binding_evidence_current(
+            cached_entry.relocation_bindings, name_to_va
+        ):
+            continue
         # A function with linked EXACT evidence is served from the cache only
         # as EXACT over the same image; otherwise recompile so the object
         # verdict and the evidence are rechecked together.
@@ -2633,7 +2727,7 @@ def prepare_entries(
     if verify_cache_obj is not None and not json_output:
         fresh_count = len(unique_entries) - cached_count
         console.print(
-            f"Incremental: {cached_count} cached, {fresh_count} to verify (use --full to force all)"
+            f"Incremental: {cached_count} cached, {fresh_count} to verify (use --no-cache to recheck)"
         )
 
     # Detect annotation SIZE vs binary-derived canonical size divergence.
@@ -2911,7 +3005,7 @@ def run_verification(
                         )
     finally:
         # Batch-published .obj files are no longer needed — drop lasting temp
-        # dirs so a long-lived process does not accumulate one per --full run.
+        # dirs so a long-lived process does not accumulate one per --no-cache run.
         with contextlib.suppress(Exception):
             from rebrew.compiler.compile import cleanup_batch_obj_dirs
 
@@ -3425,7 +3519,12 @@ def _row_match_pct(row: dict[str, Any] | None) -> float:
 
 
 def render_verify_summary(results: list[dict[str, Any]]) -> None:
-    """Print the verification summary tables. Match % has a bar of that ratio."""
+    """Print the verification summary tables.
+
+    The STATUS breakdown lists every status in the run, so its counts add up
+    to the row count. The four byte-comparison statuses stay visible at zero. Match % has a bar
+    of that function's own ratio, and only for STUB and NEAR_MATCHING.
+    """
     from rebrew.present import bar_plain, count_column
 
     console.print()
@@ -3458,18 +3557,22 @@ def render_verify_summary(results: list[dict[str, Any]]) -> None:
 
     console.print(table)
 
-    exact = sum(1 for r in results if r["status"] == "EXACT")
-    reloc = sum(1 for r in results if r["status"] == "RELOC")
-    near_matching = sum(1 for r in results if r["status"] == "NEAR_MATCHING")
-    stub = sum(1 for r in results if r["status"] == "STUB")
+    counts: dict[str, int] = {}
+    for row in results:
+        status = str(row["status"])
+        counts[status] = counts.get(status, 0) + 1
+    shown = [
+        status
+        for status in STATUS_LEGEND_ORDER
+        if (status in DISPLAY_STATUSES and status != "PROVEN") or counts.get(status, 0)
+    ]
+    shown.extend(sorted(set(counts) - set(STATUS_LEGEND_ORDER)))
 
     stat_table = Table(title="STATUS Breakdown", show_header=False, expand=False, pad_edge=False)
     stat_table.add_column("Category", style="cyan", width=16, no_wrap=True)
     count_column(stat_table, "Count", width=8)
-    stat_table.add_row("EXACT", str(exact))
-    stat_table.add_row("RELOC", str(reloc))
-    stat_table.add_row("NEAR_MATCHING", str(near_matching))
-    stat_table.add_row("STUB", str(stub))
+    for status in shown:
+        stat_table.add_row(untrusted_ident(status), str(counts.get(status, 0)))
 
     console.print(stat_table)
     # Match % is each function's own ratio, not the pass count above.

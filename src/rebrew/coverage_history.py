@@ -8,7 +8,7 @@ from pathlib import Path
 import typer
 
 from rebrew.cli import RootOption, error_exit, json_print, require_root
-from rebrew.config import load_config, module_marker
+from rebrew.config import load_config, target_module
 from rebrew.coverage_toml import CoverageTomlError, load_coverage_from
 from rebrew.metadata.functions import import_status_history
 from rebrew.utils import console
@@ -60,11 +60,11 @@ def main(
             cfg = load_config(project, target=name)
             rows = [dict(row) for row in snapshot.history]
             # Validate every target before the first write.
-            count = import_status_history(cfg, module_marker(cfg), rows, dry_run=True)
+            count = import_status_history(cfg, target_module(cfg), rows, dry_run=True)
             prepared.append((cfg, rows, count))
         for cfg, rows, _count in prepared:
             if not dry_run:
-                import_status_history(cfg, module_marker(cfg), rows)
+                import_status_history(cfg, target_module(cfg), rows)
     except (OSError, ValueError, KeyError, TypeError, CoverageTomlError) as exc:
         error_exit(str(exc), json_mode=json_output)
     results = [

@@ -61,7 +61,7 @@ class TestBuildFunctionLookup:
         # STATUS lives in metadata, not inline.
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nstatus = "RELOC"\n',
+            'format = 3\n["SERVER.0x10001000"]\nstatus = "RELOC"\n',
             encoding="utf-8",
         )
         cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path / "src")

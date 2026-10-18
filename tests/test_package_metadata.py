@@ -26,6 +26,7 @@ import sys
 import tomllib
 from importlib.metadata import distribution
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 import pytest
 
@@ -52,7 +53,6 @@ _DISTRIBUTION_TO_IMPORT_NAME = {v: k for k, v in _IMPORT_NAME_TO_DISTRIBUTION.it
 # reason, and it must name the extra or tool env that does provide it.
 _OPTIONAL_IMPORTS = {
     "angr": "prove extra; prove.py / doctor.py raise a clear error without it",
-    "claripy": "prove extra; direct import in prove.py / doctor.py",
     "declib": "binsync extra; only rebrew.binsync.serial touches it",
     "m2c": "m2c dependency group (commit-pinned), never in wheel METADATA; "
     "decompiler.py find_spec-probes it and drops the backend when absent",
@@ -117,16 +117,30 @@ def _declared_distributions() -> set[str]:
     return names
 
 
-def _top_level_imports(root: Path = SRC) -> set[str]:
-    """Top-level modules imported by anything under ``root``."""
+def _imported_modules(root: Path = SRC) -> set[str]:
+    """Top-level modules imported, statically or by name, under ``root``.
+
+    One parse per file. The static import walk and the dynamic-helper walk
+    used to each read and parse the tree.
+    """
     found: set[str] = set()
-    for path in [root] if root.is_file() else root.rglob("*.py"):
+    paths = [root] if root.is_file() else root.rglob("*.py")
+    for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 found.update(alias.name.split(".", 1)[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 found.add(node.module.split(".", 1)[0])
+            elif isinstance(node, ast.Call):
+                if _callee_name(node.func).rsplit(".", 1)[-1] not in _DYNAMIC_IMPORT_HELPERS:
+                    continue
+                for arg in node.args:
+                    if not isinstance(arg, ast.Constant) or not isinstance(arg.value, str):
+                        continue
+                    if arg.value.startswith("."):
+                        continue
+                    found.add(arg.value.split(".", 1)[0])
     return found
 
 
@@ -140,30 +154,6 @@ def _callee_name(func: ast.expr) -> str:
     if not isinstance(node, ast.Name):
         return ""
     return ".".join([node.id, *reversed(parts)])
-
-
-def _dynamic_imports(root: Path = SRC) -> set[str]:
-    """Top-level modules named by a literal handed to an import helper.
-
-    `importlib.util.find_spec("m2c")` resolves a third-party package with no
-    `import` statement for the scan in ``_top_level_imports`` to read, so an
-    undeclared distribution would reach a user only as a runtime ImportError.
-    """
-    found: set[str] = set()
-    for path in [root] if root.is_file() else root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            if _callee_name(node.func).rsplit(".", 1)[-1] not in _DYNAMIC_IMPORT_HELPERS:
-                continue
-            for arg in node.args:
-                if not isinstance(arg, ast.Constant) or not isinstance(arg.value, str):
-                    continue
-                if arg.value.startswith("."):
-                    continue
-                found.add(arg.value.split(".", 1)[0])
-    return found
 
 
 def _requirement_name(spec: str) -> str:
@@ -198,7 +188,7 @@ class TestDeclaredDependencies:
         stdlib = set(sys.stdlib_module_names)
         declared = _declared_distributions()
         undeclared = set()
-        for name in _top_level_imports() | _dynamic_imports():
+        for name in _imported_modules():
             if name in stdlib or name in _LOCAL_IMPORTS or name in _OPTIONAL_IMPORTS:
                 continue
             if name in declared or _IMPORT_NAME_TO_DISTRIBUTION.get(name, name) in declared:
@@ -221,7 +211,7 @@ class TestDeclaredDependencies:
         half of it is invoked as a tool rather than imported, so gating it
         would encode the tool-versus-library split as an allowlist.
         """
-        imported = _top_level_imports() | _dynamic_imports()
+        imported = _imported_modules()
         unused = []
         for name in sorted(_declared_distributions()):
             if name in _PIN_ONLY_REQUIREMENTS:
@@ -331,6 +321,8 @@ _GROUP_TOOL_ONLY = {
     "ruff": "lint gate over the tree; no module imports it",
     "skills-ref": "the pre-commit 'Validate Agent Skills' hook binary; no module imports it",
     "slipcover": "coverage gate over `make test`; no module imports it",
+    "pytest-xdist": "full-suite workers; pytest loads the pytest11 entry point and "
+    "tests/pytest_ansi_env.py only injects -n",
 }
 
 _DEV_TREES = ("tests", "tools")
@@ -383,6 +375,27 @@ class TestDevTreeDependencies:
             _requirement_name(spec) for group in groups.values() for spec in group
         }
 
+    def test_import_scan_parses_each_file_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        tree = tmp_path / "pkg"
+        tree.mkdir()
+        (tree / "a.py").write_text(
+            'import os\nimport importlib\nimportlib.import_module("json")\n', encoding="utf-8"
+        )
+        (tree / "b.py").write_text("import sys\n", encoding="utf-8")
+        parsed: list[str] = []
+        real_parse = ast.parse
+
+        def _count(source: str, filename: str = "<unknown>", *args: Any, **kwargs: Any) -> ast.AST:
+            parsed.append(filename)
+            return real_parse(source, filename, *args, **kwargs)
+
+        monkeypatch.setattr(ast, "parse", _count)
+        found = _imported_modules(tree)
+        assert {"os", "json", "sys"} <= found
+        assert sorted(parsed) == sorted(str(path) for path in tree.glob("*.py"))
+
     def test_every_dev_tree_import_is_declared(self) -> None:
         stdlib = set(sys.stdlib_module_names)
         declared = self._declared_everywhere()
@@ -391,7 +404,7 @@ class TestDevTreeDependencies:
         for tree in self._dev_trees():
             for path in tree.rglob("*.py"):
                 external = _EXTERNAL_INTERPRETER_IMPORTS.get(path.relative_to(ROOT).as_posix(), {})
-                for name in _top_level_imports(path) | _dynamic_imports(path):
+                for name in _imported_modules(path):
                     if name in stdlib or name in local or name in external:
                         continue
                     if name in declared or _IMPORT_NAME_TO_DISTRIBUTION.get(name, name) in declared:
@@ -421,7 +434,7 @@ class TestDevTreeDependencies:
         assert isinstance(groups, dict)
         imported = set()
         for tree in [SRC, *self._dev_trees()]:
-            for name in _top_level_imports(tree) | _dynamic_imports(tree):
+            for name in _imported_modules(tree):
                 imported.add(_IMPORT_NAME_TO_DISTRIBUTION.get(name, name))
         unused = sorted(
             _requirement_name(spec)

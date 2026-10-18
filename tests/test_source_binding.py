@@ -23,7 +23,7 @@ def _project(tmp_path: Path) -> ProjectConfig:
     src.mkdir()
     binary = tmp_path / "reference.exe"
     binary.write_bytes(b"native input")
-    cfg = ProjectConfig(root=tmp_path, reversed_dir=src, marker="GAME", target_binary=binary)
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=src, module="GAME", target_binary=binary)
     for name, va in [("f", 0x401000), ("g", 0x402000)]:
         path = src / f"{name}.c"
         path.write_text(f"/* ADDRESS: GAME 0x{va:x} */\nint {name}(void) {{ return 1; }}\n")

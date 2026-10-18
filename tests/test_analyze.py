@@ -45,7 +45,7 @@ format = "pe"
 arch = "x86_32"
 reversed_dir = "src/S"
 bin_dir = "bin/S"
-marker = "S"
+module = "S"
 
 [compiler]
 profile = "mingw-16.2.0"
@@ -142,7 +142,7 @@ class TestCollectFunctions:
             SimpleNamespace(
                 reversed_dir=tmp_path / "src",
                 metadata_dir=tmp_path / "src",
-                marker="S",
+                module="S",
                 source_ext=".c",
             )
         )
@@ -176,7 +176,7 @@ class TestBuildDossier:
         """The dossier's near_match section carries blockers + mutations."""
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["T.0x10002000"]\nstatus = "NEAR_MATCHING"\nblocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
+            'format = 3\n["T.0x10002000"]\nstatus = "NEAR_MATCHING"\nblocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
             encoding="utf-8",
         )
         cfg = SimpleNamespace(
@@ -193,7 +193,7 @@ class TestBuildDossier:
         """Legacy NEAR_MATCH spelling must still populate the near_match section."""
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["T.0x10002000"]\nstatus = "NEAR_MATCH"\nblocker = "legacy alias"\n',
+            'format = 3\n["T.0x10002000"]\nstatus = "NEAR_MATCH"\nblocker = "legacy alias"\n',
             encoding="utf-8",
         )
         cfg = SimpleNamespace(
@@ -373,7 +373,7 @@ class TestDispatchTablesShape:
             reversed_dir=tmp_path / "src",
             metadata_dir=None,
             target_binary=tmp_path / "t.dll",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             iat_thunks=[],
         )
@@ -410,7 +410,7 @@ class TestDispatchTablesShape:
             reversed_dir=src,
             metadata_dir=None,
             target_binary=tmp_path / "t.dll",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             iat_thunks=[],
         )

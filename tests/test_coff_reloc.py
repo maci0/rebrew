@@ -29,7 +29,7 @@ binary = "bin/game.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src"
-marker = "GAME"
+module = "GAME"
 
 [compiler]
 profile = "gcc-14.2.0"
@@ -226,7 +226,9 @@ def test_function_catalog_scan_is_marker_scoped(
     monkeypatch.setattr(
         data_mod,
         "scan_globals",
-        lambda _dir, _cfg, *, record_roles: SimpleNamespace(data_annotations=[], globals={}),
+        lambda _dir, _cfg, *, record_roles, fact_cache, facts_out: SimpleNamespace(
+            data_annotations=[], globals={}
+        ),
     )
     monkeypatch.setattr(dm_mod, "load_data_metadata", lambda _dir: {})
 
@@ -234,7 +236,7 @@ def test_function_catalog_scan_is_marker_scoped(
         reversed_dir=src,
         metadata_dir=tmp_path,
         dll_exports={},
-        marker="GAME",
+        module="GAME",
         target_name="game",
     )
     m = cr.build_name_to_va(cfg)  # type: ignore[arg-type]

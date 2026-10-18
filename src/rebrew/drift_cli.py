@@ -19,7 +19,9 @@ import typer
 from rich.table import Table
 
 from rebrew.cli import (
+    CFLAGS_HELP,
     EXIT_ERROR,
+    SIZE_HELP,
     SOURCE_HELP,
     TargetOption,
     console,
@@ -33,10 +35,10 @@ from rebrew.cli import (
 )
 from rebrew.compiler.compile import compile_and_compare
 from rebrew.compiler.overrides import resolve_compile_overrides
+from rebrew.config import target_module
 from rebrew.drift import DerivedRegion, DriftWindow, derive_regions, drift_windows
 from rebrew.formats.binary_loader import extract_raw_bytes
 from rebrew.metadata.bindings import read_function_fields, read_source_bindings
-from rebrew.sources import target_marker
 
 # Module-form registration (empty ``attr`` in app/builtins.py) resolves BOTH a
 # ``main`` callable and a module-level ``app``.  A module exposing only ``main``
@@ -105,8 +107,8 @@ def _emit_text(windows: list[DriftWindow], derived: list[DerivedRegion]) -> None
 def main(
     source: str = typer.Argument(..., help=SOURCE_HELP),
     va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
-    size: int | None = typer.Option(None, "--size", help="Function size (default: from metadata)"),
-    cflags: str | None = typer.Option(None, "--cflags", help="Override compiler flags"),
+    size: int | None = typer.Option(None, "--size", help=SIZE_HELP),
+    cflags: str | None = typer.Option(None, "--cflags", help=CFLAGS_HELP),
     toolchain: str | None = typer.Option(None, "--toolchain", help="Override toolchain profile"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -126,7 +128,7 @@ def main(
     meta = read_function_fields(str(src_path))
     annos = read_source_bindings(
         src_path,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )

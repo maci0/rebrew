@@ -24,7 +24,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew build cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via `rebrew build driver`. |
 | `rebrew build cmake-flags` | Write per-file CFLAGS from `rebrew-functions.toml` as a CMake include. |
 | `rebrew build cmake-sources` | Write the target's metadata-selected source list as a CMake include. |
-| `rebrew source register` | Register optional ADDRESS anchors above C declarations in format-2 stores; `--dry-run` previews. Sources and headers are scanned. |
+| `rebrew source register` | Register optional ADDRESS anchors above C declarations in canonical stores (functions format 3; data format 2); `--dry-run` previews. Sources and headers are scanned. |
 | `rebrew build check` | Verify `build/` still matches what CMake generated (catches a hand-edited `build.make`). |
 | `rebrew binsync init` | Create the BinSync state repository. |
 | `rebrew binsync diff` | Report field divergence and provenance freshness. |
@@ -43,7 +43,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew match solutions` | Query the GA solutions database (`.rebrew/ga_runs.jsonl` wins + run history). |
 | `rebrew build residue` | Measure linked byte-identity residue after postlink fixers. |
 | `rebrew binary xrefs` | Show cross-references (callers/callees) to/from a target address. |
-| `rebrew cache` | Manage the compile result cache (`rebrew cache stats` to inspect; `clear` prompts before deleting, `--force` skips the prompt). |
+| `rebrew cache` | Manage the compile result cache (`rebrew cache stats` to inspect; `rebrew cache clear` refuses a non-terminal stdin, `--force` skips the prompt, and a piped answer does not approve). |
 | `rebrew binary imports list` | List import-table symbols (PE IAT/ELF/NE) and detect import stubs. |
 | `rebrew binary imports mark` | Record detected import stubs as library identifications. Preview with `--dry-run`. |
 | `rebrew binary strings` | Extract strings from binary with cross-references (`--xref`, `--section`). |

@@ -448,8 +448,8 @@ def _matching_rows(
 ) -> list[tuple[str, int, dict[str, Any]]]:
     rows: list[tuple[str, int, dict[str, Any]]] = []
     for (module, va), entry in entries.items():
-        marker = str(entry.get("kind") or "FUNCTION")
-        if marker not in FUNCTION_KINDS:
+        kind = str(entry.get("kind") or "FUNCTION")
+        if kind not in FUNCTION_KINDS:
             continue
         if not stored_file_matches(str(entry.get("file") or ""), rel):
             continue
@@ -494,12 +494,12 @@ def _split_definitions(
             target_va = int(va_cleaned, 16)
         except ValueError:
             error_exit(f"Invalid VA (must be hex): {va}", json_mode=json_output)
-        marker = preset_module_key(cfg.marker) if cfg.marker else ""
+        target_module_name = preset_module_key(cfg.module) if cfg.module else ""
         matched = [
             (module, row_va, entry)
             for (module, row_va), entry in entries.items()
             if row_va == target_va
-            and (not marker or preset_module_key(module) == marker)
+            and (not target_module_name or preset_module_key(module) == target_module_name)
             and str(entry.get("kind") or "FUNCTION") in FUNCTION_KINDS
         ]
         if not matched:
@@ -534,12 +534,12 @@ def _split_definitions(
         selected = found
     else:
         grouped: list[SourceSpan] = []
-        marker = preset_module_key(cfg.marker) if cfg.marker else ""
+        target_module_name = preset_module_key(cfg.module) if cfg.module else ""
         for span in functions:
             rows = [
                 row
                 for row in _matching_rows(entries, rel, span.name)
-                if not marker or preset_module_key(row[0]) == marker
+                if not target_module_name or preset_module_key(row[0]) == target_module_name
             ]
             if rows:
                 grouped.append(span)

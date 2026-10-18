@@ -57,9 +57,10 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.config import target_module
 from rebrew.formats.pe_symbols import KIND_FUNC, PeSymbolTable, pe_symbols
 from rebrew.metadata.bindings import iter_source_bindings
-from rebrew.sources import iter_sources, target_marker
+from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, parse_int_literal
 
 #: Trailing-comment markers the rich format uses inside ``// ...`` comments.
@@ -218,7 +219,7 @@ def function_symbol_rows(cfg: Any) -> tuple[list[SymbolRow], int, int]:
     skipped_va = 0
     for _path, annos in iter_source_bindings(
         sources,
-        target=target_marker(cfg),
+        target=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):

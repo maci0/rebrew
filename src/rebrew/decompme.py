@@ -49,6 +49,8 @@ from typing import Any, Literal, Protocol, runtime_checkable
 import typer
 
 from rebrew.cli import (
+    CFLAGS_HELP,
+    SIZE_HELP,
     SOURCE_HELP,
     TargetOption,
     console,
@@ -701,12 +703,12 @@ def _resolve_annotation(
     *size_override* (the CLI ``--size``) supplies the size when the annotation
     has none — the check must not reject the very case ``--size`` exists for.
     """
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import target_marker
 
     annos = read_source_bindings(
         source,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )
@@ -750,9 +752,7 @@ def _build_context(cfg: Any, context_path: Path | None, no_context: bool) -> str
 def main(
     source: str = typer.Argument(..., help=SOURCE_HELP),
     va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)"),
-    size: int | None = typer.Option(
-        None, "--size", help="Target size in bytes (default: stored SIZE)"
-    ),
+    size: int | None = typer.Option(None, "--size", help=SIZE_HELP),
     compiler: str | None = typer.Option(
         None,
         "--compiler",
@@ -763,9 +763,7 @@ def main(
         "--platform",
         help="decomp.me platform id (default: win32/msdos from the binary format)",
     ),
-    cflags: str | None = typer.Option(
-        None, "--cflags", help="Compiler flags (default: the function's resolved cflags)"
-    ),
+    cflags: str | None = typer.Option(None, "--cflags", help=CFLAGS_HELP),
     context: Path | None = typer.Option(
         None,
         "--context",

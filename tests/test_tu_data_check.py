@@ -16,7 +16,7 @@ binary = "original/server.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src"
-marker = "SERVER"
+module = "SERVER"
 
 [compiler]
 profile = "gcc-14.2.0"

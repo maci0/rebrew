@@ -50,7 +50,9 @@ from rebrew.cli import (
     EXIT_MISMATCH,
     EXIT_OK,
     SOURCE_HELP,
+    WATCH_FILE_HELP,
     TargetOption,
+    all_items_option,
     console,
     error_exit,
     json_print,
@@ -61,15 +63,12 @@ from rebrew.cli import (
 )
 from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_compare
 from rebrew.compiler.compile import compile_to_obj
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, target_module
 from rebrew.formats.binary_loader import extract_raw_bytes
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.metadata.bindings import read_source_bindings, resolve_symbol
 from rebrew.prove_simprocs import get_win32_simprocs
-from rebrew.sources import (
-    iter_sources,
-    target_marker,
-)
+from rebrew.sources import iter_sources
 from rebrew.utils import safe_shlex_split, untrusted_ident
 from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
 
@@ -216,7 +215,7 @@ def _apply_arg_constraints(
         - ``null``: Force arg == 0.
         - ``nonzero``: Force arg != 0.
     """
-    import claripy
+    from angr import claripy
 
     table: dict[tuple[str, int], Any] = {} if syms is None else syms
 
@@ -438,7 +437,7 @@ def _compare_state_pairs(
     in that case (see :func:`prove_equivalence`), otherwise there is nothing
     to compare and the proof would be trivially true.
     """
-    import claripy
+    from angr import claripy
 
     regs_label = ""
     if check_eax:
@@ -474,14 +473,14 @@ def _compare_state_pairs(
             if not diff_terms:
                 continue  # nothing compared in this pair
 
-            solver = claripy.Solver()  # type: ignore[no-untyped-call]
+            solver = claripy.Solver()
             for expr in s_orig.solver.constraints:
-                solver.add(expr)  # type: ignore[no-untyped-call]
+                solver.add(expr)
             for expr in s_comp.solver.constraints:
-                solver.add(expr)  # type: ignore[no-untyped-call]
-            solver.add(claripy.Or(*diff_terms))  # type: ignore[no-untyped-call]
+                solver.add(expr)
+            solver.add(claripy.Or(*diff_terms))
 
-            if solver.satisfiable():  # type: ignore[no-untyped-call]
+            if solver.satisfiable():
                 can_differ = True
                 try:
                     # One batch_eval call, one model: all counterexample values
@@ -498,7 +497,7 @@ def _compare_state_pairs(
                             exprs.append(m_o)
                         if m_c is not None:
                             exprs.append(m_c)
-                    vals = solver.batch_eval(exprs, 1)[0]  # type: ignore[no-untyped-call]
+                    vals = solver.batch_eval(exprs, 1)[0]
                     it = iter(vals)
                     desc_parts: list[str] = []
                     regs_same = True  # no register compared, nothing differs
@@ -639,7 +638,7 @@ def _fingerprint_args(solver: Any, args: tuple[Any, ...]) -> str:
     on claripy ASTs is identity-based (two same-named ``BVS`` differ), so
     the key is structural: ``(op, name-or-value, children)``.
     """
-    import claripy
+    from angr import claripy
 
     def _key(a: Any) -> Any:
         if isinstance(a, claripy.ast.BV):
@@ -750,7 +749,7 @@ def prove_equivalence(
         )
 
     import angr
-    import claripy
+    from angr import claripy
 
     # Build IAT address → stub address map from LIEF import data (if binary_path given).
     # This seeds concrete call targets for the original binary's IAT-indirect calls,
@@ -1142,7 +1141,7 @@ _EPILOG = (
     "  # Prove a specific block\n"
     "  rebrew prove my_func --start-offset 0 --end-offset 48\n\n"
     "[bold]How it works:[/bold]\n\n"
-    "  1. Validates the function status is NEAR_MATCHING/SIZE_MISMATCH — the gate\n"
+    "  1. Validates the function status is NEAR_MATCHING/SIZE_MISMATCH. The gate\n"
     "     checks the effective status (metadata or the verify cache)\n\n"
     "  2. Extracts target bytes from the configured binary and compiles the C source\n\n"
     "  3. Verifies bytes still differ post-compile (matched bytes belong as RELOC, not PROVEN)\n\n"
@@ -1162,26 +1161,28 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(None, help=SOURCE_HELP + " (omit with --all)"),
-    all_sources: bool = typer.Option(
-        False, "--all", help="Prove all NEAR_MATCHING/SIZE_MISMATCH functions"
-    ),
+    all_sources: bool = all_items_option("eligible NEAR_MATCHING or SIZE_MISMATCH function"),
     ceiling_only: bool = typer.Option(
         False,
         "--ceiling",
-        help="With --all, restrict to GA_CEILING functions; excludes --max-delta",
+        help=("With --all, restrict to GA_CEILING functions. Requires --all. Excludes --max-delta"),
     ),
     max_delta: int | None = typer.Option(
         None,
         "--max-delta",
-        help="With --all, cap recorded blocker_delta in bytes; excludes --ceiling",
+        help="With --all, cap recorded blocker_delta in bytes. Requires --all. Excludes --ceiling",
     ),
     timeout: int = typer.Option(60, "--timeout", help="Seconds before giving up"),
     loop_bound: int = typer.Option(10, "--loop-bound", help="Max loop iterations for angr"),
     start_offset: int = typer.Option(
-        0, "--start-offset", help="Start byte offset within the function (0-based)"
+        0,
+        "--start-offset",
+        help="Start byte offset within one function (0-based). Excludes --all",
     ),
     end_offset: int = typer.Option(
-        0, "--end-offset", help="End byte offset within the function (0 = full function)"
+        0,
+        "--end-offset",
+        help="End byte offset within one function (0 means the full function). Excludes --all",
     ),
     check_edx: bool = typer.Option(
         False,
@@ -1205,7 +1206,7 @@ def main(
     watch: bool = typer.Option(
         False,
         "--watch",
-        help="Watch the source file and re-prove on every change (terminal only; no --json)",
+        help=WATCH_FILE_HELP,
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -1213,6 +1214,23 @@ def main(
     """Prove semantic equivalence of a NEAR_MATCHING/SIZE_MISMATCH function via symbolic execution."""
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
+    all_sources = option_default(all_sources, False)
+    ceiling_only = option_default(ceiling_only, False)
+    max_delta = option_default(max_delta, None)
+    start_offset = option_default(start_offset, 0)
+    end_offset = option_default(end_offset, 0)
+    if ceiling_only and max_delta is not None:
+        error_exit(
+            "--ceiling and --max-delta are mutually exclusive (ceiling functions are a fixed set)",
+            json_mode=json_output,
+        )
+    if (ceiling_only or max_delta is not None) and not all_sources:
+        error_exit("--ceiling and --max-delta require --all", json_mode=json_output)
+    if all_sources and (start_offset or end_offset):
+        error_exit(
+            "--start-offset and --end-offset cannot be combined with --all",
+            json_mode=json_output,
+        )
     # angr logs an ERROR about its optional unicorn engine at import; prove
     # is the only tool that legitimately imports angr, and its own status
     # messages are the meaningful output — silence angr's logger so every
@@ -1243,12 +1261,6 @@ def main(
     if all_sources:
         if watch:
             error_exit("--watch cannot be combined with --all", json_mode=json_output)
-        if ceiling_only and max_delta is not None:
-            error_exit(
-                "--ceiling and --max-delta are mutually exclusive "
-                "(ceiling functions are a fixed set)",
-                json_mode=json_output,
-            )
         _run_all_batch(
             cfg,
             timeout,
@@ -1300,7 +1312,7 @@ def main(
     # are read from rebrew-functions.toml (where volatile metadata lives).
     annotations = read_source_bindings(
         source_path,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )
@@ -1971,7 +1983,7 @@ def _run_all_batch(
     from rebrew.metadata.functions import GA_CEILING_PREFIX
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
-    tm = target_marker(cfg)
+    tm = target_module(cfg)
 
     # Collect all eligible annotations
     candidates: list[tuple[Path, Any]] = []

@@ -853,7 +853,7 @@ def _add_target_locked(
             shared_dir = root / str(shared_raw).strip()
             if not shared_dir.exists():
                 shared_dir.mkdir(parents=True, exist_ok=True)
-                shared_hint = f"\n[green]  Created {shared_dir.relative_to(root)}/[/green] (shared sources: one file, one marker per target)"
+                shared_hint = f"\n[green]  Created {shared_dir.relative_to(root)}/[/green] (shared sources: one file, one address anchor per target)"
 
     tgt = tomlkit.table()
     tgt.add("binary", binary)
@@ -1052,6 +1052,8 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
 
     leaf = key.rsplit(".", 1)[-1]
     parts = key.split(".")
+    if leaf == "marker":
+        error_exit("marker was replaced by module; retain its existing value", json_mode=json_mode)
     if (
         leaf == "execution_backend"
         and "compiler" in parts

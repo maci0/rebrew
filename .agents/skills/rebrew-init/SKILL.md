@@ -107,3 +107,7 @@ AGENTS.md. `--refresh-agents` uses the configured default target and its compile
 override. Check editable dependency origins and canonical Rebrew/Recoverage
 checkout paths, then run `rebrew init --check`. Delphi scaffolds use whole-program
 Docker build, NE comparison and form inspection instead of the C function loop.
+
+Target namespaces use `[targets.<name>].module` and `rebrew cfg set module NAME`.
+Retain existing values when renaming the removed `marker` key. Source comments
+are optional `ADDRESS` anchors; function/data kinds and state belong in metadata.

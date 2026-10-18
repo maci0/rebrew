@@ -30,7 +30,7 @@ output_dir = "output"
 [targets.server]
 binary = "game.exe"
 reversed_dir = "src"
-marker = "SERVER"
+module = "SERVER"
 """
 
 _FUNC_A = SourceFixture(
@@ -44,7 +44,7 @@ _FUNC_B = SourceFixture(
 )
 
 # STATUS lives in rebrew-functions.toml, not inline.
-_METADATA_TOML = 'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n'
+_METADATA_TOML = 'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n'
 
 
 def _write_project(tmp_path: Path, pe_bytes: bytes | None = None) -> None:
@@ -155,7 +155,7 @@ class TestReportCli:
         # Metadata at the project root (the default metadata_dir).
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10002000"]\nblocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
+            'format = 3\n["SERVER.0x10002000"]\nblocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)
@@ -443,7 +443,7 @@ class TestDecompDevUnitNames:
             root=tmp_path,
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_name="T",
             target_binary=tmp_path / "x.dll",
             source_ext=".c",
@@ -491,7 +491,7 @@ class TestLibraryHeaderRows:
             root=tmp_path,
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_name="T",
             source_ext=".c",
             arch="x86_32",
@@ -536,7 +536,7 @@ class TestLibraryHeaderRows:
             root=tmp_path,
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             target_name="T",
             source_ext=".c",
             arch="x86_32",
@@ -584,7 +584,7 @@ class TestReportPayloadShape:
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         src = tmp_path / "src"
         meta_lines = [
-            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
             '["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n',
         ]
         # Enough extras that page 1 is full and page 2 exists.
@@ -594,7 +594,6 @@ class TestReportPayloadShape:
                 src / f"extra_{i:04d}.c",
                 f"/* ADDRESS: SERVER 0x{va:08x} */\n\nint extra_{i}(void) {{ return 0; }}\n",
                 encoding="utf-8",
-                metadata_fields={f"SERVER.0x{va:08x}": {"kind": "FUNCTION", "size": 16}},
             )
             meta_lines.append(f'["SERVER.0x{va:08x}"]\nstatus = "STUB"\n')
         write_store_fixture(
@@ -875,7 +874,51 @@ class TestSummaryCards:
         page = (site / "index.html").read_text(encoding="utf-8")
         assert "<dl class='cards'>" in page
         assert "<dt class='label'>Total functions</dt><dd class='value'>" in page
+        assert "<dt class='label'>Code account</dt>" in page
+        assert "Of .text" not in page
         assert "<div class='value'>" not in page
+
+    def test_code_account_card_names_its_measure(self) -> None:
+        """The code-account card is that percentage. Byte-matched stays a count."""
+        from rebrew.report import _render_index
+        from rebrew.status import StatusReport
+
+        known = StatusReport(
+            target="T",
+            total_functions=4,
+            covered_functions=2,
+            status_counts={"EXACT": 1, "RELOC": 1},
+            matched_bytes=50,
+            total_text_bytes=200,
+            padding_bytes=10,
+        )
+        page = _render_index("T", known, [])[0][1]
+        assert "<dt class='label'>Code account</dt><dd class='value'>30.0%</dd>" in page
+        assert "<dt class='label'>Byte-matched</dt><dd class='value'>2/4</dd>" in page
+        assert "Of .text" not in page
+
+        unknown = StatusReport(
+            target="T",
+            total_functions=4,
+            covered_functions=2,
+            status_counts={"EXACT": 1, "RELOC": 1},
+        )
+        page = _render_index("T", unknown, [])[0][1]
+        assert "2/4 (50.0% of functions)" in page
+        assert "<dt class='label'>Code account</dt><dd class='value'>n/a</dd>" in page
+
+        over = StatusReport(
+            target="T",
+            total_functions=1,
+            covered_functions=1,
+            status_counts={"EXACT": 1},
+            matched_bytes=300,
+            total_text_bytes=200,
+            padding_bytes=0,
+        )
+        page = _render_index("T", over, [])[0][1]
+        assert "<dt class='label'>Code account</dt><dd class='value'>100%+</dd>" in page
+        assert "The code account counts 300 bytes" in page
 
     def test_byte_coverage_clips_annotation_to_text_size(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -907,7 +950,6 @@ class TestSummaryCards:
         assert result.exit_code == 0, result.output
         page = (site / "index.html").read_text(encoding="utf-8")
         assert "100%+" not in page
-        assert "byte coverage is shown as 100%+" not in page
         assert "<dd class='value'>1.2%</dd>" in page  # func_a's 100 of 8192, floored
 
     def test_alignment_fill_excludes_annotations_outside_text(
@@ -968,7 +1010,7 @@ class TestStatusLegend:
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         write_store_fixture(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n["SERVER.0x10002000"]\nstatus = "COMPILE_ERROR"\n',
+            'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n["SERVER.0x10002000"]\nstatus = "COMPILE_ERROR"\n',
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)
@@ -984,7 +1026,7 @@ class TestStatusLegend:
     ) -> None:
         """An empty project still prints the four standard cards, so it explains them."""
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
-        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 3\n", encoding="utf-8")
         for source in (tmp_path / "src").glob("*.c"):
             source.write_text("int nothing(void) { return 0; }\n", encoding="utf-8")
         monkeypatch.chdir(tmp_path)
@@ -1007,7 +1049,7 @@ class TestStatusLegend:
         note say the same thing.
         """
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
-        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 2\n", encoding="utf-8")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 3\n", encoding="utf-8")
         for source in (tmp_path / "src").glob("*.c"):
             source.write_text("int nothing(void) { return 0; }\n", encoding="utf-8")
         monkeypatch.chdir(tmp_path)
@@ -1155,7 +1197,7 @@ class TestGeneratedMarkup:
         _write_project(tmp_path, pe_bytes=make_pe(code, imports=[("KERNEL32.dll", ["HeapCreate"])]))
         src = tmp_path / "src"
         meta_lines = [
-            'format = 2\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            'format = 3\n["SERVER.0x10001000"]\nstatus = "EXACT"\n',
             '["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n',
         ]
         for i in range(_TABLE_PAGE_SIZE):
@@ -1164,7 +1206,6 @@ class TestGeneratedMarkup:
                 src / f"extra_{i:04d}.c",
                 f"/* ADDRESS: SERVER 0x{va:08x} */\n\nint extra_{i}(void) {{ return 0; }}\n",
                 encoding="utf-8",
-                metadata_fields={f"SERVER.0x{va:08x}": {"kind": "FUNCTION", "size": 16}},
             )
             meta_lines.append(f'["SERVER.0x{va:08x}"]\nstatus = "STUB"\n')
         write_store_fixture(

@@ -34,8 +34,8 @@ def config_path(rel: str | Path) -> Path:
 #: Default reversed-source root when a target sets no ``reversed_dir``.
 DEFAULT_REVERSED_ROOT = "src"
 
-#: Characters kept in a derived target marker (identifier-shaped only).
-_MARKER_KEEP = re.compile(r"[^A-Za-z0-9_]")
+#: Characters kept in a derived target module (identifier-shaped only).
+_MODULE_KEEP = re.compile(r"[^A-Za-z0-9_]")
 
 
 class WorkspaceNotFound(RebrewError, FileNotFoundError):
@@ -54,8 +54,8 @@ class WorkspaceConfigError(RebrewError):
 def walk_up_to_root(start: Path | str) -> Path | None:
     """Walk up from *start* (inclusive) looking for ``rebrew-project.toml``.
 
-    Returns the directory containing the marker file, or ``None`` when the
-    walk reaches the filesystem root without finding one.  The marker must be
+    Returns the directory containing the configuration file, or ``None`` when the
+    walk reaches the filesystem root without finding one.  The configuration must be
     a regular file, so a directory named ``rebrew-project.toml`` does not
     satisfy the search.
     """
@@ -71,12 +71,12 @@ def find_root(start: Path | str | None = None) -> Path:
     """Return the workspace root holding ``rebrew-project.toml``.
 
     *start*, when given, is checked first and returned as-is (resolved) if it
-    carries the marker; otherwise the walk-up proceeds from *start*.  With no
+    carries the configuration; otherwise the walk-up proceeds from *start*.  With no
     *start* the walk begins at the current working directory.
 
-    Raises :class:`WorkspaceNotFound` when no ancestor carries the marker.
+    Raises :class:`WorkspaceNotFound` when no ancestor carries the configuration.
     Unlike ``rebrew.config.find_root``, which treats an explicit *start* as
-    the project root verbatim, this one checks the marker and walks up.
+    the project root verbatim, this one checks the configuration and walks up.
     """
     origin = Path.cwd() if start is None else Path(start).resolve()
     found = walk_up_to_root(origin)
@@ -138,19 +138,23 @@ def default_target(config: dict[str, Any]) -> str | None:
     return next(iter(targets), None)
 
 
-def target_marker(name: str, entry: dict[str, Any]) -> str:
-    """SourceBinding marker for *name*: its ``marker``, else the name sanitized.
+def target_module(name: str, entry: dict[str, Any]) -> str:
+    """SourceBinding module for *name*: its ``module``, else the name sanitized.
 
-    An explicit marker is normalized to NFC, matching
-    :func:`rebrew.config.module_marker`: the marker is the ``MODULE`` half of
+    An explicit module is normalized to NFC, matching
+    :func:`rebrew.config.target_module`: the module is the ``MODULE`` half of
     every ``MODULE.0xVA`` metadata key, so an NFD-spelled config value would
     miss the NFC-spelled entry a reader derives from the source.  The derived
     branch keeps only ASCII, so it needs no normalization.
     """
-    marker = entry.get("marker")
-    if isinstance(marker, str) and marker.strip():
-        return unicodedata.normalize("NFC", marker)
-    return _MARKER_KEEP.sub("", name).upper()
+    if "marker" in entry:
+        raise WorkspaceConfigError(
+            f"targets.{name}.marker was replaced by module; retain its value"
+        )
+    target_module_name = entry.get("module")
+    if isinstance(target_module_name, str) and target_module_name.strip():
+        return unicodedata.normalize("NFC", target_module_name)
+    return _MODULE_KEEP.sub("", name).upper()
 
 
 def target_reversed_dir(root: Path, name: str, entry: dict[str, Any]) -> Path:

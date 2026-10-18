@@ -19,6 +19,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import (
+    BUILT_IMAGE_HELP,
     EXIT_MISMATCH,
     TargetOption,
     console,
@@ -84,7 +85,7 @@ def main(
     built: Path | None = typer.Option(
         None,
         "--built",
-        help="Built binary to inspect (default: build/<target>)",
+        help=BUILT_IMAGE_HELP,
     ),
     limit: int = typer.Option(15, "--limit", help="Max misplaced symbols to print (0 = none)"),
     cut: str | None = typer.Option(
@@ -121,7 +122,7 @@ def main(
     from rebrew.data_layout import data_symbols, link_objects, obj_data_symbol_offsets
 
     data_va = built_data_va(dll)
-    expected = data_symbols(metadata, module=getattr(cfg, "marker", None))
+    expected = data_symbols(metadata, module=getattr(cfg, "module", None))
 
     here: dict[str, int] = {}
     tot = 0

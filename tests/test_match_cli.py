@@ -34,7 +34,7 @@ class TestMatchCliWatch:
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             default_jobs=2,
         )
@@ -51,7 +51,7 @@ class TestMatchCliWatch:
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             default_jobs=2,
         )
@@ -84,7 +84,7 @@ class TestMatchAllTargets:
         return SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             ignored_symbols=[],
             default_jobs=2,
@@ -103,7 +103,7 @@ class TestMatchAllTargets:
             return SimpleNamespace(
                 metadata_dir=tmp_path,
                 reversed_dir=tmp_path / "src",
-                marker="SERVER",
+                module="SERVER",
                 source_ext=".c",
                 ignored_symbols=[],
                 default_jobs=2,
@@ -161,7 +161,7 @@ class TestMatchAllTargets:
             return SimpleNamespace(
                 metadata_dir=tmp_path,
                 reversed_dir=tmp_path / "src",
-                marker="SERVER",
+                module="SERVER",
                 source_ext=".c",
                 ignored_symbols=[],
                 default_jobs=2,
@@ -179,20 +179,50 @@ class TestMatchAllTargets:
 
         monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
         result = CliRunner().invoke(app, ["batch", "--all-targets", "--json"])
-        # The broken target counts as failed → documented exit contract (1),
-        # and the healthy target still runs and aggregates (its GA was not
-        # discarded by the sibling's failure).
-        assert result.exit_code == 1
+        # The broken target is an infrastructure failure (exit 2), not a
+        # mismatch, and the healthy target still aggregates.
+        assert result.exit_code == 2
         assert calls == ["server_dll"]
-        import json
-
-        # CliRunner merges stderr into output; skip past the failure warning
-        # lines to the aggregate JSON document.
-        raw = result.output[result.output.index("{") :]
-        payload = json.loads(raw)
+        payload = cli_payload(result)
         assert payload["mode"] == "all-targets"
         assert payload["matched"] == 2
-        assert payload["failed"] == 1
+        assert payload["failed"] == 0
+        assert payload["errors"] == 1
+
+    def test_dry_run_keeps_a_compiler_exception_as_exit_2(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.match import app
+
+        cfg = self._cfg(tmp_path)
+        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            "rebrew.config.load_config",
+            lambda root, target=None: SimpleNamespace(
+                metadata_dir=tmp_path,
+                reversed_dir=tmp_path / "src",
+                module="SERVER",
+                source_ext=".c",
+                ignored_symbols=[],
+                default_jobs=2,
+                root=root,
+                target_name=target or "server_dll",
+                all_targets=cfg.all_targets,
+            ),
+        )
+        seen: list[str] = []
+
+        def _boom(cfg: Any = None, **kwargs: object) -> tuple[int, int]:
+            seen.append(getattr(cfg, "target_name", "?"))
+            raise RuntimeError("compiler unavailable")
+
+        monkeypatch.setattr("rebrew.match.run_all", _boom)
+        result = CliRunner().invoke(app, ["batch", "--all-targets", "--dry-run", "--json"])
+        assert result.exit_code == 2
+        assert seen == ["server_dll", "client_exe"]
+        payload = cli_payload(result)
+        assert payload["failed"] == 0
+        assert payload["errors"] == 2
 
     def test_all_targets_watch_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -236,7 +266,7 @@ class TestResolveBuildParamsSymbol:
             '[project]\ndefault_target = "server"\n\n'
             "[targets.server]\n"
             'binary = "x.dll"\nformat = "pe"\narch = "x86_32"\n'
-            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n',
+            'reversed_dir = "src/SERVER"\nmodule = "SERVER"\n',
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)
@@ -267,7 +297,7 @@ class TestResolveBuildParamsSymbol:
             '[project]\ndefault_target = "server"\n\n'
             "[targets.server]\n"
             'binary = "x.dll"\nformat = "pe"\narch = "x86_32"\n'
-            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n',
+            'reversed_dir = "src/SERVER"\nmodule = "SERVER"\n',
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)
@@ -299,7 +329,7 @@ class TestResolveBuildParamsSymbol:
             '[project]\ndefault_target = "server"\n\n'
             "[targets.server]\n"
             'binary = "x.dll"\nformat = "pe"\narch = "x86_32"\n'
-            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n',
+            'reversed_dir = "src/SERVER"\nmodule = "SERVER"\n',
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)
@@ -470,6 +500,18 @@ int __fastcall keeps(int a) { return a; }
         assert q._query is results[0]
 
 
+class TestSeedKunaHelp:
+    def test_seed_kuna_help_has_no_em_dash(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.match import app
+
+        monkeypatch.setenv("COLUMNS", "200")
+        help_text = CliRunner().invoke(app, ["run", "--help"])
+        assert help_text.exit_code == 0
+        rendered = help_text.output
+        assert "kuna \u2014" not in rendered
+        assert "kuna, requires the `kuna` binary on PATH" in rendered
+
+
 class TestMatchCliDryRun:
     """Only batch selection and LLM requests support matcher previews."""
 
@@ -481,7 +523,7 @@ class TestMatchCliDryRun:
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             default_jobs=2,
         )
@@ -517,7 +559,7 @@ class TestAllTargetsParallel:
         return SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             ignored_symbols=[],
             default_jobs=4,
@@ -536,7 +578,7 @@ class TestAllTargetsParallel:
             lambda root, target=None: SimpleNamespace(
                 metadata_dir=tmp_path,
                 reversed_dir=tmp_path / "src",
-                marker="SERVER",
+                module="SERVER",
                 source_ext=".c",
                 ignored_symbols=[],
                 default_jobs=4,
@@ -589,7 +631,7 @@ class TestAllTargetsParallel:
             lambda root, target=None: SimpleNamespace(
                 metadata_dir=tmp_path,
                 reversed_dir=tmp_path / "src",
-                marker="SERVER",
+                module="SERVER",
                 source_ext=".c",
                 ignored_symbols=[],
                 default_jobs=4,
@@ -629,7 +671,7 @@ class TestMatchCliLink:
         return SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             default_jobs=2,
             compile_timeout=30,

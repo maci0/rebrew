@@ -14,9 +14,9 @@ from rebrew.split import app
 runner = CliRunner()
 
 
-def _make_cfg(tmp_path: Path, marker: str = "SERVER") -> Any:
+def _make_cfg(tmp_path: Path, module: str = "SERVER") -> Any:
     return SimpleNamespace(
-        marker=marker, source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
+        module=module, source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
     )
 
 
@@ -130,7 +130,7 @@ class TestSplitExtensionHandling:
         monkeypatch.setattr(
             "rebrew.split.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
-                marker="SERVER", source_ext=".c,.cpp", reversed_dir=tmp_path, metadata_dir=tmp_path
+                module="SERVER", source_ext=".c,.cpp", reversed_dir=tmp_path, metadata_dir=tmp_path
             ),
         )
         result = runner.invoke(app, ["--force", str(src)])
@@ -145,7 +145,7 @@ class TestSplitExtensionHandling:
         monkeypatch.setattr(
             "rebrew.split.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
-                marker="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
+                module="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
             ),
         )
         result = runner.invoke(app, ["--force", str(src)])
@@ -584,7 +584,7 @@ class TestSplitCliErrors:
         """Two FUNCTION blocks, but only one matches the configured marker."""
         monkeypatch.setattr(
             "rebrew.split.require_config",
-            lambda target=None, json_mode=False: _make_cfg(tmp_path, marker="SERVER"),
+            lambda target=None, json_mode=False: _make_cfg(tmp_path, module="SERVER"),
         )
         content = SourceFixture(
             "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n/* ADDRESS: OTHER 0x10002000 */\nint b(void) { return 1; }\n",
@@ -691,11 +691,11 @@ class TestSplitStackedMarkers:
             },
         )
 
-    def _invoke_marker(self, tmp_path: Path, monkeypatch: Any, marker: str, *args: str) -> Any:
+    def _invoke_marker(self, tmp_path: Path, monkeypatch: Any, module: str, *args: str) -> Any:
         src = _write(tmp_path / "common.c", self._stacked())
         monkeypatch.setattr(
             "rebrew.split.require_config",
-            lambda target=None, json_mode=False: _make_cfg(tmp_path, marker),
+            lambda target=None, json_mode=False: _make_cfg(tmp_path, module),
         )
         return runner.invoke(app, [*args, str(src)])
 
@@ -722,9 +722,9 @@ class TestSplitStackedMarkers:
         assert "No function row" in result.output
 
 
-def _meta_cfg(tmp_path: Path, marker: str = "SERVER") -> Any:
+def _meta_cfg(tmp_path: Path, module: str = "SERVER") -> Any:
     return SimpleNamespace(
-        marker=marker, source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
+        module=module, source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
     )
 
 

@@ -60,8 +60,8 @@ from typing import Any
 import typer
 
 from rebrew.cli import (
-    EXIT_ERROR,
     TargetOption,
+    all_items_option,
     console,
     error_exit,
     json_print,
@@ -642,11 +642,22 @@ def _collect_functions(
 ) -> list[tuple[int, str]]:
     """Resolve the function set to decompile: explicit VAs, --all, or filtered.
 
-    Raises ``ValueError`` for an unparseable VA or an empty selection; the
-    CLI turns either into ``error_exit``.
+    Raises ``ValueError`` for an unparseable VA, an empty selection, or
+    conflicting selectors; the CLI turns either into ``error_exit``.
     """
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import iter_sources, target_marker
+    from rebrew.sources import iter_sources
+
+    if functions and (all_funcs or filter_substr):
+        others: list[str] = []
+        if all_funcs:
+            others.append("--all")
+        if filter_substr:
+            others.append("--filter")
+        raise ValueError(
+            "--functions cannot be combined with " + " or ".join(others) + "; pass one selector"
+        )
 
     if functions:
         out: list[tuple[int, str]] = []
@@ -661,13 +672,13 @@ def _collect_functions(
             out.append((va, f"0x{va:x}"))
         return out
 
-    marker = target_marker(cfg)
+    target_module_name = target_module(cfg)
     seen: set[int] = set()
     out = []
     for src in iter_sources(cfg.reversed_dir, cfg):
         annos = read_source_bindings(
             src,
-            target_name=marker,
+            target_name=target_module_name,
             metadata_dir=cfg.metadata_dir,
             project_root=getattr(cfg, "root", None),
         )
@@ -800,13 +811,15 @@ def recover_project_structs(
 @app.callback(invoke_without_command=True)
 def main(
     functions: str | None = typer.Option(
-        None, "--functions", help="Comma-separated VAs to decompile"
+        None,
+        "--functions",
+        help="Comma-separated VAs to decompile. Excludes --all and --filter",
     ),
-    all_funcs: bool = typer.Option(
-        False, "--all", help="Decompile every function bound in metadata"
-    ),
+    all_funcs: bool = all_items_option("function bound in metadata"),
     filter_substr: str | None = typer.Option(
-        None, "--filter", help="Only functions whose name contains SUBSTR"
+        None,
+        "--filter",
+        help="Only functions whose name contains SUBSTR. Excludes --functions",
     ),
     decompiler: str = typer.Option(
         "kuna",
@@ -850,13 +863,7 @@ def main(
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
     except NoDecompilationError as exc:
-        # The no-decompilation envelope carries "decompiled": 0, which
-        # error_exit() does not emit.
-        if json_output:
-            json_print({"error": str(exc), "code": EXIT_ERROR, "decompiled": 0})
-        else:
-            console.print(f"[red]error:[/red] {exc}")
-        raise typer.Exit(code=EXIT_ERROR) from None
+        error_exit(str(exc), json_mode=json_output)
 
     if json_output:
         json_print(payload)

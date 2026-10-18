@@ -50,9 +50,10 @@ from rebrew.config import (
     find_root,
     load_config,
     parse_env_log_level,
+    target_module,
 )
 from rebrew.metadata.bindings import SourceBinding, read_source_bindings
-from rebrew.sources import iter_sources, target_marker
+from rebrew.sources import iter_sources
 from rebrew.utils import (
     console,
     parse_int_literal,
@@ -100,11 +101,48 @@ RootOption: Path | None = typer.Option(
 )
 
 
+# Selection flags name different axes. ``--all`` is items in the selected
+# target. ``--all-targets`` repeats the command for every configured target.
+# ``--source-targets`` repeats it for targets bound to one source file.
+# ``verify --no-cache`` skips saved verdicts for the selected functions.
+ALL_TARGETS_HELP = (
+    "Repeat this command for every configured target. "
+    "Does not change which items each target selects. Excludes --target."
+)
+ALL_ITEMS_HELP_SUFFIX = " in the selected target. Does not select other targets."
+NO_CACHE_HELP = (
+    "Ignore the verification-result cache for selected functions. "
+    "The compiler-object cache may still be reused."
+)
+EXPECTED_DIGEST_HELP = "Require the input digest from a reviewed preview"
+CREATE_MISSING_HELP = "Create STUB files for BinSync functions not in the project catalog"
+JOBS_HELP = "Parallel jobs (default: project.jobs, or 4)"
+BUILT_IMAGE_HELP = "Built image (default: build/<target>)"
+TIER_HELP = "Flag sweep tier: quick, targeted, normal, thorough, or full"
+CFLAGS_HELP = "Compiler flags (default: resolved metadata or project config)"
+SIZE_HELP = "Target size in bytes (default: stored SIZE)"
+DIR_HELP = "Restrict to this subdirectory of reversed_dir"
+MODULE_HELP = "Restrict to one module (e.g. GAME)"
+WATCH_FILE_HELP = "Re-run when the source file changes (terminal only; no --json)"
+WATCH_TREE_HELP = "Re-run when any reversed .c file changes (terminal only; no --json)"
+MIN_STRING_LEN_HELP = "Minimum string length to report"
+MIN_TABLE_LEN_HELP = "Minimum number of entries to qualify as a dispatch table"
+SOURCE_TARGETS_HELP = (
+    "Repeat this command for every target bound to the given source file. "
+    "Unbound targets are skipped. Excludes --target and --all-targets."
+)
+
+
+def all_items_option(noun: str) -> Any:
+    """``--all`` for one command: every eligible item in the selected target."""
+    return typer.Option(False, "--all", help=f"Every {noun}{ALL_ITEMS_HELP_SUFFIX}")
+
+
 # Re-usable Typer option for --all-targets
 AllTargetsOption: bool = typer.Option(
     False,
     "--all-targets",
-    help="Run across EVERY configured target (default: project default target only).",
+    help=ALL_TARGETS_HELP,
 )
 
 
@@ -223,7 +261,7 @@ def all_targets_run(
 SourceTargetsOption: bool = typer.Option(
     False,
     "--source-targets",
-    help="Run only targets bound to the explicit source file; report unbound targets as skipped",
+    help=SOURCE_TARGETS_HELP,
 )
 
 
@@ -276,7 +314,7 @@ def source_targets_run(
             cfg = load_config(root=resolved, target=name)
             bindings = read_source_bindings(
                 path,
-                target_name=target_marker(cfg),
+                target_name=target_module(cfg),
                 metadata_dir=cfg.metadata_dir,
                 project_root=resolved,
             )
@@ -458,15 +496,24 @@ def _json_mode_active(*, explicit: bool = False) -> bool:
     return flagged or _json_requested()
 
 
+def _json_mode_from_choice(ctx: TyperContext | None, local_json: bool) -> bool:
+    """Root ``--output`` and a command's ``--json``, the same rule as invoke.
+
+    ``json`` and ``text`` win. ``auto`` keeps the command's own ``--json``.
+    """
+    choice = _output_choice_from(ctx)
+    if choice == "json":
+        return True
+    if choice == "text":
+        return False
+    return local_json
+
+
 def _apply_output_choice(ctx: TyperContext) -> None:
     """Copy a root ``--output json|text`` onto a command's ``--json`` parameter."""
     if "json_output" not in ctx.params:
         return
-    choice = _output_choice_from(ctx)
-    if choice == "json":
-        ctx.params["json_output"] = True
-    elif choice == "text":
-        ctx.params["json_output"] = False
+    ctx.params["json_output"] = _json_mode_from_choice(ctx, bool(ctx.params.get("json_output")))
 
 
 def _write_error(kind: str, message: str, hint: str) -> None:
@@ -740,7 +787,7 @@ def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
                 if exc.option_name not in target_option.opts:
                     raise
                 values, _, _ = cmd.make_parser(ctx).parse_args(args=argv[:-1])
-                json_mode = bool(values.get("json_output"))
+                json_mode = _json_mode_from_choice(ctx, bool(values.get("json_output")))
                 root = values.get("root")
                 cfg = require_config(root=Path(root) if root else None, json_mode=json_mode)
                 names = list(cfg.all_targets) or [cfg.target_name]
@@ -1022,30 +1069,31 @@ def stdin_is_tty() -> bool:
 def confirm_abort(prompt: str, *, skip_flag: str = "--force") -> None:
     """Ask *prompt* on stderr for a destructive action, aborting on "no".
 
-    An abort is a usage error, not a mismatch: ``typer.confirm(abort=True)``
-    raises on "no" *and* on EOF, and Click reports both as ``Aborted.`` with
-    exit 1 — the code rebrew reserves for "the code needs work", per the exit
-    table in ``rebrew --help``.  Route both to ``EXIT_ERROR`` and, when there
-    was no terminal to answer the question, name the flag that skips the
-    prompt.
+    Non-terminal stdin is rejected before any read. An open pipe would block,
+    and a piped answer would approve the action. Call sites pass ``--force``
+    to skip the prompt.
+
+    An abort is a usage error, not a mismatch. ``typer.confirm`` raises on EOF,
+    and Click reports that as exit 1, the code rebrew reserves for "the code
+    needs work". A declined prompt and a missing terminal both exit
+    ``EXIT_ERROR``. A missing terminal names *skip_flag*.
     """
-    # typer.confirm raises typer's own Abort on "no" and on EOF; click's
-    # Abort is a sibling class, not a base of it.
+    # typer.confirm raises typer's own Abort on EOF; click's Abort is a
+    # sibling class, not a base of it.
     from click.exceptions import Abort as ClickAbort
 
-    eof = False
-    try:
-        answer = typer.confirm(prompt, err=True)
-    except (typer.Abort, ClickAbort, EOFError, OSError):
-        answer, eof = False, not stdin_is_tty()
-    if answer:
-        return
-    if eof:
+    if not stdin_is_tty():
         error_exit(
             f"aborted: {prompt} (stdin is not a terminal; pass {skip_flag})",
             kind="confirmation_required",
             hint=f"Pass {skip_flag} to skip the prompt.",
         )
+    try:
+        answer = typer.confirm(prompt, err=True)
+    except (typer.Abort, ClickAbort, EOFError, OSError):
+        answer = False
+    if answer:
+        return
     error_exit(f"aborted: {prompt}")
 
 
@@ -1106,8 +1154,8 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     sources = iter_sources(src_dir, cfg)
 
     if va_int is not None:
-        tm = target_marker(cfg)
-        from rebrew.function_providers import bind_library_source
+        tm = target_module(cfg)
+        from rebrew.function_providers import bind_compiled_source
         from rebrew.metadata.bindings import SourceBinding
         from rebrew.metadata.functions import load_metadata
         from rebrew.utils import preset_module_key
@@ -1118,10 +1166,12 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
             if (
                 address == va_int
                 and preset_module_key(module) == preset_module_key(tm or "")
-                and identity.get("kind") == "LIBRARY"
+                and identity.get("kind") in {"FUNCTION", "LIBRARY"}
                 and identity.get("file")
             ):
-                bound = bind_library_source(cfg, SourceBinding(va=address, module=module), identity)
+                bound = bind_compiled_source(
+                    cfg, SourceBinding(va=address, module=module), identity
+                )
                 candidate = (Path(src_dir) / bound.filepath).resolve()
                 if candidate.is_file():
                     return candidate
@@ -1185,7 +1235,7 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
         from rebrew.utils import fold_ident
 
         want = fold_ident(arg_norm.strip())
-        tm = target_marker(cfg)
+        tm = target_module(cfg)
         for src in sources:
             try:
                 annos = read_source_bindings(
@@ -1261,7 +1311,7 @@ def select_annotation(
 
     annos = read_source_bindings(
         path,
-        target_name=target_marker(cfg),
+        target_name=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     )
@@ -1304,7 +1354,25 @@ __all__ = [
     "source_targets_run",
     "configured_target_names",
     "SourceTargetsOption",
+    "ALL_ITEMS_HELP_SUFFIX",
+    "ALL_TARGETS_HELP",
     "AllTargetsOption",
+    "BUILT_IMAGE_HELP",
+    "CFLAGS_HELP",
+    "CREATE_MISSING_HELP",
+    "DIR_HELP",
+    "EXPECTED_DIGEST_HELP",
+    "JOBS_HELP",
+    "MIN_STRING_LEN_HELP",
+    "MIN_TABLE_LEN_HELP",
+    "MODULE_HELP",
+    "NO_CACHE_HELP",
+    "SIZE_HELP",
+    "TIER_HELP",
+    "WATCH_FILE_HELP",
+    "WATCH_TREE_HELP",
+    "SOURCE_TARGETS_HELP",
+    "all_items_option",
     "EXIT_ERROR",
     "EXIT_INTERRUPTED",
     "EXIT_MISMATCH",

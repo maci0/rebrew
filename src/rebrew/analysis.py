@@ -7,7 +7,8 @@ Architecture notes:
   once, reuse across tools.
 - ``scan_references`` walks the code sections once with capstone and classifies
   every absolute reference: direct calls/jumps, IAT calls/jumps (``call
-  [slot]`` / ``jmp [slot]``), ``push imm32``, ``mov reg, imm32``, ``lea`` /
+  [slot]`` / ``jmp [slot]``), ``push imm32``, ``mov reg, imm32``, ``cmp``
+  against an address-valued immediate, ``lea`` /
   ``mov`` with an absolute memory operand, and a generic fallback for any
   absolute memory operand (no base/index register), e.g. ``and [abs], 0``.
 - ``iter_strings`` extracts printable ASCII / UTF-16LE runs from data
@@ -69,6 +70,7 @@ class Xref:
     - ``iat_call`` / ``iat_jmp`` — ``call [slot]`` / ``jmp [slot]`` (IAT)
     - ``push``                — ``push imm32`` (string/address load)
     - ``mov``                 — ``mov reg/[mem], imm32`` (address load/store)
+    - ``cmp``                 — ``cmp reg/[mem], imm`` (possible pointer comparison)
     - ``lea``                 — ``lea reg, [abs]``
     - ``mov_mem``             — ``mov reg, [abs]`` (data read)
     - ``mov_mem_store``       — ``mov [abs], reg/imm`` (data write)
@@ -638,13 +640,24 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[tuple[str, int, int], .
                 return (("mov_mem_store", from_va, addr),)
         return ()
 
+    # Like mov immediates, a cmp immediate inside the image is a possible
+    # address reference, not proof that the value is a pointer.
+    immediate_refs: tuple[tuple[str, int, int], ...] = ()
+    if (
+        info.arch in {"x86_32", "x86_64"}
+        and mnemonic == "cmp"
+        and len(ops) == 2
+        and ops[1].type == op_imm
+    ):
+        immediate_refs = (("cmp", from_va, int(ops[1].imm)),)
+
     # Generic absolute memory operand (and/or/cmp/test/inc/... [abs]).
     for op in ops:
         if op.type == op_mem:
             addr = _mem_absolute(op.mem, insn)
             if addr is not None:
-                return ((f"{mnemonic}_mem", from_va, addr),)
-    return ()
+                return (*immediate_refs, (f"{mnemonic}_mem", from_va, addr))
+    return immediate_refs
 
 
 # ---------------------------------------------------------------------------

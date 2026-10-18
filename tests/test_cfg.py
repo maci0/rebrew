@@ -272,13 +272,13 @@ class TestSetScalarCLI:
         assert doc["targets"]["server.dll"]["binary"] == "original/game.exe"
         assert "binary" not in doc  # no stray top-level key
 
-    def test_bare_target_scoped_key_routes_marker(self, tmp_path: Path, monkeypatch) -> None:
+    def test_bare_target_scoped_key_routes_module(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set", "marker", "GAME"])
+        result = runner.invoke(cfg_app, ["set", "module", "GAME"])
         assert result.exit_code == 0
         doc, _ = load_toml(tmp_path)
-        assert doc["targets"]["server.dll"]["marker"] == "GAME"
+        assert doc["targets"]["server.dll"]["module"] == "GAME"
 
     def test_explicit_target_path_still_works(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
@@ -609,6 +609,7 @@ class TestCLIAddRemoveTarget:
         """The confirm prompt must not pollute stdout; declining keeps the target."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         result = runner.invoke(cfg_app, ["target", "remove", "server.dll"], input="n\n")
         # Declining is a usage error (2), not the mismatch code (1).
         assert result.exit_code == 2
@@ -2095,3 +2096,16 @@ class TestConfigWriteLock:
         ):
             source = inspect.getsource(getattr(cfg_mod, name))
             assert "project_toml_lock" in source, f"{name} writes without the lock"
+
+
+def test_set_removed_marker_key_does_not_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "rebrew-project.toml"
+    before = path.read_bytes()
+    result = runner.invoke(cfg_app, ["set", "marker", "SERVER"])
+    assert result.exit_code != 0
+    assert "marker was replaced by module" in result.output
+    assert path.read_bytes() == before

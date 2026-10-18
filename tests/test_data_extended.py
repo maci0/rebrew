@@ -42,7 +42,7 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "target_binary": tmp_path / "fake.dll",
         "reversed_dir": src,
         "metadata_dir": tmp_path,
-        "marker": "SERVER",
+        "module": "SERVER",
         "source_ext": ".c",
     }
     defaults.update(overrides)
@@ -713,6 +713,39 @@ class TestDataCli:
             metadata_fields={"SERVER.0x1000": {"kind": "GLOBAL", "symbol": "g_counter"}},
         )
 
+    def test_records_embedded_text_table_as_an_unverified_span(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata.data import get_data_entry
+
+        args = [
+            "set",
+            "--kind",
+            "0x1000=DATA",
+            "--section",
+            "0x1000=.text",
+            "--storage-kind",
+            "0x1000=span",
+            "--type",
+            "0x1000=unsigned int[5]",
+            "--size",
+            "0x1000=20",
+            "--json",
+        ]
+        preview = self._invoke(tmp_path, monkeypatch, [*args, "--dry-run"])
+        assert preview.exit_code == 0, preview.output
+        assert not (tmp_path / "rebrew-data.toml").exists()
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            [*args, "--expected-digest", cli_payload(preview)["input_digest"]],
+        )
+        assert result.exit_code == 0, result.output
+        row = get_data_entry(tmp_path, 0x1000, "SERVER")
+        assert row["section"] == ".text" and row["storage_kind"] == "span"
+        assert row["size"] == 20 and row["kind"] == "DATA"
+        assert "status" not in row and "verification" not in row
+
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
@@ -728,8 +761,9 @@ class TestDataCli:
         result = self._invoke(tmp_path, monkeypatch, ["list", "--summary"])
         assert result.exit_code == 0
         assert "Global" in result.output
-        # PRD 06 --summary: section-level counts, bytes annotated, % coverage.
-        assert "% Coverage" in result.output
+        # Annotated type-sized spans of the section, not stored data verdicts.
+        assert "Annotated %" in result.output
+        assert "% Coverage" not in result.output
 
     def test_summary_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """--summary --json emits a structured section-progress summary."""
@@ -1278,7 +1312,7 @@ class TestDataMarkerScan:
     markers scanned as zero annotated globals in section "unknown".
     """
 
-    def test_data_marker_counts_as_an_annotated_global(self, tmp_path: Path) -> None:
+    def test_data_kind_counts_as_an_annotated_global(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         write_source(
             cfg.reversed_dir / "a.c",
@@ -1397,14 +1431,15 @@ class TestSetDataSection:
     def _meta(self, cfg) -> Path:
         return cfg.metadata_dir / "rebrew-data.toml"
 
-    def test_sets_section_in_metadata(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("section", [".data", ".text"])
+    def test_sets_section_in_metadata(self, tmp_path: Path, section: str) -> None:
         cfg = _cfg(tmp_path)
         self._meta(cfg).write_text(
             'format = 2\n["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
         )
-        rows = set_data_sections(cfg, ["0x1000=.data"])
-        assert rows == [{"va": "0x1000", "section": ".data", "module": "SERVER"}]
-        assert 'section = ".data"' in self._meta(cfg).read_text(encoding="utf-8")
+        rows = set_data_sections(cfg, [f"0x1000={section}"])
+        assert rows == [{"va": "0x1000", "section": section, "module": "SERVER"}]
+        assert f'section = "{section}"' in self._meta(cfg).read_text(encoding="utf-8")
 
     def test_dry_run_writes_nothing(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
@@ -1416,7 +1451,7 @@ class TestSetDataSection:
 
     def test_rejects_an_unknown_section(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="--section"):
-            set_data_sections(_cfg(tmp_path), ["0x1000=.text"])
+            set_data_sections(_cfg(tmp_path), ["0x1000=.bogus"])
 
     def test_rejects_a_spec_without_an_equals(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="0xVA=SECTION"):

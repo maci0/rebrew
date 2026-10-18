@@ -28,7 +28,7 @@ def _project(tmp_path: Path) -> tuple[ProjectConfig, Path]:
         )
     )
     return ProjectConfig(
-        root=tmp_path, reversed_dir=source, target_binary=binary, marker="GAME"
+        root=tmp_path, reversed_dir=source, target_binary=binary, module="GAME"
     ), inventory
 
 

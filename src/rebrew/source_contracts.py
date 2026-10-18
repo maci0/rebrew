@@ -20,15 +20,15 @@ from rebrew.c_parser import (
 )
 from rebrew.c_rename import ParsedSource, declarator_name, non_external_function_declarations
 from rebrew.compiler.cache import scan_include_closure
-from rebrew.compiler.compile import extract_include_dirs, resolve_include_flags
+from rebrew.compiler.compile import effective_compile_flags, extract_include_dirs
 from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.config import ProjectConfig, module_marker
+from rebrew.config import ProjectConfig, target_module
 from rebrew.metadata.bindings import read_source_bindings
 from rebrew.metadata.document import metadata_write_lock
 from rebrew.rename_ops import FileChange, RenamePlan, SourceEdit, apply_rename_plan
 from rebrew.source_selection import collect_target_sources
 from rebrew.types import type_size
-from rebrew.utils import detect_source_encoding, safe_shlex_split, source_newline
+from rebrew.utils import detect_source_encoding, source_newline
 
 
 @dataclass(frozen=True)
@@ -146,7 +146,7 @@ def contract_contexts(
     cfg: ProjectConfig, *, selected_sources: set[Path] | None = None
 ) -> tuple[dict[Path, set[Path]], list[dict[str, Any]]]:
     """Read actual target providers and their include closure, reporting uncertainty."""
-    sources, _foreign = collect_target_sources(cfg, module_marker(cfg))
+    sources, _foreign = collect_target_sources(cfg, target_module(cfg))
     if selected_sources is not None:
         sources = [source for source in sources if source.resolve() in selected_sources]
     contexts: dict[Path, set[Path]] = {}
@@ -155,7 +155,7 @@ def contract_contexts(
         text = _read_text(source)[1]
         annotations = read_source_bindings(
             source,
-            target_name=module_marker(cfg),
+            target_name=target_module(cfg),
             metadata_dir=cfg.metadata_dir,
             project_root=cfg.root,
         )
@@ -168,16 +168,12 @@ def contract_contexts(
         }
         if not flags:
             flags = {
-                resolve_compile_overrides(cfg, source.parent, None, None, module_marker(cfg))[1]
+                resolve_compile_overrides(cfg, source.parent, None, None, target_module(cfg))[1]
             }
         headers: set[Path] = set()
         for cflags in flags:
             includes = extract_include_dirs(
-                resolve_include_flags(
-                    safe_shlex_split(cfg.base_cflags) + safe_shlex_split(cflags),
-                    source.parent,
-                    cfg.root,
-                )
+                effective_compile_flags(cfg, None, cflags, source.parent)
             )
             if cfg.compiler_includes != Path():
                 includes.append(str(cfg.compiler_includes))
@@ -414,9 +410,15 @@ def audit_contracts(cfg: ProjectConfig, *, name: str | None = None) -> dict[str,
             raise ValueError(f"source changed while auditing: {path}")
         input_hashes[str(path)] = hashlib.sha256(before).hexdigest()
         source_texts[path] = text
+        function_sites = _functions(path, path, text)
+        variables = list(find_extern_variables(text, include_definitions=True))
+        parsed = ParsedSource.parse(text)
+        declarations = [n for n in _nodes(parsed.tree.root_node) if n.type == "declaration"]
+        declarations_by_line: dict[int, list[Any]] = {}
+        for declaration in declarations:
+            declarations_by_line.setdefault(declaration.start_point[0] + 1, []).append(declaration)
         for unit in sorted(units):
-            sites.extend(_functions(path, unit, text))
-            parsed = ParsedSource.parse(text)
+            sites.extend(replace(site, context=str(unit)) for site in function_sites)
             if parsed.tree.root_node.has_error:
                 unknown.append(
                     {
@@ -433,7 +435,7 @@ def audit_contracts(cfg: ProjectConfig, *, name: str | None = None) -> dict[str,
                         "reason": "selected name has a non-external-function declaration",
                     }
                 )
-            for declaration in _nodes(parsed.tree.root_node):
+            for declaration in declarations:
                 if (
                     declaration.type == "declaration"
                     and len(declaration.children_by_field_name("declarator")) > 1
@@ -449,12 +451,8 @@ def audit_contracts(cfg: ProjectConfig, *, name: str | None = None) -> dict[str,
                             "reason": "multi-declarator function declaration requires explicit review",
                         }
                     )
-            for variable in find_extern_variables(text, include_definitions=True):
-                candidates = [
-                    n
-                    for n in _nodes(parsed.tree.root_node)
-                    if n.type == "declaration" and n.start_point[0] + 1 == variable.line
-                ]
+            for variable in variables:
+                candidates = declarations_by_line.get(variable.line, [])
                 static = bool(
                     candidates
                     and any(
@@ -880,11 +878,11 @@ def reconcile_contract(
     if any(path.read_bytes() != raw for path, raw in original.items()):
         raise ValueError("contract inputs changed during planning")
     if not dry_run:
-        with metadata_write_lock(cfgs[0].metadata_dir, "rebrew-source.toml"):
+        with metadata_write_lock(cfgs[0].metadata_dir, "rebrew-functions.toml"):
             if any(path.read_bytes() != raw for path, raw in original.items()):
                 raise ValueError("contract inputs changed before publication")
             for cfg, audit in zip(cfgs, reports, strict=True):
-                current, _ = collect_target_sources(cfg, module_marker(cfg))
+                current, _ = collect_target_sources(cfg, target_module(cfg))
                 if sorted(str(p) for p in current) != audit["source_units"]:
                     raise ValueError("target provider scope changed before publication")
             apply_rename_plan(cfgs[0], RenamePlan("contract", name, name, files=changes))

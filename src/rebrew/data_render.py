@@ -151,7 +151,7 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
             console.print("[dim]No type conflicts found.[/]")
         else:
             console.print(
-                "[dim]No globals found. Annotate sources with GLOBAL:/DATA: markers, "
+                "[dim]No globals found. Register globals in dedicated data metadata, "
                 "or record the global in rebrew-data.toml, then re-run.[/]"
             )
         return
@@ -218,7 +218,7 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
 
 
 def section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    """Per-section progress: globals, annotated bytes, and % byte coverage.
+    """Per-section progress: globals, annotated bytes, and the annotated share.
 
     Annotated bytes are estimated from each annotated global's declared type
     (via the shared data_layout type-size model) and reported as the union of
@@ -299,7 +299,7 @@ def render_summary(console: Console, scan: ScanResult, sections: dict[str, dict[
     count_column(tbl, "Globals", width=8)
     count_column(tbl, "Annotated", width=10)
     count_column(tbl, "Bytes", width=28)
-    count_column(tbl, "% Coverage", width=11)
+    count_column(tbl, "Annotated %", width=12)
 
     bars: list[Text] = []
     for row in rows:

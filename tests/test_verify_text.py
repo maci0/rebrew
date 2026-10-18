@@ -209,7 +209,7 @@ class TestVerifyText:
         )
         _make_built(tmp_path)
         result = CliRunner().invoke(app, ["--text", "--json"])
-        assert result.exit_code == 0  # missing is reported, not gated
+        assert result.exit_code == EXIT_MISMATCH
         text = cli_payload(result)["text"]
         # The linked-EXACT block rides along; with no RELOC rows it promotes nothing.
         linked = text.pop("linked")
@@ -230,6 +230,18 @@ class TestVerifyText:
                 }
             ],
         }
+
+    def test_all_missing_fails_gate(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        _patch_flow(monkeypatch, cfg)
+        _patch_text(monkeypatch, actual={})
+        _make_built(tmp_path)
+        result = CliRunner().invoke(app, ["--text", "--json"])
+        assert result.exit_code == EXIT_MISMATCH
+        text = cli_payload(result)["text"]
+        assert (text["found"], text["missing"]) == (0, 1)
 
     def test_human_output_lists_misplaced(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

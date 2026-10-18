@@ -100,6 +100,12 @@ def recorded_user(state_dir: Path) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+USER_HELP = (
+    "BinSync user rebrew writes as (default: targets.<name>.binsync_user, "
+    "the user 'rebrew binsync init' recorded, else rebrew)"
+)
+
+
 def resolve_user(cfg: Any, state_dir: Path, explicit: str | None = None) -> str:
     """The validated BinSync user rebrew writes as.
 

@@ -25,6 +25,23 @@ from rebrew.xrefs import app, build_xrefs_payload
 
 
 class TestXrefsCli:
+    def test_pointer_comparison_xref(self, tmp_path: Path) -> None:
+        sentinel = PROBE_TEXT_VA + 0x10
+        code = b"\x81\xfb" + sentinel.to_bytes(4, "little") + b"\xc3" + b"\x90" * 32
+        path = tmp_path / "sentinel.exe"
+        path.write_bytes(make_pe(code))
+        result = CliRunner().invoke(app, ["--json", "--kind", "cmp", hex(sentinel), str(path)])
+        assert result.exit_code == 0
+        payload = cli_payload(result)
+        assert payload["count"] == 1
+        assert payload["refs"] == [
+            {
+                "kind": "cmp",
+                "from_va": PROBE_TEXT_VA,
+                "instruction": f"cmp ebx, {sentinel:#x}",
+            }
+        ]
+
     def test_stored_callback_xref(self, tmp_path: Path) -> None:
         callback = PROBE_TEXT_VA + 0x10
         code = b"\xc7\x00" + callback.to_bytes(4, "little") + b"\xc3" + b"\x90" * 32

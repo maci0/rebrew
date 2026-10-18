@@ -68,8 +68,7 @@ _fields = st.sampled_from(_CANONICAL_ORDER + ("CFLAGSS", "TOOLCHIAN", "x"))
 #: :meth:`TestKeyAlgebra.test_module_less_key_is_write_only`).
 _named_modules = _modules.filter(bool)
 #: Modules the writers can serialize: a control character in the target name
-#: makes the key unreadable rather than re-homed, which
-#: :meth:`TestDocumentReader.test_control_character_key_fails_loudly` pins.
+#: makes the key dependent on TOML escaping, which the document reader tests pin.
 _serializable_modules = _named_modules.filter(
     lambda m: all(ord(ch) >= 0x20 or ch in "\t\n" for ch in m)
 )
@@ -169,14 +168,21 @@ class TestDocumentReader:
 
         check()
 
-    def test_written_entries_read_back_identically(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "filename,version", [("rebrew-functions.toml", 3), ("rebrew-data.toml", 2)]
+    )
+    def test_written_entries_read_back_identically(
+        self, tmp_path: Path, filename: str, version: int
+    ) -> None:
         @given(store=_store())
         @settings(max_examples=200, deadline=None)
         def check(store: dict[tuple[str, int], dict[str, Any]]) -> None:
             root = Path(tempfile.mkdtemp(dir=tmp_path))
             safe = {k: {f: toml_safe(v) for f, v in e.items()} for k, e in store.items()}
-            path = root / "rebrew-functions.toml"
-            write_store_fixture(path, tomlkit.dumps(build_metadata_doc(safe, _CANONICAL_ORDER)))
+            path = root / filename
+            write_store_fixture(
+                path, tomlkit.dumps(build_metadata_doc(safe, _CANONICAL_ORDER, version=version))
+            )
             loaded = _load(path, tmp_path, "metadata")
             assert set(loaded) == set(store)
             for key, entry in loaded.items():
@@ -184,19 +190,23 @@ class TestDocumentReader:
 
         check()
 
-    def test_control_character_key_fails_loudly(self, tmp_path: Path) -> None:
-        """A control character in a target name is not a serialization fix.
-
-        ``toml_safe`` strips controls from field values, but rewriting a KEY
-        would re-home the entry: the sanitized key parses to a different
-        ``(module, va)``, so a write that looked successful would read back
-        as a miss.  The write stays unsanitized and the read reports the
-        file as unparseable, which is a warning naming the file rather than
-        a silent lookup failure.
-        """
-        path = tmp_path / "rebrew-functions.toml"
+    @pytest.mark.parametrize(
+        "filename,version", [("rebrew-functions.toml", 3), ("rebrew-data.toml", 2)]
+    )
+    def test_escaped_control_character_key_round_trips(
+        self, tmp_path: Path, filename: str, version: int
+    ) -> None:
+        """TOML escapes preserve the key identity instead of sanitizing it."""
+        path = tmp_path / filename
         store = {("SRV\x1b", 0x24000): {"STATUS": "EXACT"}}
-        write_store_fixture(path, tomlkit.dumps(build_metadata_doc(store, _CANONICAL_ORDER)))
+        text = tomlkit.dumps(build_metadata_doc(store, _CANONICAL_ORDER, version=version))
+        assert "\x1b" not in text
+        write_store_fixture(path, text)
+        assert _load(path, tmp_path, "metadata") == store
+
+    def test_raw_control_character_key_fails_loudly(self, tmp_path: Path) -> None:
+        path = tmp_path / "rebrew-functions.toml"
+        write_store_fixture(path, '["SRV\x1b.0x24000"]\nSTATUS = "EXACT"\n')
         with pytest.raises(ValueError):
             _load(path, tmp_path, "metadata")
 

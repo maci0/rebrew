@@ -111,11 +111,11 @@ class TestSourcePurposeWork:
         assert load_source_files(tmp_path)[0].purpose == "second"
         assert original[0].purpose == "first"
         assert len(reads) == 2
-        path = tmp_path / "rebrew-source.toml"
+        path = tmp_path / "rebrew-functions.toml"
         path.unlink()
         assert load_source_files(tmp_path) == ()
         path.write_text("format = 1\n[files]\n[definitions]\n")
-        with pytest.raises(ValueError, match="format = 2"):
+        with pytest.raises(ValueError, match="format = 3"):
             load_source_files(tmp_path)
 
 
@@ -146,3 +146,21 @@ class TestCommentScanWork:
             lambda text: (SimpleNamespace(root_node=Node(tree.root_node)), raw),
         )
         assert metadata_comments(source) == [(1, "NOTE")]
+
+
+@pytest.mark.parametrize("relative", [".", "stores"])
+def test_relative_metadata_root_cache_follows_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str
+) -> None:
+    from rebrew.metadata.functions import clear_metadata_cache, load_metadata, set_fields
+
+    roots = [tmp_path / "first", tmp_path / "second"]
+    for size, root in enumerate(roots, start=1):
+        directory = root / relative
+        directory.mkdir(parents=True)
+        set_fields(directory, 0x1000, {"size": size}, "GAME")
+    clear_metadata_cache()
+    monkeypatch.chdir(roots[0])
+    assert load_metadata(Path(relative))[("GAME", 0x1000)]["size"] == 1
+    monkeypatch.chdir(roots[1])
+    assert load_metadata(Path(relative))[("GAME", 0x1000)]["size"] == 2

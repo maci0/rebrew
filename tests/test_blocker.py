@@ -15,7 +15,7 @@ def _mock_cfg(tmp_path: Path, monkeypatch) -> None:
         root=tmp_path,
         reversed_dir=tmp_path / "reversed",
         metadata_dir=tmp_path,
-        marker="SERVER",
+        module="SERVER",
         compiler_profile="msvc-6.0",
     )
     # Used by metadata helpers + resolve_source_arg scan
@@ -212,7 +212,7 @@ class TestBlockerShowProvenance:
 
         update_field(tmp_path, 0x1000, "blocker", "struct diff", "SERVER", updated_by="diff")
         cfg = SimpleNamespace(
-            metadata_dir=tmp_path, marker="SERVER", root=tmp_path, target_name="SERVER"
+            metadata_dir=tmp_path, module="SERVER", root=tmp_path, target_name="SERVER"
         )
         runner = CliRunner()
         with (

@@ -1,9 +1,11 @@
 """Assembly previews, output files and machine-readable summaries."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import capstone
 import pytest
 from cli_json import cli_payload
 from source_util import write_source
@@ -29,7 +31,7 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     cfg = SimpleNamespace(
         root=tmp_path,
         target_name="server",
-        marker="SERVER",
+        module="SERVER",
         target_binary=tmp_path / "absent.dll",
         reversed_dir=source,
         metadata_dir=tmp_path,
@@ -150,6 +152,87 @@ class TestShowArtifacts:
         else:
             assert output.read_text() == "bits 32\nret\n"
             assert (tmp_path / "rebrew-functions.toml").read_bytes() == before
+
+
+class TestVerifyExit:
+    def test_byte_mismatch_exits_1(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _project(tmp_path, monkeypatch)
+        monkeypatch.setattr("rebrew.asm.disassemble_to_nasm", _fake_nasm)
+        monkeypatch.setattr(
+            "rebrew.asm.verify_roundtrip",
+            lambda *_a, **_k: (False, "FAIL: 1 byte diffs at offsets [0]"),
+        )
+        result = CliRunner().invoke(
+            app,
+            [
+                "show",
+                "--format",
+                "nasm",
+                "--bin",
+                str(tmp_path / "input.bin"),
+                "--base-va",
+                "1000",
+                "--verify",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 1, result.output
+        payload = cli_payload(result)
+        assert payload["roundtrip_pass"] is False
+        assert "byte diffs" in payload["roundtrip_message"]
+
+    def test_unavailable_checker_exits_2(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _project(tmp_path, monkeypatch)
+        monkeypatch.setattr("rebrew.asm.disassemble_to_nasm", _fake_nasm)
+        monkeypatch.setattr(
+            "rebrew.asm.verify_roundtrip",
+            lambda *_a, **_k: (False, "nasm not on PATH (install nasm)"),
+        )
+        result = CliRunner().invoke(
+            app,
+            [
+                "show",
+                "--format",
+                "nasm",
+                "--bin",
+                str(tmp_path / "input.bin"),
+                "--base-va",
+                "1000",
+                "--verify",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 2, result.output
+        assert result.stdout.strip() == ""
+        assert "nasm not on PATH" in cli_payload(result)["error"]
+
+    def test_batch_mismatch_exits_1_and_unavailable_exits_2(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _project(tmp_path, monkeypatch)
+        monkeypatch.setattr("rebrew.asm.disassemble_to_nasm", _fake_nasm)
+        output = tmp_path / "output"
+        monkeypatch.setattr(
+            "rebrew.asm.verify_roundtrip",
+            lambda *_a, **_k: (False, "FAIL: size mismatch (nasm=1, original=2)"),
+        )
+        mismatch = CliRunner().invoke(app, ["batch", "--output", str(output), "--verify", "--json"])
+        assert mismatch.exit_code == 1, mismatch.output
+        mismatch_payload = cli_payload(mismatch)
+        assert mismatch_payload["failed"] == 1
+        assert "verify_exit" not in mismatch_payload
+
+        monkeypatch.setattr(
+            "rebrew.asm.verify_roundtrip",
+            lambda *_a, **_k: (False, "NASM assembly failed"),
+        )
+        unavailable = CliRunner().invoke(
+            app, ["batch", "--output", str(output), "--verify", "--json"]
+        )
+        assert unavailable.exit_code == 2, unavailable.output
+        assert cli_payload(unavailable)["failed"] == 1
 
 
 class TestBatchArtifacts:
@@ -277,7 +360,7 @@ class TestBatchArtifacts:
         from rebrew.metadata.functions import load_metadata
 
         cfg = _project(tmp_path, monkeypatch)
-        cfg.marker = marker
+        cfg.module = marker
         source = cfg.reversed_dir / "f.c"
         write_source(
             source,
@@ -391,3 +474,100 @@ class TestBatchArtifacts:
         }
         assert artifact.read_text() == "bits 32\nret\n"
         assert "SKIP" in result.stderr
+
+
+class TestInspectionArtifacts:
+    @pytest.mark.parametrize("fmt", ["hex", "cfg"])
+    @pytest.mark.parametrize("json_output", [False, True])
+    @pytest.mark.parametrize("dry_run", [False, True])
+    @pytest.mark.parametrize("existing", [False, True])
+    def test_output_writes_selected_view_and_preview_preserves_destination(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        fmt: str,
+        json_output: bool,
+        dry_run: bool,
+        existing: bool,
+    ) -> None:
+        cfg = _project(tmp_path, monkeypatch)
+        cfg.target_binary.write_bytes(_CODE)
+        cfg.capstone_arch = capstone.CS_ARCH_X86
+        cfg.capstone_mode = capstone.CS_MODE_32
+        monkeypatch.setattr(
+            "rebrew.formats.binary_loader.function_extent_from_disasm", lambda *a, **kw: None
+        )
+        monkeypatch.setattr("rebrew.asm.next_function_va", lambda *a: None)
+        output = tmp_path / "output" / "view.txt"
+        if existing:
+            output.parent.mkdir()
+            output.write_text("Keep this file\n")
+        before = _state(tmp_path)
+        args = [
+            "show",
+            "1000",
+            "--size",
+            str(len(_CODE)),
+            "--format",
+            fmt,
+            "--no-annotate",
+            "--output",
+            str(output),
+        ]
+        if json_output:
+            args.append("--json")
+        if dry_run:
+            args.append("--dry-run")
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 0, result.output
+        if dry_run:
+            assert _state(tmp_path) == before
+        else:
+            assert output.is_file()
+            artifact = output.read_text()
+            if json_output:
+                assert json.loads(artifact) == cli_payload(result)
+                assert json.loads(artifact)["size"] == len(_CODE)
+            else:
+                assert "\x1b[" not in artifact
+                assert ("eax, 1" if fmt == "hex" else "CFG for 0x00001000") in artifact
+                assert result.stdout == ""
+        if json_output:
+            assert cli_payload(result)["size"] == len(_CODE)
+
+    @pytest.mark.parametrize("fmt", ["hex", "cfg"])
+    def test_output_write_failure_is_a_json_error(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        fmt: str,
+    ) -> None:
+        cfg = _project(tmp_path, monkeypatch)
+        cfg.target_binary.write_bytes(_CODE)
+        cfg.capstone_arch = capstone.CS_ARCH_X86
+        cfg.capstone_mode = capstone.CS_MODE_32
+        monkeypatch.setattr(
+            "rebrew.formats.binary_loader.function_extent_from_disasm", lambda *a, **kw: None
+        )
+        monkeypatch.setattr("rebrew.asm.next_function_va", lambda *a: None)
+        blocked = tmp_path / "blocked"
+        blocked.write_text("Keep this file\n")
+        result = CliRunner().invoke(
+            app,
+            [
+                "show",
+                "1000",
+                "--size",
+                str(len(_CODE)),
+                "--format",
+                fmt,
+                "--no-annotate",
+                "--output",
+                str(blocked / "view.txt"),
+                "--json",
+            ],
+        )
+        assert result.exit_code == 2, result.output
+        assert "error" in json.loads(result.stderr)
+        assert result.stdout == ""
+        assert blocked.read_text() == "Keep this file\n"

@@ -200,6 +200,7 @@ class TestClear:
     ) -> None:
         cleared: list[str] = []
         _clearable_cache(monkeypatch, tmp_path, 2, cleared)
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         r = runner.invoke(cache_cli.app, ["clear"], input="y\n")
         assert r.exit_code == 0
         assert cleared == ["clear"]
@@ -213,6 +214,7 @@ class TestClear:
     ) -> None:
         cleared: list[str] = []
         _clearable_cache(monkeypatch, tmp_path, 2, cleared)
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         r = runner.invoke(cache_cli.app, ["clear"], input="n\n")
         assert r.exit_code != 0
         assert cleared == []

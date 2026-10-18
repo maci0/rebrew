@@ -66,7 +66,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import module_marker
+from rebrew.config import target_module
 from rebrew.formats.archives import stock_lib_cache as stock_lib_cache
 from rebrew.formats.binary_loader import extract_raw_bytes
 from rebrew.formats.coff import load_coff
@@ -742,7 +742,7 @@ def main(
     if va_int is not None:
         from rebrew.metadata.functions import get_entry
 
-        module = module_marker(cfg)
+        module = target_module(cfg)
         size = (get_entry(cfg.metadata_dir, va_int, module) or {}).get("size") or 0
         data = extract_raw_bytes(cfg.target_binary, va_int, size or PREFIX_BYTES)
         hit = match_bytes(index, data)

@@ -12,6 +12,8 @@ from typing import Any
 import typer
 
 from rebrew.cli import (
+    EXPECTED_DIGEST_HELP,
+    MIN_TABLE_LEN_HELP,
     AllTargetsOption,
     TargetOption,
     all_targets_run,
@@ -22,7 +24,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import module_marker
+from rebrew.config import target_module
 from rebrew.data_scan import (
     BssReport,
     build_dispatch_known_functions,
@@ -541,10 +543,7 @@ def execute_data(
         metadata = cfg.metadata_dir / "rebrew-data.toml"
         if not metadata.exists():
             error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
-        marker = module_marker(cfg)
-        per_file, skipped_unnamed = annotate_globals(
-            src_dir, metadata, marker, dry_run=dry_run, cfg=cfg
-        )
+        per_file, skipped_unnamed = annotate_globals(src_dir, metadata, dry_run=dry_run, cfg=cfg)
         total = sum(per_file.values())
         if json_output:
             json_print({"bound": total, "files": per_file, "skipped_unnamed": skipped_unnamed})
@@ -629,7 +628,7 @@ def execute_data(
                 src_dir,
                 # Match --annotate's marker fallback: an empty origin would
                 # emit `// DATA:  0x...` which the annotation parser rejects.
-                module_marker(cfg),
+                target_module(cfg),
                 metadata_dir=cfg.metadata_dir,
                 dry_run=dry_run,
                 json_output=json_output,
@@ -881,7 +880,7 @@ def set_data(
         help="Set a global's free-text note: 0xVA=TEXT (repeatable); keeps its verdict",
     ),
     expected_digest: str | None = typer.Option(
-        None, "--expected-digest", help="Require the complete input digest from a reviewed preview"
+        None, "--expected-digest", help=EXPECTED_DIGEST_HELP
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -941,15 +940,15 @@ def move_data(
     target: str | None = TargetOption,
 ) -> None:
     """Re-address one data row, refusing an occupied target address."""
+    from rebrew.config import target_module
     from rebrew.metadata.data import move_data_entry
-    from rebrew.sources import target_marker
 
     old = parse_va(old_va, json_mode=json_output)
     new = parse_va(new_va, json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
     try:
         moved = move_data_entry(
-            cfg.metadata_dir, target_marker(cfg) or "", old, new, dry_run=dry_run
+            cfg.metadata_dir, target_module(cfg) or "", old, new, dry_run=dry_run
         )
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
@@ -1029,7 +1028,7 @@ def dispatch(
     min_table_len: int = typer.Option(
         3,
         "--min-table-len",
-        help="Minimum number of entries to qualify as a dispatch table",
+        help=MIN_TABLE_LEN_HELP,
     ),
     max_pointer_stride: int = typer.Option(
         4,

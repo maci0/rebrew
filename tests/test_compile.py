@@ -1,5 +1,6 @@
 """Tests for rebrew.compiler.compile — resolve_cl_command and compile_and_compare helpers."""
 
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -1680,6 +1681,150 @@ class TestCompileBatchObjs:
         assert out == {}
         assert "posix/msvc" in err
 
+    def _msvc_spec(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            name="msvc-6.0-sp5-pp",
+            image="rebrew/msvc:6.0-sp5-pp-win32",
+            effective_arg_style="msvc",
+        )
+
+    def test_msvc_small_cohort_stays_on_argv(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A short MSVC command stays an ordinary argument vector."""
+        from types import SimpleNamespace
+
+        from rebrew.compiler.compile import compile_batch_objs
+
+        calls: list[list[str]] = []
+
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
+            calls.append(list(args))
+            for name in ("a.obj", "b.obj"):
+                (workdir / name).write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        out, err = compile_batch_objs(self._msvc_spec(), ["a.c", "b.c"], ["/O2"], tmp_path, [], 60)
+        assert err == ""
+        assert set(out) == {"a.c", "b.c"}
+        assert calls == [["/O2", "/c", "a.c", "b.c"]]
+        assert list(tmp_path.glob("*.rsp")) == []
+
+    def test_msvc_large_cohort_uses_response_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Thousands of MSVC filenames go in a response file, not the command line.
+
+        The command Wine receives stays short and still names one real source,
+        because the image wrapper rejects a command with no readable file.
+        The file holds exactly the sources that left the command line, in
+        order, including the ``./`` prefix on a name CL would otherwise read
+        as a response file or an option, and MSVC quoting for a space.
+        """
+        from types import SimpleNamespace
+
+        from rebrew.compiler.compile import compile_batch_objs
+
+        names = [f"tu{i:04d}.c" for i in range(4000)]
+        names.extend(["has space.c", "@lead.c"])
+        calls: list[list[str]] = []
+
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
+            calls.append(list(args))
+            for src in names:
+                (workdir / f"{Path(src).stem}.obj").write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        out, err = compile_batch_objs(self._msvc_spec(), names, ["/O2"], tmp_path, [], 60)
+        assert err == ""
+        assert set(out) == set(names)
+        assert len(calls) == 1
+        command = calls[0]
+        assert len(subprocess.list2cmdline(command)) < 4096
+        expected = ["/O2", "/c"] + [
+            f"./{src}" if src.startswith(("@", "-")) else src for src in names
+        ]
+        assert command[:3] == ["/O2", "/c", expected[2]]
+        assert len(command) == 4 and command[3].startswith("@")
+        rsp = tmp_path / command[3][1:]
+        displaced = expected[3:]
+        assert rsp.read_text(encoding="utf-8") == "".join(
+            subprocess.list2cmdline([arg]) + "\n" for arg in displaced
+        )
+        assert command[:3] + displaced == expected
+        text = rsp.read_text(encoding="utf-8")
+        assert '"has space.c"' in text
+        assert "./@lead.c" in text
+
+    def test_msvc_long_flags_keep_their_position_before_sources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.compiler.compile import compile_batch_objs
+
+        flags = [f"/DVALUE{i:04d}=123456789" for i in range(2000)]
+        calls: list[list[str]] = []
+
+        def fake_run(spec, args, **kwargs):
+            calls.append(list(args))
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", fake_run)
+        compile_batch_objs(self._msvc_spec(), ["a.c", "b.c"], flags, tmp_path, [], 60)
+        command = calls[0]
+        assert len(command) == 3
+        assert command[0].startswith("@") and command[1] == "a.c"
+        assert command[2].startswith("@")
+        assert (tmp_path / command[0][1:]).read_text() == "".join(
+            subprocess.list2cmdline([arg]) + "\n" for arg in [*flags, "/c"]
+        )
+        assert (tmp_path / command[2][1:]).read_text() == "b.c\n"
+
+    def test_msvc_response_write_failure_is_reported_before_invocation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler.compile import compile_batch_objs
+
+        def fail_write(*args, **kwargs):
+            raise PermissionError("read-only workdir")
+
+        def unexpected(*args, **kwargs):
+            pytest.fail("compiler invoked without its response file")
+
+        monkeypatch.setattr(Path, "write_text", fail_write)
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", unexpected)
+        objs, error = compile_batch_objs(
+            self._msvc_spec(), [f"tu{i:04d}.c" for i in range(4000)], [], tmp_path, [], 60
+        )
+        assert objs == {}
+        assert "cannot write batch response file" in error
+
+    def test_posix_large_cohort_stays_on_argv(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """POSIX batching keeps every source on the argument vector."""
+        from types import SimpleNamespace
+
+        from rebrew.compiler.compile import compile_batch_objs
+
+        names = [f"tu{i:04d}.c" for i in range(5000)]
+        calls: list[list[str]] = []
+
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
+            calls.append(list(args))
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
+        _out, err = compile_batch_objs(self._spec(), names, ["-O2"], tmp_path, [], 60)
+        assert err == ""
+        assert calls == [["-O2", "-c", *names]]
+        assert list(tmp_path.glob("*.rsp")) == []
+
 
 class TestBatchCacheParity:
     def test_identical_keys_both_paths(
@@ -2279,7 +2424,7 @@ class TestEffectiveCompileFlags:
         """Cache keys must see base_cflags + defines, not only per-function flags."""
         from types import SimpleNamespace
 
-        from rebrew.compiler.compile import _effective_compile_flags
+        from rebrew.compiler.compile import effective_compile_flags
 
         cfg = SimpleNamespace(
             root=tmp_path,
@@ -2287,7 +2432,7 @@ class TestEffectiveCompileFlags:
             defines=["V2"],
         )
         spec = SimpleNamespace(flags_style="msvc")
-        flags = _effective_compile_flags(cfg, spec, "/Gd", tmp_path / "src")
+        flags = effective_compile_flags(cfg, spec, "/Gd", tmp_path / "src")
         assert "/O2" in flags
         assert "/Gd" in flags
         assert "/DV2" in flags
@@ -2296,11 +2441,11 @@ class TestEffectiveCompileFlags:
     def test_posix_define_prefix(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.compiler.compile import _effective_compile_flags
+        from rebrew.compiler.compile import effective_compile_flags
 
         cfg = SimpleNamespace(root=tmp_path, base_cflags="", defines=["DEBUG"])
         spec = SimpleNamespace(flags_style="posix")
-        flags = _effective_compile_flags(cfg, spec, "-O2", tmp_path)
+        flags = effective_compile_flags(cfg, spec, "-O2", tmp_path)
         assert "-DDEBUG" in flags
 
 
@@ -2310,35 +2455,35 @@ class TestSharedIncludeFlags:
     def test_shared_source_gets_shared_root_include(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.compiler.compile import _effective_compile_flags
+        from rebrew.compiler.compile import effective_compile_flags
 
         shared = tmp_path / "src" / "shared"
         (shared / "Units").mkdir(parents=True)
         cfg = SimpleNamespace(root=tmp_path, base_cflags="", defines=[], shared_dir=shared)
         spec = SimpleNamespace(flags_style="msvc")
-        flags = _effective_compile_flags(cfg, spec, "/Gd", shared / "Units")
+        flags = effective_compile_flags(cfg, spec, "/Gd", shared / "Units")
         assert f"/I{shared.resolve()}" in flags
 
     def test_per_target_source_gets_no_shared_include(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.compiler.compile import _effective_compile_flags
+        from rebrew.compiler.compile import effective_compile_flags
 
         shared = tmp_path / "src" / "shared"
         shared.mkdir(parents=True)
         cfg = SimpleNamespace(root=tmp_path, base_cflags="", defines=[], shared_dir=shared)
         spec = SimpleNamespace(flags_style="msvc")
-        flags = _effective_compile_flags(cfg, spec, "/Gd", tmp_path / "src" / "V1")
+        flags = effective_compile_flags(cfg, spec, "/Gd", tmp_path / "src" / "V1")
         assert not any(f.startswith("/I") and "shared" in f for f in flags)
 
     def test_no_shared_dir_configured(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.compiler.compile import _effective_compile_flags
+        from rebrew.compiler.compile import effective_compile_flags
 
         cfg = SimpleNamespace(root=tmp_path, base_cflags="", defines=[])
         spec = SimpleNamespace(flags_style="msvc")
-        flags = _effective_compile_flags(cfg, spec, "/Gd", tmp_path / "src")
+        flags = effective_compile_flags(cfg, spec, "/Gd", tmp_path / "src")
         assert flags == ["/Gd"]
 
 

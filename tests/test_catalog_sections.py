@@ -150,7 +150,7 @@ class TestGetGlobals:
         assert globals_dict[0x10006000]["name"] == "unknown"
         assert globals_dict[0x10006000]["size"] == 4
 
-    def test_other_target_marker_is_omitted(
+    def test_other_target_module_is_omitted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         (
@@ -176,7 +176,10 @@ class TestGetGlobals:
             metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(
-            marker="SERVER", all_markers={"SERVER", "GOLD"}, source_ext=".c", metadata_dir=tmp_path
+            module="SERVER",
+            target_modules={"SERVER", "GOLD"},
+            source_ext=".c",
+            metadata_dir=tmp_path,
         )
         globals_dict = get_globals(tmp_path, cfg)  # type: ignore[arg-type]
         assert set(globals_dict) == {0x10001000, 0x10030000}

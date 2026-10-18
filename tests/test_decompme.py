@@ -75,7 +75,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
         compiler_profile="msvc-6.0",
         binary_format="pe",
         source_ext=".c",
-        marker="T",
+        module="T",
         cflags="/O2 /Gd",
     )
 

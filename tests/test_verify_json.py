@@ -291,7 +291,7 @@ class TestApplyOrPreviewStatus:
         from rebrew.verify import _gate_fails
 
         assert _gate_fails(None, 0) is False
-        assert _gate_fails(None, 0, text_misplaced=1) is True
+        assert _gate_fails(None, 0, text_failed=1) is True
         assert _gate_fails(None, 0, data_failed=1) is True
         assert _gate_fails(None, 0, whole_failed=True) is True
 

@@ -34,7 +34,7 @@ def _copy_length_or_none(solver: Any, n: Any) -> int | None:
     honoured at its maximum (the bound is in the path constraints on both
     sides, so proving the max-length copy proves every admissible length).
     """
-    import claripy
+    from angr import claripy
 
     if not n.symbolic:
         length = int(solver.eval(n, 1)[0])
@@ -86,7 +86,7 @@ def get_win32_simprocs() -> dict[str, type]:
 
 def _build_win32_simprocs() -> dict[str, type]:
     import angr
-    import claripy
+    from angr import claripy
 
     class ReturnSymbolicDword(angr.SimProcedure):
         """Generic: return a fresh unconstrained 32-bit symbolic value."""

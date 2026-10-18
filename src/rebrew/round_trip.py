@@ -53,17 +53,14 @@ from rebrew.coff_reloc import (
     build_symbol_resolver,
 )
 from rebrew.compiler.compile import compile_to_obj
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, target_module
 from rebrew.formats.binary_loader import load_binary, va_to_file_offset
 from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.metadata.bindings import iter_source_bindings, resolve_symbol
 from rebrew.metadata.functions import load_metadata
 from rebrew.sections import trim_trailing_padding
-from rebrew.sources import (
-    iter_sources,
-    target_marker,
-)
+from rebrew.sources import iter_sources
 from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import (
     atomic_write_bytes,
@@ -115,7 +112,7 @@ def main(
         False,
         "--fix-headers",
         help="Patch the reasm copy's PE header (linker/OS/subsystem versions, "
-        "TSAWARE, stack, timestamp, checksum) to match the original — values "
+        "TSAWARE, stack, timestamp, checksum) to match the original. Values "
         "from \\[link] in rebrew-project.toml, falling back to the original's "
         "own fields",
     ),
@@ -171,7 +168,7 @@ def _collect_splice_set(
     entries = load_metadata(cfg.metadata_dir, deepcopy=False)
     for path, anns in iter_source_bindings(
         iter_sources(cfg.reversed_dir, cfg),
-        target=target_marker(cfg),
+        target=target_module(cfg),
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):
@@ -847,16 +844,16 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
         ``cfg.reversed_dir`` (annotations are the canonical inter-function name source
         for the active target).
       * Data names: the single ``rebrew-data.toml`` at ``cfg.metadata_dir``
-        (filtered to the active target's marker) plus DATA/GLOBAL annotations.
+        (filtered to the active target's module) plus DATA/GLOBAL annotations.
     """
     from rebrew.metadata.data import load_data_metadata
 
-    marker = target_marker(cfg)  # honors cfg.marker overrides
+    target_module_name = target_module(cfg)  # honors cfg.module overrides
     # An annotation's marker is compared in preset_module_key (NFC, then
     # upper): a `.c` written with an NFD-accented marker spells the same module
     # as the config's NFC one, and byte equality dropped its functions from
     # the export and data maps.
-    wanted_marker = preset_module_key(marker) if marker else None
+    wanted_module = preset_module_key(target_module_name) if target_module_name else None
     funcs: dict[int, str] = dict(cfg.dll_exports)  # base layer: PE exports
     # Data names live in cfg.metadata_dir/rebrew-data.toml — not under each
     # annotated source's parent directory.  DATA/GLOBAL annotations are also
@@ -868,13 +865,13 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
     sources.extend(cfg.reversed_dir.rglob("*.h"))
     for _path, anns in iter_source_bindings(
         sources,
-        target=marker,
+        target=target_module_name,
         metadata_dir=cfg.metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):
         for ann in anns:
             key = resolve_symbol(ann, _path)
-            if wanted_marker is None or preset_module_key(ann.module) != wanted_marker or not key:
+            if wanted_module is None or preset_module_key(ann.module) != wanted_module or not key:
                 continue
             # DATA/GLOBAL annotations (e.g. an IAT import slot annotated as a
             # global named like its function) belong in the data map, never in
@@ -887,7 +884,7 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
                 funcs[ann.va] = key
 
     for (mod, va), meta in load_data_metadata(cfg.metadata_dir).items():
-        if mod == marker and meta.get("name"):
+        if mod == target_module_name and meta.get("name"):
             data[meta["name"]] = va
             if meta.get("link_symbol"):
                 data[str(meta["link_symbol"])] = va

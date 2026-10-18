@@ -2184,19 +2184,8 @@ def _mask_cc(source: str) -> str:
 _ASM_KEYWORDS = frozenset({"__asm", "_asm"})
 
 
-def mask_msvc_syntax(source: str) -> str:
-    """Same-length copy of *source* whose MSVC extensions are blanked for parsing.
-
-    Calling conventions, ``__declspec(...)`` and inline assembly (``__asm {
-    ... }`` blocks and one-line ``__asm`` statements) become spaces; newlines
-    and comments stay. The C grammar otherwise turns ``Sample* __cdecl f(...)``
-    into an expression and ``mov edi, picks`` into a declaration of ``picks``.
-    Every byte offset of the result is the offset of the same text in
-    *source*, so a tree parsed from it addresses *source* directly.
-    """
-    masked = _mask_cc(source)
-    if not any(keyword in masked for keyword in _ASM_KEYWORDS):
-        return masked
+def _msvc_asm_token_groups(masked: str) -> Iterator[list[tuple[str, int, int, int]]]:
+    """Yield token groups for MSVC statements, retaining comment tokens."""
     tree, data = parse_c_source(masked)
     tokens: list[tuple[str, int, int, int]] = []
     row = 0
@@ -2210,11 +2199,14 @@ def mask_msvc_syntax(source: str) -> str:
                 tokens.append((node.type, node.start_byte, node.end_byte, row))
             continue
         stack.extend(reversed(node.children))
-    out = bytearray(data)
     i = 0
     while i < len(tokens):
         kind, start, end, row = tokens[i]
-        if data[start:end] not in (b"__asm", b"_asm") or i + 1 == len(tokens):
+        if (
+            kind in {"comment", "string_literal", "char_literal", "preproc_arg"}
+            or data[start:end] not in (b"__asm", b"_asm")
+            or i + 1 == len(tokens)
+        ):
             i += 1
             continue
         if tokens[i + 1][0] == "(":  # GNU asm expressions are valid C grammar.
@@ -2239,10 +2231,41 @@ def mask_msvc_syntax(source: str) -> str:
         if block and j == len(tokens):  # an unterminated block is left to the grammar
             i += 1
             continue
-        for node_kind, node_start, node_end, _row in tokens[i : min(j, len(tokens) - 1) + 1]:
+        yield tokens[i : min(j, len(tokens) - 1) + 1]
+        i = j + 1
+
+
+def msvc_asm_spans(source: str) -> list[tuple[int, int]]:
+    """Return byte spans of MSVC inline assembly, excluding surrounding C.
+
+    Comments, literals and preprocessor arguments are opaque to the shared
+    tree-sitter token scan. Braced blocks and one-line statements include their
+    keyword and delimiters; GNU asm expressions are not MSVC statements.
+    """
+    if not any(keyword in source for keyword in _ASM_KEYWORDS):
+        return []
+    return [(group[0][1], group[-1][2]) for group in _msvc_asm_token_groups(_mask_cc(source))]
+
+
+def mask_msvc_syntax(source: str) -> str:
+    """Same-length copy of *source* whose MSVC extensions are blanked for parsing.
+
+    Calling conventions, ``__declspec(...)`` and inline assembly (``__asm {
+    ... }`` blocks and one-line ``__asm`` statements) become spaces; newlines
+    and comments stay. The C grammar otherwise turns ``Sample* __cdecl f(...)``
+    into an expression and ``mov edi, picks`` into a declaration of ``picks``.
+    Every byte offset of the result is the offset of the same text in
+    *source*, so a tree parsed from it addresses *source* directly.
+    """
+    masked = _mask_cc(source)
+    if not any(keyword in masked for keyword in _ASM_KEYWORDS):
+        return masked
+    data = masked.encode("utf-8", errors="surrogateescape")
+    out = bytearray(data)
+    for group in _msvc_asm_token_groups(masked):
+        for node_kind, node_start, node_end, _row in group:
             if node_kind != "comment":
                 out[node_start:node_end] = re.sub(rb"[^\r\n]", b" ", data[node_start:node_end])
-        i = j + 1
     return bytes(out).decode("utf-8", errors="surrogateescape")
 
 
@@ -2377,7 +2400,7 @@ def replace_function_prototype(source: str, name: str, prototype: str) -> str:
     _remote_name, start, end = span
     encoded = prototype.rstrip().rstrip(";").encode("utf-8", errors="surrogateescape")
     signature = encoded[:start] + name.encode("ascii") + encoded[end:]
-    tree, parsed = parse_c_source(_mask_cc(source))
+    tree, parsed = parse_c_source(mask_msvc_syntax(source))
     raw = source.encode("utf-8", errors="surrogateescape")
     pending = [tree.root_node]
     while pending:

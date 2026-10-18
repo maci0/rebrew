@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -1612,6 +1613,84 @@ class TestCiPins:
         )
         assert "oven-sh/setup-bun@" in test_job
 
+    def test_native_runner_prerequisites_cover_every_python_matrix_entry(self) -> None:
+        import yaml
+
+        job = yaml.safe_load(CI_YML.read_text(encoding="utf-8"))["jobs"]["test"]
+        install = next(
+            step for step in job["steps"] if "ci_apt_install.sh nasm" in step.get("run", "")
+        )
+        assert "if" not in install, "native runner tests execute in every Python matrix entry"
+        for package in ("build-essential", "pkg-config", "libjson-c-dev"):
+            assert package in install["run"].split(), package
+        assert "pkg-config --modversion json-c" in install["run"]
+        for target in ("test", "coverage"):
+            assert "ensure-unshare-build" in _makefile_prereqs(target)
+
+    def test_native_runner_preflight_names_missing_development_files(self, tmp_path: Path) -> None:
+        result = subprocess.run(
+            ["make", "--no-print-directory", "ensure-unshare-build"],
+            cwd=ROOT,
+            env={**os.environ, "PKG_CONFIG_LIBDIR": str(tmp_path), "PKG_CONFIG_PATH": ""},
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode != 0
+        assert "native runner tests need" in result.stdout
+        assert "apt install build-essential pkg-config libjson-c-dev" in result.stdout
+
+    @pytest.mark.parametrize(
+        ("key_exists", "set_exit", "probe_exit", "expected"),
+        [(True, 0, 0, 0), (False, 0, 0, 0), (True, 7, 0, 7), (True, 0, 9, 9)],
+    )
+    def test_ci_enables_and_probes_native_user_namespaces(
+        self, key_exists: bool, set_exit: int, probe_exit: int, expected: int
+    ) -> None:
+        """The ephemeral runner must exercise namespaces, not hide denied tests."""
+        import yaml
+
+        job = yaml.safe_load(CI_YML.read_text(encoding="utf-8"))["jobs"]["test"]
+        steps = job["steps"]
+        setup = next(step for step in steps if step["name"] == "Enable native namespace tests")
+        assert "if" not in setup
+        assert steps.index(setup) < next(
+            i for i, step in enumerate(steps) if step.get("run") in {"make test", "make coverage"}
+        )
+        stubs = """
+sysctl() {
+    [ "$*" = '-n kernel.apparmor_restrict_unprivileged_userns' ] || return 99
+    [ "$KEY_EXISTS" = 1 ]
+}
+sudo() {
+    [ "$*" = 'sysctl -w kernel.apparmor_restrict_unprivileged_userns=0' ] || return 99
+    printf 'set policy\\n'
+    return "$SET_EXIT"
+}
+unshare() {
+    [ "$*" = '--user --map-root-user true' ] || return 99
+    printf 'probe namespaces\\n'
+    return "$PROBE_EXIT"
+}
+"""
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", stubs + setup["run"]],
+            env={
+                **os.environ,
+                "KEY_EXISTS": str(int(key_exists)),
+                "SET_EXIT": str(set_exit),
+                "PROBE_EXIT": str(probe_exit),
+            },
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode == expected, result.stdout + result.stderr
+        assert result.stdout.count("set policy") == int(key_exists)
+        assert result.stdout.count("probe namespaces") == int(not key_exists or set_exit == 0)
+
     def test_vnu_is_preflighted_and_installable_locally(self) -> None:
         """The W3C skip must be visible on the dev path, and its fix runnable.
 
@@ -2019,8 +2098,8 @@ class TestCiAptInstall:
         assert 'retry "apt-get update" run_root apt-get update -qq' in text
         assert "DEBIAN_FRONTEND=noninteractive" in text
         assert "--no-install-recommends" in text
-        # Success is proven by the binary, not by apt's exit code alone.
-        assert "is still not on PATH" in text
+        # Success is proven by the required capability, not apt's exit code alone.
+        assert "is still unavailable" in text
 
     def test_helper_names_a_missing_privilege_or_package_manager(self) -> None:
         """A host without apt-get (or sudo, when not root) fails every retry
@@ -2116,8 +2195,78 @@ class TestCiAptInstall:
             check=False,
         )
         assert result.returncode == 0, result.stdout + result.stderr
-        assert "already on PATH: shellcheck" in result.stdout
+        assert "already available: shellcheck" in result.stdout
         assert "apt-get ran" not in result.stderr
+
+    @pytest.mark.parametrize("package", ["build-essential", "libjson-c-dev", "shellcheck"])
+    @pytest.mark.parametrize("capability", ["present", "installed", "missing"])
+    def test_packages_check_provided_capabilities_after_apt_success(
+        self, tmp_path: Path, package: str, capability: str
+    ) -> None:
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        ready = tmp_path / "ready"
+        calls = tmp_path / "calls"
+        commands = {
+            "build-essential": ("cc", "make"),
+            "libjson-c-dev": (),
+            "shellcheck": ("shellcheck",),
+        }[package]
+        for command in ("env", "seq"):
+            (bindir / command).symlink_to(shutil.which(command))
+        for command, body in {
+            "sudo": '[ "$1" = -n ] && shift; exec "$@"',
+            "sleep": "exit 0",
+            "pkg-config": '[ "$1" = --exists ] && [ "$2" = json-c ] && [ -f "$NATIVE_READY" ]',
+        }.items():
+            path = bindir / command
+            path.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8")
+            path.chmod(0o755)
+        if capability == "present":
+            ready.touch()
+            for command in commands:
+                path = bindir / command
+                path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                path.chmod(0o755)
+        apt = bindir / "apt-get"
+        apt.write_text(
+            f"#!{sys.executable}\n"
+            "import os, sys\nfrom pathlib import Path\n"
+            "Path(os.environ['APT_CALLS']).open('a').write(' '.join(sys.argv[1:]) + '\\n')\n"
+            "if sys.argv[1] == 'install' and os.environ['CAPABILITY'] == 'installed':\n"
+            "    Path(os.environ['NATIVE_READY']).touch()\n"
+            f"    for command in {commands!r}:\n"
+            "        p = Path(os.environ['PATH']) / command\n"
+            "        p.write_text('#!/bin/sh\\nexit 0\\n')\n"
+            "        p.chmod(0o755)\n",
+            encoding="utf-8",
+        )
+        apt.chmod(0o755)
+        result = subprocess.run(
+            ["/bin/bash", str(self.HELPER), package],
+            env={
+                "PATH": str(bindir),
+                "APT_CALLS": str(calls),
+                "NATIVE_READY": str(ready),
+                "CAPABILITY": capability,
+            },
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode == (1 if capability == "missing" else 0), (
+            result.stdout + result.stderr
+        )
+        if capability == "present":
+            assert not calls.exists(), "available capabilities should avoid apt entirely"
+        else:
+            assert calls.read_text().splitlines() == [
+                "update -qq",
+                f"install -y --no-install-recommends {package}",
+            ]
+        if capability == "missing":
+            assert f"apt-get reported success but {package} is still unavailable" in result.stderr
 
     def test_persistent_apt_failure_fails_the_step(self, tmp_path: Path) -> None:
         """Every attempt failing must exit non-zero instead of looping on success."""
@@ -2305,7 +2454,7 @@ class TestRequireExtras:
     def test_similarity_failure_names_the_sibling_checkout(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        # angr and claripy resolve, the similarity group does not: the message
+        # angr with bundled Claripy resolves, the similarity group does not: the message
         # has to point at the sibling path dependency, which is the fix half
         # the prove extra's message does not mention.
         monkeypatch.setattr(require_extras, "_venv_dir", lambda: tmp_path)
@@ -2323,6 +2472,20 @@ class TestRequireExtras:
         monkeypatch.setattr(require_extras, "_satisfied", lambda modules: True)
         assert require_extras.main() == 0
         assert capsys.readouterr().out == ""
+
+    def test_bundled_claripy_needs_no_standalone_distribution(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(require_extras, "_venv_dir", lambda: tmp_path)
+        probed: list[str] = []
+
+        def find_spec(name: str) -> object | None:
+            probed.append(name)
+            return object() if name in {"angr", "rapidfuzz", "resembl"} else None
+
+        monkeypatch.setattr(require_extras.importlib.util, "find_spec", find_spec)
+        assert require_extras.main() == 0
+        assert probed == ["angr", "rapidfuzz", "resembl"]
 
     def test_probe_resolves_without_importing(self) -> None:
         """find_spec, not import: mypy only needs the package to resolve, and

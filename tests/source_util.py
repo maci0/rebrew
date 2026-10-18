@@ -11,11 +11,15 @@ from rebrew.metadata.document import parse_metadata_key, qualified_key
 from rebrew.metadata.functions import (
     get_entry,
     identity_file,
-    record_function_identity,
-    set_fields,
-    update_source_status,
+    record_function_rows,
+    update_statuses_batch,
 )
 from rebrew.workspace.config import walk_up_to_root
+
+
+def _pytest_temp_dir(name: str) -> bool:
+    """True for a pytest session temp or an xdist worker temp (``popen-gwN``)."""
+    return name.startswith(("pytest-", "popen-gw"))
 
 
 def write_source(
@@ -41,7 +45,7 @@ def write_source(
             (
                 parent
                 for parent in (path.parent, *path.parents)
-                if parent.parent.name.startswith("pytest-")
+                if _pytest_temp_dir(parent.parent.name)
             ),
             path.parent,
         )
@@ -113,21 +117,32 @@ def write_source(
                 )
         else:
             prior = get_entry(metadata_dir, va, module=module)
-            record_function_identity(
-                metadata_dir,
-                module=module,
-                va=va,
-                file=relative,
-                name=name,
-                symbol=symbol,
-                kind=kind,
-                overwrite_name=True,
-            )
-            if fields:
-                set_fields(metadata_dir, va, fields, module=module)
+            identity = {"file": relative, "symbol": symbol, "name": name, "kind": kind}
+            # One store edit. Three writers (identity, fields, STATUS) each
+            # rewrote the whole document, and a fixture loop paid that three
+            # times per source. STATUS still goes through the batch so a caller
+            # that omitted it cannot clobber an earned verdict.
             if "status" not in prior or "status" in raw:
-                update_source_status(
-                    metadata_dir, status, module, va, force=True, clear_blockers=False
+                update_statuses_batch(
+                    metadata_dir,
+                    [
+                        {
+                            "module": module,
+                            "va": va,
+                            "new_status": status,
+                            "clear_blockers": False,
+                            "force": True,
+                            "identity": identity,
+                            "overwrite_name": True,
+                            "fields": fields,
+                        }
+                    ],
+                )
+            else:
+                record_function_rows(
+                    metadata_dir,
+                    [{"module": module, "va": va, "identity": identity, "fields": fields}],
+                    overwrite_name=True,
                 )
     return written
 

@@ -712,3 +712,33 @@ def test_find_extern_variables_skips_a_declaration_with_a_parse_error() -> None:
     source = "extern unsigned long a];\nint __cdecl __declspec(unsigned long, int) { return 0; }"
     assert find_extern_variables(source) == []
     assert [v.name for v in find_extern_variables("extern unsigned long a[2];\n")] == ["a"]
+
+
+class TestReplaceFunctionPrototype:
+    @pytest.mark.parametrize(
+        "assembly",
+        [
+            "__asm { mov eax, eax }",
+            "__asm mov eax, eax\n",
+            "__asm {\nLabel:\n mov ecx, eax\n rep movsd\n}",
+        ],
+    )
+    def test_definition_after_msvc_assembly_retains_every_other_byte(self, assembly: str) -> None:
+        from rebrew.c_parser import replace_function_prototype
+
+        old = "int __cdecl later(int value)"
+        new = "int __cdecl later(void* value)"
+        source = (
+            "/* Grüße */\n"
+            f"int prior(void) {{ {assembly} return 0; }}\n"
+            f"{old} {{ return value != 0; }}\n"
+        )
+        assert replace_function_prototype(source, "later", new) == source.replace(old, new)
+
+    def test_selected_definition_keeps_its_assembly_body(self) -> None:
+        from rebrew.c_parser import replace_function_prototype
+
+        source = "int __cdecl target(int value) { __asm { mov eax, value } return value != 0; }"
+        assert replace_function_prototype(
+            source, "target", "int __cdecl target(void* value)"
+        ) == source.replace("target(int value)", "target(void* value)")

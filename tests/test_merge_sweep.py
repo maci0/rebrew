@@ -291,7 +291,7 @@ def _make_cfg(tmp_path: Path) -> Any:
     src_dir = tmp_path / "src"
     src_dir.mkdir()
     return SimpleNamespace(
-        marker="SERVER",
+        module="SERVER",
         source_ext=".c",
         reversed_dir=src_dir,
         metadata_dir=tmp_path,
@@ -469,7 +469,7 @@ def _scorer_cfg(tmp_path: Path) -> SimpleNamespace:
     src = tmp_path / "src"
     src.mkdir(exist_ok=True)
     return SimpleNamespace(
-        marker="SERVER",
+        module="SERVER",
         source_ext=".c",
         reversed_dir=src,
         metadata_dir=tmp_path,

@@ -25,6 +25,7 @@ from typer.models import TyperPath
 
 from rebrew.cli import (
     EXIT_ERROR,
+    MIN_TABLE_LEN_HELP,
     TargetOption,
     console,
     error_exit,
@@ -32,13 +33,10 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, target_module
 from rebrew.metadata.bindings import read_source_bindings
 from rebrew.rename_ops import c_name_from_symbol
-from rebrew.sources import (
-    iter_sources,
-    target_marker,
-)
+from rebrew.sources import iter_sources
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_HEX
 from rebrew.theme import TOKENS
 from rebrew.utils import atomic_write_text, fold_ident
@@ -320,7 +318,7 @@ def build_graph(
         externs = _extract_callees(cfile, text)
         for entry in read_source_bindings(
             cfile,
-            target_name=target_marker(cfg),
+            target_name=target_module(cfg),
             metadata_dir=cfg.metadata_dir if cfg else None,
             project_root=getattr(cfg, "root", None),
         ):
@@ -788,7 +786,7 @@ def main(
     min_table_len: int = typer.Option(
         3,
         "--min-table-len",
-        help="Minimum entries to qualify as a dispatch table (--include-dispatch)",
+        help=f"{MIN_TABLE_LEN_HELP} (--include-dispatch)",
     ),
     max_pointer_stride: int = typer.Option(
         4,
@@ -798,7 +796,11 @@ def main(
     from_binary: bool = typer.Option(
         False,
         "--from-binary",
-        help="Build call edges from the target binary's xrefs instead of the reversed C sources (16-bit NE support included — the source graph is empty for stub-only projects)",
+        help=(
+            "Build call edges from the target binary's xrefs instead of the reversed "
+            "C sources. 16-bit NE support is included. The source graph is empty "
+            "for stub-only projects"
+        ),
     ),
     output: str | None = typer.Option(
         None,

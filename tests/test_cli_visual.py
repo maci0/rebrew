@@ -142,6 +142,8 @@ def test_data_summary_bar_matches_section(monkeypatch: pytest.MonkeyPatch) -> No
     # round up, so a partly-covered section never reads as more covered
     # than it is: the table and the bar line both report 1.5%.
     assert "1.5%" in out
+    assert "Annotated %" in out
+    assert "% Coverage" not in out
     assert ".data" in out
     bar = _bar_line(out)
     assert "█" in bar and "░" in bar
@@ -208,6 +210,18 @@ def test_verify_summary_bar_and_short_title(monkeypatch: pytest.MonkeyPatch) -> 
                 "match_percent": 100,
                 "delta": 0,
             },
+            {
+                "va": "0x3000",
+                "name": "sized_fn",
+                "size": 8,
+                "status": "SIZE_MISMATCH",
+                "match_percent": 10,
+                "delta": 4,
+            },
+            *[
+                {"va": "0x4000", "name": "failed_fn", "size": 8, "status": status}
+                for status in ("INTERNAL_ERROR", "INTERNAL_ERROR", "SKIP")
+            ],
         ]
     )
     out = buf.getvalue()
@@ -215,6 +229,19 @@ def test_verify_summary_bar_and_short_title(monkeypatch: pytest.MonkeyPatch) -> 
     assert "/home/" not in out
     assert "40.0%" in out
     assert "█" in out and "░" in out
+    breakdown = out.split("STATUS Breakdown", 1)[1]
+    assert "PROVEN" not in breakdown
+    for status, count in {
+        "EXACT": 1,
+        "RELOC": 0,
+        "NEAR_MATCHING": 1,
+        "STUB": 0,
+        "SIZE_MISMATCH": 1,
+        "SKIP": 1,
+        "INTERNAL_ERROR": 2,
+    }.items():
+        row = next(line for line in breakdown.splitlines() if status in line)
+        assert row.split("│")[2].strip() == str(count)
 
 
 def test_batch_summary_uses_the_shared_bar(monkeypatch: pytest.MonkeyPatch) -> None:

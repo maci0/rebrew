@@ -352,7 +352,7 @@ class TestCollectLibraryAnnotations:
         return SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             library_modules=[],
@@ -491,7 +491,7 @@ class TestMatchAll:
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             library_modules=["MSVCRT"],
@@ -527,7 +527,7 @@ class TestMatchAll:
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             library_modules=["ZLIB"],
@@ -545,7 +545,7 @@ class TestCrtMatchCli:
         return SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             library_modules=["MSVCRT"],
@@ -781,7 +781,7 @@ class TestCrtMatchCliBranches:
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             library_modules=["MSVCRT"],
@@ -814,7 +814,7 @@ class TestCrtMatchCliBranches:
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             library_modules=["ZLIB"],
@@ -847,7 +847,7 @@ class TestCrtMatchCliBranches:
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             library_modules=["MSVCRT"],
@@ -882,7 +882,7 @@ class TestCrtMatchCliBranches:
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             library_modules=["MSVCRT"],
@@ -914,7 +914,7 @@ class TestCrtMatchCliBranches:
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             library_modules=[],
@@ -954,7 +954,7 @@ class TestFixSourceDryRun:
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             library_modules=["MSVCRT"],
@@ -1040,7 +1040,7 @@ class TestSourceAutoWritable:
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             library_modules=["MSVCRT"],
@@ -1064,7 +1064,7 @@ class TestSingleVaModuleFallback:
         return SimpleNamespace(
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
             library_modules=["MSVCRT"],

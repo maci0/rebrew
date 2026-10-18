@@ -81,7 +81,8 @@ PROVEN records semantic evidence under the proof's assumptions and earns no
 byte-match credit. See [match types](https://github.com/maci0/rebrew/blob/main/docs/MATCH_TYPES.md).
 
 Function/data metadata are CLI/API-managed. Never hand-edit their TOMLs or write
-STATUS in C. Function identity and state live in format-2 `MODULE.0xVA` metadata rows.
+STATUS in C. Function identity and state live in format-3 `MODULE.0xVA` metadata rows;
+addressless evidence and support purposes live under `[source]` in the same store.
 Source can include optional `/* ADDRESS: MODULE 0xVA */` anchors immediately
 above definitions. Retired source tags and old metadata formats are rejected. See
 [metadata ownership](https://github.com/maci0/rebrew/blob/main/docs/METADATA.md).
@@ -119,7 +120,7 @@ replacement and teardown.
 
 Clean clone needs **uv**, **Python 3.13+** (`.python-version`), **nasm** and
 **bun** on `PATH`, a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
-`../resembl` (tag `v3.2.0`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
+`../resembl` (tag `v3.3.1`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
 also requires `HEAD` to be the `RESEMBL_SHA` commit CI's `resembl-sha` pins), and
 **bash** for the `make clone-resembl` step below.  **bun** drives the
 `tests/dashboard_*.mjs` interaction tests, which skip without it, so `make test`
@@ -136,7 +137,7 @@ make doctor                # report every missing prerequisite (uv, ../resembl, 
                            # bun, shellcheck, yamllint, vnu, venv extras) with the fix for each;
                            # read-only, and exits non-zero only for a host tool the two steps
                            # below cannot install
-make clone-resembl         # clone sibling resembl pin (tag v3.2.0) into ../resembl
+make clone-resembl         # clone sibling resembl pin (tag v3.3.1) into ../resembl
 make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
 make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make test-one T=tests/test_annotation.py   # single-file edit-test loop

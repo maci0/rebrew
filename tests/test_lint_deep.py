@@ -273,7 +273,7 @@ class TestLintFileEdgeCases:
         assert any((code == "W003" for _, code, _ in result.warnings))
 
     def test_config_module_mismatch(self, tmp_path: Path) -> None:
-        cfg = ProjectConfig(root=tmp_path, marker="GAME_DLL")
+        cfg = ProjectConfig(root=tmp_path, module="GAME_DLL")
         f = _write(
             tmp_path,
             "mismatch.c",
@@ -294,8 +294,8 @@ class TestLintFileEdgeCases:
         assert any((code == "E012" for _, code, _ in result.errors))
 
     def test_config_marker_match(self, tmp_path: Path) -> None:
-        """Matching module to cfg.marker produces no E012 error."""
-        cfg = ProjectConfig(root=tmp_path, marker="SERVER")
+        """Matching module to cfg.module produces no E012 error."""
+        cfg = ProjectConfig(root=tmp_path, module="SERVER")
         f = _write(
             tmp_path,
             "cflags_diff.c",

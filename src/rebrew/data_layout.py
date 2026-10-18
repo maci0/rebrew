@@ -52,7 +52,7 @@ from rebrew.workspace.config import config_path
 def scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
     """``*.c`` files under *src_dir* plus the shared tree (deduplicated).
 
-    DATA markers in ``src/shared`` belong to every target; a ``reversed_dir``
+    DATA bindings in ``src/shared`` belong to every target; a ``reversed_dir``
     -only scan misses them (fill-data never pads them, --own never owns
     them).  *shared_dir* ``None`` or missing keeps the old behavior.
     """
@@ -737,7 +737,7 @@ def fill_data(
     *target* selects which ``[targets.*]`` geometry the pads are sized
     against; without it the project default applies (a multi-target project
     otherwise placed pads against another binary's ``.data``).
-    *shared_dir* adds the shared tree to the owner scan (DATA markers in
+    *shared_dir* adds the shared tree to the owner scan (DATA bindings in
     ``src/shared`` belong to every target).
     """
     data_base, raw_end, section_end = layout_geometry(root / "rebrew-project.toml", target=target)

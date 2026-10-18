@@ -31,7 +31,8 @@ rebrew match flags src/bench/<file>.c --tier full # requires authorized long-run
 | `full` | 6,193,152 | Last resort: Authorized long run (engine auto-samples; no `--sample` flag) |
 
 Axes are per-profile (MSVC `/` flags, Watcom `-os/-ot/…`, Borland `-O1/-O2`,
-16-bit MSVC). Docker-only images: `rebrew toolchain pull <profile>`. Try `/O2`
+16-bit MSVC). Fetch pinned images with `rebrew toolchain pull <profile>`; execution uses the
+configured backend. Try `/O2`
 or `/O1` by hand before a blind sweep; heuristics:
 `references/codegen-hints.md`. Counts: rebrew repo `docs/FLAG_SWEEP_TIERS.md`.
 
@@ -55,7 +56,9 @@ rebrew match solutions --best --json                       # best GA score per f
 rebrew match partitions --dry-run                         # TU-partition search (original was amalgamated)
 ```
 
-Check `match history` before long batches; `--skip-recent N` resumes; `--seed-solved`
-is on by default (`--no-seed-solved` to disable). Prefer `climb` / `qual-sweep`
-(single-function, in SKILL.md §4) over another GA pass when `near-diag` says
-order or qualifier residue.
+Check `rebrew match history` before long batches. `--skip-recent N` skips
+functions with a GA record in the last N hours. `rebrew match batch --resume`
+continues an interrupted GA from its per-function checkpoint. `--seed-solved`
+is on by default (`--no-seed-solved` to disable). Prefer `rebrew match climb`
+/ `rebrew match qualifiers` (single-function, SKILL.md §4) over another GA
+pass when `rebrew diagnose near` reports order or qualifier residue.

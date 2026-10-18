@@ -3,6 +3,30 @@
 Measured facts about where rebrew's hot paths spend time, and what was done
 (and deliberately *not* done) about it.
 
+## Metadata-backed inventories (2026-10-18)
+
+Status/todo and verification preparation use stored function identities without
+reading or parsing registered C files and library headers. Declaration consumers
+keep the full source reader; source-only files still use it. Verification also
+reads declarations when a missing stored symbol requires calling-convention
+recovery, and cache admission still validates source and header fingerprints.
+
+`tests/test_source_scan_hotpaths.py` gates one function-store load and zero AST
+calls for both one-file and 32-file registered inventories, including a dangling
+address anchor and library headers. It also checks exact paths, target filtering,
+source-only fallback and the default declaration reader. Guild's 7,246-source
+tree retains 25 source-only fallbacks: profiled status calls finish with no load
+error, reporting 251/251 covered for SERVER and 4,995/4,996 for GOLDTL. These are
+inventory checks, not new byte-comparison verdicts.
+
+Existing fingerprint memos already avoid body rereads and include-closure walks.
+New counted tests cover unchanged calls, source/header touch and content edits,
+and library-override changes. An immediate paired sample of 32 real Guild sources
+with includes performed 151 body reads and 32 closure walks cold, then zero of
+either warm, with equal fingerprints. A separate unsnapshotted 7,246-file pass
+performed one source reread and one closure walk warm; that pass does not prove
+that the whole tree stayed unchanged. No additional fingerprint cache was added.
+
 ## Twenty additional hot-path rounds (2026-10-14)
 
 Profiled the actual timed callbacks in the eighteen-workload runner, then measured
@@ -198,6 +222,34 @@ The `_pre_*` contract is locked by `TestPrecomputedTarget` in
 `tests/test_scoring.py`; the fast paths are covered by
 `TestScoreFastPaths` (exact zero metrics, mnemonic-equality reference check,
 and a differing-mnemonics case that must still be penalized).
+
+## Aligned climb scoring
+
+`rebrew match climb --objective aligned` counts instruction pairs with
+difflib's matching blocks and `autojunk` off. The stdlib index walk reads
+every copy of a repeated opcode from every copy on the other side, which is
+quadratic on a stream of `mov`. The climb matcher returns those same blocks.
+A length-2-or-longer region is a rolling-hash search checked against the
+tokens; a region with no adjacent pair is one forward scan. The gate is the
+token-position counter on the 2200-instruction pair-vs-hunk case
+(`TestScoreAligned.test_more_pairs_win_regardless_of_hunk_count`), which has
+to stay under one quadratic pass. That count does not move with scheduler load.
+
+## Surface reads and recompile retries
+
+`tools/public_surface.surface_at_ref` used to spawn `git show` once per Python
+file. It now lists the tree and reads every blob in one `git cat-file --batch`.
+`public_surface` parses each module once and reuses that tree for constant
+substitution. Substitution walks signatures, bases, and literal values, not
+function bodies. The gates are `TestSurfaceWork.test_ref_is_one_cat_file_batch`
+(two git commands), `TestSurfaceWork.test_each_module_is_parsed_once`, and
+`TestSurfaceWork.test_substitution_ignores_function_body_size` (the same
+name-visit count for a 1-statement body and a 400-statement body).
+
+`test_failed_artifact_download_never_re_posts_the_compile` injects the
+recompile client's `sleep` seam and asserts the backoff delays. One delay is
+recorded per retried attempt. The test does not wait on the clock, so the
+retry count does not move with scheduler load.
 
 ## What was measured and rejected
 

@@ -151,7 +151,7 @@ def _mock_cfg(tmp_path: Path, pe_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         root=tmp_path,
         reversed_dir=tmp_path / "reversed",
         metadata_dir=tmp_path,
-        marker="SERVER",
+        module="SERVER",
         source_ext=".c",
         shared_dir=None,
         target_binary=pe_path,

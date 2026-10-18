@@ -155,15 +155,18 @@ published globals around every test in that module.
 
 System deps for a green local suite: **nasm** on `PATH` (asm round-trip tests;
 CI installs it) and **bun** on `PATH` (the `tests/dashboard_*.mjs` interaction
-tests, which `tests/test_dashboard.py` skips without it).  Bootstrap also needs
-sibling `../resembl` at tag `v3.2.0`
+tests, which `tests/test_dashboard.py` skips without it). Native runner tests
+require **cc**, **pkg-config** and **json-c development files**
+(`apt install build-essential pkg-config libjson-c-dev` on Debian/Ubuntu);
+`make test`, `make coverage` and `make doctor` preflight them. Bootstrap also needs
+sibling `../resembl` at tag `v3.3.1`
 whose `HEAD` is the `RESEMBL_SHA` commit (CI `resembl-sha`): `make setup`
 checks both and prints the clone or checkout line when either is wrong.  `make help`
 lists every contributor target.
 
 ```bash
 make doctor                             # report every missing prerequisite (uv, ../resembl, bash, nasm,
-                                        # bun, shellcheck, yamllint, vnu, venv extras) with the fix for each;
+                                        # bun, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras) with the fix for each;
                                         # read-only; on a clean clone ../resembl and the venv extras are the
                                         # next step (clone-resembl, setup), so the exit code is 1 only
                                         # for a host tool the bootstrap cannot install

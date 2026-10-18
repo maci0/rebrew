@@ -195,14 +195,14 @@ class TestDriftCommand:
         ref = _jmp_rel8(4) + _nops(4) + b"\xc3"
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
-            marker="GAME",
+            module="GAME",
             target_name="GAME",
             target_binary=tmp_path / "game.exe",
             capstone_arch=capstone.CS_ARCH_X86,
             capstone_mode=capstone.CS_MODE_32,
         )
         monkeypatch.setattr(drift_cli, "require_config", lambda **_kw: cfg)
-        monkeypatch.setattr(drift_cli, "target_marker", lambda _cfg: "GAME")
+        monkeypatch.setattr(drift_cli, "target_module", lambda _cfg: "GAME")
         monkeypatch.setattr(drift_cli, "resolve_compile_overrides", lambda *_a, **_k: (None, ""))
         monkeypatch.setattr(drift_cli, "extract_raw_bytes", lambda *_a, **_k: ref)
         monkeypatch.setattr(
@@ -284,9 +284,9 @@ class TestDriftCommand:
             metadata_fields={"GAME.0x10001000": {"kind": "FUNCTION"}},
             metadata_dir=tmp_path,
         )
-        cfg = SimpleNamespace(metadata_dir=tmp_path, marker="GAME", target_name="GAME")
+        cfg = SimpleNamespace(metadata_dir=tmp_path, module="GAME", target_name="GAME")
         monkeypatch.setattr(drift_cli, "require_config", lambda **_kw: cfg)
-        monkeypatch.setattr(drift_cli, "target_marker", lambda _cfg: "GAME")
+        monkeypatch.setattr(drift_cli, "target_module", lambda _cfg: "GAME")
 
         result = CliRunner().invoke(
             drift_cli.app, ["--va", "0x10002000", "--size", "16", "--json", str(src)]

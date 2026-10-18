@@ -22,7 +22,7 @@ stay in ``rebrew-functions.toml`` (STATUS is verify-earned; an old
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +33,7 @@ import typer
 
 from rebrew.binsync import serial
 from rebrew.binsync.git import run_git
-from rebrew.binsync.repo import checkout_user_branch, is_binsync_repo, resolve_user
+from rebrew.binsync.repo import USER_HELP, checkout_user_branch, is_binsync_repo, resolve_user
 from rebrew.binsync.state import (
     acknowledge_sync,
     artifact_hash,
@@ -64,7 +64,7 @@ app = typer.Typer(
         "  rebrew binsync export ./state --json  # Machine-readable output\n\n"
         "  rebrew binsync export ./state --module SERVER  # Export one module only\n\n"
         "  rebrew binsync export ./state --git  # Export + git commit\n\n"
-        "[dim]Produces BinSync-compatible TOML layout: functions/, global_vars.toml, structs/ — BinSync-native fields only (STATUS/CFLAGS stay in rebrew-functions.toml).[/dim]"
+        "[dim]Produces BinSync-compatible TOML layout: functions/, global_vars.toml, structs/. BinSync-native fields only (STATUS/CFLAGS stay in rebrew-functions.toml).[/dim]"
     ),
 )
 
@@ -289,7 +289,7 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
         console.print("[dim]No changes to commit.[/dim]")
         return None
 
-    utc = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+    utc = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     msg = f"rebrew binsync export: {target} @ {utc}"
     commit = run_git(state_dir, "commit", "-m", msg, timeout=15)
     if commit.returncode != 0:
@@ -331,8 +331,7 @@ def main(
     user: str | None = typer.Option(
         None,
         "--user",
-        help="BinSync user to write as (default: targets.<name>.binsync_user, the user "
-        "'rebrew binsync init' recorded, else rebrew)",
+        help=USER_HELP,
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -729,7 +728,7 @@ def export_state(
     # Optional git commit (opt-in, after all writes including manifest)
     commit_hash: str | None = None
     if git_commit and not dry_run:
-        commit_hash = _git_commit_state_dir(outdir, cfg.target_name or cfg.marker or "default")
+        commit_hash = _git_commit_state_dir(outdir, cfg.target_name or cfg.module or "default")
 
     return {
         "outdir": str(outdir),

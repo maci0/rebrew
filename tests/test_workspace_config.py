@@ -15,7 +15,7 @@ from rebrew.workspace.config import (
     project_table,
     read_config,
     target_binary,
-    target_marker,
+    target_module,
     target_reversed_dir,
     targets_table,
     walk_up_to_root,
@@ -28,7 +28,7 @@ default_target = "SERVER"
 
 [targets.SERVER]
 binary = "bin/server.exe"
-marker = "SRV"
+module = "SRV"
 
 [targets.NP]
 reversed_dir = "src/np"
@@ -152,18 +152,18 @@ def test_default_target_with_non_string_setting() -> None:
     assert default_target(config) == "A"
 
 
-def test_target_marker_explicit() -> None:
-    assert target_marker("SERVER", {"marker": "SRV"}) == "SRV"
+def test_target_module_explicit() -> None:
+    assert target_module("SERVER", {"module": "SRV"}) == "SRV"
     # NFD in the config, NFC in the source: the marker is half of every
     # MODULE.0xVA metadata key, so both spellings must resolve to one.
     nfd = "CAFE\u0301"
-    assert target_marker("SERVER", {"marker": nfd}) == "CAF\u00c9"
+    assert target_module("SERVER", {"module": nfd}) == "CAF\u00c9"
 
 
-def test_target_marker_derived() -> None:
-    assert target_marker("server-1.0", {}) == "SERVER10"
-    assert target_marker("NP", {"marker": "   "}) == "NP"
-    assert target_marker("NP", {"marker": 5}) == "NP"
+def test_target_module_derived() -> None:
+    assert target_module("server-1.0", {}) == "SERVER10"
+    assert target_module("NP", {"module": "   "}) == "NP"
+    assert target_module("NP", {"module": 5}) == "NP"
 
 
 def test_target_reversed_dir_explicit(tmp_path: Path) -> None:
@@ -188,3 +188,8 @@ def test_target_binary_relative_and_absolute(tmp_path: Path) -> None:
     )
     absolute = tmp_path / "elsewhere" / "server.exe"
     assert target_binary(tmp_path, {"binary": str(absolute)}) == absolute
+
+
+def test_target_module_rejects_removed_marker_key() -> None:
+    with pytest.raises(WorkspaceConfigError, match="marker was replaced by module"):
+        target_module("server.dll", {"marker": "SERVER"})

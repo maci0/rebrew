@@ -33,7 +33,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
         metadata_dir=tmp_path,
         compiler_profile="msvc-6.0",
         source_ext=".c",
-        marker="T",
+        module="T",
     )
 
 

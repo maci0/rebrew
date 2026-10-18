@@ -18,11 +18,11 @@ import pytest
 
 import rebrew.prove as prove_mod
 
-has_claripy = importlib.util.find_spec("claripy") is not None
+has_claripy = importlib.util.find_spec("angr") is not None
 
 
 def _install_fake_claripy(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make ``import claripy`` inside rebrew.prove resolve to a minimal fake."""
+    """Make ``from angr import claripy`` inside rebrew.prove resolve to a minimal fake."""
 
     class _Solver:
         def __init__(self) -> None:
@@ -35,7 +35,7 @@ def _install_fake_claripy(monkeypatch: pytest.MonkeyPatch) -> None:
             return bool(self.constraints[-1])
 
         def eval(self, e: Any, n: int = 1) -> tuple[Any, ...]:
-            """claripy 9.x: eval returns a tuple of up to n concrete values."""
+            """Return up to n concrete values, matching the solver API."""
             return tuple(e for _ in range(n))
 
         def batch_eval(self, exprs: list[Any], n: int = 1) -> list[tuple[Any, ...]]:
@@ -47,7 +47,9 @@ def _install_fake_claripy(monkeypatch: pytest.MonkeyPatch) -> None:
     fake.BoolV = lambda value: bool(value)
     fake.Or = lambda *terms: any(terms)
     fake.Solver = _Solver
-    monkeypatch.setitem(sys.modules, "claripy", fake)
+    fake_angr = types.ModuleType("angr")
+    fake_angr.claripy = fake
+    monkeypatch.setitem(sys.modules, "angr", fake_angr)
 
 
 def _make_state(eax: int, edx: int, mem: dict[int, int], mapped: set[int]) -> Any:
@@ -223,7 +225,7 @@ class TestCompareStatePairsRealClaripy:
     """Exercise _compare_state_pairs against real claripy + Z3 solving."""
 
     def _make_state(self, eax: int, edx: int, mem: dict[int, int] | None) -> Any:
-        import claripy
+        from angr import claripy
 
         if mem is None:
             mem = {}
@@ -262,7 +264,7 @@ class TestCompareStatePairsRealClaripy:
 
     def test_symbolic_memory_equality(self) -> None:
         """Symbolic watched values that are constrained equal must prove."""
-        import claripy
+        from angr import claripy
 
         sym = claripy.BVS("shared", 32)
         orig = self._make_state(42, 0, {})

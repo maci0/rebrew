@@ -396,7 +396,7 @@ def global_name_and_type(
             for b in bindings
             if b.va == va
             and b.kind in DATA_KINDS
-            and (not getattr(cfg, "marker", "") or b.module == cfg.marker)
+            and (not getattr(cfg, "module", "") or b.module == cfg.module)
         ]
         if not matching:
             continue
@@ -618,7 +618,7 @@ def local_sync_records(
     cfg: ProjectConfig, entries: Sequence[Any] | None = None
 ) -> dict[str, dict[str, Any]]:
     """Project native field values from the same annotations all sync paths use."""
-    from rebrew.config import module_marker
+    from rebrew.config import target_module
     from rebrew.metadata.data import get_data_entry
     from rebrew.metadata.functions import SYNC_FIELD_RULES, get_entry
 
@@ -634,7 +634,7 @@ def local_sync_records(
         if not va:
             continue
         kind = "global" if getattr(entry, "is_data", False) else "function"
-        module = getattr(entry, "module", "") or module_marker(cfg)
+        module = getattr(entry, "module", "") or target_module(cfg)
         fields = {
             field: getattr(entry, attr, "")
             for field, (attr, _direction) in SYNC_FIELD_RULES[kind].items()
@@ -680,7 +680,7 @@ def remote_sync_records(
     local: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Read native records under their local module identity; ignore private fields."""
-    from rebrew.config import module_marker
+    from rebrew.config import target_module
     from rebrew.metadata.functions import SYNC_FIELD_RULES
 
     if funcs is None or globals_ is None:
@@ -691,7 +691,7 @@ def remote_sync_records(
         for va, entry in source.items():
             key = next(
                 (k for k in local if k.startswith(f"{kind}.") and k.endswith(f".0x{va:x}")),
-                sync_key(kind, module_marker(cfg), va),
+                sync_key(kind, target_module(cfg), va),
             )
             records[key] = {k: v for k, v in entry.items() if k in SYNC_FIELD_RULES[kind]}
     for addr, comment in load_binsync_comments(state_dir).items():
@@ -751,9 +751,9 @@ def sync_baseline_path(cfg: ProjectConfig, state_dir: Path) -> Path:
     """A project-local sidecar for this integration directory and target module."""
     import hashlib
 
-    from rebrew.config import module_marker
+    from rebrew.config import target_module
 
-    identity = f"{state_dir.resolve()}\0{module_marker(cfg)}"
+    identity = f"{state_dir.resolve()}\0{target_module(cfg)}"
     key = hashlib.sha256(identity.encode()).hexdigest()[:24]
     root = Path(getattr(cfg, "root", None) or Path(cfg.reversed_dir).parent)
     return root / ".rebrew" / "sync" / f"{key}.toml"

@@ -171,9 +171,9 @@ bounds and other architectures need explicit `size`. A matching prefix of
 an unknown-sized symbol cannot earn `VERIFIED`.
 
 > [!CAUTION]
-> **Never manually edit `rebrew-data.toml`.** It is managed automatically by `rebrew data list`,
-> `rebrew data fix-bss`, and `rebrew sync pull --state-dir <dir>`. Entries are keyed `"MODULE.0xVA"`
-> (qualified, same scheme as `rebrew-functions.toml`).
+> **Never manually edit `rebrew-data.toml`.** `rebrew data set`, `rebrew data fix-bss`,
+> and `rebrew sync pull --state-dir <dir>` write it. `rebrew data list` only reads it.
+> Entries are keyed `"MODULE.0xVA"` (qualified, same scheme as `rebrew-functions.toml`).
 
 ## Global identities
 

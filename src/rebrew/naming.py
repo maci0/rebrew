@@ -20,20 +20,16 @@ if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
 
 from rebrew.analysis import capstone_handle
-from rebrew.config import ProjectConfig, inventory_path_for, module_marker
+from rebrew.config import ProjectConfig, inventory_path_for, target_module
 from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 from rebrew.formats.binary_model import BinaryInfo
 from rebrew.metadata.bindings import (
+    iter_source_bindings,
     library_bindings_for_file,
     min_valid_va_for,
     read_source_bindings,
 )
-from rebrew.sources import (
-    iter_library_headers,
-    iter_sources,
-    source_exts,
-    target_marker,
-)
+from rebrew.sources import iter_library_headers, iter_sources, source_exts
 from rebrew.utils import clip_span, fold_ident, preset_module_key, rel_display_path
 
 # ---------------------------------------------------------------------------
@@ -288,21 +284,25 @@ def load_data(
     # Ghidra functions
     ghidra_funcs = load_function_structure(ghidra_json)
 
-    # Existing source files — use read_source_bindings to capture all VAs in
-    # multi-function files (not just the first annotation).
+    # Inventory views use durable identities; source parsing remains for
+    # source-only files and consumers that need declaration locations.
     existing: dict[int, dict[str, str]] = {}
     covered_vas: dict[int, str] = {}
     # Hoisted out of the per-file loops below: `metadata_dir` re-derives its
     # answer with a filesystem probe per ancestor on every access.
     metadata_root = cfg.metadata_dir
-    marker_name = target_marker(cfg)
-    for cfile in iter_sources(src_dir, cfg, scanned=tree):
-        entries = read_source_bindings(
-            cfile,
-            target_name=marker_name,
-            metadata_dir=metadata_root,
-            project_root=getattr(cfg, "root", None),
-        )
+    module_name = target_module(cfg)
+    from rebrew.metadata.functions import load_metadata
+
+    metadata = load_metadata(metadata_root, deepcopy=False)
+    for cfile, entries in iter_source_bindings(
+        iter_sources(src_dir, cfg, scanned=tree),
+        target=module_name,
+        metadata_dir=metadata_root,
+        project_root=getattr(cfg, "root", None),
+        inventory_only=True,
+        function_entries=metadata,
+    ):
         rel_name = rel_display_path(cfile, src_dir)
         for entry in entries:
             if entry.is_data:
@@ -326,18 +326,20 @@ def load_data(
 
     # Scan library_*.h files for identified CRT/zlib functions.  A shared tree
     # holds every target's headers, so a marker counts only when its module is
-    # this target's marker or one of its external_libs; another target's
-    # LIBRARY marker at the same VA must not replace this target's function.
-    marker = marker_name
+    # this target's module or one of its external_libs; another target's
+    # LIBRARY binding at the same VA must not replace this target's function.
+    target_module_name = module_name
     own_modules = {preset_module_key(m) for m in (getattr(cfg, "external_libs", None) or ())}
-    if marker:
-        own_modules.add(preset_module_key(marker))
+    if target_module_name:
+        own_modules.add(preset_module_key(target_module_name))
     for hfile in iter_library_headers(src_dir, cfg, scanned=tree):
-        lib_entries = library_bindings_for_file(hfile, metadata_dir=metadata_root)
+        lib_entries = library_bindings_for_file(
+            hfile, metadata_dir=metadata_root, function_entries=metadata, inventory_only=True
+        )
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
                 continue
-            if marker and preset_module_key(entry.module or "") not in own_modules:
+            if target_module_name and preset_module_key(entry.module or "") not in own_modules:
                 continue
             existing[entry.va] = {
                 "filename": hfile.name,
@@ -354,14 +356,12 @@ def load_data(
             }
             covered_vas[entry.va] = hfile.name
 
-    # A LIBRARY row can name a .c outside reversed_dir (vendored zlib under
-    # references/).  Verify and the catalog already compile that row.  Status
-    # and todo share this loader, so the same row has to land here or the
-    # address stays "no source" and shows up as work.
-    from rebrew.function_providers import compiled_library_annotations
+    # Managed source bindings can name a .c outside reversed_dir. Keep them
+    # in status/todo without changing FUNCTION vs LIBRARY classification.
+    from rebrew.function_providers import compiled_source_annotations
 
     floor = min_valid_va_for(cfg)
-    for entry in compiled_library_annotations(cfg):
+    for entry in compiled_source_annotations(cfg, metadata=metadata):
         if entry.va < floor:
             continue
         existing[entry.va] = {
@@ -369,7 +369,7 @@ def load_data(
             "size": str(entry.size),
             "status": entry.status or "STUB",
             "module": entry.module or "",
-            "kind": entry.kind or "LIBRARY",
+            "kind": entry.kind,
             "blocker": entry.blocker or "",
             "blocker_delta": str(entry.blocker_delta) if entry.blocker_delta is not None else "",
             "symbol": entry.symbol,
@@ -460,14 +460,14 @@ def scope_to_target(
     rows (legacy callers that cannot attribute); navigation maps
     (``covered_vas``) stay unfiltered.
     """
-    marker = preset_module_key(module_marker(cfg)) if cfg else ""
-    if not marker:
+    target_module_name = preset_module_key(target_module(cfg)) if cfg else ""
+    if not target_module_name:
         return existing
     libs = {preset_module_key(m) for m in (getattr(cfg, "external_libs", None) or ())}
     return {
         va: info
         for va, info in existing.items()
-        if preset_module_key(info.get("module") or "") in ("", marker)
+        if preset_module_key(info.get("module") or "") in ("", target_module_name)
         or (
             (info.get("kind") or "").upper() == "LIBRARY"
             and preset_module_key(info.get("module") or "") in libs
@@ -524,7 +524,7 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
         rel_name = rel_display_path(cfile, src_path)
         entries = read_source_bindings(
             cfile,
-            target_name=target_marker(cfg),
+            target_name=target_module(cfg),
             metadata_dir=cfg.metadata_dir if cfg else None,
             project_root=getattr(cfg, "root", None),
         )
@@ -546,6 +546,18 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
                 continue
             existing[entry.va] = hfile.name
 
+    # Managed rows may name a .c outside reversed_dir (vendored zlib).
+    # Status already treats those as covered. Skeleton must too, or a batch
+    # generates a stub and overwrites the library identity.
+    if cfg is not None:
+        from rebrew.function_providers import compiled_source_annotations
+
+        floor = min_valid_va_for(cfg)
+        for entry in compiled_source_annotations(cfg):
+            if entry.va < floor:
+                continue
+            existing[entry.va] = entry.filepath
+
     return existing
 
 
@@ -562,7 +574,7 @@ def find_neighbor_file(
     appended to that file rather than getting its own skeleton.
 
     Header entries are skipped: ``covered_vas``/``load_existing_vas`` include
-    ``library_*.h`` LIBRARY markers, and this result is used as a
+    ``library_*.h`` LIBRARY bindings, and this result is used as a
     ``rebrew skeleton --append`` target, which would inject C into the header.
 
     Args:

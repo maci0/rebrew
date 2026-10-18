@@ -69,7 +69,7 @@ class TestMergeDryRunIdempotent:
         monkeypatch.setattr(
             "rebrew.merge.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
-                marker="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
+                module="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
             ),
         )
         before = _tree_digest(tmp_path)
@@ -96,7 +96,7 @@ class TestSplitDryRunIdempotent:
         monkeypatch.setattr(
             "rebrew.split.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
-                marker="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
+                module="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
             ),
         )
         before = _tree_digest(tmp_path)
@@ -120,7 +120,7 @@ binary = "original/Server/server.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/server_dll"
-marker = "SERVER"
+module = "SERVER"
 """
 
     def test_fix_dry_run_twice_identical(
@@ -150,12 +150,12 @@ class TestMatchAllDryRunIdempotent:
             _write(tmp_path / f"func_{va:08x}.c", _single(va, symbol))
         _write(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n["SERVER.0x10002000"]\nsize = 128\nstatus = "STUB"\n',
+            'format = 3\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n["SERVER.0x10002000"]\nsize = 128\nstatus = "STUB"\n',
         )
         monkeypatch.setattr(
             "rebrew.match.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
-                marker="SERVER",
+                module="SERVER",
                 source_ext=".c",
                 reversed_dir=tmp_path,
                 metadata_dir=tmp_path,
@@ -224,12 +224,12 @@ class TestBlockerSetIdempotent:
         _write(tmp_path / "func_10001000.c", _single(0x10001000, "_func_a"))
         _write(
             tmp_path / "rebrew-functions.toml",
-            'format = 2\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n',
+            'format = 3\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n',
         )
         monkeypatch.setattr(
             "rebrew.blocker.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
-                marker="SERVER",
+                module="SERVER",
                 reversed_dir=tmp_path,
                 metadata_dir=tmp_path,
                 root=tmp_path,

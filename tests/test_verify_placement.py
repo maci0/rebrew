@@ -27,7 +27,7 @@ binary = "build/server"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src"
-marker = "SERVER"
+module = "SERVER"
 
 [compiler]
 profile = "gcc-14.2.0"
@@ -279,7 +279,7 @@ class TestMetadataPathSelection:
         root = _project(tmp_path)
         metadata_dir = root / metadata_subdirectory
         metadata = metadata_dir / "rebrew-data.toml"
-        write_store_fixture(metadata_dir / "rebrew-functions.toml", "format = 2\n")
+        write_store_fixture(metadata_dir / "rebrew-functions.toml", "format = 3\n")
         write_store_fixture(root / "rebrew-data.toml", "format = 2\n")
         write_store_fixture(root / "src" / "rebrew-data.toml", "format = 2\n")
         current = root / "src" if from_subdirectory else root

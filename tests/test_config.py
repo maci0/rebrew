@@ -530,12 +530,12 @@ default_target = "server.dll"
 
 [targets."server.dll"]
 binary = "test.exe"
-marker = ""
+module = ""
 """
         root = _make_project(tmp_path, toml)
         cfg = load_config(root)
-        assert cfg.marker == "SERVERDLL"
-        assert "SERVERDLL" in cfg.all_markers
+        assert cfg.module == "SERVERDLL"
+        assert "SERVERDLL" in cfg.target_modules
 
     def test_marker_with_whitespace_raises(self, tmp_path: Path) -> None:
         toml = """\
@@ -544,7 +544,7 @@ default_target = "main"
 
 [targets.main]
 binary = "test.exe"
-marker = "SERVER DLL"
+module = "SERVER DLL"
 """
         root = _make_project(tmp_path, toml)
         with pytest.raises(ConfigError, match="single token"):
@@ -1644,7 +1644,7 @@ default_target = "main"
 binary = "test.exe"
 format = "pe"
 arch = "x86_32"
-marker = "MAIN"
+module = "MAIN"
 
 [compiler]
 profile = "msvc-6.0"
@@ -2847,3 +2847,10 @@ class TestSourceDateEpoch:
         with pytest.raises(ConfigError, match="SOURCE_DATE_EPOCH"):
             source_date_epoch()
         assert "SOURCE_DATE_EPOCH" in env_knob_errors({"SOURCE_DATE_EPOCH": value})
+
+
+@pytest.mark.parametrize("legacy", ['marker = "SERVER"', 'marker = "SERVER"\nmodule = "SERVER"'])
+def test_removed_marker_key_fails_before_namespace_derivation(tmp_path: Path, legacy: str) -> None:
+    root = _make_project(tmp_path, f'[targets."server.dll"]\nbinary = "server.dll"\n{legacy}\n')
+    with pytest.raises(ConfigError, match="marker was replaced by module"):
+        load_config(root=root)

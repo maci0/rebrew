@@ -888,7 +888,7 @@ def main(
         None,
         "--layout",
         help="Text-only layout package directory (layout/<target>/) from "
-        "'rebrew build layout' — reconstruct the reference from metadata instead "
+        "'rebrew build layout'. Reconstruct the reference from metadata instead "
         "of a reference binary",
     ),
     fix: str = typer.Option(
@@ -906,7 +906,7 @@ def main(
 
     Run after linking, when the decompiled content is correct but the linker's placement (import records, .data COMDATs, PE stamps) differs from the original build.  See rebrew build postlink --help and docs/POSTLINK.md for what each fixer touches.
 
-    The reference comes from --layout (a text-only layout package — no original binary or binary blobs needed) or a reference DLL directly.
+    The reference comes from --layout (a text-only layout package, no original binary or binary blobs needed) or a reference DLL directly.
     """
     if not built.exists():
         error_exit(f"built binary not found: {built}", json_mode=json_output, code=EXIT_ERROR)

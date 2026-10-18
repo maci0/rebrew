@@ -7,7 +7,7 @@ reuses the module that owns the check, never reimplements it):
   clusters vs current source files.
 * **link-order**: sources not in VA order in ``CMakeLists.txt``
   (:mod:`rebrew.link_order`).
-* **orphans**: metadata blocks with no source marker
+* **orphans**: metadata blocks with no source binding
   (:mod:`rebrew.orphans`, prunable subset only).
 * **lint-fixable**: ``rebrew lint --fix`` would change files (W019 inline
   metadata, W029 redundant cflags, W016 backfillable SECTION).
@@ -20,7 +20,7 @@ reuses the module that owns the check, never reimplements it):
 * **fix-sizes**: functions with no SIZE annotation — ``verify --fix-sizes``
   backfills from the binary.
 * **lint-errors**: E-code findings need human fixes (``rebrew lint`` shows).
-* **foreign-sources**: files carrying no marker for this target are excluded
+* **foreign-sources**: files carrying no binding for this target are excluded
   from the build (:func:`rebrew.source_selection.collect_target_sources`).
 
 ``--apply`` executes only the safe mechanical fixes (``lint --fix``,
@@ -42,7 +42,14 @@ from typing import Any, Literal
 import typer
 from rich.table import Table
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import (
+    EXIT_ERROR,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+)
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.rename_ops import c_name_from_symbol
 from rebrew.utils import untrusted_ident
@@ -460,9 +467,9 @@ def recommend_lint_errors(
 
 def recommend_foreign_sources(
     foreign: list[str],
-    marker: str,
+    target_module_name: str,
 ) -> Recommendation | None:
-    """Note files excluded from this target's build (no marker for it)."""
+    """Note files excluded from this target's build (no binding for it)."""
     if not foreign:
         return None
     return Recommendation(
@@ -471,7 +478,9 @@ def recommend_foreign_sources(
         confidence=1.0,
         functions=[],
         files=sorted(foreign),
-        evidence=[f"{len(foreign)} files carry no {marker} marker — excluded from build"],
+        evidence=[
+            f"{len(foreign)} files carry no {target_module_name} binding — excluded from build"
+        ],
         command="rebrew build cmake-sources --json",
     )
 
@@ -527,10 +536,10 @@ def recommend_cluster_fill(
 def recommend_matched_orphans(
     orphans: list[dict[str, Any]],
 ) -> list[Recommendation]:
-    """Flag earned orphans (:data:`rebrew.workspace.status.EARNED_STATUSES`) with no marker.
+    """Flag earned orphans (:data:`rebrew.workspace.status.EARNED_STATUSES`) with no source binding.
 
     The ``orphans`` lane prunes the safe subset; these are held back because
-    deleting them destroys matched work.  The fix is re-attaching a marker,
+    deleting them destroys matched work.  The fix is repairing a source binding,
     never pruning — so they surface here as human-fix items.
     """
     matched = [o for o in orphans if o.get("status") in EARNED_STATUSES]
@@ -541,8 +550,8 @@ def recommend_matched_orphans(
             confidence=1.0,
             functions=[],
             files=[],
-            evidence=[f"{o.get('module')} {o.get('va')} claims {o.get('status')} with no marker"],
-            command=f"re-attach marker for {o.get('module')} {o.get('va')} (never --include-matched)",
+            evidence=[f"{o.get('module')} {o.get('va')} claims {o.get('status')} with no binding"],
+            command=f"repair source binding for {o.get('module')} {o.get('va')} (never --include-matched)",
         )
         for o in matched
     ]
@@ -760,10 +769,10 @@ def recommend_duplicate_globals(
     ]
 
 
-def recommend_stale_markers(
+def recommend_stale_addresses(
     warnings: list[tuple[str, str]],
 ) -> list[Recommendation]:
-    """Surface W028 stale markers (VA matches no function start).
+    """Surface W028 stale addresses (VA matches no function start).
 
     *warnings* are ``(file, va)`` pairs; the fix is re-annotate or refresh
     the function list, per the lint hint.
@@ -773,12 +782,12 @@ def recommend_stale_markers(
         by_file.setdefault(name, set()).add(va)
     return [
         Recommendation(
-            kind="stale-markers",
+            kind="stale-addresses",
             cluster_id=-1,
             confidence=1.0,
             functions=[],
             files=[name],
-            evidence=[f"{len(vas)} stale marker(s): {sorted(vas)[:3]}"],
+            evidence=[f"{len(vas)} stale address(es): {sorted(vas)[:3]}"],
             command=f"rebrew lint {name}",
         )
         for name, vas in sorted(by_file.items())
@@ -837,8 +846,9 @@ def load_layout(
     dict[int, str], dict[int, str], dict[int, str], dict[int, tuple[str, str]], dict[int, int]
 ]:
     """Return ``(va_to_file, va_to_name, va_to_flags, va_to_flagsets, va_to_size)``."""
+    from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import iter_sources, target_marker
+    from rebrew.sources import iter_sources
     from rebrew.utils import rel_display_path
 
     va_to_file: dict[int, str] = {}
@@ -850,7 +860,7 @@ def load_layout(
         rel = rel_display_path(cfile, cfg.reversed_dir)
         for entry in read_source_bindings(
             cfile,
-            target_name=target_marker(cfg),
+            target_name=target_module(cfg),
             metadata_dir=cfg.metadata_dir,
             project_root=getattr(cfg, "root", None),
         ):
@@ -897,7 +907,7 @@ def _collect_hygiene(
         if cmake.is_file():
             text = cmake.read_text(encoding="utf-8")
             files = list(iter_sources(cfg.reversed_dir, cfg))
-            ordered, _ = order_sources(files, marker=cfg.marker)
+            ordered, _ = order_sources(files, target_module_name=cfg.module)
             by_key = {
                 str(p.resolve()): rel_display_path(p, cfg.root) for p in ordered if p.is_absolute()
             }
@@ -953,7 +963,7 @@ def _collect_hygiene(
             recs.append(rec)
         recs.extend(recommend_lint_errors(lint_errors))
         recs.extend(recommend_duplicate_globals(dup_globals))
-        recs.extend(recommend_stale_markers(stale))
+        recs.extend(recommend_stale_addresses(stale))
 
     with _lane("shared-twins"):
         from rebrew.c_parser import function_definition_spans
@@ -1085,19 +1095,19 @@ def _collect_hygiene(
                 recs.append(rec)
 
     with _lane("foreign-sources"):
+        from rebrew.config import target_module
         from rebrew.source_selection import collect_target_sources
-        from rebrew.sources import target_marker
         from rebrew.utils import rel_display_path
 
-        marker = target_marker(cfg) or cfg.target_name
-        _own, foreign = collect_target_sources(cfg, marker)
+        target_module_name = target_module(cfg) or cfg.target_name
+        _own, foreign = collect_target_sources(cfg, target_module_name)
         rels = []
         for p in foreign:
             try:
                 rels.append(p.relative_to(cfg.root).as_posix())
             except ValueError:
                 rels.append(rel_display_path(p, cfg.reversed_dir))
-        rec = recommend_foreign_sources(rels, marker)
+        rec = recommend_foreign_sources(rels, target_module_name)
         if rec:
             recs.append(rec)
 
@@ -1125,7 +1135,7 @@ _KIND_TO_LANE = {
     "data-drift": "hygiene",
     "start-data": "hygiene",
     "duplicate-globals": "hygiene",
-    "stale-markers": "hygiene",
+    "stale-addresses": "hygiene",
     "build-check": "hygiene",
     "stale-cache": "hygiene",
     "backfill-blockers": "next",
@@ -1235,51 +1245,77 @@ def main(
     console.print(table)
 
 
+def _child_exit_code(result: Any) -> int:
+    """Exit status of one ``--apply`` child, or ``EXIT_ERROR`` when it is missing."""
+    code = getattr(result, "exit_code", None)
+    if not isinstance(code, int):
+        return EXIT_ERROR
+    if code == 0 and getattr(result, "exception", None) is not None:
+        return EXIT_ERROR
+    return code
+
+
 def _apply_safe(cfg: ProjectConfig, recs: list[Recommendation], json_mode: bool) -> None:
-    """Execute applyable lanes via their owning commands' helpers."""
+    """Execute applyable lanes via their owning commands' helpers.
+
+    A non-zero child is a failure, not an applied fix. ``source merge`` is
+    already authorized by ``--apply``, so it gets ``--force`` and does not
+    wait on an empty stdin for the merge confirmation.
+    """
     from typer.testing import CliRunner
 
     from rebrew.app.main import app as umbrella
 
     applied: list[str] = []
+    failed: list[str] = []
+    worst = 0
     runner = CliRunner()
+    target_args = ["--target", cfg.target_name] if cfg.target_name else []
     for rec in recs:
         if not rec.applyable or rec.kind not in APPLYABLE:
             continue
         if rec.kind == "lint-fixable":
-            result = runner.invoke(
-                umbrella,
-                ["lint", "--fix", *(["--target", cfg.target_name] if cfg.target_name else [])],
-            )
-            applied.append(f"lint --fix ({result.exit_code})")
+            args = ["lint", "--fix", *target_args]
+            label = "lint --fix"
         elif rec.kind == "link-order":
-            result = runner.invoke(
-                umbrella,
-                [
-                    "build",
-                    "link-order",
-                    "--apply",
-                    *(["--target", cfg.target_name] if cfg.target_name else []),
-                ],
-            )
-            applied.append(f"build link-order --apply ({result.exit_code})")
+            args = ["build", "link-order", "--apply", *target_args]
+            label = "build link-order --apply"
         elif rec.kind == "orphans":
-            result = runner.invoke(
-                umbrella,
-                ["orphans", "prune", *(["--target", cfg.target_name] if cfg.target_name else [])],
-            )
-            applied.append(f"orphans prune ({result.exit_code})")
+            args = ["orphans", "prune", *target_args]
+            label = "orphans prune"
         elif rec.kind == "shared-twins":
             out = cfg.root / "src" / "shared" / "twins.c"
-            cmd = ["source", "merge", *rec.files, "-o", str(out), "--shared"]
-            result = runner.invoke(umbrella, cmd)
-            applied.append(f"rebrew {' '.join(cmd)} ({result.exit_code})")
+            args = ["source", "merge", *rec.files, "-o", str(out), "--shared", "--force"]
+            label = f"rebrew {' '.join(args)}"
+        else:
+            continue
+        result = runner.invoke(umbrella, args)
+        code = _child_exit_code(result)
+        record = f"{label} ({code})"
+        if code == 0:
+            applied.append(record)
+            continue
+        failed.append(record)
+        worst = max(worst, code)
     if json_mode:
-        json_print({"applied": applied})
+        payload: dict[str, Any] = {"applied": applied}
+        if failed:
+            payload["failed"] = failed
+        json_print(payload)
+    elif failed:
+        if applied:
+            console.print(
+                f"Applied {len(applied)} fix(es): " + ", ".join(untrusted_ident(a) for a in applied)
+            )
+        console.print(
+            f"Failed {len(failed)} fix(es): " + ", ".join(untrusted_ident(a) for a in failed)
+        )
     else:
         console.print(
             f"Applied {len(applied)} fix(es): " + ", ".join(untrusted_ident(a) for a in applied)
         )
+    if failed:
+        raise typer.Exit(code=worst)
 
 
 def main_entry() -> None:

@@ -13,7 +13,7 @@ import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeGuard, cast
 
 from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources
@@ -235,41 +235,91 @@ def build_iat_region(cfg: ProjectConfig) -> frozenset[int]:
     return frozen
 
 
+_ANNOTATION_FACT_FIELDS = ("va", "name", "symbol", "module", "kind", "filepath", "line")
+
+
+def _annotation_fact(ann: Any) -> dict[str, Any]:
+    """Fields the name-map merge reads off one source binding."""
+    return {name: getattr(ann, name) for name in _ANNOTATION_FACT_FIELDS}
+
+
+def _annotation_from_fact(row: dict[str, Any]) -> Any:
+    """Rebuild a source binding from :func:`_annotation_fact`."""
+    from rebrew.metadata.bindings import SourceBinding
+
+    va = row.get("va")
+    if isinstance(va, bool) or not isinstance(va, int):
+        raise ValueError("name-map annotation fact has a non-integer VA")
+    line = row.get("line") or 0
+    if isinstance(line, bool) or not isinstance(line, int):
+        raise ValueError("name-map annotation fact has a non-integer line")
+    return SourceBinding(
+        va=va,
+        name=str(row.get("name") or ""),
+        symbol=str(row.get("symbol") or ""),
+        module=str(row.get("module") or ""),
+        kind=str(row.get("kind") or ""),
+        filepath=str(row.get("filepath") or ""),
+        line=line,
+    )
+
+
+def _usable_annotation_facts(rows: object) -> TypeGuard[list[dict[str, Any]]]:
+    if not isinstance(rows, list):
+        return False
+    return all(isinstance(row, dict) for row in rows)
+
+
 def build_name_to_va(
     cfg: ProjectConfig,
     *,
     annotations: Sequence[Any] | None = None,
+    scan_facts: dict[str, dict[str, Any]] | None = None,
+    scan_facts_out: dict[str, dict[str, Any]] | None = None,
+    annotation_facts: dict[str, list[dict[str, Any]]] | None = None,
+    annotation_facts_out: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, int]:
     """Build a symbol-name → VA map from globals AND the function catalog.
 
     Shared by ``rebrew test`` and ``rebrew verify`` so both paths apply the
     same DIR32 absolute-address and REL32 callee checks.  Includes exported
-    symbols, annotated functions, scanned globals, and data metadata —
-    without the function half, REL32 callee validation would miss every call
+    symbols, annotated functions, scanned globals, and data metadata.
+    Without the function half, REL32 callee validation would miss every call
     target and mask wrong-function calls as valid RELOC.
 
-    When *annotations* is provided (e.g. the list already returned by
+    When *annotations* is provided (the list already returned by
     ``scan_reversed_dir``), the function-name half is filled from that list
-    instead of re-walking and re-parsing every source — verify's prepare
+    instead of re-walking and re-parsing every source. Verify's prepare
     pass already paid that cost once.
 
-    :raises CatalogScanError: the scan failed — callers must fail closed
-        (no reloc masking without validation), never mask on an empty map.
+    *scan_facts* and *annotation_facts* are per-file parse records from an
+    earlier call. Paths present there are not read again. The merge still
+    visits every file, and the ``*_out`` dicts receive the records this call
+    used. This function does not write a cache file.
+
+    :raises CatalogScanError: the scan failed. Callers must fail closed
+        (no reloc masking without validation) and must not mask on an empty map.
     """
     name_to_va: dict[str, int] = {}
     try:
-        from rebrew.config import module_marker
+        from rebrew.config import target_module
         from rebrew.data_scan import scan_globals
 
-        # Every source of pairs below is scoped to the ACTIVE target's marker.
+        # Every source of pairs below is scoped to the ACTIVE target's module.
         # A shared file carries one `// DATA:`/`// GLOBAL:` marker per target
         # and the same symbol sits at a different VA in each binary; unscoped,
         # the last entry wins and the other target's compare validates its
         # absolute references against the wrong binary (guild-rebrew round
         # 1292: GOLDTL's log tables resolved to the SERVER VAs 0x10027078...).
-        active_marker = module_marker(cfg)
+        active_module = target_module(cfg)
 
-        scan = scan_globals(cfg.reversed_dir, cfg, record_roles=False)
+        scan = scan_globals(
+            cfg.reversed_dir,
+            cfg,
+            record_roles=False,
+            fact_cache=scan_facts,
+            facts_out=scan_facts_out,
+        )
         for name, glob in scan.globals.items():
             if glob.va:
                 name_to_va[name] = glob.va
@@ -281,9 +331,9 @@ def build_name_to_va(
         meta = load_data_metadata(cfg.metadata_dir)
         for (_module, va), entry in meta.items():
             if (
-                active_marker
+                active_module
                 and _module
-                and preset_module_key(_module) != preset_module_key(active_marker)
+                and preset_module_key(_module) != preset_module_key(active_module)
             ):
                 continue
             for field in ("name", "link_symbol"):
@@ -306,17 +356,30 @@ def build_name_to_va(
         if annotations is None:
             from rebrew.metadata.bindings import read_source_bindings
 
-            annotations = [
-                ann
-                for path in iter_sources(cfg.reversed_dir, cfg)
-                for ann in read_source_bindings(
-                    path,
-                    target_name=active_marker,
-                    base_dir=cfg.reversed_dir,
-                    metadata_dir=cfg.metadata_dir,
-                    project_root=getattr(cfg, "root", None),
+            annotations = []
+            for path in iter_sources(cfg.reversed_dir, cfg):
+                try:
+                    fact_key = str(path.resolve())
+                except OSError:
+                    fact_key = str(path)
+                cached_rows = (
+                    annotation_facts.get(fact_key) if annotation_facts is not None else None
                 )
-            ]
+                if _usable_annotation_facts(cached_rows):
+                    rows = [_annotation_from_fact(row) for row in cached_rows]
+                    stored = cached_rows
+                else:
+                    rows = read_source_bindings(
+                        path,
+                        target_name=active_module,
+                        base_dir=cfg.reversed_dir,
+                        metadata_dir=cfg.metadata_dir,
+                        project_root=getattr(cfg, "root", None),
+                    )
+                    stored = [_annotation_fact(ann) for ann in rows]
+                if annotation_facts_out is not None:
+                    annotation_facts_out[fact_key] = stored
+                annotations.extend(rows)
         selected, _duplicates = select_source_bindings(cfg, annotations)
         ambiguous_names: set[str] = set()
         for ann in selected:
@@ -361,7 +424,7 @@ def build_name_to_va(
         native_binary_hash: str | None = None
         for (owner, va), entry in load_metadata(cfg.metadata_dir).items():
             if (
-                preset_module_key(owner) != preset_module_key(active_marker)
+                preset_module_key(owner) != preset_module_key(active_module)
                 or entry.get("kind") != "LIBRARY"
                 or not entry.get("native_identity")
             ):
@@ -665,6 +728,41 @@ def relocation_binding_evidence(
                 row["status"] = "VALIDATED" if actual == row["expected_value"] else "CONFLICT"
         evidence.append(row)
     return evidence
+
+
+def binding_evidence_current(evidence: object, name_to_va: dict[str, int]) -> bool:
+    """True when every recorded operand still resolves to its stored ``bound_va``.
+
+    ``check_known_bindings`` serves a verify-cache row only with this proof.
+    The list must be present; an empty list means the verdict had no operands.
+    Each row needs a symbol. The stored VA is compared with
+    ``_resolve_exact_then_stripped``, the lookup that recorded it. A missing
+    ``bound_va`` is a recorded unresolved binding when ``status`` is
+    ``UNRESOLVED`` or ``IAT_POLICY``, because the cache TOML drops nulls.
+    Any other gap fails closed, including a mask or unsupported row that
+    never stored a VA. Native operand bytes are not read; callers must also
+    validate the cached binary and compile-input identities.
+    """
+    if not isinstance(evidence, list):
+        return False
+
+    for row in evidence:
+        if not isinstance(row, dict):
+            return False
+        symbol = row.get("symbol")
+        if not isinstance(symbol, str) or not symbol:
+            return False
+        if "bound_va" in row:
+            recorded = row["bound_va"]
+            if recorded is not None and type(recorded) is not int:
+                return False
+        elif row.get("status") in {"UNRESOLVED", "IAT_POLICY"}:
+            recorded = None
+        else:
+            return False
+        if _resolve_exact_then_stripped(name_to_va, symbol) != recorded:
+            return False
+    return True
 
 
 def refresh_binding_evidence(

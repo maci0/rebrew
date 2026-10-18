@@ -36,7 +36,7 @@ def _project_cfg(tmp_path: Path) -> SimpleNamespace:
         target_binary=tmp_path / "x.exe",
         reversed_dir=src,
         metadata_dir=tmp_path,
-        marker="SERVER",
+        module="SERVER",
         source_ext=".c",
         root=tmp_path,
     )
@@ -355,7 +355,7 @@ class TestCli:
             target_binary=tmp_path / "x.exe",
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
         )
@@ -395,7 +395,7 @@ class TestCli:
             target_binary=tmp_path / "x.exe",
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
         )
@@ -456,7 +456,7 @@ class TestFailureEnvelope:
             target_binary=tmp_path / "x.exe",
             reversed_dir=src,
             metadata_dir=tmp_path,
-            marker="SERVER",
+            module="SERVER",
             source_ext=".c",
             root=tmp_path,
         )
@@ -470,9 +470,10 @@ class TestFailureEnvelope:
             main_mod.app, ["types", "recover", "--functions", "0x401000", "--json"]
         )
         assert result.exit_code == EXIT_ERROR
+        assert result.stdout.strip() == ""
         data = cli_payload(result)
         assert data["code"] == EXIT_ERROR
-        assert "error" in data
+        assert "no decompilation obtained" in data["error"]
 
 
 class TestMemberOffsetCap:
@@ -608,6 +609,26 @@ class TestRecoverProjectStructs:
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", lambda *a, **k: (None, "kuna"))
         with pytest.raises(NoDecompilationError):
             recover_project_structs(cfg, decompiler="kuna", functions="0x401000", json_output=True)
+
+    def test_functions_and_filter_are_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _project_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
+
+        def unexpected(*args: object, **kwargs: object) -> None:
+            pytest.fail("conflicting selectors must not decompile")
+
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", unexpected)
+        import rebrew.app.main as main_mod
+
+        result = CliRunner().invoke(
+            main_mod.app,
+            ["types", "recover", "--functions", "0x401000", "--filter", "nope", "--json"],
+        )
+        assert result.exit_code == 2, result.output
+        assert result.stdout.strip() == ""
+        assert "--functions cannot be combined with --filter" in cli_payload(result)["error"]
 
     def test_bad_va_raises_value_error(self, tmp_path: Path) -> None:
         cfg = _project_cfg(tmp_path)

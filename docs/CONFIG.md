@@ -22,7 +22,7 @@ default_target = "target_name"           # Default target when --target is not p
 binary = "original/target.dll"          # Target binary (relative to project root)
 format = "pe"                            # Binary format: pe, elf, macho, ne, mz
 arch = "x86_32"                          # Architecture: x86_16, x86_32, x86_64, arm32, arm64, mips32, mips64, ppc32, ppc64, sh2
-# marker = "TARGET_NAME"                 # Defaults to target key uppercased, non-[A-Za-z0-9_] stripped
+# module = "TARGET_NAME"                 # Defaults to target key uppercased, non-[A-Za-z0-9_] stripped
 reversed_dir = "src/target_name"         # Where reversed .c files live
 # inventory_file = "db/inventory-target.json"  # Function-inventory override
 # (default: reversed_dir/function_structure.json). Set it when several
@@ -61,7 +61,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `target_name` | Key under `[targets]` | Active target name (e.g. `"game_dll"`) |
 | `all_targets` | All keys under `[targets]` | List of all available target names |
 | `project_name` | `[project].name` | Project name (informational; defaults to `""`) |
-| `marker` | `[targets.<name>].marker` | Module name in `MODULE.0xVA` keys (default: target name uppercased, characters other than letters, digits, and `_` stripped) |
+| `module` | `[targets.<name>].module` | Module name in `MODULE.0xVA` keys (default: target name uppercased, characters other than letters, digits, and `_` stripped) |
 | `target_binary` | `[targets.<name>].binary` | Resolved path to the target executable/DLL |
 | `default_jobs` | `[project].jobs` | Default parallelism for batch commands (default `4`) |
 | `output_dir` | `[project].output_dir` | Default output directory for generated artifacts |
@@ -125,9 +125,15 @@ is not complete strict operand proof or raw-link provider evidence. Checked
 verification reuses compiled objects but rechecks current bindings instead of
 trusting a stored comparison. The policy is part of the compiler-config digest.
 
-## Target Marker (`marker`)
+## Target Module (`module`)
 
-The `marker` field is the module name in `MODULE.0xVA` metadata keys and optional `ADDRESS: MODULE 0xVA` comments.
+The former `marker` key is removed and rejected. Rename it to `module`, retaining
+its exact value so existing metadata keys and address anchors keep their identity.
+Use `rebrew cfg set module NAME` for later edits. In Python use
+`rebrew.config.target_module(cfg)`; `cfg.target_modules` lists every target module.
+
+
+The `module` field is the module name in `MODULE.0xVA` metadata keys and optional `ADDRESS: MODULE 0xVA` comments.
 
 ```toml
 ["SERVER.0x10008880"]
@@ -135,18 +141,18 @@ file = "shared/MyFunc.c"
 kind = "FUNCTION"
 ```
 
-When a project has multiple targets (e.g. `server.dll` and `client.exe`), the same `.c` file is named by one row per target. Tools use `marker` to select the active target's rows.
+When a project has multiple targets (e.g. `server.dll` and `client.exe`), the same `.c` file is named by one row per target. Tools use `module` to select the active target's rows.
 
-By default, `marker` is the target key uppercased with every character outside `[A-Za-z0-9_]` stripped, so `[targets.server_dll]` gets marker `SERVER_DLL` and `[targets."server.dll"]` gets `SERVERDLL`. Override it when the marker prefix differs from the target key:
+By default, `module` is the target key uppercased with every character outside `[A-Za-z0-9_]` stripped, so `[targets.server_dll]` gets module `SERVER_DLL` and `[targets."server.dll"]` gets `SERVERDLL`. Override it when the module prefix differs from the target key:
 
 ```toml
 [targets.server_dll]
 binary = "original/Server/server.dll"
-marker = "SERVER"                        # override: "SERVER" instead of default "SERVER_DLL"
+module = "SERVER"                        # override: "SERVER" instead of default "SERVER_DLL"
 
 [targets.client_exe]
 binary = "original/Client/client.exe"
-marker = "CLIENT"                        # override: "CLIENT" instead of default "CLIENT_EXE"
+module = "CLIENT"                        # override: "CLIENT" instead of default "CLIENT_EXE"
 ```
 
 A source definition can carry one optional address anchor per target:
@@ -167,7 +173,7 @@ Running `rebrew test --target server_dll` compiles the `SERVER` row. Running `re
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `marker` | `string` | target key uppercased, characters other than letters, digits, and `_` stripped (e.g. `server.dll` → `SERVERDLL`) | Module name in `MODULE.0xVA` keys, and optional `ADDRESS: MODULE 0xVA` comments. Blank (or whitespace-only) uses that default. A value with whitespace, or one containing `.0x`, fails at load: the first cannot identify an address module, and the second breaks `MODULE.0xVA` metadata keys |
+| `module` | `string` | target key uppercased, characters other than letters, digits, and `_` stripped (e.g. `server.dll` → `SERVERDLL`) | Module name in `MODULE.0xVA` keys, and optional `ADDRESS: MODULE 0xVA` comments. Blank (or whitespace-only) uses that default. A value with whitespace, or one containing `.0x`, fails at load: the first cannot identify an address module, and the second breaks `MODULE.0xVA` metadata keys |
 
 The lint tool (`rebrew lint`) validates each binding module against configured targets and libraries (E012). A shared definition can have one metadata row and optional ADDRESS anchor per target. Each target resolves its own compiler flags; no inline state blocks are supported (ADR-030).
 
@@ -609,8 +615,8 @@ The config loader fail-fasts on missing/invalid structure:
 - `[compiler] profile` not a registered toolchain (a silent `msvc-6.0` substitute
   would compile with the wrong toolchain; repair with `rebrew cfg target set-compiler`),
   or `ghidra_backend` not `reva` / `cli`.
-- A `marker` that contains whitespace or `.0x`, or a target name that derives
-  no marker and sets none. A blank `marker` uses the derived default.
+- A `module` that contains whitespace or `.0x`, or a target name that derives
+  no module and sets none. A blank `module` uses the derived default.
 - A `defines` entry that is not `NAME` or `NAME=value` (no whitespace).
 - A `[link]` integer outside `0..0xFFFFFFFF`, or `stack_commit` greater than
   `stack_reserve` when both are set.
@@ -659,7 +665,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 
 | Tool | Config Values Used |
 |------|--------------------|
-| `verify.py` | `target_binary`, `reversed_dir`, `root`, `marker`, `metadata_dir`, `default_jobs` (writes default reports into `.rebrew/`; `text_raw_offset` and `image_base` live on `binary_loader.BinaryInfo`, not the config) |
+| `verify.py` | `target_binary`, `reversed_dir`, `root`, `module`, `metadata_dir`, `default_jobs` (writes default reports into `.rebrew/`; `text_raw_offset` and `image_base` live on `binary_loader.BinaryInfo`, not the config) |
 | `test.py` | `target_binary`, `reversed_dir`, `metadata_dir`, `default_jobs` (compiler settings are resolved in `compiler/compile.py`) |
 | `match.py` | `root`, `metadata_dir` (the GA reads `reversed_dir` / `target_binary` / `compiler.*` via `matcher/`) |
 | `ghidra/cli.py` | `reversed_dir` |
@@ -673,7 +679,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `matcher/compiler.py` | `compiler_profile` (drives flag axes) |
 | `matcher/parsers.py` | `padding_bytes` |
 | `catalog/` | `text_va`, `reversed_dir`, `target_binary`, `metadata_dir`, `shared_dir`, `iat_thunks`, `dll_exports` (`image_base` comes from `binary_loader.BinaryInfo`) |
-| `data.py` | `reversed_dir`, `target_binary`, `marker`, `root`, `metadata_dir` |
+| `data.py` | `reversed_dir`, `target_binary`, `module`, `root`, `metadata_dir` |
 | `depgraph.py` | `reversed_dir` |
 | `lint.py` | `reversed_dir`, `source_ext`, `target_binary`, `metadata_dir`, `cflags`, `base_cflags`, `library_modules` |
 | `init.py` | All target config (scaffolding) |
@@ -684,8 +690,8 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `coverage_db.py` | `root`; portable export output is explicit |
 | `cache_cli.py` | `root` (cache directory location) |
 | `cfg.py` | `rebrew-project.toml` (tomlkit read/write) |
-| `split.py` | `marker`, `source_ext`, `reversed_dir` |
-| `merge.py` | `marker`, `reversed_dir`, `metadata_dir` |
+| `split.py` | `module`, `source_ext`, `reversed_dir` |
+| `merge.py` | `module`, `reversed_dir`, `metadata_dir` |
 | `binsync/export.py` | `reversed_dir` |
 
 ## Config Editor (`rebrew cfg`)

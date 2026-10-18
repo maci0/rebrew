@@ -607,7 +607,7 @@ def vendor_cmd(
 ) -> None:
     """Assemble the host toolchain tree from the pinned source.
 
-    Downloads (sha256-verified) or extracts the pinned tarball into <family>/<version>-<arch>/source under the recompile-toolchains checkout — the same source the docker image builds from, so host trees and containers are byte-identical.  A complete tree is an idempotent success (already_present), matching pull.  An incomplete source/ from a failed prior run is removed so retry converges; unexpected non-meta content still refuses to clobber.
+    Downloads (sha256-verified) or extracts the pinned tarball into <family>/<version>-<arch>/source under the recompile-toolchains checkout, the same source the docker image builds from, so host trees and containers are byte-identical.  A complete tree is an idempotent success (already_present), matching pull.  An incomplete source/ from a failed prior run is removed so retry converges; unexpected non-meta content still refuses to clobber.
     """
     import hashlib
     import tempfile
@@ -1169,7 +1169,7 @@ def smoke_cmd(
 ) -> None:
     """Compile the fixed smoke source in each image and verify the object hash matches the golden bytes (reproducibility gate).
 
-    Deterministic inputs: a FIXED work directory and a FIXED source mtime (the object metadata embeds both the source path and its modification time — fresh writes would break the golden hashes).
+    Deterministic inputs: a FIXED work directory and a FIXED source mtime (the object metadata embeds both the source path and its modification time; fresh writes would break the golden hashes).
 
     --print-goldens recomputes the masked hashes WITHOUT comparing, so a maintainer who bumps a pinned toolchain source (new tarball/snapshot) can refresh the recorded expectations: run it, verify the new hashes are stable across a second run, then paste them in. --fixture selects another profile's smoke inputs for a named new or overlay profile; it is only accepted with --print-goldens and never supplies an expected hash for that profile.
     """
@@ -1611,7 +1611,7 @@ def check_updates_cmd(
 ) -> None:
     """Detect upstream drift in pinned toolchain sources.
 
-    GitHub-codeload sources (archaic-msvc, archaic-toolchains, itsmattkc, open-watcom): compares the live default-branch commit sha (GitHub API — no download) against the commit the pin was taken from.  The Open Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded and re-hashed.  Immutable release assets (decomp.me, archive.org) and pinned tarballs (16-bit media in the recompile-toolchains checkout) are reported as static.
+    GitHub-codeload sources (archaic-msvc, archaic-toolchains, itsmattkc, open-watcom): compares the live default-branch commit sha (GitHub API, no download) against the commit the pin was taken from.  The Open Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded and re-hashed.  Immutable release assets (decomp.me, archive.org) and pinned tarballs (16-bit media in the recompile-toolchains checkout) are reported as static.
     """
     import hashlib
     import re

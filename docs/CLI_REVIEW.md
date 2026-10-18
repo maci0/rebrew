@@ -108,7 +108,7 @@ Two apparent inconsistencies retain distinct behavior:
   Each command documents its evidence and writes through its metadata owner.
 
 Function and data identity, comments, provenance, and state live in dedicated
-format-2 stores. Generated C includes ADDRESS anchors bound to the next definition or
+canonical stores (functions format 3; data format 2). Generated C includes ADDRESS anchors bound to the next definition or
 declaration, one per target. Anchors are optional in manually maintained source. No legacy block parser, old schema,
 or inline-state migration reader remains. BinSync comment exchange reads and
 writes dedicated metadata only.

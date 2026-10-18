@@ -66,7 +66,7 @@ def _project(tmp_path: Path, codeview: bytes | None) -> Path:
     (tmp_path / "rebrew-project.toml").write_text(
         '[project]\ndefault_target = "S"\n\n[targets."S"]\n'
         'binary = "original/mini.exe"\nformat = "pe"\narch = "x86_32"\n'
-        'marker = "SRV"\nreversed_dir = "src"\n',
+        'module = "SRV"\nreversed_dir = "src"\n',
         encoding="utf-8",
     )
     for name, text in _SOURCES.items():

@@ -7,6 +7,16 @@ flags may be unshipped. Status `open` unless noted; observations describe the
 campaign at the time recorded. Use [CLI.md](CLI.md) for shipped behavior and
 promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
+## Source evidence consolidation — implemented in 5.0
+
+The separate `rebrew-source.toml` repeated the metadata ownership boundary for
+61 Guild assembly receipts and 14 support purposes. Fold these addressless
+file/symbol/module records into `[source]` in format-3 `rebrew-functions.toml`,
+sharing its lock and atomic writes without inventing VAs or duplicating comments.
+Replay: `rebrew source consolidate --dry-run --json`, review its digest/counts,
+then apply with `--expected-digest`. Data remains format 2; verdicts and stale
+source hashes survive unchanged.
+
 ## October 2026 consolidation audit
 
 The historical proposals below retain their campaign evidence. Current reusable
@@ -120,6 +130,19 @@ workflow failures without an additional authority or storage system.
   table method.
 
 ## Workflow safety
+
+- [ ] **Pre-link provider audit for target-selected translation units.**
+  Guild's TL audit compiled all 4,840 selected TUs, then found 46 duplicate
+  definitions and 3,005 unresolved symbols, including `_WinMain@16`. A TU
+  with a valid target binding can still emit other targets' or superseded
+  definitions. Extend the existing source/provider and object inventories to
+  report these whole-link conflicts before linking, separating functions,
+  storage owners, import libraries and unresolved native aliases. Do not choose
+  duplicate bodies, invent storage, or suppress errors with `/FORCE:MULTIPLE`.
+  Replay/evidence in guild-rebrew: `.scratch/text-accounting-20261016/` contains
+  `duplicate-definitions.json`, `duplicate-provider-review.json`, and
+  `link-probe/link.log`. The diagnostic probe explicitly omits the absent
+  `LUA50.lib`; it is not a successful or verified build.
 
 - [ ] **Serialized link-test queue.**
   Pain: agents cannot link-test (measurement serialised); object-metric
@@ -304,7 +327,7 @@ workflow failures without an additional authority or storage system.
 
 - **Build-tree integrity check belongs in rebrew, not in every consumer.**
   Pain: `build/` is gitignored, so a hand-edited `build.make` (or `flags.make`)
-  is invisible to `git status`, to `rebrew lint`, to `rebrew verify --full`, and
+  is invisible to `git status`, to `rebrew lint`, to `rebrew verify --no-cache`, and
   to `cmake --build`, while silently redefining what any consumer's measurement
   means. `rebrew build postlink` and `rebrew build cmake-flags` both read that tree. A round
   sweeping per-file toolchain pins hit this and left a tree reporting 58% residue
@@ -1561,6 +1584,39 @@ ID preserves the helper's 129 bytes but grows two TL callers from 414/65 to
 forwarding alone does not establish the C parameter width; the earlier rejection
 of that ID type from push width alone was too strong.
 
+Goal69 replay (2026-10-16), from guild-rebrew:
+`uv run --frozen rebrew types reconcile fcn_00451840
+src/client_scene_transform.h --prototype 'int __cdecl
+fcn_00451840(float* a, float* b, float range);' --dry-run --json` also refuses
+incomplete contexts. The full contract audit reports `findings: []`, alongside
+122 SERVER, 915 GOLDTL and 625 GOLD unknown-context records; unrelated Docker
+SDK include closures still prevent the writer from establishing the
+complete affected source set. Receipt: `.scratch/goal69/bounds-contracts.json`.
+Keep the incomplete-context guard. Explicit source repair and preservation checks
+with each target's pinned compiler remain necessary; an empty findings list is
+not a complete-context verdict or permission to rewrite uncertain sources.
+
+Goal80 replay (2026-10-17): `types contracts --name fcn_00448360 --target
+Europa1400Gold_TL.exe --json`, the Gold `fcn_0044be60` counterpart, and TL
+`fcn_005222a0` all observe one consistent declaration key and no findings, but
+exit1 with921 TL/639 Gold unknown contexts (include closure and C parsing).
+Receipts: guild-rebrew `.scratch/goal80-scene/contracts-summary.json` and the
+three full audit files. Fourteen scoped pinned-compiler comparisons and complete
+object-preservation checks remain separate evidence; they do not close the
+unpreprocessed corpus. The savegame receiver's explicit legacy `int f` still
+crosses into the now pointer-typed scene bridge; signature-key agreement and a
+recorded argument identifier are not argument-value/type-flow proof. Keep that
+limit and the incomplete-context guard visible in any compiler-context workflow.
+
+Goal82 replay (2026-10-17): `uv run --frozen rebrew types reconcile
+CloseVfsStream src/Develop/Units/vfs/vfs.h --prototype 'int __cdecl
+CloseVfsStream(void* stream);' --dry-run --json` still refuses incomplete
+contexts. No source writes occur. The explicit stream repair instead captures
+all 87 affected compile contexts / 140 bound definitions, including complete
+server objects and discarded code/data. Receipt:
+`.scratch/goal82-vfs/close-reconcile-preview.json`; preservation scope:
+`.scratch/goal82-vfs/preservation-scope.json`. This does not close the SDK gap.
+
 Proposed capability: obtain complete target-specific declaration/include
 contexts from the pinned compiler image, with image/source/flag hashes and
 missing or conditional inputs reported explicitly. Preserve per-target header
@@ -1849,3 +1905,888 @@ types. Keep C value size separate from enclosing native record stride, complete
 allocation extent and ownership. Existing record binding/checking must retain its
 current validation. Guild currently checks this callback width with a C89 compiler
 assertion and audits its signatures; these do not create a managed type identity.
+
+## Audit source contracts across reviewed native data aliases (2026-10-16)
+
+Problem: per-name contracts can each be clean while two source names describe
+one native object with incompatible types. Guild's current-universe slot is
+TL `0x67a370` / Gold `0x5fb5b0`. The canonical `g_67a370` view is declared `int`
+at 108 physical sites; four additional Gold declarations use `char* g_5fb5b0`.
+Native iterator operand proofs bind both Gold views to `0x5fb5b0`. No source
+storage owner is proven. The separate name audits report no conflict within
+either name; that does not establish one compatible global contract. Fourteen
+raw-address-only files add further users. Direct 129 files expand through
+headers to 241 target bindings.
+
+Replay from guild-rebrew: `uv run --frozen rebrew types contracts --name
+g_67a370 --all-targets --json`, then the same command with `g_5fb5b0`. Current
+receipts and public-AST participation are in `.scratch/goal69/universe-pointer/
+{REPORT.md,contracts-tl-name.json,contracts-gold-name.json,participation.json,
+scope.json}`; the native aliases are supported by the complete 288-byte iterator
+operand proofs in `.scratch/goal69/iterator-contract`. Native debug formatters
+also pass the selected record to `%s`. Incomplete SDK contexts remain explicit.
+
+Proposed capability: extend the existing contracts audit to compare declarations
+in a target data-identity/native-alias class, using explicit managed bindings
+and current reviewed operand evidence. Report incompatible int/pointer views
+and unresolved aliases without inferring addresses solely from numeric names,
+automatically merging symbols, inventing backing allocations/storage owners or
+earning comparison verdicts. Preserve unknown/include/target contexts and the
+separate distinction between C linkage names and proven native destinations.
+
+## Verify import-archive version evidence before linking (2026-10-16)
+
+Problem: matching imported API names alone accepted the wrong Miles archive for
+Guild TL. The local `MSS-6.0/mss32.lib` supplies 51/51 required names but matches
+0/51 reference PE import hints. A directory labeled MSS-6.1 actually contains a
+7.2g runtime. The Guild backup runtime identifies 6.1c and agrees with all 51
+hints, but the exact original SDK archive has not been recovered. The project
+now explicitly blocks the client link instead of substituting a compatible SDK.
+
+Proposed capability: extend public archive inspection to expose full COFF import
+members' hint/name/DLL evidence as it already does for short import members, and
+compare the emitted import interface against a selected reference PE. Keep
+interface agreement, SDK provenance and complete archive identity distinct.
+After reviewing an archive, pin its hash and reject changed inputs before link.
+Never infer exact original archive identity solely from a subset of names/hints.
+
+Evidence in guild-rebrew: `references/mss-6.1c/README.md` and
+`.scratch/text-accounting-20261016/{miles-version-requirement.json,
+all-miles-library-fingerprints.json,re3-miles-fingerprint.json}`. Replay the
+blocked client build with `cmake --build build-goldtl-audit --target
+europa1400gold_tl`. Existing loaders used by the audit: LIEF PE imports/exports,
+`formats.archives.parse_archive`, `formats.coff.load_coff` and
+`lib_inspect.inspect_archive`; no alternative binary parser is needed.
+
+## Verify a reviewed set of source files in one invocation (2026-10-17)
+
+Problem: a canonical placement-header change in Guild affects nine C files and
+fourteen target bindings spread across `src/`. `test` and `verify` accept one
+source file or a directory/all scan, but cannot accept this explicit file set.
+Separate `test FILE --source-targets --json` processes repeat corpus/configuration
+work; during this replay several were still live after six minutes with roughly
+1.3 GB resident each. This observation is not a diagnosed performance bug.
+
+Proposed capability: repeatable explicit file selection for existing batch
+verification, sharing one project scan per target while retaining every binding,
+target skip/error, compiler input hash, known-binding check and locked verdict
+write. Do not select only filename-derived modules or broaden the verification
+scope to the entire corpus silently.
+
+Evidence: guild-rebrew `.scratch/goal75-placement/{scope-before.json,
+scope-extra.json,preserve.py,preserve-extra.py}` records the complete source set
+and the fourteen preserved objects. Replay the present limitation with
+`uv run --frozen rebrew test src/GOLDTL.fcn_00598550.c --source-targets --json`
+and equivalent invocations for the remaining files; `rebrew test --help` and
+`rebrew verify --help` expose only one positional file and directory filters.
+The scratch compiler proofs are independent change-preservation evidence, not a
+replacement verification/metadata store.
+
+Follow-up (Guild Goal79): `.scratch/goal79-gui/verify-scope.py` composes the public
+`read_source_bindings`, `run_verification` and `apply_status_updates` APIs for
+four Gold and two T&L bindings. Each target shares its normal symbol catalog,
+known-binding checks, compiler input evidence and one locked batch verdict write.
+This is a scoped scratch replay, not a new verifier. The same reviewed file set
+still cannot be expressed through one CLI invocation; expose that selection in
+the existing batch command rather than requiring each project to compose it.
+
+## Review a copied source body's replacement by a library identity (2026-10-17)
+
+Problem: Guild Gold5de784 is a copied naked assembly `rand` body. Pristine
+Processor Pack LIBC rand.obj matches all30 bytes and both `_holdrand` operands,
+with rejecting controls. `source binding rebind` requires a C definition, so it
+cannot select an inventory-only library header. The public binding-history
+writer supports this composition, but its whole-store expected digest repeatedly
+rejects while unrelated function comparisons/imports update the large store.
+The source/header/archive/native inputs and selected row need a guarded review;
+unrelated rows should not require reviewing the native proof again.
+
+Proposed capability: compose existing strict library evidence and binding-history
+writers into one reviewed source-to-library replacement, preserving the old
+source verdict only in history. Guard the selected identity and every reviewed
+source/binary/object/binding dependency, while allowing unrelated atomic writes.
+Keep classification and native symbol trust separate from an actually selected
+raw-link archive provider. Do not infer a provider or carry the old C EXACT to
+the replacement library row.
+
+Evidence/replay: guild-rebrew `.scratch/goal76-assembly/{rand-proof.json,
+rand-rebind.py,rand-rebind-preview.json}`. Two executions of `uv run --frozen
+python .scratch/goal76-assembly/rand-rebind.py` rejected with `function metadata
+changed while reading; retry`; neither applied a rebind or removed the source.
+The current safety rejection is expected under its documented whole-store guard;
+this requests a more precise composition, not removing that guard.
+
+Follow-up: once the concurrent comparison writers finished, the same guarded
+public API replacement succeeded. The copied source was removed and the sole
+caller migrated through `source rename` to SDK `rand`, preserving all30 caller
+bytes/fixups. Receipts: `.scratch/goal76-assembly/rand-rebind-apply.json` and
+`.scratch/goal77-assembly/rand-caller-proof.json`. Strict `library review-native`
+still rejects the private seed's unresolved project binding; no public seed
+declaration or guessed backing allocation was added to bypass that rejection.
+
+## Reference binding must distinguish disabled physical definitions (2026-10-17)
+
+Problem: Guild's TL receiver calls `fcn_00522e30`, whose managed destination is
+`GOLDTL.0x00522e30` / `ls_LoadEntities` in `loadsave.c`. A second physical copy
+inside `#if 0` in `GOLDTL.loadsave2.c` made `source rename` reject the destination
+as ambiguous. Conversely, a selected definition present only inside `#if 0`
+was incorrectly accepted as the external provider.
+
+Fixed upstream: preserve physical AST definition facts and mark definitions
+proven inactive under literal-zero `#if`/`#elif` bodies. The reference-binding
+provider guard excludes only those facts. Unknown conditions, malformed syntax,
+live `#else`/`#elif` branches and static/variable collisions keep the existing
+rejection. No preprocessor guess or project-local renamer is introduced.
+
+Replay: in guild-rebrew, `uv run --frozen rebrew source rename fcn_00522e30
+GOLDTL.0x00522e30 --dry-run --json`. The preview now selects two references in
+one caller, no metadata edits or source moves. Regression tests in
+`TestSelectedFunctionAliases` cover disabled copies, nested conditions, disabled
+selected owners and live/unknown alternatives. Before the fix, four cases
+failed; after it, both rename test files pass all 203 tests. The full suite also passes: 12,454 passed, 36 skipped. Receipts
+and the reviewed caller COFF baseline are in `.scratch/goal81-vfs/`.
+
+
+## Prototype replacement must mask preceding MSVC assembly (2026-10-17)
+
+Problem: `replace_function_prototype` could not find `vfs_OpenStream` in Guild's
+valid `vfs.c`, even though the shared ParsedSource walker found it. A preceding
+MSVC assembly copy loop made the raw C grammar swallow later definitions into
+an error node. The prototype editor masked calling conventions but not assembly.
+
+Fixed upstream: use the existing same-length `mask_msvc_syntax` before walking
+prototype definitions. Replacements still splice only the reviewed signature
+into the original bytes. Regressions cover a preceding assembly block, a
+single-line statement, labeled assembly, UTF-8 comments and an unchanged assembly
+body in the selected definition. The pre-fix regression receipt is
+Guild `.scratch/goal82-vfs/upstream-regression-before.log`; project replay uses
+`replace_function_prototype` on `src/Develop/Units/vfs/vfs.c`, selecting
+`vfs_OpenStream`. No project-local parser or literal-edit fallback is added.
+
+
+## Function rename treated unrelated `main` tokens as references (2026-10-17)
+
+Problem: `rebrew source rename GOLD.0x0053cf50 WinMain` in guild-rebrew refused
+before any write. The scan treated every whole-word `main` as a cross-target
+reference, so a comment in `server.c`, the script string `"main"`, and a local
+variable named `main` were ambiguous beside the independent `minigzip` `main`
+and the other client's definition. Real direct calls, function-pointer and
+address uses, and MSVC assembly operands have to move with the selected
+definition. A header declaration, a macro body, or a call built into both
+providers must still refuse. `--all-modules` is the wrong repair: it would
+rename every provider.
+
+Fixed upstream: function hits and rewrites use the existing declarator, scope,
+and occurrence classifiers. Comments, literals, and shadowed variable or
+parameter bindings are not references. Macro bodies and unsplit tokens,
+including assembly operands at their original offsets, stay references because
+their target is unknown. Provider ambiguity is unchanged. A new name already
+used by another target's own file is not a duplicate; a use in the selected
+target or in an unscoped header still refuses. `source register`
+then refreshes a stored decoration when it is the same C name and the parsed
+prototype implies a different one, so `int __stdcall main(void *, void *, char *, int)`
+becomes `_main@16` and a later rename keeps `@16`.
+
+Replay: `tests/test_rename.py::TestRenameTargetIsolation::test_unrelated_main_tokens_do_not_block_real_users`
+and `test_unknown_and_cross_target_main_references_still_refuse`. Guild replay,
+after this fix, is `uv run --frozen rebrew source rename GOLD.0x0053cf50 WinMain
+--target Europa1400Gold.exe --dry-run --json` and the same command for
+`GOLDTL.0x00544c50` on `Europa1400Gold_TL.exe`.
+
+## Hex/CFG disassembly output ignored the requested file (2026-10-17)
+
+Problem: `rebrew binary asm show 0x41c830 --target Europa1400Gold.exe
+--output native.asm` printed its hex view and silently left the requested file
+absent. Both hex and CFG dispatch omitted the shared output/preview arguments;
+only NASM honored them. Replayed with an explicit 8-byte slice in Guild
+`.scratch/goal82-vfs/asm-output-repro-*`: no file, 57 stdout bytes.
+
+Fixed upstream: pass output/preview into both inspection modes, reuse their
+existing rendered views and the atomic text writer. JSON files contain the same
+payload as stdout; text files contain the listing without terminal colors.
+Dry runs preserve existing or absent destinations, and failed writes emit a
+structured CLI error without partial JSON stdout. Regression matrix before:
+10 failed/8 passed; after:18 passed. Full suite and replay receipts live in
+Guild `.scratch/goal82-vfs/`.
+
+
+## Target context for documented-address findings (2026-10-17)
+
+Request: a multi-target client workflow tried `rebrew source findings 0x41c830
+--target Europa1400Gold.exe`; the command rejects `--target`. The current API
+is intentionally root-scoped: choosing a binary does not establish ownership
+of plain Markdown mentions, and `--doc` already selects reviewed documents.
+A future target-aware lookup needs explicit module/address evidence in document
+findings and must retain mixed/unattributed mentions, rather than silently
+filtering by a selected binary. This is a capability request, not a broken
+existing target option. No local target-filtering search was introduced.
+
+## Bind partial interface views without claiming allocation extents (2026-10-17)
+
+Request: Guild's Gold dialog uses the first three IUnknown vtable slots of
+IDirectDraw4 and the first four IDirect3D3 slots. Its private declarations are
+prefix views, not complete SDK interfaces or native allocations. `rebrew types
+bind --help` currently requires `--native-size` and permits only allocation or
+stride extents. Binding a 4-byte interface pointer shell or a 12/16-byte vtable
+prefix as a complete allocation would overstate the evidence.
+
+Support an explicit partial-view contract with compiler-checked member offsets
+and a minimum accessed extent, retaining unknown complete extent and backing
+owner. It must remain distinct from allocation/stride coverage and full SDK ABI
+verification. Replay context: Guild `src/GOLD.fcn_0041c830.c`, `DD_VTABLE`,
+`D3D_VTABLE`, and the private interface structs. Real DD_DEVICE/DD_DRIVER record
+strides are separately compiler-checked at 0x338/0x214; no false interface extent
+was bound to bypass the missing view capability.
+
+## Distinguish static references from indexed-base and bound candidates (2026-10-17)
+
+Request: Guild town reader0x524040 has `mov eax,[eax*4+0x14a5320]` and a
+cursor comparison against0x868058. Exact-address xrefs report neither: the first
+is an indexed memory base, while the second is an immediate used as a bound.
+Treating either as an unconditional access to that exact address would also
+overstate the evidence. Replay: `rebrew binary xrefs 0x14a5320 --target
+Europa1400Gold_TL.exe --json`, versus full1478-byte disassembly of0x524040.
+The base has one classified address load in txt_OpenText; its scaled town use
+is separately visible at0x5245bf. The compare at0x524218 is not one of the20
+actual dword accesses to0x868058.
+
+Expose separate candidate roles for indexed displacements and address-like
+bounds, preserving base/index/scale and unknown accessed extent. Retain exact
+static-reference counts and numeric-constant ambiguity. Evidence/replay using
+existing instruction APIs is in Guild
+`.scratch/goal82-grok-towns/data-followup/REPORT.md` and `insns.py`; no second
+permanent xref implementation was added locally.
+
+Goal83 update: image-valued x86 `cmp` immediates now have the separate `cmp`
+kind in the shared scanner and CLI, including the immediate side of
+`cmp [absolute], immediate` without losing its `cmp_mem` reference. These are
+possible pointer comparisons; an in-image numeric constant is still ambiguous.
+Guild TL `0x1042024` previously had zero CLI references despite two comparisons,
+and `0x1042340` had 7 instead of 36 static candidates. Regression tests cover
+32/64-bit comparisons, scalar exclusion, both operand addresses, target/kind
+filters, and all three shared scanning entry points. Indexed displacement roles
+and register-relative dataflow remain open; this does not infer accessed extents.
+
+## Surface matched assembly bodies in todo without relying on source metadata (2026-10-17)
+
+Problem: `todo` only emits `naked-reconstruction` for matched functions whose
+metadata says `source = "naked"`. Guild Gold `0x4ce1b0` is catalog EXACT but its
+entire body is `_emit` assembly without that field. The repaired E023 lint finds
+65 unsupported bodies, while todo's actionable assembly category misses such
+rows. Replay: `rebrew todo --all-targets --category naked-reconstruction --json`
+and `rebrew lint --all-targets --json` in Guild; inspect
+`src/GOLD.fcn_004ce1b0.c`.
+
+Proposed capability: reuse the shared MSVC assembly-span classification when
+selecting actionable bodies, preserving metadata provenance and byte verdicts.
+Do not manufacture source attribution or weaken EXACT to compensate. This is a
+discovery gap; no change to the todo selection has been applied.
+
+## Goal83: whole-function assembly lint coverage (implemented)
+
+- Problem: E023 counted only lines repeating `__asm`/`_emit`, so a naked
+  `__asm {` followed by bare `push`/`mov`/`ret` lines produced no error.
+  Guild's Gold resource thunk at `0x45d9e0` and node release at `0x476850`
+  exposed the missing accounting; byte agreement did not establish C recovery.
+- Capability: reuse the compiler-extension token scan for complete MSVC assembly
+  spans, then classify their instructions. Preserve the one/two padding-byte
+  allowance and ignore C tails, labels, C comments and assembly comments.
+  Both `_asm` and `__asm` block spellings are recognized.
+- Regression: `uv run --frozen pytest -q tests/test_lint.py::TestE023NakedAsm`;
+  seven new block cases failed before the repair, and two follow-up edge cases
+  rejected an initial line-based patch. Production reproductions and full-suite
+  receipts are in Guild `.scratch/goal83-upstream-lint/`. No lint policy or
+  project gate was weakened.
+
+## Goal83: absolute COFF archive definitions (implemented)
+
+- Problem: inspecting stock LIBCMT `exsup.obj` reported `__except_list` as
+  `section:None` and omitted its absolute value zero. It is an absolute COFF
+  symbol, not an allocation or an unresolved section. Replay in Guild:
+  `rebrew library inspect LIBCMT.LIB --defines __except_list --target
+  Europa1400Gold_TL.exe --json`.
+- Repair: retain the value for IMAGE_SYM_ABSOLUTE definitions; both full member
+  output and `--defines` explicitly label it absolute. This changes inspection
+  only; no resolver binding, global storage, native identity or library provider
+  is inferred from a coincident value.
+- Regression: zero and nonzero absolute-symbol fixtures fail before the repair;
+  `tests/test_lib_inspect.py` now checks JSON member data, inverted definitions,
+  terminal output, and that these are neither COMMON nor undefined symbols.
+  Guild keeps before snapshots and test receipts in
+  `.scratch/goal83-upstream-absolute/`.
+
+## Qualify source-binding counterparts by target/module (2026-10-17)
+
+Guild's TL string-reader source claim at `GOLDTL.0x4011a0` points at a file
+with no definition, while `GOLD.0x4011a0` is a separate existing counterpart.
+`source binding retire --counterpart GOLD.0x004011a0` rejects that key as an
+invalid hex VA; the option only identifies another VA in the selected target.
+The retirement safely proceeds without a counterpart option and leaves Gold
+untouched, but the explicit relationship cannot be represented by this command.
+
+Accept a target-qualified counterpart identity and verify that its complete
+binding/verdict is preserved across the guarded mutation. Keep same-VA identities
+in different modules distinct. Replay and the non-mutating rejected command are
+recorded in Guild `.scratch/goal83-stream-primitives/`; no cross-target rebind or
+provider merge was attempted as a workaround.
+
+## Bind a placeholder to one target's independent same-name provider (2026-10-17)
+
+Guild's `vfs_ReadData` has separate SERVER and TL source definitions. TL
+`fcn_004306b0` is an unbound placeholder for the selected `GOLDTL.0x4306b0`
+identity. `source rename fcn_004306b0 GOLDTL.0x004306b0 --target
+Europa1400Gold_TL.exe --dry-run --json` rejects the binding because its lexical
+destination search finds more than one external definition. The selected row
+already identifies the TL source file; the SERVER provider must stay independent.
+Likewise, renaming Gold's separate `GOLD.0x430bd0` to the reviewed canonical
+name is rejected by the existing-name collision guard. These are conservative
+refusals, and no source or provider was changed.
+
+Add a reviewed target/provider-aware plan that selects definitions from complete
+managed identity and compiler contexts, enumerates every rewritten caller in
+every target, and rejects mixed or unknown owners. Require a guarded digest and
+preserve independent source providers and verdicts; do not relax the generic
+duplicate-symbol guard or equate providers based on their shared spelling.
+The concrete preview commands and refusal observations are recorded in Guild
+`.scratch/goal83-stream-primitives/binding-preview-observations.md`.
+
+## Goal83: scope CMake flag resolution to the build inputs (implemented)
+
+Guild requested one Gold source with `build cmake-flags --sources-file
+.scratch/goal83-miles-candidates/gold-one-source.txt --target
+Europa1400Gold.exe`. The command examined every bound TU instead, emitted
+thousands of unrelated entries, and rejected the request because unselected
+`zufall.c` has conflicting flags. An empty source list had the same problem.
+`--sources-file` now scopes both checks and output to its resolved paths,
+preserving the build's path spelling and unannotated-input defaults. Without
+the option, every annotated TU is still checked and conflicting flags still fail.
+The two new regression cases fail before the repair. Replay and suite receipts
+are in Guild `.scratch/goal83-miles-candidates/`.
+
+## Compare CMake compile context with pinned verification (2026-10-17)
+
+Guild's Gold helper has identical 144-byte object `.text` under its old CMake
+composition and pinned verification, but different default-library directives:
+the project's generic client loop selects /MT and plain SP5, while Gold's
+configured context is Processor Pack SP5 with /ML. The repaired per-file flag
+include correctly emits /O2 /Gd and REBREW_GOLD; those do not override the
+caller's runtime or compiler-image selection. This is a project composition
+error, not a source byte-match failure. The client-only CMake branch is being
+corrected and actual generated-rule verification is pending.
+
+Extend build-context checks to compare actual generated CL arguments with the
+selected verification context: image/profile, runtime/base flags, target macros
+and header roots, separately from CMake's build.make/flags.make agreement.
+Report conflicts rather than silently replacing caller flags. Keep separate
+targets and per-file overrides explicit. Native probe and driver receipts:
+Guild `.scratch/goal83-gold-cmake-context/REPORT.md`.
+
+## Shared source root in contract/organization contexts (2026-10-17)
+
+Concrete bug: `source organize review` on Guild's nested
+`src/Develop/DieGildeAddOn/game/GOLDTL.fcn_0040df40.c` reports the existing
+`Develop/DieGildeAddOn/game/ch_script.h` missing. Compilation implicitly adds
+`shared_dir` when the TU lies within it; the contract scan rebuilt the explicit
+flags and omitted that root. Receipt: Guild
+`.scratch/goal83-gold-flag-getters/organization-review.json`.
+
+Implemented the shared fix in `source_contracts.contract_contexts`: use the
+compiler's effective flag composition before extracting include directories.
+A nested-source regression fails before the fix; its no-shared-root control
+retains the unresolved include. This closes local header discovery and
+fingerprinting only. It does not provide Docker SDK headers, preprocess
+conditional declarations or establish source organization/raw-link safety.
+
+## Repeated header extraction in source-contract audits (2026-10-18)
+
+Guild's named `types contracts --name fcn_0046c1c0 --all-targets --json` audit
+walked the declarations of a shared header once for every including unit.
+The global-declaration lookup additionally walked the entire AST for every
+global in each context. This is CPU work, independent of compiler execution
+backends and object caches. Preserve separate per-TU typedef meanings and
+unknown contexts; deduplicate physical extraction, not semantic contexts.
+
+Implemented physical-file function/global extraction once, reusing the parsed
+AST and a declaration-line index, then expanding immutable function sites into
+each real context. A regression fails before the fix (two extractions for two
+includers), checks once-per-file extraction and preserves function/global
+contexts, contradictions and calls with full or name-scoped audits. Existing
+typedef/linkage/input-change guards remain. Both-warm alternating runs on a
+201-declaration header included by 12 units measured median 0.594s to 0.028s,
+with complete reports equal; this fixture is not a whole-project speed claim.
+Evidence/replay: Guild `.scratch/goal99-gui-center/benchmark-contracts.py`,
+`contract-benchmark.json`, and upstream `tests/test_source_contracts.py`.
+
+## Multi-target CMake compile throughput with a shared Wine prefix (2026-10-17)
+
+Guild's first isolated full client builds select 4,840 TL and 4,482 Gold source
+files. Each actual generated recipe goes through the pinned compiler driver.
+The PP Wine-prefix lock serializes the two client builds even at two jobs each;
+Gold reached about 164 objects near 2% after the initial run, with no compiler
+error. Evidence: Guild `.scratch/goal83-gold-build-baseline/REPORT.md` and
+`.scratch/goal83-tl-build-baseline/REPORT.md`. Keep prefix isolation and locks;
+do not remove them to claim parallelism.
+
+Proposed capability: reproducible batch compilation or safe isolated compiler
+workers for generated CMake builds, preserving exact argv, runtime, target
+macros, include roots, diagnostics and COFF bytes. Validate throughput and
+complete-object equivalence against actual generated rules, rather than
+reusing single-file cache entries from a different compile context. This is
+build performance evidence, not a game/provider byte-match claim.
+
+The generated Docker toolchain also calls `cmake_tc.driver_main` through
+`_docker_run` unconditionally. Setting `compiler.execution_backend = "unshare"`
+selects that backend for test/verify, not these CMake recipes. A backend-aware
+CMake toolchain needs explicit target context so per-target overrides survive,
+plus compile/link object-equivalence checks before reusing build caches. The
+2026-10-17 Gold follow-up build confirms actual Docker invocations despite the
+verification backend setting; this is a separate generated-toolchain capability,
+not evidence that image-only `verify --data` invokes a compiler.
+
+The 2026-10-18 API review also rules out replacing `_docker_run` with a bare
+`run_toolchain(..., execution_backend="unshare")`: unshare binds `workdir`
+read-write at `/work`, sets that as cwd, and makes additional `mounts`
+read-only. Generated CMake commands need their actual build cwd, readable
+project inputs, and writable `/Fo`, `/OUT`, `/MAP` and response-file paths,
+which can be elsewhere under the project root. Preserve the clock wrapper,
+include/library environment, last toolchain-pin precedence and immutable
+image admission too. Extend the supported execution context before switching
+generated recipes; compare real CL/LIB/LINK outputs and relative-path cases.
+Replay surfaces: `cmake_tc._docker_run`, `compiler.toolchain.run_toolchain`,
+`compiler.unshare._profile`, and Guild
+`.scratch/goal94-slot-cleanup/{gold,tl}-build-restored.log`. Existing active
+Docker recipes must retain their dispatch until a reviewed reconfigure.
+
+2026-10-18 resolution: project-level backend dispatch and the required native
+same-path execution context are implemented below. Existing builds were stopped
+before this bridge change. Per-target backend identity and cross-context compile
+cache reuse remain separate open capabilities.
+
+Guild's server gate also exposed the danger of source-wide CMake pin greps:
+adding a correct client-only PP branch made its legacy grep label that pin as
+a server override. The project gate now scans only generated server compile,
+flags and link rules; its before-failing case plus wrong-server-pin controls
+pass. Native server codegen and entire raw bytes remain unchanged. A reusable
+upstream context audit should scope by generated target, retain later-pin
+precedence and report runtime/default-library directives separately. Do not
+infer every target's compiler from all literal strings in CMakeLists.txt.
+
+## Shared source flags in a combined CMake build (2026-10-17)
+
+Concrete bug: two `build cmake-flags` tables use source-wide CMake properties.
+When two build targets compile the same file, the last included table replaces
+the other target's flags and definitions. An isolated fixture reproduces both
+targets receiving `/O2` and `BUILD_B`, losing A's `/O1` and `BUILD_A`. Guild's
+isolated client baseline builds do not combine targets and are unaffected.
+Replay: Guild `.scratch/goal83-multitarget-cmake/replay.py`.
+
+Implemented `--cmake-target <build-target-name>` to emit appended source
+properties conditional on the actual consuming CMake target. The Rebrew
+configuration target and CMake build target are separate arguments. Includes
+require that build target to exist, and invalid target names are rejected before
+writing. Actual CMake regression configurations check both inclusion orders,
+quoted/semicolon definitions and an unrelated third target; the old unscoped
+mode remains available for existing single-target builds. Guild adoption is
+staged until its running client baselines finish so their inputs stay frozen.
+
+## Replace one FUNCTION claim with a header LIBRARY identity (2026-10-17)
+
+Problem: ten Gold VAs (`0x5dea38`, `0x5dea49`, `0x5dea5a`, `0x5dedd8`,
+`0x5dedf8`, `0x5defef`, `0x5e5157`, `0x5e4fe7`, `0x5e5269`, `0x5e533f`) have
+whole-span matches in pinned PP `LIBC`, but their rows are `kind = FUNCTION`
+on `src/GOLD.fcn_*.c` with symbols `_fcn_*`. `rebrew source binding rebind`
+keeps the current kind and requires a C definition, so it cannot point the row
+at a comment-only `library_*.h`. `record_function_rows` refuses a retired row
+(`retired source bindings require an explicit reviewed rebind`). The rand
+follow-up below already uses `metadata.binding_history.change_source_binding`
+for one replacement; there is still no CLI that sets `kind = LIBRARY`,
+preserves `size` and history, and clears the old game-byte verdict.
+
+A second consequence: `build_name_to_va` skips `LIBRARY` annotations and admits
+a library symbol only from a `native_identity` receipt. Reclassifying the
+private callee `_doexit` does not put `_doexit` in the resolver, so
+`library review-native` of the `_exit` wrapper still reports an unresolved
+operand. Do not treat that as a failed byte compare. Data and import operands
+of the callee remain a separate proof, and they are not ownership.
+
+Proposed capability: one reviewed CLI transition from a current FUNCTION claim
+to an existing header LIBRARY name/symbol. Guard the selected row, native
+extent, history, and the header path. Preserve size. Clear status. Do not
+require a C definition, do not rewrite other rows, and do not infer a raw-link
+provider. State in the command help that a LIBRARY row without
+`native_identity` is not a resolved callee.
+
+Replay the CLI refusal from Guild:
+
+```
+uv run --frozen rebrew library review-native 0x5dea38 \
+  .scratch/goal83-client-crt-providers/members/crt0dat.obj \
+  --symbol _exit --reason "17-byte PP LIBC crt0dat.obj _exit" \
+  --dry-run --json --target Europa1400Gold.exe
+```
+
+It exits 2 with `select a library metadata row with a complete positive SIZE`
+while the row is FUNCTION and size 17. `rebrew source binding rebind --help`
+has no kind argument. Evidence and the scratch selection copy are
+`.scratch/goal83-client-crt-providers/`.
+
+### Reviewed reuse of equivalent CMake compile inputs (2026-10-17)
+
+Guild's target-scoped flag adoption changes per-source `COMPILE_FLAGS` from
+`/O2 /Gd` to ` /O2 /Gd`. Adding client stub/zlib sources also changes comments
+in `flags.make`. CMake makes every object depend on that file, so an otherwise
+incremental client link starts recompiling more than 4,400 objects. A scratch
+comparison found all 8,895 retained flag/define entries equal after argument
+tokenization, with no changed effective arguments. Changed sources and newly
+added inputs still need compilation.
+
+Proposed capability: let build inspection export and compare complete normalized
+compile commands plus dependency/input hashes, and produce an auditable reuse
+plan for unchanged objects after CMake regeneration. Never reuse an object when
+the compiler profile, argv, source or header inputs differ. Keep this separate
+from byte-match or provider claims.
+
+Evidence: Guild `.scratch/goal84-client-build/gold-flags-before.make` and
+`gold-normalized-flag-proof.json`; replay `cmake --build
+.scratch/goal83-gold-build-baseline/build --target europa1400gold --parallel 1`
+after target-scoped flag regeneration. The reviewed scratch optimization invokes
+the generated target makefile with `-o CMakeFiles/europa1400gold.dir/flags.make`
+only after proving equivalent retained arguments; ordinary source/dependency
+timestamps and new-object builds remain active.
+
+### Stub parameter-name collisions — fixed (2026-10-17)
+
+Gold's generated `fcn_004524e0` used `f` for an unnamed sixth parameter even
+though its third parameter was already named `f`, producing MSVC C2040. The
+same problem affects names declared later in a signature. `ensure_param_names`
+now reserves identifiers from the complete parameter list and allocates an
+unused suffixed name. Three regressions fail on the old implementation and
+pass with the fix: `pytest tests/test_gen_stubs.py -k
+generated_names_do_not_collide`. Native replay: generate the Gold scaffold
+from Guild `.scratch/goal84-client-build/gold-stub-input.log` and compile
+`stubs/gold/symbol_stubs.c` with the PP `/ML` profile.
+
+### Naked assembly guard bypass in lint (2026-10-17)
+
+Concrete failure: a `REBREW_ALLOW_NAKED` source token or metadata compile flag
+suppressed E023 for an entire file, including an unrelated naked byte dump.
+This is a compilation choice, not evidence that the original source used assembly.
+Fixed in `lint.py`: neither source guards nor compiler flags exempt whole-function
+reconstructions. Three regression cases cover metadata flags, a fenced body and
+an unrelated guard; the existing minor-padding checks still apply.
+Replay: `uv run --frozen pytest tests/test_lint.py -k E023`.
+
+A future reviewed exception for a genuinely original naked routine should use
+current definition-hashed, target-scoped `source document-assembly` evidence,
+never a global build switch or merely a failed C matching search. Current
+reviewed inline assembly already uses those receipts. Do not infer padding or
+original source absence from a linked gap: compilation, selected link inputs,
+archive-member extraction and linker-discarded contributions are separate facts.
+
+### Imported IAT slots reported as missing built bytes (2026-10-17)
+
+Gold and TL `verify --data` printed MISSING for
+`__imp__LeaveCriticalSection@4` and `__imp__EnterCriticalSection@4`, although
+both APIs were in each built PE and map. Metadata already correctly identifies
+these as `storage_kind = import`, not C storage or static library bodies.
+`parse_link_map` correctly excludes DLL records for ownership, but the data
+placement caller reused that filtered result and lost their linked addresses.
+Fixed with an opt-in import-inclusive map view for placement; ownership callers
+keep the excluding default. The byte compare remains at reference VAs, while
+terminal diagnostics name a known displaced slot and both addresses. It does
+not treat import-name agreement as byte equality or credit native placement.
+Replay: `uv run --frozen pytest tests/test_data_verify.py tests/test_data_ownership.py tests/test_verify_extended.py`.
+
+### Image-only verify unnecessarily compiled the entire project (2026-10-17)
+
+`rebrew verify --data` always called `run_batch`, walking thousands of sources,
+validating each function's inputs/cache and compiling misses even though the
+requested result only needs an existing binary, data metadata and the link map.
+It also initialized the compiler runner before reading the image. A faster
+runner cannot eliminate that unrelated work, and a built CMake object is not
+silently interchangeable with a separately fingerprinted verification object.
+
+Fixed upstream: `--data` / `--whole-binary` select image-only verification unless
+`--functions`, `--text`, or a function source/scope is explicitly selected.
+A data-only run never calls `run_batch` or the runner preflight, never clears
+function caches, and never replaces the whole-function `--compare` baseline.
+JSON records `functions_checked = false`. Bare `verify` and text promotion
+retain their function checks; `--data --functions` requests the old combined run.
+Regression tests fail if the function pipeline, unshare preflight or function
+cache/baseline writer is reached by a data-only check.
+
+### Known-binding policy disabled warm verify result caches (2026-10-17)
+
+`prepare_entries` skipped `load_verify_cache` whenever `check_known_bindings`
+was true. All Guild targets enable that safety check, so every annotation
+entered object extraction/comparison again even when the object cache hit.
+The compile cache itself is healthy: the CLI reports 69,890 entries (~200 MiB).
+Filesystem blob count is not cache-entry count because small objects live in
+SQLite; no hit-rate estimate should be inferred from that blob count.
+
+Fixed: load the result cache and admit a row only if its recorded relocation
+bindings still resolve to their recorded addresses in the current catalog.
+The public COFF API `binding_evidence_current` shares the operand resolver;
+source/compiler/header/context/binary identity checks remain necessary. Legacy
+or incomplete evidence misses, and changed, newly resolved or disappeared
+symbols miss. Unchanged cached conflicts remain failures, not passes. Tests
+exercise a warm hit and rejecting catalog controls; no global metadata hash
+is used, so writing STATUS does not invalidate every function.
+
+### Oversized MSVC batches fell back to per-file containers (2026-10-17)
+
+A 4,002-file cohort produced a 36,030-character command, beyond Wine's
+32,767-character CreateProcess limit. `compile_batch_objs` now moves overflow
+source arguments into a response file, using MS C-runtime quoting and leaving
+a readable source on argv because the pinned image wrapper requires one.
+If flags themselves overflow, a separate flags response file preserves their
+position before that source; no source/flag reordering is assumed harmless.
+Small MSVC and POSIX batches retain their argv. Response-file write errors
+remain explicit, with no compiler invocation against an absent file.
+
+Mocked stress regressions cover large cohorts, quoting, leading @ filenames,
+flag ordering and write failure. A bounded two-source PP probe produces
+identical objects through direct argv and the response-file path. No library
+was patched and no full client rebuild was used to claim this result.
+
+### Retired providers block reference binding (2026-10-17)
+
+After rebinding Gold's lookup to the shared client C translation unit,
+`source rename fcn_005a8600 GOLD.0x005a8600 --dry-run --json` still rejected
+the old, explicitly retired definition. Source selection already excludes
+that historical-only translation unit, but reference binding scanned it as
+an active provider. Ignore historical-only source files in this operation;
+preserve headers and files retained by any function, data or support binding.
+Do not rewrite the retired text. Regression tests exercise preview/apply and
+a file retained by another target: `pytest tests/test_rename.py -k
+reference_binding_leaves_retired_sources_unchanged`.
+
+### Private static data placement through selected COFF operands (2026-10-17)
+
+Guild's zlib `inflate_trees_fixed` matches 46 native bytes and references four
+private static objects totalling 4,360 bytes on both clients. Those objects
+also match the current raw builds, but MSVC's maps list the public helper and
+omit `_fixed_bl`, `_fixed_bd`, `_fixed_tl` and `_fixed_td`. Image-only data
+verification correctly finds no named placement and reports drift at the
+reference addresses; it cannot show the actual displaced private objects.
+
+A bounded experiment uses the existing COFF/map/PE APIs: require a unique
+selected public helper, compare its complete encoding with all COFF operands
+applied, derive the private DIR32 targets, check their source-defined extents
+and complete payloads, and reject shifted data. Evidence and replay:
+Guild `.scratch/goal90-fixed-trees/prove-raw-data.py` and `raw-data-proof.json`.
+
+Proposed capability: an admitted source-object/link-input manifest can supply
+these scoped private symbols to placement analysis. Preserve source/TU and
+compile-input identity; reject conflicting sites, ambiguous providers, changed
+encodings and missing objects. Do not scan for equal bytes, create public
+replacement globals, fabricate map rows or start compilation from image-only
+verification. The local proof does not record a data-verification verdict or
+establish native placement/original archive selection.
+
+### Relative metadata roots reused another project's path (2026-10-17)
+
+Final-suite onboarding reruns redocumented two existing stubs when earlier
+in-process commands had cached `load_metadata(Path("."))` under a different
+working directory. `_resolved_metadata_path` keyed its memo by the raw directory
+spelling, so a chdir could keep reading that previous project's store. This is
+a correctness bug, not a reason to disable metadata caching.
+
+Fixed by making the memo key absolute before the expensive, still-memoized
+symlink resolution. Two deterministic regressions create different stores and
+switch working directories using both `.` and a relative subdirectory. Both
+read the previous project's value before the fix and the current one after it.
+Replay: `uv run --frozen pytest tests/test_metadata_hotpaths.py tests/test_onboarding.py`.
+
+## Extend comparison scaffolds from actual COFF references (2026-10-18)
+
+Selecting an existing shared source provider can introduce a few undefined data
+symbols after the saved unresolved-link log. `build symbol-stubs` accepts linker
+logs but no explicit COFF/symbol input or preserving append. Regenerating the
+whole existing scaffold can alter unrelated inferred signatures; inventing new
+LNK2001 lines would falsify evidence. A reusable explicit-symbol/COFF input and
+reviewed preserving refresh could consume real references and declarations while
+keeping known library providers excluded. Current bounded use composes public
+`generate_stubs` and `collect_extern_info` to append four generated definitions;
+no custom parser or canonical owner store. Evidence and replay:
+`guild-rebrew/stubs/gold/source-closure.json`, `stubs/README.md`, and
+`.scratch/goal91-sound-wrapper/callee-proof.json`. These remain comparison
+placeholders, never recovered allocations.
+
+## Select a reviewed set of source files in one verify batch (2026-10-18)
+
+A shared-signature/provider repair spans seven files and13 bound client contexts.
+CLI verify accepts one file or a whole directory; repeatedly invoking it pays a
+full catalog scan per file. A repeatable selected-file option could scope cached
+results, size audits and STATUS writes through the same batch pipeline, rejecting
+empty or mistyped selections. Current bounded composition reuses public
+prepare_entries, run_verification and apply_status_updates with exact expected VA
+sets; it writes no parallel status store. Evidence/replay: guild-rebrew
+`.scratch/goal93-shared-sound-control/verify-selected.py`. Keep unrelated cache
+rows and library-provider filtering intact in any eventual CLI extension.
+
+## Phase comparison-stub retirement with provider reconfiguration (2026-10-18)
+
+Rebinding three Gold identities to existing shared C definitions changes the next
+configured source list, but the active frozen Make tree still needs its three
+comparison definitions. Removing those stubs immediately breaks the pending
+link; retaining them after reconfigure creates duplicate providers. A preview
+could compare selected COFF public definitions against comparison definitions,
+then stage digest-guarded retirement together with an explicit configure/build
+transition. Source or metadata presence alone must not establish an emitted
+provider. Never mutate the inputs of a live build automatically.
+
+Concrete evidence: guild-rebrew `.scratch/goal100-video-lookups/scaffold-cutover.json`,
+`selection.json` and `baseline.json`; shared lookup/release C providers replace
+Gold comparison names fcn_0041f5f0, fcn_0041f9b0 and fcn_0041f9d0. The current
+manual phased operation uses the public C AST and hash guards, without adding a
+second verifier or provider store.
+
+The same phased preview should cover newly introduced COFF data references.
+Goal105's recovered Gold initializer needs g_10405e0; its six writes require24
+bytes in a comparison scaffold, while the native allocation extent and owner
+remain unknown. Composition through public generate_stubs and the C AST stages
+that explicit comparison capacity alongside Goal100's three omissions without
+editing the live input. Keep comparison capacity separate from managed native
+size/ownership. Replay: guild-rebrew `.scratch/goal105-color-init/stage-scaffold.py`.
+
+## Honor sibling maps and missing text-placement failures (2026-10-18)
+
+Problem: `rebrew build check-text-placement --built <isolated client.exe>`
+ignored the nonempty sibling MSVC map and looked for objects under the default
+project build directory, then fell back to PE exports. Guild's nonexporting
+clients reported Gold4558 and TL4988 functions missing and exited 0. The maps
+actually identify Gold4557 and TL4988 expected functions, all displaced.
+`verify --text` already preferred maps, but also allowed missing functions to
+pass its gate when no function was misplaced.
+
+Fixed: sibling maps take precedence in the standalone command. Both placement
+paths share parsed function-name conversion, preserving decorations and excluding
+data rows. A present empty map remains authoritative. Missing expected functions
+now fail both gates, including all-missing output. No layout, artifact bytes or
+metadata verdict is inferred from the map change. The existing no-map object
+walk remains an estimate; this repair does not prove linker retention from
+compilation alone.
+
+Evidence: guild-rebrew `.scratch/goal106-client-cutover/{UPSTREAM-GAP.md,
+gold-before-text.json,tl-before-text.json}` and Goal107 regression/replay logs.
+Seven assertions fail before the fix. Regression coverage includes a nonexporting
+PE plus a sibling map in another directory, authoritative empty/drifted maps,
+no-map all-missing failure, decorated names and verify's missing-function gate.
+Final review also reproduced a corrupt image hidden by a valid map. Image
+validation still precedes map lookup; that regression is covered separately.
+Replay: `rebrew build check-text-placement --built .scratch/goal106-client-cutover/completed-before-configure/Europa1400Gold_TL.exe --json --target Europa1400Gold_TL.exe`.
+
+
+### CMake ignored the selected native unshare runtime (2026-10-18)
+
+Guild already selected `compiler.execution_backend = "unshare"`, but the
+CMake CL/LINK/LIB bridge always launched Docker and serialized on its shared
+Wine prefix. The project setting now dispatches all three tools through the
+existing immutable-image native runner, retaining absolute source paths,
+nested build cwd, rewritten response files, image INCLUDE/LIB and clock pinning.
+The native helper accepts one same-path writable project mount while rejecting
+runtime mount overlap; external include mounts remain read-only. Failure never
+falls back to Docker. Explicit Docker/Podman selection also reaches prefix
+initialization and timeout cleanup. Existing generated toolchains still work.
+
+CMake carries profile pins, not Rebrew target identities. A future target-scoped
+backend capability must carry that identity in generated compile/link rules;
+this change honors the project-level setting and does not guess a target from
+an ambiguous shared profile. Object-cache reuse is a separate capability.
+Replay: `uv run --frozen pytest tests/test_cmake_tc.py tests/test_unshare.py`.
+Project smoke evidence: Guild `.scratch/goal109-unshare-runtime/`.
+
+
+### Native unshare repeated Wine first-time setup on every compile (2026-10-18)
+
+The admitted MSVC images have an empty `/opt/wineprefix`. A private overlay is
+correct for isolation, but it repeated wineboot/registry setup for every CL,
+LINK and LIB invocation. Guild full builds exposed dozens of concurrent
+`InstallHinfSection` processes and poor throughput. The old rootfs extractor
+also replaced archive timestamps with extraction time.
+
+Fixed: timestamp-preserving extraction and a versioned image cache with a Wine
+prefix initialized once through the native namespace helper. Initialization
+uses the existing writable `/work` mount and waits for wineserver shutdown;
+the runtime-state bind guard remains unchanged. Each compiler still receives
+its own writable overlay, and seed preparation rejects paths escaping the
+owned prepared image. Old image-cache directories remain intact for active
+runs. Failed preparation is not published and there is no Docker fallback.
+The cached prefix is runtime setup, not a patched compiler or archive.
+
+Regression coverage checks timestamp fidelity, native seed argv, failure
+cleanup and an escaping symlink. Existing native isolation and explicit
+one-second timeout/descendant tests remain. Normal success-fixture timeout is
+20s: a traced static probe exited immediately, but host namespace teardown
+waited more than 5s in `exit_group` under concurrent Wine loads.
+Replay: `uv run --frozen pytest tests/test_unshare.py tests/test_cmake_tc.py`.
+Guild `.scratch/goal110-full-runs/compile-equivalence.json` checks complete
+Gold `/ML` and TL `/MT` COFF equality across Docker and the seeded native runner.
+
+
+### Generated runtime guidance still claimed Docker-only execution (2026-10-18)
+
+The MSVC init constraints and workflow skill still said Docker-only after native
+unshare support, and the packaged principles still named retired external build
+hooks. Its inventory note also hard-coded a path despite configured overrides.
+Update the packaged owners, regenerate checked-in skills, and refresh
+projects rather than patching generated copies. Compiler profiles still identify
+immutable image filesystems; the configured supported backend selects execution.
+Replay: `uv run --frozen pytest tests/test_init.py tests/test_skills_sync.py`, then
+`rebrew init --refresh-agents` and `rebrew init --check` in the project.
+
+
+### Verify no-cache help overstated compiler cache bypass (2026-10-18)
+
+The flag bypasses saved verification verdicts in `prepare_entries`;
+`run_verification` still obtains the compiler-object cache. Help and generated
+guidance incorrectly promised recompiling every function. Clarify the two layers
+without changing execution or clearing caches. A CLI contract regression rejects
+the old wording and requires both cache layers to be explicit. Replay:
+`uv run --frozen pytest tests/test_cli_contract.py -k no_cache_help_distinguishes`.
+
+
+### README status graphic from canonical reports (2026-10-18)
+
+Guild's retired progress renderer queried an obsolete coverage database and counted
+PROVEN as a byte match. The current CLI has canonical multi-target status JSON
+but no README SVG export (`coverage --help` and `coverage report --help`).
+A reusable renderer should consume that report, separate EXACT/RELOC C and naked
+assembly counts, exclude library/PROVEN verdicts from C recovery, and show raw-file
+agreement separately with a snapshot date. Guild now uses only CLI JSON in its
+small presentation script; it performs no metadata parsing or verification.
+Replay: `rebrew status --all-targets --json | python3 scripts/progress_svg.py`.
+
+
+### Consider consolidating source provenance stores (2026-10-18)
+
+The Guild user questioned the extra `rebrew-source.toml` beside function/data/type
+stores. Its current 61 target-scoped assembly records include addressless helpers,
+and its support-file records include headers; moving everything onto VA-keyed
+function rows would lose those identities. Consider whether a unified schema or
+a coordinated file/definition section in an existing store can reduce maintenance
+without duplicating evidence. Any migration must preserve hashes, target scopes,
+rename behavior, support purposes, locked atomic writes and stale-evidence lint.
+Current readers: `metadata/source_provenance.py`; inspect Guild source metadata
+with `rebrew source document-assembly --help`. Implemented in 5.0 by format-3 function `[source]` sections and digest-guarded `source consolidate`.
+
+
+### Preserve accepted toolchain inputs when upstream removes archives (2026-10-18)
+
+`recompile-toolchains/base-dosemu/Dockerfile` pins two fd35 Debian packages
+whose Launchpad files now return 404. Native smoke failed before this dependency
+refresh (run `38723898730`) and still fails in run `39102305256`; changing the
+version or hash would change the accepted native inputs, not repair availability.
+Keep a durable content-addressed mirror for admitted inputs, verifying the
+original hashes before recording another URL. Cache extraction may recover the
+accepted bytes; rebuilding a similarly named package is not equivalent.
+
+The missing files are `libfdldr35` (librarian `876268288`, SHA-256
+`a250e93e6d323d208a7cc2a998bcd03e9510831bf670d2da94eb5f2b6820f49d`) and
+`libfdpp35` (`876268289`,
+`1baec8711043c75d1e29a4f260e926cb7343c9cc484f8c053970e0e0a7000a2a`), version
+`1.11-10003-1714-6fc57bc+202609081621~ubuntu24.04.1`. Launchpad publications
+`249343552` and `249343554` record removal on 2026-09-27. Replay the Dockerfile's
+URLs with `curl -fIL`, then run `make smoke` in the toolchain repository.
+The MSVC server walkthrough uses its separate base image.

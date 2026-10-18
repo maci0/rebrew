@@ -35,7 +35,7 @@ Usage:
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import math
 from pathlib import Path
 from typing import Any
@@ -638,7 +638,7 @@ def _timestamp_iso(timestamp: int) -> str | None:
     if stamp == 0:
         return None
     try:
-        moment = datetime.datetime.fromtimestamp(stamp, datetime.UTC)
+        moment = dt.datetime.fromtimestamp(stamp, dt.UTC)
     except (OverflowError, OSError, ValueError):
         return None
     return moment.isoformat().replace("+00:00", "Z")

@@ -8,7 +8,7 @@ from source_util import write_source
 
 from rebrew.catalog.loaders import scan_reversed_dir
 from rebrew.config import ProjectConfig
-from rebrew.function_providers import bind_library_source, resolve_library_providers
+from rebrew.function_providers import bind_compiled_source, resolve_library_providers
 from rebrew.metadata.bindings import SourceBinding
 from rebrew.metadata.functions import record_function_rows
 
@@ -16,7 +16,7 @@ from rebrew.metadata.functions import record_function_rows
 def _project(tmp_path: Path) -> ProjectConfig:
     src = tmp_path / "src"
     src.mkdir()
-    return ProjectConfig(root=tmp_path, reversed_dir=src, marker="GAME", source_ext=".c")
+    return ProjectConfig(root=tmp_path, reversed_dir=src, module="GAME", source_ext=".c")
 
 
 class TestCompiledSources:
@@ -158,10 +158,11 @@ class TestCompiledSources:
         parsed = read_source_bindings(source, target_name="GAME", metadata_dir=cfg.metadata_dir)
         assert {row.va for row in parsed} == {0x10001000, 0x10003000}
 
-    def test_load_data_counts_compiled_library_outside_the_reversed_tree(
-        self, tmp_path: Path
+    @pytest.mark.parametrize("kind", ["FUNCTION", "LIBRARY"])
+    def test_load_data_counts_compiled_source_outside_the_reversed_tree(
+        self, tmp_path: Path, kind: str
     ) -> None:
-        """Status and todo read naming.load_data. A LIBRARY row whose file
+        """Status and todo read naming.load_data. A managed row whose file
         sits outside reversed_dir is still that function: no header and no
         marker in the .c required."""
         from rebrew.naming import load_data
@@ -180,7 +181,7 @@ class TestCompiledSources:
                         "file": "references/zlib/adler32.c",
                         "symbol": "_adler32",
                         "name": "adler32",
-                        "kind": "LIBRARY",
+                        "kind": kind,
                     },
                 },
                 {
@@ -189,7 +190,7 @@ class TestCompiledSources:
                     "identity": {
                         "file": "references/zlib/adler32.c",
                         "symbol": "_other",
-                        "kind": "LIBRARY",
+                        "kind": kind,
                     },
                 },
             ],
@@ -198,10 +199,20 @@ class TestCompiledSources:
         assert 0x10001000 in existing
         assert 0x10002000 not in existing
         row = existing[0x10001000]
-        assert row["kind"] == "LIBRARY"
+        assert row["kind"] == kind
         assert row["symbol"] == "_adler32"
         assert row["filename"] == "../references/zlib/adler32.c"
         assert covered[0x10001000] == row["filename"]
+        entries = scan_reversed_dir(cfg.reversed_dir, cfg)
+        assert [(entry.va, entry.kind) for entry in entries] == [(0x10001000, kind)]
+        from rebrew.source_selection import collect_target_sources
+        from rebrew.verify import _library_header_rows
+
+        assert collect_target_sources(cfg, "GAME")[0] == [source]
+        assert (0x10001000 in _library_header_rows(cfg)) is (kind == "LIBRARY")
+        from rebrew.cli import resolve_source_arg
+
+        assert resolve_source_arg(cfg, "0x10001000") == source
 
     def test_migrated_header_binding_survives_catalog_and_verify_scans(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -255,7 +266,7 @@ class TestCompiledSources:
 
     def test_missing_bound_source_is_still_a_verification_candidate(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
-        entry = bind_library_source(
+        entry = bind_compiled_source(
             cfg,
             SourceBinding(va=0x10001000, filepath="library_vendor.h", kind="LIBRARY"),
             {"file": "references/missing.c", "symbol": "_missing"},
@@ -268,14 +279,14 @@ class TestCompiledSources:
     def test_binding_rejects_escaping_identities(self, tmp_path: Path, stored: str) -> None:
         cfg = _project(tmp_path)
         with pytest.raises(ValueError):
-            bind_library_source(cfg, SourceBinding(), {"file": stored})
+            bind_compiled_source(cfg, SourceBinding(), {"file": stored})
 
     def test_binding_rejects_a_symlink_outside_the_project(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
         source = tmp_path / "vendor.c"
         source.symlink_to(tmp_path.parent / "outside.c")
         with pytest.raises(ValueError):
-            bind_library_source(cfg, SourceBinding(), {"file": "vendor.c"})
+            bind_compiled_source(cfg, SourceBinding(), {"file": "vendor.c"})
 
 
 class TestProviderEvidence:
@@ -392,7 +403,7 @@ class TestExactProviderPaths:
         source.write_text(prefix + "int f(void) { return 0; }\n")
         reversed_dir = tmp_path / "src/game"
         reversed_dir.mkdir(parents=True)
-        cfg = ProjectConfig(root=tmp_path, reversed_dir=reversed_dir, marker="GAME")
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=reversed_dir, module="GAME")
         record_function_rows(
             reversed_dir.parent,
             [
@@ -446,7 +457,7 @@ class TestExactProviderPaths:
         reversed_dir = tmp_path / "src/game"
         reversed_dir.mkdir()
         cfg = ProjectConfig(
-            root=tmp_path, reversed_dir=reversed_dir, marker="A", target_binary=tmp_path / "a.exe"
+            root=tmp_path, reversed_dir=reversed_dir, module="A", target_binary=tmp_path / "a.exe"
         )
         record_function_rows(
             reversed_dir.parent,

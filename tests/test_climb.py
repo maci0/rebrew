@@ -7,7 +7,9 @@ the stub makes the expected winning order explicit.
 
 from __future__ import annotations
 
+import difflib
 import os
+import random
 import signal
 import subprocess
 import sys
@@ -180,9 +182,9 @@ class TestScoreAligned:
         monkeypatch.setattr(nd, "disasm_insns", lambda code, *a, **k: list(streams[code]))
         cfg = SimpleNamespace(capstone_arch="CS_ARCH_X86", capstone_mode="CS_MODE_32")
 
-        def score_of(obj: bytes) -> float:
+        def score_of(obj: bytes) -> tuple[float, int]:
             _result.obj_bytes = obj
-            return rebrew.climb._score_aligned(
+            score = rebrew.climb._score_aligned(
                 cfg,
                 tmp_path / "f.c",
                 "_f",
@@ -193,8 +195,50 @@ class TestScoreAligned:
                 None,
                 rebrew.climb.target_texts(cfg, b"target", 0x1000),
             )[0]
+            return score, rebrew.climb._AlignedMatcher.last_visits
 
-        assert score_of(b"scattered") > score_of(b"deleted") > 0.0
+        scattered, scattered_visits = score_of(b"scattered")
+        deleted, deleted_visits = score_of(b"deleted")
+        assert scattered > deleted > 0.0
+        # Half the stream is the repeated opcode "mov". difflib's index walk
+        # reads every copy on both sides for one longest-match pass, and the
+        # scattered candidate needs one such pass per isolated mov. The visit
+        # counter is token positions read, so it does not move with load.
+        quadratic_pass = 1100 * 1100
+        assert scattered_visits < quadratic_pass
+        assert deleted_visits < quadratic_pass
+
+
+class TestAlignedMatcher:
+    """The climb aligner returns difflib's blocks and reads fewer token positions."""
+
+    def test_blocks_and_opcodes_match_difflib(self) -> None:
+        from rebrew.climb import _AlignedMatcher
+
+        streams: list[tuple[list[str], list[str]]] = [
+            ([], []),
+            (["mov"], ["mov"]),
+            (["mov"], ["ret"]),
+            (["mov", "t0"] * 20, ["mov", "c"] * 8 + ["mov", "t0"] * 12),
+            (["mov"] * 30, ["mov"] * 30),
+            (["mov"] * 30, ["mov"] * 10),
+            (["a", "b", "a", "b"], ["a", "b", "x", "a", "b"]),
+        ]
+        rng = random.Random(0)
+        alphabet = ["mov", "push", "pop", "call", "ret", "only"]
+        for length in (1, 2, 8, 40):
+            for _ in range(15):
+                streams.append(
+                    (
+                        [rng.choice(alphabet) for _ in range(length)],
+                        [rng.choice(alphabet) for _ in range(length + 3)],
+                    )
+                )
+        for left, right in streams:
+            got = _AlignedMatcher(a=left, b=right, autojunk=False)
+            ref = difflib.SequenceMatcher(a=left, b=right, autojunk=False)
+            assert list(got.get_matching_blocks()) == list(ref.get_matching_blocks())
+            assert got.get_opcodes() == ref.get_opcodes()
 
 
 class TestSwap:
@@ -443,7 +487,7 @@ class TestRestoreOnSignal:
         cfg = SimpleNamespace(metadata_dir=str(tmp_path), target_binary=str(tmp_path / "t.bin"))
         ann = SimpleNamespace(symbol="demo", size=4, va=0x1000, module="SERVER", cflags=None)
         monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
-        monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+        monkeypatch.setattr(climb_mod, "target_module", lambda c: "SERVER")
         monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **k: [ann])
         monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
         monkeypatch.setattr(
@@ -484,7 +528,7 @@ class TestRestoreOnSignal:
             return "msvc-4.2", "/O1"
 
         monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
-        monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+        monkeypatch.setattr(climb_mod, "target_module", lambda c: "SERVER")
         monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **k: [ann])
         monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
         monkeypatch.setattr(climb_mod, "resolve_compile_overrides", _resolve)
@@ -523,7 +567,7 @@ class TestRestoreOnSignal:
             return 2.0, len(args[3])  # type: ignore[arg-type]
 
         monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
-        monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+        monkeypatch.setattr(climb_mod, "target_module", lambda c: "SERVER")
         monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **k: [ann])
         monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
         monkeypatch.setattr(
@@ -580,7 +624,7 @@ class TestRestoreOnSignal:
             raise RuntimeError("sweep gave up")
 
         monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
-        monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+        monkeypatch.setattr(climb_mod, "target_module", lambda c: "SERVER")
         monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **k: [ann])
         monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
         monkeypatch.setattr(
@@ -630,7 +674,7 @@ def test_preview_preserves_original_header_directory(tmp_path, monkeypatch, obje
         )
 
     monkeypatch.setattr(rebrew.climb, "require_config", lambda **kw: cfg)
-    monkeypatch.setattr(rebrew.climb, "target_marker", lambda c: "SERVER")
+    monkeypatch.setattr(rebrew.climb, "target_module", lambda c: "SERVER")
     monkeypatch.setattr(rebrew.climb, "read_source_bindings", lambda *a, **kw: [ann])
     monkeypatch.setattr(rebrew.climb, "extract_raw_bytes", lambda *a: b"\x90" * 4)
     monkeypatch.setattr(rebrew.climb, "resolve_compile_overrides", lambda *a: ("msvc-6.0", "/O2"))
@@ -665,7 +709,7 @@ def test_explicit_target_accepts_unregistered_source(tmp_path, monkeypatch, mark
     original = "int probe(int arg)\n{\n int value;\n value = arg;\n return value;\n}\n"
     write_source(source, original)
     cfg = SimpleNamespace(
-        root=tmp_path, metadata_dir=tmp_path, target_binary="unused", marker=marker
+        root=tmp_path, metadata_dir=tmp_path, target_binary="unused", module=marker
     )
     calls = []
 
@@ -681,7 +725,7 @@ def test_explicit_target_accepts_unregistered_source(tmp_path, monkeypatch, mark
         return 4.0, 4
 
     monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
-    monkeypatch.setattr(climb_mod, "target_marker", lambda c: marker)
+    monkeypatch.setattr(climb_mod, "target_module", lambda c: marker)
     monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **kw: [])
     monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90" * 4)
     monkeypatch.setattr(climb_mod, "resolve_compile_overrides", resolve)
@@ -720,9 +764,9 @@ def test_unregistered_source_requires_complete_overrides(tmp_path, monkeypatch, 
 
     source = tmp_path / "probe.c"
     source.write_text("int probe(void) { int value; value = 0; return value; }\n")
-    cfg = SimpleNamespace(metadata_dir=tmp_path, marker="SERVER")
+    cfg = SimpleNamespace(metadata_dir=tmp_path, module="SERVER")
     monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
-    monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+    monkeypatch.setattr(climb_mod, "target_module", lambda c: "SERVER")
     monkeypatch.setattr(climb_mod, "read_source_bindings", lambda *a, **kw: [])
     options = {"--va": "0x1234", "--symbol": "_probe", "--size": "4"}
     args = ["--json"]

@@ -1,6 +1,6 @@
 """test_prove_soundness.py — Soundness regression tests for rebrew.prove.
 
-Covers the prove.py P0 soundness fixes without requiring angr:
+Covers the prove.py P0 soundness fixes with the optional prove extra:
 
 1. Timeout fail-closed: ``prove_equivalence`` must never report PROVEN when
    either side's symbolic execution timed out with incomplete path cover.
@@ -9,7 +9,7 @@ Covers the prove.py P0 soundness fixes without requiring angr:
 2. Bounded symbolic copy length: ``_copy_length_or_none`` must return None
    (refuse) for a symbolic length unbounded above the copy cap, and the
    exact/bounded length otherwise.  Tested with real claripy (declared in
-   the ``prove`` extra, no angr import needed).
+   the ``prove`` extra, bundled with angr).
 3. Offset-map mismatch: ``prove_equivalence`` must return INCONCLUSIVE when
    original call-site counts and compiled reloc-call counts differ, instead
    of patching the original blob at compiled offsets.
@@ -30,7 +30,7 @@ import pytest
 import rebrew.prove as prove_mod
 import rebrew.prove_simprocs as simprocs_mod
 
-has_claripy = importlib.util.find_spec("claripy") is not None
+has_claripy = importlib.util.find_spec("angr") is not None
 
 
 def _install_fake_angr(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
@@ -62,7 +62,10 @@ def _install_fake_angr(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
             self.memory = _FakeMemory()
             self.solver = types.SimpleNamespace(add=lambda *a, **k: None)
 
+    from angr import claripy
+
     fake = types.ModuleType("angr")
+    fake.claripy = claripy
 
     class _FakeProject:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -121,7 +124,7 @@ class TestTimeoutFailClosed:
     partial terminal states happen to compare equal."""
 
     def _equal_states(self) -> tuple[Any, Any]:
-        import claripy
+        from angr import claripy
 
         def _state(val: int) -> Any:
             st = types.SimpleNamespace()
@@ -171,7 +174,7 @@ class TestCopyLengthBound:
     and honours concrete / solver-bounded lengths up to the cap."""
 
     def test_concrete_length_honoured(self) -> None:
-        import claripy
+        from angr import claripy
 
         solver = claripy.Solver()
         assert simprocs_mod._copy_length_or_none(solver, claripy.BVV(17, 32)) == 17
@@ -181,7 +184,7 @@ class TestCopyLengthBound:
         copying the prefix and leaving the tail unconstrained on both sides
         would prove only the compared prefix (P0), so it is refused like an
         unbounded symbolic length."""
-        import claripy
+        from angr import claripy
 
         solver = claripy.Solver()
         assert simprocs_mod._copy_length_or_none(solver, claripy.BVV(5000, 32)) is None
@@ -192,14 +195,14 @@ class TestCopyLengthBound:
         )
 
     def test_unbounded_symbolic_length_refused(self) -> None:
-        import claripy
+        from angr import claripy
 
         solver = claripy.Solver()
         n = claripy.BVS("n", 32)
         assert simprocs_mod._copy_length_or_none(solver, n) is None
 
     def test_bounded_symbolic_length_honoured_at_max(self) -> None:
-        import claripy
+        from angr import claripy
 
         solver = claripy.Solver()
         n = claripy.BVS("n", 32)
@@ -207,7 +210,7 @@ class TestCopyLengthBound:
         assert simprocs_mod._copy_length_or_none(solver, n) == 64
 
     def test_zero_length_copies_nothing(self) -> None:
-        import claripy
+        from angr import claripy
 
         solver = claripy.Solver()
         assert simprocs_mod._copy_length_or_none(solver, claripy.BVV(0, 32)) == 0
@@ -262,7 +265,7 @@ class TestStubArgFingerprint:
     distinguishes distinct call sites / argument formulas."""
 
     def test_same_formula_same_fingerprint(self) -> None:
-        import claripy
+        from angr import claripy
 
         s1, s2 = claripy.Solver(), claripy.Solver()
         a = claripy.BVS("arg", 32)
@@ -270,7 +273,7 @@ class TestStubArgFingerprint:
         assert prove_mod._fingerprint_args(s1, (a,)) == prove_mod._fingerprint_args(s2, (b,))
 
     def test_distinct_formulas_differ(self) -> None:
-        import claripy
+        from angr import claripy
 
         solver = claripy.Solver()
         a = claripy.BVS("x", 32)
@@ -280,7 +283,7 @@ class TestStubArgFingerprint:
         )
 
     def test_concrete_args_hash_by_value(self) -> None:
-        import claripy
+        from angr import claripy
 
         solver = claripy.Solver()
         v1 = prove_mod._fingerprint_args(solver, (claripy.BVV(5, 32),))
@@ -290,7 +293,7 @@ class TestStubArgFingerprint:
         assert v1 != v3
 
     def test_empty_args_stable(self) -> None:
-        import claripy
+        from angr import claripy
 
         solver = claripy.Solver()
         fp1 = prove_mod._fingerprint_args(solver, ())

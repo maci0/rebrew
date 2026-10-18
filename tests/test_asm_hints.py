@@ -38,7 +38,7 @@ def _cfg(tmp_path: Path, binary: Path) -> SimpleNamespace:
         target_binary=binary,
         reversed_dir=src,
         metadata_dir=tmp_path,
-        marker="SERVER",
+        module="SERVER",
         source_ext=".c",
         compiler_profile="msvc",
         capstone_arch=CS_ARCH_X86,

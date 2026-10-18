@@ -176,7 +176,7 @@ def blocker_reason(family: str, size: int, version_hint: str) -> str:
 def classify_all(
     project: Path,
     src_dir: Path,
-    marker: str,
+    target_module_name: str,
     funcs: list[tuple[int, int, str]],
     family: str,
     hint: str,
@@ -215,7 +215,7 @@ def classify_all(
     existing_vas = {
         ann["va"]
         for _, annotations in iter_source_bindings(
-            iter_sources(src_dir), target=marker, metadata_dir=meta_base
+            iter_sources(src_dir), target=target_module_name, metadata_dir=meta_base
         )
         for ann in annotations
     }
@@ -232,13 +232,13 @@ def classify_all(
         # Pure C. The comment does not match the legacy marker grammar, so
         # the row in rebrew-functions.toml is what names the function.
         stub = (
-            f"/* ADDRESS: {marker} 0x{va:08x} */\n\n"
+            f"/* ADDRESS: {target_module_name} 0x{va:08x} */\n\n"
             f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
         )
         out = src_dir / f"fcn_{va:08x}.c"
-        if (va in existing_vas or out.exists()) and (marker, va) in existing:
+        if (va in existing_vas or out.exists()) and (target_module_name, va) in existing:
             continue
-        prev = existing.get((marker, va), {})
+        prev = existing.get((target_module_name, va), {})
         prev_status = str(prev.get("status") or "STUB")
         # Onboarding is a one-shot document step — a RE-RUN (re-discovery
         # via `rebrew intake` on an existing project) must never demote a
@@ -259,7 +259,7 @@ def classify_all(
             c_name = f"fcn_{va:08x}"
             identity_rows.append(
                 {
-                    "module": marker,
+                    "module": target_module_name,
                     "va": va,
                     "identity": {
                         "file": identity_file(out, meta_base),
@@ -281,13 +281,13 @@ def classify_all(
         # verify reports MISSING_SIZE, and the vacuous 0-byte diff pollutes
         # todo as a fake "0B diff" quick-win).  Never clobber a user-corrected
         # size.
-        if size > 0 and existing_sizes.get((marker, va)) is None:
+        if size > 0 and existing_sizes.get((target_module_name, va)) is None:
             fields["size"] = size
         if fields:
-            field_updates.append({"module": marker, "va": va, "fields": fields})
+            field_updates.append({"module": target_module_name, "va": va, "fields": fields})
         status_updates.append(
             {
-                "module": marker,
+                "module": target_module_name,
                 "va": va,
                 "new_status": "STUB",
                 "clear_blockers": False,
@@ -315,7 +315,7 @@ _AUTO_STUB_RE = re.compile(
 def prune_stale_stubs(
     project: Path,
     src_dir: Path,
-    marker: str,
+    target_module_name: str,
     funcs: list[tuple[int, int, str]],
     metadata_dir: Path | None = None,
     prior_inventory: list[Any] | _UnreadableInventory | None = None,
@@ -379,10 +379,10 @@ def prune_stale_stubs(
             logger.warning("skipping unreadable stub %s during prune: %s", path, exc)
             continue
         m = _AUTO_STUB_RE.match(text)
-        if m is None or m.group(1) != marker:
+        if m is None or m.group(1) != target_module_name:
             continue
         va = int(m.group(2), 16)
-        entry = get_entry(meta_base, va, marker)
+        entry = get_entry(meta_base, va, target_module_name)
         if va in valid_vas or entry.get("status_history") or entry.get("binding_history"):
             continue
         try:
@@ -390,7 +390,7 @@ def prune_stale_stubs(
         except OSError as exc:
             logger.warning("could not remove stale stub %s: %s", path, exc)
             continue
-        delete_metadata_entry(meta_base, va, marker)
+        delete_metadata_entry(meta_base, va, target_module_name)
         removed += 1
     return removed
 
@@ -561,7 +561,7 @@ def main(
         validate_target_name(target_name)
     except ConfigError as exc:
         error_exit(str(exc), json_mode=json_output)
-    marker = re.sub(r"[^A-Za-z0-9_]", "", target_name).upper()
+    target_module_name = re.sub(r"[^A-Za-z0-9_]", "", target_name).upper()
 
     if toolchain is None:
         profile, family, hint, notes = _suggest_profile(bin_path)
@@ -710,11 +710,15 @@ def main(
     )
 
     # 5. document unmatched functions
-    documented = classify_all(project, src_dir, marker, funcs, family, hint, profile=profile)
+    documented = classify_all(
+        project, src_dir, target_module_name, funcs, family, hint, profile=profile
+    )
     # 6. prune auto-stubs orphaned by a changed function list (re-discovery
     #    only — a fresh onboarding has nothing stale).
     if project_existed:
-        pruned = prune_stale_stubs(project, src_dir, marker, funcs, prior_inventory=prior_inventory)
+        pruned = prune_stale_stubs(
+            project, src_dir, target_module_name, funcs, prior_inventory=prior_inventory
+        )
         if pruned:
             notes.append(f"pruned {pruned} stale auto-stub(s) from the previous discovery")
         elif isinstance(prior_inventory, _UnreadableInventory):

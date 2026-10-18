@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import bisect
 import functools
+import json
 import logging
 import re
 import shutil
@@ -45,11 +46,13 @@ from typing import Any, Literal, NamedTuple
 
 import typer
 from rich.markup import escape
+from rich.text import Text
 
 from rebrew.analysis import direct_call_target, direct_jump_target
 from rebrew.catalog import load_function_structure
 from rebrew.cli import (
     EXIT_ERROR,
+    EXIT_MISMATCH,
     TargetOption,
     console,
     error_exit,
@@ -57,13 +60,10 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import ProjectConfig, inventory_path_for, load_config, module_marker
+from rebrew.config import ProjectConfig, inventory_path_for, load_config, target_module
 from rebrew.metadata.bindings import read_source_bindings
 from rebrew.rename_ops import c_name_from_symbol
-from rebrew.sources import (
-    iter_sources,
-    target_marker,
-)
+from rebrew.sources import iter_sources
 from rebrew.status_style import DISPLAY_STATUSES
 from rebrew.utils import atomic_write_text, parse_int_literal, untrusted_ident
 
@@ -171,7 +171,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
             try:
                 entries = read_source_bindings(
                     cfile,
-                    target_name=target_marker(cfg),
+                    target_name=target_module(cfg),
                     metadata_dir=cfg.metadata_dir,
                     project_root=getattr(cfg, "root", None),
                 )
@@ -894,6 +894,17 @@ def hex_disassembly(cfg: ProjectConfig, va_int: int, size: int) -> str:
     )
 
 
+def _write_view_output(output: Path, text: str, *, dry_run: bool, json_output: bool) -> None:
+    """Write an inspection view without changing files during a preview."""
+    if not dry_run:
+        try:
+            atomic_write_text(output, text, encoding="utf-8")
+        except OSError as exc:
+            error_exit(str(exc), json_mode=json_output)
+    action = "Would write" if dry_run else "Written"
+    console.print(f"{action} to {untrusted_ident(str(output))}")
+
+
 def _run_hex_mode(
     va_int: int,
     size: int,
@@ -906,6 +917,8 @@ def _run_hex_mode(
     pattern_hints: bool = False,
     stale_size: bool = False,
     declared_size: int | None = None,
+    output: Path | None = None,
+    dry_run: bool = False,
 ) -> None:
     """Capstone hex-dump disassembly (default format)."""
     try:
@@ -930,7 +943,11 @@ def _run_hex_mode(
         if json_output:
             error_exit("capstone not installed", json_mode=json_output)
         console.print("[yellow](capstone not installed, showing hex dump)[/]")
-        print(_hex_dump_text(view.data, va_int), end="")
+        text = _hex_dump_text(view.data, va_int)
+        if output is not None:
+            _write_view_output(output, text, dry_run=dry_run, json_output=json_output)
+        else:
+            print(text, end="")
         return
 
     if json_output:
@@ -953,18 +970,35 @@ def _run_hex_mode(
             if pattern_hints:
                 entry["hint"] = _hint_for(view.insn_list, view.shown_offset + idx)
             instr_json.append(entry)
-        json_print(
-            {
-                "va": f"0x{va_int:08x}",
-                "size": len(view.data),
-                "requested_size": declared_size if stale_size else size,
-                "truncated": view.truncated,
-                "stale_size": stale_size,
-                "calling_convention": view.conv,
-                "instruction_count": len(view.shown),
-                "instructions": instr_json,
-            }
-        )
+        payload = {
+            "va": f"0x{va_int:08x}",
+            "size": len(view.data),
+            "requested_size": declared_size if stale_size else size,
+            "truncated": view.truncated,
+            "stale_size": stale_size,
+            "calling_convention": view.conv,
+            "instruction_count": len(view.shown),
+            "instructions": instr_json,
+        }
+        if output is not None:
+            _write_view_output(
+                output,
+                json.dumps(payload, indent=2) + "\n",
+                dry_run=dry_run,
+                json_output=json_output,
+            )
+        json_print(payload)
+        return
+
+    text = _hex_text(
+        view,
+        annotate=annotate,
+        resolve_imports=resolve_imports,
+        resolve_strings=resolve_strings,
+        pattern_hints=pattern_hints,
+    )
+    if output is not None:
+        _write_view_output(output, text, dry_run=dry_run, json_output=json_output)
         return
 
     console.print(
@@ -976,16 +1010,7 @@ def _run_hex_mode(
     if view.conv != "unknown":
         console.print(f"  [dim]calling convention: {view.conv}[/dim]")
     console.print()
-    print(
-        _hex_text(
-            view,
-            annotate=annotate,
-            resolve_imports=resolve_imports,
-            resolve_strings=resolve_strings,
-            pattern_hints=pattern_hints,
-        ),
-        end="",
-    )
+    print(text, end="")
 
 
 # ---------------------------------------------------------------------------
@@ -1035,7 +1060,15 @@ def build_cfg_payload(cfg: ProjectConfig, va_int: int, size: int = 0) -> dict[st
     return _cfg_payload(va_int, len(code), view, None)
 
 
-def _run_cfg_mode(va_int: int, size: int | None, cfg: ProjectConfig, json_output: bool) -> None:
+def _run_cfg_mode(
+    va_int: int,
+    size: int | None,
+    cfg: ProjectConfig,
+    json_output: bool,
+    *,
+    output: Path | None = None,
+    dry_run: bool = False,
+) -> None:
     """Print the basic-block CFG of the function at *va_int* (``--format cfg``).
 
     Lives on ``asm`` rather than as a command of its own: ``asm`` already
@@ -1052,6 +1085,16 @@ def _run_cfg_mode(va_int: int, size: int | None, cfg: ProjectConfig, json_output
         error_exit(str(e), json_mode=json_output)
     except Exception as e:  # capstone.CsError and friends
         error_exit(f"capstone error: {e}", json_mode=json_output)
+    if output is not None:
+        if json_output:
+            text = json.dumps(payload, indent=2) + "\n"
+        else:
+            with console.capture() as capture:
+                _emit_cfg(payload, False)
+            text = Text.from_ansi(capture.get()).plain
+        _write_view_output(output, text, dry_run=dry_run, json_output=json_output)
+        if not json_output:
+            return
     _emit_cfg(payload, json_output)
 
 
@@ -1428,7 +1471,7 @@ def generate_inline_c(
     lines.append("")
     from rebrew.metadata.anchors import add_address_anchor
 
-    return add_address_anchor("\n".join(lines), cfg.marker or "TARGET", va, func_name)
+    return add_address_anchor("\n".join(lines), cfg.module or "TARGET", va, func_name)
 
 
 def _record_inline_c_identity(
@@ -1439,7 +1482,7 @@ def _record_inline_c_identity(
     from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
 
     sym = symbol or f"_func_{va:08x}"
-    module = cfg.marker or "TARGET"
+    module = cfg.module or "TARGET"
     previous = get_entry(cfg.metadata_dir, va, module)
     kind = "LIBRARY" if previous.get("kind") == "LIBRARY" else "FUNCTION"
     root = (
@@ -1519,6 +1562,19 @@ def _nasm_on_path() -> bool:
     """Whether nasm resolves on ``PATH``; the answer is process-invariant and
     ``--all`` calls this once per function."""
     return shutil.which("nasm") is not None
+
+
+def _roundtrip_exit_code(passed: bool, message: str) -> int:
+    """Exit status for one round-trip check.
+
+    A byte mismatch is ``EXIT_MISMATCH``. NASM missing, or NASM producing no
+    bytes, means the checker itself did not run: ``EXIT_ERROR``.
+    """
+    if passed:
+        return 0
+    if message.startswith("nasm not on PATH") or message == "NASM assembly failed":
+        return EXIT_ERROR
+    return EXIT_MISMATCH
 
 
 def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str]:
@@ -1617,7 +1673,7 @@ def batch_extract_nasm(
         if cfile.resolve().is_relative_to(resolved_output):
             continue
         for info in _parse_annotations(
-            cfile, metadata_dir=cfg.metadata_dir, target_name=module_marker(cfg)
+            cfile, metadata_dir=cfg.metadata_dir, target_name=target_module(cfg)
         ):
             if info["size"] < 6:
                 continue
@@ -1630,6 +1686,7 @@ def batch_extract_nasm(
     ok = 0
     fail = 0
     skipped = 0
+    verify_exit = 0
     files: list[str] = []
 
     for i, entry in enumerate(entries, 1):
@@ -1677,6 +1734,11 @@ def batch_extract_nasm(
         if verify_flag:
             passed, msg = verify_roundtrip(nasm_src, code)
             status = "PASS" if passed else f"FAIL ({msg})"
+            step = _roundtrip_exit_code(passed, msg)
+            if step == EXIT_ERROR:
+                verify_exit = EXIT_ERROR
+            elif step and verify_exit != EXIT_ERROR:
+                verify_exit = step
             if passed:
                 ok += 1
             else:
@@ -1696,7 +1758,7 @@ def batch_extract_nasm(
         console.print(
             f"\nDone: [green]{ok} ok[/], [red]{fail} failed[/], {skipped} skipped, {total} total"
         )
-    return {
+    payload = {
         "output": str(out_dir),
         "total": total,
         "ok": ok,
@@ -1707,6 +1769,9 @@ def batch_extract_nasm(
         "files": files,
         "dry_run": dry_run,
     }
+    if verify_exit:
+        payload["verify_exit"] = verify_exit
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -1799,8 +1864,11 @@ def disassemble(
             )
         except (RuntimeError, OSError, ValueError) as e:
             error_exit(str(e), json_mode=json_output)
+        verify_exit = int(batch_result.pop("verify_exit", 0))
         if json_output:
             json_print(batch_result)
+        if verify_exit:
+            raise typer.Exit(code=verify_exit)
         return
 
     # --- Resolve VA ---
@@ -1814,7 +1882,7 @@ def disassemble(
     if fmt == "cfg":
         if va_int is None:
             error_exit("--format cfg requires a VA as a positional argument", json_mode=json_output)
-        _run_cfg_mode(va_int, size, cfg, json_output)
+        _run_cfg_mode(va_int, size, cfg, json_output, output=output, dry_run=dry_run)
         return
 
     # Default to the known canonical size (function list) when no --size is
@@ -1890,6 +1958,8 @@ def disassemble(
             pattern_hints=pattern_hints,
             stale_size=stale_size,
             declared_size=declared_size,
+            output=output,
+            dry_run=dry_run,
         )
         return
 
@@ -1965,10 +2035,15 @@ def disassemble(
             "written": output is not None,
             "dry_run": False,
         }
+        roundtrip_exit = 0
+        roundtrip_message = ""
         if verify:
-            passed, msg = verify_roundtrip(nasm_src, code)
+            passed, roundtrip_message = verify_roundtrip(nasm_src, code)
+            roundtrip_exit = _roundtrip_exit_code(passed, roundtrip_message)
+            if roundtrip_exit == EXIT_ERROR:
+                error_exit(roundtrip_message, json_mode=json_output, code=EXIT_ERROR)
             result["roundtrip_pass"] = passed
-            result["roundtrip_message"] = msg
+            result["roundtrip_message"] = roundtrip_message
         if json_output:
             json_print(result)
         else:
@@ -1980,14 +2055,23 @@ def disassemble(
                 f"  NASM-compatible: {run_stats['nasm_ok']} ({run_stats['pct_nasm']:.1f}%)"
             )
             console.print(f"  db fallbacks: {run_stats['db_fallbacks']}")
+            if verify:
+                console.print(f"\nRound-trip verification: {untrusted_ident(roundtrip_message)}")
+        if roundtrip_exit:
+            raise typer.Exit(code=roundtrip_exit)
         return
 
     if not output:
         print(out_src)
 
     if verify:
-        _, msg = verify_roundtrip(nasm_src, code)
+        passed, msg = verify_roundtrip(nasm_src, code)
+        roundtrip_exit = _roundtrip_exit_code(passed, msg)
+        if roundtrip_exit == EXIT_ERROR:
+            error_exit(msg, json_mode=json_output, code=EXIT_ERROR)
         console.print(f"\nRound-trip verification: {untrusted_ident(msg)}")
+        if roundtrip_exit:
+            raise typer.Exit(code=roundtrip_exit)
 
 
 @app.command(
@@ -1996,7 +2080,7 @@ def disassemble(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew binary asm show 0x10003ca0 --size 77 --json\n\n"
         "  rebrew binary asm show 0x401000 -f nasm --inline-c --dry-run\n\n"
-        "NASM --output writes the artifact even with --json or --stats. --inline-c records a written skeleton in metadata. Use --dry-run to preview without writing files, metadata or NASM verification probes."
+        "Hex/CFG --output writes the selected text or JSON view. NASM --output writes the artifact even with --json or --stats. --inline-c records a written skeleton in metadata. Use --dry-run to preview without writing files, metadata or NASM verification probes."
     ),
 )
 def show(

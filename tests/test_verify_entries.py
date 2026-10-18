@@ -13,9 +13,9 @@ import rebrew.verify_hash as verify_hash_mod
 from rebrew.metadata.bindings import SourceBinding
 
 
-def _ann(va: int, marker: str = "FUNCTION", filepath: str = "f.c", size: int = 64) -> SourceBinding:
+def _ann(va: int, module: str = "FUNCTION", filepath: str = "f.c", size: int = 64) -> SourceBinding:
     return SourceBinding(
-        va=va, name=f"f{va:x}", status="STUB", size=size, filepath=filepath, kind=marker
+        va=va, name=f"f{va:x}", status="STUB", size=size, filepath=filepath, kind=module
     )
 
 
@@ -29,7 +29,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
 
 
 def _patch(monkeypatch: pytest.MonkeyPatch, entries: list[SourceBinding]) -> None:
-    monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None: entries)
+    monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None, **_kw: entries)
     monkeypatch.setattr(verify_mod, "cached_function_list", lambda _cfg: [])
     monkeypatch.setattr(verify_mod, "build_function_registry", lambda *a, **k: {})
     monkeypatch.setattr(verify_mod, "count_detection_sources", lambda r: (0, 0, 0, 0))
@@ -41,6 +41,34 @@ def _patch(monkeypatch: pytest.MonkeyPatch, entries: list[SourceBinding]) -> Non
 
 
 class TestPrepareEntries:
+    @pytest.mark.parametrize(
+        ("convention", "symbol"),
+        [("__stdcall", "_hook@4"), ("__fastcall", "@hook@4"), ("__vectorcall", "hook@@4")],
+    )
+    def test_inventory_without_symbol_preserves_calling_convention(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        convention: str,
+        symbol: str,
+    ) -> None:
+        scan = verify_mod.scan_reversed_dir
+        cfg = _cfg(tmp_path)
+        cfg.module = "GAME"
+        cfg.reversed_dir.mkdir()
+        cfg.target_binary.write_bytes(b"MZ")
+        write_source(
+            cfg.reversed_dir / "hook.c",
+            f"int {convention} hook(int x) {{ return x; }}\n",
+            metadata_fields={"GAME.0x1000": {"symbol": "", "size": 8}},
+            metadata_dir=tmp_path,
+        )
+        _patch(monkeypatch, [])
+        monkeypatch.setattr(verify_mod, "scan_reversed_dir", scan)
+        entries, *_rest = verify_mod.prepare_entries(cfg, full=True, json_output=False)
+        assert len(entries) == 1
+        assert verify_mod._entry_symbol(entries[0]) == symbol
+
     @pytest.mark.parametrize("reverse", [False, True])
     @pytest.mark.parametrize("marker,filepath", [("FUNCTION", "bound.c"), ("LIBRARY", "bound.h")])
     def test_managed_source_binding_wins_over_duplicate(
@@ -55,7 +83,7 @@ class TestPrepareEntries:
         from rebrew.metadata.functions import record_function_identity
 
         cfg = _cfg(tmp_path)
-        cfg.marker = "GAME"
+        cfg.module = "GAME"
         cfg.src_dir = cfg.reversed_dir
         (tmp_path / "x.dll").write_bytes(b"MZ")
         record_function_identity(
@@ -71,7 +99,7 @@ class TestPrepareEntries:
         stale = _ann(0x1000, filepath="stale.c")
         stale.module = "GAME"
         stale.name = "stale"
-        bound = _ann(0x1000, marker=marker, filepath=filepath)
+        bound = _ann(0x1000, module=marker, filepath=filepath)
         bound.module = "GAME"
         bound.name = "bound"
         candidates = [bound, stale] if reverse else [stale, bound]
@@ -101,7 +129,7 @@ class TestPrepareEntries:
         from rebrew.metadata.functions import record_function_identity
 
         cfg = _cfg(tmp_path)
-        cfg.marker = "GAME"
+        cfg.module = "GAME"
         cfg.src_dir = cfg.reversed_dir
         (tmp_path / "x.dll").write_bytes(b"MZ")
         record_function_identity(
@@ -115,7 +143,7 @@ class TestPrepareEntries:
             size=64,
         )
         stale = _ann(0x1000, filepath="same.c")
-        bound = _ann(0x1000, marker="LIBRARY", filepath="same.c")
+        bound = _ann(0x1000, module="LIBRARY", filepath="same.c")
         stale.module = bound.module = "GAME"
         _patch(monkeypatch, [bound, stale] if reverse else [stale, bound])
         entries, *_rest = verify_mod.prepare_entries(cfg, full=True, json_output=False)
@@ -130,7 +158,7 @@ class TestPrepareEntries:
         from rebrew.metadata.functions import record_function_identity
 
         cfg = _cfg(tmp_path)
-        cfg.marker = "GAME"
+        cfg.module = "GAME"
         cfg.src_dir = cfg.reversed_dir
         (tmp_path / "x.dll").write_bytes(b"MZ")
         record_function_identity(
@@ -161,8 +189,8 @@ class TestPrepareEntries:
             [
                 _ann(0x1000),
                 _ann(0x1000),  # duplicate VA
-                _ann(0x2000, marker="DATA"),
-                _ann(0x3000, marker="GLOBAL"),
+                _ann(0x2000, module="DATA"),
+                _ann(0x3000, module="GLOBAL"),
                 _ann(0x4000, filepath="lib.h"),
             ],
         )
@@ -236,7 +264,7 @@ class TestPrepareEntriesCache:
         self._entry = entry
         f = src / entry.filepath
         f.write_text("int f(void) { return 0; }\n", encoding="utf-8")
-        monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None: [entry])
+        monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None, **_kw: [entry])
         monkeypatch.setattr(verify_mod, "cached_function_list", lambda _cfg: [])
         monkeypatch.setattr(verify_mod, "build_function_registry", lambda *a, **k: {})
         monkeypatch.setattr(verify_mod, "count_detection_sources", lambda r: (0, 0, 0, 0))
@@ -895,7 +923,7 @@ def test_verify_entry_survives_a_raising_logger(
     Regression: the diff_lines/similarity handlers logged ``result.va``, an
     attribute ``CompareResult`` does not have, so every function that reached
     those blocks raised out of a guard whose entire purpose is to swallow
-    failures.  ``rebrew verify --full`` reported 31/283 instead of 281/283 on
+    failures.  ``rebrew verify --no-cache`` reported 31/283 instead of 281/283 on
     a tree with no source change.  Best-effort has to include its own
     diagnostics.
     """
@@ -1039,7 +1067,7 @@ def test_scope_entries_nolib_drops_header_attributed_functions(tmp_path: Path) -
         metadata_dir=tmp_path,
     )
     cfg = SimpleNamespace(
-        reversed_dir=rev, root=tmp_path, metadata_dir=tmp_path, marker="T", external_libs=None
+        reversed_dir=rev, root=tmp_path, metadata_dir=tmp_path, module="T", external_libs=None
     )
     entries = [
         SourceBinding(va=0x1000, name="game", filepath="a.c", module="T", kind="FUNCTION"),
@@ -1084,6 +1112,6 @@ def test_scan_keeps_only_this_targets_library_headers(tmp_path: Path) -> None:
         metadata_dir=tmp_path,
     )
     cfg = SimpleNamespace(
-        reversed_dir=rev, root=tmp_path, metadata_dir=tmp_path, marker="SERVER", source_ext=".c"
+        reversed_dir=rev, root=tmp_path, metadata_dir=tmp_path, module="SERVER", source_ext=".c"
     )
     assert [e.va for e in scan_reversed_dir(rev, cfg=cfg)] == [0x2000]  # type: ignore[arg-type]

@@ -10,6 +10,7 @@ which resolves flags from ``rebrew-functions.toml``.  guild-rebrew's
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -33,7 +34,7 @@ binary = "original/server.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/server_dll"
-marker = "SERVER"
+module = "SERVER"
 
 [compiler]
 profile = "msvc-6.0"
@@ -46,8 +47,8 @@ def _project(tmp_path: Path, functions_toml: str, sources: dict[str, str]) -> Pr
     write_source(
         tmp_path / "src/rebrew-functions.toml",
         functions_toml
-        if functions_toml.startswith("format = 2")
-        else "format = 2\n" + functions_toml,
+        if functions_toml.startswith("format = 3")
+        else "format = 3\n" + functions_toml,
         encoding="utf-8",
     )
     for name, body in sources.items():
@@ -59,7 +60,7 @@ def test_metadata_flags_are_emitted(tmp_path: Path) -> None:
     """The TOML value wins — that is the whole point of the command."""
     cfg = _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -85,7 +86,7 @@ def test_target_defines_reach_annotated_and_listed_sources(
         pytest.skip("cmake is required to check the generated source properties")
     _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -95,7 +96,7 @@ def test_target_defines_reach_annotated_and_listed_sources(
         },
     )
     (tmp_path / "rebrew-project.toml").write_text(
-        TOML.replace('marker = "SERVER"', 'marker = "SERVER"\ndefines = ' + json.dumps(defines)),
+        TOML.replace('module = "SERVER"', 'module = "SERVER"\ndefines = ' + json.dumps(defines)),
         encoding="utf-8",
     )
     listed = tmp_path / "sources.txt"
@@ -145,9 +146,9 @@ def test_target_defines_do_not_leak_between_targets(
         },
     )
     (tmp_path / "rebrew-project.toml").write_text(
-        TOML.replace('marker = "SERVER"', 'marker = "SERVER"\ndefines = ["SERVER_BUILD"]')
+        TOML.replace('module = "SERVER"', 'module = "SERVER"\ndefines = ["SERVER_BUILD"]')
         + '\n[targets.client]\nbinary = "original/client.exe"\nformat = "pe"\n'
-        'arch = "x86_32"\nreversed_dir = "src/server_dll"\nmarker = "CLIENT"\n'
+        'arch = "x86_32"\nreversed_dir = "src/server_dll"\nmodule = "CLIENT"\n'
         'defines = ["CLIENT_BUILD"]\n',
         encoding="utf-8",
     )
@@ -158,11 +159,127 @@ def test_target_defines_do_not_leak_between_targets(
         assert cli_payload(result)["defines"] == [define]
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_shared_source_flags_are_scoped_in_one_cmake_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reverse: bool
+) -> None:
+    cmake = shutil.which("cmake")
+    if cmake is None or shutil.which("cc") is None:
+        pytest.skip("cmake and a C compiler are required for generated-rule checks")
+    _project(
+        tmp_path,
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O1"\n["CLIENT.0x401000"]\ncflags = "/O2"\n',
+        {
+            "a.c": SourceFixture(
+                "int a(void) { return 0; }\n",
+                {
+                    "SERVER.0x10001000": {"kind": "FUNCTION"},
+                    "CLIENT.0x401000": {"kind": "FUNCTION"},
+                },
+            )
+        },
+    )
+    (tmp_path / "rebrew-project.toml").write_text(
+        TOML.replace('module = "SERVER"', 'module = "SERVER"\ndefines = ["SERVER_BUILD"]')
+        + '\n[targets.client]\nbinary = "original/client.exe"\nformat = "pe"\n'
+        'arch = "x86_32"\nreversed_dir = "src/server_dll"\nmodule = "CLIENT"\n'
+        'defines = ["CLIENT_BUILD", \'LABEL="ab"\', "CHOICES=a;b"]\n',
+    )
+    monkeypatch.chdir(tmp_path)
+    for target, cmake_target in [("server_dll", "server_build"), ("client", "client_build")]:
+        result = CliRunner().invoke(
+            app,
+            [
+                "--json",
+                "--target",
+                target,
+                "--cmake-target",
+                cmake_target,
+                "-o",
+                f"{cmake_target}.cmake",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result)["cmake_target"] == cmake_target
+    includes = ["server_build", "client_build"]
+    if reverse:
+        includes.reverse()
+    (tmp_path / "CMakeLists.txt").write_text(
+        "cmake_minimum_required(VERSION 3.15)\nproject(scoped C)\n"
+        "set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\n"
+        + "".join(
+            f"add_library({name} OBJECT src/server_dll/a.c)\n"
+            for name in ("server_build", "client_build", "unrelated")
+        )
+        + "".join(f"include({name}.cmake)\n" for name in includes),
+    )
+    configured = subprocess.run(
+        [cmake, "-S", str(tmp_path), "-B", str(tmp_path / "build")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert configured.returncode == 0, configured.stdout + configured.stderr
+    commands = json.loads((tmp_path / "build/compile_commands.json").read_text())
+    for command in commands:
+        argv = shlex.split(command["command"])
+        if "server_build.dir" in command["command"]:
+            assert "/O1" in argv and "/O2" not in argv
+            assert "-DSERVER_BUILD" in argv and "-DCLIENT_BUILD" not in argv
+            assert not any(arg.startswith("-DLABEL") for arg in argv)
+        elif "client_build.dir" in command["command"]:
+            assert "/O2" in argv and "/O1" not in argv
+            assert "-DCLIENT_BUILD" in argv and "-DSERVER_BUILD" not in argv
+            assert '-DLABEL="ab"' in argv and "-DCHOICES=a;b" in argv
+        else:
+            assert "/O1" not in argv and "/O2" not in argv
+            assert not any(arg.startswith(("-DCLIENT_BUILD", "-DSERVER_BUILD")) for arg in argv)
+
+
+@pytest.mark.parametrize("name", ["bad name", 'bad"name', "bad;name", "a::b", "$<NAME>"])
+def test_invalid_cmake_target_preserves_existing_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    _project(tmp_path, "", {})
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "flags.cmake"
+    output.write_text("existing table\n")
+    result = CliRunner().invoke(app, ["--json", "--cmake-target", name, "-o", str(output)])
+    assert result.exit_code == EXIT_ERROR, result.output
+    assert "CMake build target name" in str(cli_payload(result))
+    assert output.read_text() == "existing table\n"
+
+
+def test_scoped_include_requires_declared_cmake_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cmake = shutil.which("cmake")
+    if cmake is None:
+        pytest.skip("cmake is required to check generated target validation")
+    _project(tmp_path, "", {})
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        app, ["--json", "--cmake-target", "missing_build", "-o", "flags.cmake"]
+    )
+    assert result.exit_code == 0, result.output
+    (tmp_path / "CMakeLists.txt").write_text(
+        "cmake_minimum_required(VERSION 3.15)\nproject(scoped NONE)\ninclude(flags.cmake)\n"
+    )
+    configured = subprocess.run(
+        [cmake, "-S", str(tmp_path), "-B", str(tmp_path / "build")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert configured.returncode != 0
+    assert "Unknown CMake build target: missing_build" in configured.stderr
+
+
 def test_conflicting_functions_in_one_file_are_reported(tmp_path: Path) -> None:
     """A TU compiles with one flag set, so this cannot be honoured silently."""
     cfg = _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n/* ADDRESS: SERVER 0x10001020 */\nint b(void) { return 0; }\n",
@@ -185,7 +302,7 @@ def test_define_alone_is_not_a_conflict_and_is_not_emitted(tmp_path: Path) -> No
     define is dropped, visibly, rather than silently."""
     cfg = _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n["SERVER.0x10001020"]\ncflags = "/O2 /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n["SERVER.0x10001020"]\ncflags = "/O2 /Gd"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n/* ADDRESS: SERVER 0x10001020 */\nint b(void) { return 0; }\n",
@@ -218,7 +335,7 @@ def test_data_marker_does_not_count_as_a_function(tmp_path: Path) -> None:
     """
     cfg = _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Oy-"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Oy-"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10002000 */\nchar blob[4] = {0};\n/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -240,7 +357,7 @@ def test_written_include_is_valid_cmake(tmp_path: Path, monkeypatch: pytest.Monk
     """
     _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Ow"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Ow"\n',
         {
             "a b.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -262,7 +379,7 @@ def test_cli_json_dry_run_stdout_is_pure(tmp_path: Path, monkeypatch: pytest.Mon
     """``--json --dry-run`` must emit only JSON on stdout (no CMake include text)."""
     _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -286,7 +403,7 @@ def test_cli_conflicting_flags_exit_error_with_json(
     """Conflicting per-file flags exit EXIT_ERROR and still emit a JSON envelope."""
     _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n/* ADDRESS: SERVER 0x10001020 */\nint b(void) { return 0; }\n",
@@ -325,7 +442,7 @@ def test_toolchain_pin_is_reported_because_the_build_cannot_honour_it(
     """
     cfg = _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ntoolchain = "msvc-6.0"\n',
+        'format = 3\n["SERVER.0x10001000"]\ntoolchain = "msvc-6.0"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -346,7 +463,7 @@ def test_sources_file_unannotated_appears_in_json(
     """``--sources-file`` entries without annotations must still show in ``--json``."""
     _project(
         tmp_path,
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
         {
             "a.c": SourceFixture(
                 "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
@@ -366,6 +483,47 @@ def test_sources_file_unannotated_appears_in_json(
     assert payload["files"]["src/server_dll/a.c"] == "/Ox /Gd"
 
 
+@pytest.mark.parametrize("listed_sources", [["src/server_dll/a.c"], []])
+def test_sources_file_excludes_unselected_flag_conflicts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, listed_sources: list[str]
+) -> None:
+    """An unrelated TU cannot reject a selected build's flag table."""
+    _project(
+        tmp_path,
+        '["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n'
+        '["SERVER.0x10002000"]\ncflags = "/O1 /Gd"\n'
+        '["SERVER.0x10002010"]\ncflags = "/O2 /Gd"\n',
+        {
+            "a.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
+            ),
+            "unselected.c": SourceFixture(
+                "/* ADDRESS: SERVER 0x10002000 */\nint b(void) { return 0; }\n"
+                "/* ADDRESS: SERVER 0x10002010 */\nint c(void) { return 1; }\n",
+                {
+                    "SERVER.0x10002000": {"kind": "FUNCTION"},
+                    "SERVER.0x10002010": {"kind": "FUNCTION"},
+                },
+            ),
+        },
+    )
+    listed = tmp_path / "sources.txt"
+    listed.write_text("\n".join(listed_sources), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(app, ["--json", "--sources-file", str(listed), "-o", "flags.cmake"])
+    assert result.exit_code == 0, result.output
+    payload = cli_payload(result)
+    assert set(payload["files"]) == set(listed_sources)
+    assert payload["problems"] == []
+    assert "unselected.c" not in (tmp_path / "flags.cmake").read_text(encoding="utf-8")
+
+    # Omitting the selection still checks every TU, including the conflict.
+    all_sources = CliRunner().invoke(app, ["--json", "--dry-run"])
+    assert all_sources.exit_code == EXIT_ERROR, all_sources.output
+    assert len(cli_payload(all_sources)["problems"]) == 1
+
+
 def test_shared_sources_are_collected(tmp_path: Path) -> None:
     """A shared file's marker for this target decides its CMake flags — the
     old reversed_dir-only rglob left every shared TU flagless in the build."""
@@ -380,7 +538,7 @@ def test_shared_sources_are_collected(tmp_path: Path) -> None:
     (tmp_path / "src/shared").mkdir(parents=True, exist_ok=True)
     write_store_fixture(
         tmp_path / "src/rebrew-functions.toml",
-        'format = 2\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        'format = 3\n["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
         encoding="utf-8",
     )
     write_source(

@@ -8,6 +8,12 @@ derives each symbol's type from ``extern`` declarations in the reversed
 sources, and emits zero-init globals, string globals (``s_*``) and stub
 functions with simplified C89 types.
 
+An MSVC ``_Name@N`` symbol is emitted as ``int __stdcall Name`` with
+``N/4`` int parameters unless ``--specials`` or a matching stdcall
+prototype already supplies the contract. ``__imp_`` slots are left for
+the import library. A decorated symbol used to become a cdecl data
+object, which does not resolve ``_Name@N``.
+
 Project policy — special forwarding stubs (``gm_*`` wrappers, stdcall
 thread entries), the big non-tentative BSS arrays, the ``g_bss_tail`` pad
 and a verbatim footer (e.g. a ``_fltused`` marker) are **not** rebrew's
@@ -85,10 +91,91 @@ _EXCLUDED_SUFFIX = ".c.off"
 
 
 _DEMANGLE_RE = re.compile(r"@\d+$")
+#: ``__imp__Name`` and ``__imp__Name@N`` are import-library slots, not game code.
+_IMPORT_PREFIX = "__imp_"
+#: MSVC stdcall decoration ``_Name@N``. The byte count is the stack contract.
+_STDCALL_DECORATION = re.compile(r"^_(?!_imp_)(?P<body>.+)@(?P<nbytes>\d+)$")
+_STDCALL_CONVENTIONS = frozenset({"__stdcall", "WINAPI", "CALLBACK", "APIENTRY"})
 
 #: Every ``identifier(`` call site in a source, for the no-declaration stub
 #: fallback; one compile per run, so it lives beside the other module patterns.
 _CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
+
+
+def is_import_symbol(symbol: str) -> bool:
+    """True for a DLL import slot the import library must provide."""
+    return symbol.startswith(_IMPORT_PREFIX)
+
+
+def stdcall_arity(symbol: str) -> int | None:
+    """Parameter count implied by an MSVC ``_Name@N`` stdcall decoration.
+
+    ``N`` is the callee stack-byte count. A count that is not a multiple of
+    the 32-bit argument slot is not this decoration.
+    """
+    match = _STDCALL_DECORATION.match(symbol)
+    if match is None:
+        return None
+    nbytes = int(match.group("nbytes"))
+    if nbytes % 4:
+        return None
+    return nbytes // 4
+
+
+_WIDE_PARAM_RE = re.compile(r"\b(?:double|struct|union|__int64)\b|long\s+double|long\s+long")
+
+
+def _stdcall_param_slots(params: str | None) -> int | None:
+    """Top-level parameter count when each parameter is one 32-bit slot.
+
+    ``(void)`` is 0. A ``double``, a by-value aggregate, or ``...`` is not
+    one slot, so the ``_Name@N`` byte count stays the contract.
+    """
+    if params is None:
+        return None
+    inner = params.strip()
+    if inner.startswith("(") and inner.endswith(")"):
+        inner = inner[1:-1].strip()
+    if not inner or inner == "void":
+        return 0
+    if "..." in inner or _WIDE_PARAM_RE.search(inner):
+        return None
+    depth = 0
+    count = 1
+    for ch in inner:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif ch == "," and depth == 0:
+            count += 1
+    if depth != 0:
+        return None
+    return count
+
+
+def _extern_matches_stdcall(info: dict[str, typing.Any] | None, arity: int) -> bool:
+    """True when *info* is a stdcall prototype whose slots match *arity*.
+
+    A cdecl declaration, a data object, or a different slot count does not
+    satisfy ``_Name@N``. The decoration then supplies ``N/4`` int parameters.
+    """
+    if not info or not info.get("is_func"):
+        return False
+    if info.get("calling_conv") not in _STDCALL_CONVENTIONS:
+        return False
+    return _stdcall_param_slots(info.get("params")) == arity
+
+
+def _symbol_rank(symbol: str) -> tuple[int, str]:
+    """Prefer a stdcall decoration when several symbols share a C name.
+
+    ``_Name`` and ``_Name@N`` cannot both be defined in one translation
+    unit. The decorated symbol is the stack contract.
+    """
+    return (0 if stdcall_arity(symbol) is not None else 1, symbol)
 
 
 def demangle_cdecl(mangled: str) -> str:
@@ -537,8 +624,26 @@ _C_PRIMITIVES = {
 }
 
 
+_DECLSPEC_RE = re.compile(r"\b(?:__declspec|_declspec|spec)\s*\([^()]*\)")
+_TYPE_WORDS = _C_PRIMITIVES | {"volatile"}
+
+
 def simplify_type_for_stub(type_str: str) -> str:
-    """Map structs/typedefs to C89 basics — link_stubs can't see those types."""
+    """Map structs/typedefs to C89 basics — the stub TU includes only ``time.h``.
+
+    ``__declspec`` and a ``spec()`` macro are stripped: a stub defines the
+    symbol, and dllimport would hide that definition. An empty type is the
+    old implicit ``int``. A word that is not a C type becomes ``int``, or
+    ``void*`` when the declarator is a pointer.
+    """
+    type_str = _DECLSPEC_RE.sub(" ", type_str)
+    type_str = re.sub(r"\s+", " ", type_str).strip()
+    if not type_str:
+        return "int"
+    type_str = re.sub(r"\buint\b", "unsigned int", type_str)
+    type_str = re.sub(r"\bushort\b", "unsigned short", type_str)
+    type_str = re.sub(r"\bulong\b", "unsigned long", type_str)
+    type_str = re.sub(r"\buchar\b", "unsigned char", type_str)
     if re.match(r"struct\s+\w+\*", type_str):
         return "void*"
     if re.match(r"struct\s+\w+", type_str):
@@ -549,7 +654,69 @@ def simplify_type_for_stub(type_str: str) -> str:
     tokens = base.split()
     if len(tokens) == 1 and tokens[0] not in _C_PRIMITIVES:
         return "void*" if "*" in type_str else "int"
+    words = [tok for tok in type_str.replace("*", " ").split() if tok]
+    if any(word not in _TYPE_WORDS for word in words):
+        return "void*" if "*" in type_str else "int"
     return type_str
+
+
+def _split_type_name(part: str) -> tuple[str, str | None]:
+    """Split a parameter into a type and an optional name.
+
+    ``int *p`` keeps the stars on the type. A trailing word that is a type
+    keyword is not a name.
+    """
+    tokens = part.split()
+    if len(tokens) < 2 or part.endswith("*"):
+        return part, None
+    last = tokens[-1]
+    stars = ""
+    while last.startswith("*"):
+        stars += "*"
+        last = last[1:]
+    if not last or not re.match(r"^[A-Za-z_]\w*$", last):
+        return part, None
+    if last in _C_PRIMITIVES | {"struct"}:
+        return part, None
+    return (" ".join(tokens[:-1]) + stars).strip(), last
+
+
+def simplify_params_for_stub(params_str: str) -> str:
+    """Simplify each parameter type. Names and ``...`` stay put."""
+    inner = params_str.strip()
+    if inner.startswith("("):
+        inner = inner[1:]
+    if inner.endswith(")"):
+        inner = inner[:-1]
+    inner = inner.strip()
+    if not inner or inner == "void":
+        return "(void)"
+    parts: list[str] = []
+    depth = 0
+    current = ""
+    for ch in inner:
+        if ch == "(":
+            depth += 1
+            current += ch
+        elif ch == ")":
+            depth -= 1
+            current += ch
+        elif ch == "," and depth == 0:
+            parts.append(current.strip())
+            current = ""
+        else:
+            current += ch
+    if current.strip():
+        parts.append(current.strip())
+    simplified: list[str] = []
+    for part in parts:
+        if part == "..." or (part == "void" and len(parts) == 1):
+            simplified.append(part)
+            continue
+        type_text, name = _split_type_name(part)
+        type_text = simplify_type_for_stub(type_text)
+        simplified.append(f"{type_text} {name}" if name else type_text)
+    return "(" + ", ".join(simplified) + ")"
 
 
 def ensure_param_names(params_str: str) -> str:
@@ -586,6 +753,7 @@ def ensure_param_names(params_str: str) -> str:
     if current.strip():
         parts.append(current.strip())
 
+    used_names = set(re.findall(r"\b[A-Za-z_]\w*\b", params_str))
     param_names = "abcdefghijklmnop"
     result_parts = []
     for i, part in enumerate(parts):
@@ -607,7 +775,13 @@ def ensure_param_names(params_str: str) -> str:
         if part.endswith("*"):
             has_name = False
         if not has_name:
-            name = param_names[i] if i < len(param_names) else f"p{i}"
+            stem = param_names[i] if i < len(param_names) else f"p{i}"
+            name = stem
+            suffix = 1
+            while name in used_names:
+                name = f"{stem}_{suffix}"
+                suffix += 1
+            used_names.add(name)
             result_parts.append(f"{part} {name}")
         else:
             result_parts.append(part)
@@ -660,17 +834,20 @@ def generate_stubs(
     bss_arrays: list[list[typing.Any]] = specials.get("bss_arrays", [])
     bss_tail: int = int(specials.get("bss_tail_size", 0) or 0)
 
-    demangled = {
-        name: sym
-        for sym in unresolved
-        # Non-identifier names (C++ mangled, corrupted symbol tables) cannot
-        # be referenced from C source — emitting them verbatim would only
-        # produce a broken TU.
-        if is_safe_c_ident(name := demangle_cdecl(sym))
-    }
+    # Several linker symbols can demangle to one C name. A set has no
+    # stable choice, and a dict comprehension kept whichever symbol it
+    # saw last. The stdcall spelling is the one a C definition can satisfy.
+    grouped: dict[str, list[str]] = {}
+    for sym in unresolved:
+        name = demangle_cdecl(sym)
+        if is_safe_c_ident(name):
+            grouped.setdefault(name, []).append(sym)
+    demangled = {name: min(syms, key=_symbol_rank) for name, syms in grouped.items()}
     special_list: list[str] = []
     globals_list: list[str] = []
     functions_list: list[str] = []
+    stdcall_list: list[str] = []
+    stdcall_arity_by_name: dict[str, int] = {}
     string_globals: list[str] = []
 
     def _variants(name: str) -> tuple[str, str]:
@@ -688,10 +865,19 @@ def generate_stubs(
         return None
 
     for name in sorted(demangled):
+        original = demangled[name]
+        if is_import_symbol(original):
+            # A stub here would define a fake slot and hide the import library.
+            continue
         if name in special_entries:
             special_list.append(name)
             continue
         info = _lookup(extern_info, name)
+        arity = stdcall_arity(original)
+        if arity is not None and not _extern_matches_stdcall(info, arity):
+            stdcall_list.append(name)
+            stdcall_arity_by_name[name] = arity
+            continue
         if name.startswith("s_"):
             string_globals.append(name)
         elif info and info["is_func"]:
@@ -771,17 +957,23 @@ def generate_stubs(
             lines.append("")
 
     lines.append("/* Function stubs */")
+    for name in sorted(stdcall_list):
+        # The decoration is the link contract. N/4 int slots keep ``_name@N``.
+        count = stdcall_arity_by_name[name]
+        raw_params = "(void)" if count == 0 else "(" + ", ".join(["int"] * count) + ")"
+        params = ensure_param_names(raw_params)
+        lines.append(f"int __stdcall {name}{params}")
+        lines.append("{")
+        lines.append("\treturn 0;")
+        lines.append("}")
+        lines.append("")
     for name in sorted(functions_list):
         info = _lookup(extern_info, name)
         if info and info["is_func"]:
             ret_type = simplify_type_for_stub(info["type"])
             cc = info["calling_conv"] or "__cdecl"
             params = info["params"] if info["params"] else "(void)"
-            params = re.sub(r"struct\s+\w+\*", "void*", params)
-            params = re.sub(r"\buint\b", "unsigned int", params)
-            params = re.sub(r"\bushort\b", "unsigned short", params)
-            params = re.sub(r"\bulong\b", "unsigned long", params)
-            params = re.sub(r"\buchar\b", "unsigned char", params)
+            params = simplify_params_for_stub(params)
             params = ensure_param_names(params)
             ret_val = make_return_value(ret_type)
             if ret_val is None:
@@ -799,6 +991,25 @@ def generate_stubs(
             lines.append("\treturn 0;")
             lines.append("}")
         lines.append("")
+
+    if any(re.search(r"\b(?:WINAPI|CALLBACK|APIENTRY)\b", line) for line in lines):
+        # Those words are macros. A definition that uses the bare word is a
+        # syntax error unless this TU defines them.
+        include_at = lines.index("#include <time.h>") + 1
+        lines[include_at:include_at] = [
+            "",
+            "/* WINAPI, CALLBACK and APIENTRY are macros. The stub TU does not",
+            " * include the header that defines them. */",
+            "#ifndef WINAPI",
+            "#define WINAPI __stdcall",
+            "#endif",
+            "#ifndef CALLBACK",
+            "#define CALLBACK __stdcall",
+            "#endif",
+            "#ifndef APIENTRY",
+            "#define APIENTRY __stdcall",
+            "#endif",
+        ]
 
     if footer:
         lines.append(footer.rstrip("\n"))
