@@ -253,24 +253,24 @@ def test_inputs_changed_during_compile_are_not_published(project: Any, changed: 
     assert len(project.state.calls) == 2
 
 
-def test_replay_rechecks_inputs_after_restore(
+def test_replay_rechecks_inputs_after_staging(
     project: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project.invoke()
-    restore = cmake_cache._restore
+    restore = cmake_cache.atomic_write_bytes
 
     def changed(output, data):
         restore(output, data)
         _replace_same_stat(project.header, b"VALUE 1", b"VALUE 2")
 
-    monkeypatch.setattr(cmake_cache, "_restore", changed)
+    monkeypatch.setattr(cmake_cache, "atomic_write_bytes", changed)
     project.invoke()
     assert len(project.state.calls) == 2
 
 
 @pytest.mark.parametrize("existing", [False, True])
 @pytest.mark.parametrize("failure", ["input-change", "restore-error", "snapshot-error"])
-def test_rejected_replay_restores_output_before_failed_compile(
+def test_rejected_replay_preserves_output_before_failed_compile(
     project: Any, monkeypatch: pytest.MonkeyPatch, existing: bool, failure: str
 ) -> None:
     project.invoke()
@@ -280,7 +280,7 @@ def test_rejected_replay_restores_output_before_failed_compile(
         project.output.write_bytes(b"previous output")
         os.utime(project.output, ns=(100, 100))
         before = project.output.stat()
-    restore = cmake_cache._restore
+    restore = cmake_cache.atomic_write_bytes
 
     def fail_snapshot(*args):
         raise OSError("snapshot failed")
@@ -294,7 +294,38 @@ def test_rejected_replay_restores_output_before_failed_compile(
         else:
             _replace_same_stat(project.header, b"VALUE 1", b"VALUE 2")
 
-    monkeypatch.setattr(cmake_cache, "_restore", changed)
+    monkeypatch.setattr(cmake_cache, "atomic_write_bytes", changed)
+    project.state.rc = 2
+    project.state.write = False
+    assert project.invoke() == 2
+    assert len(project.state.calls) == 2
+    if before is None:
+        assert not project.output.exists()
+    else:
+        assert project.output.read_bytes() == b"previous output"
+        after = project.output.stat()
+        assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_failed_cache_publish_preserves_output_before_failed_compile(
+    project: Any, monkeypatch: pytest.MonkeyPatch, existing: bool
+) -> None:
+    project.invoke()
+    project.output.unlink()
+    before = None
+    if existing:
+        project.output.write_bytes(b"previous output")
+        os.utime(project.output, ns=(100, 100))
+        before = project.output.stat()
+    replace = Path.replace
+
+    def fail_publish(path, target):
+        if Path(target) == project.output:
+            raise OSError("publish failed")
+        return replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_publish)
     project.state.rc = 2
     project.state.write = False
     assert project.invoke() == 2
