@@ -83,9 +83,19 @@ def _read(
     return validate_source_metadata(source), validate_source_files(source["files"])
 
 
+@lru_cache(maxsize=64)
+def _resolved_store_path(directory: Path) -> Path:
+    """Store path resolved once per directory spelling.
+
+    Both provenance views are read repeatedly per scan; the symlink walk is
+    process-constant for a project directory.
+    """
+    return (directory / SOURCE_PROVENANCE_FILENAME).resolve()
+
+
 def load_source_provenance(directory: Path) -> tuple[AssemblyProvenance, ...]:
     """Read immutable records, rejecting malformed stores instead of trusting evidence."""
-    path = (directory / SOURCE_PROVENANCE_FILENAME).resolve()
+    path = _resolved_store_path(directory)
     metadata_format(path)
     store = metadata_store(path)
     fingerprint = store.fingerprint()
@@ -223,7 +233,7 @@ def rename_source_provenance(
 
 def load_source_files(directory: Path) -> tuple[SourceFilePurpose, ...]:
     """Read validated file metadata; source comments never supply file purpose."""
-    path = (directory / SOURCE_PROVENANCE_FILENAME).resolve()
+    path = _resolved_store_path(directory)
     metadata_format(path)
     store = metadata_store(path)
     fingerprint = store.fingerprint()
