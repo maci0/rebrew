@@ -75,7 +75,7 @@ from rebrew.utils import BYTES_PER_MIB, resolved_path, split_source_lines
 logger = logging.getLogger(__name__)
 
 # Bump on key semantics changes to invalidate stale entries.
-CACHE_SCHEMA_VERSION = 9
+CACHE_SCHEMA_VERSION = 10
 
 # Warn once per process *and per operation*: a corrupt/contended store
 # degrades every get/put, and one line per lookup would flood a GA batch's
@@ -714,7 +714,7 @@ def include_specs(text: str) -> Iterator[tuple[str, str]]:
 def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
     """Locate *name* in the first of *dirs* that contains it.
 
-    Exact match first; falls back to a case-insensitive scan per directory
+    Exact match first; falls back to a case-insensitive scan per path component
     (wine/Windows resolution is case-insensitive while the host FS is not —
     a header included with different case than on disk would otherwise go
     untracked and risk a stale hit).  Rejects path-traversal components
@@ -733,22 +733,32 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
         try:
             if not d.is_dir():
                 continue
-            # Only try case-insensitive fallback for single-component names;
-            # sub-path includes need exact directory structure.  The fallback
-            # runs inside the same directory iteration as the exact match:
-            # include search order is first-directory-wins, so a later
-            # directory's exact hit must not outrank an earlier one's
-            # case-folded hit (wine resolves case-insensitively per -I dir).
-            if len(name.parts) != 1:
-                continue
-            norm_name = unicodedata.normalize("NFC", name.name).casefold()
-            with os.scandir(d) as children:
-                for child in children:
-                    if (
-                        unicodedata.normalize("NFC", child.name).casefold() == norm_name
-                        and child.is_file()
-                    ):
-                        return resolved_path(Path(child.path))
+            # Complete this root's case-folded lookup before trying the next
+            # root: Wine can read DIR/api.h before a later exact dir/api.h.
+            candidate = d
+            for index, part in enumerate(name.parts):
+                leaf = index == len(name.parts) - 1
+                exact = candidate / part
+                if exact.is_file() if leaf else exact.is_dir():
+                    candidate = exact
+                    continue
+                norm_part = unicodedata.normalize("NFC", part).casefold()
+                with os.scandir(candidate) as children:
+                    match = next(
+                        (
+                            Path(child.path)
+                            for child in children
+                            if unicodedata.normalize("NFC", child.name).casefold() == norm_part
+                            and (child.is_file() if leaf else child.is_dir())
+                        ),
+                        None,
+                    )
+                if match is None:
+                    break
+                candidate = match
+            else:
+                if candidate.is_file():
+                    return resolved_path(candidate)
         except OSError:
             continue
     return None

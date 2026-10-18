@@ -127,9 +127,8 @@ def _ordinary_text(raw: bytes) -> bool:
                 "utf-8", errors="surrogateescape"
             )
             name = spelling[1:-1]
-            # The shared resolver case-folds only single components. Wine may
-            # choose an earlier differently cased directory, so admit leaves
-            # only until the general resolver models that search correctly.
+            # Keep driver admission narrower than the shared include resolver;
+            # directory spellings and nested include stacks stay uncached.
             if any(char in name for char in "/\\:") or name in {".", ".."}:
                 return False
             specs.append(("quote" if path.type == "string_literal" else "angle", name))

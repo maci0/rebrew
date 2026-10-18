@@ -516,6 +516,90 @@ class TestIncludeFingerprint:
         assert all(digest == digests[0] for digest in digests)
 
 
+class TestIncludePathResolution:
+    @pytest.mark.parametrize("name", ["dir/api.h", "dir/deep/api.h"])
+    def test_first_directory_casefold_path_precedes_later_exact(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        from rebrew.compiler.cache import _find_in_dirs
+
+        first, later = tmp_path / "source", tmp_path / "include"
+        header = first / name.upper()
+        header.parent.mkdir(parents=True)
+        header.write_text("#define VALUE 1\n")
+        shadow = later / name
+        shadow.parent.mkdir(parents=True)
+        shadow.write_text("#define VALUE 2\n")
+        assert _find_in_dirs(Path(name), [first, later]) == header
+
+    def test_casefold_path_tracks_first_header_edits(self, tmp_path: Path) -> None:
+        source_dir, include_dir = tmp_path / "source", tmp_path / "include"
+        header = source_dir / "DIR" / "api.h"
+        header.parent.mkdir(parents=True)
+        header.write_text("#define VALUE 1\n")
+        shadow = include_dir / "dir" / "api.h"
+        shadow.parent.mkdir(parents=True)
+        shadow.write_text("#define VALUE 2\n")
+        source = '#include "dir/api.h"\n'
+        first = header_dependency_hash(source, str(source_dir), [str(include_dir)])
+        header.write_text("#define VALUE 100\n")
+        second = header_dependency_hash(source, str(source_dir), [str(include_dir)])
+        assert first != second
+        shadow.write_text("#define VALUE 20000\n")
+        assert header_dependency_hash(source, str(source_dir), [str(include_dir)]) == second
+
+    def test_exact_component_spelling_precedes_casefold(self, tmp_path: Path) -> None:
+        from rebrew.compiler.cache import _find_in_dirs
+
+        for directory in ("DIR", "dir"):
+            (tmp_path / directory).mkdir()
+            (tmp_path / directory / "api.h").write_text(directory)
+        assert _find_in_dirs(Path("dir/api.h"), [tmp_path]) == tmp_path / "dir" / "api.h"
+        assert _find_in_dirs(Path("dir/API.H"), [tmp_path]) == tmp_path / "dir" / "api.h"
+
+    def test_deep_casefold_and_unicode_normalization(self, tmp_path: Path) -> None:
+        from rebrew.compiler.cache import _find_in_dirs
+
+        header = tmp_path / "CAFE\u0301" / "Deep" / "API.H"
+        header.parent.mkdir(parents=True)
+        header.write_text("#define VALUE 1\n")
+        assert _find_in_dirs(Path("caf\u00e9/deep/api.h"), [tmp_path]) == header
+
+    @pytest.mark.parametrize("name", ["missing/api.h", "file/api.h", "dir/missing/api.h"])
+    def test_missing_path_is_not_a_header(self, tmp_path: Path, name: str) -> None:
+        from rebrew.compiler.cache import _find_in_dirs
+
+        (tmp_path / "file").write_text("not a directory")
+        (tmp_path / "DIR").mkdir()
+        assert _find_in_dirs(Path(name), [tmp_path / "absent", tmp_path]) is None
+
+    def test_unreadable_directory_tries_next_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler.cache import _find_in_dirs
+
+        first, later = tmp_path / "first", tmp_path / "later"
+        (first / "DIR").mkdir(parents=True)
+        header = later / "DIR" / "API.H"
+        header.parent.mkdir(parents=True)
+        header.write_text("#define VALUE 1\n")
+        scandir = os.scandir
+
+        def _unreadable(path: Any) -> Any:
+            if Path(path) == first / "DIR":
+                raise PermissionError("unreadable include directory")
+            return scandir(path)
+
+        monkeypatch.setattr(os, "scandir", _unreadable)
+        assert _find_in_dirs(Path("dir/api.h"), [first, later]) == header
+
+    @pytest.mark.parametrize("name", ["../outside.h", "dir/../../outside.h", "/outside.h"])
+    def test_traversal_still_rejected(self, tmp_path: Path, name: str) -> None:
+        from rebrew.compiler.cache import _find_in_dirs
+
+        assert _find_in_dirs(Path(name), [tmp_path]) is None
+
+
 class TestHeaderDependencyHash:
     """Per-source #include-closure fingerprints (paper-driven precision).
 

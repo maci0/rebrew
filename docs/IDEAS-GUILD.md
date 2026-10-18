@@ -7,6 +7,34 @@ flags may be unshipped. Status `open` unless noted; observations describe the
 campaign at the time recorded. Use [CLI.md](CLI.md) for shipped behavior and
 promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
+## Nested include casing tracked the wrong search root — fixed (2026-10-19)
+
+Guild's cache review reproduced a shared header resolver bug without compiling:
+with `#include "dir/api.h"`, source-directory `DIR/api.h` and a later `/I`
+directory containing exact `dir/api.h`, `_find_in_dirs` skipped the earlier
+header because only leaf filenames had a case-insensitive fallback. Wine reads
+the earlier header, but editing it left `header_dependency_hash` unchanged and
+could reuse a stale test/verify object.
+
+The resolver now walks each relative path component with exact spelling first,
+then the existing NFC/casefold matching, finishing one search root before moving
+to the next. The compile-cache schema is bumped to invalidate old entries.
+Traversal rejection and the caller's separate escaping-include policy stay
+unchanged. No new resolver API or cache feature is needed.
+
+Replay without a native compiler:
+
+```
+pytest tests/test_compile_cache.py::TestIncludePathResolution
+```
+
+Six of the twelve regression cases fail before the repair. They cover earlier
+casefolded paths versus later exact paths, multiple directory components,
+component exact-spelling priority, normalized Unicode, first-header edits versus
+unreached shadow edits, missing/non-directory paths, an unreadable directory,
+and unchanged traversal rejection. The rest of `test_compile_cache.py` exercises
+unreadable reached-header fallback and escaping-include tracking.
+
 ## Source evidence consolidation — implemented in 5.0
 
 The separate `rebrew-source.toml` repeated the metadata ownership boundary for
@@ -3104,9 +3132,11 @@ pytest tests/test_cmake_cache.py tests/test_cmake_tc.py tests/test_compile_cache
 
 Guild evidence: .scratch/cmake-driver-cache-audit/findings.md and key-costs.json.
 The first regression dispatched the old mocked runner twice; the guarded path
-restores a removed object and identical stdout/stderr with one dispatch. A real
-two-run native COFF/diagnostic control is prepared separately and remains pending
-an available compiler slot; unit tests do not claim native validation.
+restores a removed object and identical stdout/stderr with one dispatch. Serial
+native controls on plain SP5 `/MT` and Processor Pack `/ML` preserve complete
+COFF bytes, timestamps and diagnostics against uncached controls. Hot calls
+dispatch no compiler; same-stat source/header edits and changed flags miss.
+These bounded controls do not establish a whole-build speedup or raw-image match.
 
 
 ### Literal include resolver misses multicomponent case-insensitive precedence (2026-10-19)
@@ -3127,7 +3157,7 @@ pytest tests/test_cmake_cache.py::test_multicomponent_casefold_ambiguity_bypasse
 That driver regression failed before admission repair (one cached invocation
 instead of two uncached invocations). The narrow driver adapter now bypasses
 non-leaf literal spellings, including directory separators, absolute/drive and
-traversal paths. The general resolver is unchanged: a separate repair must
-resolve components case-insensitively in directory search order and test earlier
-case-folded versus later exact paths, ambiguity and traversal boundaries. This
-entry records that remaining shared limitation rather than claiming it fixed.
+traversal paths. The shared resolver repair is recorded under
+[nested include casing](#nested-include-casing-tracked-the-wrong-search-root--fixed-2026-10-19).
+Its broader path support does not widen the driver's deliberately limited
+admission policy.

@@ -1,6 +1,10 @@
 ## [Unreleased]
 
 ### Fixed
+- Compile-cache include resolution matches every relative path component
+  case-insensitively within each search directory before trying later roots,
+  so differently cased nested headers retain Wine's search priority and edits
+  invalidate the cached object. Existing compile-cache entries are invalidated.
 - Function reference-binding rename previews include an input digest;
   `--expected-digest` guards apply against changed sources, dependencies and
   project context without changing the destination identity or verdict.
