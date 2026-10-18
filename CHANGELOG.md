@@ -7,6 +7,8 @@
   pinned environment by default. Editable checkouts are an explicit tooling
   development choice, rather than a prerequisite for ordinary project users.
 - Refresh virtualenv to 21.14.11 and the immutable pre-commit-hooks pin to 6.0.0.
+- Pin the contributor Resembl checkout to its public 3.4.0 release and immutable
+  source commit.
 - Clarify AppArmor diagnostics and the actual experimental-runner admission
   probe. Exercise read-only image directory timestamps without leaving
   undeletable test fixtures behind.
