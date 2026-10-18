@@ -328,6 +328,16 @@ VA/symbol/size/byte-slice overrides. Compiler flags/context still apply explicit
 
 ### `rebrew verify`
 
+Multi-target projects retain independent verification results and `--compare`
+baselines under `.rebrew/targets/<sha256-of-exact-target-name>/`. Untouched single-target
+projects keep `.rebrew/verify_cache.toml` and `.rebrew/verify_baseline.toml`.
+Before the first isolated write, an identity-matching legacy file can be read;
+writers leave it intact. Once a target namespace exists, removing sibling
+targets keeps that namespace selected. Existing target files are authoritative,
+even when stale or corrupt. Compiler, binary and per-entry freshness guards
+still apply. Switching targets does not
+erase another target's receipts or skip its comparison baseline.
+
 `--experimental-unshare` opts one invocation into the experimental rootless
 MSVC/Wine backend. For a project default, set `[compiler] execution_backend =
 "unshare"`; `"docker"` and `"podman"` select those frontends explicitly. See

@@ -50,9 +50,42 @@ CACHE_VERSION = 2
 CACHE_FILENAME = "verify_cache.toml"
 
 
-def cache_path_for(cfg: Any) -> Path:
-    """Path of this project's verify cache."""
-    return Path(cfg.root) / ".rebrew" / CACHE_FILENAME
+def _result_path(cfg: Any, filename: str) -> Path:
+    root = Path(cfg.root) / ".rebrew"
+    target = getattr(cfg, "target_name", None)
+    if target:
+        # Preserve exact target identity without exposing names as path parts
+        # or merging names that a lossy filename sanitizer would conflate.
+        identity = hashlib.sha256(target.encode("utf-8")).hexdigest()
+        namespace = root / "targets" / identity
+        # Once created, keep this namespace after sibling targets are removed;
+        # switching back could revive older (or foreign) root-scoped state.
+        if len(getattr(cfg, "all_targets", ())) > 1 or namespace.exists() or namespace.is_symlink():
+            return namespace / filename
+    return root / filename
+
+
+def _legacy_read_path(cfg: Any, path: Path, *, baseline: bool = False) -> Path:
+    legacy = Path(cfg.root) / ".rebrew" / path.name
+    if path == legacy or path.exists() or path.is_symlink() or not legacy.exists():
+        return path
+    try:
+        raw = _read_cache_document(legacy)
+    except (OSError, ValueError):
+        return path
+    matches = _baseline_identity_matches(raw, cfg) if baseline else cache_identity_matches(raw, cfg)
+    return legacy if matches else path
+
+
+def cache_path_for(cfg: Any, *, for_read: bool = False) -> Path:
+    """Selected cache; untouched single-target projects keep the legacy path.
+
+    Before the first isolated write, reads may use an identity-matching legacy
+    cache. A selected file is authoritative even when stale or corrupt. Reads
+    never move/delete the legacy file; writers migrate only their own rows.
+    """
+    path = _result_path(cfg, CACHE_FILENAME)
+    return _legacy_read_path(cfg, path) if for_read else path
 
 
 #: Fields where ``None`` is a *reported value*, not an absent one.  The
@@ -618,7 +651,7 @@ def _invalidate_verify_cache_memo(cache_path: Path) -> None:
 
 
 def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
-    """Load the shared ``.rebrew/verify_cache.toml`` as a raw dict (memoized).
+    """Load the selected target's verify cache as a raw dict (memoized).
 
     Returns ``None`` when the file is missing or corrupt.  Target/version
     validation is the caller's responsibility — readers apply their own
@@ -626,7 +659,7 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
     size, inode), so repeated loads within one command are free and a
     same-size rename-over in one mtime tick is a miss.
     """
-    cache_path = cache_path_for(cfg)
+    cache_path = cache_path_for(cfg, for_read=True)
     try:
         st = cache_path.stat()
     except OSError:
@@ -947,6 +980,8 @@ def verify_cache_matches_cfg(cache_path: Path, cfg: ProjectConfig) -> bool:
     does): a check performed before acquiring the lock can be invalidated
     by a concurrent writer swapping the cache between check and patch.
     """
+    if cache_path == cache_path_for(cfg):
+        cache_path = cache_path_for(cfg, for_read=True)
     if not cache_path.exists():
         return False
     try:
@@ -986,15 +1021,16 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
     if not patches:
         return
     cache_path = cache_path_for(cfg)
-    if not cache_path.exists():
+    if not cache_path_for(cfg, for_read=True).exists():
         # Absent — nothing to patch.  (Checked before locking because taking
         # the lock would create the ``.lock`` sidecar in a possibly
         # not-yet-existing directory; a cache created after this point simply
         # gets patched by the next promotion.)
         return
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
     with _verify_cache_write_lock(cache_path):
         try:
-            raw = _read_cache_document(cache_path)
+            raw = _read_cache_document(cache_path_for(cfg, for_read=True))
         except (OSError, ValueError) as exc:
             logging.warning(
                 "Could not read verify cache %s — status may be stale: %s", cache_path, exc
@@ -1150,7 +1186,7 @@ def load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | Non
     # JSON-decoding the whole document a second time was a full redundant pass
     # over every cached entry.  Any other path is read directly.
     root = getattr(cfg, "root", None)
-    if root is not None and cache_path == Path(root) / ".rebrew" / CACHE_FILENAME:
+    if root is not None and cache_path == cache_path_for(cfg):
         raw = load_verify_cache_raw(cfg)
         if raw is None:
             return None
@@ -1271,9 +1307,12 @@ def save_verify_cache(
     # from it; the rows are the other target's to keep.
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with _verify_cache_write_lock(cache_path):
-        if preserve_keys and cache_path.exists():
+        previous_path = cache_path
+        if cache_path == cache_path_for(cfg):
+            previous_path = cache_path_for(cfg, for_read=True)
+        if preserve_keys and previous_path.exists():
             try:
-                previous = _decode_nulls(tomllib.loads(read_toml_text(cache_path)))
+                previous = _decode_nulls(tomllib.loads(read_toml_text(previous_path)))
             except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError) as exc:
                 logging.warning(
                     "Could not read verify cache %s to preserve %d excluded "
@@ -1330,9 +1369,18 @@ def save_verify_cache(
 BASELINE_FILENAME = "verify_baseline.toml"
 
 
-def baseline_path(cfg: ProjectConfig) -> Path:
-    """Path of the --compare baseline file for this project."""
-    return Path(cfg.root) / ".rebrew" / BASELINE_FILENAME
+def baseline_path(cfg: ProjectConfig, *, for_read: bool = False) -> Path:
+    """Selected --compare baseline, with identity-guarded legacy reads."""
+    path = _result_path(cfg, BASELINE_FILENAME)
+    return _legacy_read_path(cfg, path, baseline=True) if for_read else path
+
+
+def _baseline_identity_matches(raw: dict[str, Any], cfg: ProjectConfig) -> bool:
+    return (
+        raw.get("target") == cfg.target_name
+        and raw.get("compiler_hash") == compiler_config_hash(cfg)
+        and (not raw.get("binary_id") or raw["binary_id"] == binary_id(cfg))
+    )
 
 
 def load_baseline(cfg: ProjectConfig) -> tuple[dict[str, Any] | None, str | None]:
@@ -1341,7 +1389,7 @@ def load_baseline(cfg: ProjectConfig) -> tuple[dict[str, Any] | None, str | None
     Rejects baselines written for another target/compiler/binary — a stale
     baseline is a warning + no gate, never a false green or false red.
     """
-    path = baseline_path(cfg)
+    path = baseline_path(cfg, for_read=True)
     if not path.exists():
         return None, f"No previous verify baseline at {path}; skipping diff"
     try:

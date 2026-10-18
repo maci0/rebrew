@@ -1028,7 +1028,7 @@ def _collect_hygiene(
         from rebrew.sources import iter_sources
         from rebrew.verify_cache import cache_path_for
 
-        cache_path = cache_path_for(cfg)
+        cache_path = cache_path_for(cfg, for_read=True)
         try:
             cache_mtime_ns = cache_path.stat().st_mtime_ns
         except OSError:

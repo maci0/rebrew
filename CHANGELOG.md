@@ -10,6 +10,8 @@
   case-insensitively within each search directory before trying later roots,
   so differently cased nested headers retain Wine's search priority and edits
   invalidate the cached object.
+- Keep multi-target verify result caches and compare baselines separate, preserving
+  guarded legacy single-target reads and target-aware coverage freshness.
 - Function reference-binding rename previews include an input digest;
   `--expected-digest` guards apply against changed sources, dependencies and
   project context without changing the destination identity or verdict.

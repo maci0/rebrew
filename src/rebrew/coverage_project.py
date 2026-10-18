@@ -33,6 +33,7 @@ from rebrew.formats.binary_loader import load_binary
 from rebrew.metadata.functions import load_status_history
 from rebrew.metadata.storage import metadata_inputs, metadata_store
 from rebrew.sources import scan_files
+from rebrew.verify_cache import CACHE_FILENAME, cache_path_for
 from rebrew.workspace import read_config, targets_table
 
 __all__ = ["ProjectCoverageError", "ProjectCoverageView", "load_project_coverage"]
@@ -100,7 +101,9 @@ def _inputs(
         cfg.root / "rebrew-project.toml",
         cfg.target_binary,
         inventory_path_for(cfg.reversed_dir, cfg),
-        cfg.root / ".rebrew" / "verify_cache.toml",
+        cache_path_for(cfg),
+        # A matching legacy cache can be read before the first isolated write.
+        cfg.root / ".rebrew" / CACHE_FILENAME,
     }
     paths.update(metadata_inputs(cfg.metadata_dir))
     paths.update(ownership_inputs(cfg))
