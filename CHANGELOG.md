@@ -6,6 +6,7 @@
   project sources and managed metadata are unchanged.
 
 ### Fixed
+
 - Read-only extras preflights honor absolute and project-relative
   `UV_PROJECT_ENVIRONMENT` selections, report the selected path in failures,
   and leave missing environments uncreated.
@@ -145,6 +146,8 @@
   disassembler. None of these gates read the wall clock.
 
 ### Fixed
+
+
 - `doctor` checks images in the configured Docker/Podman store and reports the
   selected runner. Unshare readiness now requires its existing namespace probe,
   rather than reporting a Docker image as proof that unshare can execute.

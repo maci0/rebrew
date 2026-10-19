@@ -3027,6 +3027,7 @@ offsets, but do not establish the missing members or a namespace for colliding
 private names. The present pure-source model does not follow includes and
 continues to model 32-bit MSVC; no live compiler probe is run during a preview.
 
+
 ### Short blocker text asserted import origin without evidence (2026-10-19)
 
 Guild's blocker-backfill review exposed a size-only provenance claim:
