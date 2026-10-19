@@ -1,12 +1,13 @@
 ## [Unreleased]
 
+## [5.3.0] - 2026-10-19
+
 ### Changed
 - **Breaking:** `rebrew.compiler.cache.CACHE_SCHEMA_VERSION` moves from 9 to 10.
   Existing derived compile-cache entries are invalidated and objects recompile;
   project sources and managed metadata are unchanged.
 
 ### Fixed
-
 - Read-only extras preflights honor absolute and project-relative
   `UV_PROJECT_ENVIRONMENT` selections, report the selected path in failures,
   and leave missing environments uncreated.
