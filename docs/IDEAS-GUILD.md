@@ -2337,6 +2337,18 @@ retains the unresolved include. This closes local header discovery and
 fingerprinting only. It does not provide Docker SDK headers, preprocess
 conditional declarations or establish source organization/raw-link safety.
 
+Guild's shared text creator supplies a concrete remaining conditional-type case
+(2026-10-19): `types contracts --name d2_ShowTxt --all-targets --json` retains
+both guarded header prototypes (`short, short` for Gold, `int, int` for TL) and
+marks the definition's private `D2_TEXT_COORD` typedef unresolved. Both actual
+compiler contexts pass complete body/operand checks, but this audit correctly
+remains a review, not a zero finding. A future preprocessing-backed context
+should resolve only the active branches, retain SDK/type uncertainty, and test
+opposite-target definitions as rejecting controls. The report is Guild
+`.scratch/gui-text-creator-integration/creator-contracts.json`. This is a
+capability gap, not permission to suppress the finding or erase the native
+coordinate-width difference.
+
 ## Repeated header extraction in source-contract audits (2026-10-18)
 
 Guild's named `types contracts --name fcn_0046c1c0 --all-targets --json` audit
