@@ -60,7 +60,7 @@ def pe_path(tmp_path: Path) -> Path:
     return path
 
 
-def _pe_with_ordinal_import(tmp_path: Path) -> Path:
+def _pe_with_ordinal_import(tmp_path: Path, *, pe32_plus: bool = False) -> Path:
     """A PE whose first import is by ordinal.
 
     ``make_pe`` writes only name-based imports, so the first import-lookup
@@ -74,6 +74,7 @@ def _pe_with_ordinal_import(tmp_path: Path) -> Path:
         image_base=IMAGE_BASE,
         text_va=TEXT_VA,
         imports=[("KERNEL32.dll", ["MessageBoxA", "GetProcAddress"])],
+        pe32_plus=pe32_plus,
     )
     path = tmp_path / "ordinal.exe"
     path.write_bytes(pe)
@@ -82,10 +83,10 @@ def _pe_with_ordinal_import(tmp_path: Path) -> Path:
     entry = parsed.imports[0]
     int_rva = int(entry.import_lookup_table_rva)
     iat_rva = min(int(fn.iat_address) for fn in entry.entries)
-    ordinal_entry = 0x80000000 | 4717
+    ordinal_entry = (1 << (63 if pe32_plus else 31)) | 4717
     patched = bytearray(pe)
     for rva in (int_rva, iat_rva):
-        struct.pack_into("<I", patched, rva - TEXT_VA + 0x200, ordinal_entry)
+        struct.pack_into("<Q" if pe32_plus else "<I", patched, rva - TEXT_VA + 0x200, ordinal_entry)
     path.write_bytes(bytes(patched))
     return path
 
@@ -102,8 +103,9 @@ class TestParseImportTable:
     def test_named_imports_carry_no_ordinal(self, pe_path: Path) -> None:
         assert all(record["ordinal"] is None for record in parse_imports(pe_path))
 
-    def test_ordinal_only_import_is_reported(self, tmp_path: Path) -> None:
-        path = _pe_with_ordinal_import(tmp_path)
+    @pytest.mark.parametrize("pe32_plus", [False, True])
+    def test_ordinal_only_import_is_reported(self, tmp_path: Path, pe32_plus: bool) -> None:
+        path = _pe_with_ordinal_import(tmp_path, pe32_plus=pe32_plus)
         records = parse_imports(path)
         ordinals = [record for record in records if record["ordinal"] is not None]
         assert len(ordinals) == 1
@@ -112,8 +114,46 @@ class TestParseImportTable:
         # needs to spell the linker's __imp_<dll>_ord<N> symbol.
         assert ordinals[0]["name"] == "ordinal_4717"
         assert ordinals[0]["iat_va"] >= IMAGE_BASE
+        assert ordinals[0]["hint_name_rva"] is None
+        assert imports_payload(path)["imports"][0]["hint_name_rva"] is None
         assert [record["name"] for record in records if record["ordinal"] is None] == [
             "GetProcAddress"
+        ]
+
+    @pytest.mark.parametrize("pe32_plus", [False, True])
+    def test_hint_name_rvas_preserve_physical_order(self, tmp_path: Path, pe32_plus: bool) -> None:
+        """IAT order may differ from physical hint/name order on either PE width."""
+        import lief
+
+        blob = make_pe(
+            b"\x90" * 16,
+            imports=[("KERNEL32.dll", ["MessageBoxA", "GetProcAddress"])],
+            pe32_plus=pe32_plus,
+        )
+        path = tmp_path / "reordered.exe"
+        path.write_bytes(blob)
+        pe = lief.PE.parse(str(path))
+        assert pe is not None
+        entry = pe.imports[0]
+        expected = [int(fn.data) for fn in entry.entries][::-1]
+        patched = bytearray(blob)
+        width = 8 if pe32_plus else 4
+        for rva in (entry.import_lookup_table_rva, entry.import_address_table_rva):
+            off = pe.rva_to_offset(rva)
+            patched[off : off + 2 * width] = (
+                blob[off + width : off + 2 * width] + blob[off : off + width]
+            )
+        path.write_bytes(patched)
+
+        records = parse_imports(path)
+        assert [r["name"] for r in records] == ["GetProcAddress", "MessageBoxA"]
+        assert [r["hint_name_rva"] for r in records] == expected
+        assert expected[0] > expected[1]
+        for record in records:
+            off = pe.rva_to_offset(record["hint_name_rva"]) + 2
+            assert patched[off:].split(b"\0", 1)[0].decode() == record["name"]
+        assert [r["hint_name_rva"] for r in imports_payload(path)["imports"]] == [
+            f"0x{rva:08x}" for rva in expected
         ]
 
     def test_non_pe_returns_empty(self, tmp_path: Path) -> None:
@@ -272,6 +312,7 @@ def _elf_with_imports(tmp_path: Path) -> Path:
 class TestElfImports:
     def test_needed_libraries_lead_the_records(self, tmp_path: Path) -> None:
         records = parse_imports(_elf_with_imports(tmp_path))
+        assert all(r["hint_name_rva"] is None for r in records)
         assert [(r["dll"], r["name"]) for r in records[:2]] == [
             ("libc.so.6", ""),
             ("libm.so.6", ""),
@@ -360,6 +401,7 @@ class TestNeImports:
         # ordinal imports from the non-resident name table bytes).
         assert [r["dll"] for r in recs] == ["KERNEL", "GDI", "USER"]
         assert all(r["name"] == "" for r in recs)
+        assert all(r["hint_name_rva"] is None for r in recs)
 
     def test_pe_imports_unchanged(self, tmp_path: Path) -> None:
         from rebrew.formats.import_table import parse_imports

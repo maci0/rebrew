@@ -7,6 +7,36 @@ flags may be unshipped. Status `open` unless noted; observations describe the
 campaign at the time recorded. Use [CLI.md](CLI.md) for shipped behavior and
 promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
+## PE import hint/name positions — implemented, caller migration pending release (2026-10-20)
+
+Guild's `scripts/gen_import_includes.py` needs physical hint/name positions as
+inputs to a reviewed server-specific import-retention recipe. Existing
+`binary imports list` and `formats.import_table.parse_imports` already enumerate
+imports through LIEF, but discarded that RVA. The script therefore repeated the
+PE import traversal. `build layout` emits an IAT-order seed; it cannot replace
+the measured recipe or infer linker load order from table positions.
+
+The existing API now returns nullable integer `hint_name_rva`; existing JSON
+output formats it as a hex RVA. It identifies the two-byte hint plus name entry,
+not the hint value or IAT slot. Ordinal and non-PE imports carry null. No new
+command, linker policy, ordinal-name inference or storage claim is introduced.
+
+Replay without a native compiler:
+
+```
+pytest tests/test_imports.py::TestParseImportTable tests/test_imports.py::TestElfImports tests/test_imports.py::TestNeImports tests/test_imports.py::TestImportsCli
+```
+
+The reordered-table regression checks both PE32 and PE32+, independently reading
+the string at each reported RVA while preserving IAT enumeration order. Ordinal
+controls cover both widths; ELF and NE controls require null positions.
+
+Guild's prepared caller patch reproduces its tracked response file exactly.
+Its package pins still select released Rebrew 5.2, which lacks this field, so
+that patch remains unapplied until a release containing this change is installed.
+The native cutoffs, DLL recipe and ordinal spellings stay in Guild; changing
+its package environment or publishing a release is outside this migration.
+
 ## Nested include casing tracked the wrong search root — fixed (2026-10-19)
 
 Guild's cache review reproduced a shared header resolver bug without compiling:

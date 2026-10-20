@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Added
+- Import-table API and `binary imports list --json` expose nullable PE
+  `hint_name_rva`, preserving physical name-table positions independently of
+  IAT order without assigning linker load order or symbol ownership.
+
 ## [5.3.0] - 2026-10-19
 
 ### Changed

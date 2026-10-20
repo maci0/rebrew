@@ -34,13 +34,17 @@ def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
     native NE loader.
 
     Returns a list of ``{"dll": str, "name": str, "iat_va": int, "ordinal":
-    int | None}`` records, one per imported API (``name`` is
-    ``ordinal_<N>`` and ``ordinal`` is N for a PE import by ordinal), or one
+    int | None, "hint_name_rva": int | None}`` records, one per imported API
+    (``name`` is ``ordinal_<N>`` and ``ordinal`` is N for a PE import by ordinal), or one
     per referenced module with an empty ``name`` when a 16-bit NE carries no
     classic import table, or for an ELF's DT_NEEDED library entries, which
     precede its symbols.  ``iat_va`` is 0 for NE imports (Win16 uses
     per-segment thunks, not an IAT).  Empty list for unrecognized files or
     parse failures.
+
+    ``hint_name_rva`` is the PE named import's hint/name entry RVA, not its
+    IAT slot or the hint value. It is None for ordinal imports and non-PE
+    records. Physical hint/name order does not establish linker load order.
 
     Memoized per ``(resolved path, mtime_ns, size, ino)`` (bounded dict +
     lock, mirroring ``rebrew.formats.binary_loader.iat_slot_vas``): one run parses the
@@ -102,13 +106,22 @@ def _parse_imports(binary_path: Path) -> list[dict[str, Any]] | None:
                             "name": name,
                             "iat_va": 0,
                             "ordinal": imp.ordinal if imp.name is None else None,
+                            "hint_name_rva": None,
                         }
                     )
             else:
                 # Module reference with no per-API detail (many Win16 binaries
                 # carry no classic import table) — still report the module so
                 # the DLL set is visible.
-                ne_out.append({"dll": mod.module, "name": "", "iat_va": 0, "ordinal": None})
+                ne_out.append(
+                    {
+                        "dll": mod.module,
+                        "name": "",
+                        "iat_va": 0,
+                        "ordinal": None,
+                        "hint_name_rva": None,
+                    }
+                )
         return ne_out
 
     import lief
@@ -157,6 +170,7 @@ def _parse_imports(binary_path: Path) -> list[dict[str, Any]] | None:
                         "name": str(fn.name) if fn.name else f"ordinal_{ordinal}",
                         "iat_va": int(fn.iat_address) + imagebase,
                         "ordinal": ordinal or None,
+                        "hint_name_rva": None if fn.is_ordinal else int(fn.data),
                     }
                 )
     except Exception as exc:
@@ -192,7 +206,8 @@ def elf_import_records(elf: Any) -> list[dict[str, Any]]:
         if entry.tag == lief.ELF.DynamicEntry.TAG.NEEDED
     ]
     out: list[dict[str, Any]] = [
-        {"dll": library, "name": "", "iat_va": 0, "ordinal": None} for library in libraries
+        {"dll": library, "name": "", "iat_va": 0, "ordinal": None, "hint_name_rva": None}
+        for library in libraries
     ]
     slots = _elf_import_slots(elf)
     versions = _elf_version_libraries(elf)
@@ -206,6 +221,7 @@ def elf_import_records(elf: Any) -> list[dict[str, Any]]:
                 "name": name,
                 "iat_va": slots.get(name, 0),
                 "ordinal": None,
+                "hint_name_rva": None,
             }
         )
     return out

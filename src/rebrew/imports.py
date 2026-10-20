@@ -41,8 +41,8 @@ def imports_payload(
     *stubs* (computed via :func:`find_import_stubs` when omitted) into the
     exact object ``rebrew binary imports list --json`` prints: one record per imported API
     with a hex ``iat_va`` string and an ``ordinal`` (null when the import is by
-    name), and one stub record per detected import thunk with a hex ``va``
-    string.  An unrecognized or unparseable binary
+    name), a nullable hex ``hint_name_rva`` for PE named imports, and one stub
+    record per detected import thunk with a hex ``va`` string.  An unrecognized or unparseable binary
     yields empty ``imports`` / ``stubs`` lists, never an exception.
     """
     if stubs is None:
@@ -55,6 +55,9 @@ def imports_payload(
                 "name": i["name"],
                 "iat_va": f"0x{i['iat_va']:08x}",
                 "ordinal": i["ordinal"],
+                "hint_name_rva": (
+                    f"0x{i['hint_name_rva']:08x}" if i.get("hint_name_rva") is not None else None
+                ),
             }
             for i in parse_imports(binary_path)
         ],

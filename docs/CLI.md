@@ -2827,8 +2827,10 @@ they are linker glue, not compiled C).
 An import by ordinal only (MFC DLLs import by ordinal almost exclusively)
 has no name in the hint/name table, so it is listed as `ordinal_<N>` and its
 `ordinal` is reported; `--json` carries both in every record.  Each record is
-`{"dll", "name", "iat_va", "ordinal"}`, with `ordinal` null for a named
-import.
+`{"dll", "name", "iat_va", "ordinal", "hint_name_rva"}`, with `ordinal` null
+for a named import. `hint_name_rva` is a hex RVA of the PE hint/name entry,
+including its two-byte hint prefix; it is null for ordinal and non-PE imports.
+This physical table position does not establish linker load order or ownership.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
