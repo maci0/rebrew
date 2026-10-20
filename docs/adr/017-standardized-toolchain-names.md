@@ -29,7 +29,7 @@ words: `msvc-6.0-sp1`, `msvc-7.0-rtm`, `msvc-6.0-sp5-pp`.
 
 The `gcc-pe` image family is renamed `mingw`, matching what the image actually
 holds.  The image repository becomes `rebrew/mingw:<version>-win32` and the
-build directory `rebrew-toolchains/mingw/<version>-win32`.  The bad name is
+build directory `recompile-toolchains/mingw/<version>-win32`.  The bad name is
 removed from the image content too: the tree installs to `/opt/mingw-<version>`
 and the entrypoint wrapper is `/usr/local/bin/mingw`, so both images are
 rebuilt rather than retagged.

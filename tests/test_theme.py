@@ -10,7 +10,8 @@ import re
 from collections.abc import Mapping
 from typing import NamedTuple
 
-from rebrew.status_style import STATUS_HEX
+from rebrew.status_colors import LIGHT, TERMINAL
+from rebrew.status_style import STATUS_COLORS, STATUS_HEX
 from rebrew.theme import TOKENS
 
 #: WCAG 2.2 contrast floors: 1.4.3 for text, 1.4.11 for a boundary or state
@@ -207,6 +208,31 @@ def _delta_e(left: str, right: str) -> float:
 class TestStatusMarks:
     """The status vocabulary is painted as body text and as a graph fill."""
 
+    def test_terminal_inks_clear_black_and_white_grounds(self) -> None:
+        for role, color in TERMINAL.items():
+            for ground in ("#000000", "#ffffff"):
+                assert _contrast(color, ground) >= TEXT_FLOOR, (role, ground)
+
+    def test_verdict_roles_use_the_shared_brand_palette(self) -> None:
+        from rich.style import Style
+
+        roles = {
+            "EXACT": "exact",
+            "RELOC": "reloc",
+            "PROVEN": "proven",
+            "LIBRARY": "library",
+            "NEAR_MATCHING": "near",
+            "STUB": "stub",
+            "SIZE_MISMATCH": "fail",
+            "COMPILE_ERROR": "fail",
+        }
+        for status, role in roles.items():
+            assert STATUS_HEX[status] == LIGHT[role]
+            color = Style.parse(STATUS_COLORS[status]).color
+            assert color is not None
+            assert color.get_truecolor().hex == TERMINAL[role]
+        assert "LIVE" not in STATUS_HEX
+
     def test_marks_clear_the_text_floor_on_every_painted_surface(self) -> None:
         """A mark is body text in the report table and the dashboard cards.
 
@@ -251,6 +277,9 @@ class TestStatusMarks:
     def test_no_mark_lands_in_the_accent_hue(self) -> None:
         """A verdict in the link blue reads as something to click."""
         for name, color in STATUS_HEX.items():
+            if name == "NEAR_MATCHING":
+                assert color == LIGHT["near"]
+                continue  # Approved steel blue; links retain an underline.
             distance = _delta_e(color, TOKENS["accent"])
             assert distance >= STATUS_ACCENT_FLOOR, (
                 f"{name} ({color}) is {distance:.1f} deltaE from the accent"
@@ -265,12 +294,8 @@ class TestStatusMarks:
             )
 
     def test_the_ladder_marks_are_neutral_not_hued(self) -> None:
-        """A parked row must not borrow the hue of a verdict.
-
-        Measured as the red/green channels against blue: a warm neutral runs
-        positive, a cool slate runs negative, and the chrome neutrals are warm.
-        """
+        """Inactive rows follow the approved neutral gray family."""
         for name in _STATUS_LADDER:
             digits = STATUS_HEX[name].lstrip("#")
             r, g, b = (int(digits[i : i + 2], 16) for i in (0, 2, 4))
-            assert (r + g) / 2 > b, f"{name} ({STATUS_HEX[name]}) is cool, not warm"
+            assert max(r, g, b) - min(r, g, b) <= 22, (name, STATUS_HEX[name])

@@ -1,4 +1,4 @@
-# ADR-011: Toolchain build source moves to the sibling rebrew-toolchains checkout
+# ADR-011: Toolchain build source moves to the sibling recompile-toolchains checkout
 
 - **Status**: Accepted. Amends [ADR-006](006-toolchain-standardization.md) and
   [ADR-007](007-complete-containerization-reproducibility.md) (Dockerfiles and

@@ -97,8 +97,8 @@ from rebrew.present import bar_plain
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
 from rebrew.utils import floor_pct, untrusted_ident
 
-# At this match ratio, NEAR_MATCHING output is shown in bold yellow instead of
-# plain yellow — visually distinguishing "almost there" from "far off".
+# At this match ratio, NEAR_MATCHING output is shown in bold steel blue instead of
+# plain steel blue — visually distinguishing "almost there" from "far off".
 _NEAR_MATCHING_BOLD_THRESHOLD = 0.97
 
 # Single-file `rebrew test` is one process per invocation. The name map and

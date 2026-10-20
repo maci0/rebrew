@@ -54,6 +54,7 @@ from rebrew.naming import (
 )
 from rebrew.present import ratio_bar
 from rebrew.status import effective_status
+from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import floor_pct
 from rebrew.workspace.status import EARNED_STATUSES, FUZZY_STATUSES, MATCHED_STATUSES
 
@@ -1568,11 +1569,11 @@ _EPILOG = (
 #: printed beside them when its count is nonzero, so the letters partition
 #: the covered functions instead of hiding SIZE_MISMATCH and the rest.
 _LETTER_STATUSES = (
-    ("EXACT", "E", "green"),
-    ("RELOC", "R", "cyan"),
-    ("PROVEN", "P", "magenta"),
-    ("NEAR_MATCHING", "M", "yellow"),
-    ("STUB", "S", "dim"),
+    ("EXACT", "E", STATUS_COLORS["EXACT"]),
+    ("RELOC", "R", STATUS_COLORS["RELOC"]),
+    ("PROVEN", "P", STATUS_COLORS["PROVEN"]),
+    ("NEAR_MATCHING", "M", STATUS_COLORS["NEAR_MATCHING"]),
+    ("STUB", "S", STATUS_COLORS["STUB"]),
 )
 
 
@@ -1586,7 +1587,8 @@ def _coverage_status_markup(status_counts: dict[str, int]) -> str:
     for name in sorted(status_counts):
         count = status_counts[name]
         if name not in known and count:
-            parts.append(f"[dim]{count} {name}[/dim]")
+            color = STATUS_COLORS.get(name, "dim")
+            parts.append(f"[{color}]{count} {name}[/{color}]")
     return " ".join(parts)
 
 
@@ -1803,18 +1805,19 @@ def main(
             else ""
         )
         extra = "".join(
-            f"  [dim]{name}: {status_counts[name]}[/dim]"
+            f"  [{STATUS_COLORS.get(name, 'dim')}]{name}: {status_counts[name]}"
+            f"[/{STATUS_COLORS.get(name, 'dim')}]"
             for name in sorted(status_counts)
             if name not in {row[0] for row in _LETTER_STATUSES} and status_counts[name]
         )
         console.print(
             f"  [bold]Coverage[/bold]: {covered} covered"
             f"  ({total_funcs} in Ghidra function list)"
-            f"  [green]EXACT: {exact}[/green]"
-            f"  [cyan]RELOC: {reloc}[/cyan]"
-            f"  [magenta]PROVEN: {proven}[/magenta]"
-            f"  [yellow]NEAR_MATCHING: {matching}[/yellow]"
-            f"  [dim]STUB: {stub}[/dim]"
+            f"  [{STATUS_COLORS['EXACT']}]EXACT: {exact}[/{STATUS_COLORS['EXACT']}]"
+            f"  [{STATUS_COLORS['RELOC']}]RELOC: {reloc}[/{STATUS_COLORS['RELOC']}]"
+            f"  [{STATUS_COLORS['PROVEN']}]PROVEN: {proven}[/{STATUS_COLORS['PROVEN']}]"
+            f"  [{STATUS_COLORS['NEAR_MATCHING']}]NEAR_MATCHING: {matching}[/{STATUS_COLORS['NEAR_MATCHING']}]"
+            f"  [{STATUS_COLORS['STUB']}]STUB: {stub}[/{STATUS_COLORS['STUB']}]"
             f"  [dim]DOCUMENTED: {documented}[/dim]"
             f"{extra}"
             f"  → [bold]{exact + reloc}/{denominator}[/bold] functions byte-matched{toolchain}"

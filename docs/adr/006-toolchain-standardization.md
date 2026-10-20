@@ -4,7 +4,7 @@
   (pinned-source unification), [ADR-008](008-docker-only-execution.md)
   (docker-only; the host fallback described below no longer exists for
   Windows/DOS toolchains), [ADR-011](011-external-toolchains-checkout.md)
-  (build specs moved out of this repo to the sibling rebrew-toolchains
+  (build specs moved out of this repo to the sibling recompile-toolchains
   checkout), [ADR-016](016-image-backed-native-profiles.md)
   (remaining native-PATH profiles became image-backed).  Read this ADR
   for the model's origin; 007/008/011/016 for its current shape.
@@ -42,7 +42,7 @@ finicky installer; build once, share).
   canonical build specs (top-level dir = unversioned family (`msvc/`,
   `delphi/`, `watcom/`) so version and arch appear exactly once, in the
   subdir and image tag).  *(Moved with the build source to the sibling
-  rebrew-toolchains checkout; ADR-011.)*  All images inherit the shared
+  recompile-toolchains checkout; ADR-011.)*  All images inherit the shared
   `rebrew/base` (pinned debian digest) and download pinned, sha256-verified
   sources (or extract committed media tarballs), so builds are
   reproducible from a clean checkout with only docker.
@@ -79,5 +79,5 @@ finicky installer; build once, share).
   custom `omf16` decoder (docs/OMF_NOTES.md has the mapped layout).
 - Borland 16-bit (Turbo C++ 3.1) and 32-bit (bcc32) installs are both
   vendored *(Superseded: the vendored trees and media live in the sibling
-  rebrew-toolchains checkout; ADR-011; archive.org `turboc3.1_202112` /
+  recompile-toolchains checkout; ADR-011; archive.org `turboc3.1_202112` /
   `BorlandC55` items remain the pinned sources there).*

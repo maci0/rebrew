@@ -17,7 +17,7 @@ ADR 015 kept `gcc-14.2.0`, `mingw-16.2.0`, `clang-18.1.8` and `watcom-2.0-win16`
 vendored binary, no image), and recorded the blockers for making them
 image-backed:
 
-- `rebrew-toolchains` had no build source for the replacement images and
+- `recompile-toolchains` had no build source for the replacement images and
   `sources.json` pinned no compiler media for them;
 - the only MinGW image carried GCC 14 while the native `mingw-16.2.0` resolved
   GCC 16.2.0 on the host: silently a different code generator;

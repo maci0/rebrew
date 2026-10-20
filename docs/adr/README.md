@@ -35,7 +35,7 @@ itself, and the consequences (including trade-offs accepted).
 | 008 | Docker-only toolchain execution (no host wine/dosbox) *(amended by 016)* |
 | 009 | Cross-target function import (`rebrew cross-import`) *(amended by 022, 024)* |
 | 010 | Shared multi-version sources (`src/shared` + per-target defines) |
-| 011 | Toolchain build source moves to the sibling rebrew-toolchains checkout |
+| 011 | Toolchain build source moves to the sibling recompile-toolchains checkout |
 | 012 | Metadata store tiers: canonical vs derived vs cache (see [METADATA.md](../METADATA.md)) *(amended by 023)* |
 | 013 | Byte-level library detection against linked archives (`rebrew lib-match`) |
 | 014 | The CLI is a component graph (`rebrew.plugin` + `rebrew.builtins`) |

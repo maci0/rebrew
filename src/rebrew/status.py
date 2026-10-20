@@ -1442,11 +1442,12 @@ def _render_terminal(report: StatusReport) -> None:
             ("no function", "", report.unattributed_bytes),
         ):
             if size is not None:
+                color = STATUS_COLORS.get(label, "dim")
                 status_table.add_row(
-                    f"[dim]{label}[/dim]",
+                    f"[{color}]{label}[/{color}]",
                     count_text,
                     f"{size:,}",
-                    *ratio_cells(size, color="dim"),
+                    *ratio_cells(size, color=color),
                 )
 
     # --- Summary lines ---
@@ -1454,7 +1455,8 @@ def _render_terminal(report: StatusReport) -> None:
 
     if proven:
         summary_lines.append(
-            f"[magenta]{proven} PROVEN[/magenta]  [dim]semantically equivalent, bytes still"
+            f"[{STATUS_COLORS['PROVEN']}]{proven} PROVEN[/{STATUS_COLORS['PROVEN']}]"
+            "  [dim]semantically equivalent, bytes still"
             " differ (not byte-matched)[/dim]"
         )
 
@@ -1466,7 +1468,7 @@ def _render_terminal(report: StatusReport) -> None:
         # here sat under the code-account percentage and read as a second one.
         decompiled = max(0, report.matched_functions - report.naked_matched)
         summary_lines.append(
-            f"[magenta]{decompiled}/{report.total_functions} functions decompiled[/magenta]"
+            f"{decompiled}/{report.total_functions} functions decompiled"
             f"  [dim]({report.naked_matched} naked reconstructions, {report.naked_bytes:,}B"
             " byte-exact but not decompiled; implement the C bodies)[/dim]"
         )
@@ -1524,12 +1526,14 @@ def _render_terminal(report: StatusReport) -> None:
             )
         if report.verify_missing_size:
             summary_lines.append(
-                f"[yellow]{report.verify_missing_size} function(s) MISSING_SIZE[/yellow]"
+                f"[{STATUS_COLORS['MISSING_SIZE']}]{report.verify_missing_size} function(s) MISSING_SIZE"
+                f"[/{STATUS_COLORS['MISSING_SIZE']}]"
                 " — set SIZE via metadata (rebrew cfg set) then re-run verify"
             )
         if report.effective_matches:
             summary_lines.append(
-                f"[cyan]{report.effective_matches} effective match(es)[/cyan]"
+                f"[{STATUS_COLORS['NEAR_MATCHING']}]{report.effective_matches} effective match(es)"
+                f"[/{STATUS_COLORS['NEAR_MATCHING']}]"
                 " — register-allocation-only delta, prove candidates"
             )
 
@@ -1558,7 +1562,7 @@ def _render_terminal(report: StatusReport) -> None:
             if report.total_text_bytes > 0
             else f"Libraries  {report.library_identified:,}, omitted from the game total"
         )
-        panel_rows.append(Text(library_line, style="dim"))
+        panel_rows.append(Text(library_line, style=STATUS_COLORS["LIBRARY"]))
     if status_table.row_count:
         if byte_percentages:
             panel_rows.append(Text("EXACT and RELOC are both byte matches.", style="dim"))

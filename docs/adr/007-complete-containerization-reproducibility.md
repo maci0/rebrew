@@ -2,7 +2,7 @@
 
 - **Status**: Amended by [ADR-011](011-external-toolchains-checkout.md)
   (the build source this ADR described as in-repo (Dockerfiles, media
-  tarballs, vendored trees) moved to the sibling rebrew-toolchains
+  tarballs, vendored trees) moved to the sibling recompile-toolchains
   checkout; the pinned-source and smoke-gate invariants below are
   unchanged), [ADR-016](016-image-backed-native-profiles.md)
   (the deliberate `mingw-16.2.0` PATH/no-image exception below is gone;
@@ -34,7 +34,7 @@ invariants:
 
 1. **Pinned source, shared by image and host tree.**  Every vendored
    toolchain has a `ToolchainSource` (sha256-verified codeload/remote
-   tarball, or a media tarball committed in the rebrew-toolchains
+   tarball, or a media tarball committed in the recompile-toolchains
    checkout).  The docker image downloads the SAME pinned source
    (checksum verified inside the Dockerfile) and `rebrew toolchain vendor`
    assembles the host tree from it, so images and host trees are
@@ -59,7 +59,7 @@ invariants:
    image-less plugin spec.)*
 
 Enforcement: a test asserts every image-backed spec's Dockerfile is
-git-tracked in the rebrew-toolchains checkout (`git ls-files` against the
+git-tracked in the recompile-toolchains checkout (`git ls-files` against the
 external repo); an untracked Dockerfile is now a gate failure, closing
 the borland-3.1/borland-2.0 class of regression (the guard moved with the build source
 per ADR-011 and is no longer xfail).
@@ -78,7 +78,7 @@ per ADR-011 and is no longer xfail).
   `match --flag-sweep-toolchains` covering the full range.
 - The git-tracked Dockerfile guard is a hard, non-xfail test; the
   previously-uncommitted borland-3.1/borland-2.0 Dockerfiles and wrapper scripts are now
-  committed in the rebrew-toolchains checkout (ADR-011): the 16-bit media
+  committed in the recompile-toolchains checkout (ADR-011): the 16-bit media
   tarballs stay untracked by design, user-supplied next to their Dockerfile.
 - Cost: larger image set to maintain (three new `rebrew/msvc` images),
   and the gate depends on codeload tarball stability; a repo rewrite

@@ -305,3 +305,13 @@ These form a "dependency ceiling" that limits what can be matched regardless of 
 - Dead assignments in STUBs are common: Ghidra generates reads for values the target code never uses.
 - Entity records are 65 bytes: MSVC6 decomposes `*65` as `shl eax, 6; add eax, base; add eax, index`.
 - CRT `_mbctype` access: `_mbctype[(unsigned char)c + 1] & 4` compiles to `test byte ptr [reg + 0x11766321], 4`; the +1 offset is baked into the immediate address.
+
+## Color roles
+
+Status words and terminal output follow the shared
+[Relumea brand palette](../../relumea-brand/docs/brand/BRAND.md#cli-standard).
+EXACT is emerald, RELOC cyan teal, PROVEN forest green (mint fills), NEAR_MATCHING steel blue,
+STUB neutral gray and SIZE_MISMATCH failure brick. LIBRARY is mulberry origin
+attribution, not a byte-verification result. LIVE is activity only; it does
+not become a stored verification verdict. Colors never change classification
+or accounting, and labels remain present when color is disabled.

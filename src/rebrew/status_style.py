@@ -6,84 +6,56 @@ terminal tools print, the hex mark the report, dashboard and call graph fill
 with, the canonical display order, and the grouping the report stylesheet and
 dashboard shell iterate to colour body text.
 
-It is a leaf, importing nothing from rebrew but the status vocabulary and the
+It is a leaf, importing only the status vocabulary, brand colors and the
 chrome tokens, so any surface can read a mark without pulling in the Typer
 toolkit or the analysis engine that produced the status.
 """
 
 from __future__ import annotations
 
+from rebrew.status_colors import LIGHT, TERMINAL
 from rebrew.theme import TOKENS
 from rebrew.workspace.status import MATCHED_STATUSES
 
 # Canonical Rich colour tags for status strings, used across CLI tools for
 # consistent output formatting.
 STATUS_COLORS: dict[str, str] = {
-    "EXACT": "bold green",
-    "RELOC": "green",
-    "PROVEN": "bold cyan",
-    "NEAR_MATCHING": "yellow",
-    "SIZE_MISMATCH": "yellow",
-    "STUB": "dim",
-    "COMPILE_ERROR": "red",
-    "EXTRACT_ERROR": "red",
-    "MISSING_FILE": "red",
-    "MISSING_SIZE": "red",
-    "INVALID_VA": "red",
-    "INTERNAL_ERROR": "red",
-    "SKIP": "dim",
+    "LIBRARY": TERMINAL["library"],
+    "EXACT": f"bold {TERMINAL['exact']}",
+    "RELOC": TERMINAL["reloc"],
+    "PROVEN": f"bold {TERMINAL['proven']}",
+    "NEAR_MATCHING": TERMINAL["near"],
+    "SIZE_MISMATCH": TERMINAL["fail"],
+    "STUB": TERMINAL["stub"],
+    "COMPILE_ERROR": TERMINAL["fail"],
+    "EXTRACT_ERROR": TERMINAL["fail"],
+    "MISSING_FILE": TERMINAL["fail"],
+    "MISSING_SIZE": TERMINAL["fail"],
+    "INVALID_VA": TERMINAL["fail"],
+    "INTERNAL_ERROR": TERMINAL["fail"],
+    "SKIP": TERMINAL["stub"],
 }
 
-# Page and call-graph marks for the same statuses. Text on white (report,
-# dashboard) and white on the fill (Mermaid, DOT) both meet WCAG AA.
-# STUB is a neutral grey, like the dim terminal tag, not an error red.
-# DISPATCH is the chrome ink token: a jump table is structure, not a match
-# status.
-#
-# The marks are hand-picked, not a framework ramp. Two decisions carry the
-# set, and both follow ``rebrew.theme``:
-#
-# * Warm, like the chrome neutrals. The mascot is a brass machine in a leather
-#   harness under phosphor green, so the amber, the red and the three greys
-#   lean warm; a cool slate grey beside ``#f7f4ef`` reads as a different
-#   product.
-# * No mark in the accent's hue. ``TOKENS["accent"]`` is the one cold value on
-#   these surfaces and it is reserved for links and focus rings, so a row
-#   painted in that blue reads as clickable and a link reads as a verdict.
-#   The two cool marks are teal and a blue-shifted teal, 59 deltaE from the
-#   accent and 19 from each other; the loud marks sit 19 or more apart, and
-#   STUB/SKIP/UNKNOWN are a deliberate warm ladder (dark to light: a stub is
-#   written down, an unknown is not) rather than three unrelated greys.
-#
-# ``tests/test_theme`` holds every mark to 4.5:1 on all four surfaces a mark
-# can be painted on (the two resting backgrounds plus the hover and pressed
-# ones a row or a status card takes under the pointer or a held key), and
-# white on the fill to 4.5:1 for the graph, so the retune costs no contrast.
-# The amber pair and the light grey are set for that widest surface: on
-# ``pressed`` NEAR_MATCHING measured 4.36:1 and UNKNOWN 4.28:1, so a card
-# held down lost the floor the same mark keeps at rest.
-#
-# Every match status has a mark: the report table, the dashboard cards and
-# the call-graph labels all emit ``status-<STATUS>`` for whatever STATUS a
-# row carries, so a machine verdict (COMPILE_ERROR, MISSING_SIZE, ...) with
-# no entry here renders as unstyled body ink while the terminal paints it
-# red (STATUS_COLORS above).  UNKNOWN and DISPATCH are page-only: neither is a
-# STATUS from rebrew.status, so STATUS_COLORS has no counterpart for them.
+# Web words follow the approved brand palette. Graphs use the same words as
+# fills with white labels; all marks clear AA on the report's warm surfaces.
+# Related green/blue families carry explicit status labels, and links stay
+# underlined. LIBRARY is origin attribution, not a comparison status.
 STATUS_HEX: dict[str, str] = {
-    "EXACT": "#1a6b3c",
-    "RELOC": "#0f6a5f",
-    "PROVEN": "#146b7d",
-    "NEAR_MATCHING": "#8f5105",
-    "SIZE_MISMATCH": "#6f3210",
-    "STUB": "#3f3a33",
-    "COMPILE_ERROR": "#a3221f",
-    "EXTRACT_ERROR": "#a3221f",
-    "MISSING_FILE": "#a3221f",
-    "MISSING_SIZE": "#a3221f",
-    "INVALID_VA": "#a3221f",
-    "INTERNAL_ERROR": "#a3221f",
-    "SKIP": "#585249",
-    "UNKNOWN": "#65524c",
+    "LIBRARY": LIGHT["library"],
+    "EXACT": LIGHT["exact"],
+    "RELOC": LIGHT["reloc"],
+    "PROVEN": LIGHT["proven"],
+    "NEAR_MATCHING": LIGHT["near"],
+    "SIZE_MISMATCH": LIGHT["fail"],
+    "STUB": LIGHT["stub"],
+    "COMPILE_ERROR": LIGHT["fail"],
+    "EXTRACT_ERROR": LIGHT["fail"],
+    "MISSING_FILE": LIGHT["fail"],
+    "MISSING_SIZE": LIGHT["fail"],
+    "INVALID_VA": LIGHT["fail"],
+    "INTERNAL_ERROR": LIGHT["fail"],
+    "SKIP": "#616873",
+    "UNKNOWN": "#636a73",
     "DISPATCH": TOKENS["ink"],
 }
 

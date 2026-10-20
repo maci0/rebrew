@@ -7,18 +7,12 @@ surfaces are read for addresses and bytes, so nothing here competes with the
 data. A role named here is rendered the same way by every surface that uses it,
 so the report and the dashboard read as one tool.
 
-The neutrals are warm rather than ``#1a1a1a``/``#f5f5f5``. The mascot
-(``docs/mascot.png``) is a brass machine in a leather harness under phosphor
-green, and a cold grey page beside it reads as a different product. The accent
-blue is the one cold value and it stays: the status marks own green, teal,
-amber and red, and a link or focus ring in one of those hues would read as a
-verdict on a row it says nothing about. The same rule runs the other way, so
-``tests/test_theme`` also holds every status mark away from ``accent``: a
-matched row in the link blue reads as something to click. ``tests/test_theme``
-holds every text pair to 4.5:1 and every border and focus pair to 3:1 against
-every background these tokens ship on — the two page surfaces plus the hover
-and pressed a row or button is painted on — and fails on a colour token added
-without one, so the temperature costs no contrast.
+The chrome keeps its warm neutrals. Status marks follow the approved
+Relumea palette in ``status_colors.LIGHT``; terminal roles use
+``status_colors.TERMINAL``. Related green shades retain explicit status labels,
+and links stay underlined. ``tests/test_theme`` holds every text pair to 4.5:1
+and every border and focus pair to 3:1 against the resting, hover and pressed
+backgrounds. It also checks the shared palette and neutral ladder.
 
 ``ink`` on ``surface`` is also the title band both HTML surfaces open with: the
 report's ``header`` and the dashboard's heading, on the same padding, so the

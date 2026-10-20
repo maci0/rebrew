@@ -1,9 +1,16 @@
 ## [Unreleased]
 
+## [5.4.0] - 2026-10-20
+
 ### Added
 - Import-table API and `binary imports list --json` expose nullable PE
   `hint_name_rva`, preserving physical name-table positions independently of
   IAT order without assigning linker load order or symbol ownership.
+
+### Fixed
+- Apply the shared Relumea verdict palette to terminal summaries and HTML reports; retain no-color and JSON contracts.
+- Use the shared mulberry LIBRARY attribution color in terminal summaries and HTML marks.
+- Use `recompile-toolchains` consistently in the toolchain decision records.
 
 ## [5.3.0] - 2026-10-19
 

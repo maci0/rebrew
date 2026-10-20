@@ -251,7 +251,7 @@ class _TargetSafeConsole(Console):
 #: the guard covers the whole CLI rather than the commands that remembered
 #: :func:`untrusted_text`.  Import it instead of constructing a bare
 #: ``Console(stderr=True)``.
-console = _TargetSafeConsole(stderr=True)
+console = _TargetSafeConsole(stderr=True, highlight=False)
 
 
 #: Bytes per mebibyte.  Every byte figure rebrew sizes, caps, or displays is

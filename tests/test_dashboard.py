@@ -2350,7 +2350,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12616), ("gzip", 13227)],
+        [("zstd", 12623), ("gzip", 13240)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int

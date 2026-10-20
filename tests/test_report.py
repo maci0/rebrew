@@ -974,11 +974,12 @@ class TestStatusLegend:
         """A new STATUS reaches the report; the reference must follow it."""
         assert set(COVERAGE_DB_STATUSES) == set(STATUS_SUMMARIES)
         assert set(COVERAGE_DB_STATUSES) == set(STATUS_LEGEND_ORDER)
-        assert set(STATUS_SUMMARIES) == set(STATUS_HEX) - {"DISPATCH", "INTERNAL_ERROR"}
+        assert set(STATUS_SUMMARIES) == set(STATUS_HEX) - {"DISPATCH", "INTERNAL_ERROR", "LIBRARY"}
         assert status_legend_rows(set(COVERAGE_DB_STATUSES)) == [
             (status, STATUS_SUMMARIES[status]) for status in STATUS_LEGEND_ORDER
         ]
         assert status_legend_rows({"NOPE"}) == []
+        assert status_legend_rows({"LIBRARY", "LIVE"}) == []
 
     def test_legend_explains_every_status_the_page_shows(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

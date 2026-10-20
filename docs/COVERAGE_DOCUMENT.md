@@ -243,23 +243,23 @@ apart.
 | State | Description | Bucket | Mark in the report |
 |-------|-------------|--------|-------------------|
 | `none` | Uncovered / unmatched region | `none` | none (count only) |
-| `exact` | Byte-identical match (a function, or a data symbol the link map places at its reference VA) | `exact` | EXACT `#1a6b3c` |
+| `exact` | Byte-identical match (a function, or a data symbol the link map places at its reference VA) | `exact` | EXACT `#0f7a42` |
 | `verified` | Data verdict `VERIFIED` (`rebrew verify --data`) | `exact` | none (count only) |
-| `reloc` | Match after relocation normalization | `reloc` | RELOC `#0f6a5f` |
-| `near_matching` / `near_match` | Byte-similar, not byte-identical; semantics unproven | `near_match` | NEAR_MATCHING `#8f5105` |
-| `proven` | PROVEN status (semantic equivalence, bytes differ) | `proven` | PROVEN `#146b7d` |
-| `size_mismatch` | SIZE_MISMATCH status | `size_mismatch` | SIZE_MISMATCH `#6f3210` |
-| `stub` | Stub implementation (placeholder) | `stub` | STUB `#3f3a33` |
+| `reloc` | Match after relocation normalization | `reloc` | RELOC `#00686e` |
+| `near_matching` / `near_match` | Byte-similar, not byte-identical; semantics unproven | `near_match` | NEAR_MATCHING `#445b99` |
+| `proven` | PROVEN status (semantic equivalence, bytes differ) | `proven` | PROVEN `#265937` |
+| `size_mismatch` | SIZE_MISMATCH status | `size_mismatch` | SIZE_MISMATCH `#a32318` |
+| `stub` | Stub implementation (placeholder) | `stub` | STUB `#5f6673` |
 | `padding` | NOP/INT3 alignment padding | `padding` | none (count only) |
 | `data` | Non-code data in .text (residual switch tables, etc.) | `data` | none (count only) |
 | `thunk` | IAT thunk stub (not reversible) | `thunk` | none (count only) |
-| `skip` | Parked by annotation | `other` | SKIP `#585249` |
-| `unknown` | Unset or unrecognized (the coercion target) | `other` | UNKNOWN `#65524c` |
-| `compile_error` | The compile step failed | `other` | error `#a3221f` |
-| `extract_error` | No bytes could be extracted for the VA | `other` | error `#a3221f` |
-| `missing_size` | Target size unknown | `other` | error `#a3221f` |
-| `missing_file` | Source file missing | `other` | error `#a3221f` |
-| `invalid_va` | VA below the arch-aware floor | `other` | error `#a3221f` |
+| `skip` | Parked by annotation | `other` | SKIP `#616873` |
+| `unknown` | Unset or unrecognized (the coercion target) | `other` | UNKNOWN `#636a73` |
+| `compile_error` | The compile step failed | `other` | error `#a32318` |
+| `extract_error` | No bytes could be extracted for the VA | `other` | error `#a32318` |
+| `missing_size` | Target size unknown | `other` | error `#a32318` |
+| `missing_file` | Source file missing | `other` | error `#a32318` |
+| `invalid_va` | VA below the arch-aware floor | `other` | error `#a32318` |
 | `drift` | Data verdict `DRIFT`: the recompiled bytes no longer match | `other` | none (count only) |
 | `displaced` | Data verdict `DISPLACED`: the link map places the symbol away from its reference VA | `other` | none (count only) |
 | `unchecked` | Data verdict `UNCHECKED` | `other` | none (count only) |

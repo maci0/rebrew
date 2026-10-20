@@ -15,7 +15,7 @@ plus artifact download). At acceptance, a branch
 deleted the host/native, wibo and headless paths, but that migration could
 not land yet with the artifacts then at hand:
 
-- `rebrew-toolchains` had no build source for the replacement images
+- `recompile-toolchains` had no build source for the replacement images
   (`rebrew/gcc:pe-win32`, `rebrew/gcc:linux-x64`, `rebrew/clang:linux-x64`,
   `rebrew/watcom:2.0-win16`), and `sources.json` pinned no compiler media for
   them;

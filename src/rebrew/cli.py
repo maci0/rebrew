@@ -34,6 +34,7 @@ from typing import Any, Literal, NoReturn, override
 import click
 import typer
 from rich.console import Console
+from rich.theme import Theme
 from typer import rich_utils
 from typer._click.core import Command as TyperBaseCommand
 from typer._click.core import Context as TyperContext
@@ -54,6 +55,7 @@ from rebrew.config import (
 )
 from rebrew.metadata.bindings import SourceBinding, read_source_bindings
 from rebrew.sources import iter_sources
+from rebrew.status_colors import RICH_STYLES
 from rebrew.utils import (
     console,
     parse_int_literal,
@@ -61,6 +63,8 @@ from rebrew.utils import (
     untrusted_literal,
     untrusted_text,
 )
+
+console.push_theme(Theme(RICH_STYLES))
 
 log = logging.getLogger(__name__)
 
