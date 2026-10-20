@@ -51,11 +51,11 @@ UV_SYNC_FLAGS ?= --locked --all-extras --group similarity
 # RESEMBL_SHA is the commit that tag must resolve to: tags move, and a
 # same-version checkout on another commit passes the version string check
 # while CI clones this commit.
-RESEMBL_REF ?= v3.4.0
-RESEMBL_SHA ?= ffcfc83404557601248e7f33c702eb6f83550301
+RESEMBL_REF ?= v3.5.0
+RESEMBL_SHA ?= f2e2cddd3f022c84e6a146d2f6bf1f45bd48afe7
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 # Match the CI uv pin so local sync/audit behavior tracks CI.
-UV_VERSION ?= 0.13.1
+UV_VERSION ?= 0.13.3
 
 # Single-file / nodeid override for the edit-test loop:
 #   make test-one T=tests/test_annotation.py
@@ -1011,7 +1011,8 @@ smoke-wheel: require-dist ensure-uv
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract jobs: ruff, mypy, uv audit, pytest under the COV_FLOOR gate
-# (CI's 3.13 test entry runs `make coverage`, not `make test`), fixture
+# (CI's selected 3.14.8 entry runs `make coverage`; 3.13 remains a compatibility lane),
+# fixture
 # freshness, idempotency sweep, CLI help greps, plus the import-cycle and
 # import-layering hooks that the CI pre-commit job also runs).  For full hook
 # parity (hygiene + skills validate) also run `make check` before a PR.

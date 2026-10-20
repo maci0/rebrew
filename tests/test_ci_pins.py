@@ -206,18 +206,17 @@ class TestCiPins:
 
     def test_hermetic_jobs_pin_exact_python_patch(self) -> None:
         """Every job but the test matrix takes the action's default, which is
-        the exact ``.python-version`` patch.  The matrix's 3.13 entry (which
-        runs the coverage gate) pins that same patch; only 3.14 floats on its
-        minor for forward-compat coverage.
+        the exact ``.python-version`` patch. The matrix retains the 3.13
+        compatibility baseline and selected 3.14 patch, which runs coverage.
         """
         python_version = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
-        assert re.fullmatch(r"3\.13\.\d+", python_version), python_version
+        assert re.fullmatch(r"3\.14\.\d+", python_version), python_version
         assert _uv_env_defaults()["python-version"] == python_version
         # Only the test matrix may override it, and only with the matrix value
         # (the first hit is the matrix declaration itself).
         ci = CI_YML.read_text(encoding="utf-8")
         overrides = re.findall(r"(?m)^\s+python-version: (.+)$", ci)
-        assert overrides == [f'["{python_version}", "3.14"]', "${{ matrix.python-version }}"], (
+        assert overrides == [f'["3.13.16", "{python_version}"]', "${{ matrix.python-version }}"], (
             overrides
         )
         assert f"matrix.python-version == '{python_version}'" in ci
@@ -499,9 +498,9 @@ class TestCiPins:
         assert "bash tools/ci_install_vnu.sh" in ci
         assert '>> "$GITHUB_PATH"' in ci
         # One matrix entry, like the coverage floor and the fixture sweep:
-        # the two tests read the checked-in tree, so 3.14 cannot disagree.
+        # the two tests read the checked-in tree, so the 3.13 baseline agrees.
         step = ci.split("- name: Install vnu", 1)[1].split("- name:", 1)[0]
-        assert "if: matrix.python-version == '3.13.16'" in step
+        assert "if: matrix.python-version == '3.14.8'" in step
         # The cache must restore before the install that reads it, and its
         # key has to cover the pin, which lives in the helper rather than
         # the workflow: a key missing it serves a validator never checked.
