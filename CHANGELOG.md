@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [5.5.0] - 2026-10-21
+
 ### Changed
 
 - Select Python 3.14.8 for contributor environments and the current CI lane.
