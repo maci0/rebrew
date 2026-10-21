@@ -564,11 +564,14 @@ gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 
 Shell HTML (zstd-19): 3560 bytes on the wire (was ~8.2 KB with inlined JS).
-Both entry assets total 12623 bytes zstd / 13240 gzip, inside the RFC 6928
+At this checkpoint, both entry assets totaled 12623 bytes zstd / 13240 gzip, inside the RFC 6928
 14600-byte initial window less a 640-byte-per-response header reserve
 (`_ENTRY_WIRE_BUDGET_BYTES`, 13320), so the loading chrome paints before
 `/app.js` (9063 zstd) finishes. Gate:
 `test_entry_assets_fit_initial_congestion_window`.
+
+Gzip size also depends on the host's zlib version. These byte counts are a
+measurement checkpoint; tests enforce the 13320-byte budget on every host.
 
 The gzip path is the binding one: 13240 of 13320 budgeted bytes, 80 to spare
 (zstd has 697). With the measured response headers (560 shell, 592 `/app.js`)

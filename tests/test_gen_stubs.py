@@ -382,6 +382,32 @@ class TestGenerate:
         assert "int thread_proc = 0;" not in content
         assert "int __cdecl thread_proc" not in content
 
+    def test_fastcall_decoration_beats_wrong_cdecl_declaration(self) -> None:
+        info = parse_extern_decl("extern int hook(int);")
+        content = generate_stubs({"@hook@12", "@empty@0"}, {"hook": info})
+        assert "int __fastcall hook(int a, int b, int c)" in content
+        assert "int __fastcall empty(void)" in content
+        assert "__cdecl hook" not in content
+        assert "__stdcall hook" not in content
+        assert "__fastcall" not in generate_stubs({"@hook@3"}, {})
+
+    def test_cdecl_symbol_beats_a_fastcall_declaration(self) -> None:
+        info = parse_extern_decl("extern int __fastcall hook(int, int);")
+        content = generate_stubs({"_hook"}, {"hook": info})
+        assert "int __cdecl hook(int a, int b)" in content
+        assert "__fastcall" not in content
+
+    def test_conflicting_fastcall_signatures_require_separate_units(self) -> None:
+        for symbols in ({"@hook@4", "@hook@8"}, {"_hook", "@hook@8"}):
+            with pytest.raises(ValueError, match="separate stub translation units"):
+                generate_stubs(symbols, {})
+
+    def test_matching_fastcall_declaration_is_kept(self) -> None:
+        info = parse_extern_decl("extern void* __fastcall hook(void*, int, char*);")
+        content = generate_stubs({"@hook@12"}, {"hook": info})
+        assert "void* __fastcall hook(void* a, int b, char* c)" in content
+        assert "int __fastcall hook" not in content
+
     def test_odd_byte_suffix_is_not_stdcall(self) -> None:
         content = generate_stubs(["_foo@3"], {})
         assert "__stdcall" not in content
@@ -627,6 +653,23 @@ class TestCli:
         assert "cb" in result.output
         assert "__cdecl" not in result.output
         assert "const" not in result.output
+
+    def test_conflicting_fastcall_is_a_clean_cli_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.gen_stubs import app
+
+        monkeypatch.chdir(tmp_path)
+        _write_src(tmp_path, "")
+        result = CliRunner().invoke(
+            app,
+            ["--dry-run", "--json"],
+            input="error LNK2001: unresolved external symbol @hook@4\n"
+            "error LNK2001: unresolved external symbol @hook@8\n",
+        )
+        assert result.exit_code == 2
+        assert "separate stub translation units" in result.output
+        assert "Traceback" not in result.output
 
     def test_no_unresolved_is_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.gen_stubs import app

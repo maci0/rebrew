@@ -3346,3 +3346,31 @@ new cases failed before the fix; all 23 focused cases pass after it. Real
 both absolute and relative selections of the existing complete environment,
 `UV_NO_SYNC=1`, and `UV_OFFLINE=1`, without creating local `.venv`. This fix
 does not install dependencies or change the extras required by the gates.
+
+
+## MSVC scaffold calling-convention preservation (2026-10-22)
+
+Guild's current GoldTL raw link exposed a symbol-stub generator defect:
+`@Name@N` unresolved references were emitted as cdecl, causing both missing
+fastcall exports and duplicate cdecl definitions. Some callers request two
+fastcall byte counts for the same C name. A cdecl reference can also encounter
+a stale fastcall declaration during the whole-source extern scan.
+
+Repair: preserve the requested decoration, refuse conflicting fastcall
+signatures in a single C translation unit with an actionable error, and let
+the project generate those comparison placeholders in separate TUs. Add unit
+controls for zero/odd byte counts, matching and conflicting declarations and
+mixed decorations. No native ABI or recovered-body claim follows from a stub.
+Guild replay/evidence: `.scratch/linkable-clients-20261021/`, especially
+`build-final.log`, `build-linked.log`, `abi-split.json` and the two generated
+stub TUs. This is a generic generator fix, not a project alias workaround.
+
+CMake build throughput also needs a supported batch path: the existing driver
+accepts multiple source inputs and response files, but generated Make recipes
+launch CL once per TU. Guild's 9401 selected recipes compiled in 63 batches
+with their unchanged per-file options and absolute source paths; 2229 controls
+matched all non-CodeView sections and relocations. The one-shot experiment is
+`batch_objects.py` in the same receipt directory. A reusable command should
+preserve actual recipe contexts, handle duplicate basenames, validate inputs,
+retain diagnostics and leave CMake's normal link in charge. This experiment
+is not a new permanent project build tool.

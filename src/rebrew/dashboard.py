@@ -38,7 +38,8 @@ Retry-After. Request bodies are never read and force connection closure.
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry pair measures 12623 B zstd / 13240 B gzip against a 13320 B budget.
+entry checkpoint measured 12623 B zstd / 13240 B gzip against a 13320 B budget;
+host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
 COVERAGE_DOCUMENT.md, dashboard-api.yaml and PERFORMANCE.md.

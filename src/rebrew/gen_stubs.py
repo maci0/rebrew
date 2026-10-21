@@ -8,9 +8,9 @@ derives each symbol's type from ``extern`` declarations in the reversed
 sources, and emits zero-init globals, string globals (``s_*``) and stub
 functions with simplified C89 types.
 
-An MSVC ``_Name@N`` symbol is emitted as ``int __stdcall Name`` with
-``N/4`` int parameters unless ``--specials`` or a matching stdcall
-prototype already supplies the contract. ``__imp_`` slots are left for
+MSVC ``_Name@N`` and ``@Name@N`` symbols preserve stdcall/fastcall and
+``N/4`` int slots unless ``--specials`` or a matching declaration supplies
+the contract. Conflicting fastcall signatures require separate stub TUs. ``__imp_`` slots are left for
 the import library. A decorated symbol used to become a cdecl data
 object, which does not resolve ``_Name@N``.
 
@@ -122,6 +122,11 @@ def stdcall_arity(symbol: str) -> int | None:
     return nbytes // 4
 
 
+def fastcall_arity(symbol: str) -> int | None:
+    """Total 32-bit argument slots in ``@Name@N``, including register arguments."""
+    return stdcall_arity("_" + symbol[1:]) if symbol.startswith("@") else None
+
+
 _WIDE_PARAM_RE = re.compile(r"\b(?:double|struct|union|__int64)\b|long\s+double|long\s+long")
 
 
@@ -170,12 +175,15 @@ def _extern_matches_stdcall(info: dict[str, typing.Any] | None, arity: int) -> b
 
 
 def _symbol_rank(symbol: str) -> tuple[int, str]:
-    """Prefer a stdcall decoration when several symbols share a C name.
+    """Prefer an explicit calling-convention decoration for a shared C name.
 
     ``_Name`` and ``_Name@N`` cannot both be defined in one translation
     unit. The decorated symbol is the stack contract.
     """
-    return (0 if stdcall_arity(symbol) is not None else 1, symbol)
+    return (
+        0 if stdcall_arity(symbol) is not None or fastcall_arity(symbol) is not None else 1,
+        symbol,
+    )
 
 
 def demangle_cdecl(mangled: str) -> str:
@@ -842,12 +850,19 @@ def generate_stubs(
         name = demangle_cdecl(sym)
         if is_safe_c_ident(name):
             grouped.setdefault(name, []).append(sym)
+    for name, symbols in grouped.items():
+        if len(symbols) > 1 and any(fastcall_arity(symbol) is not None for symbol in symbols):
+            raise ValueError(
+                f"{name} has conflicting link decorations: {', '.join(sorted(symbols))}; "
+                "generate separate stub translation units for these signatures"
+            )
     demangled = {name: min(syms, key=_symbol_rank) for name, syms in grouped.items()}
     special_list: list[str] = []
     globals_list: list[str] = []
     functions_list: list[str] = []
     stdcall_list: list[str] = []
-    stdcall_arity_by_name: dict[str, int] = {}
+    fastcall_list: list[str] = []
+    decorated_arity_by_name: dict[str, int] = {}
     string_globals: list[str] = []
 
     def _variants(name: str) -> tuple[str, str]:
@@ -873,10 +888,23 @@ def generate_stubs(
             special_list.append(name)
             continue
         info = _lookup(extern_info, name)
+        fast_arity = fastcall_arity(original)
+        if fast_arity is not None:
+            if (
+                info
+                and info.get("is_func")
+                and info.get("calling_conv") == "__fastcall"
+                and _stdcall_param_slots(info.get("params")) == fast_arity
+            ):
+                functions_list.append(name)
+            else:
+                fastcall_list.append(name)
+                decorated_arity_by_name[name] = fast_arity
+            continue
         arity = stdcall_arity(original)
         if arity is not None and not _extern_matches_stdcall(info, arity):
             stdcall_list.append(name)
-            stdcall_arity_by_name[name] = arity
+            decorated_arity_by_name[name] = arity
             continue
         if name.startswith("s_"):
             string_globals.append(name)
@@ -957,21 +985,25 @@ def generate_stubs(
             lines.append("")
 
     lines.append("/* Function stubs */")
-    for name in sorted(stdcall_list):
-        # The decoration is the link contract. N/4 int slots keep ``_name@N``.
-        count = stdcall_arity_by_name[name]
-        raw_params = "(void)" if count == 0 else "(" + ", ".join(["int"] * count) + ")"
-        params = ensure_param_names(raw_params)
-        lines.append(f"int __stdcall {name}{params}")
-        lines.append("{")
-        lines.append("\treturn 0;")
-        lines.append("}")
-        lines.append("")
+    for convention, names in (("__stdcall", stdcall_list), ("__fastcall", fastcall_list)):
+        for name in sorted(names):
+            # N counts all argument bytes; fastcall puts the first two int slots in registers.
+            count = decorated_arity_by_name[name]
+            raw_params = "(void)" if count == 0 else "(" + ", ".join(["int"] * count) + ")"
+            params = ensure_param_names(raw_params)
+            lines.append(f"int {convention} {name}{params}")
+            lines.append("{")
+            lines.append("\treturn 0;")
+            lines.append("}")
+            lines.append("")
     for name in sorted(functions_list):
         info = _lookup(extern_info, name)
         if info and info["is_func"]:
             ret_type = simplify_type_for_stub(info["type"])
             cc = info["calling_conv"] or "__cdecl"
+            if demangled[name].startswith("_") and stdcall_arity(demangled[name]) is None:
+                # A stale extern must not turn a requested cdecl symbol into a decorated one.
+                cc = "__cdecl"
             params = info["params"] if info["params"] else "(void)"
             params = simplify_params_for_stub(params)
             params = ensure_param_names(params)
@@ -1267,7 +1299,10 @@ def main(
 
     # 4. Generate.
     footer_text = read_source_text(footer)[0] if footer is not None else ""
-    content = generate_stubs(unresolved, extern_info, spec_dict, footer_text, called=called)
+    try:
+        content = generate_stubs(unresolved, extern_info, spec_dict, footer_text, called=called)
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     # Symbols the existing output defines that this run does not reproduce.
     # Regeneration is by design (the TU is generated), but silently dropping
