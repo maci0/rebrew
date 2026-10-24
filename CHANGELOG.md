@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+## [6.0.2] - 2026-10-24
+
+### Changed
+
+- Rename the status table's missing-source row to `NO_SOURCE`.
+
+### Fixed
+
+- Show source-binding scan failures as concise warnings with the failure reason;
+  include tracebacks only when debug logging is enabled.
+
 ## [6.0.1] - 2026-10-24
 
 ### Fixed

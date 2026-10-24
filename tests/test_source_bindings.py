@@ -1,11 +1,12 @@
 """Address-only sources bind syntax; dedicated stores own every other field."""
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from rebrew.metadata.bindings import read_source_bindings, source_bindings
+from rebrew.metadata.bindings import iter_source_bindings, read_source_bindings, source_bindings
 from rebrew.metadata.data import save_data_metadata
 from rebrew.metadata.functions import record_function_identity, update_field
 from rebrew.metadata.source_provenance import load_source_files, set_source_file
@@ -26,6 +27,26 @@ def _record(root: Path, module: str, va: int, file: str, name: str, size: int = 
 
 
 class TestSourceBindings:
+    @pytest.mark.parametrize("level", [logging.WARNING, logging.DEBUG])
+    def test_batch_conflict_reports_reason_with_traceback_only_at_debug(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, level: int
+    ) -> None:
+        source = tmp_path / "f.c"
+        source.write_text("// ADDRESS: S 0x1000\nint f(void) { return 0; }\n")
+        _record(tmp_path, "S", 0x1000, ".scratch/f.c", "f")
+        valid = tmp_path / "g.c"
+        valid.write_text("// ADDRESS: S 0x2000\nint g(void) { return 1; }\n")
+
+        with caplog.at_level(level, logger="rebrew.metadata.bindings"):
+            results = iter_source_bindings([source, valid], metadata_dir=tmp_path)
+
+        assert [path for path, _ in results] == [valid]
+        assert str(source) in caplog.text
+        assert (
+            "address anchor conflicts with the stored source binding '.scratch/f.c'" in caplog.text
+        )
+        assert ("Traceback" in caplog.text) == (level == logging.DEBUG)
+
     def test_invalid_anchor_reports_source_path(self, tmp_path: Path) -> None:
         source = tmp_path / "misplaced.c"
         source.write_text("// ADDRESS: S 0x1000\n#include <string.h>\nint f(void) { return 1; }\n")
