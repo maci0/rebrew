@@ -273,7 +273,7 @@ def _detect_obj_format_data(magic: bytes) -> str:
     # COFF: validate machine type in first 2 bytes (multiple architectures)
     if len(magic) >= 2:
         (machine,) = struct.unpack_from("<H", magic, 0)
-        if machine in (0x14C, 0x8664, 0x1C0, 0xAA64):
+        if machine in (0x14C, 0x8664, 0x1C0, 0xAA64, 0x1F2):
             return "coff"
     # OMF: first record type in 0x80..0xA0 with a plausible length field.
     if len(magic) >= 3 and 0x80 <= magic[0] <= 0xA0:
@@ -368,11 +368,18 @@ def _parse_elf_symbol_bytes(
     if elf is None:
         return None, None
 
+    # shortcut: MOS fixups are 1–3 bytes, enable matching after width-aware scoring.
+    if int(elf.header.machine_type) == 6502:
+        log.warning("MOS objects compile successfully but relocation-aware matching is unsupported")
+        return None, None
+
     target_sym = None
+    names = {symbol, symbol[1:] if symbol.startswith("_") else "_" + symbol}
     for sym in elf.symbols:
-        if sym.name == symbol and getattr(sym, "section", None) is not None:
+        if sym.name in names and getattr(sym, "section", None) is not None:
             target_sym = sym
-            break
+            if sym.name == symbol:
+                break
 
     if target_sym is None:
         return None, None
@@ -383,6 +390,9 @@ def _parse_elf_symbol_bytes(
 
     content = bytes(section.content)
     func_start = target_sym.value
+
+    if elf.header.machine_type == lief.ELF.ARCH.ARM:
+        func_start &= ~1  # Thumb symbols use bit zero as the instruction-set marker.
 
     # Determine function size from symbol's size attribute or next symbol
     if target_sym.size > 0:
@@ -395,10 +405,19 @@ def _parse_elf_symbol_bytes(
             if hasattr(sym, "section")
             and sym.section is not None
             and sym.section.name == section.name
+            and (
+                sym.type == lief.ELF.Symbol.TYPE.FUNC
+                or sym.binding != lief.ELF.Symbol.BINDING.LOCAL
+            )
         )
         func_end = _next_symbol_end(sec_offsets, func_start, len(content))
 
-    code = content[func_start:func_end].rstrip(_PADDING_STRIP)
+    code = content[func_start:func_end]
+    if target_sym.size == 0 and elf.header.machine_type in (
+        lief.ELF.ARCH.I386,
+        lief.ELF.ARCH.X86_64,
+    ):
+        code = code.rstrip(_PADDING_STRIP)
 
     # Filter to section-local relocations (ELF exposes all relocations globally)
     section_relocs = (
@@ -406,7 +425,15 @@ def _parse_elf_symbol_bytes(
         for r in elf.relocations
         if hasattr(r, "section") and r.section is not None and r.section.name == section.name
     )
-    reloc_offsets, _records = _collect_relocs(section_relocs, func_start, func_end)
+    reloc_offsets = {}
+    for reloc in section_relocs:
+        if not func_start <= reloc.address < func_end:
+            continue
+        # shortcut: the scorer masks four bytes, add variable widths before 16-bit fixups.
+        if elf.header.machine_type in (lief.ELF.ARCH.I386, lief.ELF.ARCH.M68K) and reloc.size != 32:
+            log.warning("ELF relocation width is unsupported by the four-byte matcher")
+            return None, None
+        reloc_offsets[reloc.address - func_start] = _extract_reloc_name(reloc)
     return code, reloc_offsets
 
 
@@ -424,7 +451,14 @@ def _list_elf_symbols(obj_path: str) -> list[str]:
         if sym.name
         and sym.value is not None
         and sym.binding == lief.ELF.Symbol.BINDING.GLOBAL
-        and sym.type == lief.ELF.Symbol.TYPE.FUNC
+        and (
+            sym.type == lief.ELF.Symbol.TYPE.FUNC
+            or (
+                sym.type == lief.ELF.Symbol.TYPE.NOTYPE
+                and sym.section is not None
+                and int(sym.section.flags) & 0x4
+            )
+        )
     ]
 
 

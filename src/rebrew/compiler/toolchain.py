@@ -256,8 +256,8 @@ def _merge_toolchain_overlay(registry: dict[str, ToolchainSpec], origins: dict[s
 def _fill_image_entrypoints(registry: dict[str, ToolchainSpec]) -> None:
     """Publish each image's ENTRYPOINT wrapper for specs that omit one.
 
-    A packaged spec declares no entrypoint of its own: the pinned Dockerfiles
-    (via :data:`IMAGE_ENTRYPOINTS`) supply it.  An entry-point/overlay spec
+    Packaged specs can declare their entrypoint directly; older specs use
+    the pinned Dockerfile map (:data:`IMAGE_ENTRYPOINTS`). An entry-point/overlay spec
     that declares ``image_entrypoint`` keeps it, so a consumer that must
     override the image entrypoint still names the same wrapper."""
     for name, spec in registry.items():
@@ -1387,6 +1387,8 @@ def run_toolchain(
             "-w",
             "/work",
         ]
+        if spec.runtime == "dosemu2":
+            cmd += ["--device", "/dev/kvm"]
         for host_dir, container_dir in mounts or []:
             # Read-only: include trees are only read, and the compiler
             # must not be able to rewrite the project tree (e.g. .git/hooks).

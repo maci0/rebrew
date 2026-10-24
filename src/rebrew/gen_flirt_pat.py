@@ -181,6 +181,9 @@ def parse_elf_obj(
 
     if len(obj_data) < 20:
         return
+    # shortcut: LIEF has no MOS fixup widths, add them before admitting MOS signatures.
+    if int.from_bytes(obj_data[18:20], "little" if obj_data[5] == 1 else "big") == 6502:
+        return
 
     with tempfile.TemporaryDirectory(prefix="flirt_elf_") as td:
         tmp_path = Path(td) / "temp.o"
@@ -189,6 +192,10 @@ def parse_elf_obj(
 
     if elf is None:
         return
+    if elf.header.machine_type == lief.ELF.ARCH.M68K and any(
+        not 0 < int(reloc.size) <= 512 for reloc in elf.relocations
+    ):
+        return  # LIEF does not publish M68K relocation widths yet.
 
     is_mips = elf.header.machine_type in (lief.ELF.ARCH.MIPS, lief.ELF.ARCH.MIPS_X)
     is_arm = elf.header.machine_type == lief.ELF.ARCH.ARM

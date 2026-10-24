@@ -30,6 +30,94 @@ def _compile(tmp_path: Path) -> Path:
 
 
 class TestElfObjParsing:
+    @pytest.mark.parametrize("machine", ["I386", "M68K"])
+    def test_short_relocation_cannot_hide_adjacent_opcodes(self, monkeypatch, machine) -> None:
+        import types
+
+        import lief
+
+        from rebrew.matcher.parsers import _parse_elf_symbol_bytes
+
+        section = types.SimpleNamespace(name=".text", content=b"12345678")
+        symbol = types.SimpleNamespace(name="helper", section=section, value=0, size=8)
+        reloc = types.SimpleNamespace(address=2, size=16, section=section)
+        elf = types.SimpleNamespace(
+            header=types.SimpleNamespace(machine_type=getattr(lief.ELF.ARCH, machine)),
+            symbols=[symbol],
+            relocations=[reloc],
+        )
+        monkeypatch.setattr(lief.ELF, "parse", lambda _: elf)
+        assert _parse_elf_symbol_bytes("unused.o", "helper") == (None, None)
+
+    def test_untyped_assembly_function_ignores_local_labels(self, monkeypatch) -> None:
+        import types
+
+        import lief
+
+        from rebrew.matcher.parsers import _parse_elf_symbol_bytes
+
+        section = types.SimpleNamespace(name=".text", content=b"12345678")
+        symbols = [
+            types.SimpleNamespace(
+                name=name,
+                section=section,
+                value=value,
+                size=0,
+                type=lief.ELF.Symbol.TYPE.NOTYPE,
+                binding=binding,
+            )
+            for name, value, binding in [
+                ("_helper", 0, lief.ELF.Symbol.BINDING.GLOBAL),
+                ("Lpool", 2, lief.ELF.Symbol.BINDING.LOCAL),
+                ("_next", 6, lief.ELF.Symbol.BINDING.GLOBAL),
+            ]
+        ]
+        elf = types.SimpleNamespace(
+            header=types.SimpleNamespace(machine_type=lief.ELF.ARCH.SH),
+            symbols=symbols,
+            relocations=[],
+        )
+        monkeypatch.setattr(lief.ELF, "parse", lambda _: elf)
+        assert _parse_elf_symbol_bytes("unused.o", "helper") == (b"123456", {})
+
+    def test_mos_objects_cannot_use_four_byte_relocation_masks(self, tmp_path: Path) -> None:
+        from rebrew.gen_flirt_pat import parse_elf_obj
+
+        obj = _compile(tmp_path)
+        data = bytearray(obj.read_bytes())
+        data[18:20] = (6502).to_bytes(2, "little")
+        obj.write_bytes(data)
+        with pytest.warns(RuntimeWarning, match="6502"):
+            assert parse_obj_symbol_bytes(obj, "helper") == (None, None)
+        assert list(parse_elf_obj(bytes(data))) == []
+
+    @pytest.mark.parametrize("thumb", [False, True])
+    def test_sized_arm_functions_preserve_tail_bytes(self, monkeypatch, thumb) -> None:
+        import types
+
+        import lief
+
+        from rebrew.matcher.parsers import _parse_elf_symbol_bytes
+
+        section = types.SimpleNamespace(name=".text", content=b"\x01\x02\x00\x00")
+        symbol = types.SimpleNamespace(name="helper", section=section, value=int(thumb), size=4)
+        elf = types.SimpleNamespace(
+            header=types.SimpleNamespace(machine_type=lief.ELF.ARCH.ARM),
+            symbols=[symbol],
+            relocations=[],
+        )
+        monkeypatch.setattr(lief.ELF, "parse", lambda _: elf)
+        assert _parse_elf_symbol_bytes("unused.o", "helper") == (bytes(section.content), {})
+
+    def test_exact_symbol_wins_over_underscore_alias(self, tmp_path: Path) -> None:
+        source = tmp_path / "aliases.c"
+        source.write_text("int helper(void) { return 1; }\nint _helper(void) { return 2; }\n")
+        obj = tmp_path / "aliases.o"
+        subprocess.run([_CC, "-c", "-o", str(obj), str(source)], check=True, capture_output=True)
+        bare, _ = parse_obj_symbol_bytes(obj, "helper")
+        prefixed, _ = parse_obj_symbol_bytes(obj, "_helper")
+        assert bare and prefixed and bare != prefixed
+
     def test_combined_parser_preserves_non_coff_objects(self, tmp_path: Path) -> None:
         obj = _compile(tmp_path)
         code, relocs = parse_obj_symbol_bytes(obj, "caller")

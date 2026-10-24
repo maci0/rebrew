@@ -1908,7 +1908,7 @@ def compile_to_obj(
             args = all_flags + ["-c", src_name]
         elif arg_style == "watcom":
             args = all_flags + [f"-fo={obj_name}", "-zq", src_name]
-        elif arg_style == "posix":
+        elif arg_style in ("posix", "pipeline"):
             inc_flags = [f"-I{inc_path}"] if inc_path else []
             args = all_flags + inc_flags + [f"-I{src_parent!s}", "-c", "-o", obj_name, src_name]
         else:

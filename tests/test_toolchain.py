@@ -146,7 +146,7 @@ class TestRegistry:
         for name in ("ido-5.3", "ido-7.1"):
             spec = TOOLCHAINS[name]
             assert spec.image is not None and spec.image.startswith("rebrew/ido:")
-            assert spec.image.endswith("-linux")
+            assert spec.image == f"rebrew/ido:{name.removeprefix('ido-')}-n64"
             assert spec.binary == "cc"
             assert spec.flags_style == "posix"
             assert spec.obj_ext == ".o"
@@ -192,6 +192,21 @@ class TestRegistry:
         assert TOOLCHAINS["mingw-16.2.0"].obj_ext == ".obj"
         assert TOOLCHAINS["watcom-2.0-win16"].obj_ext == ".obj"
         assert TOOLCHAINS["watcom-2.0-win16"].bits == 16
+
+    def test_canonical_catalog_is_available_with_matching_images(self) -> None:
+        import json
+
+        from rebrew.compiler.toolchain_paths import toolchains_repo
+        from rebrew.toolchain_cli import _SMOKE_GOLDEN
+
+        manifest = toolchains_repo() / "sources.json"
+        if not manifest.exists():
+            pytest.skip("recompile-toolchains checkout not present")
+        for name, entry in json.loads(manifest.read_text()).items():
+            spec = TOOLCHAINS[name]
+            assert spec.image == "rebrew/" + entry["host_dir"].replace("/", ":", 1), name
+            assert spec.image_entrypoint == "/usr/local/bin/" + entry["recipe"]["entrypoint"], name
+            assert name in _SMOKE_GOLDEN, name
 
     def test_every_image_spec_publishes_entrypoint(self) -> None:
         """Every image-backed spec names its image's ENTRYPOINT wrapper in
@@ -369,6 +384,17 @@ class TestBindMount:
 
 
 class TestRunToolchain:
+    @pytest.mark.parametrize("runtime,kvm", [("dosemu2", True), ("daze", False), ("native", False)])
+    def test_kvm_device_only_for_dosemu(self, tmp_path: Path, monkeypatch, runtime, kvm) -> None:
+        calls = _monkey_docker(monkeypatch)
+        spec = ToolchainSpec(name="dos", image="rebrew/dos:1", runtime=runtime)
+        assert run_toolchain(spec, ["-c", "f.c"], workdir=tmp_path).ok
+        assert ("/dev/kvm" in calls[0]) is kvm
+        if kvm:
+            index = calls[0].index("--device")
+            assert calls[0][index + 1] == "/dev/kvm"
+            assert index < calls[0].index(spec.image)
+
     def test_source_date_epoch_reaches_image(self, tmp_path: Path, monkeypatch) -> None:
         """The regular compile backend forwards the same epoch as CMake."""
         monkeypatch.setenv("SOURCE_DATE_EPOCH", "1071482016")
@@ -1471,7 +1497,7 @@ class TestSmokePrintGoldens:
         from rebrew.compiler.toolchain import get_toolchain
         from rebrew.toolchain_cli import _SMOKE_GOLDEN
 
-        name = "msvc-6.0-sp5-crt"
+        name = "overlay-msvc-6.0-sp5"
         spec = replace(
             get_toolchain("msvc-6.0-sp5"), name=name, image="rebrew/msvc:6.0-sp5-crt-win32"
         )
@@ -1480,7 +1506,8 @@ class TestSmokePrintGoldens:
         obj = b"OBJ" + b"\x01\x02\x03\x04" + b"TAIL"
         before = dict(_SMOKE_GOLDEN)
 
-        def compile_image(image, prefix, workdir, flags):
+        def compile_image(image, prefix, workdir, flags, *, kvm=False):
+            assert not kvm
             calls.append((image, flags))
             assert (workdir / "t.c").read_text() == "int add(int a, int b) { return a + b; }\n"
             (workdir / "t.obj").write_bytes(obj)
@@ -1517,7 +1544,8 @@ class TestSmokePrintGoldens:
         from rebrew.app.main import app as umbrella
         from rebrew.toolchain_cli import _image_smoke_hash
 
-        def compile_image(image, prefix, workdir, flags):
+        def compile_image(image, prefix, workdir, flags, *, kvm=False):
+            assert not kvm
             (workdir / "t.obj").write_bytes(b"incomplete object")
             if missing_runner:
                 raise FileNotFoundError("container runner missing")
@@ -1537,6 +1565,23 @@ class TestSmokePrintGoldens:
             assert payload["passed"] is False
             message = "could not run" if missing_runner else "compile exited 1"
             assert message in payload["results"]["msvc-6.0"]
+
+    def test_turbo_c_timestamp_mask_preserves_omf_header(self, tmp_path: Path) -> None:
+        from rebrew.toolchain_cli import _SMOKE_GOLDEN, _masked_obj_sha256
+
+        # A real E9 COMENT record: timestamp at 47:51, checksum at 57.
+        obj = bytearray(bytes(range(80)))
+        path = tmp_path / "t.OBJ"
+        path.write_bytes(obj)
+        mask = _SMOKE_GOLDEN["borland-2.0"][4]
+        expected = _masked_obj_sha256(path, mask)
+        obj[47:51] = b"date"
+        obj[57] ^= 1
+        path.write_bytes(obj)
+        assert _masked_obj_sha256(path, mask) == expected
+        obj[44] ^= 1
+        path.write_bytes(obj)
+        assert _masked_obj_sha256(path, mask) != expected
 
     def test_print_goldens_emits_masked_hash(self, tmp_path: Path, monkeypatch, capsys) -> None:
         import hashlib
@@ -2292,7 +2337,7 @@ class TestDockerBuildProcessGroup:
 
 
 class TestGeneratedBaseDependency:
-    @pytest.mark.parametrize("base", ["base", "base-noble"])
+    @pytest.mark.parametrize("base", ["base", "base-noble", "base-dosemu"])
     def test_arg_base_builds_matching_directory_first(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, base: str
     ) -> None:
@@ -2305,9 +2350,13 @@ class TestGeneratedBaseDependency:
         (directory / "Dockerfile").write_text(
             "ARG BASE_IMAGE=rebrew/" + base + ":1.0\nFROM ${BASE_IMAGE}\n"
         )
-        base_dir = tmp_path / base
-        base_dir.mkdir()
-        (base_dir / "Dockerfile").write_text("FROM debian:bookworm-slim\n")
+        chain = ["base", "base-noble", "base-dosemu"]
+        chain = chain[: chain.index(base) + 1]
+        for index, item in enumerate(chain):
+            base_dir = tmp_path / item
+            base_dir.mkdir()
+            parent = "debian:bookworm-slim" if index == 0 else f"rebrew/{chain[index - 1]}:1.0"
+            (base_dir / "Dockerfile").write_text(f"FROM {parent}\n")
         calls = []
         monkeypatch.setattr(tc, "get_toolchain", lambda name: spec)
         monkeypatch.setattr(tc, "require_toolchains_repo", lambda: tmp_path)
@@ -2319,4 +2368,6 @@ class TestGeneratedBaseDependency:
 
         monkeypatch.setattr(cli, "_docker_build", build)
         cli.build_cmd("clock", json_output=True)
-        assert calls == [("rebrew/" + base + ":1.0", base_dir), (spec.image, directory)]
+        assert calls == [(f"rebrew/{item}:1.0", tmp_path / item) for item in chain] + [
+            (spec.image, directory)
+        ]

@@ -33,9 +33,10 @@ def flags_style_from_str(value: object) -> FlagsStyle:
 #: (``<src> <flags>`` with a FAT-uppercased object), ``borland``
 #: (``<flags> -c <src>``, object named after the source stem), ``watcom``
 #: (``<flags> -fo=<obj> -zq <src>``).
-ArgStyle = Literal["msvc", "posix", "dos", "borland", "watcom"]
+#: ``pipeline`` uses POSIX single-source arguments and disables batch dispatch.
+ArgStyle = Literal["msvc", "posix", "pipeline", "dos", "borland", "watcom"]
 
-ARG_STYLES: frozenset[str] = frozenset({"msvc", "posix", "dos", "borland", "watcom"})
+ARG_STYLES: frozenset[str] = frozenset({"msvc", "posix", "pipeline", "dos", "borland", "watcom"})
 
 
 def arg_style_from_str(value: object) -> ArgStyle:
@@ -57,8 +58,8 @@ class ToolchainSpec:
     # declares as ENTRYPOINT (e.g. "/usr/local/bin/cl"); the docker runner
     # passes it explicitly, so a consumer that overrides the image entrypoint
     # still names the same wrapper
-    runtime: str = "native"  # "native" | "wine" | "dosbox" — informational; the
-    # image wrapper encapsulates it, host fallback uses it for env setup
+    runtime: str = "native"  # The wrapper encapsulates native/wine/dosbox/daze.
+    # dosemu2 also requires a KVM device; host plugins use this for env setup
     flags_style: FlagsStyle = "msvc"  # flag syntax: /I,/Fo,/c vs -I,-o,-c
     arg_style: ArgStyle | None = None  # input/output argument dialect; None =
     # derive from flags_style (posix or msvc).  A DOS/borland/watcom compiler
@@ -73,7 +74,7 @@ class ToolchainSpec:
     # (rebrew build driver cl --/link/lib) calls the tools there directly via `wine`, and
     # both it and the compile runner derive the Include/Lib dirs from it
     # (rebrew.compiler.toolchain.image_msvc_env)
-    bits: int | None = None  # target code model: 16 / 32 / 64; None = unknown
+    bits: int | None = None  # target code model: 8 / 16 / 32 / 64; None = unknown
     # (assumed 32-bit by detection's arch-alignment check).  A toolchain
     # registered with bits=16 is allowed on x86_16 DOS/NE targets instead of
     # being flagged as a 32/64-bit compiler.

@@ -1,5 +1,37 @@
 ## [Unreleased]
 
+## [6.1.0] - 2026-10-25
+
+### Added
+
+- Register all 335 canonical compiler profiles with exact image entrypoints
+  and measured smoke fixtures, including the 27 new catalog profiles.
+  Native formats without matching readers are explicitly compile-only.
+
+### Changed
+
+- **Breaking:** `rebrew.compiler.toolchain.BUILTIN_TOOLCHAINS`,
+  `rebrew.compiler.toolchain_data.BUILTIN_TOOLCHAINS` and
+  `rebrew.compiler.toolchain_data.SOURCES` now describe all 335 catalog
+  profiles. Canonical IDO 5.3/7.1 names select the catalog's equivalent `-n64`
+  image tags; MSVC 7.0 source metadata names the actual 13.00.9466 payload.
+  Consumers that inspect these mappings should pin Rebrew 6.1 and refresh
+  stored display tags; compiler payloads and explicit variants are retained.
+
+### Fixed
+
+- Compile catalog-defined pipeline toolchains through their declared entry point
+  and preserve ARM Thumb entry markers, exact ELF symbol bounds and Xbox 360
+  PowerPC COFF function extraction. New object formats without matching readers
+  remain compile-only, as recorded in the toolchain qualification report.
+- Prevent batch dispatch from dropping sources in single-source pipelines;
+  expose KVM only to local DOSEMU profiles and never pull images implicitly
+  during smoke compilation. Build the complete local base dependency chain.
+- Align canonical IDO image tags with the catalog and correct Turbo C 2.0,
+  Delphi and MSVC 7.0 smoke metadata without masking code bytes.
+- Refuse unsupported MOS and variable-width m68k/IA-16 relocation matching
+  instead of hiding adjacent instructions with four-byte masks.
+
 ## [6.0.4] - 2026-10-24
 
 ### Fixed

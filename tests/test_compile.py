@@ -770,9 +770,18 @@ class TestCompileErrorExcerpt:
 class TestPosixDropsMsvcBaseCflags:
     """A mingw compile must not hand ``/nologo /c /MT`` to gcc."""
 
+    @pytest.mark.parametrize("pipeline", [False, True])
     def test_posix_compile_drops_msvc_base_cflags(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pipeline: bool
     ) -> None:
+        if pipeline:
+            from dataclasses import replace
+
+            from rebrew.compiler import toolchain as registry
+
+            specs = dict(registry.TOOLCHAINS)
+            specs["mingw-16.2.0"] = replace(specs["mingw-16.2.0"], arg_style="pipeline")
+            monkeypatch.setattr(registry, "TOOLCHAINS", specs)
         captured: dict[str, list[str]] = {}
 
         def _run(
@@ -1057,6 +1066,7 @@ class TestCompileToObjMsvc152Image:
 
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
         monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", lambda image: "")
         monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
@@ -1671,12 +1681,13 @@ class TestCompileBatchObjs:
         assert out == {"bar.c": str(tmp_path / "bar.o")}
         assert calls == [["-O2", "-c", "bar.c"]]
 
-    def test_exotic_style_refused(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("style", ["dos", "pipeline"])
+    def test_exotic_style_refused(self, tmp_path: Path, style: str) -> None:
         from types import SimpleNamespace
 
         from rebrew.compiler.compile import compile_batch_objs
 
-        spec = SimpleNamespace(name="x", image="img", effective_arg_style="dos")
+        spec = SimpleNamespace(name="x", image="img", effective_arg_style=style)
         out, err = compile_batch_objs(spec, ["f.c"], [], tmp_path, [], 60)
         assert out == {}
         assert "posix/msvc" in err
