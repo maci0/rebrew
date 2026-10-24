@@ -635,7 +635,6 @@ class TestPlacement:
         )
         assert link_map_symbols(text) == {
             "__imp__FlushFileBuffers@4": 0x1002412C,
-            "_g_zero": 0x10003010,
             "_g_common": 0x10003014,
         }
 

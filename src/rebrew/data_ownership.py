@@ -159,7 +159,7 @@ def ownership_inputs(cfg: ProjectConfig) -> set[Path]:
     return paths
 
 
-def _cached_archives(cfg: ProjectConfig) -> dict[str, Path]:
+def cached_data_archives(cfg: ProjectConfig) -> dict[str, Path]:
     """Configured archives already on disk; never extract or pull during a scan."""
     from rebrew.formats.archives import stock_lib_cache
 
@@ -286,7 +286,7 @@ def enrich_library_owners(
     common_names = {row.name for row in rows if row.common}
     explicit_names = {entry.link_symbol for entry in scan.globals.values() if entry.link_symbol}
     common: dict[str, list[tuple[str, str, str]]] = {}
-    for library, archive in _cached_archives(cfg).items():
+    for library, archive in cached_data_archives(cfg).items():
         members = selected.get(library, set())
         if not members or not (common_names | explicit_names):
             continue

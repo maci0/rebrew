@@ -1158,8 +1158,15 @@ def main(
             from rebrew.data_verify import link_map_symbols
 
             built_symbols = link_map_symbols(map_path.read_text(encoding="utf-8", errors="replace"))
+            if getattr(cfg, "arch", "x86_32") == "x86_32":
+                from rebrew.data_placement import private_data_symbols
+
+                for name, address in private_data_symbols(cfg, built_path, map_path).items():
+                    built_symbols.setdefault(name, address)
         elif link_map is not None:
             error_exit(f"link map not found: {link_map}", json_mode=json_output)
+        from rebrew.data_placement import span_data_placements
+
         data_report = verify_data_bytes(
             metadata_path=metadata_path,
             expected=ref_bytes,
@@ -1167,6 +1174,7 @@ def main(
             sizes={va: ref_sizes.get(va, built_sizes.get(va, 0)) for va in ref_sizes | built_sizes},
             cfg=cfg,
             built_symbols=built_symbols,
+            span_placements=span_data_placements(cfg, built_path),
         )
         data_report["link_map"] = str(map_path) if built_symbols is not None else None
         # A postlinked binary is not evidence.  Where a project's postlink step
@@ -1223,6 +1231,7 @@ def main(
                                 "writer": "verify",
                                 "input_hash": row["input_hash"],
                                 "definition_hash": row["definition_hash"],
+                                **{k: row[k] for k in ("built_va", "placement_method") if k in row},
                             },
                             # Provenance: this is the measurement, so the row
                             # names the tool and the time it was taken.  The

@@ -33,6 +33,7 @@ def verify_data_bytes(
     sections: tuple[str, ...] = (".data", ".rdata"),
     cfg: Any | None = None,
     built_symbols: dict[str, int] | None = None,
+    span_placements: dict[tuple[str, int], int] | None = None,
 ) -> dict[str, Any]:
     """Compare per-symbol bytes; return ``matched`` / ``mismatched`` / ``missing``.
 
@@ -56,7 +57,10 @@ def verify_data_bytes(
     the difference, and ``coverage`` is the fraction compared, so a caller can
     tell "122 matched" from "122 of 329 matched".
     **Placement** needs *built_symbols* (link-map name -> built VA, see
-    :func:`link_map_symbols`). Bytes compared at the reference VA cannot see a
+    :func:`link_map_symbols`), including checked COFF-private symbols. Explicit
+    aliases inherit a bounded offset from their placed backing object. Inventory
+    spans can use checked section-relative coordinates without claiming a C
+    storage owner. Bytes compared at the reference VA cannot see a
     symbol that the build put elsewhere: two zero-filled spans compare equal. A
     symbol the map places at its reference VA is ``EXACT`` when its bytes match;
     one placed elsewhere is ``DISPLACED`` (``built_va`` and ``delta`` on the row)
@@ -81,7 +85,7 @@ def verify_data_bytes(
         size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
         if "size" not in fields and "type" not in fields:
             size = sizes.get(va, 0)
-        row = {
+        row: dict[str, Any] = {
             "module": module,
             "va": f"0x{va:x}",
             "name": name,
@@ -127,12 +131,56 @@ def verify_data_bytes(
     displaced: list[dict[str, Any]] = []
     unplaced = 0
     if built_symbols is not None:
-        for row, (name, va, fields) in zip(results, row_meta, strict=True):
-            built_va = _built_va(name, fields, built_symbols)
-            if built_va is None:
+        resolved = {}
+        by_name: dict[tuple[str, str], list[tuple[str, int, dict[str, Any]]]] = {}
+        for module, va, fields in iter_data_symbols(db, section=None):
+            if not module_visible_to_target(module, cfg):
+                continue
+            name = str(fields.get("name") or "")
+            by_name.setdefault((module, name), []).append((module, va, fields))
+            direct = _built_va(name, fields, built_symbols)
+            if direct is not None:
+                resolved[module, va] = (direct, "link-symbol")
+        for _ in range(len(row_meta)):
+            changed = False
+            for row, (_, va, fields) in zip(results, row_meta, strict=True):
+                key = row["module"], va
+                if key in resolved or fields.get("storage_kind") != "alias":
+                    continue
+                backings = by_name.get((key[0], str(fields.get("backing") or "")), [])
+                if len(backings) != 1:
+                    continue
+                _, base, parent = backings[0]
+                size = data_symbol_size(parent, arch=getattr(cfg, "arch", "x86_32"))
+                placed = resolved.get((key[0], base))
+                if (
+                    placed
+                    and va - base >= 0
+                    and row["size"] > 0
+                    and va + row["size"] <= base + size
+                ):
+                    resolved[key] = (placed[0] + va - base, "backing-offset")
+                    changed = True
+            if not changed:
+                break
+        for row, (_, va, fields) in zip(results, row_meta, strict=True):
+            key = row["module"], va
+            placement = resolved.get(key)
+            if (
+                placement is None
+                and fields.get("storage_kind") == "span"
+                and key in (span_placements or {})
+            ):
+                placement = ((span_placements or {})[key], "section-relative-span")
+            if placement is None:
                 unplaced += 1
                 continue
+            built_va, method = placement
             row["built_va"] = f"0x{built_va:x}"
+            row["placement_method"] = method
+            row["input_hash"] = hashlib.sha256(
+                f"{row['input_hash']}:{method}:{built_va}".encode()
+            ).hexdigest()
             if built_va != va:
                 row["delta"] = built_va - va
                 row["status"] = DATA_STATUS_DISPLACED
@@ -165,18 +213,18 @@ def _built_va(name: str, fields: dict[str, Any], built_symbols: dict[str, int]) 
 
 
 def link_map_symbols(text: str) -> dict[str, int]:
-    """Data symbol name -> VA from an MSVC link map; the first row of a name wins.
+    """Unambiguous data symbol names and VAs from an MSVC link map.
 
     Functions are left out: a data row never names code. Import slots are
     included for placement, independently of static archive storage ownership.
     """
     from rebrew.data_ownership import parse_link_map
 
-    out: dict[str, int] = {}
+    values: dict[str, set[int]] = {}
     for sym in parse_link_map(text, include_imports=True):
         if not sym.is_function:
-            out.setdefault(sym.name, sym.va)
-    return out
+            values.setdefault(sym.name, set()).add(sym.va)
+    return {name: next(iter(v)) for name, v in values.items() if len(v) == 1}
 
 
 # PE images from MSVC keep BSS as the .data tail and the IAT inside .rdata.

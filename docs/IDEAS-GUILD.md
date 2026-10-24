@@ -3540,3 +3540,18 @@ unobserved bytes and could produce a false proof.
 Evidence: Guild GoldTL `prove 0x57d0d0 --watch-va ...` with 43 watched addresses
 raised `ClaripyError: Casting error: BV size mismatch` in `_compare_state_pairs`.
 Replay: `pytest tests/test_prove_memory_watch.py::TestCompareStatePairsRealClaripy`.
+
+## Server data placement without invented symbols (2026-10-25)
+
+Problem: Guild's raw server image is byte-identical, but 138 of its 547 data
+records remained VERIFIED-only: 123 inventory spans, 13 aliases, two other
+records. Private CRT variables do not appear in the public linker map; spans
+are intervals, not allocations. Replay: `rebrew verify --data --raw-link
+--target server.dll --built build/server.dll --link-map build/server.map`.
+
+Implemented: use map-selected COFF sections whose fixed bytes match the raw
+link to read applied DIR32 bases; reject unsupported fixups, changed sections,
+ambiguous names and conflicting bases. Explicit bounded backing relationships
+locate interior views. Section-relative coordinates locate complete layout
+intervals without adding storage or owners. A literal's name still requires
+reviewed binding evidence. The complete raw image remains a separate check.

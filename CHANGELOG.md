@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+## [6.1.1] - 2026-10-25
+
+### Fixed
+
+- Resolve private PE data from map-selected COFF sections and applied DIR32
+  operands, and bounded aliases through their backing objects. Verify layout
+  spans as section-relative intervals rather than requiring invented C symbols.
+  Matching bytes alone still cannot place an ordinary object. Data receipts
+  retain the placement method and linked address.
+
 ## [6.1.0] - 2026-10-25
 
 ### Added

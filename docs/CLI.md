@@ -440,6 +440,14 @@ like over any other status.  Only parked SKIP is never overwritten, and a
 STUB is not replaced by a placeholder SIZE_MISMATCH/MISSING_SIZE.  `passed`
 counts byte-matched (EXACT/RELOC) functions only.
 
+**Data placement.** `verify --data` uses the link map and checked COFF sections
+from selected project objects or cached stock archives to locate private data.
+An alias can inherit its bounded offset from a resolved backing object. A layout
+span is checked as a complete section-relative interval, not a C allocation.
+Each receipt states its `built_va` and `placement_method`. Only matching bytes
+at that resolved address earn EXACT; displaced objects and unplaced names stay
+separate. This supplies placement evidence, not source/storage ownership.
+
 **Linked EXACT.** The object compare masks relocation slots, so a function with
 a relocation is RELOC there. The raw link resolves them. `rebrew verify --text`
 with an acknowledged raw link (`--raw-link`, or the configured `raw_link`)
