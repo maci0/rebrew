@@ -12,7 +12,7 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 - Already implemented: native archive matching via `library match --va`,
   all-target data inventories, source binding retirement, library adoption,
   and calling-convention-aware stub generation.
-- Implemented, unreleased: explicit inventory retirement/enclosing replacement,
+- Implemented in Rebrew 6.0.4: explicit inventory retirement/enclosing replacement,
   `source clear-cflags`, CMake executable re-selection on configure, and
   conservative handling of Claripy comparison failures. Details and replay
   commands appear in their entries below.
@@ -24,7 +24,7 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
 ## Inventory retirement and enclosing replacements — implemented (2026-10-24)
 
-Status: implemented (unreleased). `binary repair-extents --retire 0xVA` removes
+Status: implemented in Rebrew 6.0.4. `binary repair-extents --retire 0xVA` removes
 an explicitly reviewed erroneous native inventory row. Preview with
 `--dry-run --json`; apply requires that preview's `--expected-digest`. The JSON
 receipt retains the complete removed row and its extent history. Save it.
@@ -3448,7 +3448,7 @@ is not a new permanent project build tool.
 
 ## Clear a per-row CFLAGS override — implemented (2026-10-24)
 
-Status: implemented (unreleased) as `source clear-cflags FUNCTION`. Use `--va`
+Status: implemented in Rebrew 6.0.4 as `source clear-cflags FUNCTION`. Use `--va`
 to disambiguate a multi-function file and `--dry-run --json` for a read-only
 preview. The locked writer removes only CFLAGS, preserving identity, earned
 verdicts and comparison history; repeating it is a no-op. Existing
@@ -3516,7 +3516,7 @@ Replay: `pytest tests/test_lib_match.py::TestLibMatch::test_address_only_native_
 
 ## Stale CMake Rebrew executable selection — implemented (2026-10-24)
 
-Status: implemented (unreleased). Generated toolchain files discard a previous
+Status: implemented in Rebrew 6.0.4. Generated toolchain files discard a previous
 `_REBREW_EXECUTABLE` cache entry and resolve Rebrew again on configure. An
 absolute `REBREW_EXECUTABLE` environment override selects an install explicitly;
 a missing override path produces an actionable configuration error.
@@ -3531,7 +3531,7 @@ Replay: `pytest tests/test_cmake_tc.py -k generated_toolchain`.
 
 ## Mixed-width proof comparisons — implemented (2026-10-24)
 
-Status: implemented (unreleased). Claripy failures during state comparison or
+Status: implemented in Rebrew 6.0.4. Claripy failures during state comparison or
 satisfiability checks return `proven: false` with an explanation, instead of a
 traceback. A four-byte watch returning incompatible symbolic widths is
 inconclusive; zero-extending a shorter observed value would not establish the
