@@ -3417,6 +3417,10 @@ does not install dependencies or change the extras required by the gates.
 
 ## MSVC scaffold calling-convention preservation (2026-10-22)
 
+Status: calling-convention preservation is already implemented in `gen_stubs`;
+conflicting fastcall signatures require separate translation units. The CMake
+recipe-batching proposal below remains open. Replay: `pytest tests/test_gen_stubs.py`.
+
 Guild's current GoldTL raw link exposed a symbol-stub generator defect:
 `@Name@N` unresolved references were emitted as cdecl, causing both missing
 fastcall exports and duplicate cdecl definitions. Some callers request two
