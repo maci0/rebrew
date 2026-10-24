@@ -471,6 +471,8 @@ def _check_W030_va_order(result: LintResult, all_headers: list[Any], lines: list
             continue
         line = int(found_keys.get("_LINE", "1"))
         definition = int(found_keys.get("_DEFINITION_LINE", "0"))
+        if not definition:
+            continue
         between = lines[prev_line : line - 1] if prev_line >= 0 else ["code"]
         separate = (
             definition != prev_definition

@@ -167,6 +167,11 @@ class TestRegistry:
         wrapper, nothing runs from a host tree, and the default profiles point
         at the newest version."""
         expected = {
+            "gcc-16.2.0": "rebrew/gcc:16.2.0-linux-x64",
+            "clang-23.1.4": "rebrew/clang:23.1.4-linux-x64",
+            "mwcc-4.1-51213p1": "rebrew/mwcc:4.1-51213p1-gc",
+            "saturn-cygnus-2.7-96Q3-native": "rebrew/saturn:cygnus-2.7-96Q3-native-saturn",
+            "shc-5.0r32-sh2": "rebrew/shc:5.0r32-saturn",
             "gcc-14.2.0": "rebrew/gcc:14.2.0-linux-x64",
             "gcc-12.3.0": "rebrew/gcc:12.3.0-linux-x64",
             "clang-18.1.8": "rebrew/clang:18.1.8-linux-x64",
@@ -203,6 +208,8 @@ class TestRegistry:
         from rebrew.compiler.toolchain_data import SOURCES
 
         for name in (
+            "gcc-16.2.0",
+            "clang-23.1.4",
             "gcc-14.2.0",
             "gcc-12.3.0",
             "clang-18.1.8",

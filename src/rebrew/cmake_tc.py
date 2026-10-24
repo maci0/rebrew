@@ -138,6 +138,21 @@ def _load_profile(root: Path) -> str:
         cfg = load_tomllib(root / "rebrew-project.toml")
     except (OSError, tomllib.TOMLDecodeError) as exc:
         error_exit(f"cannot read {root}/rebrew-project.toml: {exc}")
+    # A target may override the project compiler profile.  CMake fixes one
+    # compiler for the whole tree and has no Rebrew target identity, so fall
+    # back to the project's default target: building with the project-level
+    # profile there emits the wrong code generator for any target that
+    # overrides it (a Processor-Pack target compiled as plain SP5 produces the
+    # non-PP x87 compare idiom).
+    project = cfg.get("project", {})
+    default_target = project.get("default_target") if isinstance(project, dict) else None
+    targets = cfg.get("targets", {})
+    if isinstance(default_target, str) and isinstance(targets, dict):
+        target = targets.get(default_target)
+        if isinstance(target, dict):
+            target_compiler = target.get("compiler")
+            if isinstance(target_compiler, dict) and target_compiler.get("profile"):
+                return str(target_compiler["profile"])
     return str(cfg.get("compiler", {}).get("profile", "msvc-6.0"))
 
 

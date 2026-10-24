@@ -239,6 +239,12 @@ def align_and_classify(
                     byte_counts[cat] += t.size
                     if cat != "match":
                         _note(t.va, cat, instruction_text(t), instruction_text(c))
+                if t.raw == c.raw and t.op_str != c.op_str:
+                    # Register aliases can change operand width while retaining
+                    # the same encoding (for example EAX versus AX on an
+                    # accumulator load). Keep byte counts intact, but report the
+                    # decoded operand difference as the decisive mismatch.
+                    _note(t.va, "register", instruction_text(t), instruction_text(c))
         elif tgt_span or comp_span:
             # Insertion/deletion: the longer side's extra bytes are structural.
             if len(tgt_span) > len(comp_span):

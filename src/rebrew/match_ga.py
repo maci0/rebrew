@@ -487,8 +487,7 @@ class BinaryMatchingGA:
         # Process-local fitness memo keyed by source hash.  A fresh
         # BuildResult carries fitness=None (it is populated after scoring),
         # so the warm-scoring path in _compute_fitness needs this memo.
-        # Elite sources persist across generations unchanged, so a dict
-        # here (no extra disk write) captures the real win.
+        # Unchanged elite sources reuse their scores without another disk write.
         # Guarded: ``num_jobs`` workers read/write this dict and ``self.cache``
         # concurrently; compound check-then-act without a lock races.
         # Bounded (LRU): see :data:`_GA_MEMO_MAX_FLOOR` / ``_GA_MEMO_MAX_FACTOR``.

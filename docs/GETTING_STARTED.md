@@ -105,12 +105,12 @@ rebrew toolchain build msvc-8.0   # or build it from the recompile-toolchains ch
 
 (`build` needs the sibling **recompile-toolchains** checkout, or
 `REBREW_TOOLCHAINS_DIR` pointing at it; `pull` is the download. Either way it
-takes a few minutes once, then never again.) Re-run `rebrew doctor` until the board is green: a red
+can take a few minutes. Reuse the image while the selected toolchain and image remain unchanged.) Re-run `rebrew doctor` until the board is green: a red
 `Toolchain alignment` means the detected compiler and the configured
 profile disagree, and everything downstream will silently compare against
 the wrong codegen.
 
-### 4. See the landscape
+### 4. Review project status
 
 ```bash
 rebrew status        # file agreement, accounted .text, stored data verdicts, and counts

@@ -3156,6 +3156,20 @@ class TestMarkerVaOrder:
         if descending:
             assert warnings[0][0] == 3
 
+    def test_metadata_only_identity_does_not_warn(self, tmp_path: Path) -> None:
+        f = _write_c(
+            tmp_path,
+            "a.c",
+            SourceFixture(
+                "int first(void) { return 0; }\nint second(void) { return 0; }\n",
+                {
+                    "SERVER.0x2000": {"kind": "FUNCTION"},
+                    "SERVER.0x1000": {"kind": "FUNCTION"},
+                },
+            ),
+        )
+        assert self._w030(lint_file(f, cfg=_make_cfg(root=tmp_path))) == []
+
     def test_descending_marker_warns(self, tmp_path: Path) -> None:
         f = _write_c(
             tmp_path,

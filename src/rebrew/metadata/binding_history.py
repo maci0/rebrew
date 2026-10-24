@@ -128,6 +128,117 @@ def historical_source_anchor(
     return False
 
 
+def _validate_change(
+    module: str,
+    va: int,
+    reason: str,
+    identity: dict[str, str] | None,
+    counterpart_va: int | None,
+) -> None:
+    """Reject a malformed change before any store is read."""
+    if not module or not isinstance(va, int) or isinstance(va, bool) or va < 0:
+        raise ValueError("source binding changes require a module and non-negative VA")
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
+        raise ValueError("binding reason must contain 1–2000 characters")
+    if counterpart_va is not None and (
+        not isinstance(counterpart_va, int)
+        or isinstance(counterpart_va, bool)
+        or counterpart_va <= 0
+        or identity is not None
+        or counterpart_va == va
+    ):
+        raise ValueError("a distinct positive counterpart can only accompany retirement")
+    if identity is None:
+        return
+    if set(identity) != set(FUNCTION_IDENTITY_FIELDS):
+        raise ValueError("rebind requires file, symbol, name and kind")
+    if any(not isinstance(value, str) or not value for value in identity.values()):
+        raise ValueError("replacement identity fields must be non-empty strings")
+    validate_identity_file(identity["file"])
+    if not is_safe_c_ident(identity["name"]):
+        raise ValueError("replacement name must be a C identifier")
+    if identity["kind"] not in {"FUNCTION", "STUB", "LIBRARY"}:
+        raise ValueError("replacement must bind a function")
+
+
+def _normalise_identity(
+    identity: dict[str, str], *, directory: Path, project_root: Path
+) -> dict[str, str]:
+    root = project_root if identity["kind"] == "LIBRARY" else directory
+    return {
+        **identity,
+        "file": validate_identity_file(identity_file((root / identity["file"]).resolve(), root)),
+    }
+
+
+def _apply_change(
+    doc: Any,
+    directory: Path,
+    project_root: Path,
+    module: str,
+    va: int,
+    *,
+    reason: str,
+    identity: dict[str, str] | None,
+    counterpart_va: int | None,
+    now: datetime | None,
+) -> dict[str, Any]:
+    """Apply one validated change to an open metadata document."""
+    key = resolve_metadata_key(doc, module, va)
+    if key not in doc:
+        raise ValueError(f"no native metadata row for {module}.0x{va:x}")
+    entry = doc[key]
+    history = validate_binding_history(entry.get("binding_history", []))
+    if identity is None and (retired_binding(entry) or not entry.get("file")):
+        raise ValueError("native row has no current source binding to retire")
+    if identity is not None and all(entry.get(k) == v for k, v in identity.items()):
+        raise ValueError("replacement is already the current source binding")
+    if counterpart_va is not None:
+        other_key = resolve_metadata_key(doc, module, counterpart_va)
+        counterpart = doc.get(other_key, {})
+        if not counterpart.get("file") or retired_binding(counterpart):
+            raise ValueError("counterpart must have a current source binding in this target")
+    if identity is not None:
+        replacement_root = project_root if identity["kind"] == "LIBRARY" else directory
+        replacement_path = (replacement_root / identity["file"]).resolve()
+        for (other_module, other_va), other_key in build_metadata_key_index(doc).items():
+            other = doc[other_key]
+            if other_va == va or preset_module_key(other_module) != preset_module_key(module):
+                continue
+            if not other.get("file") or retired_binding(other):
+                continue
+            other_root = project_root if other.get("kind") == "LIBRARY" else directory
+            other_path = (other_root / validate_identity_file(str(other["file"]))).resolve()
+            if other_path == replacement_path and (
+                other.get("name") == identity["name"] or other.get("symbol") == identity["symbol"]
+            ):
+                raise ValueError(
+                    f"replacement definition/symbol already belongs to {other_module}.0x{other_va:x}"
+                )
+    previous = {
+        key: copy.deepcopy(value) for key, value in entry.items() if key in _PREVIOUS_FIELDS
+    }
+    event = {
+        "action": "retire" if identity is None else "rebind",
+        "reason": reason.strip(),
+        "changed_at": (now or datetime.now(UTC)).isoformat(),
+        "previous": previous,
+        "replacement": identity or {},
+        "counterpart_va": counterpart_va or 0,
+    }
+    entry["binding_history"] = validate_binding_history([*history, event])
+    for field in (*FUNCTION_IDENTITY_FIELDS, "status", "blocker", "blocker_delta"):
+        entry.pop(field, None)
+    if identity is not None:
+        entry.update(identity)
+    stamp_provenance(entry, "rehome", now=now)
+    return event
+
+
+def _binding_fields() -> frozenset[str]:
+    return METADATA_FIELDS | {key.upper() for key in FUNCTION_IDENTITY_FIELDS}
+
+
 def change_source_binding(
     directory: Path | str | Any,
     module: str,
@@ -148,28 +259,7 @@ def change_source_binding(
     claim. The counterpart is checked and left byte-for-byte unchanged. Preview
     reads create no files; apply validates again under the shared writer lock.
     """
-    if not module or not isinstance(va, int) or isinstance(va, bool) or va < 0:
-        raise ValueError("source binding changes require a module and non-negative VA")
-    if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
-        raise ValueError("binding reason must contain 1–2000 characters")
-    if counterpart_va is not None and (
-        not isinstance(counterpart_va, int)
-        or isinstance(counterpart_va, bool)
-        or counterpart_va <= 0
-        or identity is not None
-        or counterpart_va == va
-    ):
-        raise ValueError("a distinct positive counterpart can only accompany retirement")
-    if identity is not None:
-        if set(identity) != set(FUNCTION_IDENTITY_FIELDS):
-            raise ValueError("rebind requires file, symbol, name and kind")
-        if any(not isinstance(value, str) or not value for value in identity.values()):
-            raise ValueError("replacement identity fields must be non-empty strings")
-        identity = {**identity, "file": validate_identity_file(identity["file"])}
-        if not is_safe_c_ident(identity["name"]):
-            raise ValueError("replacement name must be a C identifier")
-        if identity["kind"] not in {"FUNCTION", "STUB", "LIBRARY"}:
-            raise ValueError("replacement must bind a function")
+    _validate_change(module, va, reason, identity, counterpart_va)
     if expected_digest is not None and (
         len(expected_digest) != 64 or any(c not in "0123456789abcdef" for c in expected_digest)
     ):
@@ -180,15 +270,9 @@ def change_source_binding(
 
         project_root = walk_up_to_root(directory) or directory
     if identity is not None:
-        root = project_root if identity["kind"] == "LIBRARY" else directory
-        identity = {
-            **identity,
-            "file": validate_identity_file(
-                identity_file((root / identity["file"]).resolve(), root)
-            ),
-        }
+        identity = _normalise_identity(identity, directory=directory, project_root=project_root)
     path = directory / METADATA_FILENAME
-    fields = METADATA_FIELDS | {key.upper() for key in FUNCTION_IDENTITY_FIELDS}
+    fields = _binding_fields()
 
     def prepare() -> tuple[Any, dict[str, Any]]:
         for input_path, expected in (expected_inputs or {}).items():
@@ -201,55 +285,17 @@ def change_source_binding(
         doc = load_metadata_for_write(path, "function metadata", known_fields=fields)
         if metadata_store(path).snapshot() != before:
             raise ValueError("function metadata changed while reading; retry")
-        key = resolve_metadata_key(doc, module, va)
-        if key not in doc:
-            raise ValueError(f"no native metadata row for {module}.0x{va:x}")
-        entry = doc[key]
-        history = validate_binding_history(entry.get("binding_history", []))
-        if identity is None and (retired_binding(entry) or not entry.get("file")):
-            raise ValueError("native row has no current source binding to retire")
-        if identity is not None and all(entry.get(k) == v for k, v in identity.items()):
-            raise ValueError("replacement is already the current source binding")
-        if counterpart_va is not None:
-            other_key = resolve_metadata_key(doc, module, counterpart_va)
-            counterpart = doc.get(other_key, {})
-            if not counterpart.get("file") or retired_binding(counterpart):
-                raise ValueError("counterpart must have a current source binding in this target")
-        if identity is not None:
-            replacement_root = project_root if identity["kind"] == "LIBRARY" else directory
-            replacement_path = (replacement_root / identity["file"]).resolve()
-            for (other_module, other_va), other_key in build_metadata_key_index(doc).items():
-                other = doc[other_key]
-                if other_va == va or preset_module_key(other_module) != preset_module_key(module):
-                    continue
-                if not other.get("file") or retired_binding(other):
-                    continue
-                other_root = project_root if other.get("kind") == "LIBRARY" else directory
-                other_path = (other_root / validate_identity_file(str(other["file"]))).resolve()
-                if other_path == replacement_path and (
-                    other.get("name") == identity["name"]
-                    or other.get("symbol") == identity["symbol"]
-                ):
-                    raise ValueError(
-                        f"replacement definition/symbol already belongs to {other_module}.0x{other_va:x}"
-                    )
-        previous = {
-            key: copy.deepcopy(value) for key, value in entry.items() if key in _PREVIOUS_FIELDS
-        }
-        event = {
-            "action": "retire" if identity is None else "rebind",
-            "reason": reason.strip(),
-            "changed_at": (now or datetime.now(UTC)).isoformat(),
-            "previous": previous,
-            "replacement": identity or {},
-            "counterpart_va": counterpart_va or 0,
-        }
-        entry["binding_history"] = validate_binding_history([*history, event])
-        for key in (*FUNCTION_IDENTITY_FIELDS, "status", "blocker", "blocker_delta"):
-            entry.pop(key, None)
-        if identity is not None:
-            entry.update(identity)
-        stamp_provenance(entry, "rehome", now=now)
+        event = _apply_change(
+            doc,
+            directory,
+            project_root,
+            module,
+            va,
+            reason=reason,
+            identity=identity,
+            counterpart_va=counterpart_va,
+            now=now,
+        )
         return doc, {
             "dry_run": dry_run,
             "input_digest": digest,
@@ -265,4 +311,106 @@ def change_source_binding(
             stamp_format(doc)
             metadata_store(path).write(doc, "metadata")
             # The normal reader's stat fingerprint notices the atomic replacement.
+    return report
+
+
+def change_source_bindings_batch(
+    directory: Path | str | Any,
+    changes: list[dict[str, Any]],
+    *,
+    dry_run: bool = False,
+    expected_digest: str | None = None,
+    expected_inputs: dict[Path, str] | None = None,
+    project_root: Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Retire or replace several source claims in one atomic store write.
+
+    Each change is ``{module, va, reason, identity?, counterpart_va?}`` with the
+    same meaning as :func:`change_source_binding`. Any invalid or conflicting
+    change rejects the whole batch before publication, and one TOML rewrite
+    carries every change instead of one per row. Preview reads create no files;
+    apply revalidates under the writer lock before the single write.
+    """
+    if not isinstance(changes, list) or not changes:
+        raise ValueError("batch binding changes require at least one change")
+    if expected_digest is not None and (
+        len(expected_digest) != 64 or any(c not in "0123456789abcdef" for c in expected_digest)
+    ):
+        raise ValueError("expected digest must be a lowercase SHA-256 hex digest")
+    directory = resolve_metadata_dir(directory)
+    if project_root is None:
+        from rebrew.workspace.config import walk_up_to_root
+
+        project_root = walk_up_to_root(directory) or directory
+    prepared: list[dict[str, Any]] = []
+    for change in changes:
+        module = change.get("module") or ""
+        va = change.get("va")
+        reason = change.get("reason") or ""
+        identity = change.get("identity")
+        counterpart_va = change.get("counterpart_va")
+        if not isinstance(va, int):
+            raise ValueError("batch binding changes require an integer VA")
+        _validate_change(module, va, reason, identity, counterpart_va)
+        prepared.append(
+            {
+                "module": module,
+                "va": va,
+                "reason": reason,
+                "identity": (
+                    _normalise_identity(identity, directory=directory, project_root=project_root)
+                    if identity is not None
+                    else None
+                ),
+                "counterpart_va": counterpart_va,
+            }
+        )
+    path = directory / METADATA_FILENAME
+    fields = _binding_fields()
+
+    def prepare() -> tuple[Any, dict[str, Any]]:
+        for input_path, expected in (expected_inputs or {}).items():
+            if input_digest(input_path) != expected:
+                raise ValueError(f"binding review input changed: {input_path}")
+        before = metadata_store(path).snapshot()
+        digest = metadata_store(path).digest()
+        if expected_digest is not None and digest != expected_digest:
+            raise ValueError("function metadata changed since preview; review a new preview")
+        doc = load_metadata_for_write(path, "function metadata", known_fields=fields)
+        if metadata_store(path).snapshot() != before:
+            raise ValueError("function metadata changed while reading; retry")
+        events = [
+            _apply_change(
+                doc,
+                directory,
+                project_root,
+                change["module"],
+                change["va"],
+                reason=change["reason"],
+                identity=change["identity"],
+                counterpart_va=change["counterpart_va"],
+                now=now,
+            )
+            for change in prepared
+        ]
+        return doc, {
+            "dry_run": dry_run,
+            "input_digest": digest,
+            "changes": [
+                {
+                    "module": change["module"],
+                    "va": f"0x{change['va']:x}",
+                    **event,
+                }
+                for change, event in zip(prepared, events, strict=True)
+            ],
+        }
+
+    doc, report = prepare()
+    if not dry_run:
+        with metadata_write_lock(directory, METADATA_FILENAME):
+            doc, report = prepare()
+            stamp_format(doc)
+            metadata_store(path).write(doc, "metadata")
     return report

@@ -657,6 +657,63 @@ def external_archive_args(cfg: Any) -> tuple[list[Path], list[str]]:
     return libs, stock
 
 
+def project_match_index(
+    cfg: Any,
+    *,
+    lib: list[Path] | None = None,
+    stock_lib: list[str] | None = None,
+    compile_commands: Path | None = None,
+    json_mode: bool = False,
+) -> tuple[Index, list[Path], list[Path]]:
+    """Index the archives and vendored objects a project match compares against.
+
+    The selection matches the CLI: explicit ``--lib``/``--stock-lib`` replace
+    the configured external archives, and vendored objects join unless the
+    caller named archives explicitly without a build database.
+    """
+    from rebrew.compiler.toolchain import ToolchainError
+
+    explicit_archives = bool(lib or stock_lib)
+    if not lib and not stock_lib:
+        # Ingest the configured external archives by default (explicit
+        # --lib/--stock-lib still override).
+        lib, stock_lib = external_archive_args(cfg)
+
+    archives = list(lib or [])
+    for name in stock_lib or []:
+        cached = stock_lib_cache(cfg.root, name, cfg.compiler_profile)
+        try:
+            if not ensure_stock_lib(cached, profile=cfg.compiler_profile, name=name):
+                console.print(
+                    f"[yellow]skipping {name}: {container_runtime()} is not available[/yellow]"
+                )
+                continue
+            assert_library_is_stock(
+                cached, profile=cfg.compiler_profile, name=name, json_mode=json_mode
+            )
+        except ToolchainError as exc:
+            error_exit(str(exc), json_mode=json_mode, code=EXIT_ERROR)
+        archives.append(cached)
+
+    objects: list[Path] = []
+    if compile_commands is not None or not explicit_archives:
+        objects = vendored_objects(
+            compile_commands or (cfg.root / COMPILE_COMMANDS_DEFAULT), cfg.root
+        )
+    if not archives and not objects:
+        error_exit(
+            "nothing to check against: pass --lib (an archive the target links), --stock-lib "
+            "(a stock archive from the toolchain's image, e.g. LIBCMT.LIB), or build the "
+            "project with --compile-commands so a source-vendored library can be indexed.",
+            json_mode=json_mode,
+            code=EXIT_ERROR,
+        )
+    index = _merge_libraries(archives)
+    for sym, entries in index_objects(objects).items():
+        index.setdefault(sym, []).extend(entries)
+    return index, archives, objects
+
+
 @app.callback(invoke_without_command=True)
 def main(
     lib: list[Path] | None = typer.Option(
@@ -693,51 +750,17 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Flag reversed functions whose bytes come from a linked library."""
-    from rebrew.compiler.toolchain import ToolchainError
-
     cfg = require_config(target=target, json_mode=json_output)
     va_int = parse_va(va, json_mode=json_output) if va is not None else None
     if resolve_callees and va_int is None:
         error_exit("--resolve-callees requires --va", json_mode=json_output)
-    explicit_archives = bool(lib or stock_lib)
-
-    if not lib and not stock_lib:
-        # Ingest the configured external archives by default (explicit
-        # --lib/--stock-lib still override).
-        lib, stock_lib = external_archive_args(cfg)
-
-    archives = list(lib or [])
-    for name in stock_lib or []:
-        cached = stock_lib_cache(cfg.root, name, cfg.compiler_profile)
-        try:
-            if not ensure_stock_lib(cached, profile=cfg.compiler_profile, name=name):
-                console.print(
-                    f"[yellow]skipping {name}: {container_runtime()} is not available[/yellow]"
-                )
-                continue
-            assert_library_is_stock(
-                cached, profile=cfg.compiler_profile, name=name, json_mode=json_output
-            )
-        except ToolchainError as exc:
-            error_exit(str(exc), json_mode=json_output, code=EXIT_ERROR)
-        archives.append(cached)
-
-    objects = []
-    if compile_commands is not None or not explicit_archives:
-        objects = vendored_objects(
-            compile_commands or (cfg.root / COMPILE_COMMANDS_DEFAULT), cfg.root
-        )
-    if not archives and not objects:
-        error_exit(
-            "nothing to check against: pass --lib (an archive the target links), --stock-lib "
-            "(a stock archive from the toolchain's image, e.g. LIBCMT.LIB), or build the "
-            "project with --compile-commands so a source-vendored library can be indexed.",
-            json_mode=json_output,
-            code=EXIT_ERROR,
-        )
-    index = _merge_libraries(archives)
-    for sym, entries in index_objects(objects).items():
-        index.setdefault(sym, []).extend(entries)
+    index, archives, objects = project_match_index(
+        cfg,
+        lib=lib,
+        stock_lib=stock_lib,
+        compile_commands=compile_commands,
+        json_mode=json_output,
+    )
 
     if va_int is not None:
         from rebrew.metadata.functions import get_entry

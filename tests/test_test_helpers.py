@@ -1493,6 +1493,43 @@ class TestRunTest:
         assert result == cli_payload(cli)
         assert result["status"] == "NEAR_MATCHING"
 
+    def test_uses_prototype_calling_convention_when_stored_symbol_is_stale(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew.config import load_config
+        from rebrew.test import run_test
+
+        root = self._project(tmp_path, monkeypatch)
+        source = root / "src/x/f.c"
+        source.write_text(
+            "/* ADDRESS: X 0x1000 */\n"
+            "int __fastcall f(int a, int b, int c) { return a + b + c; }\n",
+            encoding="utf-8",
+        )
+        write_source(
+            source,
+            source.read_text(encoding="utf-8"),
+            metadata_fields={"X.0x1000": {"kind": "FUNCTION", "size": 4}},
+        )
+        from rebrew.compiler.compile import CompareResult
+
+        captured: list[tuple[str, int]] = []
+
+        def record(*args: Any, **kwargs: Any) -> CompareResult:
+            captured.append((args[2], args[3]))
+            return CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=2,
+                obj_bytes=b"\x90\x90",
+                reloc_offsets=[],
+            )
+
+        monkeypatch.setattr("rebrew.test.compile_and_compare", record)
+        run_test(load_config(root), "src/x/f.c", no_promote=True, json_output=True)
+        assert captured and captured[0][0] == "@f@12"
+
     def test_no_promote_writes_no_metadata(self, tmp_path: Path, monkeypatch: Any) -> None:
         from rebrew.config import load_config
         from rebrew.test import run_test

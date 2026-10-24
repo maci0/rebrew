@@ -952,6 +952,65 @@ class TestCLI:
         (tmp_path / "b.exe").write_bytes(_pe_b())
         return tmp_path
 
+    def test_conditional_donor_reports_row_and_continues(self, tmp_path: Path, monkeypatch) -> None:
+        import json as json_mod
+
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        self._project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            "rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F2}
+        )
+        monkeypatch.setattr(
+            "rebrew.cross_import.unmatched_dest_bytes",
+            lambda cfg, only_va=None: {B_F1: F1, B_F2: F2},
+        )
+        monkeypatch.setattr(
+            "rebrew.cross_import.cross_match",
+            lambda d, s, **k: {B_F1: (A_F1, 100.0), B_F2: (A_F2, 100.0)},
+        )
+        monkeypatch.setattr("rebrew.cross_import.registry", lambda cfg: {})
+        monkeypatch.setattr(
+            "rebrew.cross_import.annotations_by_va",
+            lambda cfg: {
+                B_F1: ("STUB", "f1.c"),
+                B_F2: ("STUB", "f2.c"),
+                A_F1: ("EXACT", "f1.c"),
+                A_F2: ("EXACT", "f2.c"),
+            },
+        )
+
+        def fake_import(dst_cfg, src_cfg, dst_va, src_va, *args, **kwargs):
+            if src_va == A_F1:
+                raise ValueError(
+                    "cannot extract a conditional definition from a multi-function file"
+                )
+            return {
+                "dst_va": "0x401040",
+                "src_va": "0x401050",
+                "score": 100.0,
+                "action": "imported",
+                "status": "EXACT",
+                "filepath": "f2.c",
+                "message": "",
+            }
+
+        monkeypatch.setattr("rebrew.cross_import.import_function", fake_import)
+        result = CliRunner().invoke(
+            umbrella,
+            ["source", "import-related", "--from", "SRC", "--json", "--dry-run"],
+        )
+        assert result.exit_code == 0, result.output
+        rows = json_mod.loads(result.output)["results"]
+        errors = [row for row in rows if row["action"] == "error"]
+        imported = [row for row in rows if row["action"] == "imported"]
+        assert len(errors) == 1
+        assert "conditional definition" in errors[0]["message"]
+        assert len(imported) == 1
+
     def test_same_target_guard(self, tmp_path: Path, monkeypatch) -> None:
         from typer.testing import CliRunner
 

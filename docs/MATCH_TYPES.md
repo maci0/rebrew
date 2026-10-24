@@ -162,10 +162,14 @@ size = 31
 
 ## PROVEN
 
-Semantically equivalent: mathematically verified by `rebrew prove` via angr
-symbolic execution + Z3 constraint solving. The compiled bytes differ structurally
-(different register allocation, instruction reordering, loop unrolling), but for **all
-possible inputs**, the return value and observable side-effects are identical.
+Equivalence verified by `rebrew prove` using angr symbolic execution and Z3
+constraint solving, within the proof's assumptions and checked observations.
+The compiled bytes differ structurally (register allocation, instruction
+reordering or loop unrolling). The proof applies to the configured argument
+constraints, modeled external calls and explored paths; execution has loop and
+time limits. It compares selected return registers and watched memory locations,
+not every possible side effect. A timeout or incomplete exploration does not
+establish equivalence.
 
 Used when a function is stuck on NEAR_MATCHING due to compiler jitter that can't be
 resolved by flag sweeps or code restructuring.

@@ -269,3 +269,184 @@ class TestReviewedInventoryProtection:
             )
         assert caught.value.exit_code == 2
         assert (inventory.read_bytes(), inventory.stat()) == before
+
+
+def _contiguous_project(tmp_path: Path) -> tuple[ProjectConfig, Path]:
+    """Inventory whose rows tile one file-backed code span."""
+    binary = tmp_path / "reference.exe"
+    shutil.copy(Path(__file__).parent / "fixtures/mini_pe.exe", binary)
+    source = tmp_path / "src"
+    source.mkdir()
+    inventory = source / "function_structure.json"
+    inventory.write_text(
+        json.dumps(
+            [
+                {"va": 0x401000, "size": 16, "name": "first"},
+                {"va": 0x401010, "size": 8, "name": "arm"},
+                {"va": 0x401018, "size": 8, "name": "tail"},
+            ]
+        )
+    )
+    return ProjectConfig(
+        root=tmp_path, reversed_dir=source, target_binary=binary, module="GAME"
+    ), inventory
+
+
+class TestInventoryMerge:
+    def test_merge_absorbs_the_next_row_and_keeps_its_history(self, tmp_path: Path) -> None:
+        cfg, inventory = _contiguous_project(tmp_path)
+        result = repair_inventory_extents(
+            cfg, {}, reason="one routine", merges=[(0x401000, 0x401010)]
+        )
+        document = json.loads(inventory.read_text())
+        assert [row["va"] for row in document] == [0x401000, 0x401018]
+        assert document[0]["size"] == 24
+        event = document[0]["extent_history"][-1]
+        assert event["old_size"] == 16
+        assert event["new_size"] == 24
+        assert event["merged"]["va"] == 0x401010
+        assert event["merged"]["name"] == "arm"
+        assert result["merges"] == [
+            {"va": "0x401000", "tail": "0x401010", "old_size": 16, "new_size": 24}
+        ]
+        assert result["repairs"] == []
+        assert result["measurements_changed"] is False
+
+    def test_chained_merges_apply_in_order(self, tmp_path: Path) -> None:
+        cfg, inventory = _contiguous_project(tmp_path)
+        preview = repair_inventory_extents(
+            cfg,
+            {},
+            reason="one routine",
+            merges=[(0x401000, 0x401010), (0x401000, 0x401018)],
+            dry_run=True,
+        )
+        before = inventory.read_bytes(), inventory.stat()
+        repair_inventory_extents(
+            cfg,
+            {},
+            reason="one routine",
+            merges=[(0x401000, 0x401010), (0x401000, 0x401018)],
+            expected_digest=preview["input_digest"],
+        )
+        document = json.loads(inventory.read_text())
+        assert [row["va"] for row in document] == [0x401000]
+        assert document[0]["size"] == 32
+        assert [event["merged"]["va"] for event in document[0]["extent_history"]] == [
+            0x401010,
+            0x401018,
+        ]
+        assert (inventory.read_bytes(), inventory.stat()) != before
+
+    @pytest.mark.parametrize(
+        "merges",
+        [
+            [(0x401000, 0x401020)],  # not the immediate next row
+            [(0x401008, 0x401010)],  # head is not an inventory row
+            [(0x401010, 0x401000)],  # head does not precede tail
+            [(0x401000, 0x401010), (0x401000, 0x401010)],  # duplicate pair
+        ],
+    )
+    @pytest.mark.parametrize("dry_run", [True, False])
+    def test_invalid_merges_change_nothing(
+        self, tmp_path: Path, merges: list[tuple[int, int]], dry_run: bool
+    ) -> None:
+        cfg, inventory = _contiguous_project(tmp_path)
+        before = inventory.read_bytes(), inventory.stat()
+        with pytest.raises(ValueError):
+            repair_inventory_extents(cfg, {}, reason="proof", merges=merges, dry_run=dry_run)
+        assert (inventory.read_bytes(), inventory.stat()) == before
+        assert not inventory.with_suffix(".json.lock").exists()
+
+    def test_merge_and_resize_of_one_row_is_refused(self, tmp_path: Path) -> None:
+        cfg, inventory = _contiguous_project(tmp_path)
+        before = inventory.read_bytes(), inventory.stat()
+        with pytest.raises(ValueError, match="both merged and resized"):
+            repair_inventory_extents(
+                cfg, {0x401000: 8}, reason="proof", merges=[(0x401000, 0x401010)]
+            )
+        assert (inventory.read_bytes(), inventory.stat()) == before
+
+    def test_preview_digest_binds_the_merge_list(self, tmp_path: Path) -> None:
+        cfg, inventory = _contiguous_project(tmp_path)
+        preview = repair_inventory_extents(
+            cfg, {}, reason="one routine", merges=[(0x401000, 0x401010)], dry_run=True
+        )
+        before = inventory.read_bytes(), inventory.stat()
+        with pytest.raises(ValueError, match="inputs changed"):
+            repair_inventory_extents(
+                cfg,
+                {},
+                reason="one routine",
+                merges=[(0x401000, 0x401018)],
+                expected_digest=preview["input_digest"],
+            )
+        assert (inventory.read_bytes(), inventory.stat()) == before
+
+    def test_merge_leaves_source_metadata_untouched(self, tmp_path: Path) -> None:
+        cfg, inventory = _contiguous_project(tmp_path)
+        record_function_identity(
+            cfg.metadata_dir,
+            module="GAME",
+            va=0x401000,
+            file="src/f.c",
+            kind="FUNCTION",
+            name="f",
+            symbol="_f",
+            size=16,
+        )
+        metadata = cfg.metadata_dir / "rebrew-functions.toml"
+        before = metadata.read_bytes(), metadata.stat()
+        repair_inventory_extents(cfg, {}, reason="one routine", merges=[(0x401000, 0x401010)])
+        assert (metadata.read_bytes(), metadata.stat()) == before
+
+
+class TestMergeCli:
+    def test_cli_merge_without_size_specs(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+
+        cfg, inventory = _contiguous_project(tmp_path)
+        before = inventory.read_bytes(), inventory.stat()
+        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+            result = CliRunner().invoke(
+                app,
+                [
+                    "binary",
+                    "repair-extents",
+                    "--merge",
+                    "0x401000=0x401010",
+                    "--reason",
+                    "one routine",
+                    "--dry-run",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["merges"][0]["tail"] == "0x401010"
+        assert (inventory.read_bytes(), inventory.stat()) == before
+
+    def test_cli_rejects_a_merge_without_equals(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+
+        cfg, inventory = _contiguous_project(tmp_path)
+        before = inventory.read_bytes(), inventory.stat()
+        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+            result = CliRunner().invoke(
+                app,
+                [
+                    "binary",
+                    "repair-extents",
+                    "--merge",
+                    "0x401000:0x401010",
+                    "--reason",
+                    "one routine",
+                    "--json",
+                ],
+            )
+        assert result.exit_code != 0
+        assert (inventory.read_bytes(), inventory.stat()) == before

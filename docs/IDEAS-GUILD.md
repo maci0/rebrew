@@ -7,6 +7,59 @@ flags may be unshipped. Status `open` unless noted; observations describe the
 campaign at the time recorded. Use [CLI.md](CLI.md) for shipped behavior and
 promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
+## Remove or retire an inventory row added in error (2026-10-24)
+
+`binary repair-extents --add-missing` creates inventory rows, but no shipped
+command removes one. In the 2026-10-24 round the Gold coverage diff (`rizin
+aaa; afl` versus inventory spans) reported nineteen entries with no inventory
+row. Fifteen looked like game code and were added; six of those VAs turned out
+to have an existing metadata row already (`0x49dee0`, `0x4a8c10`, `0x4cd5d0`,
+`0x4cd600`, `0x53ba90` are LIBRARY rows bound to `library_lua50.h`, and
+`0x504e20` is a FUNCTION row bound to `GOLDTL.fcn_00507e70.c`), so the coverage
+comparison should have consulted metadata as well as inventory. The five
+inventory additions for library rows are redundant and cannot be withdrawn
+through a supported writer.
+
+Proposed capability: `binary repair-extents --retire 0xVA` (repeatable,
+digest-guarded, previewed) that removes an inventory row recorded in error and
+keeps the removal in the row history or a receipt. Evidence:
+guild-rebrew `.scratch/lead/missing-rows.json`,
+`.scratch/lead/coverage-gap.json`, inventory rows 4661 to 4676.
+
+## Record a proved library identity over an existing FUNCTION row (2026-10-23)
+
+Status: implemented as `rebrew library adopt` (2026-10-24); see CHANGELOG.
+
+Guild's client campaigns keep finding functions whose stored identity is wrong:
+the row says FUNCTION/STUB, but the bytes are stock library code.
+`library match --va` proves this from the stock archives. In the 2026-10-23
+round, Gold `0x005dfb95` matched `_strtok` in
+`msvc-6.0-sp5-pp_libc_stock.lib:build\intel\st_obj\strtok.obj`, and Gold
+`0x004637c0` / `0x00465590` matched zlib 1.1.3
+`_inflate_blocks_new` (`infblock.c.obj`) and `_inflate_trees_bits`
+(`inftrees.c.obj`). The project already compiles `references/zlib/*.c` for 113
+LIBRARY rows, so the zlib bodies are already accounted for by the library.
+
+No supported writer applies that evidence to a row that already contains a
+FUNCTION binding. `library identify` never touches annotated functions, and
+both `library review-native` and `library bind-source` require an existing
+LIBRARY declaration. The row therefore stays misclassified: a local FUNCTION
+body for the same code duplicates a linked library member, and leaving it STUB
+means the link has no bytes for that VA.
+
+Proposed capability: `library adopt --va 0x... --object <archive>:<member>
+--symbol <symbol> --reason <reviewed evidence>`. It would preview and then
+retire the existing FUNCTION claim, record `kind = LIBRARY` with the archive,
+member and symbol, keep the previous binding in `binding_history`, and bind the
+preview digest to the operation. Verification should locate the proved member
+exactly as `library match` does, so the row's evidence is the same observation
+that earned the match. A regression test should cover: a unique match converts,
+an ambiguous match refuses, and the digest rejects a changed inventory or
+binary.
+
+Guild replay/evidence: `.scratch/lead/library-stubs.json` (per-VA stock match
+sweep) and the 2026-10-23 entries in guild-rebrew `docs/provenance.md`.
+
 ## PE import hint/name positions — implemented, caller migration pending release (2026-10-20)
 
 Guild's `scripts/gen_import_includes.py` needs physical hint/name positions as
@@ -3374,3 +3427,107 @@ matched all non-CodeView sections and relocations. The one-shot experiment is
 preserve actual recipe contexts, handle duplicate basenames, validate inputs,
 retain diagnostics and leave CMake's normal link in charge. This experiment
 is not a new permanent project build tool.
+
+## Replace an inventory row with a larger enclosing extent (2026-10-24)
+
+**Problem.** A discoverer can split one function at an interior `ret`, leaving a
+row that starts mid-function (guild-rebrew GoldTL `0x41ebca`: two cold branch
+blocks of the unrowed function at `0x41e680`, both reached only by relative
+`jcc` and using that function's `0x36c` frame; no absolute reference exists).
+The correct repair is to drop the artifact row and admit the real function at
+`0x41e680` with size 1488. `binary repair-extents --add-missing` rejects the
+spec because `0x41e680+1488` overlaps the artifact row's start, and there is no
+inventory row deletion, so the repair cannot be expressed.
+
+**Proposed capability.** Either allow `--add-missing` to subsume/replace an
+overlapping interior row when the new extent strictly contains it (with the
+preview digest listing the removed row and its history), or add an explicit
+`binary inventory remove VA` operation that retires a reviewed artifact row
+under the same digest guard. A `--replace 0xOLD=0xNEW+SIZE` spelling would keep
+the intent explicit.
+
+**Evidence.** `rebrew binary repair-extents 0x0041e680=1488 --add-missing
+--reason "..." -t Europa1400Gold_TL.exe` returns
+`0x41e680+1488 overlaps next inventory start 0x41ebca`. The classification
+evidence is in guild-rebrew `.scratch/gold-d/task130`.
+
+## Clear a per-row CFLAGS override from the CLI (2026-10-24)
+
+**Problem.** `/G6` style per-row code-generator sweeps persist a CFLAGS override
+through `rebrew test --cflags`, but a sweep that later turns out to be a
+regression has no CLI way back: `metadata.functions.clear_identity_fields`
+accepts only identity fields and raises `ValueError` for `cflags`, so the only
+route is a direct call to
+`metadata.functions.remove_field(cfg.metadata_dir, va, "cflags",
+module="GOLDTL")`. A shell user who does not know the internal API is stuck with
+the override.
+
+**Proposed capability.** `rebrew test --clear-cflags` (or `rebrew cflags clear
+0xVA`) that drops the row's CFLAGS through the locked writer without changing
+the verdict history. A paired `rebrew cflags show 0xVA --json` would make the
+effective flags inspectable next to the row.
+
+**Evidence.** guild-rebrew round 8: three `/G6` overrides on rows
+`0x00509480`, `0x0043a720`, `0x004fa750` had to be reverted through
+`remove_field`; `clear_identity_fields(..., {"cflags": None})` raised
+`ValueError: unknown identity field 'cflags'`.
+
+## Resolve calls to statically linked LIBRARY members (2026-10-24)
+
+**Problem.** A reconstructed game function that calls a statically linked CRT
+member cannot reach EXACT in the object compare: the call's REL32 operand is
+reported `UNRESOLVED` with `bound_va: null`, so the slot stays masked and the row
+caps at RELOC. The metadata row for the callee exists and is correct
+(`GOLDTL.0x0064fde9`, `kind = LIBRARY`, `symbol = _realloc`, file
+`src/library_goldtl_libcmt.h`), and `rebrew library match --lib
+LIBCMT.sp5.LIB --va 0x64fde9` proves a unique whole-object match against
+`build/intel/mt_obj/realloc.obj`. The resolver's callee name-to-VA catalog
+apparently only carries FUNCTION/STUB rows, so the LIBRARY row never binds.
+
+`library review-native` cannot close the gap either: the strict complete-object
+proof rejects `realloc.obj` with `unresolved strict native operand: $T17352`
+because the member calls sibling CRT helpers, so a library member that is real,
+proven and statically linked can never supply a bindable name.
+
+**Proposed capability.** Include LIBRARY-kind rows that carry a complete native
+size in the callee name-to-VA catalog used by `test`/`verify` relocation
+validation (a `LIBRARY` row with `symbol` and `size` is enough to validate
+`REL32` operands; no byte claim about the callee is implied). Alternatively let
+`library review-native` accept a documented `--allow-external-operands` for
+members whose callees are sibling library members, recording the same evidence
+the `--resolve-callees` path already reports.
+
+**Evidence.** guild-rebrew round 8: `0x0051ecf0` reaches 1145/1145 bytes with
+48/49 relocs validated, exactly one `_realloc` -> 0x64fde9 unresolved; the twin
+`0x00522510` sits RELOC for the same call. Setting the LIBRARY row's size to the
+measured 815-byte extent (ret at 0x650117, next prologue at 0x650118) does not
+change the resolution.
+
+## Match archive members against native bytes with no project claim (2026-10-24)
+
+**Problem.** Rows inside a configured `external_ranges` band have an address-only
+metadata row: size plus `verification` hashes, no project function definition,
+no name or kind, no FUNCTION/STUB claim. Calls into that band reach the link as
+placeholder symbols (`_fcn_005e0140`), so they cannot resolve, and none of the
+existing tools can identify them:
+
+- `library match --lib ... --va <VA>` scores reversed project functions only, so
+  an address-only row is never a candidate (`library: false` for all 20 VAs of
+  guild-rebrew's D3DX8 band, even after generating FLIRT signatures for
+  `d3dx8.lib` and `LIBCMT.sp5pp.LIB`).
+- `library review-native` needs a member object already chosen.
+- `source rename fcn_005e0140 GOLDTL.0x005e0140` refuses with `binding
+  destination has no project function definition`.
+
+**Proposed capability.** A native-bytes-only archive match: `library match --va
+<VA> --native-only [--lib ...] [--stock-lib ...]` that compares the inventory
+extent of the VA against archive member code with relocation masking and reports
+unique member/symbol candidates (with the same "inconclusive on ambiguity" rule
+as the reversed-function path). Paired claim creation for an external-range VA
+(`source register 0xVA --native-only` or `skeleton --no-body`) would then let
+`review-native` and `source rename` close the placeholder loop.
+
+**Evidence.** guild-rebrew round 10, `.scratch/gold-f/tl-bind-band-report.txt`:
+20 band VAs, generated signatures produced 155 whole-.text matches (105 inside
+the band) but none at the target VAs; size-based candidates are ambiguous
+(0x64e790 size 192 could be createmesh, jdapimin, pngread or d3dxmathsse).

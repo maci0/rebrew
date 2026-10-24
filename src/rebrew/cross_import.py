@@ -1512,33 +1512,53 @@ def main(
                     )
                     results.append(promo)
                     continue
-        res = (
-            import_shared_function(
-                cfg,
-                cfg_src,
-                dst_va,
-                src_va,
-                src_file,
-                dst_size,
-                dst_file=dst_file or None,
-                dry_run=dry_run,
-                cache=cache,
-                name_to_va=name_to_va,
+        try:
+            res = (
+                import_shared_function(
+                    cfg,
+                    cfg_src,
+                    dst_va,
+                    src_va,
+                    src_file,
+                    dst_size,
+                    dst_file=dst_file or None,
+                    dry_run=dry_run,
+                    cache=cache,
+                    name_to_va=name_to_va,
+                )
+                if shared
+                else import_function(
+                    cfg,
+                    cfg_src,
+                    dst_va,
+                    src_va,
+                    src_file,
+                    dst_size,
+                    dst_file=dst_file or None,
+                    dry_run=dry_run,
+                    cache=cache,
+                    name_to_va=name_to_va,
+                )
             )
-            if shared
-            else import_function(
-                cfg,
-                cfg_src,
-                dst_va,
-                src_va,
-                src_file,
-                dst_size,
-                dst_file=dst_file or None,
-                dry_run=dry_run,
-                cache=cache,
-                name_to_va=name_to_va,
+        except ValueError as exc:
+            # One unsuitable donor (for example a definition inside a target
+            # #if block) must not abort the batch: report it as a row and keep
+            # matching the remaining candidates.
+            results.append(
+                {
+                    "dst_va": f"0x{dst_va:08x}",
+                    "src_va": f"0x{src_va:08x}",
+                    "score": score,
+                    "action": "error",
+                    "status": "",
+                    "filepath": src_file,
+                    "src_file": src_file,
+                    "src_status": src_status,
+                    "dst_status": dst_status,
+                    "message": str(exc),
+                }
             )
-        )
+            continue
         res["score"] = score
         # The question this command answers is "is this code already reversed
         # somewhere, and where?".  The destination path alone cannot answer it
