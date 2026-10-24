@@ -19,14 +19,17 @@ app = typer.Typer(
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew binary repair-extents 0x401000=16 --reason proof --dry-run\n\n"
-        "  rebrew binary repair-extents 0x401010=3 --add-missing --reason proof"
+        "  rebrew binary repair-extents 0x401010=3 --add-missing --reason proof\n\n"
+        "  rebrew binary repair-extents --merge 0x401000=0x401028 --reason proof"
     ),
 )
 
 
 @app.callback(invoke_without_command=True)
 def main(
-    specifications: list[str] = typer.Argument(..., help="Native 0xVA=SIZE repairs"),
+    specifications: list[str] = typer.Argument(
+        None, help="Native 0xVA=SIZE repairs (optional when --merge/--add-missing is used)"
+    ),
     reason: str = typer.Option(..., "--reason", help="Reviewed native boundary evidence"),
     expected_digest: str | None = typer.Option(
         None, "--expected-digest", help=EXPECTED_DIGEST_HELP
@@ -35,14 +38,20 @@ def main(
         False, "--add-missing", help="Explicitly admit reviewed functions absent from the inventory"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    merge: list[str] = typer.Option(
+        [],
+        "--merge",
+        help="Absorb a following inventory row: --merge 0xHEAD=0xTAIL (repeatable, in order)",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Repair selected inventory extents; source metadata and verdicts stay separate."""
     cfg = require_config(target=target, json_mode=json_output)
     updates: dict[int, int] = {}
+    merge_pairs: list[tuple[int, int]] = []
     try:
-        for spec in specifications:
+        for spec in specifications or []:
             address, separator, value = spec.partition("=")
             if not separator:
                 raise ValueError("extent repairs require 0xVA=SIZE")
@@ -50,6 +59,16 @@ def main(
             if va in updates and updates[va] != size:
                 raise ValueError(f"conflicting sizes for 0x{va:x}")
             updates[va] = size
+        for spec in merge:
+            head_text, separator, tail_text = spec.partition("=")
+            if not separator:
+                raise ValueError("merges require 0xHEAD=0xTAIL")
+            merge_pairs.append(
+                (
+                    parse_va(head_text, json_mode=json_output),
+                    parse_va(tail_text, json_mode=json_output),
+                )
+            )
         report = repair_inventory_extents(
             cfg,
             updates,
@@ -57,6 +76,7 @@ def main(
             dry_run=dry_run,
             expected_digest=expected_digest,
             add_missing=add_missing,
+            merges=merge_pairs,
         )
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)

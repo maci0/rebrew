@@ -222,6 +222,20 @@ class TestAlignAndClassify:
     def test_first_mismatch_none_when_identical(self) -> None:
         assert self._run_first(MOV_EAX_EBX + RET, MOV_EAX_EBX + RET) is None
 
+    def test_same_bytes_but_different_register_alias_is_reported(self) -> None:
+        # In 32-bit mode, EAX and AX use the same encoding for this memory
+        # load, despite disassembling to different operands.
+        raw = b"\xa1\x00\x10\x00\x00"
+        target = nd.Insn(va=0x1000, size=5, mnemonic="mov", op_str="eax, [0x1000]", raw=raw)
+        compiled = nd.Insn(va=0x1000, size=5, mnemonic="mov", op_str="ax, [0x1000]", raw=raw)
+        counts, first = nd.align_and_classify([target], [compiled], set())
+        assert counts["register"] == 0
+        assert counts["match"] == 5
+        assert first is not None
+        assert first["category"] == "register"
+        assert "eax" in first["target"]
+        assert "ax" in first["compiled"]
+
     def test_first_mismatch_extra_instruction(self) -> None:
         # Insertion: the extra compiled instruction is the first mismatch and
         # carries no target-side counterpart.

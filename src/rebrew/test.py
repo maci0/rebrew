@@ -1349,6 +1349,12 @@ def _run_test_impl(
             )
     else:
         sel_ann = lint_annos[0] if lint_annos else None
+    if sel_ann is not None and sel_ann.name and sel_ann.prototype:
+        from rebrew.metadata.bindings import derive_c_symbol
+
+        derived_symbol = derive_c_symbol(sel_ann.name, sel_ann.prototype)
+        if derived_symbol:
+            symbol = derived_symbol
     if not symbol and sel_ann and sel_ann.symbol:
         symbol = sel_ann.symbol
     if size is None and sel_ann and sel_ann.size:

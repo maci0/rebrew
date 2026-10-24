@@ -502,3 +502,142 @@ def test_malformed_va_arg_binding_preserves_previous_identity(tmp_path: Path) ->
         )
     assert result.exit_code == 2
     assert get_entry(cfg.metadata_dir, 0x401000, "GAME") == before
+
+
+class TestBatchBindingChanges:
+    def _counting_store(self, calls: list[int]):
+        from rebrew.metadata import binding_history as module
+
+        real = module.metadata_store
+
+        class CountingStore:
+            def __init__(self, path):
+                self._store = real(path)
+
+            def __getattr__(self, name):
+                return getattr(self._store, name)
+
+            def write(self, *args, **kwargs):
+                calls.append(1)
+                return self._store.write(*args, **kwargs)
+
+        return patch.object(module, "metadata_store", CountingStore)
+
+    def test_batch_rebinds_two_rows_in_one_write(self, tmp_path: Path) -> None:
+        from rebrew.metadata.binding_history import change_source_bindings_batch
+
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "library_game.h").write_text("/* identities live in metadata */\n")
+        identities = [
+            {"file": "src/library_game.h", "symbol": "_lib", "name": "lib", "kind": "LIBRARY"},
+            {"file": "src/library_game.h", "symbol": "_lib2", "name": "lib2", "kind": "LIBRARY"},
+        ]
+        calls: list[int] = []
+        with self._counting_store(calls):
+            report = change_source_bindings_batch(
+                cfg.metadata_dir,
+                [
+                    {
+                        "module": "GAME",
+                        "va": 0x401000,
+                        "reason": "stock body",
+                        "identity": identities[0],
+                    },
+                    {
+                        "module": "GAME",
+                        "va": 0x402000,
+                        "reason": "stock body",
+                        "identity": identities[1],
+                    },
+                ],
+            )
+        assert len(calls) == 1
+        assert [change["va"] for change in report["changes"]] == ["0x401000", "0x402000"]
+        for va in (0x401000, 0x402000):
+            row = get_entry(cfg.metadata_dir, va, "GAME")
+            assert row["kind"] == "LIBRARY"
+            assert row["file"] == "src/library_game.h"
+            assert "status" not in row
+            assert row["binding_history"][-1]["action"] == "rebind"
+
+    def test_batch_conflict_publishes_nothing(self, tmp_path: Path) -> None:
+        from rebrew.metadata.binding_history import change_source_bindings_batch
+
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "library_game.h").write_text("/* identities live in metadata */\n")
+        identity = {
+            "file": "src/library_game.h",
+            "symbol": "_lib",
+            "name": "lib",
+            "kind": "LIBRARY",
+        }
+        before_f = get_entry(cfg.metadata_dir, 0x401000, "GAME")
+        before_g = get_entry(cfg.metadata_dir, 0x402000, "GAME")
+        calls: list[int] = []
+        with (
+            self._counting_store(calls),
+            pytest.raises(ValueError, match="already belongs to"),
+        ):
+            change_source_bindings_batch(
+                cfg.metadata_dir,
+                [
+                    {
+                        "module": "GAME",
+                        "va": 0x401000,
+                        "reason": "stock body",
+                        "identity": identity,
+                    },
+                    {
+                        "module": "GAME",
+                        "va": 0x402000,
+                        "reason": "stock body",
+                        "identity": identity,
+                    },
+                ],
+            )
+        assert calls == []
+        assert get_entry(cfg.metadata_dir, 0x401000, "GAME") == before_f
+        assert get_entry(cfg.metadata_dir, 0x402000, "GAME") == before_g
+
+    def test_preview_digest_guards_apply_and_writes_nothing(self, tmp_path: Path) -> None:
+        from rebrew.metadata.binding_history import change_source_bindings_batch
+
+        cfg = _project(tmp_path)
+        before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+        changes = [{"module": "GAME", "va": 0x401000, "reason": "wrong native routine"}]
+        preview = change_source_bindings_batch(cfg.metadata_dir, changes, dry_run=True)
+        assert preview["changes"][0]["action"] == "retire"
+        assert before == {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+        with pytest.raises(ValueError, match="inputs changed|changed since preview"):
+            change_source_bindings_batch(
+                cfg.metadata_dir,
+                changes,
+                expected_digest="0" * 64,
+            )
+        applied = change_source_bindings_batch(
+            cfg.metadata_dir, changes, expected_digest=preview["input_digest"]
+        )
+        assert applied["changes"][0]["va"] == "0x401000"
+        assert not get_entry(cfg.metadata_dir, 0x401000, "GAME").get("file")
+
+    def test_batch_retires_and_rebinds_together(self, tmp_path: Path) -> None:
+        from rebrew.metadata.binding_history import change_source_bindings_batch
+
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "replacement.c").write_text("int replacement(void) { return 2; }\n")
+        identity = {
+            "file": "src/replacement.c",
+            "symbol": "_replacement",
+            "name": "replacement",
+            "kind": "FUNCTION",
+        }
+        report = change_source_bindings_batch(
+            cfg.metadata_dir,
+            [
+                {"module": "GAME", "va": 0x401000, "reason": "wrong routine"},
+                {"module": "GAME", "va": 0x402000, "reason": "renamed", "identity": identity},
+            ],
+        )
+        assert [change["action"] for change in report["changes"]] == ["retire", "rebind"]
+        assert not get_entry(cfg.metadata_dir, 0x401000, "GAME").get("file")
+        assert get_entry(cfg.metadata_dir, 0x402000, "GAME")["file"] == "src/replacement.c"

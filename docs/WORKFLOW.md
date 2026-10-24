@@ -205,9 +205,12 @@ rebrew prove src/target_name/my_func.c --dry-run      # preview without updating
 rebrew prove my_func --timeout 120                    # allow 2 minutes for complex functions
 ```
 
-Uses angr's symbolic execution engine and Z3 constraint solving to compare the return
-register (`EAX`) for all possible inputs. If no input can distinguish the two
-implementations, STATUS is promoted to `PROVEN`.
+Uses angr symbolic execution and Z3 constraint solving to compare selected return
+registers (`EAX` and, when configured, `EDX`) and watched memory within the
+configured argument constraints, modeled external calls and exploration bounds.
+A successful comparison promotes STATUS
+to `PROVEN`; a timeout or incomplete exploration does not establish equivalence.
+See [proof scope](MATCH_TYPES.md#proven).
 
 > [!NOTE]
 > `angr` is an optional dependency (~500 MB). Install with `make setup`:

@@ -5020,6 +5020,7 @@ cflags = "/O2 /Gd /MT"       # compiler flags
 | Operation | Purpose |
 | --- | --- |
 | `rebrew library bind-source` | Bind an identified library function to a source file we compile ourselves. |
+| `rebrew library adopt` | Record a unique stock-archive match over an existing FUNCTION or STUB claim. |
 | `rebrew library review-native` | Establish exact library callee identities through binary-bound strict proof. |
 | `rebrew library show` | Show the effective library override for a directory (nearest rebrew-libraries.toml walking up toward the project root). |
 | `rebrew library list` | List every rebrew-libraries.toml under root (all library overrides). |
@@ -5052,6 +5053,28 @@ with neither stays unresolved.
 | `VA` | str | required | Reference virtual address of a library function |
 | `SOURCE` | path | required | Project source file compiled for this function |
 | `--symbol` | str | required | Native object symbol to compare |
+| `--dry-run` | flag | `False` | Preview changes without writing |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+
+### `rebrew library adopt`
+
+`rebrew library adopt [OPTIONS] VA`
+
+Record a stock-archive identity over an existing `FUNCTION` or `STUB` row. The
+command re-runs the project's archive match for that VA and requires one unique
+`(symbol, archive member)` candidate. The row becomes kind `LIBRARY` with the
+archive family's `library_<family>.h` declaration header, the native symbol and
+a C name derived from it; the previous claim stays in `binding_history` and the
+comparison verdict is cleared. Preview with `--dry-run` and pass the reported
+digest back as `--expected-digest` to apply. A vendored-object match is refused;
+use `rebrew library bind-source` for a source provider.
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `VA` | str | required | Native VA of the FUNCTION/STUB row proved library code |
+| `--reason` | str | required | Reviewed evidence naming the unique match |
+| `--expected-digest` | str | — | Require the digest from a reviewed preview |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |

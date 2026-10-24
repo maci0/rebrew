@@ -31,6 +31,7 @@ from rebrew.cli import (
 )
 from rebrew.metadata.functions import (
     LIBRARY_METADATA_FILE,
+    METADATA_FILENAME,
     all_library_presets,
     apply_library_presets,
     clear_library_override_cache,
@@ -405,6 +406,159 @@ def rm_cmd(
         json_print({"removed": True, "file": str(path)})
     else:
         console.print(f"[green]removed {path}[/green]")
+
+
+def _library_family(object_label: str) -> str | None:
+    """Archive family from a stock object label like ``..._libc_stock.lib:...``."""
+    if ":" not in object_label:
+        return None
+    stem = Path(object_label.split(":", 1)[0]).stem
+    for suffix in ("_stock", "-stock"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+    family = stem.rsplit("_", 1)[-1]
+    return family or None
+
+
+@app.command(
+    "adopt",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        '  rebrew library adopt 0x401000 --reason "unique LIBC body" --dry-run'
+    ),
+)
+def adopt_cmd(
+    va: str = typer.Argument(..., help="Native VA of the FUNCTION/STUB row proved library code"),
+    reason: str = typer.Option(..., "--reason", help="Reviewed evidence naming the unique match"),
+    expected_digest: str | None = typer.Option(
+        None, "--expected-digest", help=EXPECTED_DIGEST_HELP
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Record a unique stock-archive match over an existing FUNCTION or STUB claim.
+
+    The match must be unique against the archives the target links; the row then
+    becomes kind LIBRARY with the archive family's declaration header and the
+    native symbol. The previous claim stays in binding_history, and the preview
+    digest guards the write. Vendored-object matches are refused: bind their
+    source with ``rebrew library bind-source``.
+    """
+    import hashlib
+    import json as json_mod
+
+    from rebrew.config import target_module
+    from rebrew.formats.binary_loader import extract_raw_bytes
+    from rebrew.identify_library import prepare_library_header
+    from rebrew.lib_match import PREFIX_BYTES, match_bytes, project_match_index
+    from rebrew.metadata.binding_history import change_source_binding
+    from rebrew.metadata.functions import get_entry
+    from rebrew.metadata.storage import metadata_store
+    from rebrew.rename_ops import c_name_from_symbol
+    from rebrew.utils import library_header_name
+
+    cfg = require_config(target=target, json_mode=json_output)
+    address = parse_va(va, json_mode=json_output)
+    module = target_module(cfg)
+    row = get_entry(cfg.metadata_dir, address, module)
+    if not row:
+        error_exit(f"no native metadata row for {module}.0x{address:x}", json_mode=json_output)
+    if row.get("kind") not in {"FUNCTION", "STUB"}:
+        error_exit(
+            f"0x{address:x} is already {row.get('kind') or 'unclaimed'}; adopt needs a "
+            "FUNCTION or STUB claim",
+            json_mode=json_output,
+        )
+    try:
+        index, _archives, _objects = project_match_index(cfg, json_mode=json_output)
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    size = int(row.get("size") or 0)
+    data = extract_raw_bytes(cfg.target_binary, address, size or PREFIX_BYTES)
+    hit = match_bytes(index, data)
+    if not hit and size > PREFIX_BYTES:
+        hit = match_bytes(index, extract_raw_bytes(cfg.target_binary, address, PREFIX_BYTES))
+    pairs = {(symbol, obj) for symbol, obj in hit}
+    if not pairs:
+        error_exit(
+            f"0x{address:x} does not match any linked archive; nothing to adopt",
+            json_mode=json_output,
+        )
+    if len(pairs) > 1:
+        listed = "; ".join(f"{symbol} in {obj}" for symbol, obj in sorted(pairs))
+        error_exit(
+            f"0x{address:x} has ambiguous library candidates ({listed}); a unique archive "
+            "member is required",
+            json_mode=json_output,
+        )
+    symbol, object_label = pairs.pop()
+    if object_label.endswith(".c.obj") or ":" not in object_label:
+        error_exit(
+            f"0x{address:x} matched a project-built object ({object_label}); bind its source "
+            "with `rebrew library bind-source`",
+            json_mode=json_output,
+        )
+    family = _library_family(object_label)
+    if family is None:
+        error_exit(f"cannot derive the archive family from {object_label}", json_mode=json_output)
+    name = c_name_from_symbol(symbol)
+    if not name.isidentifier():
+        error_exit(f"matched symbol {symbol!r} has no C identifier name", json_mode=json_output)
+    header = cfg.reversed_dir / library_header_name(family)
+    try:
+        relative_header = header.resolve().relative_to(cfg.root.resolve()).as_posix()
+    except ValueError:
+        error_exit(f"library header {header} is outside the project root", json_mode=json_output)
+    identity = {"file": relative_header, "symbol": symbol, "name": name, "kind": "LIBRARY"}
+    binary_hash = hashlib.sha256(cfg.target_binary.read_bytes()).hexdigest()
+    metadata_digest = metadata_store(cfg.metadata_dir / METADATA_FILENAME).digest()
+    digest = hashlib.sha256(
+        json_mod.dumps(
+            {
+                "binary": binary_hash,
+                "metadata": metadata_digest,
+                "va": address,
+                "identity": identity,
+                "object": object_label,
+                "reason": reason.strip(),
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    if expected_digest is not None and digest != expected_digest:
+        error_exit("library adopt inputs changed; review a new preview", json_mode=json_output)
+    if not dry_run:
+        prepare_library_header(cfg, header)
+    try:
+        result = change_source_binding(
+            cfg.metadata_dir,
+            module,
+            address,
+            reason=reason,
+            identity=identity,
+            dry_run=dry_run,
+            expected_digest=None if dry_run else metadata_digest,
+            project_root=cfg.root,
+        )
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), json_mode=json_output)
+    payload = {
+        "va": f"0x{address:08x}",
+        "provider": "stock-archive",
+        "object": object_label,
+        "input_digest": digest,
+        "dry_run": dry_run,
+        **identity,
+        "action": result.get("action"),
+    }
+    if json_output:
+        json_print(payload)
+    else:
+        console.print(
+            f"{'Would adopt' if dry_run else 'Adopted'} 0x{address:08x} as LIBRARY "
+            f"({symbol} from {object_label})"
+        )
 
 
 def main_entry() -> None:

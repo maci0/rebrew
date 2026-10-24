@@ -1,5 +1,57 @@
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `rebrew.inventory_repair.main` accepts an empty
+  `specifications` list so a merge-only `binary repair-extents --merge
+  0xHEAD=0xTAIL` invocation needs no size operand; existing positional calls are
+  unchanged. The same command gains the repeatable `merge` option.
+
+### Fixed
+
+- `build driver` and the generated CMake toolchain file resolve the compiler
+  profile from the project's default target before the project-level
+  `[compiler].profile`. CMake has no target identity, so a project whose default
+  target overrides the profile (for example to `msvc-6.0-sp5-pp`) compiled every
+  file with the project profile and emitted the wrong code generator, which made
+  manual build comparisons disagree with `rebrew test`.
+
+- Keep `source import-related` running when one donor definition sits inside a
+  target `#if` block: the extraction error becomes an `error` row for that
+  candidate and the batch continues with the rest.
+
+- Clarify the assumptions, checked observations and exploration limits of PROVEN
+  in the status reference and workflow guide.
+
+- Report the first decoded operand mismatch for same-byte register aliases in
+  near diagnostics. Preserve byte-category totals for exact-byte comparisons.
+- Skip W030 VA-order comparisons for functions found only in managed metadata,
+  where the parser has no source definition line to order.
+
+### Added
+
+- Add `library adopt`, a digest-guarded writer that records a unique
+  stock-archive match over an existing FUNCTION or STUB claim (`kind =
+  LIBRARY`, archive-family header, native symbol). Vendored-object matches are
+  refused in favor of `library bind-source`.
+
+- Add `change_source_bindings_batch` so a reviewed set of retire/rebind changes
+  publishes in one metadata write instead of one full-store rewrite per row.
+  Each change keeps its own binding history, a conflict rejects the whole
+  batch before publication, and a preview digest guards the apply.
+
+- Add `binary repair-extents --merge 0xHEAD=0xTAIL` to absorb a reviewed
+  split row back into its owning routine. The head extent grows to the tail's
+  end, the tail row is removed with its extent history preserved on the head,
+  and preview digests bind the ordered merge list.
+
+- Register 22 maspsx-backed PS1 GCC variants and five Daze 0.3.0 DOS compiler
+  variants, with measured image smoke goldens. Daze runs PSY-Q 2.6.3, 3.3,
+  3.5 and 3.6 and Saturn Cygnus 2.7-96Q3 through software emulation.
+- Register GCC 16.2.0, Clang 23.1.4, MWCC 4.1 build 51213 patch 1,
+  native Saturn Cygnus 2.7-96Q3 and Saturn SHC 5.0r32 images, with measured
+  compiler smoke goldens.
+
 ## [5.5.0] - 2026-10-21
 
 ### Changed

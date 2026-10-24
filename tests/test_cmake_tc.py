@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from rebrew import cmake_tc
 from rebrew.cmake_tc import (
     ToolMode,
     _docker_run,
@@ -840,3 +841,58 @@ def test_unshare_bridge_uses_the_cache_admitted_image_without_readmission(
         == 0
     )
     assert calls[0]["image_id"] == image
+
+
+def test_load_profile_prefers_default_target_override(tmp_path: Path) -> None:
+    """A target profile override must win over the project-level profile.
+
+    CMake has no Rebrew target identity, so `build driver` resolves the
+    project default target's compiler.  With the project-level profile only, a
+    target on a different code generator (msvc-6.0-sp5-pp) compiled as plain
+    SP5 and produced the non-PP x87 compare idiom for every manual probe.
+    """
+    (tmp_path / "rebrew-project.toml").write_text(
+        "\n".join(
+            [
+                "[project]",
+                'name = "p"',
+                'default_target = "TL"',
+                "",
+                '[targets."TL"]',
+                'binary = "original/TL.exe"',
+                'reversed_dir = "src"',
+                'module = "TL"',
+                'compiler = { profile = "msvc-6.0-sp5-pp" }',
+                "",
+                '[targets."Other"]',
+                'binary = "original/Other.exe"',
+                'reversed_dir = "src"',
+                'module = "OTHER"',
+                "",
+                "[compiler]",
+                'profile = "msvc-6.0-sp5"',
+            ]
+        )
+    )
+    assert cmake_tc._load_profile(tmp_path) == "msvc-6.0-sp5-pp"
+
+
+def test_load_profile_falls_back_to_project_when_target_has_no_override(tmp_path: Path) -> None:
+    (tmp_path / "rebrew-project.toml").write_text(
+        "\n".join(
+            [
+                "[project]",
+                'name = "p"',
+                'default_target = "TL"',
+                "",
+                '[targets."TL"]',
+                'binary = "original/TL.exe"',
+                'reversed_dir = "src"',
+                'module = "TL"',
+                "",
+                "[compiler]",
+                'profile = "msvc-6.0-sp5"',
+            ]
+        )
+    )
+    assert cmake_tc._load_profile(tmp_path) == "msvc-6.0-sp5"
