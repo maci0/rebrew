@@ -1425,7 +1425,7 @@ def _render_terminal(report: StatusReport) -> None:
     if no_source > 0:
         part = report.status_bytes.get("NO_SOURCE", 0) if byte_percentages else no_source
         status_table.add_row(
-            "[dim](no source)[/dim]",
+            "[dim]NO_SOURCE[/dim]",
             f"[dim]{no_source}[/dim]",
             *([f"{report.status_bytes.get('NO_SOURCE', 0):,}"] if show_bytes else []),
             *ratio_cells(part, color="dim"),

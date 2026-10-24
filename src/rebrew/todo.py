@@ -1693,7 +1693,7 @@ def main(
         s = effective_status(ann_status, verify_statuses.get(va_int))
         # Documented non-targets stay STUB, the bucket `rebrew status` uses.
         # `documented` is how many of those STUB rows carry the marker, not
-        # a seventh bucket and not the "(no source)" remainder.
+        # a seventh bucket and not the NO_SOURCE remainder.
         if (
             s == "STUB"
             and canonical_status(ann_status or "") == "STUB"
