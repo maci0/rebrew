@@ -911,11 +911,14 @@ def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
             dirs.add(Path(value).resolve())
     results: list[LintResult] = []
     skip = {".git", "build", ".scratch", "node_modules", ".venv"}
+    project_root = Path(cfg.root).resolve()
     for store in project_metadata_stores(cfg.root, recursive=True):
         path = store.path
         if path.name not in store_names:
             continue
-        if any(part in skip for part in path.parts):
+        # Ignore project descendants, not a parent hosting this project.
+        parts = path.parent.resolve().relative_to(project_root, walk_up=True).parts
+        if any(part in skip for part in parts):
             continue
         if path.parent.resolve() in dirs:
             continue

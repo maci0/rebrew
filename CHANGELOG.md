@@ -1,5 +1,18 @@
 ## [Unreleased]
 
+### Changed
+
+- Select Python 3.14.8 for contributor environments and the current CI lane.
+  Pinned python-flirt 0.10.0 uses PyO3 0.27.2, whose supported Python range ends
+  at 3.14; retain the separate Python 3.13 compatibility lane.
+- Refresh locked Python dependencies, the setuptools build hashes and uv 0.13.3;
+  use the verified Resembl 3.5.0 source pin and current declared dependency grants.
+
+### Fixed
+
+- Report stray metadata stores when a project lives below an ignored directory
+  name; keep ignored descendants and compiler source traversal unchanged.
+
 ## [5.4.0] - 2026-10-20
 
 ### Added

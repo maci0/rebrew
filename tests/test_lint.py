@@ -3439,6 +3439,50 @@ class TestW036StrayMetadataStoreSingleDir:
         assert "outside the configured directory" in message
         assert str(tmp_path) in message
 
+    @pytest.mark.parametrize("parent_name", [".scratch", "build"])
+    def test_project_under_an_ignored_parent_reports_stray_store(
+        self, tmp_path: Path, parent_name: str
+    ) -> None:
+        root = tmp_path / parent_name / "project"
+        src = root / "src"
+        src.mkdir(parents=True)
+        write_store_fixture(root / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
+        assert "outside the configured directory" in self._messages(root, src)
+
+    def test_symlink_project_root_reports_stray_store(self, tmp_path: Path) -> None:
+        root = tmp_path / "project"
+        src = root / "src"
+        src.mkdir(parents=True)
+        alias = tmp_path / "alias"
+        alias.symlink_to(root, target_is_directory=True)
+        write_store_fixture(root / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
+        assert "outside the configured directory" in self._messages(alias, alias / "src")
+
+    def test_symlink_directory_is_not_walked(self, tmp_path: Path) -> None:
+        root = tmp_path / "project"
+        src = root / "src"
+        src.mkdir(parents=True)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        write_store_fixture(outside / "rebrew-data.toml", "format = 1\n", encoding="utf-8")
+        (root / "linked").symlink_to(outside, target_is_directory=True)
+        assert self._messages(root, src) == ""
+
+    def test_symlink_store_keeps_its_logical_filepath(self, tmp_path: Path) -> None:
+        from rebrew.lint import _check_W036_stray_metadata_store
+
+        root = tmp_path / "project"
+        src = root / "src"
+        src.mkdir(parents=True)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        target = outside / "rebrew-data.toml"
+        write_store_fixture(target, "format = 1\n", encoding="utf-8")
+        link = root / "rebrew-data.toml"
+        link.symlink_to(target)
+        cfg = SimpleNamespace(root=root, metadata_dir=src, reversed_dir=src, shared_dir=None)
+        assert [result.filepath for result in _check_W036_stray_metadata_store(cfg)] == [link]
+
     def test_store_under_an_ignored_directory_is_skipped(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()

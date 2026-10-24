@@ -548,9 +548,10 @@ class TestPackagingMetadata:
     def test_requires_python_matches_ci_floor(self) -> None:
         assert _project()["requires-python"] == ">=3.13"
         python_version = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
-        assert re.fullmatch(r"3\.13\.\d+", python_version)
+        assert re.fullmatch(r"3\.14\.\d+", python_version)
         # The package job takes the shared action's default python-version.
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        assert f'python-version: ["3.13.16", "{python_version}"]' in workflow
         package_job = workflow.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
         assert "uses: ./.github/actions/uv-env" in package_job
         assert "python-version:" not in package_job
@@ -565,7 +566,7 @@ class TestPackagingMetadata:
         """
         data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
         requires = data["build-system"]["requires"]
-        assert requires == ["setuptools==84.0.0"], requires
+        assert requires == ["setuptools==84.2.0"], requires
         assert data["build-system"]["build-backend"] == "setuptools.build_meta"
         constraints = (ROOT / "build-constraints.txt").read_text(encoding="utf-8")
         st_ver = requires[0].removeprefix("setuptools==")
@@ -1485,8 +1486,37 @@ class TestReleaseCheck:
     """
 
     @staticmethod
-    def _check(tmp_path: Path, monkeypatch: Any, changelog: str, version: str = "1.2.3") -> int:
+    def _check(
+        tmp_path: Path,
+        monkeypatch: Any,
+        changelog: str,
+        version: str = "1.2.3",
+        *,
+        dirty: bool = False,
+    ) -> int:
         (tmp_path / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
+        # Changelog cases own their Git state instead of inheriting a parent repo.
+        subprocess.run(["git", "init", "-q", "--template=", str(tmp_path)], check=True)
+        subprocess.run(["git", "-C", str(tmp_path), "add", "CHANGELOG.md"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(tmp_path),
+                "-c",
+                "user.name=Rebrew test",
+                "-c",
+                "user.email=test@example.invalid",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "commit",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
+        if dirty:
+            (tmp_path / "uncommitted.txt").write_text("dirty\n", encoding="utf-8")
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(release_check, "CHANGELOG", tmp_path / "CHANGELOG.md")
         monkeypatch.setattr(release_check, "_package_version", lambda: version)
@@ -1501,6 +1531,11 @@ class TestReleaseCheck:
     def test_clean_release_passes(self, tmp_path: Path, monkeypatch: Any) -> None:
         changelog = "## [Unreleased]\n\n## [1.2.3] - 2026-01-02\n\n### Fixed\n- a thing\n\n## [1.2.2] - 2026-01-01\n"
         assert self._check(tmp_path, monkeypatch, changelog) == 0
+
+    def test_dirty_release_fails(self, tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
+        changelog = "## [Unreleased]\n\n## [1.2.3] - 2026-01-02\n\n### Fixed\n- a thing\n"
+        assert self._check(tmp_path, monkeypatch, changelog, dirty=True) == 1
+        assert "working tree not clean" in capsys.readouterr().out
 
     def test_version_not_bumped_fails(self, tmp_path: Path, monkeypatch: Any) -> None:
         changelog = "## [Unreleased]\n\n## [1.2.3] - 2026-01-02\n\n### Fixed\n- a thing\n"
