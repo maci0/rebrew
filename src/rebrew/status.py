@@ -1438,8 +1438,8 @@ def _render_terminal(report: StatusReport) -> None:
                 f"{report.library_identified:,}",
                 report.status_bytes.get("LIBRARY", 0) if report.library_identified else None,
             ),
-            ("padding", "", report.padding_bytes),
-            ("no function", "", report.unattributed_bytes),
+            ("PADDING", "", report.padding_bytes),
+            ("NO_FUNCTION", "", report.unattributed_bytes),
         ):
             if size is not None:
                 color = STATUS_COLORS.get(label, "dim")
@@ -1482,9 +1482,9 @@ def _render_terminal(report: StatusReport) -> None:
     ):
         summary_lines.append(
             "[dim]"
-            f"unmatched {report.unmatched_bytes:,}B"
-            f"    padding {report.padding_bytes:,}B"
-            f"    no function {report.unattributed_bytes:,}B"
+            f"UNMATCHED {report.unmatched_bytes:,}B"
+            f"    PADDING {report.padding_bytes:,}B"
+            f"    NO_FUNCTION {report.unattributed_bytes:,}B"
             "[/dim]"
         )
 

@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [6.0.3] - 2026-10-24
+
+### Changed
+
+- Use uppercase status labels with underscores in the code accounting table
+  and gap summary, including `PADDING` and `NO_FUNCTION`.
+
 ## [6.0.2] - 2026-10-24
 
 ### Changed

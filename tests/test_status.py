@@ -1587,8 +1587,8 @@ class TestRenderTerminal:
             ("EXACT", "22", "1,436"),
             ("RELOC", "239", "76,271"),
             ("COMPILE_ERROR", "1", "0"),
-            ("padding", "", "1,740"),
-            ("no function", "", "35"),
+            ("PADDING", "", "1,740"),
+            ("NO_FUNCTION", "", "35"),
         ):
             row = next(
                 line
