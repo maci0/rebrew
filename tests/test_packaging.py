@@ -566,7 +566,7 @@ class TestPackagingMetadata:
         """
         data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
         requires = data["build-system"]["requires"]
-        assert requires == ["setuptools==84.2.0"], requires
+        assert requires == ["setuptools==84.2.1"], requires
         assert data["build-system"]["build-backend"] == "setuptools.build_meta"
         constraints = (ROOT / "build-constraints.txt").read_text(encoding="utf-8")
         st_ver = requires[0].removeprefix("setuptools==")
@@ -587,7 +587,7 @@ class TestPackagingMetadata:
             "resembl",
             "GPL-3.0-only",
             "m2c",
-            "708d2d2cb2698f091a92492b328f73b24209f72d",
+            "c632946b8cfbe8fce442b522dba92dfa72f1f317",
             "pyvex",
             "BSD-2-Clause AND GPL-2.0-or-later",
             "LibVEX",
