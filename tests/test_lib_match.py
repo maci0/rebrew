@@ -289,6 +289,34 @@ class TestLibMatch:
         assert res.exit_code == 1, res.output
         assert "_mylibfn" in res.output
 
+    @pytest.mark.parametrize("ambiguous", [False, True])
+    def test_address_only_native_match_needs_no_source_claim(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ambiguous: bool
+    ) -> None:
+        from rebrew.lib_match import app
+        from rebrew.metadata.functions import update_field
+
+        pe = tmp_path / "target.dll"
+        body = bytes(range(1, 17))
+        pe.write_bytes(make_pe(body, image_base=0x400000, text_va=0x1000))
+        members = [("one.obj", make_coff_obj(body, func_symbol="_one"))]
+        if ambiguous:
+            members.append(("two.obj", make_coff_obj(body, func_symbol="_two")))
+        lib = tmp_path / "native.lib"
+        lib.write_bytes(make_lib_archive(members))
+        (tmp_path / "reversed").mkdir()
+        _mock_cfg(tmp_path, pe, monkeypatch)
+        update_field(tmp_path, 0x401000, "size", len(body), module="SERVER")
+        metadata = tmp_path / "rebrew-functions.toml"
+        before = metadata.read_bytes(), metadata.stat()
+        result = CliRunner().invoke(app, ["--lib", str(lib), "--va", "0x401000", "--json"])
+        assert result.exit_code == 1, result.output
+        report = cli_payload(result)
+        assert report["library"] is True
+        assert report["symbol"] == (None if ambiguous else "_one")
+        assert len(report["candidates"]) == (2 if ambiguous else 1)
+        assert (metadata.read_bytes(), metadata.stat()) == before
+
     def test_va_short_library_function(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

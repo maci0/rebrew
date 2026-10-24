@@ -456,31 +456,36 @@ def _compare_state_pairs(
             edx_comp = s_comp.regs.edx if check_eax else None
             mem_comp = [_mem_value(s_comp, va) for va in watched_vas]
 
-            diff_terms: list[Any] = []
-            if check_eax:
-                if check_edx:
-                    diff_terms.append(claripy.Or(eax_orig != eax_comp, edx_orig != edx_comp))
-                else:
-                    diff_terms.append(eax_orig != eax_comp)
-            for m_orig, m_comp in zip(mem_orig, mem_comp, strict=True):
-                if m_orig is None and m_comp is None:
-                    continue  # unmapped on both sides — nothing to compare
-                if m_orig is None or m_comp is None:
-                    diff_terms.append(claripy.BoolV(True))  # mapped on one side only
-                    break
-                diff_terms.append(m_orig != m_comp)
+            try:
+                diff_terms: list[Any] = []
+                if check_eax:
+                    if check_edx:
+                        diff_terms.append(claripy.Or(eax_orig != eax_comp, edx_orig != edx_comp))
+                    else:
+                        diff_terms.append(eax_orig != eax_comp)
+                for m_orig, m_comp in zip(mem_orig, mem_comp, strict=True):
+                    if m_orig is None and m_comp is None:
+                        continue  # unmapped on both sides — nothing to compare
+                    if m_orig is None or m_comp is None:
+                        diff_terms.append(claripy.BoolV(True))  # mapped on one side only
+                        break
+                    diff_terms.append(m_orig != m_comp)
 
-            if not diff_terms:
-                continue  # nothing compared in this pair
+                if not diff_terms:
+                    continue  # nothing compared in this pair
 
-            solver = claripy.Solver()
-            for expr in s_orig.solver.constraints:
-                solver.add(expr)
-            for expr in s_comp.solver.constraints:
-                solver.add(expr)
-            solver.add(claripy.Or(*diff_terms))
+                solver = claripy.Solver()
+                for expr in s_orig.solver.constraints:
+                    solver.add(expr)
+                for expr in s_comp.solver.constraints:
+                    solver.add(expr)
+                solver.add(claripy.Or(*diff_terms))
 
-            if solver.satisfiable():
+                different = solver.satisfiable()
+            except claripy.ClaripyError as exc:
+                return False, f"Unable to compare terminal states ({both_label}): {exc}"
+
+            if different:
                 can_differ = True
                 try:
                     # One batch_eval call, one model: all counterexample values

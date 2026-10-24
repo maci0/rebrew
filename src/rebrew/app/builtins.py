@@ -140,6 +140,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             help="Record target-scoped original assembly evidence for a named C definition.",
             panel="",
         ),
+        CliComponent(
+            name="clear-cflags",
+            module="rebrew.source_cflags",
+            help="Clear a saved per-function compiler flag override.",
+            panel="",
+        ),
     ),
     "types": (
         CliComponent(
