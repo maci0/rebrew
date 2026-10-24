@@ -46,6 +46,7 @@ def repair_inventory_extents(
     expected_digest: str | None = None,
     add_missing: bool = False,
     merges: list[tuple[int, int]] | None = None,
+    retire: list[int] | None = None,
 ) -> dict[str, Any]:
     """Repair selected sizes without replacing unrelated rows or earned measurements.
 
@@ -62,9 +63,20 @@ def repair_inventory_extents(
     still touches only the native inventory; source bindings and verdicts are
     retired through their own reviewed writers.
     """
+    # Retirement receipts return complete original rows; source identity and
+    # earned verdicts remain in their separate metadata owner.
     merge_list = _validate_merges(list(merges or []))
-    if not updates and not merge_list:
-        raise ValueError("extent repairs require at least one size or merge")
+    retire_list = list(retire or [])
+    if any(not isinstance(va, int) or isinstance(va, bool) or va < 0 for va in retire_list):
+        raise ValueError("retirement addresses must be non-negative integers")
+    if len(set(retire_list)) != len(retire_list):
+        raise ValueError("duplicate retirement addresses")
+    if set(retire_list) & (set(updates) | {va for pair in merge_list for va in pair}):
+        raise ValueError("a retired row cannot also be resized or merged")
+    if retire_list and not dry_run and expected_digest is None:
+        raise ValueError("retirement requires a preview's --expected-digest")
+    if not updates and not merge_list and not retire_list:
+        raise ValueError("extent repairs require at least one size, merge or retirement")
     if any(
         not isinstance(va, int)
         or isinstance(va, bool)
@@ -100,6 +112,7 @@ def repair_inventory_extents(
                     "binary_hash": binary_hash,
                     "updates": sorted(updates.items()),
                     "merges": [list(pair) for pair in merge_list],
+                    "retire": sorted(retire_list),
                     "reason": reason.strip(),
                     "add_missing": add_missing,
                 },
@@ -117,6 +130,15 @@ def repair_inventory_extents(
             if entry.va in rows or entry.va < 0 or entry.size < 0:
                 raise ValueError("native inventory has duplicate addresses or negative extents")
             rows[entry.va] = row
+        retired = []
+        for va in sorted(retire_list):
+            if va not in rows:
+                raise ValueError(f"retirement address 0x{va:x} is absent from inventory")
+            row = rows.pop(va)
+            if row.get("_generated_by"):
+                raise ValueError("derived coverage rows cannot establish native inventory extents")
+            retired.append({"va": f"0x{va:x}", "row": row, "reason": reason.strip()})
+        document = [row for row in document if FunctionEntry.from_dict(row).va not in retire_list]
         binary = load_binary(cfg.target_binary)
 
         def complete_span(va: int, size: int) -> bool:
@@ -249,6 +271,9 @@ def repair_inventory_extents(
             "input_digest": digest,
             "repairs": changed,
             "merges": merged,
+            "retirements": retired,
+            "target": cfg.target_name,
+            "inventory": str(inventory.resolve()),
             "binary_hash": binary_hash,
             "measurements_changed": False,
         }
@@ -257,7 +282,7 @@ def repair_inventory_extents(
     if not dry_run:
         with file_lock(inventory.with_suffix(inventory.suffix + ".lock")):
             document, report = prepare()
-            if report["repairs"] or report["merges"]:
+            if report["repairs"] or report["merges"] or report["retirements"]:
                 atomic_write_text(
                     inventory,
                     json.dumps(document, indent=2) + "\n",

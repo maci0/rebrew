@@ -262,6 +262,17 @@ class TestCompareStatePairsRealClaripy:
         assert not proven
         assert "EAX" in msg
 
+    def test_mixed_width_memory_is_inconclusive(self) -> None:
+        """An unexpected memory width cannot silently prove a four-byte watch."""
+        from angr import claripy
+
+        orig = self._make_state(42, 0, {})
+        comp = self._make_state(42, 0, {0x1000: 5})
+        orig.memory = SimpleNamespace(load=lambda va, size: claripy.BVV(5, 8))
+        proven, message = prove_mod._compare_state_pairs([orig], [comp], False, [0x1000])
+        assert not proven
+        assert "Unable to compare terminal states" in message
+
     def test_symbolic_memory_equality(self) -> None:
         """Symbolic watched values that are constrained equal must prove."""
         from angr import claripy

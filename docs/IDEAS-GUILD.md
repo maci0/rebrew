@@ -7,24 +7,41 @@ flags may be unshipped. Status `open` unless noted; observations describe the
 campaign at the time recorded. Use [CLI.md](CLI.md) for shipped behavior and
 promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
-## Remove or retire an inventory row added in error (2026-10-24)
+## October 24 follow-up audit
 
-`binary repair-extents --add-missing` creates inventory rows, but no shipped
-command removes one. In the 2026-10-24 round the Gold coverage diff (`rizin
-aaa; afl` versus inventory spans) reported nineteen entries with no inventory
-row. Fifteen looked like game code and were added; six of those VAs turned out
-to have an existing metadata row already (`0x49dee0`, `0x4a8c10`, `0x4cd5d0`,
-`0x4cd600`, `0x53ba90` are LIBRARY rows bound to `library_lua50.h`, and
-`0x504e20` is a FUNCTION row bound to `GOLDTL.fcn_00507e70.c`), so the coverage
-comparison should have consulted metadata as well as inventory. The five
-inventory additions for library rows are redundant and cannot be withdrawn
-through a supported writer.
+- Already implemented: native archive matching via `library match --va`,
+  all-target data inventories, source binding retirement, library adoption,
+  and calling-convention-aware stub generation.
+- Implemented, unreleased: explicit inventory retirement/enclosing replacement,
+  `source clear-cflags`, CMake executable re-selection on configure, and
+  conservative handling of Claripy comparison failures. Details and replay
+  commands appear in their entries below.
+- Still open: complete native operand/provider proof for unresolved library
+  helper graphs. Name/size-only and unchecked-operand shortcuts are rejected.
+- Research and project-specific experiments retain their existing disposition
+  in the earlier consolidation audit; an old unchecked box is not evidence that
+  its feature is missing.
 
-Proposed capability: `binary repair-extents --retire 0xVA` (repeatable,
-digest-guarded, previewed) that removes an inventory row recorded in error and
-keeps the removal in the row history or a receipt. Evidence:
-guild-rebrew `.scratch/lead/missing-rows.json`,
-`.scratch/lead/coverage-gap.json`, inventory rows 4661 to 4676.
+## Inventory retirement and enclosing replacements — implemented (2026-10-24)
+
+Status: implemented (unreleased). `binary repair-extents --retire 0xVA` removes
+an explicitly reviewed erroneous native inventory row. Preview with
+`--dry-run --json`; apply requires that preview's `--expected-digest`. The JSON
+receipt retains the complete removed row and its extent history. Save it.
+
+Combine retirement with `0xNEW=SIZE --add-missing` to replace a discovery
+artifact with an enclosing function in one locked write. Retained extents still
+cannot overlap. Metadata identities and earned verdicts are unchanged: retire
+incorrect source claims through `source binding`, not the inventory writer.
+
+Evidence: Guild `.scratch/lead/missing-rows.json`,
+`.scratch/lead/coverage-gap.json`, and `.scratch/gold-d/task130`. The latter
+identified GoldTL `0x41ebca` as interior blocks of the 1488-byte routine at
+`0x41e680`. The former found redundant inventory additions for existing library
+metadata rows. These are reviewed inventory repairs, not automatic deletion
+rules based on classification.
+
+Replay: `pytest tests/test_inventory_repair.py::TestReviewedRetirement`.
 
 ## Record a proved library identity over an existing FUNCTION row (2026-10-23)
 
@@ -214,14 +231,11 @@ workflow failures without an additional authority or storage system.
 
 ## Data round support
 
-- [ ] **All-target data inventory and conflict reports.**
-  `data list` accepts only one `--target`, so checking shared-source data
-  conflicts across three targets requires three separate invocations. Add
-  `data list --all-targets --json` with target-keyed inventories, conflict and
-  multiple-definition summaries, and failure isolation. Replay in guild-rebrew:
-  `uv run --frozen rebrew data list --all-targets --json` currently rejects the
-  option; `.scratch/goal38/data-{server,tl,gold}-final.json` holds the individual
-  reports. This is a batch capability gap; per-target inventories work.
+- [x] **All-target data inventory and conflict reports — already implemented.**
+  `data list --all-targets --json` repeats the existing inventory/conflict audit
+  with target-keyed results and failure isolation. Shipped in Rebrew 4.1.0;
+  the historical rejection in `.scratch/goal38/data-{server,tl,gold}-final.json`
+  predates that release. No additional batch command is needed.
 
 - [ ] **`rebrew data list` composition awareness.**
   Pain: data edits move `.text` cost unpredictably (AcceptConnections:
@@ -3428,51 +3442,25 @@ preserve actual recipe contexts, handle duplicate basenames, validate inputs,
 retain diagnostics and leave CMake's normal link in charge. This experiment
 is not a new permanent project build tool.
 
-## Replace an inventory row with a larger enclosing extent (2026-10-24)
+## Clear a per-row CFLAGS override — implemented (2026-10-24)
 
-**Problem.** A discoverer can split one function at an interior `ret`, leaving a
-row that starts mid-function (guild-rebrew GoldTL `0x41ebca`: two cold branch
-blocks of the unrowed function at `0x41e680`, both reached only by relative
-`jcc` and using that function's `0x36c` frame; no absolute reference exists).
-The correct repair is to drop the artifact row and admit the real function at
-`0x41e680` with size 1488. `binary repair-extents --add-missing` rejects the
-spec because `0x41e680+1488` overlaps the artifact row's start, and there is no
-inventory row deletion, so the repair cannot be expressed.
+Status: implemented (unreleased) as `source clear-cflags FUNCTION`. Use `--va`
+to disambiguate a multi-function file and `--dry-run --json` for a read-only
+preview. The locked writer removes only CFLAGS, preserving identity, earned
+verdicts and comparison history; repeating it is a no-op. Existing
+`diagnose config SOURCE --json` explains the effective flags after removal.
+No separate flags-resolution command or comparison run is needed.
 
-**Proposed capability.** Either allow `--add-missing` to subsume/replace an
-overlapping interior row when the new extent strictly contains it (with the
-preview digest listing the removed row and its history), or add an explicit
-`binary inventory remove VA` operation that retires a reviewed artifact row
-under the same digest guard. A `--replace 0xOLD=0xNEW+SIZE` spelling would keep
-the intent explicit.
-
-**Evidence.** `rebrew binary repair-extents 0x0041e680=1488 --add-missing
---reason "..." -t Europa1400Gold_TL.exe` returns
-`0x41e680+1488 overlaps next inventory start 0x41ebca`. The classification
-evidence is in guild-rebrew `.scratch/gold-d/task130`.
-
-## Clear a per-row CFLAGS override from the CLI (2026-10-24)
-
-**Problem.** `/G6` style per-row code-generator sweeps persist a CFLAGS override
-through `rebrew test --cflags`, but a sweep that later turns out to be a
-regression has no CLI way back: `metadata.functions.clear_identity_fields`
-accepts only identity fields and raises `ValueError` for `cflags`, so the only
-route is a direct call to
-`metadata.functions.remove_field(cfg.metadata_dir, va, "cflags",
-module="GOLDTL")`. A shell user who does not know the internal API is stuck with
-the override.
-
-**Proposed capability.** `rebrew test --clear-cflags` (or `rebrew cflags clear
-0xVA`) that drops the row's CFLAGS through the locked writer without changing
-the verdict history. A paired `rebrew cflags show 0xVA --json` would make the
-effective flags inspectable next to the row.
-
-**Evidence.** guild-rebrew round 8: three `/G6` overrides on rows
-`0x00509480`, `0x0043a720`, `0x004fa750` had to be reverted through
-`remove_field`; `clear_identity_fields(..., {"cflags": None})` raised
-`ValueError: unknown identity field 'cflags'`.
+Evidence: Guild round 8 reverted `/G6` overrides on `0x00509480`, `0x0043a720`
+and `0x004fa750` through an internal API because the CLI lacked this operation.
+Replay: `pytest tests/test_source_cflags.py`.
 
 ## Resolve calls to statically linked LIBRARY members (2026-10-24)
+
+Status: open; the proposed name/size-only and unchecked-external-operand
+shortcuts are rejected. Trusted callee resolution already accepts binary-bound
+complete-object `library review-native` receipts. The remaining CRT-helper
+graph requires complete native operand evidence, not a weaker acceptance rule.
 
 **Problem.** A reconstructed game function that calls a statically linked CRT
 member cannot reach EXACT in the object compare: the call's REL32 operand is
@@ -3503,31 +3491,48 @@ the `--resolve-callees` path already reports.
 measured 815-byte extent (ret at 0x650117, next prologue at 0x650118) does not
 change the resolution.
 
-## Match archive members against native bytes with no project claim (2026-10-24)
+## Native archive matching without a source claim — already implemented (2026-10-24)
 
-**Problem.** Rows inside a configured `external_ranges` band have an address-only
-metadata row: size plus `verification` hashes, no project function definition,
-no name or kind, no FUNCTION/STUB claim. Calls into that band reach the link as
-placeholder symbols (`_fcn_005e0140`), so they cannot resolve, and none of the
-existing tools can identify them:
+Status: already implemented as `library match --va 0xVA --lib archive.lib
+--json`. Single-VA matching reads the native binary directly and uses a stored
+size when available. It does not require a FUNCTION identity, source file or
+project-owned body; `--stock-lib` and `--resolve-callees` remain available.
+No additional `--native-only` selection mode is needed.
 
-- `library match --lib ... --va <VA>` scores reversed project functions only, so
-  an address-only row is never a candidate (`library: false` for all 20 VAs of
-  guild-rebrew's D3DX8 band, even after generating FLIRT signatures for
-  `d3dx8.lib` and `LIBCMT.sp5pp.LIB`).
-- `library review-native` needs a member object already chosen.
-- `source rename fcn_005e0140 GOLDTL.0x005e0140` refuses with `binding
-  destination has no project function definition`.
+The result is relocation-masked candidate evidence. Ambiguous names remain
+candidates, with no chosen symbol or metadata write; a candidate is not a
+verified provider or trusted native callee. An unmatched address does not prove
+that a source claim is required.
 
-**Proposed capability.** A native-bytes-only archive match: `library match --va
-<VA> --native-only [--lib ...] [--stock-lib ...]` that compares the inventory
-extent of the VA against archive member code with relocation masking and reports
-unique member/symbol candidates (with the same "inconclusive on ambiguity" rule
-as the reversed-function path). Paired claim creation for an external-range VA
-(`source register 0xVA --native-only` or `skeleton --no-body`) would then let
-`review-native` and `source rename` close the placeholder loop.
+Evidence: Guild round 10 `.scratch/gold-f/tl-bind-band-report.txt` found no
+matches at 20 D3DX8-band VAs. Identifying those bytes still requires the correct
+archive/member evidence; existing source registration/rename rules should not
+be weakened to manufacture a claim.
+Replay: `pytest tests/test_lib_match.py::TestLibMatch::test_address_only_native_match_needs_no_source_claim`.
 
-**Evidence.** guild-rebrew round 10, `.scratch/gold-f/tl-bind-band-report.txt`:
-20 band VAs, generated signatures produced 155 whole-.text matches (105 inside
-the band) but none at the target VAs; size-based candidates are ambiguous
-(0x64e790 size 192 could be createmesh, jdapimin, pngread or d3dxmathsse).
+## Stale CMake Rebrew executable selection — implemented (2026-10-24)
+
+Status: implemented (unreleased). Generated toolchain files discard a previous
+`_REBREW_EXECUTABLE` cache entry and resolve Rebrew again on configure. An
+absolute `REBREW_EXECUTABLE` environment override selects an install explicitly;
+a missing override path produces an actionable configuration error.
+
+Regenerate older toolchain files and reconfigure after moving/removing a uv
+environment. Existing build recipes retain their configured executable until
+then; no silent switch of compiler installation happens midway through a build.
+
+Evidence: Guild round 13 `build-goldtl-audit` retained a vanished Rebrew venv
+path and failed compilation until its cache entry was repaired.
+Replay: `pytest tests/test_cmake_tc.py -k generated_toolchain`.
+
+## Mixed-width proof comparisons — implemented (2026-10-24)
+
+Status: implemented (unreleased). Claripy failures during state comparison or
+satisfiability checks return `proven: false` with an explanation, instead of a
+traceback. A four-byte watch returning incompatible symbolic widths is
+inconclusive; zero-extending a shorter observed value would not establish the
+unobserved bytes and could produce a false proof.
+
+Evidence: Guild GoldTL `prove 0x57d0d0 --watch-va ...` with 43 watched addresses
+raised `ClaripyError: Casting error: BV size mismatch` in `_compare_state_pairs`.
+Replay: `pytest tests/test_prove_memory_watch.py::TestCompareStatePairsRealClaripy`.

@@ -25,6 +25,12 @@ from rebrew.cli import console
 DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     "source": (
         CliComponent(
+            name="clear-cflags",
+            module="rebrew.source_cflags",
+            help="Clear a saved per-function compiler flag override.",
+            panel="",
+        ),
+        CliComponent(
             name="consolidate",
             module="rebrew.source_consolidate",
             help="Fold source evidence into the format-3 function metadata store.",

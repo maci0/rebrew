@@ -450,3 +450,85 @@ class TestMergeCli:
             )
         assert result.exit_code != 0
         assert (inventory.read_bytes(), inventory.stat()) == before
+
+
+class TestReviewedRetirement:
+    def test_retirement_and_enclosing_replacement_keep_receipt(self, tmp_path: Path) -> None:
+        cfg, inventory = _project(tmp_path)
+        original = json.loads(inventory.read_text())
+        before = inventory.read_bytes(), inventory.stat()
+        preview = repair_inventory_extents(
+            cfg,
+            {0x401000: 48},
+            retire=[0x401020],
+            reason="interior discovery artifact",
+            dry_run=True,
+        )
+        assert (inventory.read_bytes(), inventory.stat()) == before
+        assert preview["retirements"][0]["row"] == original[1]
+        result = repair_inventory_extents(
+            cfg,
+            {0x401000: 48},
+            retire=[0x401020],
+            reason="interior discovery artifact",
+            expected_digest=preview["input_digest"],
+        )
+        assert result["retirements"] == preview["retirements"]
+        assert len(json.loads(inventory.read_text())) == 1
+        assert json.loads(inventory.read_text())[0]["size"] == 48
+        assert result["measurements_changed"] is False
+
+    def test_missing_head_can_replace_retired_interior_row(self, tmp_path: Path) -> None:
+        cfg, inventory = _project(tmp_path)
+        preview = repair_inventory_extents(
+            cfg,
+            {0x401000: 16, 0x401010: 32},
+            retire=[0x401020],
+            add_missing=True,
+            reason="recover complete function",
+            dry_run=True,
+        )
+        repair_inventory_extents(
+            cfg,
+            {0x401000: 16, 0x401010: 32},
+            retire=[0x401020],
+            add_missing=True,
+            reason="recover complete function",
+            expected_digest=preview["input_digest"],
+        )
+        assert [row["va"] for row in json.loads(inventory.read_text())] == [0x401000, 0x401010]
+
+    @pytest.mark.parametrize("retire", [[0x401020], [0x401020, 0x401020], [0x401099], [True]])
+    def test_unreviewed_or_invalid_retirement_never_writes(
+        self, tmp_path: Path, retire: list[int]
+    ) -> None:
+        cfg, inventory = _project(tmp_path)
+        before = inventory.read_bytes(), inventory.stat()
+        with pytest.raises(ValueError):
+            repair_inventory_extents(cfg, {}, retire=retire, reason="proof")
+        assert (inventory.read_bytes(), inventory.stat()) == before
+
+    def test_cli_retirement_requires_reviewed_digest(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+
+        cfg, inventory = _project(tmp_path)
+        args = ["binary", "repair-extents", "--retire", "0x401020", "--reason", "proof", "--json"]
+        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+            preview = CliRunner().invoke(app, [*args, "--dry-run"])
+            assert preview.exit_code == 0, preview.output
+            report = json.loads(preview.stdout)
+            assert report["retirements"][0]["row"]["extra"] == {"confidence": 7}
+            result = CliRunner().invoke(app, [*args, "--expected-digest", report["input_digest"]])
+            assert result.exit_code == 0, result.output
+        assert [row["va"] for row in json.loads(inventory.read_text())] == [0x401000]
+
+    def test_retirement_digest_covers_the_retired_rows(self, tmp_path: Path) -> None:
+        cfg, inventory = _project(tmp_path)
+        preview = repair_inventory_extents(cfg, {}, retire=[0x401020], reason="proof", dry_run=True)
+        with pytest.raises(ValueError, match="inputs changed"):
+            repair_inventory_extents(
+                cfg, {}, retire=[0x401000], reason="proof", expected_digest=preview["input_digest"]
+            )
+        assert len(json.loads(inventory.read_text())) == 2

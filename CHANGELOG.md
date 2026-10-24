@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+### Fixed
+
+- Retire reviewed erroneous native inventory rows with `binary repair-extents
+  --retire`, a required preview digest and complete original-row receipts;
+  admit an enclosing replacement in the same write.
+- Clear saved per-function CFLAGS through `source clear-cflags` without changing
+  earned verdicts or comparison history.
+- Re-resolve generated CMake toolchain executable paths on configure, with an
+  explicit `REBREW_EXECUTABLE` environment override and missing-path errors.
+- Return an inconclusive proof result when symbolic comparison fails, including
+  mixed-width watched memory, instead of exposing a Claripy traceback.
+
 ### Changed
 
 - Refresh Python dependencies, the pinned m2c revision, uv 0.13.5, Bun 1.4.4, and the
