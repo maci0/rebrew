@@ -167,7 +167,7 @@ with `sudo -n`, because there is no TTY in CI and a password prompt would
 block until the job timeout. `tools/ci_clone_resembl.sh` takes the same
 preflight for `git`, so a host missing the binary reports that instead of
 `git clone resembl failed after 3 attempts`.
-The test job installs Bun 1.4.3 (pinned `bun-version` on `oven-sh/setup-bun`):
+The test job installs Bun 1.4.4 (pinned `bun-version` on `oven-sh/setup-bun`):
 `tests/dashboard_*.mjs` need it, and `test_dashboard.py` skips those scripts
 when it is missing, so a job without it would go green without ever running
 the dashboard JS. The HTML validator is Nu 26.10.12, pinned by version and

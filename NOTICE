@@ -18,7 +18,7 @@ only for the copyleft entries below.
 similarity group — resembl
 --------------------------
 
-resembl 3.5.0 (sibling checkout ``../resembl``,
+resembl 3.6.1 (sibling checkout ``../resembl``,
 https://github.com/maci0/resembl) declares
 ``License-Expression: GPL-3.0-only``. ``make setup`` installs this group
 through the path dependency in ``[dependency-groups]`` /
@@ -28,10 +28,10 @@ resolve on PyPI.
 m2c group — m2c
 ---------------
 
-m2c commit 708d2d2cb2698f091a92492b328f73b24209f72d
+m2c commit c632946b8cfbe8fce442b522dba92dfa72f1f317
 (https://github.com/matt-kempster/m2c) declares
 ``License-Expression: GPL-3.0-only``. Install with ``uv sync --group m2c``,
-or ``uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git@708d2d2cb2698f091a92492b328f73b24209f72d"``
+or ``uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git@c632946b8cfbe8fce442b522dba92dfa72f1f317"``
 — the commit is part of the grant, so a manual install must carry the same
 rev. The pin lives in ``[dependency-groups]``, same as resembl, so Requires-Dist
 leaves it out.
@@ -49,8 +49,8 @@ records the grant string under ``lmdb`` rather than leaving it blank.
 
 prove extra — pyvex (via angr)
 ------------------------------
-angr 10.0.4.post1 includes its Claripy solver and declares BSD-2-Clause.
-Its dependency pyvex 10.0.4 declares
+angr 10.0.5 includes its Claripy solver and declares BSD-2-Clause.
+Its dependency pyvex 10.0.5 declares
 ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``. The Python
 bindings are BSD-2-Clause, copyright 2015 The Regents of the University
 of California. LibVEX, included in that distribution, is GPL-2.0-or-later
@@ -61,7 +61,7 @@ binsync extra — declib
 ----------------------
 
 declib 4.5.0 declares ``License-Expression: BSD-2-Clause``. It pulls
-``pyghidra`` 3.1.0 (Apache-2.0) and ``prompt-toolkit`` 3.0.53, whose
+``pyghidra`` 3.2.0 (Apache-2.0) and ``prompt-toolkit`` 3.0.53, whose
 metadata carries only the trove text ``OSI Approved :: BSD License``; the
 SBOM records that string verbatim rather than choosing a clause count the
 artifact does not state. ``rebrew[binsync]`` installs this tree.
@@ -89,8 +89,8 @@ carries; the MPL-2.0 half carries the file-level obligation described under
 Every resolve: certifi and hypothesis
 ------------------------------------
 
-certifi 2026.10.19 declares ``License: MPL-2.0`` (free-text field, no PEP 639
-expression) and hypothesis 6.170.5 declares ``License-Expression: MPL-2.0``.
+certifi 2026.10.23 declares ``License: MPL-2.0`` (free-text field, no PEP 639
+expression) and hypothesis 6.170.9 declares ``License-Expression: MPL-2.0``.
 MPL-2.0 is file-level reciprocal: it obliges a distributor of a *modified*
 file to publish that file's source under MPL-2.0. Rebrew vendors neither
 package's files nor any modification of them; both are installed unmodified
@@ -111,6 +111,24 @@ Project: https://github.com/python/tzdata
 prove extra — pycryptodome (via angr)
 ------------------------------------
 
-pycryptodome 4.1.0 declares ``License-Expression: BSD-2-Clause AND Unlicense AND MIT``.
+pycryptodome 4.2.0 declares ``License-Expression: BSD-2-Clause AND Unlicense AND MIT``.
 Rebrew installs the unchanged upstream distribution, which includes its license
 files; the component grant is recorded verbatim in the SBOM.
+
+FLIRT bindings — python-flirt
+-----------------------------
+
+python-flirt 0.10.2 declares the classifier
+``License :: OSI Approved :: Apache Software License`` and ships the Apache
+License 2.0 in ``python_flirt-0.10.2.dist-info/licenses/LICENSE.txt``.
+Rebrew installs the upstream wheel unmodified; its license text travels with
+that distribution. The SBOM records the declared classifier verbatim.
+
+prove extra — python-dateutil (via angr)
+----------------------------------------
+
+python-dateutil 3.0.0 declares ``License: Dual License``. Its bundled LICENSE
+credits Paul Ganssle and the dateutil contributors for contributions since
+2017 and retains the terms and credits for earlier contributions. Rebrew
+installs the upstream distribution unmodified with that LICENSE; the SBOM
+records ``Dual License`` rather than substituting an SPDX expression.

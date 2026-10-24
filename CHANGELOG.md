@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Changed
+
+- Refresh Python dependencies, the pinned m2c revision, uv 0.13.5, Bun 1.4.4, and the
+  hash-pinned setuptools 84.2.1 build backend. Keep upstream-required transitive
+  versions, refresh declared license records, and retain Python 3.13/3.14 support.
+
 ## [6.0.3] - 2026-10-24
 
 ### Changed

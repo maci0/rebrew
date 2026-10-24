@@ -1068,7 +1068,7 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     (the index name is an unrelated OpenAPI package).  Install with ``uv sync
     --group m2c``, or with the audited commit spelled out:
 
-        uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git@708d2d2cb2698f091a92492b328f73b24209f72d"
+        uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git@c632946b8cfbe8fce442b522dba92dfa72f1f317"
 
     The rev is not decoration: it is the commit ``NOTICE`` records the
     GPL-3.0-only grant against, and a bare branch would let upstream change

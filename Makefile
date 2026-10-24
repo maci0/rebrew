@@ -55,7 +55,7 @@ RESEMBL_REF ?= v3.6.1
 RESEMBL_SHA ?= 139fbdcf238551f3c294208876a314ad9392b53d
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 # Match the CI uv pin so local sync/audit behavior tracks CI.
-UV_VERSION ?= 0.13.3
+UV_VERSION ?= 0.13.5
 
 # Single-file / nodeid override for the edit-test loop:
 #   make test-one T=tests/test_annotation.py

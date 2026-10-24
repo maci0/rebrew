@@ -16,7 +16,7 @@ inputs:
   uv-version:
     description: uv installer version (never setup-uv's floating "latest").
     required: false
-    default: "0.13.3"
+    default: "0.13.5"
   resembl-ref:
     description: Tag of maci0/resembl to clone into ../resembl (must match uv.lock).
     required: false
