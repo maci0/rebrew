@@ -7,7 +7,7 @@ from rebrew.cli import SOURCE_HELP, TargetOption, console, error_exit, json_prin
 from rebrew.metadata.functions import get_entry, remove_field
 
 app = typer.Typer(
-    help="Clear a saved function CFLAGS override; inspect effective settings with diagnose config.",
+    help="Clear a saved per-function compiler flag override.",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew source clear-cflags 0x401000 --dry-run --json\n\n"

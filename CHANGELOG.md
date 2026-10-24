@@ -14,6 +14,10 @@
 
 ### Changed
 
+- **Breaking:** `app.builtins.DOMAIN_COMPONENTS` now includes the additional
+  `source clear-cflags` component; consumers enumerating this public table must
+  accept the new route. Existing routes and invocation forms are unchanged.
+
 - Refresh Python dependencies, the pinned m2c revision, uv 0.13.5, Bun 1.4.4, and the
   hash-pinned setuptools 84.2.1 build backend. Keep upstream-required transitive
   versions, refresh declared license records, and retain Python 3.13/3.14 support.
