@@ -102,7 +102,7 @@ the string at each reported RVA while preserving IAT enumeration order. Ordinal
 controls cover both widths; ELF and NE controls require null positions.
 
 Guild's prepared caller patch reproduces its tracked response file exactly.
-Its package pins still select released Rebrew 5.2, which lacks this field, so
+Its package pins now select released Rebrew 6.0.3, which lacks this field, so
 that patch remains unapplied until a release containing this change is installed.
 The native cutoffs, DLL recipe and ordinal spellings stay in Guild; changing
 its package environment or publishing a release is outside this migration.
