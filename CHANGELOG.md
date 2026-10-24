@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.0.1] - 2026-10-24
+
 ### Fixed
 
 - Disable OverlayFS indexing and inode-number mapping for disposable unshare
