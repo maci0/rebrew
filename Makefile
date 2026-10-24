@@ -51,8 +51,8 @@ UV_SYNC_FLAGS ?= --locked --all-extras --group similarity
 # RESEMBL_SHA is the commit that tag must resolve to: tags move, and a
 # same-version checkout on another commit passes the version string check
 # while CI clones this commit.
-RESEMBL_REF ?= v3.5.0
-RESEMBL_SHA ?= f2e2cddd3f022c84e6a146d2f6bf1f45bd48afe7
+RESEMBL_REF ?= v3.6.1
+RESEMBL_SHA ?= 139fbdcf238551f3c294208876a314ad9392b53d
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 # Match the CI uv pin so local sync/audit behavior tracks CI.
 UV_VERSION ?= 0.13.3

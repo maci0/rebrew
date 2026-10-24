@@ -40,7 +40,7 @@ CI job uses) into `~/.cache/rebrew/vnu` and prints the `export PATH=` line to
 eval.  `uv sync` also
 needs the sibling
 [`resembl`](https://github.com/maci0/resembl) checkout at `../resembl`: the
-path pin in `pyproject.toml` / `uv.lock` (tag `v3.5.0`, same as CI's
+path pin in `pyproject.toml` / `uv.lock` (tag `v3.6.1`, same as CI's
 `resembl-ref`).  Without it, sync fails with a cryptic “Distribution not found”
 path error; `make setup` fails closed if `uv` is missing, if `../resembl`'s
 `version` does not match `RESEMBL_REF`, or if that checkout's `HEAD` is not
@@ -54,7 +54,7 @@ commit cannot be checked.
 git clone https://github.com/maci0/rebrew.git
 cd rebrew
 make doctor                   # report every missing prerequisite, with the fix for each
-make clone-resembl            # clones sibling resembl pin (tag v3.5.0) into ../resembl
+make clone-resembl            # clones sibling resembl pin (tag v3.6.1) into ../resembl
 make setup                    # uv sync --locked --all-extras --group similarity + pre-commit/pre-push hooks
 make vnu                      # optional: the W3C HTML gate skips without it, CI runs it
 make test-one T=tests/test_annotation.py   # smoke the edit-test loop
@@ -172,7 +172,7 @@ Python SDK examples belong in [PYTHON_API.md](docs/PYTHON_API.md), not the READM
 
 ## Versioning and releases
 
-Rebrew is 5.x.  From `1.0.0` the CLI command names and the config schema are
+Rebrew is 6.x.  From `1.0.0` the CLI command names and the config schema are
 frozen: removing or renaming a command/flag, or changing a config key's
 meaning, takes a major version bump and a `**Breaking:**` changelog entry.
 On-disk format bumps (`coverage-<target>.toml` `version`, compile-cache schema)

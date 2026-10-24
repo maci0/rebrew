@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.0.0] - 2026-10-24
+
 ### Changed
 
 - **Breaking:** `rebrew.inventory_repair.main` accepts an empty
@@ -8,6 +10,9 @@
   unchanged. The same command gains the repeatable `merge` option.
 
 ### Fixed
+
+- Update the development virtualenv dependency to 21.14.13, fixing Bash prompt
+  expansion in GHSA-cx6f-vjhg-g3cc.
 
 - `build driver` and the generated CMake toolchain file resolve the compiler
   profile from the project's default target before the project-level
