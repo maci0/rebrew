@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Fixed
+
+- Disable OverlayFS indexing and inode-number mapping for disposable unshare
+  sandboxes, avoiding repeated kernel fallback warnings on filesystems without
+  file-handle support.
+
 ## [6.0.0] - 2026-10-24
 
 ### Changed
