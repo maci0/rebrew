@@ -1581,14 +1581,14 @@ class TestRenderTerminal:
             line for line in out.splitlines() if line.replace("│", "").split()[:1] == ["LIBRARY"]
         )
         assert library.replace("│", "").split()[:3] == ["LIBRARY", "314", "61,143"]
-        no_source = next(line for line in out.splitlines() if "(no source)" in line)
-        assert no_source.replace("│", "").split()[:4] == ["(no", "source)", "79", "757"]
+        no_source = next(line for line in out.splitlines() if "NO_SOURCE" in line)
+        assert no_source.replace("│", "").split()[:3] == ["NO_SOURCE", "79", "757"]
         for status, count, size in (
             ("EXACT", "22", "1,436"),
             ("RELOC", "239", "76,271"),
             ("COMPILE_ERROR", "1", "0"),
-            ("padding", "", "1,740"),
-            ("no function", "", "35"),
+            ("PADDING", "", "1,740"),
+            ("NO_FUNCTION", "", "35"),
         ):
             row = next(
                 line
@@ -1668,8 +1668,8 @@ class TestRenderTerminal:
             )
         )
         out = buf.getvalue()
-        assert "(no source)" in out
-        row = next(line for line in out.splitlines() if "(no source)" in line)
+        assert "NO_SOURCE" in out
+        row = next(line for line in out.splitlines() if "NO_SOURCE" in line)
         assert " 4 " in row
 
     def test_no_proven_line_without_proven(self, monkeypatch: pytest.MonkeyPatch) -> None:

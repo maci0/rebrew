@@ -908,11 +908,16 @@ def iter_source_bindings(
                 metadata_dir=metadata_dir,
                 project_root=project_root,
             )
-        except Exception:
+        except Exception as exc:
             # Any per-source failure (parse error, I/O, encoding) silently
             # drops the whole function from verify/todo/status output — one
             # bad file must never abort a batch run.  Visible at WARNING.
-            logger.warning("Skipping %s due to annotation parse error", src, exc_info=True)
+            logger.warning(
+                "Skipping %s due to annotation parse error: %s",
+                src,
+                exc,
+                exc_info=logger.isEnabledFor(logging.DEBUG),
+            )
             continue
         if annos:
             results.append((src, annos))

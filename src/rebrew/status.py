@@ -1425,7 +1425,7 @@ def _render_terminal(report: StatusReport) -> None:
     if no_source > 0:
         part = report.status_bytes.get("NO_SOURCE", 0) if byte_percentages else no_source
         status_table.add_row(
-            "[dim](no source)[/dim]",
+            "[dim]NO_SOURCE[/dim]",
             f"[dim]{no_source}[/dim]",
             *([f"{report.status_bytes.get('NO_SOURCE', 0):,}"] if show_bytes else []),
             *ratio_cells(part, color="dim"),
@@ -1438,8 +1438,8 @@ def _render_terminal(report: StatusReport) -> None:
                 f"{report.library_identified:,}",
                 report.status_bytes.get("LIBRARY", 0) if report.library_identified else None,
             ),
-            ("padding", "", report.padding_bytes),
-            ("no function", "", report.unattributed_bytes),
+            ("PADDING", "", report.padding_bytes),
+            ("NO_FUNCTION", "", report.unattributed_bytes),
         ):
             if size is not None:
                 color = STATUS_COLORS.get(label, "dim")
@@ -1482,9 +1482,9 @@ def _render_terminal(report: StatusReport) -> None:
     ):
         summary_lines.append(
             "[dim]"
-            f"unmatched {report.unmatched_bytes:,}B"
-            f"    padding {report.padding_bytes:,}B"
-            f"    no function {report.unattributed_bytes:,}B"
+            f"UNMATCHED {report.unmatched_bytes:,}B"
+            f"    PADDING {report.padding_bytes:,}B"
+            f"    NO_FUNCTION {report.unattributed_bytes:,}B"
             "[/dim]"
         )
 

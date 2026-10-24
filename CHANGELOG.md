@@ -1,5 +1,43 @@
 ## [Unreleased]
 
+## [6.0.4] - 2026-10-24
+
+### Fixed
+
+- Retire reviewed erroneous native inventory rows with `binary repair-extents
+  --retire`, a required preview digest and complete original-row receipts;
+  admit an enclosing replacement in the same write.
+- Clear saved per-function CFLAGS through `source clear-cflags` without changing
+  earned verdicts or comparison history.
+- Re-resolve generated CMake toolchain executable paths on configure, with an
+  explicit `REBREW_EXECUTABLE` environment override and missing-path errors.
+- Return an inconclusive proof result when symbolic comparison fails, including
+  mixed-width watched memory, instead of exposing a Claripy traceback.
+
+### Changed
+
+- Refresh Python dependencies, the pinned m2c revision, uv 0.13.5, Bun 1.4.4, and the
+  hash-pinned setuptools 84.2.1 build backend. Keep upstream-required transitive
+  versions, refresh declared license records, and retain Python 3.13/3.14 support.
+
+## [6.0.3] - 2026-10-24
+
+### Changed
+
+- Use uppercase status labels with underscores in the code accounting table
+  and gap summary, including `PADDING` and `NO_FUNCTION`.
+
+## [6.0.2] - 2026-10-24
+
+### Changed
+
+- Rename the status table's missing-source row to `NO_SOURCE`.
+
+### Fixed
+
+- Show source-binding scan failures as concise warnings with the failure reason;
+  include tracebacks only when debug logging is enabled.
+
 ## [6.0.1] - 2026-10-24
 
 ### Fixed

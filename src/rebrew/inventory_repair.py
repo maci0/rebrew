@@ -28,7 +28,7 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     specifications: list[str] = typer.Argument(
-        None, help="Native 0xVA=SIZE repairs (optional when --merge/--add-missing is used)"
+        None, help="Native 0xVA=SIZE repairs (optional with --merge/--retire)"
     ),
     reason: str = typer.Option(..., "--reason", help="Reviewed native boundary evidence"),
     expected_digest: str | None = typer.Option(
@@ -42,6 +42,11 @@ def main(
         [],
         "--merge",
         help="Absorb a following inventory row: --merge 0xHEAD=0xTAIL (repeatable, in order)",
+    ),
+    retire: list[str] = typer.Option(
+        [],
+        "--retire",
+        help="Retire a reviewed erroneous inventory row (repeatable; requires preview digest)",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -77,6 +82,7 @@ def main(
             expected_digest=expected_digest,
             add_missing=add_missing,
             merges=merge_pairs,
+            retire=[parse_va(value, json_mode=json_output) for value in retire],
         )
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)

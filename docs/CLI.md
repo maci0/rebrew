@@ -1053,6 +1053,7 @@ Use `rebrew source <operation> --help` for exact arguments and examples.
 | --- | --- |
 | `rebrew source units` | Inventory native source-path strings and bounded direct references. |
 | `rebrew source findings` | Find prior documented findings mentioning a native address or address range. |
+| `rebrew source clear-cflags` | Clear a saved per-function CFLAGS override through the locked writer (`--dry-run`, `--json`, `--va`, `--target`); use `diagnose config` to inspect effective flags. |
 | `rebrew source register` | Register address-only source bindings, or a support file purpose, in metadata. |
 | `rebrew source rename` | Rename a function, global, type or struct member and update every reference. |
 | `rebrew source fix` | Make raw decompiler output compilable (DecBench-style fixup). |
@@ -2225,6 +2226,13 @@ Use `rebrew binary <operation> --help` for exact arguments and examples.
 | `rebrew binary imports` | List import-table symbols (PE IAT, ELF dynamic imports, or 16-bit NE modules) and detect import stubs. |
 | `rebrew binary extract` | Extract and disassemble functions from the target binary. |
 | `rebrew binary resource` | Compare / extract PE resource (.rsrc) sections. |
+
+`binary repair-extents --retire 0xVA --reason TEXT --dry-run --json` previews
+erroneous inventory-row retirement. Save its receipt: `retirements` contains
+complete original rows and their history. Applying requires `--expected-digest`
+from that preview. Combine retirement with `0xNEW=SIZE --add-missing` to replace
+an interior discovery artifact in one locked write. Metadata source identities
+and verdicts are unchanged.
 
 ### `rebrew binary ne-compare`
 

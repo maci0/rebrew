@@ -48,6 +48,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew binary imports mark` | Record detected import stubs as library identifications. Preview with `--dry-run`. |
 | `rebrew binary strings` | Extract strings from binary with cross-references (`--xref`, `--section`). |
 | `rebrew library identify` | Batch identify library functions (FLIRT + imports + CRT) into `library_<module>.h`. |
+| `rebrew source clear-cflags` | Clear a saved function flag override; preview with `--dry-run --json`, inspect effective flags with `diagnose config`. |
 | `rebrew source import-splat` | Seed a project from a splat YAML config (names, layout, and dedicated metadata); dry run unless `--apply`. |
 | `rebrew binary resource compare/extract` | Byte-compare two PE `.rsrc` sections (`compare` exits 1 on drift) or dump the raw bytes. |
 

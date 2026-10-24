@@ -1280,3 +1280,11 @@ are staged with collision checks. Each invocation owns a fresh directory.
 An explicit units directory replaces the image's library tree; custom DCC.CFG
 and switches are preserved. `find_dcc` and the separate host-only doctor check
 are removed; use the image inventory and compiler checks.
+
+### Rebrew executable selection in generated CMake toolchains
+
+`rebrew build cmake-toolchain` resolves Rebrew again on each configure, discarding
+an old `_REBREW_EXECUTABLE` cache entry. Set the `REBREW_EXECUTABLE` environment
+variable to an existing absolute executable path to select a specific install.
+Regenerate older toolchain files and reconfigure after moving a uv environment;
+already-generated build recipes retain their configured executable until then.

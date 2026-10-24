@@ -412,6 +412,38 @@ def test_generated_toolchain_binds_one_installation(
     assert "rebrew not found on PATH" in missing.stderr
 
 
+@pytest.mark.parametrize("use_override", [False, True])
+def test_generated_toolchain_replaces_a_dead_cached_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, use_override: bool
+) -> None:
+    cmake = shutil.which("cmake")
+    if cmake is None:
+        pytest.skip("CMake unavailable")
+    driver = tmp_path / "rebrew"
+    driver.write_text("#!/bin/sh\nexit 0\n")
+    driver.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.delenv("REBREW_EXECUTABLE", raising=False)
+    if use_override:
+        monkeypatch.setenv("REBREW_EXECUTABLE", str(driver))
+        monkeypatch.setenv("PATH", "")
+    toolchain = generate_toolchain_file(TOOLCHAINS["msvc-6.0"], tmp_path)
+    output = tmp_path / "chosen.txt"
+    script = tmp_path / "review.cmake"
+    script.write_text(
+        'set(_REBREW_EXECUTABLE "/vanished/environment/rebrew" CACHE FILEPATH "")\n'
+        f'include("{toolchain}")\n'
+        f'file(WRITE "{output}" "${{CMAKE_C_COMPILER}}")\n'
+    )
+    result = subprocess.run([cmake, "-P", str(script)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == str(driver)
+    monkeypatch.setenv("REBREW_EXECUTABLE", str(tmp_path / "missing"))
+    result = subprocess.run([cmake, "-P", str(script)], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "REBREW_EXECUTABLE must name an existing absolute executable path" in result.stderr
+
+
 @pytest.mark.parametrize("generator,tool", [("Unix Makefiles", "make"), ("Ninja", "ninja")])
 def test_generated_toolchain_builds_with_only_umbrella_executable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, generator: str, tool: str
