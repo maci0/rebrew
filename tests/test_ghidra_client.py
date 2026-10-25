@@ -74,6 +74,17 @@ class TestParseSseResponse:
         resp = _parse_sse_response("data: {not json\n")
         assert resp is None
 
+    @pytest.mark.parametrize("invalid", [[], {}, 1.5])
+    def test_malformed_response_fields_are_normalized(self, invalid: Any) -> None:
+        """Untrusted JSON cannot put containers in scalar response fields."""
+        payload = {"id": invalid, "result": [], "error": {"code": []}}
+        resp = _parse_sse_response(f"data: {json.dumps(payload)}")
+        assert resp is not None
+        assert resp.id is None
+        assert resp.result is None
+        assert resp.error is not None
+        assert resp.error.code == -1
+
     def test_no_data_lines(self) -> None:
         assert _parse_sse_response("event: ping\n\n") is None
 

@@ -30,6 +30,8 @@
 
 ### Fixed
 
+- Normalize malformed MCP response IDs, results and error codes so an invalid
+  remote field cannot crash Ghidra synchronization or escape its typed models.
 - The `postlink-mangled` todo lane compared absolute VAs between the configured
   raw link and the built image even when the two links placed `.text` at
   different spans, so shifted functions sampled unrelated bytes and the lane

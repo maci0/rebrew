@@ -19,8 +19,12 @@ class JsonRpcError:
             return cls(code=-1, message=d, data=None)
         if not isinstance(d, dict):
             return cls(code=-1, message="Unknown error format", data=None)
+        try:
+            code = int(d.get("code", -1))
+        except TypeError, ValueError, OverflowError:
+            code = -1
         return cls(
-            code=int(d.get("code", -1)),
+            code=code,
             message=str(d.get("message", "Unknown error")),
             data=d.get("data"),
         )
@@ -39,10 +43,12 @@ class JsonRpcResponse:
     def from_dict(cls, d: dict[str, Any]) -> JsonRpcResponse:
         """Reconstruct from dictionary."""
         err = d.get("error")
+        request_id = d.get("id")
+        result = d.get("result")
         return cls(
             jsonrpc=str(d.get("jsonrpc", "2.0")),
-            id=d.get("id"),
-            result=d.get("result"),
+            id=request_id if isinstance(request_id, (int, str)) else None,
+            result=result if isinstance(result, dict) else None,
             error=JsonRpcError.from_dict(err) if err else None,
         )
 
