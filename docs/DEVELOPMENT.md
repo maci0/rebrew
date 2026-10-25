@@ -5,8 +5,8 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
 
 ## Python and dependency baseline
 
-Use Python 3.14.9 (`.python-version`); the package requires Python 3.14+.
-Ruff targets Python 3.14, including deferred annotations and unparenthesized
+Use Python 3.15.1 (`.python-version`); the package requires Python 3.15+.
+Ruff targets Python 3.15, including deferred annotations and unparenthesized
 exception lists. Byte comparisons intentionally use `map(strict=False)` when
 only the shared prefix contributes matches.
 
@@ -174,7 +174,7 @@ tests, which `tests/test_dashboard.py` skips without it). Native runner tests
 require **cc**, **pkg-config** and **json-c development files**
 (`apt install build-essential pkg-config libjson-c-dev` on Debian/Ubuntu);
 `make test`, `make coverage` and `make doctor` preflight them. Bootstrap also needs
-sibling `../resembl` at tag `v3.7.0`
+sibling `../resembl` at tag `v3.8.0`
 whose `HEAD` is the `RESEMBL_SHA` commit (CI `resembl-sha`): `make setup`
 checks both and prints the clone or checkout line when either is wrong.  `make help`
 lists every contributor target.

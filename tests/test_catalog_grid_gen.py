@@ -197,7 +197,7 @@ class TestGenerateDataJsonGrid:
             "rebrew.catalog.grid.get_globals",
             lambda src, cfg=None: (seen.append(cfg), {})[1],
         )
-        sentinel = object()
+        probe_value = object()
         build_coverage_data(
             self._entries(),
             [],
@@ -206,9 +206,9 @@ class TestGenerateDataJsonGrid:
             registry=self._registry(),
             src_dir=tmp_path / "src",
             root_dir=tmp_path,
-            cfg=sentinel,
+            cfg=probe_value,
         )
-        assert seen == [sentinel]
+        assert seen == [probe_value]
 
     def test_global_status_reaches_the_cell(self, monkeypatch, tmp_path: Path) -> None:
         """The rebrew-data.toml verdict must set the covering cell's state:

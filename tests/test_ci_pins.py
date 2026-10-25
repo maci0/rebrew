@@ -207,10 +207,10 @@ class TestCiPins:
     def test_hermetic_jobs_pin_exact_python_patch(self) -> None:
         """Every job but the test matrix takes the action's default, which is
         the exact ``.python-version`` patch. The matrix runs the same Python
-        3.14 patch under the coverage gate.
+        3.15 patch under the coverage gate.
         """
         python_version = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
-        assert re.fullmatch(r"3\.14\.\d+", python_version), python_version
+        assert re.fullmatch(r"3\.15\.\d+", python_version), python_version
         assert _uv_env_defaults()["python-version"] == python_version
         # Only the test matrix may override it, and only with the matrix value
         # (the first hit is the matrix declaration itself).
@@ -495,9 +495,9 @@ class TestCiPins:
         assert "bash tools/ci_install_vnu.sh" in ci
         assert '>> "$GITHUB_PATH"' in ci
         # One matrix entry, like the coverage floor and the fixture sweep:
-        # the two tests read the checked-in tree, so the 3.14 baseline agrees.
+        # the two tests read the checked-in tree, so the 3.15 baseline agrees.
         step = ci.split("- name: Install vnu", 1)[1].split("- name:", 1)[0]
-        assert "if: matrix.python-version == '3.14.9'" in step
+        assert "if: matrix.python-version == '3.15.1'" in step
         # The cache must restore before the install that reads it, and its
         # key has to cover the pin, which lives in the helper rather than
         # the workflow: a key missing it serves a validator never checked.

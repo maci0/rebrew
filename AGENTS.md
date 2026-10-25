@@ -50,7 +50,7 @@ Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest confi
 
 ## Code Style
 
-- **Python 3.14+**; ruff/mypy gates in `pyproject.toml`; do not weaken them
+- **Python 3.15+**; ruff/mypy gates in `pyproject.toml`; do not weaken them
 - Types: `T | None` not `Optional`; config as `ProjectConfig` (`getattr` defensively); prefer `Any` over bare `object`
 - Library code raises specific exceptions; no bare `except`
 - Docstrings on every module; section separators `# ---...---`

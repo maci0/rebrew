@@ -35,7 +35,7 @@ Three ideas carry the whole tool:
 | You need | Why | Get it with |
 |----------|-----|-------------|
 | Linux x86_64 | all compiler images target it | n/a |
-| Python 3.14+ and `uv` | runs rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/); `uv python install 3.14` |
+| Python 3.15+ and `uv` | runs rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/); `uv python install 3.15` |
 | docker | **every** compiler runs inside an image (wine/DOSBox live there; there is no host-wine path) | your distro's `docker` |
 | rizin | the main function discoverer (capstone sweep / eh_frame / pdata are fallbacks) | `apt install rizin` |
 | ReconDB (optional) | signature sets for `rebrew library init-signatures --matched-only`; only `flirt` needs them. from a source checkout rebrew looks for a sibling of that checkout, so clone it next to rebrew (not next to the project); a wheel install finds no checkout, so set `REBREW_FLIRT_SIGS_DIR` at the checkout. a value that is not a directory fails `rebrew library scan-signatures` outright | `git clone https://github.com/relumea/recondb ../recondb` next to your rebrew checkout, then `export REBREW_FLIRT_SIGS_DIR=../recondb` if rebrew is installed as a package |

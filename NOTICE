@@ -18,7 +18,7 @@ only for the copyleft entries below.
 similarity group — resembl
 --------------------------
 
-resembl 3.7.0 (sibling checkout ``../resembl``,
+resembl 3.8.0 (sibling checkout ``../resembl``,
 https://github.com/maci0/resembl) declares
 ``License-Expression: GPL-3.0-only``. ``make setup`` installs this group
 through the path dependency in ``[dependency-groups]`` /
@@ -118,11 +118,14 @@ files; the component grant is recorded verbatim in the SBOM.
 FLIRT bindings — python-flirt
 -----------------------------
 
-python-flirt 0.10.2 declares the classifier
-``License :: OSI Approved :: Apache Software License`` and ships the Apache
-License 2.0 in ``python_flirt-0.10.2.dist-info/licenses/LICENSE.txt``.
-Rebrew installs the upstream wheel unmodified; its license text travels with
-that distribution. The SBOM records the declared classifier verbatim.
+python-flirt 0.10.2+relumea.1 retains the upstream classifier
+``License :: OSI Approved :: Apache Software License`` and Apache License 2.0
+in its bundled LICENSE.txt. The maintained source upgrades PyO3 to 0.30.1 for
+Python 3.15 without changing the parser core or bypassing ABI checks.
+Source: https://github.com/maci0/lancelot/tree/391dc335f04e6750bb28596db141a1cd362ab606
+Artifacts and build provenance:
+https://github.com/maci0/lancelot/releases/tag/python-flirt-v0.10.2-relumea.1
+The SBOM records the declared classifier and immutable source artifact.
 
 prove extra — python-dateutil (via angr)
 ----------------------------------------

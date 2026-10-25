@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+## [6.3.0] - 2026-10-25
+
+- **Breaking:** require Python 3.15+ and pin the managed runtime to Python 3.15.1.
+- Qualify the maintained Python 3.15 FLIRT binding with unchanged parser core,
+  explicit native ABI support, immutable source hash, and retained licensing.
+- Advance the optional similarity environment to Resembl 3.8.0 and qualify
+  analysis extras on Python 3.15, including JPype built with Apache Ant.
+
+
 ## [6.2.0] - 2026-10-25
 
 ### Added

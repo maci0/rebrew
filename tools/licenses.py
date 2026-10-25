@@ -26,7 +26,8 @@ from __future__ import annotations
 # and a commit-pinned git dependency are recorded by name.
 PATH_OR_GIT_LICENSES = {
     "m2c": "GPL-3.0-only",
-    # resembl 3.7.0 declares License-Expression: GPL-3.0-only (PEP 639).
+    "python-flirt": "License :: OSI Approved :: Apache Software License",
+    # resembl 3.8.0 declares License-Expression: GPL-3.0-only (PEP 639).
     # There is no free-text License field on that artifact.
     "resembl": "GPL-3.0-only",
 }
@@ -111,7 +112,6 @@ REGISTRY_LICENSES: dict[str, str] = {
     # Multi-line License field (the full MIT text, which the docstring's
     # fallback rule skips); the trove classifier is the declared grant.
     "python-discovery==1.6.4": "OSI Approved :: MIT License",
-    "python-flirt==0.10.2": "License :: OSI Approved :: Apache Software License",
     "pyvex==10.0.5": "BSD-2-Clause AND GPL-2.0-or-later",
     "pyxbe==1.0.4": "MIT",
     "pyxdia==0.1.1": "NOASSERTION",  # full MIT text in a multi-line License field, no classifier

@@ -25,7 +25,7 @@ owns compiler/platform support.
 
 ## Quick Start
 
-Use Python 3.14+ and Linux x86_64 with Docker for shipped compiler profiles.
+Use Python 3.15+ and Linux x86_64 with Docker for shipped compiler profiles.
 Wine, DOSBox, and native compiler runtimes live inside their images; missing
 images require `rebrew toolchain pull <profile>` or an authorized build from
 [recompile-toolchains](https://github.com/maci0/recompile-toolchains).
@@ -118,9 +118,22 @@ replacement and teardown.
 
 ## Development
 
-Clean clone needs **uv**, **Python 3.14+** (`.python-version`), **nasm** and
+The maintained FLIRT binding builds from an immutable, hash-verified source
+archive and requires a Rust toolchain (qualified with Rust 1.99.1 and maturin
+1.15.0). Normal CPython 3.15 wheels for qualified Linux glibc, macOS ARM64,
+and Windows AMD64 hosts are available in the
+[maintained binding release](https://github.com/maci0/lancelot/releases/tag/python-flirt-v0.10.2-relumea.1).
+The Rebrew wheel and source archive are distributed through GitHub releases;
+the direct source dependency is not compatible with Warehouse/PyPI publishing.
+Managed fixed-platform deployments can override this requirement with the exact
+published native wheel using `tool.uv.override-dependencies`; its hash must be
+checked before installation. Free-threaded Python and musl are not qualified. The optional `binsync` extra
+needs a JDK and Apache Ant on PATH to build JPype 1.7.1 on Python 3.15
+(qualified with OpenJDK 27 and Ant 1.10.18).
+
+Clean clone needs **uv**, **Python 3.15+** (`.python-version`), **nasm** and
 **bun** on `PATH`, a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
-`../resembl` (tag `v3.7.0`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
+`../resembl` (tag `v3.8.0`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
 also requires `HEAD` to be the `RESEMBL_SHA` commit CI's `resembl-sha` pins), and
 **bash** for the `make clone-resembl` step below.  **bun** drives the
 `tests/dashboard_*.mjs` interaction tests, which skip without it, so `make test`
@@ -137,7 +150,7 @@ make doctor                # report every missing prerequisite (uv, ../resembl, 
                            # bun, shellcheck, yamllint, vnu, venv extras) with the fix for each;
                            # read-only, and exits non-zero only for a host tool the two steps
                            # below cannot install
-make clone-resembl         # clone sibling resembl pin (tag v3.7.0) into ../resembl
+make clone-resembl         # clone sibling resembl pin (tag v3.8.0) into ../resembl
 make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
 make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make test-one T=tests/test_annotation.py   # single-file edit-test loop

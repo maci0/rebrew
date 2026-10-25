@@ -51,8 +51,8 @@ UV_SYNC_FLAGS ?= --locked --all-extras --group similarity
 # RESEMBL_SHA is the commit that tag must resolve to: tags move, and a
 # same-version checkout on another commit passes the version string check
 # while CI clones this commit.
-RESEMBL_REF ?= v3.7.0
-RESEMBL_SHA ?= 48c151430cc1a07d33046640100d460ef97ab1fa
+RESEMBL_REF ?= v3.8.0
+RESEMBL_SHA ?= 4ea4e13ea1e126b7e83b3f8c8ced5fc6dec2cb9e
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 # Match the CI uv pin so local sync/audit behavior tracks CI.
 UV_VERSION ?= 0.13.5
@@ -182,7 +182,7 @@ help:
 		'' \
 		'Bootstrap (clean clone):' \
 		'  0. make doctor          # reports which of the steps below this host is missing' \
-		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.14+ (.python-version), nasm + bun on PATH' \
+		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.15+ (.python-version), nasm + bun on PATH' \
 		'     (shellcheck + yamllint too: the pre-commit shell and YAML hooks skip' \
 		'     themselves without them, CI runs both; vnu for the W3C HTML gate,' \
 		'     which skips without it, so run make vnu and eval the line it prints;' \
@@ -993,7 +993,7 @@ sdist-check: ensure-uv dist/rebrew.buildinfo
 # `uv venv --python $(PYTHON_PIN)`, not a bare `uv venv`: the bare form takes
 # whatever interpreter uv discovers first, so the artifact was smoke-installed
 # on a different patch than the one `make build` recorded as `python=` in
-# dist/rebrew.buildinfo, and a host with 3.14 ahead of the pin read the gate as
+# dist/rebrew.buildinfo, and a host with 3.15 ahead of the pin read the gate as
 # coverage it does not give.  Same .python-version pin `build` and
 # $(UV_RUN_TOOLS) already require, so this adds no prerequisite the build did
 # not have.
@@ -1011,7 +1011,7 @@ smoke-wheel: require-dist ensure-uv
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract jobs: ruff, mypy, uv audit, pytest under the COV_FLOOR gate
-# (CI runs `make coverage` on Python 3.14.9),
+# (CI runs `make coverage` on Python 3.15.1),
 # fixture
 # freshness, idempotency sweep, CLI help greps, plus the import-cycle and
 # import-layering hooks that the CI pre-commit job also runs).  For full hook

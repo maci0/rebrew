@@ -10,7 +10,7 @@ see [TOOLCHAIN.md](TOOLCHAIN.md).
 
 | Tool | Needed for | Install |
 |------|-----------|---------|
-| Python 3.14+ + `uv` | running rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/) / your distro; `uv python install 3.14` |
+| Python 3.15+ + `uv` | running rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/) / your distro; `uv python install 3.15` |
 | rebrew itself | everything | `uv tool install 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'` (in a rebrew checkout, `make setup` instead; see CONTRIBUTING.md) |
 | **docker** | every compiler (MSVC, Borland, Watcom, Turbo C, Delphi, GCC, Clang, MinGW): execution is docker-only; the image wraps wine/DOSBox or holds the native compiler | your distro's `docker` |
 | **rizin** (the `rizin` executable) | packaged function discoverer (`rebrew.discoverers`; alternatives plug in without host edits) | `apt install rizin` / [rizin.re](https://rizin.re) |

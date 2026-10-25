@@ -18,14 +18,14 @@ license-files = ["LICENSE", "NOTICE"]
 authors = [
     { name = "Marcel W. Wysocki", email = "maci.stgn@gmail.com" },
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Software Development :: Disassemblers",
     "Typing :: Typed",
 ]
@@ -46,7 +46,7 @@ dependencies = [
     "idna>=3.20,<4",  # NO direct import — transitive security pin: idna <3.15 has a Unicode-property DoS advisory; this floor forces the fixed version through httpx's tree
     "lief>=1.0.0,<2",  # 1.0 verified: full suite green (was held at <1 on breaking rumors)
     "numpy>=2.5.4,<3",  # byte/structural similarity scoring (matcher/scoring.py, core/matching.py, binary_similarity.py)
-    "python-flirt>=0.10.2,<1",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
+    "python-flirt @ https://github.com/maci0/lancelot/releases/download/python-flirt-v0.10.2-relumea.1/python_flirt-0.10.2%2Brelumea.1.tar.gz#sha256=5ad7a93c992d33478d97b8ce874fa7d5b92a121a949cd2a7e8f589e1a48fff01",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
     "rich>=15.0.0,<16",  # console rendering (Console(stderr=True) convention) and typer's markup backend
     "tomlkit>=0.15.2,<1",  # round-trip-preserving TOML writes (metadata/functions.py, cfg.py, library.py)
     "tree-sitter>=0.26.0,<1",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
@@ -141,7 +141,7 @@ fail_under = 85
 # Or for JSON output: uv run python -m slipcover --json cov.json -m pytest
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py315"
 line-length = 100
 # `make lint` runs ruff over `.` (the same default scope the pre-commit
 # `ruff-check` hook resolves filenames against) so a top-level script cannot
@@ -303,7 +303,7 @@ dev = [
 # scoring core + rapidfuzz.  Path-pinned via [tool.uv.sources] — never an
 # extra, so wheel METADATA cannot point pip at the unrelated PyPI `resembl`.
 # Install: `uv sync --group similarity` (needs ../resembl checked out).
-# resembl 3.7.0 declares License-Expression: GPL-3.0-only. See NOTICE.
+# resembl 3.8.0 declares License-Expression: GPL-3.0-only. See NOTICE.
 similarity = [
     "resembl",
     "rapidfuzz>=3.14.6,<4",  # direct import in matcher/scoring.py code_similarity

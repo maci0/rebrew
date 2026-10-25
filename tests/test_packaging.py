@@ -546,9 +546,9 @@ class TestPackagingMetadata:
         )
 
     def test_requires_python_matches_ci_floor(self) -> None:
-        assert _project()["requires-python"] == ">=3.14"
+        assert _project()["requires-python"] == ">=3.15"
         python_version = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
-        assert re.fullmatch(r"3\.14\.\d+", python_version)
+        assert re.fullmatch(r"3\.15\.\d+", python_version)
         # The package job takes the shared action's default python-version.
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         assert f'python-version: ["{python_version}"]' in workflow
@@ -810,6 +810,37 @@ class TestCycloneDxSbom:
         for c in bom["components"]:
             assert c["purl"].startswith("pkg:")
             assert c["version"]
+
+    def test_url_artifacts_keep_distinct_provenance(self) -> None:
+        """Same-version fork artifacts retain their own source and digest."""
+        from urllib.parse import parse_qs, urlsplit
+
+        from tools.generate_sbom import build_bom
+
+        sources = {
+            "https://example.org/releases/python_flirt-0.10.2.tar.gz": "a" * 64,
+            "https://example.org/releases/python_flirt-0.10.2-cp315-cp315-win_amd64.whl": "b" * 64,
+        }
+        lock_text = "\n".join(
+            f'[[package]]\nname = "python-flirt"\nversion = "0.10.2"\n'
+            f'source = {{ url = "{url}" }}\n'
+            f'sdist = {{ url = "{url}", hash = "sha256:{digest}" }}\n'
+            for url, digest in sources.items()
+        )
+        components = build_bom(lock_text, "0.0.0")["components"]
+        assert len(components) == 2
+        assert len({component["bom-ref"] for component in components}) == 2
+        for component in components:
+            (reference,) = component["externalReferences"]
+            assert reference["type"] == "distribution"
+            url = reference["url"]
+            assert component["purl"].startswith("pkg:generic/python-flirt@0.10.2?")
+            assert component["bom-ref"] == component["purl"]
+            assert parse_qs(urlsplit(component["purl"]).query) == {"download_url": [url]}
+            assert component["hashes"] == [{"alg": "SHA-256", "content": sources[url]}]
+            assert component["licenses"] == [
+                {"license": {"name": "License :: OSI Approved :: Apache Software License"}}
+            ]
 
     def test_every_component_carries_its_declared_license(self) -> None:
         """A component with no license field reads to a scanner as public domain.

@@ -1044,9 +1044,9 @@ class TestGhidraLazyExportsStayTyped:
         import rebrew.ghidra as ghidra_mod
         import rebrew.ghidra.client as client_mod
 
-        sentinel = object()
-        monkeypatch.setattr(client_mod, "init_mcp_session", sentinel)
-        assert ghidra_mod.init_mcp_session is sentinel
+        probe_value = object()
+        monkeypatch.setattr(client_mod, "init_mcp_session", probe_value)
+        assert ghidra_mod.init_mcp_session is probe_value
 
     def test_transport_protocols_are_reachable_from_the_package(self) -> None:
         """A consumer names the protocols it injects without reaching into the module.

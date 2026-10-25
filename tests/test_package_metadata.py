@@ -245,6 +245,7 @@ class TestDeclaredDependencies:
             spec
             for spec in project["dependencies"]
             if not any(op in spec for op in ("==", ">=", "~=", "<", ">", "!="))
+            and not re.fullmatch(r"[A-Za-z0-9_-]+ @ https://[^ ]+#sha256=[0-9a-f]{64}", spec)
         ]
         assert not floored, f"unversioned runtime requirements: {floored}"
 

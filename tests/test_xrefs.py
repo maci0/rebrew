@@ -62,11 +62,11 @@ class TestXrefsCli:
         assert "KnownImport" not in calls["callees"][0]["name"]
 
     def test_pointer_comparison_xref(self, tmp_path: Path) -> None:
-        sentinel = PROBE_TEXT_VA + 0x10
-        code = b"\x81\xfb" + sentinel.to_bytes(4, "little") + b"\xc3" + b"\x90" * 32
+        probe_value = PROBE_TEXT_VA + 0x10
+        code = b"\x81\xfb" + probe_value.to_bytes(4, "little") + b"\xc3" + b"\x90" * 32
         path = tmp_path / "sentinel.exe"
         path.write_bytes(make_pe(code))
-        result = CliRunner().invoke(app, ["--json", "--kind", "cmp", hex(sentinel), str(path)])
+        result = CliRunner().invoke(app, ["--json", "--kind", "cmp", hex(probe_value), str(path)])
         assert result.exit_code == 0
         payload = cli_payload(result)
         assert payload["count"] == 1
@@ -74,7 +74,7 @@ class TestXrefsCli:
             {
                 "kind": "cmp",
                 "from_va": PROBE_TEXT_VA,
-                "instruction": f"cmp ebx, {sentinel:#x}",
+                "instruction": f"cmp ebx, {probe_value:#x}",
             }
         ]
 

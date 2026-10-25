@@ -23,8 +23,8 @@ the run instead of reaching a scanner as a blank field.
 
 Usage::
 
-    uv run --no-project --offline --python 3.14.9 python tools/generate_sbom.py
-    uv run --no-project --offline --python 3.14.9 \\
+    uv run --no-project --offline --python 3.15.1 python tools/generate_sbom.py
+    uv run --no-project --offline --python 3.15.1 \\
         python tools/generate_sbom.py -o dist/rebrew.cdx.json
     make sbom
 """
@@ -39,6 +39,7 @@ import tomllib
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, NamedTuple
+from urllib.parse import quote
 
 # `make sbom` runs this file directly under `uv --no-project`, so the repo root
 # is not on sys.path the way pytest puts it there.
@@ -283,6 +284,8 @@ def _parse_lock(text: str) -> _LockGraph:
             "bom-ref": purl,
             "purl": purl,
         }
+        if source_kind == "url":
+            component["externalReferences"] = [{"type": "distribution", "url": source_extra}]
         if hashes:
             # Prefer a single sha256; CycloneDX accepts multiple.
             component["hashes"] = [
@@ -317,6 +320,10 @@ def _parse_lock(text: str) -> _LockGraph:
             elif "directory =" in line or "editable =" in line:
                 source_kind = "path"
                 m = re.search(r'(?:directory|editable) = "([^"]+)"', line)
+                source_extra = m.group(1) if m else ""
+            elif "url =" in line:
+                source_kind = "url"
+                m = re.search(r'url = "([^"]+)"', line)
                 source_extra = m.group(1) if m else ""
             else:
                 source_kind = "registry"
@@ -392,6 +399,8 @@ def _purl(name: str, version: str, kind: str, extra: str) -> str:
         if rev:
             return f"pkg:generic/{dist}@{version}?vcs_url={base}&commit={rev}"
         return f"pkg:generic/{dist}@{version}?vcs_url={base}"
+    if kind == "url":
+        return f"pkg:generic/{dist}@{version}?download_url={quote(extra, safe='')}"
     if kind == "path":
         return f"pkg:generic/{dist}@{version}?file_name={extra}"
     return f"pkg:pypi/{dist}@{version}"
