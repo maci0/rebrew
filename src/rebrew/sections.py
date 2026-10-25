@@ -82,7 +82,7 @@ if TYPE_CHECKING:
     from rebrew.formats.binary_model import BinaryInfo
 
 
-def sections_from_info(info: "BinaryInfo") -> dict[str, dict[str, int]]:
+def sections_from_info(info: BinaryInfo) -> dict[str, dict[str, int]]:
     """Build the section metadata dict from an already-loaded ``BinaryInfo``.
 
     Splits ``.data`` into ``.data`` (raw) + ``.bss`` (zero-fill tail) when

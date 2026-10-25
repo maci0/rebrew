@@ -133,7 +133,7 @@ def validate_program_path(
             request_id=1,
             session_id=session_id,
         )
-    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+    except OSError, ValueError, KeyError, TypeError, RuntimeError:
         return program_path
 
     if not isinstance(result, dict):
@@ -160,7 +160,7 @@ def parse_ghidra_va(va_raw: str | int | None) -> int | None:
         return va_raw
     try:
         return parse_int_literal(va_raw)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 

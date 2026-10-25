@@ -415,7 +415,7 @@ class TestApplyRelocationsBounds:
             out = apply_coff_relocations(
                 text, records, _RESOLVER, section_va=section_va, reloc_table=table
             )
-        except (UnresolvedSymbolError, NotImplementedError):
+        except UnresolvedSymbolError, NotImplementedError:
             return
         assert len(out) == len(text)
         touched: set[int] = set()

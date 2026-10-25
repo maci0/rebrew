@@ -74,7 +74,7 @@ class FunctionEntry:
     tool_name: str = ""
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "FunctionEntry":
+    def from_dict(cls, d: dict[str, Any]) -> FunctionEntry:
         """Build from a dict (e.g. function_structure.json entry).
 
         Required keys: ``va``, ``size`` (int or hex string).
@@ -104,15 +104,15 @@ class GhidraDataLabel:
     state: str = "data"
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "GhidraDataLabel":
+    def from_dict(cls, d: dict[str, Any]) -> GhidraDataLabel:
         """Build from a Ghidra export dict. All fields have safe defaults."""
         try:
             va = _parse_int(d["va"]) if "va" in d else 0
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             va = 0
         try:
             size = _parse_int(d["size"]) if "size" in d else 0
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             size = 0
         return cls(
             va=va,

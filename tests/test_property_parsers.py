@@ -668,7 +668,7 @@ def test_lookup_section_matches_reference(sections: dict[str, dict[str, int]], v
 
 
 @st.composite
-def label_map(draw: st.DrawFn) -> tuple[dict[int, "GhidraDataLabel"], list[tuple[int, int]]]:
+def label_map(draw: st.DrawFn) -> tuple[dict[int, GhidraDataLabel], list[tuple[int, int]]]:
     """Non-overlapping data labels: {va: label} plus their (va, va+size) spans."""
     from rebrew.catalog.models import GhidraDataLabel
 
@@ -687,7 +687,7 @@ def label_map(draw: st.DrawFn) -> tuple[dict[int, "GhidraDataLabel"], list[tuple
 @settings(max_examples=200, deadline=None)
 @given(label_map(), st.integers(min_value=0, max_value=0x20000))
 def test_find_ghidra_data_label_matches_reference(
-    data: tuple[dict[int, "GhidraDataLabel"], list[tuple[int, int]]], va: int
+    data: tuple[dict[int, GhidraDataLabel], list[tuple[int, int]]], va: int
 ) -> None:
     from rebrew.catalog.grid import _build_label_index, _find_ghidra_data_label
 

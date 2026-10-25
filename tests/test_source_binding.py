@@ -98,6 +98,22 @@ class TestSourceBindingHistory:
                 kind="FUNCTION",
             )
 
+    def test_orphan_anchor_of_a_retired_row_is_skipped_not_fatal(self, tmp_path: Path) -> None:
+        """A stale file for a retired row must not fail the whole source scan.
+
+        The historical-anchor guard only excuses the file recorded in the
+        retirement history. A different file left over from a skeleton wave (the
+        real-world case: a regenerated name) used to raise from
+        ``read_source_bindings`` and took every compile down with it.
+        """
+        cfg = _project(tmp_path)
+        change_source_binding(cfg.metadata_dir, "GAME", 0x401000, reason="wrong identity")
+        stale = cfg.reversed_dir / "stale.c"
+        stale.write_text("/* ADDRESS: GAME 0x401000 */\nvoid stale(void) {}\n")
+        assert (
+            read_source_bindings(stale, metadata_dir=cfg.metadata_dir, project_root=cfg.root) == []
+        )
+
     def test_retired_tu_is_inactive_and_history_is_not_pruned(self, tmp_path: Path) -> None:
         from rebrew.lint import lint_file
         from rebrew.orphans import split_prunable

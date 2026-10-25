@@ -2870,6 +2870,7 @@ rebrew binary imports mark --dry-run --json
 | `BINARY` | path | — | Binary path (default: project target) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
+| `--rebind-retired` | flag | `False` | Replace a retired source claim with the LIBRARY import identity |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 
 ### `rebrew binary extract`
@@ -5036,7 +5037,7 @@ cflags = "/O2 /Gd /MT"       # compiler flags
 | Operation | Purpose |
 | --- | --- |
 | `rebrew library bind-source` | Bind an identified library function to a source file we compile ourselves. |
-| `rebrew library adopt` | Record a unique stock-archive match over an existing FUNCTION or STUB claim. |
+| `rebrew library adopt` | Record a unique stock-archive match, with or without a prior FUNCTION/STUB claim. |
 | `rebrew library review-native` | Establish exact library callee identities through binary-bound strict proof. |
 | `rebrew library show` | Show the effective library override for a directory (nearest rebrew-libraries.toml walking up toward the project root). |
 | `rebrew library list` | List every rebrew-libraries.toml under root (all library overrides). |
@@ -5056,13 +5057,15 @@ cflags = "/O2 /Gd /MT"       # compiler flags
 `rebrew library bind-source [OPTIONS] VA SOURCE`
 
 Bind an identified library function to a C/C++ translation unit compiled by
-this project. The library declaration must already exist for the selected
-target, and the source file must exist inside the project. The native symbol
-names the function to compare in the compiled object. Preview with `--dry-run`;
-accepted bindings go through the locked identity writer and retain library
-ancestry. The binding makes the provider built from source. A unique archive
-member in the raw link map is the statically linked provider. A declaration
-with neither stays unresolved.
+this project. Accepted for a VA with an existing library declaration or
+`LIBRARY` row, a retired row (replaced through the binding history), or no row
+at all, which gets the LIBRARY row directly; an active `FUNCTION`/`STUB` claim is
+refused until it is retired or rebound. The source file must exist inside the
+project. The native symbol names the function to compare in the compiled
+object. Preview with `--dry-run`; accepted bindings go through the locked
+identity writer and retain library ancestry. The binding makes the provider
+built from source. A unique archive member in the raw link map is the
+statically linked provider. A declaration with neither stays unresolved.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -5077,18 +5080,22 @@ with neither stays unresolved.
 
 `rebrew library adopt [OPTIONS] VA`
 
-Record a stock-archive identity over an existing `FUNCTION` or `STUB` row. The
-command re-runs the project's archive match for that VA and requires one unique
-`(symbol, archive member)` candidate. The row becomes kind `LIBRARY` with the
-archive family's `library_<family>.h` declaration header, the native symbol and
-a C name derived from it; the previous claim stays in `binding_history` and the
-comparison verdict is cleared. Preview with `--dry-run` and pass the reported
-digest back as `--expected-digest` to apply. A vendored-object match is refused;
-use `rebrew library bind-source` for a source provider.
+Record a stock-archive identity from a native VA. The command re-runs the
+project's archive match for that VA and requires one unique `(symbol, archive
+member)` candidate. The row becomes kind `LIBRARY` with the archive family's
+`library_<family>.h` declaration header, the native symbol and a C name derived
+from it. A prior claim (`FUNCTION`, `STUB`, or a retired binding) stays in
+`binding_history`; a VA with no row gets the LIBRARY row directly, sized from
+the discovery inventory, and the comparison verdict is cleared. A matched symbol
+with no C identifier (C++ mangled or static data) keeps its exact native symbol
+and gets a derived display name. Preview with
+`--dry-run` and pass the reported digest back as `--expected-digest` to apply. A
+vendored-object match is refused; use `rebrew library bind-source` for a source
+provider.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `VA` | str | required | Native VA of the FUNCTION/STUB row proved library code |
+| `VA` | str | required | Native VA of the archive-matched code |
 | `--reason` | str | required | Reviewed evidence naming the unique match |
 | `--expected-digest` | str | — | Require the digest from a reviewed preview |
 | `--dry-run` | flag | `False` | Preview changes without writing |

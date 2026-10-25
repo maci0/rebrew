@@ -250,7 +250,7 @@ def export_hash(path: str | Path) -> str | None:
         return None
     try:
         table = pe.get_export()
-    except (AttributeError, TypeError, ValueError, RuntimeError):
+    except AttributeError, TypeError, ValueError, RuntimeError:
         table = None
     if table is None:
         # LIEF returns None for an image with no export directory: a real
@@ -414,7 +414,7 @@ def _optional_backend(module: str) -> Any | None:
         if importlib.util.find_spec(module) is None:
             return None
         return importlib.import_module(module)
-    except (ImportError, ValueError):
+    except ImportError, ValueError:
         return None
 
 
@@ -472,7 +472,7 @@ def fingerprint_bundle(path: str | Path) -> dict[str, object]:
 
     try:
         fmt, arch = detect_format_and_arch(p)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         fmt, arch = None, None
 
     bundle: dict[str, object] = {

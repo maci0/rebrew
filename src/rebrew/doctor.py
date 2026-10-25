@@ -325,7 +325,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             guess = suggest_profile(info, cfg.target_binary)
             if guess:
                 hint = guess
-        except (OSError, ValueError, ImportError, AttributeError):
+        except OSError, ValueError, ImportError, AttributeError:
             logger.debug("profile suggestion failed", exc_info=True)  # best-effort recommendation
         return CheckResult(
             name="Compiler",
@@ -1506,7 +1506,7 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
     # OSError, not ValueError: a %ct outside the platform's range raises
     # [Errno 75] on Windows and musl.  A commit stamped years ahead (a
     # clock-skewed CI commit, GIT_COMMITTER_DATE set forward) reaches that.
-    except (OSError, ValueError, OverflowError):
+    except OSError, ValueError, OverflowError:
         last = None
     if last is not None:
         # Absolute elapsed time between UTC instants: DST on the host cannot
@@ -1601,7 +1601,7 @@ def _inventory_spans(cfg: Any) -> list[tuple[int, int]]:
         return []
     try:
         rows = json.loads(read_json_text(path))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return []
     spans: list[tuple[int, int]] = []
     if not isinstance(rows, list):
@@ -1612,7 +1612,7 @@ def _inventory_spans(cfg: Any) -> list[tuple[int, int]]:
         try:
             start = int(row["va"])
             size = int(row["size"])
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             continue
         if size > 0:
             spans.append((start, size))

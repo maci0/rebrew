@@ -300,7 +300,7 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
 
     try:
         info = load_binary(binary_path)
-    except (OSError, KeyError, ValueError):
+    except OSError, KeyError, ValueError:
         return {}
     text = info.sections.get(".text")
     if text is None or text.file_offset < 0 or text.size <= 0:

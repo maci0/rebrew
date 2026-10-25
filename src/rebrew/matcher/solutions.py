@@ -319,7 +319,7 @@ def _relative_source(project_root: Path, source_file: str) -> str:
     try:
         resolved = p if p.is_absolute() else (Path.cwd() / p)
         return resolved.resolve().relative_to(project_root.resolve()).as_posix()
-    except (ValueError, OSError):
+    except ValueError, OSError:
         return str(p) if p.is_absolute() else source_file
 
 

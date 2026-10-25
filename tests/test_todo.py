@@ -734,6 +734,33 @@ class TestCollectors:
         assert [i.category for i in items] == [CAT_POSTLINK]
         assert items[0].command == "rebrew test 0x00001000 --linked"
 
+    def test_postlink_lane_silent_when_text_layouts_differ(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two independent links order functions differently.
+
+        Comparing absolute VAs across images whose .text spans differ samples
+        unrelated functions and reports rewrites that never happened; the lane
+        must stay silent instead.
+        """
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "test.dll").write_bytes(b"\x90" * 16)
+        raw = tmp_path / "raw.dll"
+        raw.write_bytes(b"\x01" * 16)
+
+        def loader(path: Path) -> SimpleNamespace:
+            if Path(path) == raw:
+                section = SimpleNamespace(va=0x1000, file_offset=0, size=16, raw_size=16)
+            else:
+                section = SimpleNamespace(va=0x1000, file_offset=0, size=32, raw_size=16)
+            return SimpleNamespace(sections={".text": section}, text_va=0x1000, text_raw_offset=0)
+
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", loader)
+        cfg = _make_cfg(tmp_path, target_name="test.dll", raw_link=raw)
+        existing = {0x1000: {"symbol": "f", "status": "RELOC", "size": 16}}
+        assert _collect_postlink_rewritten(cfg, existing, {}) == []
+
     def test_postlink_lane_silent_without_raw_link(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

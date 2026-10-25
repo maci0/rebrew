@@ -756,5 +756,5 @@ def comparison_inputs_current(cfg: Any, source: Path, inputs: dict[str, str] | N
             and entry_headers_fp(cfg, source, inputs["cflags"]) == inputs["headers_hash"]
             and compiler_config_hash(cfg) == inputs["compiler_hash"]
         )
-    except (OSError, AttributeError, TypeError, ValueError):
+    except OSError, AttributeError, TypeError, ValueError:
         return False

@@ -165,3 +165,105 @@ class TestLibraryAdopt:
         assert result.exit_code == 2
         assert "bind-source" in result.output
         assert get_entry(cfg.metadata_dir, VA, "SERVER")["kind"] == "FUNCTION"
+
+
+def _bare_project(tmp_path: Path):
+    """Same PE/archive as _project, but no metadata row and an inventory entry."""
+    import json
+
+    pe = tmp_path / "target.exe"
+    pe.write_bytes(make_pe(CODE, image_base=0x400000, text_va=0x1000))
+    lib = tmp_path / "mylib.lib"
+    lib.write_bytes(make_lib_archive([("body.obj", make_coff_obj(CODE, func_symbol="_mylibfn"))]))
+    src = tmp_path / "src"
+    src.mkdir()
+    inventory = src / "function_structure.json"
+    inventory.write_text(json.dumps([{"va": VA, "size": len(CODE), "name": "f"}]), encoding="utf-8")
+    return SimpleNamespace(
+        root=tmp_path,
+        reversed_dir=src,
+        metadata_dir=tmp_path,
+        module="SERVER",
+        target_name="SERVER",
+        target_binary=pe,
+        compiler_profile="msvc-6.0",
+        shared_dir=None,
+        source_ext=".c",
+        inventory_file=inventory,
+    )
+
+
+class TestLibraryAdoptNoClaim:
+    """Adopt works when the VA has no metadata row; uniqueness is the gate."""
+
+    def test_dry_run_reports_without_writing(self, tmp_path: Path) -> None:
+        cfg = _bare_project(tmp_path)
+        lib = tmp_path / "mylib.lib"
+        result = _adopt(cfg, lib, "--dry-run", "--json")
+        assert result.exit_code == 0, result.output
+        import json as json_mod
+
+        payload = json_mod.loads(result.output)
+        assert payload["symbol"] == "_mylibfn"
+        assert payload["action"] == "record"
+        assert not get_entry(cfg.metadata_dir, VA, "SERVER")
+        assert not (cfg.reversed_dir / "library_mylib.h").exists()
+
+    def test_apply_records_library_row_without_history(self, tmp_path: Path) -> None:
+        cfg = _bare_project(tmp_path)
+        lib = tmp_path / "mylib.lib"
+        result = _adopt(cfg, lib, "--json")
+        assert result.exit_code == 0, result.output
+        row = get_entry(cfg.metadata_dir, VA, "SERVER")
+        assert row is not None
+        assert row["kind"] == "LIBRARY"
+        assert row["symbol"] == "_mylibfn"
+        assert row["file"] == "src/library_mylib.h"
+        assert "binding_history" not in row
+        assert "status" not in row
+        assert (cfg.reversed_dir / "library_mylib.h").is_file()
+
+
+class TestLibraryAdoptSymbolNames:
+    """A unique archive match with no C-identifier name still gets a row."""
+
+    def test_mangled_symbol_gets_a_safe_display_name(self, tmp_path: Path) -> None:
+        from bin_util import make_coff_obj, make_lib_archive, make_pe
+
+        pe = tmp_path / "target.exe"
+        pe.write_bytes(make_pe(CODE, image_base=0x400000, text_va=0x1000))
+        lib = tmp_path / "dx.lib"
+        lib.write_bytes(
+            make_lib_archive([("body.obj", make_coff_obj(CODE, func_symbol="?fn@@YA"))])
+        )
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "f.c").write_text(f"/* ADDRESS: SERVER 0x{VA:x} */\nint f(void) {{ return 0; }}\n")
+        record_function_identity(
+            tmp_path,
+            module="SERVER",
+            va=VA,
+            file="src/f.c",
+            name="f",
+            symbol="_f",
+            kind="FUNCTION",
+            size=len(CODE),
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            module="SERVER",
+            target_name="SERVER",
+            target_binary=pe,
+            compiler_profile="msvc-6.0",
+            shared_dir=None,
+            source_ext=".c",
+        )
+        result = _adopt(cfg, lib, "--json")
+        assert result.exit_code == 0, result.output
+        row = get_entry(tmp_path, VA, "SERVER")
+        assert row["kind"] == "LIBRARY"
+        assert row["symbol"] == "?fn@@YA"
+        assert row["name"] == "fn_YA"
+        assert row["name"].isidentifier()

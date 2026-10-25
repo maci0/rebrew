@@ -50,7 +50,7 @@ def _peer_python_works() -> bool:
             timeout=_PEER_TIMEOUT,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         return False
     return probe.returncode == 0
 

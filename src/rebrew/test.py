@@ -1039,7 +1039,7 @@ def _read_name_map_payload(path: Path) -> dict[str, Any] | None:
     """Version-2 cache document, or ``None`` when the file is missing or older."""
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+    except OSError, UnicodeError, json.JSONDecodeError:
         return None
     if not isinstance(raw, dict) or raw.get("version") != _NAME_MAP_CACHE_VERSION:
         return None
@@ -1207,7 +1207,7 @@ def _load_test_name_map(cfg: ProjectConfig) -> dict[str, int]:
         identity = _name_map_identity(cfg)
         tokens = _source_token_map(cfg)
         key = _name_map_key(identity, tokens)
-    except (OSError, ValueError, KeyError, AttributeError, TypeError):
+    except OSError, ValueError, KeyError, AttributeError, TypeError:
         return build_name_to_va(cfg)
     cached = _cached_name_map(key)
     if cached is not None:
@@ -1229,7 +1229,7 @@ def _load_test_name_map(cfg: ProjectConfig) -> dict[str, int]:
                 scan_facts=scan_facts,
                 annotation_facts=annotation_facts,
             )
-        except (CatalogScanError, OSError, ValueError, KeyError, AttributeError, TypeError):
+        except CatalogScanError, OSError, ValueError, KeyError, AttributeError, TypeError:
             mapping, scan_out, annotation_out = _scan_test_name_map(cfg)
     _store_disk_name_map(
         path,

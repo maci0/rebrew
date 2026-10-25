@@ -831,7 +831,7 @@ def _list_name(cfg: ProjectConfig, va: int | None) -> str:
 
     try:
         names = {f["va"]: str(f["name"]) for f in cached_function_list(cfg)}
-    except (OSError, ValueError, KeyError, TypeError):
+    except OSError, ValueError, KeyError, TypeError:
         names = {}
     return names.get(va, "")
 

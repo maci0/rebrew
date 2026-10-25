@@ -249,7 +249,7 @@ def _to_int(value: Any) -> int | None:
         return value
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         inner = getattr(value, "value", None)
     if inner is not None:
         return _to_int(inner)
@@ -413,7 +413,7 @@ def _version_info(pe: Any) -> dict[str, str] | None:
         return None
     try:
         versions = list(getattr(manager, "version", None) or [])
-    except (AttributeError, TypeError, ValueError, RuntimeError):
+    except AttributeError, TypeError, ValueError, RuntimeError:
         return None
     values: dict[str, str] = {}
     for version in versions:
@@ -422,12 +422,12 @@ def _version_info(pe: Any) -> dict[str, str] | None:
             continue
         try:
             tables = list(getattr(info, "children", None) or [])
-        except (AttributeError, TypeError, ValueError, RuntimeError):
+        except AttributeError, TypeError, ValueError, RuntimeError:
             continue
         for table in tables:
             try:
                 entries = list(getattr(table, "entries", None) or [])
-            except (AttributeError, TypeError, ValueError, RuntimeError):
+            except AttributeError, TypeError, ValueError, RuntimeError:
                 continue
             for entry in entries:
                 key = getattr(entry, "key", None)
@@ -639,7 +639,7 @@ def _timestamp_iso(timestamp: int) -> str | None:
         return None
     try:
         moment = dt.datetime.fromtimestamp(stamp, dt.UTC)
-    except (OverflowError, OSError, ValueError):
+    except OverflowError, OSError, ValueError:
         return None
     return moment.isoformat().replace("+00:00", "Z")
 
@@ -898,7 +898,7 @@ def _render_guid(value: Any) -> str | None:
         return value.hex() or None
     try:
         octets = [int(item) for item in value]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if len(octets) != 16:
         return None

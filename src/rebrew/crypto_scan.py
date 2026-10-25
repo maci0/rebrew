@@ -381,7 +381,7 @@ def _project_function_names(target: str | None) -> list[str]:
         from rebrew.config import load_config
 
         functions = cached_function_list(load_config(target=target))
-    except (ImportError, AttributeError, OSError, ValueError, KeyError):
+    except ImportError, AttributeError, OSError, ValueError, KeyError:
         return []
     return [str(entry["name"]) for entry in functions if entry.get("name")]
 

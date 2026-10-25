@@ -119,7 +119,7 @@ def _read_doc_cache(
     """
     try:
         payload = json.loads(_doc_cache_file(path).read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+    except OSError, UnicodeError, json.JSONDecodeError, TypeError:
         return None
     if not isinstance(payload, dict) or payload.get("fingerprint") != _fingerprint_token(
         fingerprint, known_fields

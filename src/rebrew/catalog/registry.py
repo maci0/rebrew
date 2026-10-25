@@ -327,7 +327,7 @@ def build_function_registry(
                 text_size_val = sec.size
                 raw = getattr(sec, "raw_size", sec.size)
                 text_data = info.data[sec.file_offset : sec.file_offset + raw]
-        except (OSError, KeyError, ValueError):
+        except OSError, KeyError, ValueError:
             logger.debug(".text section load failed for %s", bin_path, exc_info=True)
 
     # --- Resolve canonical size ---

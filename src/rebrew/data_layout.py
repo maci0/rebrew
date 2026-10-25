@@ -1004,7 +1004,7 @@ def data_symbol_size(fields: dict[str, Any], *, arch: str = "x86_32") -> int:
 
     try:
         size = as_metadata_int(fields.get("size", 0))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
     if size < 0:
         return 0

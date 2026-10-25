@@ -127,6 +127,9 @@ class StatusReport:
     # Library attributions (lib-match identifications) excluded from the
     # progress table — counted here so the number stays visible.
     library_identified: int = 0
+    #: LIBRARY bytes attributed by derived span: an identified row without a
+    #: recorded extent owns the unclaimed bytes up to the next known start.
+    library_derived_bytes: int = 0
 
     # Verify cache summary
     verify_info: VerifyInfo | None = None
@@ -300,6 +303,7 @@ class StatusReport:
             d["unattributed_bytes"] = self.unattributed_bytes
             d["status_bytes"] = self.status_bytes
             d["accounted_text_bytes"] = self.accounted_text_bytes
+            d["library_derived_bytes"] = self.library_derived_bytes
         if self.verify_info is not None:
             d["last_verify"] = {
                 "timestamp": self.verify_info.timestamp,
@@ -347,7 +351,7 @@ def compare_file_bytes(reference: bytes, built: bytes) -> tuple[int, int]:
         return span, span
     # map/eq drives the comparison loop in C; the index arithmetic in a Python
     # loop over two multi-MB images is the whole cost of a `rebrew status`.
-    return sum(map(eq, reference, built)), span
+    return sum(map(eq, reference, built, strict=False)), span
 
 
 def linker_produced_match(
@@ -680,7 +684,7 @@ def _text_gaps(cfg: ProjectConfig, spans: list[tuple[int, int]]) -> tuple[int, i
 
         info = load_binary(cfg.target_binary)
         sec = info.sections[".text"]
-    except (OSError, KeyError, ValueError):
+    except OSError, KeyError, ValueError:
         return None
     text = info.data[sec.file_offset : sec.file_offset + min(sec.size, sec.raw_size)]
     return classify_text_gaps(text, sec.va, spans)
@@ -800,7 +804,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         """
         try:
             annotated = int(info.get("size") or 0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             annotated = 0
         inventory = size_by_va.get(va, 0)
         size = max(inventory, annotated) if va in library_vas else (annotated or inventory)
@@ -822,6 +826,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     verify_missing_size = 0
     effective_matches = 0
     library_identified = 0
+    derived_starts: list[int] = []
     for va, info in existing.items():
         # External .lib attributions (lib-match identifications + modules
         # flagged in external_libs) are not reversing progress: count them
@@ -833,6 +838,8 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         if va in library_vas:
             library_identified += 1
             span_va, size = _span(va, info)
+            if size == 0:
+                derived_starts.append(span_va)
             matched_bytes += size
             report.status_bytes["LIBRARY"] = report.status_bytes.get("LIBRARY", 0) + size
             spans.append((span_va, size))
@@ -885,6 +892,49 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         unmatched_bytes += size
         report.status_bytes["NO_SOURCE"] = report.status_bytes.get("NO_SOURCE", 0) + size
         spans.append((span_va, size))
+    # An identified LIBRARY row without a recorded extent still owns the bytes
+    # up to the next known start. Attribute only bytes no other span claims, so
+    # a coarse inventory function or a started row always wins, and never extend
+    # past .text.
+    if derived_starts and text_section is not None:
+        text_lo = text_section.va
+        text_hi = text_section.va + text_section.size
+        known_starts = sorted(set(starts) | {min(va, text_hi) for va in derived_starts} | {text_hi})
+        claimed = sorted((span_va, span_va + size) for span_va, size in spans if size > 0)
+
+        def _unclaimed(lo: int, hi: int) -> list[tuple[int, int]]:
+            pieces = [(lo, hi)]
+            for claim_lo, claim_hi in claimed:
+                nxt: list[tuple[int, int]] = []
+                for piece_lo, piece_hi in pieces:
+                    if claim_hi <= piece_lo or claim_lo >= piece_hi:
+                        nxt.append((piece_lo, piece_hi))
+                        continue
+                    if piece_lo < claim_lo:
+                        nxt.append((piece_lo, claim_lo))
+                    if claim_hi < piece_hi:
+                        nxt.append((claim_hi, piece_hi))
+                pieces = nxt
+                if not pieces:
+                    break
+            return pieces
+
+        derived = 0
+        for va in sorted(set(derived_starts)):
+            lo = max(va, text_lo)
+            hi = next((start for start in known_starts if start > va), text_hi)
+            hi = min(hi, text_hi)
+            for piece_lo, piece_hi in _unclaimed(lo, hi):
+                length = piece_hi - piece_lo
+                if length <= 0:
+                    continue
+                derived += length
+                spans.append((piece_lo, length))
+        report.library_derived_bytes = derived
+        matched_bytes += derived
+        report.matched_bytes = matched_bytes
+        report.status_bytes["LIBRARY"] = report.status_bytes.get("LIBRARY", 0) + derived
+
     report.unmatched_bytes = unmatched_bytes
     gaps = _text_gaps(cfg, spans)
     if gaps is not None:
@@ -1017,7 +1067,7 @@ def _pe_data_directory(path: Path, name: str, image_base: int) -> tuple[int, int
             rva = int(getattr(directory, "rva", 0) or 0)
             size = int(getattr(directory, "size", 0) or 0)
             return (image_base + rva, size) if rva and size else (0, 0)
-    except (OSError, ValueError, RuntimeError):
+    except OSError, ValueError, RuntimeError:
         return 0, 0
     return 0, 0
 
@@ -1047,7 +1097,7 @@ def _target_binary(cfg: ProjectConfig) -> tuple[Path, BinaryInfo] | None:
         from rebrew.formats.binary_loader import load_binary
 
         return Path(path), load_binary(Path(path))
-    except (OSError, KeyError, ValueError):
+    except OSError, KeyError, ValueError:
         return None
 
 

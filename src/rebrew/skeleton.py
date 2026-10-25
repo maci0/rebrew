@@ -872,7 +872,7 @@ def list_uncovered(
                 entry["canonical_size"],
                 entry.get("list_name") or entry.get("ghidra_name") or f"FUN_{va:08x}",
             )
-    except (OSError, ValueError, KeyError):
+    except OSError, ValueError, KeyError:
         # The batch still works off the Ghidra cache alone, but it loses every
         # function-list-only function (a rizin/radare2 discovery the cache
         # missed), so the short result is worth a line an operator can find.
@@ -1622,7 +1622,7 @@ def main(
                 None,
                 getattr(cfg, "target_binary", None),
             ).get(va_int)
-        except (OSError, ValueError, KeyError):
+        except OSError, ValueError, KeyError:
             reg_entry = None  # no usable inventory — fall through to not-found
         if reg_entry and reg_entry["canonical_size"] > 0:
             size = reg_entry["canonical_size"]

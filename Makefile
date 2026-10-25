@@ -51,8 +51,8 @@ UV_SYNC_FLAGS ?= --locked --all-extras --group similarity
 # RESEMBL_SHA is the commit that tag must resolve to: tags move, and a
 # same-version checkout on another commit passes the version string check
 # while CI clones this commit.
-RESEMBL_REF ?= v3.6.1
-RESEMBL_SHA ?= 139fbdcf238551f3c294208876a314ad9392b53d
+RESEMBL_REF ?= v3.7.0
+RESEMBL_SHA ?= 48c151430cc1a07d33046640100d460ef97ab1fa
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 # Match the CI uv pin so local sync/audit behavior tracks CI.
 UV_VERSION ?= 0.13.5
@@ -182,7 +182,7 @@ help:
 		'' \
 		'Bootstrap (clean clone):' \
 		'  0. make doctor          # reports which of the steps below this host is missing' \
-		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.13+ (.python-version), nasm + bun on PATH' \
+		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.14+ (.python-version), nasm + bun on PATH' \
 		'     (shellcheck + yamllint too: the pre-commit shell and YAML hooks skip' \
 		'     themselves without them, CI runs both; vnu for the W3C HTML gate,' \
 		'     which skips without it, so run make vnu and eval the line it prints;' \
@@ -1011,7 +1011,7 @@ smoke-wheel: require-dist ensure-uv
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract jobs: ruff, mypy, uv audit, pytest under the COV_FLOOR gate
-# (CI's selected 3.14.8 entry runs `make coverage`; 3.13 remains a compatibility lane),
+# (CI runs `make coverage` on Python 3.14.9),
 # fixture
 # freshness, idempotency sweep, CLI help greps, plus the import-cycle and
 # import-layering hooks that the CI pre-commit job also runs).  For full hook

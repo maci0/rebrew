@@ -229,7 +229,7 @@ def read_layout_header(root: Path, target: str, bin_path: Path) -> dict[str, Any
             sections.append(rec)
             if name == ".text":
                 text_va, text_size, text_raw = rec[1], rec[2], rec[4]
-    except (OSError, KeyError, TypeError, ValueError, tomllib.TOMLDecodeError):
+    except OSError, KeyError, TypeError, ValueError, tomllib.TOMLDecodeError:
         return None
     if not sections:
         return None

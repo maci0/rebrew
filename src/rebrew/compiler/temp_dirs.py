@@ -88,7 +88,7 @@ def on_ram_filesystem(path: Path) -> bool:
             sep = fields.index("-")
             mount_point = fields[4]
             fstype = fields[sep + 1]
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             continue
         # The kernel octal-escapes space, tab, newline and backslash.
         mount_point = re.sub(r"\\(\d{3})", lambda m: chr(int(m.group(1), 8)), mount_point)

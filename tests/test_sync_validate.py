@@ -12,7 +12,7 @@ class _FakeClient:
     def __init__(self, timeout: float) -> None:
         _ = timeout
 
-    def __enter__(self) -> "_FakeClient":
+    def __enter__(self) -> _FakeClient:
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:

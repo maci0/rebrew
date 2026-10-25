@@ -14,6 +14,7 @@ shipped CRT: /MT /O2 /Gd) and fills the missing fields.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -71,10 +72,19 @@ def bind_source_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Bind an identified library function to a source file we compile ourselves."""
+    """Bind an identified library function to a source file we compile ourselves.
+
+    Works for a VA that already has a library declaration or a LIBRARY row, for a
+    retired row (replaced through the binding history), and for a VA with no row
+    at all (the LIBRARY row is recorded directly). An active FUNCTION or STUB
+    claim still needs a reviewed rebind first, so this command never overwrites
+    one silently.
+    """
     from rebrew.config import target_module
+    from rebrew.metadata.binding_history import change_source_binding, retired_binding
     from rebrew.metadata.bindings import library_bindings_for_file
-    from rebrew.metadata.functions import get_entry, record_function_rows
+    from rebrew.metadata.functions import get_entry, record_function_identity, record_function_rows
+    from rebrew.rename_ops import c_name_from_symbol
     from rebrew.sources import iter_library_headers
     from rebrew.utils import preset_module_key
 
@@ -88,9 +98,13 @@ def bind_source_cmd(
     )
     existing = get_entry(cfg.metadata_dir, address, target_module(cfg))
     known = known or existing.get("kind") == "LIBRARY"
-    if not known:
+    retired = retired_binding(existing)
+    claim = bool(existing.get("file")) and not retired and not known
+    if claim:
         error_exit(
-            f"No library declaration for {va} in target {cfg.target_name}", json_mode=json_output
+            f"{va} has an active non-library source claim; retire or rebind it before "
+            "binding a library source",
+            json_mode=json_output,
         )
     candidate = (cfg.root / source).resolve()
     if not candidate.is_relative_to(cfg.root.resolve()) or not candidate.is_file():
@@ -107,10 +121,31 @@ def bind_source_cmd(
         "kind": "LIBRARY",
     }
     if not dry_run:
-        record_function_rows(
-            cfg.metadata_dir,
-            [{"module": target_module(cfg), "va": address, "identity": identity}],
-        )
+        if retired:
+            change_source_binding(
+                cfg.metadata_dir,
+                target_module(cfg),
+                address,
+                reason=f"Compiled library source {identity['file']} provides {symbol}.",
+                identity={**identity, "name": c_name_from_symbol(symbol)},
+                project_root=cfg.root,
+            )
+        elif not existing:
+            record_function_identity(
+                cfg.metadata_dir,
+                module=target_module(cfg),
+                va=address,
+                file=identity["file"],
+                kind="LIBRARY",
+                name=c_name_from_symbol(symbol),
+                symbol=symbol,
+                updated_by="match",
+            )
+        else:
+            record_function_rows(
+                cfg.metadata_dir,
+                [{"module": target_module(cfg), "va": address, "identity": identity}],
+            )
     payload = {"va": f"0x{address:08x}", "provider": "compiled", **identity, "dry_run": dry_run}
     if json_output:
         json_print(payload)
@@ -408,6 +443,21 @@ def rm_cmd(
         console.print(f"[green]removed {path}[/green]")
 
 
+def _safe_library_name(symbol: str) -> str:
+    """C-identifier display name derived from a native archive symbol.
+
+    C++ mangled and static data symbols (``?fn@@YAXXZ``, ``_c_rgodfDIKeyboard$1``)
+    have no C identifier form. The native symbol stays exact in ``symbol``; the
+    display name keeps every alphanumeric run so the row stays a valid identity.
+    """
+    name = re.sub(r"[^0-9A-Za-z_]+", "_", symbol).strip("_")
+    if not name:
+        name = "library_symbol"
+    if not (name[0].isalpha() or name[0] == "_"):
+        name = f"_{name}"
+    return name
+
+
 def _library_family(object_label: str) -> str | None:
     """Archive family from a stock object label like ``..._libc_stock.lib:...``."""
     if ":" not in object_label:
@@ -437,23 +487,25 @@ def adopt_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Record a unique stock-archive match over an existing FUNCTION or STUB claim.
+    """Record a unique stock-archive match, with or without a prior claim.
 
     The match must be unique against the archives the target links; the row then
     becomes kind LIBRARY with the archive family's declaration header and the
-    native symbol. The previous claim stays in binding_history, and the preview
-    digest guards the write. Vendored-object matches are refused: bind their
-    source with ``rebrew library bind-source``.
+    native symbol. A prior claim (FUNCTION/STUB or a retired binding) goes to
+    binding_history; a VA with no row gets the LIBRARY row directly, sized from
+    the discovery inventory. The preview digest guards the write. Vendored-object
+    matches are refused: bind their source with ``rebrew library bind-source``.
     """
     import hashlib
     import json as json_mod
 
+    from rebrew.catalog import cached_function_list
     from rebrew.config import target_module
     from rebrew.formats.binary_loader import extract_raw_bytes
     from rebrew.identify_library import prepare_library_header
     from rebrew.lib_match import PREFIX_BYTES, match_bytes, project_match_index
-    from rebrew.metadata.binding_history import change_source_binding
-    from rebrew.metadata.functions import get_entry
+    from rebrew.metadata.binding_history import change_source_binding, retired_binding
+    from rebrew.metadata.functions import get_entry, record_function_identity
     from rebrew.metadata.storage import metadata_store
     from rebrew.rename_ops import c_name_from_symbol
     from rebrew.utils import library_header_name
@@ -462,12 +514,11 @@ def adopt_cmd(
     address = parse_va(va, json_mode=json_output)
     module = target_module(cfg)
     row = get_entry(cfg.metadata_dir, address, module)
-    if not row:
-        error_exit(f"no native metadata row for {module}.0x{address:x}", json_mode=json_output)
-    if row.get("kind") not in {"FUNCTION", "STUB"}:
+    has_claim = bool(row.get("file")) and not retired_binding(row)
+    if has_claim and row.get("kind") not in {"FUNCTION", "STUB"}:
         error_exit(
             f"0x{address:x} is already {row.get('kind') or 'unclaimed'}; adopt needs a "
-            "FUNCTION or STUB claim",
+            "FUNCTION or STUB claim, a retired binding, or no row at all",
             json_mode=json_output,
         )
     try:
@@ -475,6 +526,19 @@ def adopt_cmd(
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
     size = int(row.get("size") or 0)
+    if not size:
+        for func in cached_function_list(cfg):
+            try:
+                if int(func.get("va", -1)) == address:
+                    size = int(func.get("size") or 0)
+                    break
+            except TypeError, ValueError:
+                continue
+    if not size:
+        error_exit(
+            f"no native metadata row and no inventory size for {module}.0x{address:x}",
+            json_mode=json_output,
+        )
     data = extract_raw_bytes(cfg.target_binary, address, size or PREFIX_BYTES)
     hit = match_bytes(index, data)
     if not hit and size > PREFIX_BYTES:
@@ -504,7 +568,7 @@ def adopt_cmd(
         error_exit(f"cannot derive the archive family from {object_label}", json_mode=json_output)
     name = c_name_from_symbol(symbol)
     if not name.isidentifier():
-        error_exit(f"matched symbol {symbol!r} has no C identifier name", json_mode=json_output)
+        name = _safe_library_name(symbol)
     header = cfg.reversed_dir / library_header_name(family)
     try:
         relative_header = header.resolve().relative_to(cfg.root.resolve()).as_posix()
@@ -531,16 +595,30 @@ def adopt_cmd(
     if not dry_run:
         prepare_library_header(cfg, header)
     try:
-        result = change_source_binding(
-            cfg.metadata_dir,
-            module,
-            address,
-            reason=reason,
-            identity=identity,
-            dry_run=dry_run,
-            expected_digest=None if dry_run else metadata_digest,
-            project_root=cfg.root,
-        )
+        if row.get("file") or row.get("binding_history"):
+            result = change_source_binding(
+                cfg.metadata_dir,
+                module,
+                address,
+                reason=reason,
+                identity=identity,
+                dry_run=dry_run,
+                expected_digest=None if dry_run else metadata_digest,
+                project_root=cfg.root,
+            )
+        else:
+            if not dry_run:
+                record_function_identity(
+                    cfg.metadata_dir,
+                    module=module,
+                    va=address,
+                    file=identity["file"],
+                    kind="LIBRARY",
+                    name=identity["name"],
+                    symbol=identity["symbol"],
+                    updated_by="match",
+                )
+            result = {"action": "record"}
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
     payload = {

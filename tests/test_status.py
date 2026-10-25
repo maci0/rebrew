@@ -330,6 +330,51 @@ class TestCollectStatus:
         assert report.library_identified == 1
         assert report.covered_functions == 1
 
+    def test_zero_extent_library_row_owns_unclaimed_bytes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An identified LIBRARY row without a recorded SIZE owns the bytes up to
+        the next known start, so they stop counting as NO_FUNCTION. The derived
+        span never covers bytes another row already claims."""
+        import json
+
+        from bin_util import make_pe
+
+        import rebrew.naming
+
+        cfg = _make_cfg(tmp_path)
+        cfg.target_binary.write_bytes(make_pe(b"\x90" * 0x30))
+        cfg.reversed_dir.mkdir()
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            json.dumps([{"va": 0x401000, "size": 1}]), encoding="utf-8"
+        )
+        existing = {
+            0x401000: {
+                "filename": "a.c",
+                "size": "1",
+                "status": "EXACT",
+                "module": "TEST",
+                "kind": "FUNCTION",
+            },
+            0x401010: {
+                "filename": "library_x.h",
+                "status": "STUB",
+                "module": "TEST",
+                "kind": "LIBRARY",
+            },
+        }
+        monkeypatch.setattr(
+            rebrew.naming,
+            "load_data",
+            lambda cfg, **kw: ([], existing, {0x401000: "a.c", 0x401010: "library_x.h"}),
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.library_identified == 1
+        assert report.library_derived_bytes == 0x20
+        assert report.status_bytes.get("LIBRARY") == 0x20
+        assert report.matched_bytes == 0x21
+        assert report.unattributed_bytes == 0
+
     def test_sourced_library_excluded_from_function_counts(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         cfg.reversed_dir.mkdir()

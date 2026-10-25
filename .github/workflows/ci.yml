@@ -87,9 +87,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The selected 3.14 patch runs the coverage gate;
-        # 3.13 retains compatibility coverage below the native binding ceiling.
-        python-version: ["3.13.16", "3.14.8"]
+        # Pin the supported Python release for the coverage gate.
+        python-version: ["3.14.9"]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -138,7 +137,7 @@ jobs:
         # turns the install step into a no-op.  Keyed on the helper rather
         # than the workflow: the pin lives in the script, and a key that
         # missed it would serve a validator the step never checked.
-        if: matrix.python-version == '3.14.8'
+        if: matrix.python-version == '3.14.9'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/rebrew/vnu
@@ -155,29 +154,26 @@ jobs:
         # the gate validates, and the message names both fields to bump.
         # One matrix entry is enough, both like the gates below: the two
         # tests read the checked-in tree and their result cannot differ
-        # between 3.13 and 3.14.
-        if: matrix.python-version == '3.14.8'
+        # between Python patch releases.
+        if: matrix.python-version == '3.14.9'
         run: |
           set -euo pipefail
           bin_dir="$(bash tools/ci_install_vnu.sh)"
           printf '%s\n' "$bin_dir" >> "$GITHUB_PATH"
           "$bin_dir/vnu" --version
-      - name: Run tests
-        if: matrix.python-version != '3.14.8'
-        run: make test
       - name: Run tests under the coverage floor
         # Same suite as `make test`, plus the COV_FLOOR fail-under gate
         # (AGENTS.md: coverage ratchets). One matrix entry is enough.
-        if: matrix.python-version == '3.14.8'
+        if: matrix.python-version == '3.14.9'
         run: make coverage
       - name: Fixture freshness (checked-in fixtures match the generator)
         # One matrix entry is enough: both checks read the checked-in tree
-        # with tools/ scripts, so their result cannot differ between 3.13 and
-        # 3.14. Same posture as the coverage floor above.
-        if: matrix.python-version == '3.14.8'
+        # with tools/ scripts, independently of the Python patch.
+        # Same posture as the coverage floor above.
+        if: matrix.python-version == '3.14.9'
         run: make gen-fixtures-check
       - name: Idempotency sweep (read-only commands and the write commands, run twice)
-        if: matrix.python-version == '3.14.8'
+        if: matrix.python-version == '3.14.9'
         run: make idempotency-check
 
   # Pre-commit hook parity: run the repo's own hook set (file hygiene,

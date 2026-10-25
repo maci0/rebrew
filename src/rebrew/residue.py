@@ -203,7 +203,7 @@ def _nonmatching_from_cache(cfg: Any, image_base: int, text_rva: int) -> list[tu
             va_raw = entry.get("va", "0")
             try:
                 va = int(str(va_raw), 0)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 continue
             out.append((va - image_base - text_rva, entry.get("size") or 0, entry.get("name", "?")))
     return out

@@ -1126,7 +1126,7 @@ class BinaryMatchingGA:
                 json.dumps(checkpoint.to_dict(), indent=1),
                 encoding="utf-8",
             )
-        except (OSError, TypeError, ValueError):
+        except OSError, TypeError, ValueError:
             # Best-effort, but a persistent failure silently disables
             # --resume for this run (hours of GA lost on interruption) —
             # warn once so the user knows resume will restart from scratch.
@@ -1259,7 +1259,7 @@ def read_ga_checkpoint(out_dir: Path, symbol: str) -> GACheckpoint | None:
     try:
         data = json.loads(read_json_text(ckpt))
         return GACheckpoint.from_dict(data)
-    except (OSError, ValueError, TypeError, KeyError):
+    except OSError, ValueError, TypeError, KeyError:
         log.warning(
             "Checkpoint %s is unreadable — GA restarts %s from scratch",
             ckpt,

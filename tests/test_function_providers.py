@@ -549,3 +549,70 @@ class TestExactProviderPaths:
             _run_test_impl(
                 cfg, str(source), lint_annos=rows, name_to_va={}, json_output=True, no_promote=True
             )
+
+
+class TestBindSourceWithoutPriorClaim:
+    """bind-source records a LIBRARY row for a VA with no declaration or row."""
+
+    def test_rowles_va_gets_a_library_row(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.library import app
+        from rebrew.metadata.functions import get_entry, load_metadata
+
+        cfg = _project(tmp_path)
+        source = tmp_path / "references" / "zlib-1.1.3" / "adler32.c"
+        source.parent.mkdir(parents=True)
+        source.write_text(
+            "unsigned long adler32(unsigned long a, const void *b, unsigned n)\n{ return a + n; }\n"
+        )
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+            result = CliRunner().invoke(
+                app,
+                [
+                    "bind-source",
+                    "0x10001000",
+                    str(source),
+                    "--symbol",
+                    "_adler32",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result)["provider"] == "compiled"
+        row = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
+        assert row["kind"] == "LIBRARY"
+        assert row["symbol"] == "_adler32"
+        assert row["name"] == "adler32"
+        assert row["file"] == "references/zlib-1.1.3/adler32.c"
+        assert "binding_history" not in row
+        assert ("GAME", 0x10001000) in load_metadata(cfg.metadata_dir)
+
+    def test_active_function_claim_is_refused(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.library import app
+        from rebrew.metadata.functions import record_function_identity
+
+        cfg = _project(tmp_path)
+        source = tmp_path / "references" / "adler32.c"
+        source.parent.mkdir(parents=True)
+        source.write_text("int f(void) { return 0; }\n")
+        record_function_identity(
+            cfg.metadata_dir,
+            module="GAME",
+            va=0x10001000,
+            file="src/f.c",
+            kind="FUNCTION",
+            name="f",
+            symbol="_f",
+        )
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+            result = CliRunner().invoke(
+                app,
+                ["bind-source", "0x10001000", str(source), "--symbol", "_adler32", "--json"],
+            )
+        assert result.exit_code == 2
+        assert "retire or rebind" in result.output

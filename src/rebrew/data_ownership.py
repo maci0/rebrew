@@ -153,7 +153,7 @@ def ownership_inputs(cfg: ProjectConfig) -> set[Path]:
                 for row in rows:
                     source = Path(row["file"])
                     paths.add(source if source.is_absolute() else Path(row["directory"]) / source)
-            except (OSError, ValueError, KeyError, TypeError):
+            except OSError, ValueError, KeyError, TypeError:
                 # The ownership scanner reports malformed compile commands.
                 pass
     return paths

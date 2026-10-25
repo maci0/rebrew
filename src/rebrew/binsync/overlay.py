@@ -619,7 +619,7 @@ def overlay_state(
         try:
             src_info = load_binary(cfg_src.target_binary)
             dst_info = load_binary(cfg.target_binary)
-        except (OSError, ValueError):
+        except OSError, ValueError:
             log.warning("global overlay: cannot load binaries", exc_info=True)
         else:
             # Group source blobs by section so each is searched only in the

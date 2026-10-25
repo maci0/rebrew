@@ -106,7 +106,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _failed_result(status: "CompareStatus", message: str = "") -> "CompareResult":
+def _failed_result(status: CompareStatus, message: str = "") -> CompareResult:
     """Create a failed CompareResult with default zero values."""
     from rebrew.compiler.compile import CompareResult
 
@@ -197,12 +197,12 @@ def _entry_symbol(entry: Any) -> str:
 def verify_entry(
     entry: SourceBinding,
     cfg: ProjectConfig,
-    cache: "CacheBackend | None" = None,
+    cache: CacheBackend | None = None,
     *,
     name_to_va: dict[str, int] | None = None,
-    context: "CompileContext | None" = None,
+    context: CompileContext | None = None,
     _precompiled_obj: str | None = None,
-) -> "CompareResult":
+) -> CompareResult:
     """Compile a .c file and compare output bytes against DLL.
 
     Delegates to ``compile_and_compare`` for the compile→extract→compare flow.
@@ -1198,7 +1198,7 @@ def main(
                 if _r == _b and _rs.raw_size:
                     _dsec = _sname
                     break
-        except (OSError, ValueError, KeyError, AttributeError):
+        except OSError, ValueError, KeyError, AttributeError:
             _dsec = None
         if _dsec and not raw_link and not json_output:
             console.print(
@@ -1507,7 +1507,7 @@ def main(
 
 def _promote_linked(
     cfg: Any,
-    batch: "BatchResult",
+    batch: BatchResult,
     built: Path,
     placed_vas: set[int],
     *,
@@ -1595,7 +1595,7 @@ def run_batch(
     batch_file: str | None = None,
     nolib: bool = False,
     no_promote: bool = False,
-    context: "CompileContext | None" = None,
+    context: CompileContext | None = None,
 ) -> BatchResult:
     """Shared batch pipeline: scan → scope → compile → STATUS sync.
 
@@ -1710,7 +1710,7 @@ def build_report(
     duplicate_vas: list[dict[str, str]],
     *,
     dry_run: bool,
-    compile_context: "CompileContext | None",
+    compile_context: CompileContext | None,
     provenance: str,
     library_excluded: int = 0,
     orphans_pruned: int = 0,
@@ -1800,7 +1800,7 @@ def _save_report(
     output_path: str | None,
     dry_run: bool,
     json_output: bool,
-    compile_context: "CompileContext | None",
+    compile_context: CompileContext | None,
     fix_sizes: bool,
     orphans_pruned: int,
     functions_checked: bool = True,
@@ -2025,7 +2025,7 @@ def _save_report(
                 for d in under:
                     try:
                         _va = int(str(d["va"]), 16)
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         continue
                     for _sva, _soff, _sraw in _secs:
                         if _sva <= _va < _sva + _sraw:
@@ -2222,7 +2222,7 @@ def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
     for r in v_results:
         try:
             va_int = int(r["va"], 16)
-        except (ValueError, TypeError, KeyError):
+        except ValueError, TypeError, KeyError:
             continue
         if r.get("status") == "INTERNAL_ERROR":
             continue
@@ -2401,7 +2401,7 @@ def _inventory_count(cfg: ProjectConfig, reversed_dir: Path) -> int:
     try:
         data = _json.loads(read_json_text(path))
         return len(data) if isinstance(data, list) else 0
-    except (OSError, _json.JSONDecodeError, ValueError):
+    except OSError, _json.JSONDecodeError, ValueError:
         return 0
 
 
@@ -2521,7 +2521,7 @@ def prepare_entries(
     cfg: ProjectConfig,
     full: bool,
     json_output: bool,
-    context: "CompileContext | None" = None,
+    context: CompileContext | None = None,
 ) -> tuple[
     list[SourceBinding],
     int,
@@ -2811,7 +2811,7 @@ def run_verification(
     total: int,
     cached_count: int,
     json_output: bool,
-    context: "CompileContext | None" = None,
+    context: CompileContext | None = None,
     name_to_va: dict[str, int] | None = None,
 ) -> tuple[
     int,
@@ -2844,7 +2844,7 @@ def run_verification(
         from rebrew.compiler.cache import get_project_cache
 
         compile_cache = get_project_cache(cfg)
-    except (ImportError, OSError):
+    except ImportError, OSError:
         compile_cache = None
 
     # Shared once for the whole batch — same catalog `rebrew test` uses.
@@ -2860,7 +2860,7 @@ def run_verification(
 
     def _verify(
         e: SourceBinding,
-    ) -> tuple[SourceBinding, "CompareResult"]:
+    ) -> tuple[SourceBinding, CompareResult]:
         precompiled = _batch_objs.get(id(e)) if _batch_objs else None
         return (
             e,

@@ -416,7 +416,7 @@ def _plan_function(
         try:
             filepath = (Path(cfg.reversed_dir) / rel).resolve()
             filepath.relative_to(Path(cfg.reversed_dir).resolve())
-        except (ValueError, OSError, TypeError):
+        except ValueError, OSError, TypeError:
             error_exit(f"function file escapes reversed_dir: {rel!r}", json_mode=json_output)
         selected = Selection(KIND_FUNCTION, module, va)
     # A library header alias can share the compiled definition's native identity.
@@ -481,7 +481,7 @@ def _match_functions(cfg: Any, entries: list[Any], target_ident: str) -> list[An
     va_ident = _parse_va(target_ident)
     try:
         rev_rel = Path(cfg.reversed_dir).relative_to(cfg.root)
-    except (ValueError, TypeError, AttributeError):
+    except ValueError, TypeError, AttributeError:
         rev_rel = Path(cfg.reversed_dir)
     target_norm = unicodedata.normalize("NFC", target_ident)
     matches = []

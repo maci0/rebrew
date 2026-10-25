@@ -546,12 +546,12 @@ class TestPackagingMetadata:
         )
 
     def test_requires_python_matches_ci_floor(self) -> None:
-        assert _project()["requires-python"] == ">=3.13"
+        assert _project()["requires-python"] == ">=3.14"
         python_version = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
         assert re.fullmatch(r"3\.14\.\d+", python_version)
         # The package job takes the shared action's default python-version.
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        assert f'python-version: ["3.13.16", "{python_version}"]' in workflow
+        assert f'python-version: ["{python_version}"]' in workflow
         package_job = workflow.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
         assert "uses: ./.github/actions/uv-env" in package_job
         assert "python-version:" not in package_job

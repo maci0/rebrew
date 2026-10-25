@@ -152,8 +152,8 @@ def _lookup_section(
 
 
 def _build_label_index(
-    data_labels: dict[int, "GhidraDataLabel"],
-) -> tuple[list[int], list[tuple[int, "GhidraDataLabel"]], list[int]]:
+    data_labels: dict[int, GhidraDataLabel],
+) -> tuple[list[int], list[tuple[int, GhidraDataLabel]], list[int]]:
     """Build sorted label boundaries for O(log n) lookup.
 
     Returns ``(sorted_starts, label_info, prefix_max_end)`` where
@@ -172,8 +172,8 @@ def _build_label_index(
 
 def _find_ghidra_data_label(
     va: int,
-    _label_index: tuple[list[int], list[tuple[int, "GhidraDataLabel"]], list[int]] | None,
-) -> tuple[int, "GhidraDataLabel"] | None:
+    _label_index: tuple[list[int], list[tuple[int, GhidraDataLabel]], list[int]] | None,
+) -> tuple[int, GhidraDataLabel] | None:
     """Return (label_va, label_dict) if *va* falls inside a known Ghidra data label region.
 
     Uses O(log n) bisect lookup against a pre-built sorted index
@@ -492,7 +492,7 @@ def build_coverage_data(
                 # otherwise pass the guard and reach the cell arithmetic below.
                 try:
                     size = int(gdata.get("size", 4))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     size = 0
                 if size <= 0:
                     continue

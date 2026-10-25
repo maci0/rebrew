@@ -186,7 +186,7 @@ def layout_fingerprint(binary_path: Path) -> str:
         from rebrew.formats.binary_loader import load_binary
 
         info = load_binary(binary_path)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return ""
     h = hashlib.sha256()
     if info.format == "pe":

@@ -66,7 +66,7 @@ def read_calibrated_tail(path: Path) -> int | None:
         return None
     try:
         text, _encoding = read_source_text(path)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
     if _AUTO_MARKER not in text:
         return None

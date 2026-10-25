@@ -125,7 +125,7 @@ def signature_for(cfg: ProjectConfig, code: bytes, va: int) -> dict[str, Any] | 
                         and all(b in PADDING_BYTES for b in code[extent:])
                     ):
                         code = code[:extent]
-        except (OSError, ValueError):
+        except OSError, ValueError:
             pass
     return disasm_signature(
         code,
@@ -206,7 +206,7 @@ def disasm_sizes(cfg: ProjectConfig, vas: list[int]) -> tuple[dict[int, int], li
     for va in vas:
         try:
             got = function_extent_from_disasm(cfg.target_binary, va, with_kind=True)
-        except (OSError, ValueError):
+        except OSError, ValueError:
             got = None
         if got is None:
             refused.append(va)

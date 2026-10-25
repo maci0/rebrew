@@ -103,7 +103,7 @@ def _is_x86_16_or_32(cs_arch: str | int, cs_mode: str | int) -> bool:
     try:
         arch = resolve_capstone(cs_arch)
         mode = resolve_capstone(cs_mode)
-    except (AttributeError, TypeError, ValueError):
+    except AttributeError, TypeError, ValueError:
         return False
     return arch == capstone.CS_ARCH_X86 and mode in (capstone.CS_MODE_16, capstone.CS_MODE_32)
 

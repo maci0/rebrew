@@ -79,7 +79,7 @@ def function_definition_hashes(source: str) -> dict[str, str]:
 @lru_cache(maxsize=16)
 def _read(
     path: Path, backend: str, root: Path, fingerprint: tuple[tuple[str, int, int, int, int], ...]
-) -> tuple[tuple[AssemblyProvenance, ...], tuple["SourceFilePurpose", ...]]:
+) -> tuple[tuple[AssemblyProvenance, ...], tuple[SourceFilePurpose, ...]]:
     document = metadata_store(path, backend=backend, root=root).read("source metadata")
     parse_metadata_doc(
         document, known_fields=_FUNCTION_FIELDS, source=str(path), version=FUNCTION_FORMAT_VERSION

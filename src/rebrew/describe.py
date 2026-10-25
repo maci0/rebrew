@@ -152,7 +152,7 @@ def _build_lookup(
             va = int(f["va"])
             size = int(f["size"])
             name = str(f["name"])
-        except (TypeError, ValueError, KeyError):
+        except TypeError, ValueError, KeyError:
             # ``cached_function_list`` already warns when the file cannot be
             # read, so reaching here means the inventory parsed but holds a
             # malformed entry.  Without the function list, containing-function

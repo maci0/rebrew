@@ -263,7 +263,7 @@ def load_data(
     cfg: ProjectConfig,
     *,
     tree: Sequence[Path] | None = None,
-) -> tuple[list["FunctionEntry"], dict[int, dict[str, str]], dict[int, str]]:
+) -> tuple[list[FunctionEntry], dict[int, dict[str, str]], dict[int, str]]:
     """Load all project data.
 
     Returns (ghidra_funcs, existing, covered_vas) where:
@@ -384,7 +384,7 @@ def load_data(
     if binary is not None and Path(binary).is_file():
         try:
             info = load_binary(Path(binary))
-        except (OSError, KeyError, ValueError):
+        except OSError, KeyError, ValueError:
             info = None
         if info is not None and info.arch.startswith("x86"):
             starts = {f.va for f in ghidra_funcs} | existing.keys()
@@ -411,7 +411,7 @@ def load_data(
     return ghidra_funcs, existing, covered_vas
 
 
-def _clip_to_next_start(funcs: list["FunctionEntry"], annotated: Iterable[int]) -> None:
+def _clip_to_next_start(funcs: list[FunctionEntry], annotated: Iterable[int]) -> None:
     """Cut each inventory size at the next known function start, in place.
 
     A discoverer that misses a start reports the previous entry running
@@ -425,7 +425,7 @@ def _clip_to_next_start(funcs: list["FunctionEntry"], annotated: Iterable[int]) 
 
 
 def inside_annotated_vas(
-    funcs: list["FunctionEntry"], existing: dict[int, dict[str, str]]
+    funcs: list[FunctionEntry], existing: dict[int, dict[str, str]]
 ) -> set[int]:
     """Inventory VAs strictly inside an annotated function's span.
 
@@ -477,7 +477,7 @@ def scope_to_target(
 
 def external_vas(
     existing: dict[int, dict[str, str]],
-    external_libs: "dict[str, str] | set[str] | list[str] | None" = None,
+    external_libs: dict[str, str] | set[str] | list[str] | None = None,
 ) -> set[int]:
     """VAs whose row is external ``.lib`` code — "not our work".
 

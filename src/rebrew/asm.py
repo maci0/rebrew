@@ -180,7 +180,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
                     # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
                     display = entry.name or c_name_from_symbol(entry.symbol) or cfile.stem
                     lookup[entry.va] = (display, entry.status)
-            except (OSError, KeyError, ValueError, TypeError):
+            except OSError, KeyError, ValueError, TypeError:
                 # The file drops out of the VA map, so calls to it resolve to
                 # the raw Ghidra name with nothing saying the source failed.
                 logger.debug("VA map: skipping %s", cfile, exc_info=True)
@@ -570,7 +570,7 @@ def next_function_va(cfg: ProjectConfig, va: int) -> int | None:
 
     try:
         vas = cached_sorted_function_vas(cfg)
-    except (OSError, ValueError, KeyError):
+    except OSError, ValueError, KeyError:
         return None
     idx = bisect.bisect_right(vas, va)
     return vas[idx] if idx < len(vas) else None
@@ -1806,7 +1806,7 @@ def _list_size_for(cfg: ProjectConfig, va_int: int) -> int | None:
         for f in cached_function_list(cfg):
             if int(f["va"]) == va_int:
                 return int(f["size"])
-    except (OSError, ValueError, KeyError):
+    except OSError, ValueError, KeyError:
         return None
     return None
 

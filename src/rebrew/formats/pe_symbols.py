@@ -467,7 +467,7 @@ def export_table(pe: Any) -> Any | None:
         return None
     try:
         return get_export()
-    except (AttributeError, TypeError, ValueError, RuntimeError):
+    except AttributeError, TypeError, ValueError, RuntimeError:
         return None
 
 
@@ -774,7 +774,7 @@ def as_list(obj: Any, attr: str) -> list[Any]:
     """``obj.attr`` as a list, or ``[]`` when missing or not iterable."""
     try:
         value = getattr(obj, attr, None)
-    except (AttributeError, TypeError, ValueError, RuntimeError):
+    except AttributeError, TypeError, ValueError, RuntimeError:
         return []
     if value is None:
         return []
@@ -798,5 +798,5 @@ def _int_or_none(value: Any) -> int | None:
         return int(value)
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None

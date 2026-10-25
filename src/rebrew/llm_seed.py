@@ -1192,7 +1192,7 @@ def _load_response_json(resp: Any, *, deadline_s: float | None = None) -> Any:
     if cl_raw is not None:
         try:
             declared = int(cl_raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             # Non-numeric Content-Length: fall through to the body check.
             pass
         else:

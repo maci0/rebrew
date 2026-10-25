@@ -690,7 +690,7 @@ def docker_available(runtime: str | None = None) -> bool:
             timeout=15,
         )
         ok = r.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         ok = False
     if ok:
         with _DOCKER_MEMO_LOCK:
@@ -820,7 +820,7 @@ def cached_image_digest(image: str, *, runtime: str | None = None) -> str:
         )
         if r.returncode == 0:
             digest = image_content_id(r.stdout)
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         digest = ""
     if digest:
         with _DOCKER_MEMO_LOCK:
@@ -926,7 +926,7 @@ def image_environment(image_id: str) -> dict[str, str] | None:
         ):
             return None
         return dict(v.split("=", 1) for v in values)
-    except (OSError, ValueError, subprocess.TimeoutExpired):
+    except OSError, ValueError, subprocess.TimeoutExpired:
         return None
 
 

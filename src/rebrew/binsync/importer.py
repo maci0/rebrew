@@ -316,7 +316,7 @@ def _inside_project(fp: Path, cfg: Any) -> bool:
     """
     try:
         resolved = fp.resolve()
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return False
     for root in (getattr(cfg, "reversed_dir", None), getattr(cfg, "shared_dir", None)):
         if root is None:
@@ -324,7 +324,7 @@ def _inside_project(fp: Path, cfg: Any) -> bool:
         try:
             if resolved.is_relative_to(Path(root).resolve()):
                 return True
-        except (OSError, ValueError):
+        except OSError, ValueError:
             continue
     return False
 
@@ -490,7 +490,7 @@ def _inventory_size(cfg: Any, va: int) -> int:
         try:
             if int(func.get("va", -1)) == va:
                 return int(func.get("size") or 0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return 0
 

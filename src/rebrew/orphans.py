@@ -98,7 +98,7 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
         try:
             if int(va):
                 known_vas.add(int(va))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     target_module_name = target_module(cfg)
     fn_orphans = [

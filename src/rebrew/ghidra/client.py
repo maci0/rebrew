@@ -210,7 +210,7 @@ def _response_within_limit(resp: McpResponse, tool_name: str, request_id: int | 
     if declared_raw is not None:
         try:
             declared = int(declared_raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             declared = None
         if declared is not None and declared > MAX_MCP_RESPONSE_BYTES:
             logger.warning(
@@ -223,7 +223,7 @@ def _response_within_limit(resp: McpResponse, tool_name: str, request_id: int | 
             return False
     try:
         actual = len(resp.text.encode("utf-8", errors="replace"))
-    except (AttributeError, TypeError, ValueError):
+    except AttributeError, TypeError, ValueError:
         return True
     if actual > MAX_MCP_RESPONSE_BYTES:
         logger.warning(
@@ -295,7 +295,7 @@ def _call_mcp_tool(
                 return None
             try:
                 data = JsonRpcResponse.from_dict(resp.json())
-            except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+            except ValueError, json.JSONDecodeError, UnicodeDecodeError:
                 logger.warning(
                     "MCP tool %s request %s returned invalid JSON from %s",
                     tool_name,
@@ -620,11 +620,11 @@ def _paginate_mcp_list(
         # server sends a short or empty page, bounded by MAX_MCP_ITEMS.
         try:
             total = int(metadata["totalCount"])
-        except (KeyError, ValueError, TypeError):
+        except KeyError, ValueError, TypeError:
             total = -1
         try:
             next_start = int(metadata.get("nextStartIndex", start + batch_size))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             next_start = start + batch_size
         # Stop on a server that echoes nextStartIndex without advancing,
         # which would otherwise loop forever.
@@ -931,7 +931,7 @@ def apply_commands_via_mcp(
                 else:
                     try:
                         data = JsonRpcResponse.from_dict(resp.json())
-                    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+                    except ValueError, json.JSONDecodeError, UnicodeDecodeError:
                         return False, "invalid MCP JSON-RPC response"
                 if not data:
                     return False, "missing MCP JSON-RPC response"

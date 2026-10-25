@@ -976,7 +976,7 @@ def _without_msvc_switches(flags: list[str]) -> list[str]:
 
 def effective_compile_flags(
     cfg: ProjectConfig,
-    spec: "ToolchainSpec | None",
+    spec: ToolchainSpec | None,
     cflags: list[str] | str,
     src_parent: Path,
 ) -> list[str]:
@@ -1009,7 +1009,7 @@ def effective_compile_flags(
     if shared is not None:
         try:
             is_shared = Path(src_parent).resolve().is_relative_to(Path(shared).resolve())
-        except (OSError, ValueError):
+        except OSError, ValueError:
             is_shared = False
         if is_shared:
             prefix = "-I" if (spec is not None and spec.flags_style == "posix") else "/I"
@@ -1183,7 +1183,7 @@ _SHA256_HEX_LEN = 64
 _SHA256_HEX_RE = re.compile(rf"^[0-9a-f]{{{_SHA256_HEX_LEN}}}$")
 
 
-def _native_toolchain_id(spec: "ToolchainSpec") -> str | None:
+def _native_toolchain_id(spec: ToolchainSpec) -> str | None:
     """The compile-cache toolchain id for a host-only (native) compiler.
 
     Image-backed specs key on the admitted docker image id
@@ -1281,7 +1281,7 @@ def _native_binary_digest(path: Path) -> str | None:
         return None
 
 
-def _toolchain_cache_id(spec: "ToolchainSpec", image_id: str | None) -> str | None:
+def _toolchain_cache_id(spec: ToolchainSpec, image_id: str | None) -> str | None:
     """``<tag>@<sha256:64 hex>`` for an admitted image id, or None.
 
     The tag is display metadata.  A missing or malformed id is not a cache
@@ -1534,7 +1534,7 @@ def _cache_src_name(name: str) -> str:
 
 def _cache_key_for(
     cfg: ProjectConfig,
-    spec: "ToolchainSpec | None",
+    spec: ToolchainSpec | None,
     source_content: str,
     src_name: str,
     all_flags: list[str],
@@ -2019,7 +2019,7 @@ def _msvc_batch_args(prefix: list[str], sources: list[str], workdir: Path) -> li
 
 
 def compile_batch_objs(
-    spec: "ToolchainSpec",
+    spec: ToolchainSpec,
     src_names: list[str],
     all_flags: list[str],
     workdir: Path,

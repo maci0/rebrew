@@ -1,5 +1,63 @@
 ## [Unreleased]
 
+## [6.2.0] - 2026-10-25
+
+### Added
+
+- Identified LIBRARY rows that carry no recorded SIZE now own the unclaimed
+  `.text` bytes up to the next known start, instead of leaving them in the
+  NO_FUNCTION bucket. A coarse inventory row or a started row always wins, so a
+  derived span never covers bytes another row claims; `status --json` reports the
+  attributed total as `library_derived_bytes`. On the project that drove the
+  change, 96,985 unattributed bytes fell to 52,660 with 44,371 attributed.
+
+
+### Changed
+
+- **Breaking:** Require Python 3.14+, pin development and CI to 3.14.9, and
+  refresh dependencies to their latest stable releases. Use deferred annotations
+  to remove redundant forward-reference quotes and make byte comparison
+  truncation explicit with `map(strict=False)`.
+
+- **Breaking:** Forward-reference annotations are now unquoted on
+  `FunctionEntry.from_dict`, `GhidraDataLabel.from_dict`, `JsonRpcError.from_dict`,
+  `JsonRpcResponse.from_dict`, `McpToolContent.from_dict`, `McpToolResult.from_dict`,
+  `build_report`, `collect_all`, `compile_batch_objs`, `effective_compile_flags`,
+  `external_vas`, `inside_annotated_vas`, `interruptible_pool`, `load_data`,
+  `load_verify_entries`, `msvc_env_from_config`, `prepare_entries`, `run_batch`,
+  `run_verification`, `sections_from_info`, `verify_entry`. Callers inspecting
+  annotation text should use `typing.get_type_hints()` to resolve types.
+
+### Fixed
+
+- The `postlink-mangled` todo lane compared absolute VAs between the configured
+  raw link and the built image even when the two links placed `.text` at
+  different spans, so shifted functions sampled unrelated bytes and the lane
+  reported rewrites that never happened. The lane now requires matching `.text`
+  VA and virtual size before comparing, and stays silent otherwise.
+- A stale source file whose `ADDRESS` comment points at a retired binding no
+  longer aborts the whole source scan. The scan logs which anchor it skipped and
+  continues, so one leftover skeleton cannot fail every unrelated compile with
+  "native source binding is retired"; the anchor's row still refuses new
+  verdicts until it is rebound through the reviewed path.
+
+### Added
+
+- `rebrew binary imports mark --rebind-retired` replaces a retired source claim
+  with the LIBRARY import identity through the reviewed binding-history writer.
+  The batch previously aborted on the first retired row, leaving linker import
+  forwarders unclassified after a skeleton-claim retirement.
+- `rebrew library adopt` accepts a native VA with no metadata row: the unique
+  archive match sizes the row from the discovery inventory and records the
+  `LIBRARY` identity directly, while a prior claim or retired binding still goes
+  to `binding_history`.
+- `rebrew library bind-source` accepts a VA with no library declaration or row,
+  a retired row, or an existing `LIBRARY` row. An active non-library claim is
+  still refused so a reviewed retire or rebind comes first.
+- `rebrew library adopt` derives a valid LIBRARY display name from an archive
+  symbol that has no C identifier (C++ mangled or static data names); the native
+  symbol is stored exactly.
+
 ## [6.1.1] - 2026-10-25
 
 ### Fixed

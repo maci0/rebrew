@@ -45,7 +45,7 @@ def resolve_runner_path(runner: str, root: Path) -> str:
     return str(root / rp)
 
 
-def msvc_env_from_config(cfg: "ProjectConfig") -> dict[str, str]:
+def msvc_env_from_config(cfg: ProjectConfig) -> dict[str, str]:
     """Return a subprocess env dict with MSVC6 VCVARS-equivalent variables.
 
     Derives INCLUDE, LIB, PATH, and WINEPATH from the compiler configuration.

@@ -110,7 +110,7 @@ def _as_int(value: object, default: int = 0) -> int:
         return default
     try:
         return int(str(value), 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 
@@ -795,7 +795,7 @@ def _write_manifest(
             parsed = tomlkit.parse(manifest_path.read_text(encoding="utf-8-sig"))
             if isinstance(parsed, dict):
                 existing = dict(parsed)
-        except (OSError, TypeError, ValueError, tomlkit.exceptions.TOMLKitError):
+        except OSError, TypeError, ValueError, tomlkit.exceptions.TOMLKitError:
             existing = None
     if existing is not None and existing.get("content_hash") == content_hash:
         same_target = not target or existing.get("target") == target

@@ -26,7 +26,7 @@ from __future__ import annotations
 # and a commit-pinned git dependency are recorded by name.
 PATH_OR_GIT_LICENSES = {
     "m2c": "GPL-3.0-only",
-    # resembl 3.6.1 declares License-Expression: GPL-3.0-only (PEP 639).
+    # resembl 3.7.0 declares License-Expression: GPL-3.0-only (PEP 639).
     # There is no free-text License field on that artifact.
     "resembl": "GPL-3.0-only",
 }
@@ -144,7 +144,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     "typing-inspection==0.4.4": "MIT",
     "uefi-firmware==1.16": "BSD-3-Clause",
     "virtualenv==21.14.13": "MIT",
-    "wcwidth==0.9.3": "License :: OSI Approved :: MIT License",
+    "wcwidth==0.9.4": "License :: OSI Approved :: MIT License",
     "z3-solver==5.3.1.0": "MIT License",
     "zstandard==0.25.0": "BSD-3-Clause",
 }

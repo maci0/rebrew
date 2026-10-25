@@ -491,7 +491,7 @@ def _get_pe_symbol_size(exe_path: Path, symbol: str) -> int | None:
                 return int(size)
 
         return None
-    except (ImportError, OSError, AttributeError, ValueError):
+    except ImportError, OSError, AttributeError, ValueError:
         return None
 
 

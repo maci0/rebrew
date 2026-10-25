@@ -217,7 +217,7 @@ def contained_path(roots: Path | str | Sequence[Path | str], relative: str | Pat
             (resolved for root in base if path_is_relative_to(resolved, resolved_path(root))),
             None,
         )
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
 
 

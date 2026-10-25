@@ -915,7 +915,7 @@ def _json_requested(argv: list[str] | None = None) -> bool:
 def _stdout_is_fifo() -> bool:
     try:
         return stat.S_ISFIFO(os.fstat(sys.stdout.fileno()).st_mode)
-    except (OSError, ValueError):  # stdout replaced by an in-memory stream
+    except OSError, ValueError:  # stdout replaced by an in-memory stream
         return False
 
 
@@ -1066,7 +1066,7 @@ def parse_va(va_str: str, *, json_mode: bool = False) -> int:
 def stdin_is_tty() -> bool:
     try:
         return sys.stdin.isatty()
-    except (AttributeError, ValueError, OSError):  # stdin closed or replaced
+    except AttributeError, ValueError, OSError:  # stdin closed or replaced
         return False
 
 
@@ -1094,7 +1094,7 @@ def confirm_abort(prompt: str, *, skip_flag: str = "--force") -> None:
         )
     try:
         answer = typer.confirm(prompt, err=True)
-    except (typer.Abort, ClickAbort, EOFError, OSError):
+    except typer.Abort, ClickAbort, EOFError, OSError:
         answer = False
     if answer:
         return
@@ -1215,7 +1215,7 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
                 or unicodedata.normalize("NFC", src.relative_to(src_dir).as_posix()) == arg_norm
             ):
                 return src
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             pass
 
     for src in sources:
@@ -1248,7 +1248,7 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
                     metadata_dir=getattr(cfg, "metadata_dir", None),
                     project_root=getattr(cfg, "root", None),
                 )
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 logging.debug("Skipping %s during source resolution", src, exc_info=True)
                 continue
             for ann in annos:

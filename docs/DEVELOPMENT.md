@@ -3,6 +3,21 @@
 Practical knowledge for contributing to rebrew.  For conventions and layout
 see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
 
+## Python and dependency baseline
+
+Use Python 3.14.9 (`.python-version`); the package requires Python 3.14+.
+Ruff targets Python 3.14, including deferred annotations and unparenthesized
+exception lists. Byte comparisons intentionally use `map(strict=False)` when
+only the shared prefix contributes matches.
+
+`uv lock --upgrade` selects the latest stable versions permitted by upstream
+requirements. The remaining older transitive versions are intentional:
+`cle` pins `arpy==1.1.1`; `pyvex` requires `bitstring<5`, whose 4.4.0 release
+requires `tibs<0.6`; `angr` requires `pycparser~=3.11.0`; and the pinned m2c
+Git HEAD requires `graphviz<0.21.0`. Update those owners before changing their
+transitives. The PyPI package named `m2c` is unrelated to the decompiler and
+must never replace the Git dependency.
+
 ## Test conventions
 
 - No `conftest.py`: every test file is self-contained (inline helpers, `tmp_path`).
@@ -159,7 +174,7 @@ tests, which `tests/test_dashboard.py` skips without it). Native runner tests
 require **cc**, **pkg-config** and **json-c development files**
 (`apt install build-essential pkg-config libjson-c-dev` on Debian/Ubuntu);
 `make test`, `make coverage` and `make doctor` preflight them. Bootstrap also needs
-sibling `../resembl` at tag `v3.6.1`
+sibling `../resembl` at tag `v3.7.0`
 whose `HEAD` is the `RESEMBL_SHA` commit (CI `resembl-sha`): `make setup`
 checks both and prints the clone or checkout line when either is wrong.  `make help`
 lists every contributor target.

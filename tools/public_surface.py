@@ -159,7 +159,7 @@ def _render_expr(node: ast.expr | None) -> str:
     if isinstance(node, _Literal):
         try:
             return repr(ast.literal_eval(node))
-        except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        except ValueError, TypeError, SyntaxError, MemoryError, RecursionError:
             return ast.unparse(node)
     return ast.unparse(node)
 
@@ -225,7 +225,7 @@ def _resolve_value(
     if node is not None:
         try:
             value = ast.literal_eval(node)
-        except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        except ValueError, TypeError, SyntaxError, MemoryError, RecursionError:
             return _UNRESOLVED
         return value if _is_const(value) else _UNRESOLVED
     origin = imported.get(module, {}).get(name) if hops else None

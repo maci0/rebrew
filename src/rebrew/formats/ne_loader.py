@@ -487,7 +487,7 @@ def parse_imports(data: bytes, ne_offset: int, header: NeHeader) -> list[NeImpor
             name_off = _u16(data, modtab + i * 2)
             name, _ = _pascal_string(data, impnames + name_off)
             modules.append(NeImportModule(module=name))
-    except (struct.error, IndexError):
+    except struct.error, IndexError:
         # A malformed module reference table must not propagate — the import
         # detail below is already best-effort, so degrade to no module names.
         modules = []
@@ -530,7 +530,7 @@ def parse_imports(data: bytes, ne_offset: int, header: NeHeader) -> list[NeImpor
                     mod.imports.append(NeImport(name=nm))
                 else:
                     mod.imports.append(NeImport(ordinal=v))
-    except (struct.error, IndexError, ValueError):
+    except struct.error, IndexError, ValueError:
         # Malformed/misplaced import table — keep the module names we have.
         for mod in modules:
             mod.imports.clear()

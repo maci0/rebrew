@@ -71,7 +71,7 @@ def exported_symbol_vas(binary: Path) -> dict[str, int]:
         return {}
     try:
         image_base = int(pe.optional_header.imagebase)
-    except (AttributeError, TypeError, ValueError):
+    except AttributeError, TypeError, ValueError:
         image_base = 0
     out: dict[str, int] = {}
     for func in getattr(pe, "exported_functions", []):

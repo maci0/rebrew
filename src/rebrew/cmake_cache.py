@@ -221,7 +221,7 @@ def run_cached_cl(
                 if key is not None:
                     cache = get_project_cache(load_compile_cache_config(root))
                     record = cache.get(key)
-    except (OSError, ValueError, ConfigError):
+    except OSError, ValueError, ConfigError:
         key = None
     if key is None or cache is None or command is None:
         return run(None)
@@ -245,7 +245,7 @@ def run_cached_cl(
                     if _snapshot(root, spec, args, source, includes, image) == key:
                         candidate.replace(output)
                         replay = (saved["stdout"], saved["stderr"])
-        except (OSError, ValueError, KeyError, TypeError, binascii.Error):
+        except OSError, ValueError, KeyError, TypeError, binascii.Error:
             pass
     if replay is not None:
         sys.stdout.write(replay[0])
@@ -282,6 +282,6 @@ def run_cached_cl(
                     "stderr": stderr.getvalue(),
                 }
                 cache.put(key, json.dumps(saved).encode())
-        except (OSError, ValueError):
+        except OSError, ValueError:
             pass
     return rc

@@ -343,7 +343,7 @@ class _Project:
         for path in self.paths:
             try:
                 text, encoding = read_source_text(path)
-            except (OSError, UnicodeDecodeError):
+            except OSError, UnicodeDecodeError:
                 unreadable.append(path)
                 continue
             self.texts[path] = (text, encoding, text.encode("utf-8", errors="surrogateescape"))
@@ -1579,7 +1579,7 @@ def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
         for change in reversed(written):
             try:
                 atomic_write_text(change.path, change.old_text, encoding=change.encoding)
-            except (OSError, UnicodeEncodeError):
+            except OSError, UnicodeEncodeError:
                 logger.exception("could not restore %s after a failed rename", change.path)
         raise RenameError(
             f"rename of {plan.old_name} to {plan.new_name} failed at {current} ({exc}); "

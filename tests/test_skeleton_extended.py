@@ -125,7 +125,7 @@ class TestFetchXrefContext:
             def __init__(self, timeout: float = 30.0) -> None:
                 pass
 
-            def __enter__(self) -> "_FakeClient":
+            def __enter__(self) -> _FakeClient:
                 return self
 
             def __exit__(self, *a: object) -> None:
@@ -201,7 +201,7 @@ class TestFetchXrefContext:
             def __init__(self, timeout: float = 30.0) -> None:
                 pass
 
-            def __enter__(self) -> "_FakeClient":
+            def __enter__(self) -> _FakeClient:
                 return self
 
             def __exit__(self, *a: object) -> None:

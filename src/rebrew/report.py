@@ -814,7 +814,7 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
     try:
         info = load_binary(binary)
         strings = iter_strings(info, min_len=4)
-    except (OSError, ValueError, RuntimeError):
+    except OSError, ValueError, RuntimeError:
         return [
             (
                 "strings.html",
@@ -851,7 +851,7 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
     refs: dict[int, list[Xref]] | None
     try:
         refs = string_refs(info, strings)
-    except (OSError, ValueError, RuntimeError):
+    except OSError, ValueError, RuntimeError:
         refs = None
 
     total = len(strings)
@@ -1056,7 +1056,7 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
         )
     try:
         imports: list[dict[str, Any]] = parse_imports(binary)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return _imports_note(
             target,
             "Failed to parse imports from the target binary. Confirm "
@@ -1065,7 +1065,7 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
     stubs: dict[int, str]
     try:
         stubs = find_import_stubs(binary)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         stubs = {}
     if not imports and not stubs:
         return _imports_note(
@@ -1464,7 +1464,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
                 try:
                     va_key = int(str(key), 0)
                     pct = float(mp)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
                 # Corrupt cache entries once stored NaN; NaN * size poisons
                 # the unit/project fuzzy totals (and sorts break on NaN).  A

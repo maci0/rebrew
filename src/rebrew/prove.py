@@ -113,7 +113,7 @@ def angr_available() -> bool:
         return sys.modules["angr"] is not None
     try:
         return importlib.util.find_spec("angr") is not None
-    except (ImportError, ValueError):
+    except ImportError, ValueError:
         # find_spec can also raise when the spec machinery is unusable.
         return False
 

@@ -499,7 +499,7 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
                         weak_skipped += 1
                         continue
                     pat_lines.append(line)
-        except (OSError, KeyError, ValueError, struct.error):
+        except OSError, KeyError, ValueError, struct.error:
             # The member contributed nothing and the .pat is written without
             # it, so name it: a signature that silently went missing reads as
             # a library that exports nothing.

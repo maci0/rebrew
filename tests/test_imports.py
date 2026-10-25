@@ -714,3 +714,82 @@ def test_imports_fixture_mutation_no_crash(noise: bytes, n_flips: int) -> None:
         assert isinstance(stubs, dict)
         for sname in stubs.values():
             assert sname in table.values()
+
+
+class TestImportsMarkRebindRetired:
+    """imports --mark --rebind-retired replaces retired claims with LIBRARY rows."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            module="SERVER",
+            target_name="server.dll",
+            reversed_dir=tmp_path / "src" / "SERVER",
+            metadata_dir=tmp_path / "src",
+            root=tmp_path,
+        )
+
+    def _retired_row(self, tmp_path: Path) -> SimpleNamespace:
+        from rebrew.metadata.binding_history import change_source_binding
+        from rebrew.metadata.functions import identity_file, record_function_identity
+
+        cfg = self._cfg(tmp_path)
+        cfg.reversed_dir.mkdir(parents=True)
+        skeleton = cfg.reversed_dir / "fcn_00401000.c"
+        skeleton.write_text("/* ADDRESS: SERVER 0x401000 */\nvoid fcn_00401000(void) {}\n")
+        record_function_identity(
+            cfg.metadata_dir,
+            module="SERVER",
+            va=0x401000,
+            file=identity_file(skeleton, cfg.metadata_dir),
+            kind="FUNCTION",
+            name="fcn_00401000",
+            symbol="_fcn_00401000",
+        )
+        change_source_binding(
+            cfg.metadata_dir,
+            "SERVER",
+            0x401000,
+            reason="0x401000 is a linker import forwarder, not game source",
+            project_root=cfg.root,
+        )
+        return cfg
+
+    def test_mark_refuses_retired_without_the_flag(self, tmp_path: Path) -> None:
+        from rebrew.imports import mark_import_stubs
+
+        cfg = self._retired_row(tmp_path)
+        with pytest.raises(ValueError, match="--rebind-retired"):
+            mark_import_stubs(cfg, {0x401000: "MessageBoxA"}, dry_run=False)
+
+    def test_mark_rebinds_retired_with_the_flag(self, tmp_path: Path) -> None:
+        from rebrew.imports import mark_import_stubs
+        from rebrew.metadata.functions import get_entry
+
+        cfg = self._retired_row(tmp_path)
+        added = mark_import_stubs(
+            cfg, {0x401000: "MessageBoxA"}, dry_run=False, rebind_retired=True
+        )
+        assert added == 1
+        entry = get_entry(cfg.metadata_dir, 0x401000, "SERVER")
+        assert entry["kind"] == "LIBRARY"
+        assert entry["symbol"] == "MessageBoxA"
+        assert entry["name"] == "MessageBoxA"
+        assert entry["file"] == "src/SERVER/library_imports.h"
+        history = entry["binding_history"]
+        assert [event["action"] for event in history] == ["retire", "rebind"]
+        assert history[-1]["replacement"]["kind"] == "LIBRARY"
+        assert history[-1]["replacement"]["symbol"] == "MessageBoxA"
+        header = cfg.reversed_dir / "library_imports.h"
+        assert header.read_text(encoding="utf-8").startswith("/* Auto-generated")
+
+    def test_mark_rebind_dry_run_writes_nothing(self, tmp_path: Path) -> None:
+        from rebrew.imports import mark_import_stubs
+        from rebrew.metadata.functions import get_entry
+
+        cfg = self._retired_row(tmp_path)
+        added = mark_import_stubs(cfg, {0x401000: "MessageBoxA"}, dry_run=True, rebind_retired=True)
+        assert added == 1
+        assert not (cfg.reversed_dir / "library_imports.h").exists()
+        entry = get_entry(cfg.metadata_dir, 0x401000, "SERVER")
+        assert "kind" not in entry
+        assert len(entry["binding_history"]) == 1

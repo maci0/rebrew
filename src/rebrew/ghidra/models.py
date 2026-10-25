@@ -13,7 +13,7 @@ class JsonRpcError:
     data: Any | None = None
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any] | str | Any) -> "JsonRpcError":
+    def from_dict(cls, d: dict[str, Any] | str | Any) -> JsonRpcError:
         """Reconstruct from dictionary."""
         if isinstance(d, str):
             return cls(code=-1, message=d, data=None)
@@ -36,7 +36,7 @@ class JsonRpcResponse:
     error: JsonRpcError | None = None
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "JsonRpcResponse":
+    def from_dict(cls, d: dict[str, Any]) -> JsonRpcResponse:
         """Reconstruct from dictionary."""
         err = d.get("error")
         return cls(
@@ -55,7 +55,7 @@ class McpToolContent:
     text: str
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "McpToolContent":
+    def from_dict(cls, d: dict[str, Any]) -> McpToolContent:
         """Reconstruct from dictionary."""
         return cls(type=str(d.get("type", "")), text=str(d.get("text", "")))
 
@@ -68,7 +68,7 @@ class McpToolResult:
     isError: bool = False
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "McpToolResult":
+    def from_dict(cls, d: dict[str, Any]) -> McpToolResult:
         """Reconstruct from dictionary."""
         return cls(
             content=[

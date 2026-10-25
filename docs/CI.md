@@ -14,16 +14,15 @@ before the suite. This setup belongs to CI; Rebrew never changes a user's host
 security policy automatically.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
-across the supported Python versions (3.13–3.14; the 3.13 entry runs it as
-`make coverage`, failing below `COV_FLOOR`), plus, on that same 3.13 entry,
+across the supported Python versions (3.14; the pinned entry runs it as
+`make coverage`, failing below `COV_FLOOR`), plus, on that same 3.14 entry,
 a fixture-freshness
 check (`tools/gen_fixtures.py --check`) and an idempotency sweep
 (`tools/check_idempotency.py --fixture-dir`, which runs the offline `--json`
 CLI surface twice for output determinism and each mutating command twice
 against its own scratch project, requiring the first run to actually change
 it; derived `.rebrew` read caches are outside the content digest), both
-version-independent, so the 3.14 entry
-skips them; the 3.13 entry also installs the W3C validator through
+version-independent. The same job also installs the W3C validator through
 `tools/ci_install_vnu.sh`, because `tests/html_validate.py` skips when
 `vnu` is off PATH and the two HTML surfaces (the dashboard shell and
 every generated report page) would otherwise never be parsed by a
@@ -120,8 +119,7 @@ share (commit-SHA-pinned `setup-uv` / `checkout` Actions; Dependabot scans the
 action's directory as well as `.github/workflows/`).
 Lint, pre-commit, package, cli-contract, and toolchain-sync pin the exact
 Python patch from `.python-version`; the test matrix pins that patch for its
-3.13 entry (the coverage gate) and floats on the 3.14 minor for forward-compat
-coverage. Jobs run on pinned `ubuntu-24.04` (not
+3.14 entry under the coverage gate. Jobs run on pinned `ubuntu-24.04` (not
 `ubuntu-latest`). Both workflows also take `workflow_dispatch`: the apt
 install and resembl clone helpers retry three times, so a network that stays
 down past that needs a manual re-run, and re-running a failed job alone
@@ -134,7 +132,7 @@ require a target binary or MSVC toolchain.
 
 Every job that runs `uv sync` first clones the sibling `resembl` repo
 (`maci0/resembl`, tag from the action's `resembl-ref` input, currently
-`v3.6.1`) into the
+`v3.7.0`) into the
 directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
 network flake; each attempt clones into a sibling staging directory that
 replaces `../resembl` by rename only after the SHA check, so a retargeted tag
@@ -230,13 +228,13 @@ answer is reported on the first attempt.
 Branch protection on `main` must require every job in `ci.yml`; a rule that
 lists a subset leaves the rest advisory. GitHub names the checks after the job
 id, with the `test` matrix expanded per entry, so the required contexts are
-`lint`, `test (3.13.16)`, `test (3.14)`, `pre-commit`, `package`, and
+`lint`, `test (3.14.9)`, `pre-commit`, `package`, and
 `cli-contract`.
 
 | Job | Gate |
 |-----|------|
 | `lint` | ruff, ruff format, mypy, `uv audit` |
-| `test` | the full suite on 3.13 (under the coverage floor) and 3.14, fixture freshness, idempotency sweep, W3C validation of the HTML surfaces |
+| `test` | the full suite on Python 3.14 under the coverage floor, fixture freshness, idempotency sweep, W3C validation of the HTML surfaces |
 | `pre-commit` | hook parity, including shellcheck and yamllint |
 | `package` | reproducible sdist/wheel/SBOM/buildinfo, smoke install, sdist member diff, SBOM |
 | `cli-contract` | the public `--help` surfaces |

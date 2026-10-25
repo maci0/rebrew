@@ -23,8 +23,8 @@ the run instead of reaching a scanner as a blank field.
 
 Usage::
 
-    uv run --no-project --offline --python 3.13.15 python tools/generate_sbom.py
-    uv run --no-project --offline --python 3.13.15 \\
+    uv run --no-project --offline --python 3.14.9 python tools/generate_sbom.py
+    uv run --no-project --offline --python 3.14.9 \\
         python tools/generate_sbom.py -o dist/rebrew.cdx.json
     make sbom
 """

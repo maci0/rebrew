@@ -25,7 +25,7 @@ owns compiler/platform support.
 
 ## Quick Start
 
-Use Python 3.13+ and Linux x86_64 with Docker for shipped compiler profiles.
+Use Python 3.14+ and Linux x86_64 with Docker for shipped compiler profiles.
 Wine, DOSBox, and native compiler runtimes live inside their images; missing
 images require `rebrew toolchain pull <profile>` or an authorized build from
 [recompile-toolchains](https://github.com/maci0/recompile-toolchains).
@@ -118,9 +118,9 @@ replacement and teardown.
 
 ## Development
 
-Clean clone needs **uv**, **Python 3.13+** (`.python-version`), **nasm** and
+Clean clone needs **uv**, **Python 3.14+** (`.python-version`), **nasm** and
 **bun** on `PATH`, a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
-`../resembl` (tag `v3.6.1`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
+`../resembl` (tag `v3.7.0`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
 also requires `HEAD` to be the `RESEMBL_SHA` commit CI's `resembl-sha` pins), and
 **bash** for the `make clone-resembl` step below.  **bun** drives the
 `tests/dashboard_*.mjs` interaction tests, which skip without it, so `make test`
@@ -137,7 +137,7 @@ make doctor                # report every missing prerequisite (uv, ../resembl, 
                            # bun, shellcheck, yamllint, vnu, venv extras) with the fix for each;
                            # read-only, and exits non-zero only for a host tool the two steps
                            # below cannot install
-make clone-resembl         # clone sibling resembl pin (tag v3.6.1) into ../resembl
+make clone-resembl         # clone sibling resembl pin (tag v3.7.0) into ../resembl
 make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
 make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make test-one T=tests/test_annotation.py   # single-file edit-test loop

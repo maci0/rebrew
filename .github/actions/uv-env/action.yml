@@ -12,7 +12,7 @@ inputs:
   python-version:
     description: Exact Python patch for setup-uv (matches .python-version).
     required: false
-    default: "3.14.8"
+    default: "3.14.9"
   uv-version:
     description: uv installer version (never setup-uv's floating "latest").
     required: false
@@ -20,13 +20,13 @@ inputs:
   resembl-ref:
     description: Tag of maci0/resembl to clone into ../resembl (must match uv.lock).
     required: false
-    default: "v3.6.1"
+    default: "v3.7.0"
   resembl-sha:
     description: >-
       Commit the resembl-ref tag must resolve to. A retargeted tag fails the
       clone instead of silently changing the path dependency.
     required: false
-    default: "139fbdcf238551f3c294208876a314ad9392b53d"
+    default: "48c151430cc1a07d33046640100d460ef97ab1fa"
   clone-resembl:
     description: >-
       Clone the sibling resembl checkout. Set to "false" for jobs whose sync
@@ -59,7 +59,7 @@ runs:
       run: bash tools/ci_clone_resembl.sh ../resembl
 
     - name: Set up uv
-      uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       with:
         version: ${{ inputs.uv-version }}
         enable-cache: true

@@ -424,7 +424,7 @@ def _check_W028_stale_annotation(
     if host is not None and metadata is not None:
         try:
             host_size = int(metadata.get((module, host[0]), {}).get("size") or 0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             host_size = 0
         if host_size and host[0] + host_size <= va_int:
             return
@@ -987,7 +987,7 @@ def _check_W037_data_definition(
 
     try:
         rows = data_rows_for_path(cfg.metadata_dir, filepath)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return  # W031 reports an unreadable store.
     rows = [
         (module, va, entry)
@@ -1491,7 +1491,7 @@ def _check_W020_asm_dump(
             ]
             hashes = function_definition_hashes(source) if records else {}
             documented = {r.symbol for r in records if hashes.get(r.symbol) == r.source_hash}
-        except (OSError, ValueError, ImportError):
+        except OSError, ValueError, ImportError:
             # The batch artifact check reports unusable records; they never exempt assembly.
             pass
     seen: set[int] = set()

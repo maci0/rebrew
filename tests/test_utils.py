@@ -1370,7 +1370,7 @@ def _assert_grandchild_killed(pidfile: Path) -> None:
     def _alive() -> bool:
         try:
             return stat.read_text().rsplit(") ", 1)[1][0] != "Z"
-        except (FileNotFoundError, ProcessLookupError):
+        except FileNotFoundError, ProcessLookupError:
             return False
 
     deadline = time.monotonic() + 5

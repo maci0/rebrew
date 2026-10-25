@@ -45,7 +45,7 @@ def _runtime_can_bind_mount(directory: Path) -> bool:
             timeout=120,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return False
     finally:
         marker.unlink(missing_ok=True)

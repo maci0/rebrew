@@ -1214,7 +1214,7 @@ def _safe_int(value: Any, default: int, field_name: str = "integer") -> int:
         return int(value)
     try:
         return int(value)
-    except (ValueError, TypeError, OverflowError):
+    except ValueError, TypeError, OverflowError:
         _config_warn(f"Expected integer for {field_name}, got {value!r}; using default {default}")
         return default
 

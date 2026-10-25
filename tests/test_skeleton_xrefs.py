@@ -12,7 +12,7 @@ class _DummyClient:
     def __init__(self, timeout: float) -> None:
         self.timeout = timeout
 
-    def __enter__(self) -> "_DummyClient":
+    def __enter__(self) -> _DummyClient:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

@@ -171,24 +171,24 @@ class SourceFixture(str):
 
     metadata_fields: dict[str, dict[str, Any]]
 
-    def __new__(cls, text: str, metadata_fields: dict[str, dict[str, Any]]) -> "SourceFixture":
+    def __new__(cls, text: str, metadata_fields: dict[str, dict[str, Any]]) -> SourceFixture:
         instance = super().__new__(cls, text)
         instance.metadata_fields = metadata_fields
         return instance
 
     @override
-    def __add__(self, other: str) -> "SourceFixture":
+    def __add__(self, other: str) -> SourceFixture:
         fields = {**self.metadata_fields}
         if isinstance(other, SourceFixture):
             for key, values in other.metadata_fields.items():
                 fields[key] = {**fields.get(key, {}), **values}
         return SourceFixture(str.__add__(self, other), fields)
 
-    def __radd__(self, other: str) -> "SourceFixture":
+    def __radd__(self, other: str) -> SourceFixture:
         return SourceFixture(str.__add__(other, self), self.metadata_fields)
 
     @override
-    def replace(self, old: str, new: str, count: SupportsIndex = -1) -> "SourceFixture":
+    def replace(self, old: str, new: str, count: SupportsIndex = -1) -> SourceFixture:
         def replace_fields(value: Any) -> Any:
             if isinstance(value, str):
                 return value.replace(old, new, count)

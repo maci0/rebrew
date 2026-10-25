@@ -271,7 +271,7 @@ def resolve_native_callees(
                         for obj, code, masks in eligible:
                             try:
                                 native = extract_raw_bytes(binary, destination, len(code))
-                            except (OSError, ValueError):
+                            except OSError, ValueError:
                                 outcomes.append(None)
                                 continue
                             outcomes.append(

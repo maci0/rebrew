@@ -1282,7 +1282,7 @@ def _file_annotates(path: Path, va: int) -> bool:
 
     try:
         return any(a.va == va for a in read_source_bindings(path))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return False
 
 

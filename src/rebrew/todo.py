@@ -240,7 +240,7 @@ def calculate_roi(size: int, match_pct: float | None, delta: int | None) -> floa
 
 def _collect_setup_steps(
     cfg: ProjectConfig,
-    ghidra_funcs: list["FunctionEntry"],
+    ghidra_funcs: list[FunctionEntry],
     existing: dict[int, dict[str, str]],
 ) -> list[TodoItem]:
     """Detect missing project setup steps for fresh/incomplete projects.
@@ -286,7 +286,7 @@ def _collect_active_functions(
     existing: dict[int, dict[str, str]],
     size_by_va: dict[int, int],
     name_by_va: dict[int, str],
-    verify_entries: dict[str, "VerifyCacheEntry"],
+    verify_entries: dict[str, VerifyCacheEntry],
     caller_counts: dict[str, int] | None = None,
 ) -> list[TodoItem]:
     """Collect and score all incomplete functions currently tracked in the project.
@@ -316,7 +316,7 @@ def _collect_active_functions(
         # can carry alignment padding or run into a missed neighbour.
         try:
             size = int(info.get("size") or 0) or size_by_va.get(va) or 0
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             size = size_by_va.get(va) or 0
         name = info.get("symbol") or name_by_va.get(va) or f"FUN_{va:08x}"
         filename = info.get("filename", "")
@@ -626,7 +626,7 @@ def _collect_prover_candidates(
         # prefer it so the size cap below uses the true extent.
         try:
             size = int(info.get("size") or 0) or size_by_va.get(va) or 0
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             size = size_by_va.get(va) or 0
         # A negative SIZE is truthy, so it survives the `or` chain above and
         # then fails `size == 0` below, which also makes est_diff negative and
@@ -676,7 +676,7 @@ def _collect_prover_candidates(
     return items
 
 
-def load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
+def load_verify_entries(cfg: ProjectConfig) -> dict[str, VerifyCacheEntry]:
     """Load verify cache entries, returning {} on missing/corrupt cache.
 
     Mirrors status.py's target guard: each selected cache still records the
@@ -766,7 +766,7 @@ def _inferred_module(name: str) -> str:
 
 
 def _collect_new_functions(
-    ghidra_funcs: list["FunctionEntry"],
+    ghidra_funcs: list[FunctionEntry],
     existing: dict[int, dict[str, str]],
     covered_vas: dict[int, str],
     cfg: ProjectConfig,
@@ -928,7 +928,7 @@ def _collect_new_functions(
 
 
 def _collect_library_candidates(
-    ghidra_funcs: list["FunctionEntry"],
+    ghidra_funcs: list[FunctionEntry],
     existing: dict[int, dict[str, str]],
     cfg: ProjectConfig,
 ) -> list[TodoItem]:
@@ -1049,7 +1049,7 @@ def _begin_extern_cache(directory: Path) -> dict[str, Any]:
     cache_path = directory / ".rebrew" / "extern-names.json"
     try:
         payload = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+    except OSError, UnicodeError, json.JSONDecodeError, TypeError:
         payload = None
     if isinstance(payload, dict):
         for path_key, raw in payload.items():
@@ -1204,7 +1204,7 @@ def _zero_fill_tail_checker(cfg: ProjectConfig) -> Callable[[dict[str, Any]], bo
                 from rebrew.formats.binary_loader import load_binary
 
                 sections = load_binary(cfg.target_binary).sections
-            except (OSError, ValueError, KeyError, AttributeError, ImportError):
+            except OSError, ValueError, KeyError, AttributeError, ImportError:
                 sections = None
             cache["sections"] = sections
         if not sections:
@@ -1301,6 +1301,23 @@ def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
 # ---------------------------------------------------------------------------
 
 
+def _text_layout_differs(raw_info: Any, built_info: Any) -> bool:
+    """True when the two images give .text a different VA or virtual size."""
+
+    def text_span(info: Any) -> tuple[int, int] | None:
+        sections = getattr(info, "sections", None) or {}
+        section = sections.get(".text")
+        if section is None:
+            return None
+        return int(section.va), int(section.size)
+
+    raw_span = text_span(raw_info)
+    built_span = text_span(built_info)
+    if raw_span is None or built_span is None:
+        return True
+    return raw_span != built_span
+
+
 def _postlink_rewritten_checker(cfg: ProjectConfig) -> Callable[[int, int], bool]:
     """Return a predicate: did a postlink fixer rewrite this span's bytes?
 
@@ -1333,7 +1350,7 @@ def _postlink_rewritten_checker(cfg: ProjectConfig) -> Callable[[int, int], bool
                         load_binary(Path(raw)),
                         load_binary(built),
                     )
-                except (OSError, ValueError, KeyError, RuntimeError):
+                except OSError, ValueError, KeyError, RuntimeError:
                     images = None
             cache["images"] = images
         if images is None:
@@ -1342,6 +1359,13 @@ def _postlink_rewritten_checker(cfg: ProjectConfig) -> Callable[[int, int], bool
         raw_off = int(va_to_file_offset(raw_info, va))
         built_off = int(va_to_file_offset(built_info, va))
         if raw_off < 0 or built_off < 0:
+            return False
+        # Absolute VAs only compare meaningfully when both images place the same
+        # function at the same address. Two independent links order functions
+        # differently, so a shifted layout would sample unrelated bytes and report
+        # a rewrite that never happened. Compare only when the containing .text
+        # spans agree; otherwise the conservative answer is "not rewritten".
+        if _text_layout_differs(raw_info, built_info):
             return False
         return bool(
             raw_bytes[raw_off : raw_off + size] != built_bytes[built_off : built_off + size]
@@ -1368,7 +1392,7 @@ def _collect_postlink_rewritten(
     for va, info in existing.items():
         try:
             size = int(info.get("size") or 0) or size_by_va.get(va) or 0
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             size = size_by_va.get(va) or 0
         if not rewritten(va, size):
             continue
@@ -1439,7 +1463,7 @@ def _collect_missing_bindings(
 
 def collect_all(
     cfg: ProjectConfig,
-    ghidra_funcs: list["FunctionEntry"],
+    ghidra_funcs: list[FunctionEntry],
     existing: dict[int, dict[str, str]],
     covered_vas: dict[int, str],
     exclude_vas: set[int] | None = None,
@@ -1723,7 +1747,7 @@ def main(
             from rebrew.status import collect_status
 
             progress = collect_status(cfg)
-        except (OSError, ValueError, KeyError):
+        except OSError, ValueError, KeyError:
             progress = None
         else:
             if progress is not None and progress.load_error:

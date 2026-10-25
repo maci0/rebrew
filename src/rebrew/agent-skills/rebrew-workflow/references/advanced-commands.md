@@ -45,7 +45,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew binary xrefs` | Show cross-references (callers/callees) to/from a target address. |
 | `rebrew cache` | Manage the compile result cache (`rebrew cache stats` to inspect; `rebrew cache clear` refuses a non-terminal stdin, `--force` skips the prompt, and a piped answer does not approve). |
 | `rebrew binary imports list` | List import-table symbols (PE IAT/ELF/NE) and detect import stubs. |
-| `rebrew binary imports mark` | Record detected import stubs as library identifications. Preview with `--dry-run`. |
+| `rebrew binary imports mark` | Record detected import stubs as library identifications. Preview with `--dry-run`; `--rebind-retired` replaces a retired source claim with its LIBRARY identity. |
 | `rebrew binary strings` | Extract strings from binary with cross-references (`--xref`, `--section`). |
 | `rebrew library identify` | Batch identify library functions (FLIRT + imports + CRT) into `library_<module>.h`. |
 | `rebrew source clear-cflags` | Clear a saved function flag override; preview with `--dry-run --json`, inspect effective flags with `diagnose config`. |

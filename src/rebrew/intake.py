@@ -443,7 +443,7 @@ def _native_format_and_arch(bin_path: Path) -> tuple[str, str] | None:
 
     try:
         fmt, arch = detect_format_and_arch(bin_path)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
     if arch is None or (fmt, arch) == ("pe", "x86_32"):
         return None

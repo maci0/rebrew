@@ -239,7 +239,7 @@ def _parse_eh_frame(
                     if size > 0:
                         extents.append((start, size))
             pos = end
-    except (struct.error, KeyError, ValueError, IndexError, UnicodeDecodeError):
+    except struct.error, KeyError, ValueError, IndexError, UnicodeDecodeError:
         logger.debug("malformed .eh_frame record at offset 0x%x; kept what came before", pos)
     return extents
 
@@ -252,7 +252,7 @@ def _discover_eh_frame(binary: Path) -> list[tuple[int, int, str]]:
     """
     try:
         info = load_binary(binary)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return []
     if info.format != "elf":
         return []
@@ -287,7 +287,7 @@ def _discover_pdata(binary: Path) -> list[tuple[int, int, str]]:
     config.parse_exceptions = True
     try:
         pe = lief.PE.parse(str(binary), config) if lief.is_pe(str(binary)) else None
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return []
     if pe is None:
         return []
@@ -418,7 +418,7 @@ def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
     """
     try:
         info = load_binary(binary)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return []
     text = next((s for s in info.sections.values() if s.name.lower() == ".text"), None)
     if text is None:

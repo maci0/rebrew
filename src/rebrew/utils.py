@@ -1488,7 +1488,7 @@ def _descendant_pids(pid: int) -> set[int]:
             tail = stat.rsplit(")", 1)[1].split()
             child = int(entry.name)
             ppid = int(tail[1])
-        except (OSError, IndexError, ValueError):
+        except OSError, IndexError, ValueError:
             continue
         if child <= 1 or ppid <= 0:
             continue
@@ -1595,7 +1595,7 @@ def run_process_group(
 
 
 @contextlib.contextmanager
-def interruptible_pool(max_workers: int) -> Iterator["concurrent.futures.ThreadPoolExecutor"]:
+def interruptible_pool(max_workers: int) -> Iterator[concurrent.futures.ThreadPoolExecutor]:
     """A worker pool whose exit does not block on a BaseException.
 
     ``ThreadPoolExecutor.__exit__`` calls ``shutdown(wait=True)``, so a

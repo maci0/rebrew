@@ -159,7 +159,7 @@ class TestDocumentReader:
                 path.write_bytes(text.encode("utf-8", "surrogatepass"))
             try:
                 loaded = _load(path, tmp_path, "metadata")
-            except (ValueError, UnicodeError):
+            except ValueError, UnicodeError:
                 return
             for module, va in loaded:
                 assert isinstance(module, str)

@@ -71,7 +71,7 @@ def _legacy_read_path(cfg: Any, path: Path, *, baseline: bool = False) -> Path:
         return path
     try:
         raw = _read_cache_document(legacy)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return path
     matches = _baseline_identity_matches(raw, cfg) if baseline else cache_identity_matches(raw, cfg)
     return legacy if matches else path
@@ -433,7 +433,7 @@ def _cached_percent(value: Any) -> float | None:
         return None
     try:
         return _clamp_percent(float(value))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -605,7 +605,7 @@ def _read_verify_json(cache_path: Path, st: os.stat_result) -> dict[str, Any] | 
     token = [st.st_mtime_ns, st.st_size, st.st_ino]
     try:
         payload = json.loads(_verify_json_path(cache_path).read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+    except OSError, UnicodeError, json.JSONDecodeError, TypeError:
         return None
     if not isinstance(payload, dict) or payload.get("fingerprint") != token:
         return None
@@ -626,7 +626,7 @@ def _write_verify_json(cache_path: Path, st: os.stat_result, document: dict[str,
         temporary = path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
         os.replace(temporary, path)
-    except (OSError, TypeError, ValueError):
+    except OSError, TypeError, ValueError:
         return
 
 
@@ -897,7 +897,7 @@ def binary_id(cfg: ProjectConfig) -> str:
     """
     try:
         st = Path(cfg.target_binary).stat()
-    except (OSError, TypeError, AttributeError):
+    except OSError, TypeError, AttributeError:
         return ""
     return hashlib.sha256(f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}".encode()).hexdigest()
 
@@ -986,7 +986,7 @@ def verify_cache_matches_cfg(cache_path: Path, cfg: ProjectConfig) -> bool:
         return False
     try:
         data = _read_cache_document(cache_path)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return False
     return cache_identity_matches(data, cfg)
 

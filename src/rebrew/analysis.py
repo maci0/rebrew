@@ -190,7 +190,7 @@ def resolve_capstone(value: str | int) -> int:
         return value
     try:
         return int(getattr(capstone, value))
-    except (AttributeError, TypeError):
+    except AttributeError, TypeError:
         # A numeric string ("3" or "0x3") is a valid capstone constant.
         return int(value, 0)
 

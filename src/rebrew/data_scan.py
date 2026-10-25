@@ -414,7 +414,7 @@ def _begin_name_cover(metadata_dir: Path) -> dict[str, Any]:
     cache_path = metadata_dir / ".rebrew" / "name-map-cover.json"
     try:
         payload = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+    except OSError, UnicodeError, json.JSONDecodeError, TypeError:
         payload = None
     stored_files = payload.get("files") if isinstance(payload, dict) else None
     stamp_matches = isinstance(payload, dict) and payload.get("stamp") == stamp

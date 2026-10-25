@@ -3555,3 +3555,27 @@ ambiguous names and conflicting bases. Explicit bounded backing relationships
 locate interior views. Section-relative coordinates locate complete layout
 intervals without adding storage or owners. A literal's name still requires
 reviewed binding evidence. The complete raw image remains a separate check.
+
+## Attribute identified library rows that carry no recorded extent
+
+`rebrew status` reports `NO_FUNCTION` bytes for every identified LIBRARY row
+whose metadata SIZE is 0. A 1,720-row project shows 96,985 unattributed `.text`
+bytes concentrated in 39 gaps (45,554 bytes) between such rows and the next known
+start; the declared library bands contain 1,585 of those rows. The rows identify
+native D3DX8 and LIBCMT symbols from an audit link map, but no CLI writes an
+extent for them, so their bytes fall through the accounting even though the
+native symbol boundary is known.
+
+Proposed capability: when a LIBRARY row has no recorded SIZE, derive its span the
+way annotated bodies already work, from its start to the next known start
+(row or inventory) inside `.text`, and bucket those bytes as LIBRARY rather than
+unattributed. Print the derived span count so the rule stays visible, and never
+let a derived span overlap an inventory-backed row (a coarse inventory function
+that already owns the bytes wins). Replay: `.scratch/gold-o/nofn/REPORT.md` in the
+guild-rebrew project, `rebrew status --json` before and after.
+
+Related gap: `rebrew binary repair-extents --add-missing` refuses a missing
+library start whose span would overlap a coarse inventory extent
+(`0x41e555+6 overlaps inventory extent 0x41e530`), which blocks 124 of 142
+candidate starts. Splitting a coarse inventory function at native symbol
+boundaries needs its own reviewed operation before those rows can own extents.

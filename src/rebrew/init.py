@@ -286,7 +286,7 @@ def _load_scaffold_manifest(cwd: Path) -> dict[str, str]:
     """
     try:
         data = json.loads(read_json_text(cwd / _SCAFFOLD_MANIFEST))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return {}
     files = data.get("files") if isinstance(data, dict) else None
     if not isinstance(files, dict):

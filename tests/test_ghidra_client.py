@@ -855,7 +855,7 @@ class _FakeClient:
         #: ``Mcp-Session-Id`` of every DELETE (session termination).
         self.deleted: list[str] = []
 
-    def __enter__(self) -> "_FakeClient":
+    def __enter__(self) -> _FakeClient:
         return self
 
     def __exit__(self, *exc: object) -> bool:

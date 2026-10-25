@@ -1138,9 +1138,20 @@ def source_bindings(
             ):
                 continue
             if retired_binding(stored):
-                raise ValueError(
-                    "native source binding is retired; use an explicit reviewed rebind"
+                # A retired binding with a remaining ADDRESS comment is stale
+                # source, not a scan-fatal condition: another target, another
+                # module or a rebind may own the file. Skip this anchor and keep
+                # the rest of the tree scannable instead of failing every
+                # compile with an unrelated row's history.
+                logger.warning(
+                    "%s:%s: anchor for %s 0x%x points at a retired source binding; "
+                    "skipping this anchor (rebind the row or remove the file)",
+                    filepath,
+                    anchor.line,
+                    anchor.module,
+                    anchor.va,
                 )
+                continue
         existing = (
             indexed.get(key)
             if not is_data

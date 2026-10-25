@@ -262,7 +262,7 @@ def _arch_index(dirs: list[Path]) -> dict[str, str]:
                 continue
             try:
                 data = json.loads(read_json_text(candidate))
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 continue
             for name, meta in data.get("files", {}).items():
                 index.setdefault(name, str(meta.get("arch", "") if isinstance(meta, dict) else ""))
