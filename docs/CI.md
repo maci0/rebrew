@@ -4,6 +4,9 @@ Suggested gates for reverse-engineering workspaces that use rebrew.
 
 ## Package CI (this repo)
 
+The lint and test jobs install `ant default-jdk build-essential` before dependency
+installation so JPype 1.7.1 can build from its official source on Python 3.15.
+
 Assembly and vendor tests require nasm and GNU patch. Native runner tests also
 require a C compiler, pkg-config and json-c development files. Every Python matrix
 entry installs `nasm patch build-essential pkg-config libjson-c-dev` through
@@ -152,7 +155,8 @@ the tag points anywhere else.  `make setup` checks the same commit
 before `uv sync`, with the checkout command, instead of diverging from CI.
 Every host package the jobs install comes from one helper,
 `tools/ci_apt_install.sh` (nasm for the asm round-trip tests,
-`build-essential pkg-config libjson-c-dev` for native runner tests, shellcheck and
+`build-essential pkg-config libjson-c-dev` for native runner tests,
+`ant default-jdk` for JPype source builds, shellcheck and
 yamllint for the pre-commit gate, jq for the nightly drift result gate): apt
 mirrors flake
 under load, so it retries update and

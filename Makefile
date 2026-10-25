@@ -52,7 +52,7 @@ UV_SYNC_FLAGS ?= --locked --all-extras --group similarity
 # same-version checkout on another commit passes the version string check
 # while CI clones this commit.
 RESEMBL_REF ?= v3.8.0
-RESEMBL_SHA ?= 4ea4e13ea1e126b7e83b3f8c8ced5fc6dec2cb9e
+RESEMBL_SHA ?= de6d53ebce415b2dad8058c6d2d85ca3c136d225
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 # Match the CI uv pin so local sync/audit behavior tracks CI.
 UV_VERSION ?= 0.13.5

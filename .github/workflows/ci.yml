@@ -57,6 +57,10 @@ jobs:
         uses: ./.github/actions/uv-env
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install JPype source-build prerequisites
+        # CPython 3.15 builds JPype from its official sdist.
+        run: |
+          bash tools/ci_apt_install.sh ant default-jdk build-essential
       - name: Install dependencies
         # --all-extras matters for mypy: prove.py's angr/SimProcedure stubs
         # only type-check correctly with angr installed (otherwise mypy
@@ -104,6 +108,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install JPype source-build prerequisites
+        # CPython 3.15 builds JPype from its official sdist.
+        run: |
+          bash tools/ci_apt_install.sh ant default-jdk build-essential
       - name: Install dependencies
         run: uv sync --locked --all-extras --group similarity
       - name: Install native test prerequisites

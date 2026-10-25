@@ -3,6 +3,7 @@
 #
 # One helper for every apt step (nasm for assembly tests, patch for vendoring,
 # build-essential, pkg-config and libjson-c-dev for native runner tests,
+# ant and default-jdk for JPype source builds,
 # plus shellcheck and yamllint for pre-commit, jq for the nightly drift result gate):
 # apt mirrors
 # flake under load, and a job that dies on the first 503 retries nothing.
@@ -75,6 +76,7 @@ retry() {
 package_available() {
   case "$1" in
     build-essential) command -v cc >/dev/null 2>&1 && command -v make >/dev/null 2>&1 ;;
+    default-jdk) command -v javac >/dev/null 2>&1 && command -v java >/dev/null 2>&1 ;;
     libjson-c-dev) command -v pkg-config >/dev/null 2>&1 && pkg-config --exists json-c ;;
     *) command -v "$1" >/dev/null 2>&1 ;;
   esac

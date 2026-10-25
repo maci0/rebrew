@@ -2130,8 +2130,8 @@ class TestCiAptInstall:
                 f"{path.name}: call tools/ci_apt_install.sh instead"
             )
         ci = CI_YML.read_text(encoding="utf-8")
-        assert ci.count("bash tools/ci_apt_install.sh") == 3, ci
-        for pkg in ("nasm", "shellcheck", "yamllint"):
+        assert ci.count("bash tools/ci_apt_install.sh") == 5, ci
+        for pkg in ("nasm", "shellcheck", "yamllint", "ant"):
             assert f"bash tools/ci_apt_install.sh {pkg}" in ci, pkg
         sync = SYNC_YML.read_text(encoding="utf-8")
         assert "bash tools/ci_apt_install.sh jq" in sync
@@ -2194,7 +2194,9 @@ class TestCiAptInstall:
         assert "already available: shellcheck" in result.stdout
         assert "apt-get ran" not in result.stderr
 
-    @pytest.mark.parametrize("package", ["build-essential", "libjson-c-dev", "shellcheck"])
+    @pytest.mark.parametrize(
+        "package", ["build-essential", "libjson-c-dev", "shellcheck", "ant", "default-jdk"]
+    )
     @pytest.mark.parametrize("capability", ["present", "installed", "missing"])
     def test_packages_check_provided_capabilities_after_apt_success(
         self, tmp_path: Path, package: str, capability: str
@@ -2207,6 +2209,8 @@ class TestCiAptInstall:
             "build-essential": ("cc", "make"),
             "libjson-c-dev": (),
             "shellcheck": ("shellcheck",),
+            "ant": ("ant",),
+            "default-jdk": ("javac", "java"),
         }[package]
         for command in ("env", "seq"):
             (bindir / command).symlink_to(shutil.which(command))
