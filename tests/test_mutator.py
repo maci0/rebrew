@@ -2200,3 +2200,44 @@ class TestRedundantParensSkipsFunctionName:
                 continue
             assert not result.startswith("int (f)"), result
             assert quick_validate(result), result
+
+
+class TestPragmaAnchorOrdering:
+    """Pragma levers must not separate an ADDRESS anchor from its definition.
+
+    The anchor scan allows comments and blank lines between the marker and the
+    definition; a directive in between breaks it, which makes the mutant
+    unmeasurable (GA champions hit this on guild-rebrew).
+    """
+
+    ANCHORED = "/* ADDRESS: GOLDTL 0x401000 */\nint f(void){\n    return 1;\n}\n"
+
+    @staticmethod
+    def _definition_line_after_anchor(source: str) -> int:
+        lines = source.splitlines()
+        anchor = next(index for index, line in enumerate(lines) if "ADDRESS:" in line)
+        definition = next(index for index, line in enumerate(lines) if line.startswith("int f"))
+        return definition - anchor
+
+    def test_check_stack_lands_before_the_anchor(self) -> None:
+        out = mut_toggle_check_stack_pragma(self.ANCHORED, _rng())
+        assert out is not None
+        assert out.splitlines()[0] == "#pragma check_stack(off)"
+        assert out.splitlines()[1] == "/* ADDRESS: GOLDTL 0x401000 */"
+        # the anchor stays directly above the definition
+        assert self._definition_line_after_anchor(out) == 1
+        assert quick_validate(out)
+
+    def test_auto_inline_lands_before_the_anchor(self) -> None:
+        out = mut_add_auto_inline_pragma(self.ANCHORED, _rng())
+        assert out is not None
+        assert out.splitlines()[0] == "#pragma auto_inline(off)"
+        assert out.splitlines()[1] == "/* ADDRESS: GOLDTL 0x401000 */"
+        assert out.splitlines()[-1] == "#pragma auto_inline(on)"
+        assert self._definition_line_after_anchor(out) == 1
+        assert quick_validate(out)
+
+    def test_no_anchor_still_prepends(self) -> None:
+        source = "int f(void){\n    return 1;\n}\n"
+        out = mut_toggle_check_stack_pragma(source, _rng())
+        assert out is not None and out.startswith("#pragma check_stack(off)")

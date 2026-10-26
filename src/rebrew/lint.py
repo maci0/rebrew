@@ -13,7 +13,7 @@ import re
 import shlex
 import threading
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -26,6 +26,7 @@ from rebrew.c_parser import (
     CALLING_CONVENTION,
     find_extern_variables,
     find_function_name_in_node,
+    function_definition_spans,
     mask_msvc_syntax,
     msvc_asm_spans,
     parse_c_source,
@@ -1282,17 +1283,54 @@ def _check_W016_section(
                 section_hits.append(MissingSection(module=module, va=va_int, section=section))
 
 
+def _documented_assembly_symbols(
+    source: str,
+    filepath: Path,
+    target_modules: Iterable[str] | None,
+    metadata_dir: Path,
+) -> set[str]:
+    """Symbols in *filepath* whose original assembly is documented and current.
+
+    A ``source document-assembly`` record only exempts assembly while the
+    recorded definition hash still matches the file, so editing the body
+    invalidates the exemption.
+
+    Evidence is looked up for every module that claims a row in this file, not
+    only the module of the target being linted.  A unified source tree holds
+    files annotated for one target while `rebrew lint --all-targets` lints the
+    others, and the evidence belongs to the file, not to the lint target.
+    """
+    folded = {preset_module_key(str(module)) for module in (target_modules or set()) if module}
+    if not folded:
+        return set()
+    try:
+        relative = filepath.resolve().relative_to(metadata_dir.resolve()).as_posix()
+        records = [
+            record
+            for record in load_source_provenance(metadata_dir)
+            if record.file == relative and record.module in folded
+        ]
+        hashes = function_definition_hashes(source) if records else {}
+        return {r.symbol for r in records if hashes.get(r.symbol) == r.source_hash}
+    except OSError, ValueError, ImportError:
+        # The batch artifact check reports unusable records; they never exempt assembly.
+        return set()
+
+
 def _check_E023_naked_asm(
     result: LintResult,
     lines: list[str],
     code_lines: list[str],
     claimed_statuses: set[str] | None = None,
+    documented: set[str] | None = None,
 ) -> None:
     """Flag whole-function ``__declspec(naked)`` + ``__asm`` dumps (E023).
 
     *code_lines* is the shared ``_strip_all`` view of *lines*; the raw
     *lines* are still read by the padding checks below, which inspect
-    literal source text.
+    literal source text.  A definition whose original assembly is documented
+    with ``rebrew source document-assembly`` is exempt: whole-function asm is
+    then evidenced reconstruction, not a decompilation shortcut.
 
     ``__declspec(naked)`` is only allowed for *minor padding* (1-2 alignment
     ``nop``/``int3`` bytes, e.g. ``_emit 0x90`` / ``_emit 0xCC`` or
@@ -1304,6 +1342,15 @@ def _check_E023_naked_asm(
     padding (``0x90``/``0xCC``) / non-nop mnemonic — is a whole-function
     dump and earns E023.  1-2 nops for alignment are tolerated silently.
     """
+    if documented:
+        raw_source = "\n".join(lines).encode("utf-8", errors="surrogateescape")
+        code_lines = code_lines.copy()
+        for name, start, end in function_definition_spans("\n".join(lines)):
+            if name in documented:
+                first = raw_source[:start].count(b"\n")
+                last = raw_source[:end].count(b"\n") + 1
+                code_lines[first:last] = [""] * (last - first)
+
     # Find the naked declaration in CODE.  The naive
     # `startswith("//")/"/*"/"*"` filter let the interior of a block comment
     # through (a commented-out body whose lines lack a leading `*`), reporting
@@ -1317,7 +1364,6 @@ def _check_E023_naked_asm(
             break
     if not has_naked:
         return
-
     source = "\n".join(code_lines)
     raw = source.encode("utf-8", errors="surrogateescape")
     spans = msvc_asm_spans(source)
@@ -2154,6 +2200,9 @@ def lint_file(
 
     # Statuses claimed by this file's annotations (for E023 diagnostics).
     _file_statuses: set[str] = set()
+    # Modules with a row or annotation in this file: assembly evidence is looked
+    # up for all of them, because one unified file can belong to several targets.
+    _file_modules: set[str] = set()
 
     if metadata_backed:
         # A pure-C file carries no metadata bindings: its blockers and statuses are
@@ -2164,6 +2213,8 @@ def lint_file(
             _metadata_entries,
             project_root=getattr(cfg, "root", None),
         ):
+            if _row_module:
+                _file_modules.add(str(_row_module))
             if _own_module and preset_module_key(_row_module) != preset_module_key(_own_module):
                 continue
             _row_status = canonical_status(str(_row.get("status") or ""))
@@ -2174,6 +2225,8 @@ def lint_file(
         result.binding_line = int(found_keys.get("_LINE", "1"))
 
         mod = found_keys.get("MODULE", "")
+        if mod:
+            _file_modules.add(mod)
         va_str = found_keys.get("VA", "")
 
         # Populate metadata fields for this source binding.
@@ -2318,7 +2371,12 @@ def lint_file(
     # exemption (the original binary stored the zero-init data in .data).
     _data_section_names = _data_section_names_for(_data_metadata_entries)
     code_lines = _strip_all(lines)  # one strip pass shared by E023/W020/W022
-    _check_E023_naked_asm(result, lines, code_lines, _file_statuses)
+    if not _file_modules and _own_module:
+        _file_modules.add(_own_module)
+    _documented_assembly = _documented_assembly_symbols(
+        text, filepath, _file_modules, cfg.metadata_dir if cfg else filepath.parent
+    )
+    _check_E023_naked_asm(result, lines, code_lines, _file_statuses, _documented_assembly)
     _check_W020_asm_dump(
         result,
         code_lines,

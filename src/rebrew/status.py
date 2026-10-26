@@ -10,6 +10,7 @@ Usage::
     rebrew status --target client_exe     Status for a specific target
 """
 
+import bisect
 import json
 import logging
 from dataclasses import dataclass, field
@@ -113,6 +114,7 @@ class StatusReport:
     #: .text bytes in no function: alignment fill (CC/90/00) and the rest.
     #: None when the binary could not be read (not measured, not zero).
     padding_bytes: int | None = None
+    unattributed_ranges: list[tuple[int, int]] = field(default_factory=list)
     unattributed_bytes: int | None = None
 
     # Naked reconstructions (`source = "naked"`) that are byte-exact via a
@@ -304,6 +306,10 @@ class StatusReport:
             d["status_bytes"] = self.status_bytes
             d["accounted_text_bytes"] = self.accounted_text_bytes
             d["library_derived_bytes"] = self.library_derived_bytes
+        if self.unattributed_ranges:
+            d["unattributed_ranges"] = [
+                {"va": f"0x{va:08x}", "size": size} for va, size in self.unattributed_ranges
+            ]
         if self.verify_info is not None:
             d["last_verify"] = {
                 "timestamp": self.verify_info.timestamp,
@@ -647,6 +653,31 @@ def _count_gap(chunk: bytes, padding: int, unattributed: int) -> tuple[int, int]
     return padding + fill, unattributed + (len(chunk) - fill)
 
 
+def native_tail_span(
+    span_start: int,
+    span_size: int,
+    inventory_size: int,
+    next_start: int | None,
+    text_hi: int,
+) -> tuple[int, int] | None:
+    """Bytes between a matched body and the row's native extent end.
+
+    A discoverer extent can be longer than the annotated body: a split part,
+    an internal jump table, or alignment the next entry does not start on.
+    Those bytes belong to the discovered function, so attribute them instead
+    of leaving them as unattributed ``NO_FUNCTION`` fill.  They stay unmatched:
+    the byte comparison only covered *span_size*.
+    """
+    end = span_start + span_size
+    native_end = span_start + inventory_size
+    if next_start is not None:
+        native_end = min(native_end, next_start)
+    native_end = min(native_end, text_hi)
+    if native_end <= end:
+        return None
+    return end, native_end - end
+
+
 def classify_text_gaps(text: bytes, text_va: int, spans: list[tuple[int, int]]) -> tuple[int, int]:
     """``(padding, unattributed)``: bytes of *text* in none of *spans*.
 
@@ -675,6 +706,37 @@ def classify_text_gaps(text: bytes, text_va: int, spans: list[tuple[int, int]]) 
     return padding, unattributed
 
 
+def classify_unattributed_ranges(
+    text: bytes, text_va: int, spans: list[tuple[int, int]]
+) -> tuple[int, list[tuple[int, int]]]:
+    """``(padding, unattributed_ranges)`` for bytes of *text* in no span.
+
+    Edge alignment fill counts as padding; the middle of each gap is returned
+    as an absolute ``(va, size)`` range so a caller can tell what the
+    unattributed bytes are instead of only how many.
+    """
+    intervals: list[tuple[int, int]] = []
+    for va, size in spans:
+        lo = max(0, va - text_va)
+        hi = min(len(text), va - text_va + size)
+        if hi > lo:
+            intervals.append((lo, hi))
+    padding = 0
+    ranges: list[tuple[int, int]] = []
+    cursor = 0
+    for lo, hi in sorted(intervals) + [(len(text), len(text))]:
+        if lo > cursor:
+            chunk = text[cursor:lo]
+            lead = len(chunk) - len(chunk.lstrip(_PADDING_BYTES))
+            trail = len(chunk) - len(chunk.rstrip(_PADDING_BYTES))
+            fill = min(len(chunk), lead + trail)
+            padding += fill
+            if len(chunk) - fill > 0:
+                ranges.append((text_va + cursor + lead, len(chunk) - fill))
+        cursor = max(cursor, hi)
+    return padding, ranges
+
+
 def _text_gaps(cfg: ProjectConfig, spans: list[tuple[int, int]]) -> tuple[int, int] | None:
     """:func:`classify_text_gaps` over the target's ``.text``; None if unreadable."""
     if not cfg.target_binary.is_file():
@@ -688,6 +750,23 @@ def _text_gaps(cfg: ProjectConfig, spans: list[tuple[int, int]]) -> tuple[int, i
         return None
     text = info.data[sec.file_offset : sec.file_offset + min(sec.size, sec.raw_size)]
     return classify_text_gaps(text, sec.va, spans)
+
+
+def _text_gap_ranges(
+    cfg: ProjectConfig, spans: list[tuple[int, int]]
+) -> tuple[int, list[tuple[int, int]]] | None:
+    """:func:`classify_unattributed_ranges` over the target's ``.text``."""
+    if not cfg.target_binary.is_file():
+        return None
+    try:
+        from rebrew.formats.binary_loader import load_binary
+
+        info = load_binary(cfg.target_binary)
+        sec = info.sections[".text"]
+    except OSError, KeyError, ValueError:
+        return None
+    text_bytes = info.data[sec.file_offset : sec.file_offset + min(sec.size, sec.raw_size)]
+    return classify_unattributed_ranges(text_bytes, sec.va, spans)
 
 
 def _compute_text_size(cfg: ProjectConfig) -> int:
@@ -792,6 +871,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # Pseudo-functions (switch arms inside an annotated function) are not
     # starts: cutting at one gave the arm the rest of its matched parent.
     starts = sorted((size_by_va.keys() | existing.keys()) - pseudo_vas)
+    inventory_starts = sorted(size_by_va)
 
     def _span(va: int, info: dict[str, str]) -> tuple[int, int]:
         """Start and size of *va*, clipped to .text and the next function.
@@ -866,6 +946,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             effective_matches += 1
         status_counts[effective] = status_counts.get(effective, 0) + 1
         span_va, size = _span(va, info)
+        inventory_size = size_by_va.get(va, 0)
         report.status_bytes[effective] = report.status_bytes.get(effective, 0) + size
         spans.append((span_va, size))
         if effective in MATCHED_STATUSES:
@@ -878,6 +959,23 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         module = info.get("module") or "?"
         report.module_status.setdefault(module, {})
         report.module_status[module][effective] = report.module_status[module].get(effective, 0) + 1
+        if text_section is not None and inventory_size > size:
+            # Only a discovered entry defines a native boundary. A metadata row
+            # without an inventory extent cannot claim the bytes after it, so a
+            # split row must not cut the previous entry's native tail short.
+            index = bisect.bisect_right(inventory_starts, va)
+            next_start = inventory_starts[index] if index < len(inventory_starts) else None
+            tail = native_tail_span(
+                span_va,
+                size,
+                inventory_size,
+                next_start,
+                text_section.va + text_section.size,
+            )
+            if tail is not None:
+                spans.append(tail)
+                unmatched_bytes += tail[1]
+                report.status_bytes[effective] = report.status_bytes.get(effective, 0) + tail[1]
     report.status_counts = status_counts
     report.library_identified = library_identified
     report.matched_bytes = matched_bytes
@@ -936,9 +1034,10 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         report.status_bytes["LIBRARY"] = report.status_bytes.get("LIBRARY", 0) + derived
 
     report.unmatched_bytes = unmatched_bytes
-    gaps = _text_gaps(cfg, spans)
+    gaps = _text_gap_ranges(cfg, spans)
     if gaps is not None:
         report.padding_bytes = gaps[0]
+        report.unattributed_ranges = gaps[1]
         # Any virtual tail with no file bytes remains unaccounted for.
         report.unattributed_bytes = (
             report.total_text_bytes - matched_bytes - unmatched_bytes - report.padding_bytes

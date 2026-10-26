@@ -1,5 +1,40 @@
 ## [Unreleased]
 
+## [6.3.1] - 2026-10-26
+
+### Changed
+
+- Synchronize the parallel LLM budget regression on the refused request instead of waiting for a condition timeout.
+
+### Fixed
+
+- Lint E023 accepts documented original assembly with current definition evidence,
+  including shared files annotated for another target; stale evidence still flags.
+
+- `todo` hides default comparison metrics from failed runs and asks for a retest
+  when a non-match reports zero delta, instead of offering a `0B diff` quick win.
+
+- GA pragma mutations insert `#pragma auto_inline` / `#pragma check_stack` above
+  the `ADDRESS` anchor block instead of between the anchor and its definition.
+  The anchor parser binds a comment to the next declaration and skips blank
+  lines only, so a directive in between left a dangling anchor and made the
+  champion unmeasurable. Regression tests cover both pragmas with an anchored
+  source.
+
+### Added
+
+- `status` attributes the bytes between a row's annotated SIZE and its
+  discovered native extent end to that row, counting them as unmatched instead
+  of leaving them in NO_FUNCTION. Those bytes belong to the discovered function
+  (a split part, an internal jump table, alignment before the next start), and
+  the byte comparison still covers only the annotated size. Metadata rows without
+  a native extent no longer cut a previous entry's native tail short. On the
+  project that drove the change, NO_FUNCTION fell from 43,472 to 5,227 while
+  matched bytes stayed identical.
+- `status --json` reports `unattributed_ranges`: absolute `(va, size)` ranges for
+  the bytes still in NO_FUNCTION, so the remainder can be investigated instead
+  of only counted.
+
 ## [6.3.0] - 2026-10-25
 
 - **Breaking:** require Python 3.15+ and pin the managed runtime to Python 3.15.1.

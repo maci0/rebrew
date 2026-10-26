@@ -1397,24 +1397,27 @@ class TestTokenBudget:
             "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         }
         in_flight = 0
-        arrived = threading.Condition()
+        arrived = threading.Lock()
+        refused = threading.Event()
 
         class _Slow:
-            """A client whose request waits for the rest of the batch."""
+            """Keep admitted calls in flight until the refused worker has answered."""
 
             def stream(self, *a: object, **k: object) -> Iterator[_FakeResponse]:
                 nonlocal in_flight
                 with arrived:
                     in_flight += 1
-                    # A worker admitted past the cap would trip the count
-                    # below; the timeout keeps a refusal from wedging the test.
-                    arrived.wait_for(lambda: in_flight >= admitted, timeout=5)
+                assert refused.wait(timeout=5), (
+                    "no worker was refused while requests were in flight"
+                )
                 return _FakeClient(payload).stream(*a, **k)
 
         def _seed(i: int) -> list[str]:
-            # A distinct prompt per worker: identical keys hit the seed cache
-            # and never reach the budget at all.
-            return request_seeds(_cfg("https://llm/v1"), f"{source}\n/* w{i} */", client=_Slow())
+            # Distinct prompts reach the budget rather than the seed cache.
+            result = request_seeds(_cfg("https://llm/v1"), f"{source}\n/* w{i} */", client=_Slow())
+            if not result:
+                refused.set()
+            return result
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
             results = [f.result() for f in [pool.submit(_seed, i) for i in range(workers)]]

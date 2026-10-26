@@ -56,7 +56,12 @@ from rebrew.present import ratio_bar
 from rebrew.status import effective_status
 from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import floor_pct
-from rebrew.workspace.status import EARNED_STATUSES, FUZZY_STATUSES, MATCHED_STATUSES
+from rebrew.workspace.status import (
+    EARNED_STATUSES,
+    FUZZY_STATUSES,
+    INFRASTRUCTURE_STATUSES,
+    MATCHED_STATUSES,
+)
 
 log = logging.getLogger(__name__)
 
@@ -402,20 +407,25 @@ def _collect_active_functions(
 
         v_match = v_entry.match_percent if v_entry else None
         v_delta = v_entry.delta if v_entry else None
-        if v_status == "MISSING_SIZE":
-            # Nothing was extracted (0 target bytes), so the cached delta 0 is
-            # vacuous — never present it as a "0B diff" quick-win.
+        unmeasured = v_status in (*INFRASTRUCTURE_STATUSES, "MISSING_SIZE", "INTERNAL_ERROR")
+        if unmeasured:
+            # Failed runs carry default metrics, not a byte comparison.
             v_delta = None
             v_match = None
 
         # If verify says it compiled and size changed, or we don't have verify, fallback to metadata parsing
         calc_delta = v_delta
-        if calc_delta is None and status in FUZZY_STATUSES:
+        if calc_delta is None and status in FUZZY_STATUSES and not unmeasured:
             raw_bd = info.get("blocker_delta", "")
             try:
                 calc_delta = int(raw_bd) if raw_bd else parse_byte_delta(info.get("blocker", ""))
             except ValueError:
                 calc_delta = parse_byte_delta(info.get("blocker", ""))
+
+        zero_delta = calc_delta == 0
+        if zero_delta:
+            calc_delta = None
+            v_match = None
 
         # VA form — CWD-independent (rebrew test resolves the VA via resolve_source_arg).
         cmd = f"rebrew test 0x{va:08x}"
@@ -464,6 +474,11 @@ def _collect_active_functions(
             desc = "Missing SIZE annotation — backfill with rebrew verify --fix-sizes"
             score = calculate_roi(size, v_match, calc_delta)
             cmd = "rebrew verify --fix-sizes"
+
+        elif zero_delta:
+            category = CAT_IMPROVE_MATCH
+            desc = "Zero delta without a byte-match verdict — rerun rebrew test"
+            score = calculate_roi(size, v_match, calc_delta)
 
         elif status == "PROVEN":
             # Semantic equivalence is established but the bytes still differ:
@@ -621,6 +636,8 @@ def _collect_prover_candidates(
         reported = effective_status(ann_status, cached.status if cached else None)
         if reported != "NEAR_MATCHING":
             continue
+        if cached and cached.delta == 0:
+            continue  # Retest the contradictory verdict before offering proof.
         # Metadata SIZE is authoritative (the real function extent — Ghidra's
         # can be stale, e.g. 340 vs the actual 752 for GetCommandPayloadSize);
         # prefer it so the size cap below uses the true extent.

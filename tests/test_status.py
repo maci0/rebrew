@@ -2377,3 +2377,38 @@ class TestFileSimilarity:
         assert report.file_total_bytes == 0
         assert report.file_missing_raw_link == "build/typo.dll"
         assert report.to_dict()["missing_raw_link"] == "build/typo.dll"
+
+
+def test_native_tail_span_attributes_bytes_after_the_matched_body() -> None:
+    from rebrew.status import native_tail_span
+
+    # 46 matched bytes, inventory extent 1920, no next start inside .text:
+    # the tail between them belongs to the discovered function.
+    tail = native_tail_span(0x4E2B40, 46, 1920, None, 0x4E4000)
+    assert tail == (0x4E2B40 + 46, 1920 - 46)
+
+
+def test_native_tail_span_clips_to_next_start_and_text_end() -> None:
+    from rebrew.status import native_tail_span
+
+    assert native_tail_span(0x1000, 16, 4096, 0x1040, 0x2000) == (0x1010, 0x30)
+    assert native_tail_span(0x1000, 16, 4096, None, 0x1100) == (0x1010, 0xF0)
+    assert native_tail_span(0x1000, 64, 32, 0x2000, 0x2000) is None
+    assert native_tail_span(0x1000, 32, 32, 0x2000, 0x2000) is None
+
+
+class TestUnattributedRanges:
+    def test_ranges_exclude_covered_bytes_and_edge_padding(self) -> None:
+        from rebrew.status import classify_text_gaps, classify_unattributed_ranges
+
+        text = b"ab\xcc\x90def\x00gh"
+        spans = [(0x1000, 2), (0x1008, 2), (0x1000, 1)]
+        padding, ranges = classify_unattributed_ranges(text, 0x1000, spans)
+        assert padding == 3
+        assert ranges == [(0x1004, 3)]
+        assert classify_text_gaps(text, 0x1000, spans) == (padding, sum(n for _, n in ranges))
+
+    def test_padding_only_gap_has_no_range(self) -> None:
+        from rebrew.status import classify_unattributed_ranges
+
+        assert classify_unattributed_ranges(b"\xcc\x00\x90", 0x1000, []) == (3, [])

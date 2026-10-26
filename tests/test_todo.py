@@ -470,6 +470,56 @@ class TestCollectors:
         assert items[0].category == CAT_FIX_DELTA
         assert items[0].byte_delta == 3
 
+    @pytest.mark.parametrize(
+        ("status", "cached"),
+        [
+            ("STUB", True),
+            ("SIZE_MISMATCH", True),
+            ("NEAR_MATCHING", True),
+            ("NEAR_MATCHING", False),
+        ],
+    )
+    def test_zero_delta_requires_retest(
+        self, status: str, cached: bool, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.verify_cache import VerifyCacheEntry
+
+        existing = {0x1000: {"status": status, "symbol": "func_a", "blocker_delta": "0"}}
+        entries = {"0x00001000": VerifyCacheEntry(status=status, delta=0)} if cached else {}
+        items = _collect_active_functions(existing, {0x1000: 33}, {}, entries)
+        item = items[0]
+        assert item.category == CAT_IMPROVE_MATCH
+        assert item.byte_delta is None
+        assert item.match_percent is None
+        assert item.command == "rebrew test 0x00001000"
+        assert "rerun rebrew test" in item.description
+        assert "0B diff" not in item.description
+        assert "byte_delta" not in item.to_dict()
+        if cached:
+            monkeypatch.setattr("rebrew.prove.angr_available", lambda: True)
+            assert _collect_prover_candidates(existing, {0x1000: 33}, entries) == []
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            "COMPILE_ERROR",
+            "EXTRACT_ERROR",
+            "MISSING_FILE",
+            "INVALID_VA",
+            "MISSING_SIZE",
+            "INTERNAL_ERROR",
+        ],
+    )
+    def test_failed_comparison_has_no_metrics(self, status: str) -> None:
+        from rebrew.verify_cache import VerifyCacheEntry
+
+        entries = {"0x00001000": VerifyCacheEntry(status=status, delta=0, match_percent=0.0)}
+        existing = {0x1000: {"status": "PROVEN", "symbol": "func_a", "blocker_delta": "3"}}
+        item = _collect_active_functions(existing, {0x1000: 33}, {}, entries)[0]
+        assert item.category != CAT_FIX_DELTA
+        assert item.byte_delta is None
+        assert item.match_percent is None
+
     def test_active_functions_structural_blocker_demoted(self) -> None:
         """A near-diag STRUCTURAL verdict means the diff is control-flow
         layout, not a flag/padding quick-win — such items must NOT stay in
