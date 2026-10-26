@@ -8,6 +8,10 @@
 
 ### Fixed
 
+- `verify` keeps an earned EXACT when extraction fails, and reports that once
+  with the function addresses. The per-function "refusing to overwrite" line
+  is gone.
+
 - Lint E023 accepts documented original assembly with current definition evidence,
   including shared files annotated for another target; stale evidence still flags.
 
