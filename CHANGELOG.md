@@ -23,15 +23,9 @@
 
 ### Added
 
-- `status` attributes the bytes between a row's annotated SIZE and its
-  discovered native extent end to that row, counting them as unmatched instead
-  of leaving them in NO_FUNCTION. Those bytes belong to the discovered function
-  (a split part, an internal jump table, alignment before the next start), and
-  the byte comparison still covers only the annotated size. Metadata rows without
-  a native extent no longer cut a previous entry's native tail short. On the
-  project that drove the change, NO_FUNCTION fell from 43,472 to 5,227 while
-  matched bytes stayed identical. Uncompared tails appear as `UNVERIFIED_TAIL`,
-  and overlapping source definitions are counted once.
+- `status` accounts for discovered native tails beyond the annotated source size
+  as unmatched `UNVERIFIED_TAIL` bytes. Overlapping source definitions count once,
+  and these uncompared bytes never inflate EXACT or RELOC totals.
 - `status --json` reports `unattributed_ranges`: absolute `(va, size)` ranges for
   the bytes still in NO_FUNCTION, so the remainder can be investigated instead
   of only counted.
