@@ -1363,6 +1363,28 @@ class TestApplyStatusUpdates:
         apply_status_updates([(entry, "EXACT", 0)], cfg)
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "EXACT"
 
+    def test_extract_error_keeps_exact_in_one_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A tooling failure is reported once and does not replace EXACT."""
+        from rebrew.metadata.functions import get_entry
+        from rebrew.verify import apply_status_updates
+
+        cfg = _cfg(tmp_path)
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x1000 */\nint my_func(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "status": "EXACT"}},
+        )
+        entry = _ann(0x1000, status="EXACT")
+        with caplog.at_level("WARNING"):
+            apply_status_updates([(entry, "EXTRACT_ERROR", 0), (entry, "EXTRACT_ERROR", 0)], cfg)
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "EXACT"
+        assert "refusing to overwrite earned STATUS" not in caplog.text
+        assert caplog.text.count("kept earned STATUS") == 1
+        assert "0x00001000 my_func" in caplog.text
+
     def test_promotion_keeps_the_blocker_of_a_kept_asm_body(self, tmp_path: Path) -> None:
         """A byte match clears the BLOCKER, except where the source still holds
         inline asm: there the blocker documents the asm, and lint W020 requires

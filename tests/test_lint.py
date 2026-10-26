@@ -4114,3 +4114,111 @@ class TestUnregisteredDuplicateAddresses:
         lint_file(first, seen_vas=seen)
         result = lint_file(second, seen_vas=seen)
         assert any(code == "E013" for _, code, _ in result.errors)
+
+
+class TestE023DocumentedAssembly:
+    """E023 exempts a whole-function naked body whose assembly evidence is current."""
+
+    _BODY = (
+        "__declspec(naked) int f(void)\n"
+        "{\n"
+        "    __asm { push ebp }\n"
+        "    __asm { mov eax, 1 }\n"
+        "    __asm { ret }\n"
+        "}\n"
+    )
+
+    def _fixture(self, tmp_path: Path) -> Path:
+        content = SourceFixture(
+            "/* ADDRESS: SERVER 0x10008880 */\n" + self._BODY,
+            {"SERVER.0x10008880": {"status": "EXACT", "size": 31, "cflags": "/O2 /Gd"}},
+        )
+        return _write_c(tmp_path, "naked_documented.c", content)
+
+    def test_documented_assembly_is_exempt(self, tmp_path: Path) -> None:
+        from rebrew.metadata.source_provenance import document_assembly
+
+        f = self._fixture(tmp_path)
+        document_assembly(
+            tmp_path,
+            Path("naked_documented.c"),
+            "f",
+            "SERVER",
+            "C++ member function: receiver in ecx, body ends ret 0xc; C mode cannot emit it",
+        )
+        cfg = _make_cfg(root=tmp_path)
+        result = lint_file(f, cfg=cfg)
+        assert not any(code == "E023" for _, code, _ in result.errors), result.errors
+
+    @pytest.mark.parametrize("separator", ["\n", " "])
+    def test_documentation_does_not_exempt_another_definition(
+        self, tmp_path: Path, separator: str
+    ) -> None:
+        from rebrew.metadata.source_provenance import document_assembly
+
+        f = self._fixture(tmp_path)
+        f.write_text(f.read_text().rstrip() + separator + self._BODY.replace("f(void)", "g(void)"))
+        document_assembly(tmp_path, Path("naked_documented.c"), "f", "SERVER", "original assembly")
+        result = lint_file(f, cfg=_make_cfg(root=tmp_path))
+        assert any(code == "E023" for _, code, _ in result.errors), result.errors
+
+    def test_undocumented_assembly_still_flags(self, tmp_path: Path) -> None:
+        f = self._fixture(tmp_path)
+        cfg = _make_cfg(root=tmp_path)
+        result = lint_file(f, cfg=cfg)
+        assert any(code == "E023" for _, code, _ in result.errors)
+
+    def test_stale_assembly_evidence_is_not_exempt(self, tmp_path: Path) -> None:
+        from rebrew.metadata.source_provenance import document_assembly
+
+        f = self._fixture(tmp_path)
+        document_assembly(
+            tmp_path,
+            Path("naked_documented.c"),
+            "f",
+            "SERVER",
+            "reviewed assembly evidence",
+        )
+        f.write_text(
+            f.read_text(encoding="utf-8").replace("mov eax, 1", "mov eax, 2"), encoding="utf-8"
+        )
+        cfg = _make_cfg(root=tmp_path)
+        result = lint_file(f, cfg=cfg)
+        assert any(code == "E023" for _, code, _ in result.errors), result.errors
+
+
+class TestE023EvidenceAcrossTargets:
+    """Evidence documented for another module still exempts the file.
+
+    A unified source tree annotates a file for one target while
+    `rebrew lint --all-targets` lints the others; the evidence belongs to the
+    file's declaration, not to the lint target.
+    """
+
+    _BODY = (
+        "__declspec(naked) int f(void)\n"
+        "{\n"
+        "    __asm { push ebp }\n"
+        "    __asm { mov eax, 1 }\n"
+        "    __asm { ret }\n"
+        "}\n"
+    )
+
+    def test_evidence_for_other_module_exempts(self, tmp_path: Path) -> None:
+        from rebrew.metadata.source_provenance import document_assembly
+
+        content = SourceFixture(
+            "/* ADDRESS: GOLDTL 0x10008880 */\n" + self._BODY,
+            {"GOLDTL.0x10008880": {"status": "EXACT", "size": 31, "cflags": "/O2 /Gd"}},
+        )
+        f = _write_c(tmp_path, "naked_other_target.c", content)
+        document_assembly(
+            tmp_path,
+            Path("naked_other_target.c"),
+            "f",
+            "GOLDTL",
+            "C++ member function: receiver in ecx, body ends ret 0xc; C mode cannot emit it",
+        )
+        cfg = _make_cfg(module="SERVER", root=tmp_path)
+        result = lint_file(f, cfg=cfg)
+        assert not any(code == "E023" for _, code, _ in result.errors), result.errors

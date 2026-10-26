@@ -1,5 +1,39 @@
 ## [Unreleased]
 
+## [6.3.1] - 2026-10-26
+
+### Changed
+
+- Synchronize the parallel LLM budget regression on the refused request instead of waiting for a condition timeout.
+
+### Fixed
+
+- `verify` keeps an earned EXACT when extraction fails, and reports that once
+  with the function addresses. The per-function "refusing to overwrite" line
+  is gone.
+
+- Lint E023 accepts documented original assembly with current definition evidence,
+  including shared files annotated for another target; stale evidence still flags.
+
+- `todo` hides default comparison metrics from failed runs and asks for a retest
+  when a non-match reports zero delta, instead of offering a `0B diff` quick win.
+
+- GA pragma mutations insert `#pragma auto_inline` / `#pragma check_stack` above
+  the `ADDRESS` anchor block instead of between the anchor and its definition.
+  The anchor parser binds a comment to the next declaration and skips blank
+  lines only, so a directive in between left a dangling anchor and made the
+  champion unmeasurable. Regression tests cover both pragmas with an anchored
+  source.
+
+### Added
+
+- `status` accounts for discovered native tails beyond the annotated source size
+  as unmatched `UNVERIFIED_TAIL` bytes. Overlapping source definitions count once,
+  and these uncompared bytes never inflate EXACT or RELOC totals.
+- `status --json` reports `unattributed_ranges`: absolute `(va, size)` ranges for
+  the bytes still in NO_FUNCTION, so the remainder can be investigated instead
+  of only counted.
+
 ## [6.3.0] - 2026-10-25
 
 - **Breaking:** require Python 3.15+ and pin the managed runtime to Python 3.15.1.

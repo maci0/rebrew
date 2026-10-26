@@ -148,11 +148,13 @@ class TestAssemblyLint:
         file.write_text(SOURCE.replace("eax, 0", "eax, 2"))
         assert len([c for _, c, _ in lint_file(file, cfg).warnings if c == "W020"]) == 2
 
-    def test_provenance_does_not_allow_whole_function_naked_asm(self, tmp_path: Path) -> None:
+    def test_current_provenance_allows_whole_function_naked_asm(self, tmp_path: Path) -> None:
         file = _source(tmp_path)
         file.write_text("__declspec(naked) void dump(void) { __asm { _emit 0x55 } }\n")
         document_assembly(tmp_path, file, "dump", "CLIENT", "Original assembly")
         cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="CLIENT")
+        assert not any(c == "E023" for _, c, _ in lint_file(file, cfg).errors)
+        file.write_text(file.read_text().replace("0x55", "0x56"))
         assert any(c == "E023" for _, c, _ in lint_file(file, cfg).errors)
 
     def test_stale_missing_and_foreign_records_are_visible(self, tmp_path: Path) -> None:

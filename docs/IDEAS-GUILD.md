@@ -3579,3 +3579,17 @@ library start whose span would overlap a coarse inventory extent
 (`0x41e555+6 overlaps inventory extent 0x41e530`), which blocks 124 of 142
 candidate starts. Splitting a coarse inventory function at native symbol
 boundaries needs its own reviewed operation before those rows can own extents.
+
+## .text data spans are not attributable
+
+Discovery reports inline jump/dispatch tables inside `.text` as function entries. A
+project can retire the erroneous function row and classify the bytes as a `DATA`
+span, but `rebrew status` then reports the span as NO_FUNCTION: its code accounting
+only accepts function entries, and re-adding the inventory entry while removing the
+function row produces NO_SOURCE 1. Needed: an inventory entry kind (function vs
+inline data/span) or status attribution for `.text` data rows, so reviewed inline
+tables can be classified without a placeholder function row.
+
+Replay: reconcile 0x61871f (171 bytes, entries 0x618461/0x618284/0x6181b4/0x618235,
+preceded by `ret 4` at 0x61871c) as a data span in the guild-rebrew project and run
+`rebrew status -t Europa1400Gold_TL.exe --json`.

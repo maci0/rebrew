@@ -78,7 +78,7 @@ from rebrew.linked_exact import linked_image_current
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata.bindings import SourceBinding, min_valid_va_for, read_source_bindings
 from rebrew.metadata.document import canonical_va_key
-from rebrew.metadata.functions import should_promote_status
+from rebrew.metadata.functions import canonical_status, should_promote_status
 from rebrew.sources import contained_path, source_roots
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS, STATUS_LEGEND_ORDER
 from rebrew.utils import (
@@ -97,7 +97,7 @@ from rebrew.verify_cache import (
     save_verify_cache,
 )
 from rebrew.verify_hash import expected_text_functions
-from rebrew.workspace.status import EARNED_STATUSES
+from rebrew.workspace.status import EARNED_STATUSES, INFRASTRUCTURE_STATUSES
 
 log = logging.getLogger(__name__)
 
@@ -3127,6 +3127,7 @@ def apply_status_updates(
     """
     updates: list[dict[str, Any]] = []
     orphaned: list[str] = []
+    kept_earned: list[str] = []
     for entry, status, _delta in deferred_fixes:
         fp = contained_path(source_roots(cfg), getattr(entry, "filepath", ""))
         if fp is None or not fp.exists():
@@ -3144,8 +3145,17 @@ def apply_status_updates(
         current_status = getattr(entry, "status", "")
         # Parked SKIP never moves; a STUB's placeholder always size-mismatches
         # (keep the user's classification); unchanged status is a no-op.  All
-        # decided by should_promote_status.
+        # decided by should_promote_status.  A tooling failure must not replace
+        # an earned byte match; the failure stays in this run's report.
         if current_status != status and not should_promote_status(current_status, status):
+            if (
+                canonical_status(str(current_status)) in EARNED_STATUSES
+                and canonical_status(str(status)) in INFRASTRUCTURE_STATUSES
+            ):
+                kept_earned.append(
+                    f"0x{entry.va:08x} {getattr(entry, 'name', '') or '?'} "
+                    f"({canonical_status(str(current_status))} kept, {canonical_status(str(status))} ignored)"
+                )
             continue
         updates.append(
             {
@@ -3181,6 +3191,16 @@ def apply_status_updates(
             log.warning(
                 "... and %d more unwritten STATUS updates",
                 len(orphaned) - _ORPHAN_REPORT_LIMIT,
+            )
+    if kept_earned:
+        log.warning(
+            "kept earned STATUS for %d function(s); a tooling failure is not a byte verdict: %s",
+            len(kept_earned),
+            "; ".join(kept_earned[:_ORPHAN_REPORT_LIMIT]),
+        )
+        if len(kept_earned) > _ORPHAN_REPORT_LIMIT:
+            log.warning(
+                "... and %d more kept earned STATUS values", len(kept_earned) - _ORPHAN_REPORT_LIMIT
             )
 
     try:

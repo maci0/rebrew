@@ -93,6 +93,30 @@ def mut_remove_intrinsic_pragma(s: str, rng: random.Random) -> str | None:
     return _INTRINSIC_PRAGMA_RE.sub("", s) or None
 
 
+#: The project's identity marker. A directive between this comment and the
+#: definition hides the function from the anchor scan, so pragma mutations must
+#: insert *before* the anchor, not at the top of the file.
+_ADDRESS_ANCHOR_RE = re.compile(
+    r"^(?P<indent>[ \t]*)/\*[ \t]*ADDRESS:[^*]*\*/[ \t]*\r?$",
+    re.MULTILINE,
+)
+
+
+def _before_anchor(source: str, inserted: str) -> str:
+    """*source* with *inserted* placed before the first ADDRESS anchor line.
+
+    The anchor parser binds each ADDRESS comment to the next declaration,
+    skipping blank lines only; a directive between the anchor and its definition
+    leaves a dangling anchor and the mutation becomes unmeasurable. Pragma
+    levers therefore go above the anchor block (directives before the comment
+    are irrelevant to the binding), or at the top when the file has no anchor.
+    """
+    first = _ADDRESS_ANCHOR_RE.search(source)
+    if first is None:
+        return inserted + source
+    return source[: first.start()] + inserted + source[first.start() :]
+
+
 def mut_toggle_check_stack_pragma(s: str, rng: random.Random) -> str | None:
     """Toggle ``#pragma check_stack(off)`` — suppresses /Gs stack probes.
 
@@ -101,7 +125,7 @@ def mut_toggle_check_stack_pragma(s: str, rng: random.Random) -> str | None:
     """
     if _CHECK_STACK_PRAGMA_RE.search(s):
         return _CHECK_STACK_PRAGMA_RE.sub("", s) or None
-    return "#pragma check_stack(off)\n" + s + "\n"
+    return _before_anchor(s, "#pragma check_stack(off)\n") + "\n"
 
 
 _AUTO_INLINE_PRAGMA_RE = re.compile(
@@ -125,7 +149,7 @@ def mut_add_auto_inline_pragma(s: str, rng: random.Random) -> str | None:
     """
     if _AUTO_INLINE_PRAGMA_RE.search(s):
         return None
-    return "#pragma auto_inline(off)\n" + s + "\n#pragma auto_inline(on)\n"
+    return _before_anchor(s, "#pragma auto_inline(off)\n") + "\n#pragma auto_inline(on)\n"
 
 
 def mut_remove_auto_inline_pragma(s: str, rng: random.Random) -> str | None:

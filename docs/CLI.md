@@ -799,7 +799,11 @@ accounted_text_bytes = matched_bytes + padding_bytes
 ```
 
 `matched_bytes` includes library attributions. `status_bytes` partitions function
-extents by effective status plus LIBRARY and NO_SOURCE. Sourced functions use
+extents by effective status plus LIBRARY, NO_SOURCE, and UNVERIFIED_TAIL.
+UNVERIFIED_TAIL contains discovered native bytes beyond the compared source body;
+these bytes count as unmatched, with overlapping source definitions counted once.
+`unattributed_ranges` lists the remaining non-padding gaps as VA/size objects.
+Sourced functions use
 the annotated SIZE that verification compares; library rows use the larger of
 the annotated and discovered extents so discovery stopping at an early return
 does not leave another branch's bytes unattributed. Spans stop at the next actual

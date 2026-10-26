@@ -1419,14 +1419,9 @@ def should_promote_status(current_status: str, new_status: str) -> bool:
     if current in EARNED_STATUSES and new in INFRASTRUCTURE_STATUSES:
         # A compile/extract error, a deleted source or an unaddressable VA
         # says the tool failed, not that the match stopped holding.  Keep
-        # the earned status; the caller still reports the failure for this
-        # run, and a later successful run writes the real verdict.
-        logger.warning(
-            "refusing to overwrite earned STATUS %s with %s for this function: "
-            "the verdict came from a tooling failure, not from comparing bytes",
-            current,
-            new,
-        )
+        # the earned status.  This predicate stays quiet: verify reports the
+        # tooling failure once for the run, and a later successful compare
+        # writes the real verdict.
         return False
     return current != new
 
