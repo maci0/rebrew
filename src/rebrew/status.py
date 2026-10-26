@@ -788,6 +788,25 @@ def _compute_text_size(cfg: ProjectConfig) -> int:
         return 0
 
 
+def _unclaimed(lo: int, hi: int, claimed: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Subtract claimed half-open intervals from a proposed span."""
+    pieces = [(lo, hi)]
+    for claim_lo, claim_hi in claimed:
+        nxt: list[tuple[int, int]] = []
+        for piece_lo, piece_hi in pieces:
+            if claim_hi <= piece_lo or claim_lo >= piece_hi:
+                nxt.append((piece_lo, piece_hi))
+                continue
+            if piece_lo < claim_lo:
+                nxt.append((piece_lo, claim_lo))
+            if claim_hi < piece_hi:
+                nxt.append((claim_hi, piece_hi))
+        pieces = nxt
+        if not pieces:
+            break
+    return pieces
+
+
 def collect_status(cfg: ProjectConfig) -> StatusReport:
     """Collect all project health data into a StatusReport.
 
@@ -900,6 +919,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     matched_bytes = 0
     unmatched_bytes = 0
     spans: list[tuple[int, int]] = []
+    native_tails: list[tuple[int, int]] = []
     naked_matched = 0
     naked_bytes = 0
     verify_overrides = 0
@@ -973,9 +993,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
                 text_section.va + text_section.size,
             )
             if tail is not None:
-                spans.append(tail)
-                unmatched_bytes += tail[1]
-                report.status_bytes[effective] = report.status_bytes.get(effective, 0) + tail[1]
+                native_tails.append(tail)
     report.status_counts = status_counts
     report.library_identified = library_identified
     report.matched_bytes = matched_bytes
@@ -990,6 +1008,16 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         unmatched_bytes += size
         report.status_bytes["NO_SOURCE"] = report.status_bytes.get("NO_SOURCE", 0) + size
         spans.append((span_va, size))
+    claimed = sorted((va, va + size) for va, size in spans if size > 0)
+    tail_bytes = 0
+    for va, size in native_tails:
+        for lo, hi in _unclaimed(va, va + size, claimed):
+            tail_bytes += hi - lo
+            spans.append((lo, hi - lo))
+    if tail_bytes:
+        unmatched_bytes += tail_bytes
+        report.status_bytes["UNVERIFIED_TAIL"] = tail_bytes
+
     # An identified LIBRARY row without a recorded extent still owns the bytes
     # up to the next known start. Attribute only bytes no other span claims, so
     # a coarse inventory function or a started row always wins, and never extend
@@ -1000,29 +1028,12 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         known_starts = sorted(set(starts) | {min(va, text_hi) for va in derived_starts} | {text_hi})
         claimed = sorted((span_va, span_va + size) for span_va, size in spans if size > 0)
 
-        def _unclaimed(lo: int, hi: int) -> list[tuple[int, int]]:
-            pieces = [(lo, hi)]
-            for claim_lo, claim_hi in claimed:
-                nxt: list[tuple[int, int]] = []
-                for piece_lo, piece_hi in pieces:
-                    if claim_hi <= piece_lo or claim_lo >= piece_hi:
-                        nxt.append((piece_lo, piece_hi))
-                        continue
-                    if piece_lo < claim_lo:
-                        nxt.append((piece_lo, claim_lo))
-                    if claim_hi < piece_hi:
-                        nxt.append((claim_hi, piece_hi))
-                pieces = nxt
-                if not pieces:
-                    break
-            return pieces
-
         derived = 0
         for va in sorted(set(derived_starts)):
             lo = max(va, text_lo)
             hi = next((start for start in known_starts if start > va), text_hi)
             hi = min(hi, text_hi)
-            for piece_lo, piece_hi in _unclaimed(lo, hi):
+            for piece_lo, piece_hi in _unclaimed(lo, hi, claimed):
                 length = piece_hi - piece_lo
                 if length <= 0:
                     continue
@@ -1587,6 +1598,7 @@ def _render_terminal(report: StatusReport) -> None:
                 f"{report.library_identified:,}",
                 report.status_bytes.get("LIBRARY", 0) if report.library_identified else None,
             ),
+            ("UNVERIFIED_TAIL", "", report.status_bytes.get("UNVERIFIED_TAIL")),
             ("PADDING", "", report.padding_bytes),
             ("NO_FUNCTION", "", report.unattributed_bytes),
         ):

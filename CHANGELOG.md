@@ -30,7 +30,8 @@
   the byte comparison still covers only the annotated size. Metadata rows without
   a native extent no longer cut a previous entry's native tail short. On the
   project that drove the change, NO_FUNCTION fell from 43,472 to 5,227 while
-  matched bytes stayed identical.
+  matched bytes stayed identical. Uncompared tails appear as `UNVERIFIED_TAIL`,
+  and overlapping source definitions are counted once.
 - `status --json` reports `unattributed_ranges`: absolute `(va, size)` ranges for
   the bytes still in NO_FUNCTION, so the remainder can be investigated instead
   of only counted.

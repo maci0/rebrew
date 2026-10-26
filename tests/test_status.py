@@ -2412,3 +2412,42 @@ class TestUnattributedRanges:
         from rebrew.status import classify_unattributed_ranges
 
         assert classify_unattributed_ranges(b"\xcc\x00\x90", 0x1000, []) == (3, [])
+
+
+class TestNativeTailAccounting:
+    def test_tails_are_unverified_and_do_not_overlap_another_body(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dataclasses import replace
+
+        from bin_util import make_pe
+
+        from rebrew.naming import load_data
+
+        cfg = _make_cfg(tmp_path)
+        cfg.target_binary.write_bytes(make_pe(b"\xc3" * 16))
+        cfg.reversed_dir.mkdir()
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            json.dumps([{"va": 0x401000, "size": 10, "ghidra_name": "a"}])
+        )
+        for va, name in [(0x401000, "a"), (0x401004, "b")]:
+            write_source(
+                cfg.reversed_dir / f"{name}.c",
+                f"/* ADDRESS: TEST {va:#x} */\nvoid {name}(void) {{}}\n",
+                metadata_fields={
+                    f"TEST.{va:#x}": {"kind": "FUNCTION", "size": 2, "status": "EXACT"}
+                },
+            )
+        functions, existing, covered = load_data(cfg)
+        # Retain the native extent when a second definition lies inside it.
+        functions = [replace(functions[0], size=10)]
+        monkeypatch.setattr(
+            "rebrew.naming.load_data", lambda *_a, **_kw: (functions, existing, covered)
+        )
+        report = collect_status(cfg)
+        assert report.matched_bytes == 4
+        assert report.status_bytes["EXACT"] == 4
+        assert report.unmatched_bytes == 6
+        assert report.status_bytes["UNVERIFIED_TAIL"] == 6
+        assert report.unattributed_bytes == 6
+        assert report.matched_bytes + report.unmatched_bytes + report.unattributed_bytes == 16
