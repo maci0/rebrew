@@ -1343,13 +1343,14 @@ def _check_E023_naked_asm(
     dump and earns E023.  1-2 nops for alignment are tolerated silently.
     """
     if documented:
-        raw_source = "\n".join(lines).encode("utf-8", errors="surrogateescape")
-        code_lines = code_lines.copy()
-        for name, start, end in function_definition_spans("\n".join(lines)):
+        source = "\n".join(lines)
+        raw_source = bytearray(source.encode("utf-8", errors="surrogateescape"))
+        for name, start, end in function_definition_spans(source):
             if name in documented:
-                first = raw_source[:start].count(b"\n")
-                last = raw_source[:end].count(b"\n") + 1
-                code_lines[first:last] = [""] * (last - first)
+                raw_source[start:end] = bytes(
+                    10 if byte == 10 else 32 for byte in raw_source[start:end]
+                )
+        code_lines = _strip_all(raw_source.decode("utf-8", errors="surrogateescape").split("\n"))
 
     # Find the naked declaration in CODE.  The naive
     # `startswith("//")/"/*"/"*"` filter let the interior of a block comment

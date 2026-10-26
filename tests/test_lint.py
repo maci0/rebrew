@@ -4150,11 +4150,14 @@ class TestE023DocumentedAssembly:
         result = lint_file(f, cfg=cfg)
         assert not any(code == "E023" for _, code, _ in result.errors), result.errors
 
-    def test_documentation_does_not_exempt_another_definition(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("separator", ["\n", " "])
+    def test_documentation_does_not_exempt_another_definition(
+        self, tmp_path: Path, separator: str
+    ) -> None:
         from rebrew.metadata.source_provenance import document_assembly
 
         f = self._fixture(tmp_path)
-        f.write_text(f.read_text() + self._BODY.replace("f(void)", "g(void)"))
+        f.write_text(f.read_text().rstrip() + separator + self._BODY.replace("f(void)", "g(void)"))
         document_assembly(tmp_path, Path("naked_documented.c"), "f", "SERVER", "original assembly")
         result = lint_file(f, cfg=_make_cfg(root=tmp_path))
         assert any(code == "E023" for _, code, _ in result.errors), result.errors
