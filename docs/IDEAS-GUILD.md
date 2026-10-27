@@ -3630,20 +3630,16 @@ when the stored size differs from the inventory extent so the stderr message nam
 extent was compared. `rebrew test` already has both behaviours, so this is parity rather
 than new semantics.
 
-## `data layout converge` cannot measure a target in a multi-target build directory (2026-10-28)
+## `data layout converge` can overshoot the byte match on a second cycle (2026-10-28)
 
-`converge_layout` resolves its input two ways that only hold for a single-target
-build: `built_data_va(build/<target>)` and `link_objects(root)`, and
-`link_objects` takes `sorted(root/build/CMakeFiles/*/objects*.rsp)[0]`. In the
-guild-rebrew project the CMake build directory carries the server DLL and the
-client target together, so the first rsp by name belongs to another target, and
-the data base read out of the client image came back as 0x675000 instead of the
-section base 0x275000. `rebrew data layout converge --dry-run -t
-Europa1400Gold_TL.exe` therefore reports `{"rounds":1,"adjustments":[]}` while
-the same audit shows 613 unowned rows and a 27.7% initialized-data byte match.
+`converge_layout` sizes each TU's `_dlead_` pad from where that TU's first
+metadata symbol lands, which is a relative-offset objective, not the whole-image
+byte match. In the guild-rebrew TL build the first cycle moved a 0x1456e pad to
+0xf66e (delta -0x4f00); the rebuilt image's same-offset byte match fell from
+161,511 to 157,424 while a second cycle then reported no adjustments. The fixed
+point is real, the direction of the last step was not.
 
-Proposed: pick the rsp directory from the target's CMake target name (or accept
-an explicit `--build-dir` / `--objects-rsp`), and derive the data base from the
-section table rather than the first data symbol. Then converge can run against
-the project's real build directory, which is also where `data layout fill` and
-`own` already read from.
+Proposed: let converge report the predicted direction and stop when the
+measured whole-image match drops, or accept a `--check-bytes` that compares the
+built image before/after a cycle. Until then, keep the previous pad sizes and
+check the byte match between cycles.
