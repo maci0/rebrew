@@ -671,19 +671,28 @@ def insert_definition(
 # ---------------------------------------------------------------------------
 
 
-def audit_layout(root: Path, metadata: Path, section: str = ".data") -> dict[str, Any]:
+def audit_layout(
+    root: Path, metadata: Path, section: str = ".data", target: str | None = None
+) -> dict[str, Any]:
     """Per-TU span/order feasibility report for *section* (``.data`` or ``.rdata``).
 
     Returns rows (per TU: symbol count, min/max addr, section sizes, flags),
     the violation count, and the unowned/duplicate-owned symbol lists.
     ``.bss`` symbols ride along for ordering context in ``.data`` mode only.
     """
-    toml = data_symbols(metadata, section)
+    build_target: str | None
+    if (root / "rebrew-project.toml").is_file():
+        build_target = _converge_target(root, target)
+        module = _target_module(root, build_target)
+    else:
+        build_target = target
+        module = None
+    toml = data_symbols(metadata, section, module=module)
     owner: dict[str, list[str]] = defaultdict(list)
     rows: list[dict[str, Any]] = []
     violations = 0
     extra = (".bss",) if section == ".data" else ()
-    for obj in link_objects(root):
+    for obj in link_objects(root, build_target):
         name = str(obj).split(".dir/")[-1]
         try:
             sizes, buckets = obj_section_symbols(obj, section, *extra)
@@ -785,7 +794,11 @@ def fill_data(
     # Both sections: `.bss` globals (section=".bss" in the metadata) live past
     # raw_end and become the zero-init pads — a `.data`-only read dropped them,
     # so BSS pads were never emitted and `--bss-only` was a no-op.
-    toml = data_symbols(metadata, (".data", ".bss"))
+    toml = data_symbols(
+        metadata,
+        (".data", ".bss"),
+        module=_target_module(root, _converge_target(root, target)),
+    )
     files = scan_files(src_dir, shared_dir)
     by_addr = sorted(toml.items(), key=lambda kv: kv[1])
     if not by_addr:
@@ -1223,7 +1236,7 @@ def own_data_globals(
     data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml", target=target)
     orig = data_raw_from_binary(bin_path)
     byte_order = data_byte_order(bin_path)
-    toml = data_symbols(metadata)
+    toml = data_symbols(metadata, module=_target_module(root, _converge_target(root, target)))
     stub_resolved = stub_file.resolve()
     files = [f for f in scan_files(src_dir, shared_dir) if f.resolve() != stub_resolved]
     references = reference_counts(files)

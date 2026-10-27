@@ -400,7 +400,9 @@ def execute_data(
             if section not in (".data", ".rdata"):
                 error_exit("--section must be .data or .rdata", json_mode=json_output)
             try:
-                report = audit_layout(cfg.root, metadata, section)
+                report = audit_layout(
+                    cfg.root, metadata, section, target=getattr(cfg, "target_name", None)
+                )
             except OSError as exc:
                 error_exit(str(exc), json_mode=json_output)
             if json_output:

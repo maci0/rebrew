@@ -1280,6 +1280,34 @@ def test_link_objects_cmake_rsp(tmp_path: Path) -> None:
     ]
 
 
+def test_audit_layout_filters_the_target_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two binaries keep different VAs for one name; audit must read one module."""
+    from rebrew import data_layout as dl
+
+    (tmp_path / "rebrew-project.toml").write_text(
+        "[project]\ndefault_target = 'client.dll'\n"
+        "[targets.'client.dll']\nmodule = 'CLIENT'\n"
+        "[targets.'server.dll']\nmodule = 'SERVER'\n",
+        encoding="utf-8",
+    )
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text("format = 2\n", encoding="utf-8")
+    seen = {}
+
+    def fake_data_symbols(
+        metadata: Path, section: str | None = None, module: str | None = None
+    ) -> dict[str, int]:
+        seen["module"] = module
+        return {}
+
+    monkeypatch.setattr(dl, "data_symbols", fake_data_symbols)
+    monkeypatch.setattr(dl, "link_objects", lambda root, target=None: [])
+    dl.audit_layout(tmp_path, meta, ".data", target="client.dll")
+    assert seen["module"] == "CLIENT"
+
+
 def test_converge_layout_reads_only_the_target_module(tmp_path: Path) -> None:
     """Another target's rows must not size the client's pads.
 
