@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Changed
+
+- Bump the sibling `resembl` pin to v3.9.0: `RESEMBL_REF`/`RESEMBL_SHA`, the
+  `uv-env` action defaults, `uv.lock`, the license note and the setup docs move
+  together, so the clone a CI job makes and the path dependency it installs are
+  the same release.
+
 ## [6.4.1] - 2026-10-27
 
 ### Changed

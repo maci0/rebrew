@@ -27,7 +27,7 @@ from __future__ import annotations
 PATH_OR_GIT_LICENSES = {
     "m2c": "GPL-3.0-only",
     "python-flirt": "License :: OSI Approved :: Apache Software License",
-    # resembl 3.8.0 declares License-Expression: GPL-3.0-only (PEP 639).
+    # resembl 3.9.0 declares License-Expression: GPL-3.0-only (PEP 639).
     # There is no free-text License field on that artifact.
     "resembl": "GPL-3.0-only",
 }

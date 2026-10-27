@@ -20,13 +20,13 @@ inputs:
   resembl-ref:
     description: Tag of maci0/resembl to clone into ../resembl (must match uv.lock).
     required: false
-    default: "v3.8.0"
+    default: "v3.9.0"
   resembl-sha:
     description: >-
       Commit the resembl-ref tag must resolve to. A retargeted tag fails the
       clone instead of silently changing the path dependency.
     required: false
-    default: "de6d53ebce415b2dad8058c6d2d85ca3c136d225"
+    default: "2bb813d2812b817fea31d2cf90f6fd818e49dfcd"
   clone-resembl:
     description: >-
       Clone the sibling resembl checkout. Set to "false" for jobs whose sync
