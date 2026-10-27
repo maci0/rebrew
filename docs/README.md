@@ -16,6 +16,7 @@
 | Document | Description |
 |----------|-------------|
 | [CLI.md](CLI.md) | All CLI commands (umbrella `rebrew` + multi-command groups): flags, examples, internal modules |
+| [CLI_MIGRATION.md](CLI_MIGRATION.md) | Old-to-new route mapping for the October 2026 CLI reorganization (ADR 028) |
 | [PYTHON_API.md](PYTHON_API.md) | Library imports, toolchain registry views, structured errors, and injectable service clients |
 | [CORDIS.md](CORDIS.md) | Composition concepts, runtime API, lifecycle and failure contracts, recipes, and paper mapping |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, config loader, arch presets, compiler profiles |
@@ -57,6 +58,7 @@
 | Document | Description |
 |----------|-------------|
 | [ECOSYSTEM.md](ECOSYSTEM.md) | Public Rebrew and Resembl integration boundaries and third-party interoperability |
+| [PROJECT_TOOLING.md](PROJECT_TOOLING.md) | Audit and migration ledger moving reusable Guild, Holidaydecomp and test-project tooling into Rebrew |
 | [architecture.drawio](architecture.drawio) | Public integration map and Rebrew compile, toolchain, matching, configuration and metadata flows |
 
 ## Project
@@ -67,3 +69,4 @@
 | [adr/](adr/README.md) | Architecture decision records (settled decisions, Nygard format) |
 | [prd/](prd/README.md) | Subsystem requirements and scoped implementation status, including historical examples |
 | [codegen/](codegen/README.md) | Per-compiler-version codegen reference (prologues, registers, FPU, loops) |
+| [archive/](archive/README.md) | Dated reviews and completed plans kept for provenance, not current behavior |

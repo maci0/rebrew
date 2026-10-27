@@ -1,5 +1,8 @@
 # Evidence and project workflow implementation plan
 
+> Archived implementation plan: every item is checked. [CLI.md](../CLI.md)
+> documents the shipped commands.
+
 Scope: close the remaining evidenced Guild workflow gaps without weakening byte
 comparisons, inventing storage owners, trusting library names by default, or
 replacing reviewed inventories wholesale. This is an implementation plan; an
