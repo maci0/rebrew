@@ -1149,6 +1149,12 @@ def source_bindings(
                 # the new one, and its anchors describe history, not a conflict.
                 continue
             if retired_binding(stored):
+                if stored.get("binding_history") and retired_source_elsewhere(
+                    stored, anchor.name, filepath, metadata_dir, history_root
+                ):
+                    # The claim moved on; this file is its leftover. Nothing to
+                    # report on every scan of a reorganised tree.
+                    continue
                 # A retired binding with a remaining ADDRESS comment is stale
                 # source, not a scan-fatal condition: another target, another
                 # module or a rebind may own the file. Skip this anchor and keep
@@ -1228,6 +1234,14 @@ def source_bindings(
                     str(stored["file"]), identity_file(filepath, binding_root)
                 )
             ):
+                from rebrew.metadata.binding_history import retired_source_elsewhere
+
+                if metadata_dir is not None:
+                    conflict_root = project_root or _binding_project_root(metadata_dir)
+                    if stored.get("binding_history") and retired_source_elsewhere(
+                        stored, anchor.name, filepath, metadata_dir, conflict_root
+                    ):
+                        continue
                 raise ValueError(
                     f"{filepath}:{anchor.line}: address anchor conflicts with the "
                     f"stored source binding {stored['file']!r}"
