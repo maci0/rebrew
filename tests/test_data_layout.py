@@ -578,6 +578,43 @@ def _own_fixture(tmp_path: Path, raw: bytes, data_base: int) -> Path:
     return binp
 
 
+def test_own_data_globals_skips_symbol_the_owner_typed_differently(
+    tmp_path: Path,
+) -> None:
+    """A typed declaration in the owner TU must not gain a conflicting placeholder.
+
+    The stub says ``int g_count[]``; the owner already uses ``Offer g_count[]``
+    (28 bytes per element). Writing the stub's ``int`` definition beside that
+    declaration broke the rebuilt TU with C2371, so the symbol stays in the stub
+    and the owner text is left alone.
+    """
+    from rebrew.data_layout import own_data_globals
+
+    data_base = 0x10027000
+    raw = b"\x01\x00\x00\x00" + b"\x00" * 32
+    binp = _own_fixture(tmp_path, raw, data_base)
+    owner = tmp_path / "src" / "mod.c"
+    owner.write_text(
+        "typedef struct { int id; int f4; int f8; int fc; int f10; int f14;"
+        " short level; short pad; } Offer;\nextern Offer g_count[];\n",
+        encoding="utf-8",
+    )
+    meta = tmp_path / "rebrew-data.toml"
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_count"\nsection = ".data"\ntype = "int[]"\n',
+        encoding="utf-8",
+    )
+    stub = tmp_path / "src" / "link_stubs.c"
+    stub.write_text("int g_count[1] = {1};\n", encoding="utf-8")
+
+    result = own_data_globals(tmp_path, meta, binp, tmp_path / "src", stub, dry_run=False)
+    text = owner.read_text(encoding="utf-8")
+    assert "g_count" in result["skipped"]
+    assert "int g_count" not in text
+    assert "Offer g_count[]" in text
+
+
 def test_own_data_globals_scalar_and_string(tmp_path: Path) -> None:
     from rebrew.data_layout import own_data_globals
 

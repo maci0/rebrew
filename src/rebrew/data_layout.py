@@ -569,6 +569,30 @@ def _name_line_re(name: str, *, is_array: bool, extern: bool) -> re.Pattern[str]
     )
 
 
+def _declared_base_types(text: str, name: str) -> set[str]:
+    """Base C types used for *name* in declarations this TU already holds.
+
+    ``own`` used to materialize every stub placeholder with the stub's own type
+    even when the owner TU already declared the symbol as a struct array; the
+    two definitions then collided (C2371) in the rebuilt TU. The caller skips a
+    symbol whose existing declarations disagree instead of emitting a second
+    type for it.
+    """
+    found: set[str] = set()
+    pattern = re.compile(
+        r"^[ \t]*(?:extern[ \t]+|static[ \t]+)?([A-Za-z_][\w \t]*?)[ \t]*\**\s*\b"
+        + re.escape(name)
+        + r"\b\s*(?:\[[^\]]*\])*\s*(?:=[^;]*)?;",
+        re.MULTILINE,
+    )
+    for match in pattern.finditer(text):
+        base = re.sub(r"\s+", " ", match.group(1)).strip()
+        base = base.replace("extern", "").replace("static", "").strip()
+        if base:
+            found.add(base)
+    return found
+
+
 def insert_definition(
     f: Path,
     name: str,
@@ -1204,6 +1228,7 @@ def own_data_globals(
         if addr >= raw_end:
             continue  # BSS region — zero-init, nothing to materialize
         base = _ARRAY_SUFFIX_RE.sub("", ctype).strip()
+        base_ctype = base
         elemsize = c_type_size(base)
         cap = min(toml_next.get(name, raw_end), raw_end) - addr
         if cap <= 0 or addr < data_base:
@@ -1249,6 +1274,13 @@ def own_data_globals(
             is_array = True
         owner = owner_of([name], files, references)
         if owner is None:
+            skipped.append(name)
+            continue
+        owner_text, _owner_encoding = read_source_text(owner)
+        declared = _declared_base_types(owner_text, name)
+        if any(_ARRAY_SUFFIX_RE.sub("", base).strip() != base_ctype for base in declared):
+            # The owner already names a different type; a placeholder definition
+            # in this TU would redeclare the symbol with conflicting types.
             skipped.append(name)
             continue
         if insert_definition(owner, name, ctype, dim, value, dry_run, is_array=is_array):
