@@ -371,6 +371,57 @@ class TestLinkerReferences:
         assert _snapshot(root) == before
 
 
+class TestCounterpartNameReuse:
+    def test_shared_definition_allows_a_counterpart_owned_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # One source file serves two targets, each with its own guarded body.
+        # The server row keeps the name textually; the client body may take it
+        # once the caller says the counterpart is reviewed.
+        from rebrew.metadata.functions import record_function_rows
+
+        root = _project(tmp_path)
+        write_source(
+            root / "src/game/mixed.c",
+            "void srv_Only(void)\n{\n}\nvoid tl_Other(void)\n{\n}\n",
+            encoding="utf-8",
+        )
+        record_function_rows(
+            root,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x10005000,
+                    "identity": {
+                        "file": "src/game/mixed.c",
+                        "name": "srv_Only",
+                        "symbol": "_srv_Only",
+                        "kind": "FUNCTION",
+                    },
+                },
+                {
+                    "module": "GOLDTL",
+                    "va": 0x00403000,
+                    "identity": {
+                        "file": "src/game/mixed.c",
+                        "name": "tl_Other",
+                        "symbol": "_tl_Other",
+                        "kind": "FUNCTION",
+                    },
+                },
+            ],
+            updated_by="match",
+        )
+        refused = _run(root, monkeypatch, "GOLDTL.0x00403000", "srv_Only")
+        assert refused.exit_code != 0
+        assert "already used" in refused.output
+        allowed = _run(root, monkeypatch, "GOLDTL.0x00403000", "srv_Only", "--shared-definition")
+        assert allowed.exit_code == 0, allowed.output
+        rows = _functions(root)
+        assert _row(rows, "GOLDTL", 0x403000)["name"] == "srv_Only"
+        assert _row(rows, "SERVER", 0x10005000)["name"] == "srv_Only"
+
+
 class TestFunctionIdentity:
     def test_shared_definition_preserves_independent_twin(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

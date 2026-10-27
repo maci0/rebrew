@@ -340,10 +340,24 @@ def _parse_reference_owners(cfg: Any, values: list[str]) -> dict[Path, Selection
     return owners
 
 
-def _check_scan_collision(entries: list[Any], skip: Any, new_name: str, json_output: bool) -> None:
-    """Refuse a new name an active-target annotation already uses (decorated or not)."""
+def _check_scan_collision(
+    entries: list[Any],
+    skip: Any,
+    new_name: str,
+    json_output: bool,
+    allow_other_module: bool = False,
+) -> None:
+    """Refuse a new name an active-target annotation already uses (decorated or not).
+
+    *allow_other_module* ignores annotations of other targets: with
+    ``--shared-definition`` their bodies sit behind that target's define in the
+    same file, so the name is not a duplicate symbol in this image.
+    """
+    own_module = getattr(skip, "module", "") or ""
     for e in entries:
         if e is skip:
+            continue
+        if allow_other_module and (getattr(e, "module", "") or "") != own_module:
             continue
         name = getattr(e, "name", "") or ""
         symbol = getattr(e, "symbol", "") or ""
@@ -425,7 +439,9 @@ def _plan_function(
         for entry in entries
         if (getattr(entry, "module", ""), getattr(entry, "va", 0)) != (selected.module, selected.va)
     ]
-    _check_scan_collision(others, match, new_name, json_output)
+    _check_scan_collision(
+        others, match, new_name, json_output, allow_other_module=shared_definition
+    )
     actual_old = rename_source_name(old_name, old_sym)
     plan = plan_symbol_rename(
         cfg,
