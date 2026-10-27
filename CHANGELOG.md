@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Changed
+
+- Defer every module-level import the module does not read while loading (PEP 810
+  `lazy`). `rebrew --help` drops from 236 to 171 ms. A broken dependency now fails
+  at first use instead of at startup.
+
 ## [6.3.1] - 2026-10-26
 
 ### Changed

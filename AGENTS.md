@@ -53,6 +53,7 @@ Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest confi
 - **Python 3.15+**; ruff/mypy gates in `pyproject.toml`; do not weaken them
 - Types: `T | None` not `Optional`; config as `ProjectConfig` (`getattr` defensively); prefer `Any` over bare `object`
 - Library code raises specific exceptions; no bare `except`
+- Module-level imports are `lazy` (PEP 810) unless the module reads the name while loading (decorator, base class, default, class body, module statement) or imports it only for side effects. Tests stay eager
 - Docstrings on every module; section separators `# ---...---`
 - Use imported libs' APIs: LIEF for new parses of formats it supports (no new header unpacker). `pe_headers`/`pe_image` patch PE bytes in place; `ne_loader` and `omf16` stay because LIEF cannot parse NE or that OMF dialect. httpx for MCP (never `urllib.request`), tree-sitter for C AST (no new regex C parsers; legacy mutation regex stays), angr only behind `[prove]`, declib only behind `[binsync]`
 
