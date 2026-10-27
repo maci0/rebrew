@@ -859,15 +859,16 @@ def scan_globals(
     # An annotation and an extern are address/declaration facts, not owners.
     # Only actual source definitions contribute owners. Linked archive ownership
     # requires separate link evidence and is deliberately not guessed here.
-    for entry in result.globals.values():
-        for fname, (definitions, _declarations, uses) in file_roles.items():
-            # For TU-local names at distinct VAs, associate only that TU's facts.
-            if len(entries_by_name[entry.name]) > 1 and fname not in entry.declared_in:
-                continue
-            if entry.name in definitions and fname in entry.declared_in:
-                entry.defined_in.append(fname)
-            if entry.name in uses:
-                entry.referenced_in.append(fname)
+    for fname, (definitions, _declarations, uses) in file_roles.items():
+        for name in definitions | uses:
+            for entry in entries_by_name.get(name, ()):
+                # For TU-local names at distinct VAs, associate only that TU's facts.
+                if len(entries_by_name[name]) > 1 and fname not in entry.declared_in:
+                    continue
+                if name in definitions and fname in entry.declared_in:
+                    entry.defined_in.append(fname)
+                if name in uses:
+                    entry.referenced_in.append(fname)
 
     # Metadata is keyed by VA, so its relationship may describe an alternate
     # label at the allocation's first byte. One explicit annotated source

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 lazy import unicodedata
 
 lazy from rebrew.c_parser import (
+    comment_nodes,
     find_c_function_definitions,
     find_extern_variables,
     function_signatures,
@@ -102,12 +103,7 @@ def _parse_address_anchors(source: str) -> list[AddressAnchor]:
     tree, src = parse_c_source(source)
     masked = bytearray(src)
     pending: list[tuple[str, int, int]] = []
-    stack = [tree.root_node]
-    while stack:
-        node = stack.pop()
-        if node.type != "comment":
-            stack.extend(reversed(node.named_children))
-            continue
+    for node in comment_nodes(tree):
         comment = src[node.start_byte : node.end_byte].decode("utf-8")
         masked[node.start_byte : node.end_byte] = src[node.start_byte : node.end_byte].translate(
             _COMMENT_MASK
@@ -215,13 +211,14 @@ def metadata_comments(source: str) -> list[tuple[int, str]]:
     }
     tree, src = parse_c_source(source)
     found: list[tuple[int, str]] = []
-    stack = [tree.root_node]
-    while stack:
-        node = stack.pop()
-        if node.type in {"function_definition", "compound_statement"}:
-            continue
-        if node.type != "comment":
-            stack.extend(reversed(node.named_children))
+    for node in comment_nodes(tree):
+        parent = node.parent
+        while parent is not None and parent.type not in {
+            "function_definition",
+            "compound_statement",
+        }:
+            parent = parent.parent
+        if parent is not None:
             continue
         text = src[node.start_byte : node.end_byte].decode("utf-8")
         body = text[2:-2].strip() if text.startswith("/*") else text[2:].strip()

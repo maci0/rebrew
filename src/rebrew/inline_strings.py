@@ -37,6 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 lazy import re
+lazy from bisect import bisect_right
 lazy from collections import defaultdict
 lazy from pathlib import Path
 
@@ -350,7 +351,8 @@ def _code_occurrences(parsed: _ParsedSource, name: str) -> int:
     count = 0
     word = re.compile(rb"\b" + re.escape(name.encode("utf-8")) + rb"\b")
     for m in word.finditer(parsed.data):
-        if not any(s <= m.start() < e for s, e in parsed.non_code):
+        i = bisect_right(parsed.non_code, m.start(), key=lambda span: span[0]) - 1
+        if i < 0 or m.start() >= parsed.non_code[i][1]:
             count += 1
     return count
 
@@ -477,6 +479,7 @@ def inline_named_strings(
     data = parsed.data
     definitions = _named_definitions(tree.root_node, data, prefix)
     externs = _extern_declarations(tree.root_node, data, set(definitions))
+    other_parses: dict[str, _ParsedSource] = {}
     edits: list[tuple[int, int, bytes]] = []
 
     for name in sorted(definitions):
@@ -518,11 +521,12 @@ def inline_named_strings(
         if not reason:
             for other in others:
                 other_text, _enc = read_source_text(other)
-                if name in other_text and _code_occurrences(
-                    _parse_source(other_text, prefix)[1], name
-                ):
-                    reason = f"used from {other}"
-                    break
+                if name in other_text:
+                    if other_text not in other_parses:
+                        other_parses[other_text] = _parse_source(other_text, prefix)[1]
+                    if _code_occurrences(other_parses[other_text], name):
+                        reason = f"used from {other}"
+                        break
         if not reason and not uses:
             reason = "no uses"
         if reason:

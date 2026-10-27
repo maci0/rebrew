@@ -1,5 +1,22 @@
 ## [Unreleased]
 
+## [6.5.0] - 2026-10-28
+
+### Fixed
+
+- Named-string inlining reuses external-source parses by content and uses
+  indexed comment/literal membership; source edits still invalidate the parse.
+- Rename planning indexes exact source identities once instead of searching
+  every source for every metadata-row lookup.
+
+- Source anchor discovery uses native Tree-sitter comment queries, and global
+  ownership/user association uses direct symbol lookups instead of checking
+  every global against every file.
+
+- `data list` parses each map-selected source once per ownership scan instead
+  of repeating its AST walk for every global. Ownership evidence stays current
+  on the next run.
+
 ### Changed
 
 - Bump the sibling `resembl` pin to v3.9.0: `RESEMBL_REF`/`RESEMBL_SHA`, the

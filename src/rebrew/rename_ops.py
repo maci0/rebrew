@@ -358,6 +358,7 @@ class _Project:
         self._parsed: dict[Path, ParsedSource] = {}
         self._annotations: dict[Path, list[SourceBinding]] = {}
         self._data_rows: dict[tuple[str, int], dict[str, Any]] | None = None
+        self._paths_by_stored: dict[str, Path] | None = None
 
     @property
     def metadata_dir(self) -> Path:
@@ -391,14 +392,13 @@ class _Project:
 
     def path_for_stored(self, stored: str) -> Path | None:
         """The project path a row's ``file`` names, when it is one of ours."""
-        from rebrew.metadata.functions import stored_file_matches
-
         if not stored:
             return None
-        for path in self.paths:
-            if stored_file_matches(stored, self.stored_file(path)):
-                return path
-        return None
+        if self._paths_by_stored is None:
+            self._paths_by_stored = {}
+            for path in self.paths:
+                self._paths_by_stored.setdefault(self.stored_file(path).replace("\\", "/"), path)
+        return self._paths_by_stored.get(stored.replace("\\", "/"))
 
     def modules(self, path: Path) -> frozenset[str] | None:
         """Modules whose rows bind *path*; ``None`` for a header or a row-less file."""

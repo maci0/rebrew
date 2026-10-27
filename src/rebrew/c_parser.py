@@ -155,6 +155,20 @@ def parse_c_source(source: str | bytes) -> tuple[Any, bytes]:
 # ---------------------------------------------------------------------------
 
 
+def comment_nodes(tree: Any) -> list[Any]:
+    """Find actual C comments with a native query instead of a Python node walk."""
+    from tree_sitter import Query, QueryCursor
+
+    query = getattr(_tls, "comment_query", None)
+    if query is None:
+        query = Query(_get_parser()[1], "(comment) @comment")
+        _tls.comment_query = query
+    return sorted(
+        QueryCursor(query).captures(tree.root_node).get("comment", []),
+        key=lambda node: node.start_byte,
+    )
+
+
 def _structure_trees(tree: Any, raw: bytes) -> Iterator[tuple[Any, bytes, list[tuple[int, int]]]]:
     if not tree.root_node.has_error:
         yield tree, raw, []
