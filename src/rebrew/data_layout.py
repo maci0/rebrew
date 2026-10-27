@@ -1779,6 +1779,23 @@ def built_text_va(dll: Path) -> int:
     return sec.va
 
 
+def _target_module(root: Path, target: str) -> str | None:
+    """The metadata module key for *target*, or None when the config has none.
+
+    A multi-target store keeps one address per binary for the same name;
+    converge must compare its build against its own module only, or a client
+    run reads the server's VAs and proposes a pad of gigabytes.
+    """
+    config = root / "rebrew-project.toml"
+    if not config.is_file():
+        return None
+    cfg = load_tomllib(config)
+    targets = cfg.get("targets") or {}
+    entry = targets.get(target) or {}
+    module = entry.get("module")
+    return module if isinstance(module, str) and module else None
+
+
 def converge_layout(
     root: Path,
     metadata: Path,
@@ -1815,8 +1832,8 @@ def converge_layout(
         root / "rebrew-project.toml", target=_converge_target(root, target)
     )
     orig = data_raw_from_binary(bin_path)
-    toml = data_symbols(metadata)
     dll = root / "build" / _converge_target(root, target)
+    toml = data_symbols(metadata, module=_target_module(root, dll.name))
     if not dll.exists():
         raise FileNotFoundError(f"build output not found: {dll} — build the project first")
 

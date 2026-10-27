@@ -1280,6 +1280,26 @@ def test_link_objects_cmake_rsp(tmp_path: Path) -> None:
     ]
 
 
+def test_converge_layout_reads_only_the_target_module(tmp_path: Path) -> None:
+    """Another target's rows must not size the client's pads.
+
+    The store holds one VA per binary for the same name; converge used the
+    unfiltered map, so a client run read a server VA (0x100xxxxx) against a
+    0x68xxxxx build and proposed a pad of gigabytes.
+    """
+    from rebrew import data_layout as dl
+
+    (tmp_path / "rebrew-project.toml").write_text(
+        "[project]\ndefault_target = 'client.dll'\n"
+        "[targets.'client.dll']\nmodule = 'CLIENT'\n"
+        "[targets.'server.dll']\nmodule = 'SERVER'\n",
+        encoding="utf-8",
+    )
+    assert dl._target_module(tmp_path, "client.dll") == "CLIENT"
+    assert dl._target_module(tmp_path, "server.dll") == "SERVER"
+    assert dl._target_module(tmp_path, "missing.dll") is None
+
+
 def test_link_objects_selects_the_named_target(tmp_path: Path) -> None:
     """A multi-target build dir needs the target's own rsp, not the first by name.
 
@@ -1563,7 +1583,7 @@ def test_converge_layout_preserves_source_encoding(
     data_base = 0x10027000
     monkeypatch.setattr(dl, "layout_geometry", lambda p, target=None: (data_base, 0x1000, 0x1000))
     monkeypatch.setattr(dl, "data_raw_from_binary", lambda p: b"\x00" * 0x40)
-    monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base + 0x20})
+    monkeypatch.setattr(dl, "data_symbols", lambda m, module=None: {"g_a": data_base + 0x20})
     monkeypatch.setattr(dl, "_converge_target", lambda root, target: "server.dll")
     monkeypatch.setattr(dl, "built_data_va", lambda d: data_base)
     monkeypatch.setattr(dl, "link_objects", lambda root, target=None: [tmp_path / "a.obj"])
@@ -1596,7 +1616,7 @@ def test_converge_layout_negative_delta_without_pad_leaves_tu_alone(
     data_base = 0x10027000
     monkeypatch.setattr(dl, "layout_geometry", lambda p, target=None: (data_base, 0x1000, 0x1000))
     monkeypatch.setattr(dl, "data_raw_from_binary", lambda p: b"\x00" * 0x40)
-    monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base})
+    monkeypatch.setattr(dl, "data_symbols", lambda m, module=None: {"g_a": data_base})
     monkeypatch.setattr(dl, "_converge_target", lambda root, target: "server.dll")
     monkeypatch.setattr(dl, "built_data_va", lambda d: data_base)
     monkeypatch.setattr(dl, "link_objects", lambda root, target=None: [tmp_path / "a.obj"])
@@ -1857,7 +1877,7 @@ def test_converge_layout_rerun_updates_existing_pad_idempotent(
     monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
 
     # Run 1: offset 0x20 -> needs pad of 32 bytes
-    monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base + 0x20})
+    monkeypatch.setattr(dl, "data_symbols", lambda m, module=None: {"g_a": data_base + 0x20})
     monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x10, {"g_a": 0}))
 
     r1 = dl.converge_layout(tmp_path, tmp_path / "m.toml", orig, src, rounds=1, target="server.dll")
@@ -1868,7 +1888,7 @@ def test_converge_layout_rerun_updates_existing_pad_idempotent(
     assert "; = " not in content1  # No syntax corruption
 
     # Run 2: symbol moved further (offset 0x30; object has 32 byte pad -> delta 16 -> pad grows to 48 bytes)
-    monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base + 0x30})
+    monkeypatch.setattr(dl, "data_symbols", lambda m, module=None: {"g_a": data_base + 0x30})
     monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x30, {"g_a": 32}))
     r2 = dl.converge_layout(tmp_path, tmp_path / "m.toml", orig, src, rounds=1, target="server.dll")
     assert len(r2["adjustments"]) == 1
@@ -1913,7 +1933,7 @@ def test_converge_layout_shrinks_to_zero_removes_pad(
     monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
 
     # exp (0) - cur (0x20) = delta -32, old_size 16 -> new_size 0
-    monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base})
+    monkeypatch.setattr(dl, "data_symbols", lambda m, module=None: {"g_a": data_base})
     monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x10, {"g_a": 0x20}))
 
     r = dl.converge_layout(tmp_path, tmp_path / "m.toml", orig, src, rounds=1, target="server.dll")

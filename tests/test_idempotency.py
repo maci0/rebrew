@@ -270,7 +270,7 @@ class TestConvergeLayoutIdempotent:
         monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
 
         # Initial layout needs 32-byte pad
-        monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base + 0x20})
+        monkeypatch.setattr(dl, "data_symbols", lambda m, module=None: {"g_a": data_base + 0x20})
         monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x10, {"g_a": 0}))
 
         dl.converge_layout(tmp_path, tmp_path / "m.toml", orig, src, rounds=1, target="server.dll")
