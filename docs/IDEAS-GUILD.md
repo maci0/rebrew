@@ -3593,3 +3593,18 @@ tables can be classified without a placeholder function row.
 Replay: reconcile 0x61871f (171 bytes, entries 0x618461/0x618284/0x6181b4/0x618235,
 preceded by `ret 4` at 0x61871c) as a data span in the guild-rebrew project and run
 `rebrew status -t Europa1400Gold_TL.exe --json`.
+
+## `rebrew diff` has no `--size` and compares a stale stored extent (2026-10-26)
+
+`rebrew diff <file>` takes no `--size` and compares the compiled object against the
+row's stored size. When a row's stored size is smaller than the native inventory extent
+(a truncated claim, or a row that lost its size in an earlier repair) the diff silently
+compares only that prefix and reports agreement the native function does not have.
+Measured case: GOLDTL 0x4f8d90 has an inventory extent of 208 bytes but a stored size of
+39, and `rebrew diff` compared 39 bytes while `rebrew test --size 208` reported the real
+residual.
+
+Proposed: accept `--size` on `rebrew diff` (same meaning as on `rebrew test`), and warn
+when the stored size differs from the inventory extent so the stderr message names which
+extent was compared. `rebrew test` already has both behaviours, so this is parity rather
+than new semantics.

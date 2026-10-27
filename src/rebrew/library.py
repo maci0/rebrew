@@ -484,6 +484,12 @@ def adopt_cmd(
         None, "--expected-digest", help=EXPECTED_DIGEST_HELP
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    symbol: str | None = typer.Option(
+        None,
+        "--symbol",
+        help="Reviewed native symbol when the bytes match several byte-identical archive "
+        "aliases; the stored identity is the symbol alone",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -549,13 +555,24 @@ def adopt_cmd(
             f"0x{address:x} does not match any linked archive; nothing to adopt",
             json_mode=json_output,
         )
+    if symbol is not None:
+        chosen = {pair for pair in pairs if pair[0] == symbol}
+        if not chosen:
+            listed = "; ".join(f"{sym} in {obj}" for sym, obj in sorted(pairs))
+            error_exit(
+                f"0x{address:x} has no candidate named {symbol} ({listed})",
+                json_mode=json_output,
+            )
+        pairs = chosen
     if len(pairs) > 1:
-        listed = "; ".join(f"{symbol} in {obj}" for symbol, obj in sorted(pairs))
-        error_exit(
-            f"0x{address:x} has ambiguous library candidates ({listed}); a unique archive "
-            "member is required",
-            json_mode=json_output,
-        )
+        symbols = {pair[0] for pair in pairs}
+        if len(symbols) > 1:
+            listed = "; ".join(f"{sym} in {obj}" for sym, obj in sorted(pairs))
+            error_exit(
+                f"0x{address:x} has ambiguous library candidates ({listed}); pass --symbol "
+                "with the reviewed native symbol",
+                json_mode=json_output,
+            )
     symbol, object_label = pairs.pop()
     if object_label.endswith(".c.obj") or ":" not in object_label:
         error_exit(
@@ -621,6 +638,15 @@ def adopt_cmd(
             result = {"action": "record"}
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
+    if not dry_run and result.get("action") in {"rebind", "retire"}:
+        # The retired claim's byte verdict measured a compile nobody runs any
+        # more; library rows are never compiled, so a reader that falls back to
+        # the stored verdict would report a status for source that is gone.
+        from rebrew.metadata.functions import remove_fields_batch
+
+        remove_fields_batch(
+            cfg.metadata_dir, [{"module": module, "va": address, "keys": ["verification"]}]
+        )
     payload = {
         "va": f"0x{address:08x}",
         "provider": "stock-archive",

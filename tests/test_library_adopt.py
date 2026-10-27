@@ -94,6 +94,47 @@ class TestLibraryAdopt:
         assert header.is_file()
         assert "Library function identities" in header.read_text()
 
+    def test_adoption_drops_the_previous_byte_verdict(self, tmp_path: Path) -> None:
+        # The verdict describes the retired claim's compile.  Leaving it on the
+        # row let status readers fall back to it and report a byte result for
+        # source nobody compiles any more.
+        from rebrew.metadata.functions import record_verification, set_fields_batch
+
+        cfg, lib = _project(tmp_path)
+        set_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": VA,
+                    "fields": {
+                        "verification": {
+                            "status": "EXTRACT_ERROR",
+                            "source_hash": "0" * 64,
+                            "reference_hash": "1" * 64,
+                            "reference_size": str(len(CODE)),
+                            "headers_hash": "2" * 64,
+                            "compiler_hash": "3" * 64,
+                            "toolchain": "(default)",
+                            "cflags": "/O2 /Gd",
+                            "context_hash": "",
+                            "defines": "[]",
+                            "input_hash": "4" * 64,
+                            "writer": "verify",
+                        }
+                    },
+                }
+            ],
+        )
+        assert (
+            get_entry(cfg.metadata_dir, VA, "SERVER")["verification"]["status"] == "EXTRACT_ERROR"
+        )
+        result = _adopt(cfg, lib, "--json")
+        assert result.exit_code == 0, result.output
+        row = get_entry(cfg.metadata_dir, VA, "SERVER")
+        assert row["kind"] == "LIBRARY"
+        assert "verification" not in row
+
     def test_wrong_digest_is_refused(self, tmp_path: Path) -> None:
         cfg, lib = _project(tmp_path)
         before = get_entry(cfg.metadata_dir, VA, "SERVER")
@@ -136,6 +177,37 @@ class TestLibraryAdopt:
         result = _adopt(cfg, lib, "--json")
         assert result.exit_code == 2
         assert "ambiguous" in result.output
+        assert get_entry(cfg.metadata_dir, VA, "SERVER") == before
+
+    def test_symbol_selects_one_of_several_byte_identical_aliases(self, tmp_path: Path) -> None:
+        # Two archive members carry the same bytes under different symbols; the
+        # reviewed symbol is what the identity records, so --symbol must resolve
+        # the ambiguity instead of forcing a re-pin of the project.
+        cfg, lib = _project(
+            tmp_path,
+            members=[
+                ("a.obj", make_coff_obj(CODE, func_symbol="_one")),
+                ("b.obj", make_coff_obj(CODE, func_symbol="_two")),
+            ],
+        )
+        result = _adopt(cfg, lib, "--symbol", "_two", "--json")
+        assert result.exit_code == 0, result.output
+        row = get_entry(cfg.metadata_dir, VA, "SERVER")
+        assert row["kind"] == "LIBRARY"
+        assert row["symbol"] == "_two"
+
+    def test_symbol_that_names_no_candidate_is_refused(self, tmp_path: Path) -> None:
+        cfg, lib = _project(
+            tmp_path,
+            members=[
+                ("a.obj", make_coff_obj(CODE, func_symbol="_one")),
+                ("b.obj", make_coff_obj(CODE, func_symbol="_two")),
+            ],
+        )
+        before = get_entry(cfg.metadata_dir, VA, "SERVER")
+        result = _adopt(cfg, lib, "--symbol", "_three", "--json")
+        assert result.exit_code == 2
+        assert "no candidate named" in result.output
         assert get_entry(cfg.metadata_dir, VA, "SERVER") == before
 
     def test_no_match_is_refused(self, tmp_path: Path) -> None:
