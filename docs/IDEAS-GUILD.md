@@ -3629,3 +3629,21 @@ Proposed: accept `--size` on `rebrew diff` (same meaning as on `rebrew test`), a
 when the stored size differs from the inventory extent so the stderr message names which
 extent was compared. `rebrew test` already has both behaviours, so this is parity rather
 than new semantics.
+
+## `data layout converge` cannot measure a target in a multi-target build directory (2026-10-28)
+
+`converge_layout` resolves its input two ways that only hold for a single-target
+build: `built_data_va(build/<target>)` and `link_objects(root)`, and
+`link_objects` takes `sorted(root/build/CMakeFiles/*/objects*.rsp)[0]`. In the
+guild-rebrew project the CMake build directory carries the server DLL and the
+client target together, so the first rsp by name belongs to another target, and
+the data base read out of the client image came back as 0x675000 instead of the
+section base 0x275000. `rebrew data layout converge --dry-run -t
+Europa1400Gold_TL.exe` therefore reports `{"rounds":1,"adjustments":[]}` while
+the same audit shows 613 unowned rows and a 27.7% initialized-data byte match.
+
+Proposed: pick the rsp directory from the target's CMake target name (or accept
+an explicit `--build-dir` / `--objects-rsp`), and derive the data base from the
+section table rather than the first data symbol. Then converge can run against
+the project's real build directory, which is also where `data layout fill` and
+`own` already read from.
