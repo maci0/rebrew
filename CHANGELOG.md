@@ -1,5 +1,29 @@
 ## [Unreleased]
 
+## [6.4.1] - 2026-10-27
+
+### Changed
+
+- `source rehome` moves a file's reviewed assembly evidence with it, and lint
+  recognises a source left behind by a moved claim as reviewable history
+  instead of a fresh unbound definition. Reorganising a tree no longer turns
+  every leftover into an error, and a moved whole-function asm body keeps its
+  documented evidence.
+- `build cmake-sources` keeps a file whose anchor names another target out of
+  this target's build even when that anchor no longer resolves to a live row.
+  Treating it as an unbound helper pulled the other client's closures into the
+  link.
+
+### Fixed
+
+- `source rename --shared-definition` accepts a name another target's row owns
+  in the same file. One tree holds each target's guarded counterpart body, and
+  the flag is the caller's acknowledgement of it; rows of the selected
+  definition's own module are still refused.
+- Binding resolution skips an anchor whose claim moved to another file without
+  warning and without failing that file's remaining annotations, so scanning a
+  reorganised tree no longer prints one warning per leftover.
+
 ## [6.4.0] - 2026-10-27
 
 ### Added

@@ -453,6 +453,7 @@ def _plan_function(
         all_modules=all_modules,
         comments=comments,
         require_ack=not shared_definition,
+        allow_counterpart_name=shared_definition,
         rename_file=True,
         new_filename=new_file,
         dry_run=dry_run,

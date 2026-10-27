@@ -768,6 +768,7 @@ def plan_symbol_rename(
     all_modules: bool = False,
     comments: bool = False,
     require_ack: bool = True,
+    allow_counterpart_name: bool = False,
     rename_file: bool = False,
     new_filename: str | None = None,
     dry_run: bool = False,
@@ -904,7 +905,7 @@ def plan_symbol_rename(
         else:
             collision_modules = frozenset(visible)
     collisions = _ordinary_collisions(project, new_name, collision_modules)
-    if collisions and not require_ack:
+    if collisions and allow_counterpart_name:
         # One source tree carries each target's counterpart body in the same
         # file behind that target's define, and shared headers declare the name
         # for every caller. --shared-definition is the caller's reviewed
