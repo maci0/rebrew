@@ -41,17 +41,17 @@ by address, then name).  Nothing here reads the clock or the environment.
 
 from __future__ import annotations
 
-import math
-import struct
-from collections.abc import Iterator
 from dataclasses import dataclass, field
-from pathlib import Path, PureWindowsPath
-from typing import Any
+lazy import math
+lazy import struct
+lazy from collections.abc import Iterator
+lazy from pathlib import Path, PureWindowsPath
+lazy from typing import Any
 
-from rebrew.formats.binary_loader import decode_binary_name, extract_bytes_at_va, load_binary
-from rebrew.formats.binary_model import BinaryInfo
-from rebrew.formats.import_table import parse_imports
-from rebrew.formats.pe_headers import pe_layout
+lazy from rebrew.formats.binary_loader import decode_binary_name, extract_bytes_at_va, load_binary
+lazy from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.formats.import_table import parse_imports
+lazy from rebrew.formats.pe_headers import pe_layout
 
 # ---------------------------------------------------------------------------
 # Named constants

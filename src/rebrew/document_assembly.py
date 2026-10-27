@@ -1,13 +1,13 @@
 """Record target-scoped original assembly evidence for a named C definition."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import typer
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config, run_standalone
-from rebrew.config import target_module
-from rebrew.metadata.source_provenance import document_assembly
-from rebrew.utils import console, untrusted_ident
+lazy from rebrew.config import target_module
+lazy from rebrew.metadata.source_provenance import document_assembly
+lazy from rebrew.utils import console, untrusted_ident
 
 app = typer.Typer(
     help=__doc__,

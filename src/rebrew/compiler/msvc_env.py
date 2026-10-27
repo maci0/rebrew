@@ -7,11 +7,11 @@ host wine/wibo runner; this helper still builds the VCVARS-style env used
 by native/plugin compilers and by leftover host-runner config.
 """
 
-import os
-from pathlib import Path
 from typing import TYPE_CHECKING
+lazy import os
+lazy from pathlib import Path
 
-from rebrew.utils import safe_shlex_split
+lazy from rebrew.utils import safe_shlex_split
 
 if TYPE_CHECKING:
     from rebrew.config import ProjectConfig

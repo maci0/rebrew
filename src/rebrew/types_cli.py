@@ -1,8 +1,8 @@
 """Manage type identities, check struct layouts and apply types to signatures."""
 
-import logging
-from pathlib import Path
-from typing import Any
+lazy import logging
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 

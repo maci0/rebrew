@@ -70,13 +70,13 @@ to be present at build time.
 from __future__ import annotations
 
 import dataclasses
-import struct
-from collections.abc import Callable
-from pathlib import Path
 from typing import Any
+lazy import struct
+lazy from collections.abc import Callable
+lazy from pathlib import Path
 
-from rebrew.formats.pe_headers import pe_header, sections_at
-from rebrew.utils import atomic_write_text
+lazy from rebrew.formats.pe_headers import pe_header, sections_at
+lazy from rebrew.utils import atomic_write_text
 
 #: Cap on import name-table / descriptor slots read from one PE.  A missing
 #: null terminator would otherwise walk past EOF into ``struct.error``.

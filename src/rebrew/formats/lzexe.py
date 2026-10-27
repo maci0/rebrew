@@ -45,9 +45,9 @@ relocation table re-encoded as standard MZ ``(offset, segment)`` entries at
 
 from __future__ import annotations
 
-import struct
 from dataclasses import dataclass, field
-from pathlib import Path
+lazy import struct
+lazy from pathlib import Path
 
 from rebrew.errors import RebrewError
 

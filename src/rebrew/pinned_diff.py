@@ -18,10 +18,10 @@ later block.
 
 from __future__ import annotations
 
-import difflib
-import itertools
-from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+lazy import difflib
+lazy import itertools
+lazy from collections.abc import Iterable, Sequence
 
 
 @dataclass

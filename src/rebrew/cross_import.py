@@ -23,17 +23,15 @@ are left untouched and reported.
 
 from __future__ import annotations
 
-import heapq
-import shutil
-from dataclasses import replace
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy import heapq
+lazy import shutil
+lazy from dataclasses import replace
+lazy from pathlib import Path
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
-from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
-from rebrew.catalog import RegistryEntry
 from rebrew.cli import (
     TargetOption,
     error_exit,
@@ -42,16 +40,18 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
-from rebrew.config import ProjectConfig, inventory_path_for, target_module
-from rebrew.similar import disasm_signature, similarity_score
-from rebrew.sources import contained_path, iter_sources, source_roots
-from rebrew.utils import (
+lazy from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
+lazy from rebrew.catalog import RegistryEntry
+lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
+lazy from rebrew.similar import disasm_signature, similarity_score
+lazy from rebrew.sources import contained_path, iter_sources, source_roots
+lazy from rebrew.utils import (
     atomic_write_text,
     preset_module_key,
     read_source_text,
     rel_display_path,
 )
-from rebrew.workspace.status import MATCHED_STATUSES
+lazy from rebrew.workspace.status import MATCHED_STATUSES
 
 if TYPE_CHECKING:
     from rebrew.compiler.cache import CacheBackend
@@ -59,7 +59,7 @@ if TYPE_CHECKING:
     from rebrew.metadata.bindings import SourceBinding
 
 
-from rebrew.cli import console
+lazy from rebrew.cli import console
 
 # ---------------------------------------------------------------------------
 # Pure matching core (testable with hand-crafted signatures)

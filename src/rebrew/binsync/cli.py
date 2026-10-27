@@ -16,18 +16,16 @@ above; every other command is mounted here as a subcommand.
 
 from __future__ import annotations
 
-import contextlib
-import io
 import logging
-import subprocess
-from pathlib import Path
+lazy import contextlib
+lazy import io
+lazy import subprocess
+lazy from pathlib import Path
 
 import typer
 
 from rebrew.binsync import diff, export, importer, init, overlay
-from rebrew.binsync.git import GIT_NETWORK_TIMEOUT, one_line, run_git
 from rebrew.binsync.repo import ROOT_BRANCH, USER_HELP, fetch_peers, is_binsync_repo
-from rebrew.binsync.serial import require_declib
 from rebrew.cli import (
     CREATE_MISSING_HELP,
     TargetOption,
@@ -36,7 +34,9 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.config import ProjectConfig
+lazy from rebrew.binsync.git import GIT_NETWORK_TIMEOUT, one_line, run_git
+lazy from rebrew.binsync.serial import require_declib
+lazy from rebrew.config import ProjectConfig
 
 log = logging.getLogger(__name__)
 

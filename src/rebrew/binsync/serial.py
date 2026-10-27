@@ -20,11 +20,11 @@ The layout matches ``binsync.core.state.State.dump``:
 from __future__ import annotations
 
 import logging
-import re
-from pathlib import Path
-from typing import Any
+lazy import re
+lazy from pathlib import Path
+lazy from typing import Any
 
-import tomlkit
+lazy import tomlkit
 
 log = logging.getLogger(__name__)
 

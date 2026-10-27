@@ -1,37 +1,37 @@
 """Target-scoped original-assembly evidence for source definitions without VAs."""
 
-import hashlib
-from collections.abc import Sequence
-from contextlib import nullcontext
-from copy import deepcopy
 from functools import lru_cache
-from pathlib import Path
-from typing import Any
+lazy import hashlib
+lazy from collections.abc import Sequence
+lazy from contextlib import nullcontext
+lazy from copy import deepcopy
+lazy from pathlib import Path
+lazy from typing import Any
 
-import tomlkit
+lazy import tomlkit
 
-from rebrew.c_parser import (
+from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, METADATA_FIELDS
+lazy from rebrew.c_parser import (
     find_function_name_in_node,
     mask_msvc_syntax,
     mask_va_arg_types,
     parse_c_source,
 )
-from rebrew.metadata.document import (
+lazy from rebrew.metadata.document import (
     FUNCTION_FORMAT_VERSION,
     load_metadata_for_write,
     metadata_format,
     parse_metadata_doc,
 )
-from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, METADATA_FIELDS
-from rebrew.metadata.source_schema import (
+lazy from rebrew.metadata.source_schema import (
     AssemblyProvenance,
     SourceFilePurpose,
     validate_identity_file,
     validate_source_files,
     validate_source_metadata,
 )
-from rebrew.metadata.storage import metadata_store, metadata_write_lock
-from rebrew.utils import (
+lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
+lazy from rebrew.utils import (
     preset_module_key,
     read_source_text,
 )

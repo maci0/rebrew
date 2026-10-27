@@ -7,9 +7,9 @@ model.  This module parses struct definitions once via tree-sitter into
 sizes scalar/array/pointer type spellings.  Pure logic, no I/O.
 """
 
-import re
 from dataclasses import dataclass, field
-from typing import Any
+lazy import re
+lazy from typing import Any
 
 _PRIMITIVE_SIZES: dict[str, int] = {
     "char": 1,

@@ -17,10 +17,10 @@ Batch usage (``rebrew match batch``)::
 
 from __future__ import annotations
 
-import functools
 import logging
-from pathlib import Path
-from typing import Literal
+lazy import functools
+lazy from pathlib import Path
+lazy from typing import Literal
 
 import typer
 from typer.models import TyperPath
@@ -44,23 +44,23 @@ from rebrew.cli import (
     resolve_source_arg,
 )
 from rebrew.limits import NO_MAX_SIZE
-from rebrew.match_ga import (
+lazy from rebrew.match_ga import (
     MUTATION_FOCUS_WEIGHT,
     live_mutation_weights,
     mutation_focus_weights,
 )
-from rebrew.match_run import (
+lazy from rebrew.match_run import (
     run_all,
     run_single_ga,
     show_ga_history,
 )
-from rebrew.match_sweep import (
+lazy from rebrew.match_sweep import (
     resolve_build_params,
     run_single_flag_sweep,
     run_single_toolchain_flag_sweep,
     run_single_toolchain_sweep,
 )
-from rebrew.utils import interruptible_pool, preset_module_key, untrusted_ident
+lazy from rebrew.utils import interruptible_pool, preset_module_key, untrusted_ident
 
 log = logging.getLogger(__name__)
 

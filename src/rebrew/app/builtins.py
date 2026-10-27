@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import importlib
 
-import typer
+lazy import typer
 
 from rebrew.app.plugin import (
     CLI_SERVICE,
@@ -20,7 +20,7 @@ from rebrew.app.plugin import (
     Panel,
     activate,
 )
-from rebrew.cli import console
+lazy from rebrew.cli import console
 
 DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     "source": (

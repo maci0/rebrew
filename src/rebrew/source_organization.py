@@ -2,28 +2,32 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-from graphlib import CycleError, TopologicalSorter
-from itertools import pairwise
-from pathlib import Path
-from typing import Any
+lazy import hashlib
+lazy import json
+lazy from graphlib import CycleError, TopologicalSorter
+lazy from itertools import pairwise
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.binary_gate import compare_snapshots, snapshot_binary
-from rebrew.c_parser import find_extern_variables, function_definition_spans, function_signatures
-from rebrew.c_rename import ParsedSource
-from rebrew.c_rename import definitions as source_definitions
-from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.config import ProjectConfig, load_config, target_module
-from rebrew.formats.binary_loader import load_binary
-from rebrew.formats.pe_headers import SECTION_ENTRY_SIZE, pe_layout
-from rebrew.metadata.bindings import FUNCTION_KINDS, read_source_bindings
-from rebrew.metadata.storage import input_exists, metadata_store_paths, snapshot_input
-from rebrew.rename_ops import c_name_from_symbol
-from rebrew.source_contracts import contract_contexts
-from rebrew.source_selection import collect_target_sources
-from rebrew.utils import detect_source_encoding
-from rebrew.workspace.config import read_config, targets_table
+lazy from rebrew.binary_gate import compare_snapshots, snapshot_binary
+lazy from rebrew.c_parser import (
+    find_extern_variables,
+    function_definition_spans,
+    function_signatures,
+)
+lazy from rebrew.c_rename import ParsedSource
+lazy from rebrew.c_rename import definitions as source_definitions
+lazy from rebrew.compiler.overrides import resolve_compile_overrides
+lazy from rebrew.config import ProjectConfig, load_config, target_module
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.formats.pe_headers import SECTION_ENTRY_SIZE, pe_layout
+lazy from rebrew.metadata.bindings import FUNCTION_KINDS, read_source_bindings
+lazy from rebrew.metadata.storage import input_exists, metadata_store_paths, snapshot_input
+lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.source_contracts import contract_contexts
+lazy from rebrew.source_selection import collect_target_sources
+lazy from rebrew.utils import detect_source_encoding
+lazy from rebrew.workspace.config import read_config, targets_table
 
 
 def organization_configs(cfg: ProjectConfig) -> list[ProjectConfig]:

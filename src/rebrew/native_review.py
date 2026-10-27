@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-from pathlib import Path
-from typing import Any
+lazy import hashlib
+lazy import json
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.coff_reloc import build_name_to_va, smart_reloc_compare
-from rebrew.config import ProjectConfig, target_module
-from rebrew.formats.binary_loader import load_binary
-from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, METADATA_FILENAME, get_entry
-from rebrew.metadata.native_identity import native_identity_receipt, record_native_identity
-from rebrew.metadata.storage import input_digest, metadata_store
-from rebrew.object_evidence import audit_literals, native_span, object_function
+lazy from rebrew.coff_reloc import build_name_to_va, smart_reloc_compare
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, METADATA_FILENAME, get_entry
+lazy from rebrew.metadata.native_identity import native_identity_receipt, record_native_identity
+lazy from rebrew.metadata.storage import input_digest, metadata_store
+lazy from rebrew.object_evidence import audit_literals, native_span, object_function
 
 
 def review_native_identity(

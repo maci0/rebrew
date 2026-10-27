@@ -13,15 +13,15 @@ Usage:
 
 from __future__ import annotations
 
-import csv
-import logging
 import re
-import sys
-from pathlib import Path
-from typing import Any, Literal
+lazy import csv
+lazy import logging
+lazy import sys
+lazy from pathlib import Path
+lazy from typing import Any, Literal
 
-import capstone
 import typer
+lazy import capstone
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -35,8 +35,8 @@ from rebrew.cli import (
     option_default,
     require_config,
 )
-from rebrew.formats.binary_loader import capstone_mode_for_arch
-from rebrew.match_sweep import print_structural_similarity
+lazy from rebrew.formats.binary_loader import capstone_mode_for_arch
+lazy from rebrew.match_sweep import print_structural_similarity
 
 # ---------------------------------------------------------------------------
 # Shared: blocker classification (used by match.py)

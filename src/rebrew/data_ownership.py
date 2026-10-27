@@ -7,13 +7,13 @@ COMMON storage needs a member independently selected by the link map.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import re
 from dataclasses import dataclass
-from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING
+lazy import hashlib
+lazy import json
+lazy from pathlib import Path, PureWindowsPath
 
 if TYPE_CHECKING:
     from rebrew.config import ProjectConfig

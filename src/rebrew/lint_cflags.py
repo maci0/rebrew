@@ -7,11 +7,11 @@ can be dropped from the metadata.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.config import ProjectConfig
-from rebrew.utils import atomic_write_text, console, preset_module_key
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.utils import atomic_write_text, console, preset_module_key
 
 
 def cflags_key(cflags: str) -> frozenset[str]:

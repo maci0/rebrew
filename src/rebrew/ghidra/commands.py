@@ -7,18 +7,19 @@ operations.
 
 from __future__ import annotations
 
-import contextlib
 import re
-import unicodedata
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+lazy import contextlib
+lazy import unicodedata
+lazy from datetime import UTC, datetime
 
 if TYPE_CHECKING:
     from rebrew.catalog import RegistryEntry
 
-from rebrew.cli import json_print
-from rebrew.config import ProjectConfig
-from rebrew.ghidra.client import (
+from rebrew.status_style import DISPLAY_STATUSES
+lazy from rebrew.cli import json_print
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.ghidra.client import (
     MAX_MCP_ITEMS,
     MAX_MCP_PAGES,
     MCP_REQUEST_TIMEOUT_S,
@@ -28,8 +29,7 @@ from rebrew.ghidra.client import (
     fetch_mcp_tool_raw,
     init_mcp_session,
 )
-from rebrew.status_style import DISPLAY_STATUSES
-from rebrew.utils import (
+lazy from rebrew.utils import (
     atomic_write_text,
     c_comment_safe,
     console,

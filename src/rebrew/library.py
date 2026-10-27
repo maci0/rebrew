@@ -14,9 +14,9 @@ shipped CRT: /MT /O2 /Gd) and fills the missing fields.
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-from typing import Any
+lazy import re
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 from typer.models import TyperPath
@@ -30,7 +30,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.metadata.functions import (
+lazy from rebrew.metadata.functions import (
     LIBRARY_METADATA_FILE,
     METADATA_FILENAME,
     all_library_presets,
@@ -39,8 +39,12 @@ from rebrew.metadata.functions import (
     find_library_override,
     parse_library_metadata,
 )
-from rebrew.metadata.storage import metadata_store, metadata_write_lock, project_metadata_stores
-from rebrew.workspace.config import walk_up_to_root
+lazy from rebrew.metadata.storage import (
+    metadata_store,
+    metadata_write_lock,
+    project_metadata_stores,
+)
+lazy from rebrew.workspace.config import walk_up_to_root
 
 app = typer.Typer(
     help="Identify libraries, compare code, and manage source providers and compiler settings.",

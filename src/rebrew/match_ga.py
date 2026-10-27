@@ -6,33 +6,33 @@ and argument hash, and the checkpoint reader.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
-import random
-import re
-import subprocess
 import threading
-import time
-from collections.abc import Callable
-from concurrent.futures import Future
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+lazy import hashlib
+lazy import json
+lazy import random
+lazy import re
+lazy import subprocess
+lazy import time
+lazy from collections.abc import Callable
+lazy from concurrent.futures import Future
+lazy from pathlib import Path
 
-import capstone
+lazy import capstone
 
-from rebrew.compiler.cache import CacheBackend, source_digest
-from rebrew.config import ProjectConfig
-from rebrew.matcher import compiler as compile_seam
-from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, BuildResult, GACheckpoint
-from rebrew.matcher.mutator import (
+lazy from rebrew.compiler.cache import CacheBackend, source_digest
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.matcher import compiler as compile_seam
+lazy from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, BuildResult, GACheckpoint
+lazy from rebrew.matcher.mutator import (
     compute_population_diversity,
     crossover,
     mutate_code,
     quick_validate,
 )
-from rebrew.matcher.scoring import score_candidate
-from rebrew.utils import (
+lazy from rebrew.matcher.scoring import score_candidate
+lazy from rebrew.utils import (
     atomic_write_text,
     file_lock,
     filename_component,
@@ -43,7 +43,7 @@ from rebrew.utils import (
 if TYPE_CHECKING:
     from rebrew.match_sweep import BuildParams
 
-from rebrew.cli import console
+lazy from rebrew.cli import console
 
 log = logging.getLogger(__name__)
 

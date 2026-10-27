@@ -15,7 +15,7 @@ Usage::
 
 from __future__ import annotations
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import typer
 
@@ -29,8 +29,8 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.formats.binary_loader import capstone_mode_for_arch
-from rebrew.stack_analysis import analyze_frame, compare_frames
+lazy from rebrew.formats.binary_loader import capstone_mode_for_arch
+lazy from rebrew.stack_analysis import analyze_frame, compare_frames
 
 
 def run_stack_cmp(

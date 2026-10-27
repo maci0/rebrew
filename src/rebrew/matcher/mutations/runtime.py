@@ -7,21 +7,21 @@ query runner.
 
 from __future__ import annotations
 
-import random
 import re
 import threading
-from collections.abc import Callable
-from typing import Any
+lazy import random
+lazy from collections.abc import Callable
+lazy from typing import Any
 
-import tree_sitter as ts
+lazy import tree_sitter as ts
 
-from rebrew.matcher.ast_engine import (
+lazy from rebrew.matcher.ast_engine import (
     decode_source,
     encode_source,
     parse_c_ast,
     replace_node,
 )
-from rebrew.matcher.mutations.queries import _QUERY_ASSIGN_ZERO, _LazyQuery
+lazy from rebrew.matcher.mutations.queries import _QUERY_ASSIGN_ZERO, _LazyQuery
 
 
 def _capture(match_or_captures: Any, name: str) -> Any:

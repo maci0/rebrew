@@ -7,8 +7,8 @@ gate-relevant facts.  The ``verify --whole-binary`` wiring lives in
 ``verify.py``.
 """
 
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 
 def pe_relocation_snapshot(data: bytes) -> tuple[list[str], dict[str, int]]:

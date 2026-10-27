@@ -7,9 +7,9 @@ hoist/sink pair.
 
 from __future__ import annotations
 
-import random
 import re
-from typing import Any
+lazy import random
+lazy from typing import Any
 
 from rebrew.matcher.ast_engine import (
     C_LANGUAGE,
@@ -26,7 +26,7 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_WHILE_LOOP,
     _LazyQuery,
 )
-from rebrew.matcher.mutations.runtime import (
+lazy from rebrew.matcher.mutations.runtime import (
     _capture,
     _cursor,
     _find_function_body_insert_pos,

@@ -25,8 +25,8 @@ Also importable for tests::
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+lazy import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES_DIR = ROOT / "tests" / "fixtures"

@@ -8,26 +8,26 @@ from __future__ import annotations
 
 import logging
 import re
-import shutil
-import tempfile
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+lazy import shutil
+lazy import tempfile
+lazy from collections.abc import Callable
+lazy from typing import Any
 
-from rebrew.cli import console
-from rebrew.config import ProjectConfig
 from rebrew.limits import NO_DELTA
-from rebrew.metadata.bindings import (
+lazy from rebrew.cli import console
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.metadata.bindings import (
     has_skip_annotation,
     min_valid_va_for,
     read_source_bindings,
     resolve_symbol,
 )
-from rebrew.metadata.functions import canonical_status, get_entry, update_source_status
-from rebrew.rename_ops import c_name_from_symbol
-from rebrew.sources import iter_sources
-from rebrew.utils import atomic_write_text, read_source_text
+lazy from rebrew.metadata.functions import canonical_status, get_entry, update_source_status
+lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import atomic_write_text, read_source_text
 
 log = logging.getLogger(__name__)
 

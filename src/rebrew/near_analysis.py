@@ -24,9 +24,9 @@ itself all import it.  ``rebrew.near_diag`` owns the CLI.
 from __future__ import annotations
 
 import logging
-from typing import Any
+lazy from typing import Any
 
-import capstone  # module-level: per-call `import capstone` was ~half of analyze() time
+lazy import capstone  # module-level: per-call `import capstone` was ~half of analyze() time
 
 from rebrew.analysis import (
     DEFAULT_CS_ARCH,
@@ -37,10 +37,10 @@ from rebrew.analysis import (
     normalized_operands,
     resolve_capstone,
 )
-from rebrew.match_semantics import is_effective_match
-from rebrew.pinned_diff import SequenceMatcherWithPins
-from rebrew.stack_analysis import analyze_frame, compare_frames
-from rebrew.utils import floor_pct
+lazy from rebrew.match_semantics import is_effective_match
+lazy from rebrew.pinned_diff import SequenceMatcherWithPins
+lazy from rebrew.stack_analysis import analyze_frame, compare_frames
+lazy from rebrew.utils import floor_pct
 
 # Jump-equivalence checks — adapted from reccmp (isledecomp/reccmp, MIT
 # License) ``compare/asm/fixes.py``: a flipped ``cmp`` operand order paired

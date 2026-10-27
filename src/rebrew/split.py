@@ -12,25 +12,17 @@ retarget every row that shares it.  File-scope storage stays in the original.
 
 from __future__ import annotations
 
-import os
 import re
-import shutil
-import unicodedata
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+lazy import os
+lazy import shutil
+lazy import unicodedata
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 from typer.models import TyperPath
 
-from rebrew import source_paths
-from rebrew.c_parser import (
-    declares_function,
-    find_function_name_in_node,
-    find_variable_roles,
-    node_text,
-    parse_c_structure,
-)
 from rebrew.cli import (
     TargetOption,
     confirm_abort,
@@ -39,20 +31,28 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.metadata.bindings import (
+lazy from rebrew import source_paths
+lazy from rebrew.c_parser import (
+    declares_function,
+    find_function_name_in_node,
+    find_variable_roles,
+    node_text,
+    parse_c_structure,
+)
+lazy from rebrew.metadata.bindings import (
     FUNCTION_KINDS,
 )
-from rebrew.metadata.functions import (
+lazy from rebrew.metadata.functions import (
     identity_file,
     load_metadata,
     record_function_rows,
     stored_file_matches,
     validate_identity_file,
 )
-from rebrew.sources import (
+lazy from rebrew.sources import (
     source_exts,
 )
-from rebrew.utils import (
+lazy from rebrew.utils import (
     atomic_write_text,
     preset_module_key,
     read_source_text,

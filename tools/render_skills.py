@@ -19,9 +19,9 @@ Usage::
 
 from __future__ import annotations
 
-import argparse
-import sys
 from pathlib import Path
+lazy import argparse
+lazy import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src" / "rebrew" / "agent-skills"

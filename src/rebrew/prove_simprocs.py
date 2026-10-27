@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, override
+lazy from typing import Any, override
 
 _WIN32_SIMPROCS: dict[str, type] | None = None  # lazily populated
 _SIMPROCS_LOCK = threading.Lock()

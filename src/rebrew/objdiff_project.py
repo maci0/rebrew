@@ -24,18 +24,18 @@ objdiff diffs them byte-wise, which is exactly the rebrew match runing model.
 
 from __future__ import annotations
 
-import json
-import struct
 from pathlib import Path
-from typing import Any
+lazy import json
+lazy import struct
+lazy from typing import Any
 
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, require_config
-from rebrew.config import target_module
-from rebrew.metadata.bindings import iter_source_bindings
-from rebrew.sources import contained_path, iter_sources, source_exts, source_roots
-from rebrew.utils import atomic_write_bytes, atomic_write_text
+lazy from rebrew.config import target_module
+lazy from rebrew.metadata.bindings import iter_source_bindings
+lazy from rebrew.sources import contained_path, iter_sources, source_exts, source_roots
+lazy from rebrew.utils import atomic_write_bytes, atomic_write_text
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

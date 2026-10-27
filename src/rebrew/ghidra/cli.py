@@ -12,13 +12,13 @@ state dir are created in Ghidra via MCP, so "add a function to the state →
 it appears in Ghidra" works with no external plugin.
 """
 
-import contextlib
 import io
-import json
 import logging
-import sys
-from pathlib import Path
 from typing import Any, override
+lazy import contextlib
+lazy import json
+lazy import sys
+lazy from pathlib import Path
 
 import typer
 
@@ -32,15 +32,15 @@ from rebrew.cli import (
     require_config,
     run_cli,
 )
-from rebrew.config import ConfigError, inventory_path_for, validate_http_url
 from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
-from rebrew.ghidra.commands import (
+lazy from rebrew.config import ConfigError, inventory_path_for, validate_http_url
+lazy from rebrew.ghidra.commands import (
     build_bookmark_commands,
     build_new_function_commands,
     resolve_program_path,
     validate_program_path,
 )
-from rebrew.ghidra.commands import (
+lazy from rebrew.ghidra.commands import (
     pull_data as pull_data_cmd,
 )
 

@@ -2,11 +2,11 @@
 
 import contextlib
 import threading
-from collections.abc import Iterator
-from pathlib import Path
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
 
-from rebrew.utils import file_lock
-from rebrew.workspace.config import CONFIG_NAME
+lazy from rebrew.utils import file_lock
+lazy from rebrew.workspace.config import CONFIG_NAME
 
 #: Per-file thread locks for :func:`file_transaction` (one lock per
 #: metadata filename so the function and data stores don't contend).  Public

@@ -13,15 +13,15 @@ from __future__ import annotations
 import logging
 import re
 import threading
-from bisect import bisect_left
-from collections import OrderedDict
-from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from itertools import pairwise
-from typing import Any
+lazy from bisect import bisect_left
+lazy from collections import OrderedDict
+lazy from collections.abc import Callable, Iterator
+lazy from itertools import pairwise
+lazy from typing import Any
 
-from rebrew import c_conditionals
-from rebrew.utils import parse_c_integer_literal, strip_body
+lazy from rebrew import c_conditionals
+lazy from rebrew.utils import parse_c_integer_literal, strip_body
 
 logger = logging.getLogger(__name__)
 

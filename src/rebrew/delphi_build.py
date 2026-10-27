@@ -1,13 +1,13 @@
 """Build complete Delphi 1.0 programs and consistent segment maps."""
 
-import shutil
-from pathlib import Path
+lazy import shutil
+lazy from pathlib import Path
 
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.compiler.delphi16 import Delphi16Error, compile_ne
-from rebrew.utils import safe_shlex_split
+lazy from rebrew.compiler.delphi16 import Delphi16Error, compile_ne
+lazy from rebrew.utils import safe_shlex_split
 
 app = typer.Typer(
     help="Compile a complete Delphi 1.0 Pascal program through its Docker image.",

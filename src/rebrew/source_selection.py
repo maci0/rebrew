@@ -1,13 +1,13 @@
 """Shared target participation for build providers and source-context audits."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
-from rebrew.config import ProjectConfig
-from rebrew.function_providers import bind_compiled_source
-from rebrew.metadata.bindings import SourceBinding, read_source_bindings
-from rebrew.metadata.functions import identity_file, load_metadata
-from rebrew.sources import iter_sources
-from rebrew.utils import preset_module_key
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.function_providers import bind_compiled_source
+lazy from rebrew.metadata.bindings import SourceBinding, read_source_bindings
+lazy from rebrew.metadata.functions import identity_file, load_metadata
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import preset_module_key
 
 
 def collect_target_sources(

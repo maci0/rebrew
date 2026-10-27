@@ -5,9 +5,9 @@ r2, rizin, or function_structure.json) and :class:`GhidraDataLabel` for data
 labels exported from Ghidra.
 """
 
-import math
 from dataclasses import dataclass
-from typing import Any
+lazy import math
+lazy from typing import Any
 
 
 def _coerce_str(value: Any, default: str) -> str:

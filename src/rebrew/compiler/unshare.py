@@ -7,24 +7,24 @@ limited MSVC/Wine backend, not a general OCI runtime or a Docker security peer.
 
 from __future__ import annotations
 
-import hashlib
-import json
-import logging
-import os
-import platform
-import shlex
-import shutil
-import subprocess
-import tarfile
-import tempfile
 import threading
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
-from typing import Any
+lazy import hashlib
+lazy import json
+lazy import logging
+lazy import os
+lazy import platform
+lazy import shlex
+lazy import shutil
+lazy import subprocess
+lazy import tarfile
+lazy import tempfile
+lazy from typing import Any
 
-from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir, xdg_cache_home
 from rebrew.errors import RebrewError
-from rebrew.utils import container_runtime, file_lock, run_process_group
+lazy from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir, xdg_cache_home
+lazy from rebrew.utils import container_runtime, file_lock, run_process_group
 
 __all__ = ["UnshareError", "backend_identity", "prepare_backend", "run_unshare"]
 

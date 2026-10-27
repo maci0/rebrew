@@ -45,13 +45,13 @@ a pre-commit or CI gate.
 
 from __future__ import annotations
 
-import json
-import logging
-import re
-import subprocess
-import uuid
 from pathlib import Path
-from typing import Any
+lazy import json
+lazy import logging
+lazy import re
+lazy import subprocess
+lazy import uuid
+lazy from typing import Any
 
 import typer
 
@@ -66,13 +66,13 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import target_module
-from rebrew.formats.archives import stock_lib_cache as stock_lib_cache
-from rebrew.formats.binary_loader import extract_raw_bytes
-from rebrew.formats.coff import load_coff
-from rebrew.gen_flirt_pat import parse_archive, parse_coff_aliases, parse_coff_obj
-from rebrew.utils import container_runtime, read_json_text
-from rebrew.workspace.config import config_path
+lazy from rebrew.config import target_module
+lazy from rebrew.formats.archives import stock_lib_cache as stock_lib_cache
+lazy from rebrew.formats.binary_loader import extract_raw_bytes
+lazy from rebrew.formats.coff import load_coff
+lazy from rebrew.gen_flirt_pat import parse_archive, parse_coff_aliases, parse_coff_obj
+lazy from rebrew.utils import container_runtime, read_json_text
+lazy from rebrew.workspace.config import config_path
 
 MIN_BYTES = 8
 MIN_FIXED_FRACTION = 0.5

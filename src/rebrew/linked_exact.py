@@ -18,11 +18,11 @@ verdict as usual.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import threading
-from pathlib import Path
-from typing import Any
+lazy import hashlib
+lazy import json
+lazy from pathlib import Path
+lazy from typing import Any
 
 __all__ = [
     "LINKED_MESSAGE",

@@ -14,15 +14,13 @@ The catalog writes no coverage document itself: ``rebrew coverage export --outpu
 ``--json`` emits a machine-readable summary to stdout, like all other tools.
 """
 
-import json
 import logging
-from pathlib import Path
-from typing import Any
+lazy import json
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
-from rebrew.catalog.grid import covered_bytes
-from rebrew.catalog.pipeline import build_catalog_data
 from rebrew.cli import (
     RootOption,
     TargetOption,
@@ -33,9 +31,11 @@ from rebrew.cli import (
     require_config,
     run_standalone,
 )
-from rebrew.config import ProjectConfig
-from rebrew.metadata.bindings import SourceBinding, read_source_bindings
-from rebrew.utils import floor_pct, untrusted_ident
+lazy from rebrew.catalog.grid import covered_bytes
+lazy from rebrew.catalog.pipeline import build_catalog_data
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.metadata.bindings import SourceBinding, read_source_bindings
+lazy from rebrew.utils import floor_pct, untrusted_ident
 
 log = logging.getLogger(__name__)
 

@@ -25,14 +25,14 @@ Usage::
 from __future__ import annotations
 
 import struct
-from pathlib import Path, PureWindowsPath
-from typing import Any
+lazy from pathlib import Path, PureWindowsPath
+lazy from typing import Any
 
 import typer
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
-from rebrew.formats.archives import parse_archive, stock_lib_cache
-from rebrew.utils import container_runtime
+lazy from rebrew.formats.archives import parse_archive, stock_lib_cache
+lazy from rebrew.utils import container_runtime
 
 # IMAGE_FILE_HEADER is 20 bytes; a short import header starts with Sig1=0, Sig2=0xFFFF.
 _IMPORT_SIGNATURE = b"\x00\x00\xff\xff"

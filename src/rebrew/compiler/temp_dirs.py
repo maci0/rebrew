@@ -9,16 +9,16 @@ and the DOSBox tmpfs rejection are one policy, and the rest of ``utils`` is
 identifier text, source reading, and atomic writes.
 """
 
-import contextlib
-import logging
-import os
-import re
 import threading
-import time
-from collections.abc import Callable
 from pathlib import Path
+lazy import contextlib
+lazy import logging
+lazy import os
+lazy import re
+lazy import time
+lazy from collections.abc import Callable
 
-from rebrew.utils import SOURCE_CHECKOUT
+lazy from rebrew.utils import SOURCE_CHECKOUT
 
 __all__ = [
     "STALE_TEMP_DIR_AGE_S",

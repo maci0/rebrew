@@ -27,14 +27,14 @@ capped at ``MAX_CFG_BLOCKS_PER_FUNCTION`` (consumed by ``rebrew binary asm show
 
 from __future__ import annotations
 
-import math
 import re
-from collections import Counter
-from typing import Any
+lazy import math
+lazy from collections import Counter
+lazy from typing import Any
 
 import capstone
 
-from rebrew.analysis import capstone_handle, instruction_text
+lazy from rebrew.analysis import capstone_handle, instruction_text
 
 #: Terminators that end a basic block.
 _BLOCK_END_MNEMONICS = frozenset(

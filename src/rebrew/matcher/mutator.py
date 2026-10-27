@@ -11,13 +11,12 @@ source unchanged if all attempts fail.
 """
 
 import logging
-import random
 import threading
-from collections.abc import Callable
 from functools import lru_cache
 from typing import Literal, overload
+lazy import random
+lazy from collections.abc import Callable
 
-from rebrew.matcher.ast_engine import encode_source
 from rebrew.matcher.mutations.advanced import (
     mut_add_loop_break,
     mut_commute_float_operands,
@@ -133,11 +132,6 @@ from rebrew.matcher.mutations.pragmas import (
     mut_remove_optimize_pragma,
     mut_toggle_check_stack_pragma,
 )
-from rebrew.matcher.mutations.runtime import (
-    MUTATION_ATTEMPTS,
-    get_target_range,
-    set_target_range,
-)
 from rebrew.matcher.mutations.structural import (
     mut_add_volatile_intermediate,
     mut_array_to_ptr_arith,
@@ -164,6 +158,12 @@ from rebrew.matcher.mutations.structural import (
     mut_walk_in_parameter,
     mut_while_to_goto_loop,
     mut_wrap_in_else,
+)
+lazy from rebrew.matcher.ast_engine import encode_source
+lazy from rebrew.matcher.mutations.runtime import (
+    MUTATION_ATTEMPTS,
+    get_target_range,
+    set_target_range,
 )
 
 logger = logging.getLogger(__name__)

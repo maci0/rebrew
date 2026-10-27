@@ -23,16 +23,16 @@ Usage::
 
 from __future__ import annotations
 
-import argparse
 import re
-import sys
 from functools import cache
 from pathlib import Path
-from typing import cast
+lazy import argparse
+lazy import sys
+lazy from typing import cast
 
-from typer._click.core import Command as TyperBaseCommand
-from typer._click.core import Context as TyperContext
-from typer.core import TyperGroup
+lazy from typer._click.core import Command as TyperBaseCommand
+lazy from typer._click.core import Context as TyperContext
+lazy from typer.core import TyperGroup
 
 # ---------------------------------------------------------------------------
 # Paths

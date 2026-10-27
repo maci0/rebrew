@@ -31,21 +31,21 @@ Usage::
 
 from __future__ import annotations
 
-import argparse
-import json
 import re
 import sys
-import tomllib
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, NamedTuple
-from urllib.parse import quote
+lazy import argparse
+lazy import json
+lazy import tomllib
+lazy from collections.abc import Mapping
+lazy from urllib.parse import quote
 
 # `make sbom` runs this file directly under `uv --no-project`, so the repo root
 # is not on sys.path the way pytest puts it there.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.licenses import PATH_OR_GIT_LICENSES, REGISTRY_LICENSES
+lazy from tools.licenses import PATH_OR_GIT_LICENSES, REGISTRY_LICENSES
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _LOCK = _REPO_ROOT / "uv.lock"

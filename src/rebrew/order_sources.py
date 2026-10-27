@@ -8,13 +8,13 @@ without requiring a CMakeLists.txt.
 
 from __future__ import annotations
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print
-from rebrew.config import ConfigError, ConfigNotFoundError, load_config, target_module
-from rebrew.link_order import order_sources
+lazy from rebrew.config import ConfigError, ConfigNotFoundError, load_config, target_module
+lazy from rebrew.link_order import order_sources
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

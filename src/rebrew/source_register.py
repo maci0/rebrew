@@ -1,24 +1,24 @@
 """Register declaration-bound source addresses in the canonical metadata stores."""
 
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
-from rebrew.c_parser import find_extern_variables
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
-from rebrew.metadata.bindings import derive_c_symbol
-from rebrew.metadata.data import load_data_metadata, record_data_rows
-from rebrew.metadata.functions import (
+lazy from rebrew.c_parser import find_extern_variables
+lazy from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
+lazy from rebrew.metadata.bindings import derive_c_symbol
+lazy from rebrew.metadata.data import load_data_metadata, record_data_rows
+lazy from rebrew.metadata.functions import (
     identity_file,
     load_metadata,
     record_function_rows,
     stored_file_matches,
 )
-from rebrew.metadata.source_provenance import set_source_file
-from rebrew.sources import iter_sources_and_headers
-from rebrew.utils import preset_module_key, read_source_text
+lazy from rebrew.metadata.source_provenance import set_source_file
+lazy from rebrew.sources import iter_sources_and_headers
+lazy from rebrew.utils import preset_module_key, read_source_text
 
 app = typer.Typer(
     help="Register address-only source bindings, or a support file purpose, in metadata.",

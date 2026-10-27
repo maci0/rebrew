@@ -1,12 +1,12 @@
 """Inspect and verify Delphi 1 form streams in NE images or standalone form data."""
 
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
-from rebrew.formats.dfm import encode, render, scan_forms
+lazy from rebrew.formats.dfm import encode, render, scan_forms
 
 app = typer.Typer(
     help="Decode Delphi 1 form streams and verify lossless re-encoding.",

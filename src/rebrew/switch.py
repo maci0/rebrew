@@ -22,10 +22,10 @@ yield an empty result, and unresolvable entries are shown as raw VAs.
 from __future__ import annotations
 
 import re
-from typing import Any
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_OK,
@@ -36,7 +36,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.utils import parse_int_literal, untrusted_ident
+lazy from rebrew.utils import parse_int_literal, untrusted_ident
 
 #: Maximum table entries to read (the bounds-check count normally bounds it;
 #: this is a safety cap against misreading a data region as a giant table).

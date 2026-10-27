@@ -21,13 +21,13 @@ Usage:
 
 from __future__ import annotations
 
-import re
-from collections.abc import Sequence
-from pathlib import Path
-from typing import Any, Literal
+lazy import re
+lazy from collections.abc import Sequence
+lazy from pathlib import Path
+lazy from typing import Any, Literal
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -37,7 +37,7 @@ from rebrew.cli import (
     json_print,
     resolve_binary_arg,
 )
-from rebrew.utils import untrusted_text
+lazy from rebrew.utils import untrusted_text
 
 # ---------------------------------------------------------------------------
 # Constant tables (fixed algorithm constants, embedded as literals)

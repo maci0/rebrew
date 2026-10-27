@@ -33,14 +33,14 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Literal
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
+lazy from typing import Any, Literal
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -50,10 +50,10 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.rename_ops import c_name_from_symbol
-from rebrew.utils import untrusted_ident
-from rebrew.workspace.status import EARNED_STATUSES
+lazy from rebrew.config import ProjectConfig, inventory_path_for
+lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.utils import untrusted_ident
+lazy from rebrew.workspace.status import EARNED_STATUSES
 
 log = logging.getLogger(__name__)
 

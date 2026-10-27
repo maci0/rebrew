@@ -6,18 +6,18 @@ with COFF relocation masking, using NumPy vectorization for performance.
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import struct
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeGuard, cast
+lazy import hashlib
+lazy import struct
+lazy from pathlib import Path
 
 from rebrew.errors import RebrewError
-from rebrew.sources import iter_sources
-from rebrew.utils import binary_fingerprint, preset_module_key
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import binary_fingerprint, preset_module_key
 
 if TYPE_CHECKING:
     from rebrew.config import ProjectConfig

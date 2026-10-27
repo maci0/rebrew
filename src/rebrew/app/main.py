@@ -11,21 +11,11 @@ component's declared service dependencies decide activation order.
 
 from __future__ import annotations
 
-import gc
+lazy import gc
 
 import typer
 from rich.console import Console
 
-from rebrew.app.builtins import BUILTIN_COMPONENTS
-from rebrew.app.plugin import (
-    CLI_SERVICE,
-    CONSOLE_SERVICE,
-    CliComponent,
-    CoeffectScope,
-    Context,
-    activate,
-    entry_point_components,
-)
 from rebrew.cli import (
     QUIET_HELP,
     VERBOSE_HELP,
@@ -34,6 +24,16 @@ from rebrew.cli import (
     configure_logging,
     console,
     run_cli,
+)
+lazy from rebrew.app.builtins import BUILTIN_COMPONENTS
+lazy from rebrew.app.plugin import (
+    CLI_SERVICE,
+    CONSOLE_SERVICE,
+    CliComponent,
+    CoeffectScope,
+    Context,
+    activate,
+    entry_point_components,
 )
 
 _stdout_console = Console()

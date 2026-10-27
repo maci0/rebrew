@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import shutil
-import tempfile
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
+lazy import shutil
+lazy import tempfile
+lazy from collections.abc import Sequence
 
-from rebrew.compiler.dosbox import make_sandbox_dir, read_uppercase
-from rebrew.compiler.toolchain import ToolchainError, get_toolchain, run_toolchain
 from rebrew.errors import RebrewError
+lazy from rebrew.compiler.dosbox import make_sandbox_dir, read_uppercase
+lazy from rebrew.compiler.toolchain import ToolchainError, get_toolchain, run_toolchain
 
 if TYPE_CHECKING:
     from rebrew.formats.ne_loader import NeFunction

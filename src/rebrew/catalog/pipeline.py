@@ -7,14 +7,14 @@ Typer entry module.
 
 from __future__ import annotations
 
-from typing import Any
+lazy from typing import Any
 
-from rebrew.catalog.grid import build_coverage_data
-from rebrew.catalog.loaders import cached_function_list, scan_reversed_dir
-from rebrew.catalog.registry import build_function_registry, count_detection_sources
-from rebrew.config import inventory_path_for
-from rebrew.sections import get_text_section_size
-from rebrew.utils import console
+lazy from rebrew.catalog.grid import build_coverage_data
+lazy from rebrew.catalog.loaders import cached_function_list, scan_reversed_dir
+lazy from rebrew.catalog.registry import build_function_registry, count_detection_sources
+lazy from rebrew.config import inventory_path_for
+lazy from rebrew.sections import get_text_section_size
+lazy from rebrew.utils import console
 
 
 def build_catalog_data(

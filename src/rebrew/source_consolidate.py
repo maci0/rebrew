@@ -10,8 +10,8 @@ from rebrew.cli import (
     require_config,
     run_standalone,
 )
-from rebrew.metadata.source_provenance import consolidate_source_metadata
-from rebrew.utils import console
+lazy from rebrew.metadata.source_provenance import consolidate_source_metadata
+lazy from rebrew.utils import console
 
 app = typer.Typer(
     help=__doc__,

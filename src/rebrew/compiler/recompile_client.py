@@ -19,12 +19,12 @@ no CLI flag toggles it per run.
 from __future__ import annotations
 
 import logging
-import time
-from collections.abc import Callable, Mapping
-from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
-from urllib.parse import urljoin, urlparse
+lazy import time
+lazy from collections.abc import Callable, Mapping
+lazy from contextlib import nullcontext
+lazy from urllib.parse import urljoin, urlparse
 
 from rebrew.errors import RebrewError
 from rebrew.utils import (

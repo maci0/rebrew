@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+lazy from typing import Any
 
 from rebrew.coff_reloc import CoffRelocRecord
-from rebrew.data_ownership import is_compiler_literal
-from rebrew.formats.binary_model import BinaryInfo
-from rebrew.formats.coff import load_coff
+lazy from rebrew.data_ownership import is_compiler_literal
+lazy from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.formats.coff import load_coff
 
 
 @dataclass(frozen=True)

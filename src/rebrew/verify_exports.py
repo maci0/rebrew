@@ -12,8 +12,8 @@ Usage:
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
@@ -26,7 +26,7 @@ from rebrew.cli import (
     require_config,
     untrusted_ident,
 )
-from rebrew.formats.binary_loader import ExportParseError, parse_exports
+lazy from rebrew.formats.binary_loader import ExportParseError, parse_exports
 
 #: Names printed per direction before the listing is cut; a fully renamed
 #: export table is thousands of lines, and the counts above already say how

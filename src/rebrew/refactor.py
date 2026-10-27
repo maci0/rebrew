@@ -14,12 +14,12 @@ starting point for refactoring efforts, not to enforce strict rules.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
-from rebrew.cli import console, json_print
+lazy from rebrew.cli import console, json_print
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

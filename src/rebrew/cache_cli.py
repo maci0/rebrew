@@ -1,6 +1,6 @@
 """rebrew cache: Manage the compile result cache."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import typer
 
@@ -12,12 +12,12 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.compiler.cache import (
+lazy from rebrew.compiler.cache import (
     DEFAULT_CACHE_BACKEND,
     DEFAULT_CACHE_SIZE_LIMIT_MIB,
     get_compile_cache,
 )
-from rebrew.utils import BYTES_PER_MIB
+lazy from rebrew.utils import BYTES_PER_MIB
 
 #: Re-exported for callers that render the CLI's own default (the JSON report
 #: exposes ``size_limit_mib``): mypy's implicit-reexport rule needs the name in

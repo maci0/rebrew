@@ -15,39 +15,33 @@ baseline (``.rebrew/verify_baseline.toml``) and exits with code 1 on any
 regression (suitable for CI / pre-commit hooks).
 """
 
-import concurrent.futures
-import contextlib
 import functools
-import json
 import logging
-import math
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy import concurrent.futures
+lazy import contextlib
+lazy import json
+lazy import math
+lazy from datetime import UTC, datetime
+lazy from pathlib import Path
 
-from rebrew.metadata.storage import metadata_store
+lazy from rebrew.metadata.storage import metadata_store
 
 if TYPE_CHECKING:
     from rebrew.compiler.cache import CacheBackend
     from rebrew.compiler.compile import CompareResult, CompareStatus
     from rebrew.compiler.context import CompileContext
 
-import capstone
 import typer
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
-from rich.table import Table
-from rich.text import Text
 from typer.models import TyperPath
+lazy import capstone
+lazy from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
+lazy from rich.table import Table
+lazy from rich.text import Text
 
-from rebrew.catalog import (
-    build_function_registry,
-    cached_function_list,
-    count_detection_sources,
-    scan_reversed_dir,
-)
 from rebrew.cli import (
     BUILT_IMAGE_HELP,
     DIR_HELP,
@@ -69,19 +63,25 @@ from rebrew.cli import (
     require_config,
     source_targets_run,
 )
-from rebrew.compiler.compile import (
+from rebrew.metadata.bindings import SourceBinding, min_valid_va_for, read_source_bindings
+lazy from rebrew.catalog import (
+    build_function_registry,
+    cached_function_list,
+    count_detection_sources,
+    scan_reversed_dir,
+)
+lazy from rebrew.compiler.compile import (
     clears_blocker,
 )
-from rebrew.compiler.overrides import resolve_compile_overrides_cached
-from rebrew.config import ProjectConfig, inventory_path_for, target_module
-from rebrew.linked_exact import linked_image_current
-from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
-from rebrew.metadata.bindings import SourceBinding, min_valid_va_for, read_source_bindings
-from rebrew.metadata.document import canonical_va_key
-from rebrew.metadata.functions import canonical_status, should_promote_status
-from rebrew.sources import contained_path, source_roots
-from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS, STATUS_LEGEND_ORDER
-from rebrew.utils import (
+lazy from rebrew.compiler.overrides import resolve_compile_overrides_cached
+lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
+lazy from rebrew.linked_exact import linked_image_current
+lazy from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
+lazy from rebrew.metadata.document import canonical_va_key
+lazy from rebrew.metadata.functions import canonical_status, should_promote_status
+lazy from rebrew.sources import contained_path, source_roots
+lazy from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS, STATUS_LEGEND_ORDER
+lazy from rebrew.utils import (
     atomic_write_text,
     floor_pct,
     interruptible_pool,
@@ -89,15 +89,15 @@ from rebrew.utils import (
     read_json_text,
     untrusted_ident,
 )
-from rebrew.verify_cache import (
+lazy from rebrew.verify_cache import (
     VerifyCacheEntry,
     cache_path_for,
     load_verify_cache,
     order_result_row,
     save_verify_cache,
 )
-from rebrew.verify_hash import expected_text_functions
-from rebrew.workspace.status import EARNED_STATUSES, INFRASTRUCTURE_STATUSES
+lazy from rebrew.verify_hash import expected_text_functions
+lazy from rebrew.workspace.status import EARNED_STATUSES, INFRASTRUCTURE_STATUSES
 
 log = logging.getLogger(__name__)
 

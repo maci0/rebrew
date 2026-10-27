@@ -50,15 +50,15 @@ Also importable for tests::
 
 from __future__ import annotations
 
-import argparse
 import ast
-import copy
-import os
-import subprocess
-import sys
-from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import TypeGuard, override
+lazy import argparse
+lazy import copy
+lazy import os
+lazy import subprocess
+lazy import sys
+lazy from collections.abc import Iterable, Mapping
 
 PKG_ROOT = Path("src") / "rebrew"
 

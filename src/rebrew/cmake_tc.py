@@ -23,32 +23,32 @@ that points ``CMAKE_C_COMPILER/LINKER/AR`` at the single rebrew executable.
 
 from __future__ import annotations
 
-import os
-import re
-import subprocess
-import sys
-import tempfile
-import tomllib
-import uuid
-from dataclasses import replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+lazy import os
+lazy import re
+lazy import subprocess
+lazy import sys
+lazy import tempfile
+lazy import tomllib
+lazy import uuid
+lazy from dataclasses import replace
+lazy from typing import Any
 
 import typer
 
-from rebrew.cli import console, error_exit, json_print, option_default, require_config
-from rebrew.compiler.temp_dirs import xdg_cache_home
-from rebrew.compiler.toolchain import ToolchainSpec, bind_mount, kill_container
-from rebrew.config import ConfigError, check_env_wineprefix, source_date_epoch
-from rebrew.utils import (
+lazy from rebrew.cli import console, error_exit, json_print, option_default, require_config
+lazy from rebrew.compiler.temp_dirs import xdg_cache_home
+lazy from rebrew.compiler.toolchain import ToolchainSpec, bind_mount, kill_container
+lazy from rebrew.config import ConfigError, check_env_wineprefix, source_date_epoch
+lazy from rebrew.utils import (
     atomic_write_text,
     container_runtime,
     file_lock,
     load_tomllib,
     read_compile_source,
 )
-from rebrew.workspace import walk_up_to_root
+lazy from rebrew.workspace import walk_up_to_root
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

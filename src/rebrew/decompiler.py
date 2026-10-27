@@ -20,28 +20,28 @@ Usage (internal)::
         print(code)
 """
 
-import atexit
-import contextlib
-import hashlib
-import importlib
 import logging
-import os
 import re
-import shutil
-import subprocess
-import sys
-import sysconfig
-import tempfile
 import threading
-import warnings
-from collections.abc import Callable
-from pathlib import Path
-from typing import Any
+lazy import atexit
+lazy import contextlib
+lazy import hashlib
+lazy import importlib
+lazy import os
+lazy import shutil
+lazy import subprocess
+lazy import sys
+lazy import sysconfig
+lazy import tempfile
+lazy import warnings
+lazy from collections.abc import Callable
+lazy from pathlib import Path
+lazy from typing import Any
 
 from rebrew.c_parser import CALLING_CONVENTION
-from rebrew.config import KUNA_SPECS_ENV, expand_env_path, warn_env_dir
-from rebrew.registry import RegistryError
-from rebrew.utils import binary_fingerprint, console, run_process_group, untrusted_literal
+lazy from rebrew.config import KUNA_SPECS_ENV, expand_env_path, warn_env_dir
+lazy from rebrew.registry import RegistryError
+lazy from rebrew.utils import binary_fingerprint, console, run_process_group, untrusted_literal
 
 # ANSI escape code stripper
 _ANSI_RE = re.compile(r"\x1B\[[0-9;]*[a-zA-Z]")

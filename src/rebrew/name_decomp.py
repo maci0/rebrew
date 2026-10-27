@@ -39,14 +39,14 @@ import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends
-from rebrew.struct_recover import (
+lazy from rebrew.struct_recover import (
     PSEUDO_TYPES,
     TYPE_WIDTHS,
     parse_decomp_for_structs,
     pointer_element_widths,
     type_width,
 )
-from rebrew.utils import (
+lazy from rebrew.utils import (
     join_source_lines,
     parse_c_integer_literal,
     parse_int_literal,

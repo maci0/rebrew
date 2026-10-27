@@ -22,18 +22,18 @@ Usage::
     rebrew cfg detect-crt show [--write]
 """
 
-import contextlib
-import json
-import math
-import os
-import shutil
-from collections.abc import Mapping
-from pathlib import Path
-from typing import Any, Literal
+lazy import contextlib
+lazy import json
+lazy import math
+lazy import os
+lazy import shutil
+lazy from collections.abc import Mapping
+lazy from pathlib import Path
+lazy from typing import Any, Literal
 
-import tomlkit
 import typer
 from typer.models import TyperPath
+lazy import tomlkit
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -54,8 +54,8 @@ from rebrew.config import (
     validate_http_url,
     validate_target_name,
 )
-from rebrew.config import find_root as _config_find_root
-from rebrew.utils import atomic_write_text, parse_int_literal, preset_module_key
+lazy from rebrew.config import find_root as _config_find_root
+lazy from rebrew.utils import atomic_write_text, parse_int_literal, preset_module_key
 
 #: Config key suffixes whose values must never be echoed to the terminal /
 #: JSON dumps (shell history and CI logs already see argv; do not double-expose).

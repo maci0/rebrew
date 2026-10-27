@@ -1,11 +1,11 @@
 """Review all-target source organization and compare raw rebuild artifacts."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import typer
 
-from rebrew.cli import console, error_exit, json_print, require_config, run_cli
-from rebrew.source_organization import (
+lazy from rebrew.cli import console, error_exit, json_print, require_config, run_cli
+lazy from rebrew.source_organization import (
     check_reorganization,
     organization_configs,
     review_organization,

@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-from pathlib import Path
-from typing import Any
+lazy import hashlib
+lazy import json
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
-from rebrew.c_parser import function_signatures
-from rebrew.c_rename import ORDINARY_ROLES, ParsedSource, definitions, occurrences
 from rebrew.cli import (
     EXPECTED_DIGEST_HELP,
     TargetOption,
@@ -20,13 +18,15 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import ProjectConfig, target_module
-from rebrew.metadata.binding_history import change_source_binding, validate_binding_history
-from rebrew.metadata.bindings import derive_c_symbol
-from rebrew.metadata.functions import get_entry, identity_file, load_metadata
-from rebrew.metadata.source_provenance import function_definition_hashes
-from rebrew.sources import iter_sources
-from rebrew.utils import preset_module_key, read_source_text
+lazy from rebrew.c_parser import function_signatures
+lazy from rebrew.c_rename import ORDINARY_ROLES, ParsedSource, definitions, occurrences
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.metadata.binding_history import change_source_binding, validate_binding_history
+lazy from rebrew.metadata.bindings import derive_c_symbol
+lazy from rebrew.metadata.functions import get_entry, identity_file, load_metadata
+lazy from rebrew.metadata.source_provenance import function_definition_hashes
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import preset_module_key, read_source_text
 
 app = typer.Typer(
     help="Review and change source bindings while retaining native inventory and evidence.",

@@ -12,9 +12,9 @@ data region is a constant. Complements :mod:`rebrew.inline_strings`
 
 from __future__ import annotations
 
-import struct
-from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
+lazy import struct
+lazy from collections.abc import Callable, Iterator, Sequence
 
 SINGLE_PRECISION_OPCODES = frozenset(
     [

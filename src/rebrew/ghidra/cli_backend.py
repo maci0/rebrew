@@ -13,13 +13,13 @@ Only the push (apply) direction is covered; pull operations still use MCP.
 from __future__ import annotations
 
 import logging
-import os
-import shutil
-import subprocess
-import time
-from typing import Any
+lazy import os
+lazy import shutil
+lazy import subprocess
+lazy import time
+lazy from typing import Any
 
-from rebrew.utils import console, run_process_group
+lazy from rebrew.utils import console, run_process_group
 
 log = logging.getLogger(__name__)
 

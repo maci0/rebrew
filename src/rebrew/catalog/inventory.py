@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-from datetime import UTC, datetime
-from typing import Any
+lazy import hashlib
+lazy import json
+lazy from datetime import UTC, datetime
+lazy from typing import Any
 
-from rebrew.catalog.models import FunctionEntry
-from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.formats.binary_loader import load_binary
-from rebrew.utils import atomic_write_text, file_lock
+lazy from rebrew.catalog.models import FunctionEntry
+lazy from rebrew.config import ProjectConfig, inventory_path_for
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.utils import atomic_write_text, file_lock
 
 
 def _validate_merges(merges: list[tuple[int, int]]) -> list[tuple[int, int]]:

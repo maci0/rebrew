@@ -3,32 +3,32 @@ metadata syntax, function inventory, and annotation parseability."""
 
 from __future__ import annotations
 
-import argparse
-import logging
-import os
 import sys
-import tomllib
-import warnings
-from collections import Counter
 from pathlib import Path
-from typing import override
+lazy import argparse
+lazy import logging
+lazy import os
+lazy import tomllib
+lazy import warnings
+lazy from collections import Counter
+lazy from typing import override
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from rebrew.catalog.loaders import load_function_structure
-from rebrew.compiler.compile import resolve_cl_command
-from rebrew.compiler.toolchain import TOOLCHAINS
-from rebrew.config import (
+lazy from rebrew.catalog.loaders import load_function_structure
+lazy from rebrew.compiler.compile import resolve_cl_command
+lazy from rebrew.compiler.toolchain import TOOLCHAINS
+lazy from rebrew.config import (
     FUNCTION_STRUCTURE_JSON,
     REBREW_PROJECTS_ROOT_ENV,
     ConfigError,
     env_dir_path,
     load_config,
 )
-from rebrew.metadata.bindings import read_source_bindings
-from rebrew.metadata.data import load_data_metadata
-from rebrew.metadata.functions import load_metadata
-from rebrew.workspace.status import KNOWN_STATUSES
+lazy from rebrew.metadata.bindings import read_source_bindings
+lazy from rebrew.metadata.data import load_data_metadata
+lazy from rebrew.metadata.functions import load_metadata
+lazy from rebrew.workspace.status import KNOWN_STATUSES
 
 
 def _default_root() -> Path:

@@ -21,15 +21,14 @@ so flags, toolchain, and reloc masking resolve per project.
 from __future__ import annotations
 
 import contextlib
-import re
-import tempfile
-from collections.abc import Iterator
-from pathlib import Path
-from typing import Any
+lazy import re
+lazy import tempfile
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
-from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.cli import (
     JOBS_HELP,
     SOURCE_HELP,
@@ -41,11 +40,12 @@ from rebrew.cli import (
     require_config,
     select_annotation,
 )
-from rebrew.climb import function_span as climb_function_span
-from rebrew.compiler.compile import compile_and_compare
-from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
-from rebrew.utils import (
+lazy from rebrew.c_parser import CALLING_CONVENTION
+lazy from rebrew.climb import function_span as climb_function_span
+lazy from rebrew.compiler.compile import compile_and_compare
+lazy from rebrew.compiler.overrides import resolve_compile_overrides
+lazy from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
+lazy from rebrew.utils import (
     SOURCE_BACKUP_DIRNAME,
     atomic_write_text,
     filename_component,

@@ -14,8 +14,8 @@ reports them so the gap is visible.
 
 from __future__ import annotations
 
-import struct
 from dataclasses import dataclass
+lazy import struct
 
 # (offset_from_e_lfanew, size_bytes, label) for each patchable/parable field.
 # Offsets follow the PE32 optional-header layout (see docs/TOOLCHAIN notes).

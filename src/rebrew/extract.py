@@ -12,13 +12,11 @@ Usage:
 """
 
 import logging
-from pathlib import Path
+lazy from pathlib import Path
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
-from rebrew.asm import disasm_bytes
-from rebrew.catalog import cached_function_list, scan_reversed_dir
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
@@ -31,9 +29,11 @@ from rebrew.cli import (
     require_non_negative,
     untrusted_ident,
 )
-from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
-from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.asm import disasm_bytes
+lazy from rebrew.catalog import cached_function_list, scan_reversed_dir
+lazy from rebrew.config import ProjectConfig, inventory_path_for
+lazy from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
+lazy from rebrew.formats.binary_model import BinaryInfo
 
 log = logging.getLogger(__name__)
 

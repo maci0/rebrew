@@ -9,14 +9,23 @@ and for previewing an import (the same ``--module`` / ``--target`` filter).
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+lazy from pathlib import Path
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
-from rebrew.binsync.importer import is_meaningful, resolve_state_dir, strip_cdecl_prefix
-from rebrew.binsync.serial import require_declib
-from rebrew.binsync.state import (
+from rebrew.cli import (
+    EXIT_MISMATCH,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+    run_standalone,
+)
+lazy from rebrew.binsync.importer import is_meaningful, resolve_state_dir, strip_cdecl_prefix
+lazy from rebrew.binsync.serial import require_declib
+lazy from rebrew.binsync.state import (
     index_local_and_catalog,
     load_binsync_state,
     load_manifest,
@@ -27,16 +36,7 @@ from rebrew.binsync.state import (
     sync_health,
     sync_health_messages,
 )
-from rebrew.cli import (
-    EXIT_MISMATCH,
-    TargetOption,
-    console,
-    error_exit,
-    json_print,
-    require_config,
-    run_standalone,
-)
-from rebrew.utils import fold_ident, preset_module_key, strip_body
+lazy from rebrew.utils import fold_ident, preset_module_key, strip_body
 
 log = logging.getLogger(__name__)
 

@@ -19,10 +19,10 @@ Also importable for tests::
     assert detect_cycles("src/rebrew") == []
 """
 
-import ast
-import os
-from collections import defaultdict
-from pathlib import Path
+lazy import ast
+lazy import os
+lazy from collections import defaultdict
+lazy from pathlib import Path
 
 
 def _module_level_imports(stmts: list[ast.stmt]) -> list[ast.Import | ast.ImportFrom]:

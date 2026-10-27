@@ -11,21 +11,21 @@ The pure source schema and :mod:`rebrew.utils` are its only dependencies, so
 both stores and their readers can depend on it without a cycle.
 """
 
-import copy
-import json
 import logging
-import os
 import threading
-import unicodedata
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+lazy import copy
+lazy import json
+lazy import os
+lazy import unicodedata
+lazy from collections.abc import Sequence
 
-import tomlkit
-from tomlkit import TOMLDocument
+lazy import tomlkit
+lazy from tomlkit import TOMLDocument
 
-from rebrew.metadata.source_schema import validate_source_metadata
-from rebrew.metadata.storage import metadata_store
+lazy from rebrew.metadata.source_schema import validate_source_metadata
+lazy from rebrew.metadata.storage import metadata_store
 
 FORMAT_KEY = "format"
 FORMAT_VERSION = 2

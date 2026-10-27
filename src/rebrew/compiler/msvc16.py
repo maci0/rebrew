@@ -13,7 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from rebrew.compiler.dosbox import (
+from rebrew.errors import RebrewError
+lazy from rebrew.compiler.dosbox import (
     STAGED_SOURCE_NAME,
     DosboxError,
     find_staged_object,
@@ -22,7 +23,6 @@ from rebrew.compiler.dosbox import (
     run_dosbox,
     stage_tree_source,
 )
-from rebrew.errors import RebrewError
 
 
 class Msvc16Error(RebrewError, RuntimeError):

@@ -6,17 +6,17 @@ and data fetching via ReVa HTTP endpoints.
 
 from __future__ import annotations
 
-import contextlib
-import json
 import logging
 import re
-import time
-from collections.abc import Mapping
 from typing import Any, Literal, NamedTuple, Protocol, runtime_checkable
+lazy import contextlib
+lazy import json
+lazy import time
+lazy from collections.abc import Mapping
 
 from rebrew.errors import RebrewError
-from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
-from rebrew.utils import RETRYABLE_HTTP_STATUS, close_response, console, untrusted_text
+lazy from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
+lazy from rebrew.utils import RETRYABLE_HTTP_STATUS, close_response, console, untrusted_text
 
 logger = logging.getLogger(__name__)
 

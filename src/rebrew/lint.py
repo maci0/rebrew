@@ -6,21 +6,21 @@ native function boundaries (W028), redundant compiler flags (W029), data extents
 and ownership. Fixes update dedicated metadata through its locked writers.
 """
 
-import bisect
-import contextlib
 import logging
 import re
-import shlex
 import threading
 from collections import Counter
-from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+lazy import bisect
+lazy import contextlib
+lazy import shlex
+lazy from collections.abc import Callable, Iterable
+lazy from typing import Any
 
 import typer
-from rich.table import Table
-from rich.text import Text
+lazy from rich.table import Table
+lazy from rich.text import Text
 
 from rebrew.c_parser import (
     CALLING_CONVENTION,
@@ -41,19 +41,6 @@ from rebrew.cli import (
     json_print,
     option_default,
 )
-from rebrew.config import (
-    DEFAULT_LINT_MAX_LINE_LENGTH,
-    ProjectConfig,
-    inventory_path_for,
-    load_config,
-)
-from rebrew.lint_cflags import (
-    RedundantFunctionCflags,
-    RedundantPreset,
-    check_redundant_cflags,
-    drop_redundant_presets,
-)
-from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
 from rebrew.metadata.bindings import (
     DATA_KINDS,
     MIN_VALID_VA,
@@ -62,29 +49,42 @@ from rebrew.metadata.bindings import (
     function_rows_for_file,
     min_valid_va_for,
 )
-from rebrew.metadata.data import load_data_metadata
-from rebrew.metadata.functions import (
+lazy from rebrew.config import (
+    DEFAULT_LINT_MAX_LINE_LENGTH,
+    ProjectConfig,
+    inventory_path_for,
+    load_config,
+)
+lazy from rebrew.lint_cflags import (
+    RedundantFunctionCflags,
+    RedundantPreset,
+    check_redundant_cflags,
+    drop_redundant_presets,
+)
+lazy from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
+lazy from rebrew.metadata.data import load_data_metadata
+lazy from rebrew.metadata.functions import (
     FUNCTION_IDENTITY_FIELDS,
     METADATA_FIELDS,
     canonical_status,
     load_metadata,
 )
-from rebrew.metadata.source_provenance import (
+lazy from rebrew.metadata.source_provenance import (
     SOURCE_PROVENANCE_FILENAME,
     function_definition_hashes,
     load_source_provenance,
 )
-from rebrew.sources import (
+lazy from rebrew.sources import (
     iter_sources,
     source_exts,
 )
-from rebrew.utils import (
+lazy from rebrew.utils import (
     preset_module_key,
     read_source_text,
     rel_display_path,
     untrusted_ident,
 )
-from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
+lazy from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
 

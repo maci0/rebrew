@@ -17,17 +17,17 @@ Every git call goes through :func:`rebrew.binsync.git.run_git`.
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import shutil
-import subprocess
-from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path
-from typing import Any
+lazy import hashlib
+lazy import shutil
+lazy import subprocess
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.binsync.git import GIT_NETWORK_TIMEOUT, one_line, run_git
-from rebrew.config import ProjectConfig
+lazy from rebrew.binsync.git import GIT_NETWORK_TIMEOUT, one_line, run_git
+lazy from rebrew.config import ProjectConfig
 
 log = logging.getLogger(__name__)
 

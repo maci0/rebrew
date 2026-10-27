@@ -12,22 +12,22 @@ Usage::
     rebrew todo --json              Machine-readable output
 """
 
-import json
 import logging
-import os
-import shlex
-from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy import json
+lazy import os
+lazy import shlex
+lazy from collections.abc import Callable, Sequence
+lazy from pathlib import Path
 
 if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
     from rebrew.verify_cache import VerifyCacheEntry
 
 import typer
-from rich.panel import Panel
-from rich.table import Table
+lazy from rich.panel import Panel
+lazy from rich.table import Table
 
 from rebrew.cli import (
     AllTargetsOption,
@@ -40,10 +40,11 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
-from rebrew.compiler.compile import NEAR_MATCH_THRESHOLD
-from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.metadata.functions import GA_CEILING_PREFIX
-from rebrew.naming import (
+from rebrew.status_style import STATUS_COLORS
+lazy from rebrew.compiler.compile import NEAR_MATCH_THRESHOLD
+lazy from rebrew.config import ProjectConfig, inventory_path_for
+lazy from rebrew.metadata.functions import GA_CEILING_PREFIX
+lazy from rebrew.naming import (
     detect_unmatchable,
     estimate_difficulty,
     find_neighbor_file,
@@ -52,11 +53,10 @@ from rebrew.naming import (
     load_data,
     parse_byte_delta,
 )
-from rebrew.present import ratio_bar
-from rebrew.status import effective_status
-from rebrew.status_style import STATUS_COLORS
-from rebrew.utils import floor_pct
-from rebrew.workspace.status import (
+lazy from rebrew.present import ratio_bar
+lazy from rebrew.status import effective_status
+lazy from rebrew.utils import floor_pct
+lazy from rebrew.workspace.status import (
     EARNED_STATUSES,
     FUZZY_STATUSES,
     INFRASTRUCTURE_STATUSES,

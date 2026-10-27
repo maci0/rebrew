@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import unicodedata
-from pathlib import Path
+lazy import unicodedata
+lazy from pathlib import Path
 
 import typer
 
 from rebrew.cli import RootOption, error_exit, json_print, require_root
-from rebrew.config import load_config, target_module
-from rebrew.coverage_toml import CoverageTomlError, load_coverage_from
-from rebrew.metadata.functions import import_status_history
-from rebrew.utils import console
+lazy from rebrew.config import load_config, target_module
+lazy from rebrew.coverage_toml import CoverageTomlError, load_coverage_from
+lazy from rebrew.metadata.functions import import_status_history
+lazy from rebrew.utils import console
 
 app = typer.Typer(
     help="Import status history from portable snapshots without changing verdicts.",

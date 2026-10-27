@@ -27,24 +27,24 @@ Usage::
 
 from __future__ import annotations
 
-import bisect
 import logging
-import re
-import struct
-import subprocess
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+lazy import bisect
+lazy import re
+lazy import struct
+lazy import subprocess
+lazy from typing import Any
 
 import typer
 from typer.models import TyperPath
 
-from rebrew.analysis import direct_call_target, iter_instructions
 from rebrew.cli import TargetOption, console, error_exit, json_print, resolve_binary_arg
-from rebrew.formats.binary_loader import load_binary
-from rebrew.utils import atomic_write_text, file_lock, read_json_text, run_process_group
+lazy from rebrew.analysis import direct_call_target, iter_instructions
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.utils import atomic_write_text, file_lock, read_json_text, run_process_group
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

@@ -33,7 +33,7 @@ documented follow-up).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
+lazy from pathlib import Path
 
 from rebrew.errors import RebrewError
 

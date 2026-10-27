@@ -31,12 +31,12 @@ console output, so ``rebrew.near_analysis`` and the command both import it.
 from __future__ import annotations
 
 import re
-from typing import Any
+lazy from typing import Any
 
-import capstone  # module-level: analyze_frame is a hot path (near-diag calls it per pair)
+lazy import capstone  # module-level: analyze_frame is a hot path (near-diag calls it per pair)
 
-from rebrew.analysis import capstone_handle
-from rebrew.utils import parse_int_literal
+lazy from rebrew.analysis import capstone_handle
+lazy from rebrew.utils import parse_int_literal
 
 _EBP_SLOT_RE = re.compile(r"\[(?:[er]?bp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
 _ESP_DELTA_RE = re.compile(r"\[(?:[er]?sp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")

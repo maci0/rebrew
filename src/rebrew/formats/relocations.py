@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import lief
+lazy import lief
 
-from rebrew.formats.binary_loader import extract_bytes_at_va
-from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.formats.binary_loader import extract_bytes_at_va
+lazy from rebrew.formats.binary_model import BinaryInfo
 
 _MAX_SPANS = 1_000_000
 

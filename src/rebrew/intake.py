@@ -24,30 +24,30 @@ Usage::
 
 from __future__ import annotations
 
-import filecmp
-import json
 import logging
 import re
-import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+lazy import filecmp
+lazy import json
+lazy import shutil
+lazy from typing import Any
 
 import typer
 from typer.models import TyperPath
-from typer.testing import CliRunner
+lazy from typer.testing import CliRunner
 
-from rebrew.cli import EXIT_OK, console, error_exit, json_print
-from rebrew.config import ConfigError, validate_target_name
-from rebrew.metadata.bindings import derive_c_symbol, iter_source_bindings
-from rebrew.metadata.storage import metadata_store
-from rebrew.sources import iter_sources
 from rebrew.utils import (
     SOURCE_CHECKOUT,
     atomic_write_text,
     c_comment_safe,
     read_json_text,
 )
+lazy from rebrew.cli import EXIT_OK, console, error_exit, json_print
+lazy from rebrew.config import ConfigError, validate_target_name
+lazy from rebrew.metadata.bindings import derive_c_symbol, iter_source_bindings
+lazy from rebrew.metadata.storage import metadata_store
+lazy from rebrew.sources import iter_sources
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

@@ -14,21 +14,14 @@ Usage:
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Sequence
-from pathlib import Path
-from typing import Any
+lazy from collections import Counter
+lazy from collections.abc import Sequence
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
-from rebrew.analysis import (
-    Xref,
-    instruction_text,
-    iter_instruction_stream,
-    iter_instructions,
-    scan_references,
-)
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
@@ -39,9 +32,16 @@ from rebrew.cli import (
     resolve_binary_arg,
     untrusted_ident,
 )
-from rebrew.formats.binary_loader import load_binary
-from rebrew.formats.binary_model import BinaryInfo
-from rebrew.formats.import_table import parse_import_table
+lazy from rebrew.analysis import (
+    Xref,
+    instruction_text,
+    iter_instruction_stream,
+    iter_instructions,
+    scan_references,
+)
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.formats.import_table import parse_import_table
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -1,12 +1,13 @@
 """Inventory native source-path strings and their direct instruction references."""
 
-import hashlib
 import re
-from typing import Any
+lazy import hashlib
+lazy from typing import Any
 
 import typer
 
-from rebrew.analysis import (
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+lazy from rebrew.analysis import (
     data_references,
     instruction_text,
     iter_instructions,
@@ -14,17 +15,16 @@ from rebrew.analysis import (
     reachable_code,
     scan_references,
 )
-from rebrew.catalog import cached_function_list
-from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.config import ProjectConfig, target_module
-from rebrew.formats.binary_loader import (
+lazy from rebrew.catalog import cached_function_list
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.formats.binary_loader import (
     extract_bytes_at_va,
     function_extent_from_bytes,
     load_binary,
 )
-from rebrew.formats.binary_model import BinaryInfo
-from rebrew.metadata.functions import load_metadata
-from rebrew.workspace.status import MATCHED_STATUSES
+lazy from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.metadata.functions import load_metadata
+lazy from rebrew.workspace.status import MATCHED_STATUSES
 
 app = typer.Typer(
     help="Inventory native source-path strings and bounded direct references.",

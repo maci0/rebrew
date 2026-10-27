@@ -10,19 +10,19 @@ Usage::
     rebrew status --target client_exe     Status for a specific target
 """
 
-import bisect
-import json
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from operator import eq
-from pathlib import Path
-from typing import Any
+lazy import bisect
+lazy import json
+lazy from datetime import UTC, datetime
+lazy from operator import eq
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
+lazy from rich.panel import Panel
+lazy from rich.table import Table
+lazy from rich.text import Text
 
 from rebrew.cli import (
     AllTargetsOption,
@@ -33,16 +33,16 @@ from rebrew.cli import (
     option_default,
     require_config,
 )
-from rebrew.config import ProjectConfig
-from rebrew.formats.binary_model import BinaryInfo
-from rebrew.formats.pe_symbols import as_list
-from rebrew.present import BAR_WIDTH as _BAR_WIDTH
-from rebrew.present import filled_cells as _filled
-from rebrew.present import ratio_bar as _bar
-from rebrew.sources import iter_sources
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
-from rebrew.utils import clip_span, floor_pct, merged_span_bytes
-from rebrew.workspace.status import MATCHED_STATUSES, STUB_PLACEHOLDER_STATUSES
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.formats.pe_symbols import as_list
+lazy from rebrew.present import BAR_WIDTH as _BAR_WIDTH
+lazy from rebrew.present import filled_cells as _filled
+lazy from rebrew.present import ratio_bar as _bar
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import clip_span, floor_pct, merged_span_bytes
+lazy from rebrew.workspace.status import MATCHED_STATUSES, STUB_PLACEHOLDER_STATUSES
 
 log = logging.getLogger(__name__)
 
@@ -115,6 +115,13 @@ class StatusReport:
     #: None when the binary could not be read (not measured, not zero).
     padding_bytes: int | None = None
     unattributed_ranges: list[tuple[int, int]] = field(default_factory=list)
+    # Alignment fill found inside those tails; counted as padding.
+    tail_padding_bytes: int = 0
+    # Discoverer extent beyond the body a compile measured.  Attributed to the
+    # function, never compared, so it stays out of the matched bytes; listed
+    # here so a reader can audit which bytes those are instead of trusting a
+    # lump sum.
+    unverified_tail_ranges: list[tuple[int, int]] = field(default_factory=list)
     unattributed_bytes: int | None = None
 
     # Naked reconstructions (`source = "naked"`) that are byte-exact via a
@@ -309,6 +316,10 @@ class StatusReport:
         if self.unattributed_ranges:
             d["unattributed_ranges"] = [
                 {"va": f"0x{va:08x}", "size": size} for va, size in self.unattributed_ranges
+            ]
+        if self.unverified_tail_ranges:
+            d["unverified_tail_ranges"] = [
+                {"va": f"0x{va:08x}", "size": size} for va, size in self.unverified_tail_ranges
             ]
         if self.verify_info is not None:
             d["last_verify"] = {
@@ -769,6 +780,37 @@ def _text_gap_ranges(
     return classify_unattributed_ranges(text_bytes, sec.va, spans)
 
 
+def _split_tail_fill(
+    cfg: ProjectConfig, ranges: list[tuple[int, int]]
+) -> tuple[int, list[tuple[int, int]]]:
+    """Split native tails into ``(fill_bytes, measured_ranges)``.
+
+    A native tail beyond the compiled body is either fill or code the compile
+    never measured.  Only fill leaves the unverified bucket, so a table is not
+    reclassified as padding by a byte-looking guess.
+    """
+    if not ranges or not cfg.target_binary.is_file():
+        return 0, list(ranges)
+    try:
+        from rebrew.formats.binary_loader import PADDING_BYTES, load_binary
+
+        info = load_binary(cfg.target_binary)
+        sec = info.sections[".text"]
+    except OSError, KeyError, ValueError:
+        return 0, list(ranges)
+    text_bytes = info.data[sec.file_offset : sec.file_offset + min(sec.size, sec.raw_size)]
+    fill = 0
+    kept: list[tuple[int, int]] = []
+    for lo, size in ranges:
+        start = lo - sec.va
+        chunk = text_bytes[start : start + size]
+        if len(chunk) == size and all(b in PADDING_BYTES for b in chunk):
+            fill += size
+        else:
+            kept.append((lo, size))
+    return fill, kept
+
+
 def _compute_text_size(cfg: ProjectConfig) -> int:
     """Compute .text section size from binary headers. Returns 0 if unavailable."""
     if not cfg.target_binary.exists():
@@ -1010,10 +1052,21 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         spans.append((span_va, size))
     claimed = sorted((va, va + size) for va, size in spans if size > 0)
     tail_bytes = 0
+    tail_ranges: list[tuple[int, int]] = []
     for va, size in native_tails:
         for lo, hi in _unclaimed(va, va + size, claimed):
             tail_bytes += hi - lo
+            tail_ranges.append((lo, hi - lo))
             spans.append((lo, hi - lo))
+    if tail_ranges:
+        # The discoverer extent runs to the next start, so a tail is usually the
+        # alignment fill after the body.  Fill is padding, not function bytes:
+        # counting it as unverified code made the coverage table read as if
+        # whole functions were missing when only their alignment was.
+        fill_bytes, measured = _split_tail_fill(cfg, tail_ranges)
+        tail_bytes -= fill_bytes
+        report.tail_padding_bytes = fill_bytes
+        report.unverified_tail_ranges = measured
     if tail_bytes:
         unmatched_bytes += tail_bytes
         report.status_bytes["UNVERIFIED_TAIL"] = tail_bytes
@@ -1047,7 +1100,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.unmatched_bytes = unmatched_bytes
     gaps = _text_gap_ranges(cfg, spans)
     if gaps is not None:
-        report.padding_bytes = gaps[0]
+        report.padding_bytes = gaps[0] + report.tail_padding_bytes
         report.unattributed_ranges = gaps[1]
         # Any virtual tail with no file bytes remains unaccounted for.
         report.unattributed_bytes = (

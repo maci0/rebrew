@@ -23,23 +23,12 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Any
+lazy from typing import Any
 
 import typer
-from rich.panel import Panel
-from rich.table import Table
+lazy from rich.panel import Panel
+lazy from rich.table import Table
 
-from rebrew.analysis import (
-    StringEntry,
-    Xref,
-    is_inside,
-    iter_instructions,
-    iter_strings,
-    scan_references,
-    section_range,
-    string_refs,
-)
-from rebrew.catalog import cached_function_list
 from rebrew.cli import (
     TargetOption,
     console,
@@ -49,14 +38,25 @@ from rebrew.cli import (
     require_config,
     untrusted_ident,
 )
-from rebrew.config import ProjectConfig, target_module
-from rebrew.formats.binary_loader import load_binary
-from rebrew.formats.binary_model import BinaryInfo
-from rebrew.formats.import_table import parse_import_table
-from rebrew.metadata.bindings import SourceBinding, read_source_bindings
-from rebrew.metadata.functions import as_metadata_int, get_entry, load_metadata
-from rebrew.rename_ops import c_name_from_symbol
-from rebrew.sources import iter_sources
+lazy from rebrew.analysis import (
+    StringEntry,
+    Xref,
+    is_inside,
+    iter_instructions,
+    iter_strings,
+    scan_references,
+    section_range,
+    string_refs,
+)
+lazy from rebrew.catalog import cached_function_list
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.formats.import_table import parse_import_table
+lazy from rebrew.metadata.bindings import SourceBinding, read_source_bindings
+lazy from rebrew.metadata.functions import as_metadata_int, get_entry, load_metadata
+lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.sources import iter_sources
 
 logger = logging.getLogger(__name__)
 

@@ -31,16 +31,15 @@ Usage::
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy from pathlib import Path
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
 if TYPE_CHECKING:
     import numpy as np
 
-from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
 from rebrew.cli import (
     TargetOption,
     console,
@@ -50,8 +49,9 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
-from rebrew.config import inventory_path_for
-from rebrew.similar import disasm_signature
+lazy from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
+lazy from rebrew.config import inventory_path_for
+lazy from rebrew.similar import disasm_signature
 
 log = logging.getLogger(__name__)
 

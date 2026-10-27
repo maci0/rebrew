@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import re
 import threading
-import unicodedata
 from collections import OrderedDict
 from dataclasses import dataclass
+lazy import unicodedata
 
-from rebrew.c_parser import (
+lazy from rebrew.c_parser import (
     find_c_function_definitions,
     find_extern_variables,
     function_signatures,

@@ -11,11 +11,11 @@ agree on exports and on resolved imports.
 
 from __future__ import annotations
 
-import struct
 from dataclasses import dataclass
-from typing import Any
+lazy import struct
+lazy from typing import Any
 
-from rebrew.formats.pe_headers import pe_header, sections_at
+lazy from rebrew.formats.pe_headers import pe_header, sections_at
 
 #: Cap on import name-table / descriptor slots read from one PE.  A missing
 #: null terminator would otherwise walk past EOF into ``struct.error`` or

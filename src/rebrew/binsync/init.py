@@ -16,12 +16,11 @@ Typical flow::
 from __future__ import annotations
 
 import logging
-import subprocess
-from pathlib import Path
+lazy import subprocess
+lazy from pathlib import Path
 
 import typer
 
-from rebrew.binsync.git import one_line, run_git
 from rebrew.binsync.repo import (
     ROOT_BRANCH,
     USER_CONFIG_KEY,
@@ -31,7 +30,8 @@ from rebrew.binsync.repo import (
     user_branch,
 )
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.utils import atomic_write_text, md5_file
+lazy from rebrew.binsync.git import one_line, run_git
+lazy from rebrew.utils import atomic_write_text, md5_file
 
 log = logging.getLogger(__name__)
 

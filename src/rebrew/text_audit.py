@@ -10,9 +10,9 @@ Usage:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy from collections.abc import Iterable
+lazy from pathlib import Path
 
 import typer
 
@@ -27,8 +27,8 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
-from rebrew.data_layout import built_text_va
-from rebrew.verify_hash import expected_text_functions as _expected_functions
+lazy from rebrew.data_layout import built_text_va
+lazy from rebrew.verify_hash import expected_text_functions as _expected_functions
 
 if TYPE_CHECKING:
     from rebrew.data_ownership import LinkSymbol

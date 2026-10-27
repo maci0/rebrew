@@ -76,13 +76,13 @@ multiple documents, and duplicate mapping keys.
 from __future__ import annotations
 
 import re
-import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy import shutil
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
 from rebrew.cli import (
     TargetOption,
@@ -90,18 +90,23 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.config import target_module
 from rebrew.layout_meta import SectionMeta
-from rebrew.metadata.bindings import iter_source_bindings
-from rebrew.sources import iter_sources
-from rebrew.utils import atomic_write_text, library_header_name, parse_int_literal, untrusted_ident
-from rebrew.workspace.config import config_path
+lazy from rebrew.config import target_module
+lazy from rebrew.metadata.bindings import iter_source_bindings
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import (
+    atomic_write_text,
+    library_header_name,
+    parse_int_literal,
+    untrusted_ident,
+)
+lazy from rebrew.workspace.config import config_path
 
 if TYPE_CHECKING:
     from rebrew.symbol_addrs import SymbolRow
 
 
-from rebrew.cli import console
+lazy from rebrew.cli import console
 
 #: The splat ``platform`` values this importer understands.  A config for any
 #: other platform names a target rebrew cannot compile (MIPS/PSX/N64 assets and

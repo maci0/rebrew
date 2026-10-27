@@ -6,28 +6,35 @@ Usage:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
-import re
-import shutil
-import subprocess
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+lazy import hashlib
+lazy import json
+lazy import re
+lazy import shutil
+lazy import subprocess
+lazy import sys
 
-import tomlkit
 import typer
-from rich.prompt import Confirm, Prompt
+lazy import tomlkit
+lazy from rich.prompt import Confirm, Prompt
 
-from rebrew.cli import EXIT_MISMATCH, EXIT_OK, error_exit, json_print, option_default, stdin_is_tty
-from rebrew.config import (
+lazy from rebrew.cli import (
+    EXIT_MISMATCH,
+    EXIT_OK,
+    error_exit,
+    json_print,
+    option_default,
+    stdin_is_tty,
+)
+lazy from rebrew.config import (
     DEFAULT_COMPILE_TIMEOUT,
     DEFAULT_PROJECT_JOBS,
     ConfigError,
     validate_target_name,
 )
-from rebrew.init_profiles import (
+lazy from rebrew.init_profiles import (
     DEFAULT_REBREW_TOML,
     DELPHI16_CONSTRAINTS,
     FAMILY_COUNTERPART,
@@ -38,14 +45,14 @@ from rebrew.init_profiles import (
     profile_families,
     profile_hint,
 )
-from rebrew.metadata.storage import metadata_store
+lazy from rebrew.metadata.storage import metadata_store
 
 if TYPE_CHECKING:
     from rebrew.toolchain_detect import ToolchainInfo
-from rebrew.cli import console
-from rebrew.compiler.toolchain import toolchain_link_candidates
-from rebrew.utils import ascii_slug, atomic_write_text, read_json_text
-from rebrew.workspace.config import target_module
+lazy from rebrew.cli import console
+lazy from rebrew.compiler.toolchain import toolchain_link_candidates
+lazy from rebrew.utils import ascii_slug, atomic_write_text, read_json_text
+lazy from rebrew.workspace.config import target_module
 
 logger = logging.getLogger(__name__)
 

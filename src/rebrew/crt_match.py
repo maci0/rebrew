@@ -12,16 +12,16 @@ Usage:
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import re
 import threading
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+lazy import contextlib
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
 from rebrew.cli import (
     TargetOption,
@@ -32,14 +32,14 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.metadata.bindings import SourceBinding, read_source_bindings, set_binding_field
 from rebrew.naming import normalize_name
-from rebrew.sources import (
+lazy from rebrew.config import ProjectConfig, inventory_path_for
+lazy from rebrew.metadata.bindings import SourceBinding, read_source_bindings, set_binding_field
+lazy from rebrew.sources import (
     iter_library_headers,
     iter_sources,
 )
-from rebrew.utils import fold_ident, preset_module_key
+lazy from rebrew.utils import fold_ident, preset_module_key
 
 log = logging.getLogger(__name__)
 

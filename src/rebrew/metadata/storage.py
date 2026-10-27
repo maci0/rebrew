@@ -5,20 +5,20 @@ verdicts; backends own persistence, input discovery, snapshots and transactions.
 """
 
 import contextlib
-import hashlib
 import logging
 import threading
 from collections.abc import Callable, Iterator
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+lazy import hashlib
 
-from rebrew.metadata.files import TomlStore
-from rebrew.metadata.locking import project_transaction
-from rebrew.metadata.sqlite import SqliteStore
-from rebrew.registry import iter_optional_provider_dicts
-from rebrew.utils import load_tomllib
-from rebrew.workspace.config import CONFIG_NAME, walk_up_to_root
+lazy from rebrew.metadata.files import TomlStore
+lazy from rebrew.metadata.locking import project_transaction
+lazy from rebrew.metadata.sqlite import SqliteStore
+lazy from rebrew.registry import iter_optional_provider_dicts
+lazy from rebrew.utils import load_tomllib
+lazy from rebrew.workspace.config import CONFIG_NAME, walk_up_to_root
 
 METADATA_FILENAMES = frozenset(
     {

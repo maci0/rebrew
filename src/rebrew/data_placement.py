@@ -6,13 +6,13 @@ DIR32 operands can locate private data. No reference addresses enter that step.
 
 from __future__ import annotations
 
-import json
-from collections import defaultdict
-from collections.abc import Callable
-from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING
+lazy import json
+lazy from collections import defaultdict
+lazy from collections.abc import Callable
+lazy from pathlib import Path, PureWindowsPath
 
-from rebrew.formats.coff import load_coff
+lazy from rebrew.formats.coff import load_coff
 
 if TYPE_CHECKING:
     from rebrew.config import ProjectConfig

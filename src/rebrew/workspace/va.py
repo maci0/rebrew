@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import contextlib
+lazy import contextlib
 
 #: Upper bound for client-supplied VA integers: the signed 64-bit range the
 #: removed SQLite writer enforced and ``build_db._SQLITE_INT_MAX`` still

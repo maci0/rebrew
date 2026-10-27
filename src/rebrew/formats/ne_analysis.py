@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-import collections
-import struct
 from dataclasses import dataclass
-from pathlib import Path
+lazy import collections
+lazy import struct
+lazy from pathlib import Path
 
-from rebrew.formats.ne_loader import NeParseError, parse_exports, parse_segments, read_ne_header
+lazy from rebrew.formats.ne_loader import (
+    NeParseError,
+    parse_exports,
+    parse_segments,
+    read_ne_header,
+)
 
 
 @dataclass(frozen=True)

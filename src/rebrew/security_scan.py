@@ -20,16 +20,15 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Literal
+lazy from collections.abc import Sequence
+lazy from pathlib import Path
 
-import tree_sitter as ts
 import typer
-from rich.table import Table
+lazy import tree_sitter as ts
+lazy from rich.table import Table
 
-from rebrew.c_parser import find_function_name_in_node, get_ts_parser, node_text, parse_c_source
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
@@ -39,8 +38,14 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.errors import RebrewError
-from rebrew.sources import iter_sources
-from rebrew.utils import rel_display_path, split_source_lines, untrusted_ident, untrusted_text
+lazy from rebrew.c_parser import (
+    find_function_name_in_node,
+    get_ts_parser,
+    node_text,
+    parse_c_source,
+)
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import rel_display_path, split_source_lines, untrusted_ident, untrusted_text
 
 log = logging.getLogger(__name__)
 

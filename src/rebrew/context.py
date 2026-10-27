@@ -21,20 +21,20 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+lazy from typing import Any
 
 import typer
 
 from rebrew.cli import TargetOption, console, require_config
 from rebrew.compiler.context import CONTEXT_UNIT_NAME
-from rebrew.signature_parser import extract_function_prototypes, extract_function_signatures
-from rebrew.sources import iter_library_headers, iter_sources
-from rebrew.struct_parser import (
+lazy from rebrew.signature_parser import extract_function_prototypes, extract_function_signatures
+lazy from rebrew.sources import iter_library_headers, iter_sources
+lazy from rebrew.struct_parser import (
     extract_enums_from_file,
     extract_structs_from_file,
     extract_type_definitions,
 )
-from rebrew.utils import atomic_write_text
+lazy from rebrew.utils import atomic_write_text
 
 logger = logging.getLogger(__name__)
 

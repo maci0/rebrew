@@ -7,10 +7,10 @@ for the tree-sitter queries at import.
 
 from __future__ import annotations
 
-import threading
-from typing import Any
+lazy import threading
+lazy from typing import Any
 
-import tree_sitter as ts
+lazy import tree_sitter as ts
 
 from rebrew.matcher.ast_engine import C_LANGUAGE
 

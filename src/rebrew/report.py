@@ -35,44 +35,44 @@ Usage:
     rebrew coverage report --json                # Machine-readable summary
 """
 
-import html
-import json
-import logging
-import math
 import re
-from pathlib import Path
-from typing import Any
+lazy import html
+lazy import json
+lazy import logging
+lazy import math
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
 from rebrew import theme
-from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
 from rebrew.cli import (
     TargetOption,
     console,
     json_print,
     require_config,
 )
-from rebrew.compression import precompress
-from rebrew.config import ProjectConfig, target_module
-from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
-from rebrew.formats.binary_loader import load_binary
-from rebrew.formats.import_table import find_import_stubs, parse_imports
-from rebrew.metadata.bindings import (
-    SourceBinding,
-    iter_source_bindings,
-    library_bindings_for_file,
-    min_valid_va_for,
-)
-from rebrew.sources import iter_library_headers, iter_sources
-from rebrew.status import StatusReport, collect_status
 from rebrew.status_style import (
     DISPLAY_STATUSES,
     STATUS_HEX,
     status_legend_rows,
     status_mark_groups,
 )
-from rebrew.utils import (
+lazy from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
+lazy from rebrew.compression import precompress
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.formats.import_table import find_import_stubs, parse_imports
+lazy from rebrew.metadata.bindings import (
+    SourceBinding,
+    iter_source_bindings,
+    library_bindings_for_file,
+    min_valid_va_for,
+)
+lazy from rebrew.sources import iter_library_headers, iter_sources
+lazy from rebrew.status import StatusReport, collect_status
+lazy from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_text,
     floor_pct,

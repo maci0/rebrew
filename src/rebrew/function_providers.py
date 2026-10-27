@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-import os
-from collections import Counter
-from collections.abc import Sequence
-from dataclasses import replace
-from pathlib import Path, PureWindowsPath
-from typing import Any
+lazy import os
+lazy from collections import Counter
+lazy from collections.abc import Sequence
+lazy from dataclasses import replace
+lazy from pathlib import Path, PureWindowsPath
+lazy from typing import Any
 
-from rebrew.config import ProjectConfig, target_module
-from rebrew.metadata.bindings import DATA_KINDS, SourceBinding
-from rebrew.metadata.functions import (
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.metadata.bindings import DATA_KINDS, SourceBinding
+lazy from rebrew.metadata.functions import (
     identity_file,
     load_metadata,
     stored_file_matches,
     validate_identity_file,
 )
-from rebrew.sources import contained_path, source_roots
-from rebrew.utils import preset_module_key, rel_display_path
+lazy from rebrew.sources import contained_path, source_roots
+lazy from rebrew.utils import preset_module_key, rel_display_path
 
 
 def select_source_bindings(

@@ -16,13 +16,13 @@ Usage:
 
 from __future__ import annotations
 
-import contextlib
-import importlib
 import logging
-import re
-import warnings
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy import contextlib
+lazy import importlib
+lazy import re
+lazy import warnings
+lazy from pathlib import Path
 
 if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
@@ -30,7 +30,6 @@ if TYPE_CHECKING:
 import typer
 from typer.models import TyperPath
 
-from rebrew.catalog import load_function_structure
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_OK,
@@ -42,7 +41,11 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import (
+from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends, fetch_decompilation
+from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
+from rebrew.limits import NO_MAX_SIZE
+lazy from rebrew.catalog import load_function_structure
+lazy from rebrew.config import (
     FUNCTION_STRUCTURE_JSON,
     ConfigError,
     ProjectConfig,
@@ -50,19 +53,16 @@ from rebrew.config import (
     target_module,
     validate_http_url,
 )
-from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends, fetch_decompilation
-from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
-from rebrew.limits import NO_MAX_SIZE
-from rebrew.metadata.bindings import (
+lazy from rebrew.metadata.bindings import (
     kind_for_module,
     read_source_bindings,
 )
-from rebrew.naming import (
+lazy from rebrew.naming import (
     load_existing_vas,
     make_filename,
     sanitize_name,
 )
-from rebrew.utils import (
+lazy from rebrew.utils import (
     SOURCE_BACKUP_DIRNAME,
     atomic_write_text,
     c_comment_safe,

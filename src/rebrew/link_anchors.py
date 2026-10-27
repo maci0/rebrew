@@ -1,17 +1,17 @@
 """Generate target-scoped linker anchors from source identities and explicit storage choices."""
 
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
-from rebrew.c_parser import find_variable_roles
-from rebrew.c_rename import ParsedSource, definitions
 from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
-from rebrew.config import ProjectConfig, target_module
-from rebrew.metadata.bindings import FUNCTION_KINDS, iter_source_bindings
-from rebrew.sources import iter_sources
-from rebrew.utils import atomic_write_text, preset_module_key
+lazy from rebrew.c_parser import find_variable_roles
+lazy from rebrew.c_rename import ParsedSource, definitions
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.metadata.bindings import FUNCTION_KINDS, iter_source_bindings
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import atomic_write_text, preset_module_key
 
 app = typer.Typer(
     help="Generate VA-ordered native function anchors and explicitly selected data anchors.",

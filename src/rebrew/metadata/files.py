@@ -1,18 +1,18 @@
 """Discovery and ownership-preserving edits for metadata TOML drop-in directories."""
 
 import contextlib
-import copy
-import hashlib
-import os
-from collections.abc import Callable, Iterator
-from pathlib import Path
-from typing import Any
+lazy import copy
+lazy import hashlib
+lazy import os
+lazy from collections.abc import Callable, Iterator
+lazy from pathlib import Path
+lazy from typing import Any
 
-import tomlkit
-from tomlkit import TOMLDocument
+lazy import tomlkit
+lazy from tomlkit import TOMLDocument
 
-from rebrew.metadata.locking import file_transaction, project_transaction
-from rebrew.utils import (
+lazy from rebrew.metadata.locking import file_transaction, project_transaction
+lazy from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_locked,
     load_toml_for_write_strict,

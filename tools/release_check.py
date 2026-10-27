@@ -24,11 +24,11 @@ Exits 0 when the tree is ready to tag, 1 with every problem it found otherwise.
 
 from __future__ import annotations
 
-import os
-import re
-import subprocess
 import sys
 from pathlib import Path
+lazy import os
+lazy import re
+lazy import subprocess
 
 CHANGELOG = Path("CHANGELOG.md")
 

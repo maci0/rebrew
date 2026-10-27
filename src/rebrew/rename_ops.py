@@ -25,17 +25,18 @@ file compiled into both) refuses the rename before any write.
 
 from __future__ import annotations
 
-import copy
-import hashlib
-import json
 import logging
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+lazy import copy
+lazy import hashlib
+lazy import json
+lazy from collections.abc import Sequence
 
-from rebrew.c_rename import (
+from rebrew.errors import RebrewError
+lazy from rebrew.c_rename import (
     ORDINARY_ROLES,
     ROLE_CODE,
     ROLE_COMMENT,
@@ -56,17 +57,16 @@ from rebrew.c_rename import (
     occurrences,
     rewrite,
 )
-from rebrew.config import ProjectConfig
-from rebrew.errors import RebrewError
-from rebrew.function_providers import bind_compiled_source
-from rebrew.metadata.bindings import (
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.function_providers import bind_compiled_source
+lazy from rebrew.metadata.bindings import (
     FUNCTION_KINDS,
     SourceBinding,
     read_source_bindings,
 )
-from rebrew.metadata.storage import input_digest, metadata_store_paths
-from rebrew.sources import iter_sources_and_headers
-from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
+lazy from rebrew.metadata.storage import input_digest, metadata_store_paths
+lazy from rebrew.sources import iter_sources_and_headers
+lazy from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
 
 logger = logging.getLogger(__name__)
 

@@ -9,15 +9,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from rich.console import Console, Group
-from rich.panel import Panel
-from rich.syntax import Syntax
-from rich.table import Table
-from rich.text import Text
+lazy from rich.console import Console, Group
+lazy from rich.panel import Panel
+lazy from rich.syntax import Syntax
+lazy from rich.table import Table
+lazy from rich.text import Text
 
-from rebrew.present import bar_plain, count_column, ratio_bar
-from rebrew.status_style import STATUS_COLORS
-from rebrew.utils import floor_pct, merged_span_bytes, untrusted_literal, untrusted_text
+lazy from rebrew.present import bar_plain, count_column, ratio_bar
+lazy from rebrew.status_style import STATUS_COLORS
+lazy from rebrew.utils import floor_pct, merged_span_bytes, untrusted_literal, untrusted_text
 
 if TYPE_CHECKING:
     from rebrew.data_scan import BssReport, DispatchTable, ScanResult

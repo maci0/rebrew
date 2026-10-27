@@ -21,10 +21,10 @@ from pathlib import Path
 
 import typer
 
-from rebrew.cli import console, error_exit, json_print
-from rebrew.metadata.data import iter_data_symbols, load_data_document
-from rebrew.metadata.storage import metadata_store
-from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
+lazy from rebrew.cli import console, error_exit, json_print
+lazy from rebrew.metadata.data import iter_data_symbols, load_data_document
+lazy from rebrew.metadata.storage import metadata_store
+lazy from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

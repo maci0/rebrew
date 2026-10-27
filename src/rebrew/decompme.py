@@ -36,15 +36,15 @@ Usage:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
-import os
 import re
-import time
-from collections.abc import Callable, Mapping
-from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
+lazy import hashlib
+lazy import json
+lazy import os
+lazy import time
+lazy from collections.abc import Callable, Mapping
+lazy from pathlib import Path
 
 import typer
 
@@ -61,10 +61,10 @@ from rebrew.cli import (
     require_source_arg,
     select_annotation,
 )
-from rebrew.config import DECOMPME_API_ENV, validate_http_url
 from rebrew.errors import RebrewError
-from rebrew.rename_ops import c_name_from_symbol
-from rebrew.utils import (
+lazy from rebrew.config import DECOMPME_API_ENV, validate_http_url
+lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.utils import (
     RETRYABLE_HTTP_STATUS,
     atomic_write_text,
     close_response,

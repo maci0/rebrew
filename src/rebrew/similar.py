@@ -11,13 +11,12 @@ No external service.
 
 from __future__ import annotations
 
-import math
-from typing import Any
+lazy import math
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
-from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
 from rebrew.cli import (
     TargetOption,
     console,
@@ -29,7 +28,6 @@ from rebrew.cli import (
     require_non_negative,
     require_positive_size,
 )
-from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.instruction_clones import (
     MIN_RUN_INSTRUCTIONS,
     cluster_units,
@@ -37,7 +35,9 @@ from rebrew.instruction_clones import (
     function_unit,
     load_function_units,
 )
-from rebrew.utils import untrusted_ident
+lazy from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
+lazy from rebrew.config import ProjectConfig, inventory_path_for
+lazy from rebrew.utils import untrusted_ident
 
 #: Smallest duplicate group ``rebrew similarity function --cluster`` reports.
 MIN_CLUSTER_SIZE = 2

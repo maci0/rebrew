@@ -1,30 +1,34 @@
 """Reviewed transfer of managed metadata between storage backends."""
 
-import contextlib
-import hashlib
-import json
-from functools import partial
-from pathlib import Path
-from typing import Any
+lazy import contextlib
+lazy import hashlib
+lazy import json
+lazy from functools import partial
+lazy from pathlib import Path
+lazy from typing import Any
 
-import tomlkit
+lazy import tomlkit
 
-from rebrew.config import ProjectConfig, project_toml_lock
-from rebrew.metadata.data import DATA_METADATA_FIELDS
-from rebrew.metadata.document import FUNCTION_FORMAT_VERSION, metadata_format, parse_metadata_doc
-from rebrew.metadata.functions import (
+lazy from rebrew.config import ProjectConfig, project_toml_lock
+lazy from rebrew.metadata.data import DATA_METADATA_FIELDS
+lazy from rebrew.metadata.document import (
+    FUNCTION_FORMAT_VERSION,
+    metadata_format,
+    parse_metadata_doc,
+)
+lazy from rebrew.metadata.functions import (
     FUNCTION_IDENTITY_FIELDS,
     METADATA_FIELDS,
     validate_library_document,
 )
-from rebrew.metadata.storage import (
+lazy from rebrew.metadata.storage import (
     MetadataStore,
     available_metadata_backends,
     metadata_store,
     project_metadata_stores,
 )
-from rebrew.type_metadata import validate_type_document
-from rebrew.utils import atomic_write_text, load_toml_for_write_strict
+lazy from rebrew.type_metadata import validate_type_document
+lazy from rebrew.utils import atomic_write_text, load_toml_for_write_strict
 
 
 def validate_store_document(path: Path, doc: dict[str, Any]) -> None:

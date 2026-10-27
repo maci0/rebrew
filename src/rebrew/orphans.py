@@ -12,16 +12,16 @@ invisible to verify, status, and todo, and accumulate silently.
 ``rebrew orphans drop`` removes one VA's block on demand.
 """
 
-from typing import Any
+lazy from typing import Any
 
 import typer
 
 from rebrew.cli import SOURCE_HELP, TargetOption, console, error_exit, json_print, require_config
-from rebrew.config import inventory_path_for
 from rebrew.errors import RebrewError
-from rebrew.metadata.data import DATA_STATUS_VERIFIED
-from rebrew.utils import preset_module_key
-from rebrew.workspace.status import EARNED_STATUSES
+lazy from rebrew.config import inventory_path_for
+lazy from rebrew.metadata.data import DATA_STATUS_VERIFIED
+lazy from rebrew.utils import preset_module_key
+lazy from rebrew.workspace.status import EARNED_STATUSES
 
 #: ``--prune`` holds back :data:`EARNED_STATUSES` blocks (a byte match or a
 #: PROVEN result), including VERIFIED data, unless ``--include-matched``.

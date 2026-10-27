@@ -48,50 +48,54 @@ COVERAGE_DOCUMENT.md, dashboard-api.yaml and PERFORMANCE.md.
 from __future__ import annotations
 
 import base64
-import errno
-import gzip
 import hashlib
 import itertools
-import json
 import logging
 import re
-import socket
-import sys
 import threading
-import time
-import traceback
-from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from email.utils import formatdate
 from functools import cache
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from typing import Any, ClassVar, Literal, override
-from urllib.parse import parse_qs, urlparse
+lazy import errno
+lazy import gzip
+lazy import json
+lazy import socket
+lazy import sys
+lazy import time
+lazy import traceback
+lazy from collections.abc import Callable, Iterator, Mapping, Sequence
+lazy from email.utils import formatdate
+lazy from pathlib import Path
+lazy from urllib.parse import parse_qs, urlparse
 
 import typer
-import zstandard
-from rich.markup import escape
+lazy import zstandard
+lazy from rich.markup import escape
 
 from rebrew import theme
 from rebrew.cli import RootOption, console, error_exit, json_print, option_default, require_root
-from rebrew.compression import precompress
-from rebrew.coverage_project import ProjectCoverageError, ProjectCoverageView, load_project_coverage
-from rebrew.coverage_toml import (
+lazy from rebrew.compression import precompress
+lazy from rebrew.coverage_project import (
+    ProjectCoverageError,
+    ProjectCoverageView,
+    load_project_coverage,
+)
+lazy from rebrew.coverage_toml import (
     CoverageSnapshot,
     CoverageTomlError,
     Function,
     Global,
     load_all_coverage_from,
 )
-from rebrew.metadata.bindings import FUNCTION_KINDS
-from rebrew.metadata.functions import canonical_status
-from rebrew.status_style import status_mark_groups
-from rebrew.utils import floor_pct, preset_module_key, strip_bidi_format
-from rebrew.workspace import VA_MAX
-from rebrew.workspace.status import COVERAGE_DB_STATUSES
+lazy from rebrew.metadata.bindings import FUNCTION_KINDS
+lazy from rebrew.metadata.functions import canonical_status
+lazy from rebrew.status_style import status_mark_groups
+lazy from rebrew.utils import floor_pct, preset_module_key, strip_bidi_format
+lazy from rebrew.workspace import VA_MAX
+lazy from rebrew.workspace.status import COVERAGE_DB_STATUSES
 
 log = logging.getLogger(__name__)
 

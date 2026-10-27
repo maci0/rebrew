@@ -11,10 +11,10 @@ target lies inside a named data row the link defines becomes ``&name``, or
 
 from __future__ import annotations
 
-import bisect
 from dataclasses import dataclass
-from pathlib import Path, PureWindowsPath
 from typing import Any
+lazy import bisect
+lazy from pathlib import Path, PureWindowsPath
 
 import typer
 

@@ -9,16 +9,15 @@ CLI surface: argument parsing, the Rich output, BLOCKER metadata writes, and
 
 from __future__ import annotations
 
-import contextlib
-import re
-from pathlib import Path
-from typing import Any
+lazy import contextlib
+lazy import re
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
-from rich.console import Console
-from rich.table import Table
+lazy from rich.console import Console
+lazy from rich.table import Table
 
-from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
 from rebrew.cli import (
     SIZE_HELP,
     SOURCE_HELP,
@@ -30,9 +29,10 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.near_analysis import analyze, blocker_text, catalog_markdown
-from rebrew.utils import untrusted_ident
-from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
+lazy from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
+lazy from rebrew.near_analysis import analyze, blocker_text, catalog_markdown
+lazy from rebrew.utils import untrusted_ident
+lazy from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
 
 
 class _DiagnoseError(RuntimeError):

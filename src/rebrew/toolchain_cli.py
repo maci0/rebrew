@@ -9,19 +9,19 @@ invoked (docker image vs vendored path vs PATH binary).
 
 from __future__ import annotations
 
-import logging
-import shutil
-import subprocess
-import time
-from collections.abc import Callable
-from dataclasses import replace
-from pathlib import Path
-from string import Template
 from typing import TYPE_CHECKING, Any
+lazy import logging
+lazy import shutil
+lazy import subprocess
+lazy import time
+lazy from collections.abc import Callable
+lazy from dataclasses import replace
+lazy from pathlib import Path
+lazy from string import Template
 
 import typer
-from rich.table import Table
 from typer.models import TyperPath
+lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -33,13 +33,13 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.compiler.toolchain import (
+lazy from rebrew.compiler.toolchain import (
     ToolchainError,
     docker_available,
     list_toolchains,
     pull_toolchain,
 )
-from rebrew.utils import (
+lazy from rebrew.utils import (
     RETRYABLE_HTTP_STATUS,
     SOURCE_CHECKOUT,
     atomic_write_text,

@@ -23,22 +23,22 @@ from __future__ import annotations
 
 import functools
 import logging
-import math
 import re
-import struct
-import subprocess
 from collections import OrderedDict, defaultdict
-from collections.abc import Iterator, Sequence
-from pathlib import Path
 from threading import Lock
-from typing import Any
+lazy import math
+lazy import struct
+lazy import subprocess
+lazy from collections.abc import Iterator, Sequence
+lazy from pathlib import Path
+lazy from typing import Any
 
 from rebrew.c_parser import CALLING_CONVENTION
-from rebrew.formats.binary_loader import load_binary
-from rebrew.metadata.data import iter_data_symbols, load_data_document
-from rebrew.sources import files_with_ext
-from rebrew.utils import atomic_write_text as atomic_write_text
-from rebrew.utils import (
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.metadata.data import iter_data_symbols, load_data_document
+lazy from rebrew.sources import files_with_ext
+lazy from rebrew.utils import atomic_write_text as atomic_write_text
+lazy from rebrew.utils import (
     join_source_lines,
     load_tomllib,
     parse_c_integer_literal,
@@ -46,7 +46,7 @@ from rebrew.utils import (
     read_source_text,
     split_source_lines,
 )
-from rebrew.workspace.config import config_path
+lazy from rebrew.workspace.config import config_path
 
 
 def scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:

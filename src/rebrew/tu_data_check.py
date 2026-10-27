@@ -16,9 +16,9 @@ Usage:
 
 from __future__ import annotations
 
-from collections import defaultdict
-from pathlib import Path
-from typing import Any
+lazy from collections import defaultdict
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
@@ -32,7 +32,7 @@ from rebrew.cli import (
     require_config,
     untrusted_ident,
 )
-from rebrew.data_ownership import LinkSymbol, is_compiler_literal, parse_link_map
+lazy from rebrew.data_ownership import LinkSymbol, is_compiler_literal, parse_link_map
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

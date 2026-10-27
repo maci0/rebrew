@@ -6,11 +6,11 @@ utilities (back-jump detection, padding trimming).
 """
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy from pathlib import Path
 
-from rebrew.config import ProjectConfig
 from rebrew.sources import iter_sources as iter_sources
+lazy from rebrew.config import ProjectConfig
 
 logger = logging.getLogger(__name__)
 

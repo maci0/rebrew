@@ -26,20 +26,21 @@ Two consequences of writing TOML are load-bearing and stated once here:
 """
 
 import contextlib
-import json
 import logging
 import threading
-import tomllib
-import unicodedata
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any
+lazy import json
+lazy import tomllib
+lazy import unicodedata
+lazy from datetime import UTC, datetime
+lazy from pathlib import Path
 
-from rebrew.cli import console
-from rebrew.coverage_db import (
+from rebrew.errors import RebrewError
+lazy from rebrew.cli import console
+lazy from rebrew.coverage_db import (
     DEFAULT_GRID_GEOMETRY,
     FUNCTION_DB_STATUSES,
     GLOBAL_DB_STATUSES,
@@ -54,11 +55,10 @@ from rebrew.coverage_db import (
     parse_int,
     positive_int_or,
 )
-from rebrew.errors import RebrewError
-from rebrew.metadata.bindings import FUNCTION_KINDS, SYMBOL_KINDS
-from rebrew.metadata.functions import canonical_status
-from rebrew.utils import atomic_write_text, clip_span, file_lock, floor_pct, toml_safe
-from rebrew.workspace.status import MATCHED_STATUSES
+lazy from rebrew.metadata.bindings import FUNCTION_KINDS, SYMBOL_KINDS
+lazy from rebrew.metadata.functions import canonical_status
+lazy from rebrew.utils import atomic_write_text, clip_span, file_lock, floor_pct, toml_safe
+lazy from rebrew.workspace.status import MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
 

@@ -5,9 +5,9 @@ AST parsing, and supplies each alternative so inventories retain source facts.
 """
 
 import re
-from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Any
+lazy from collections.abc import Callable, Iterator
+lazy from typing import Any
 
 _DIRECTIVE = re.compile(rb"^[ \t]*#[ \t]*([A-Za-z_][A-Za-z_0-9]*)", re.M)
 _MASK = bytes(byte if byte in (10, 13) else 32 for byte in range(256))

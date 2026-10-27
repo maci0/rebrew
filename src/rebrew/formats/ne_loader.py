@@ -19,13 +19,13 @@ source (``dlls/winedump/ne.c``) — field offsets below follow that layout.
 from __future__ import annotations
 
 import logging
-import struct
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import override
+lazy import struct
+lazy from pathlib import Path
 
 from rebrew.errors import RebrewError
-from rebrew.formats.binary_model import BinaryInfo, SectionInfo
+lazy from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 
 logger = logging.getLogger(__name__)
 

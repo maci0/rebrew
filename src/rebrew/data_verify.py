@@ -10,11 +10,11 @@ Pure logic here (dicts in, report out) so it is unit-testable without a
 link; the binary-reading thin layer lives in ``verify --data``.
 """
 
-import hashlib
-from pathlib import Path
-from typing import Any
+lazy import hashlib
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.metadata.data import (
+lazy from rebrew.metadata.data import (
     DATA_STATUS_DISPLACED,
     DATA_STATUS_EXACT,
     DATA_STATUS_VERIFIED,

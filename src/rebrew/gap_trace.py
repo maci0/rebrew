@@ -14,13 +14,12 @@ project's configured toolchain and format handlers.
 
 from __future__ import annotations
 
-import difflib
-from pathlib import Path
-from typing import Any
+lazy import difflib
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
-from rebrew.analysis import Insn, iter_instructions
 from rebrew.cli import (
     CFLAGS_HELP,
     SOURCE_HELP,
@@ -31,8 +30,9 @@ from rebrew.cli import (
     require_config,
     select_annotation,
 )
-from rebrew.compiler.compile import compile_to_obj
-from rebrew.formats.binary_loader import decode_binary_name, load_binary
+lazy from rebrew.analysis import Insn, iter_instructions
+lazy from rebrew.compiler.compile import compile_to_obj
+lazy from rebrew.formats.binary_loader import decode_binary_name, load_binary
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

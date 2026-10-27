@@ -22,13 +22,13 @@ Usage:
 
 from __future__ import annotations
 
-import bisect
-import collections
-from pathlib import Path
-from typing import Any
+lazy import bisect
+lazy import collections
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
-from rich.markup import escape
+lazy from rich.markup import escape
 
 from rebrew.cli import (
     BUILT_IMAGE_HELP,
@@ -42,9 +42,9 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
-from rebrew.data_scan import classify_section
-from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary, section_dict
-from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.data_scan import classify_section
+lazy from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary, section_dict
+lazy from rebrew.formats.binary_model import BinaryInfo
 
 _DEFAULT_LIMIT = 50
 

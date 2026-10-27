@@ -7,8 +7,8 @@ inlining decisions.
 
 from __future__ import annotations
 
-import random
 import re
+lazy import random
 
 #: Letters the ``#pragma optimize`` directive accepts (MSVC 6+): a = assume no
 #: aliasing, g = global optimizations, s/t = favor size/speed, y = frame-pointer

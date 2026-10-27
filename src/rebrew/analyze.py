@@ -18,15 +18,15 @@ and one broken backend (e.g. diec missing) never aborts the others.
 from __future__ import annotations
 
 import logging
-from collections import Counter
-from pathlib import Path
-from typing import Any
+lazy from collections import Counter
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
 from rebrew.cli import MIN_STRING_LEN_HELP, TargetOption, console, json_print, untrusted_ident
-from rebrew.config import load_config
+lazy from rebrew.config import load_config
 
 logger = logging.getLogger(__name__)
 

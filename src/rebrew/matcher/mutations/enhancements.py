@@ -7,10 +7,10 @@ pressure manipulation.
 
 from __future__ import annotations
 
-import random
 import re
+lazy import random
 
-import tree_sitter as ts
+lazy import tree_sitter as ts
 
 from rebrew.matcher.ast_engine import (
     C_LANGUAGE,
@@ -24,7 +24,7 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_LOCAL_DECL,
     _LazyQuery,
 )
-from rebrew.matcher.mutations.runtime import (
+lazy from rebrew.matcher.mutations.runtime import (
     _assign_zero_targets,
     _capture,
     _commute_operands,

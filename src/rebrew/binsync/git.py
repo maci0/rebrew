@@ -12,10 +12,10 @@ can reach them without importing a Typer command.
 from __future__ import annotations
 
 import logging
-import subprocess
-from pathlib import Path
+lazy import subprocess
+lazy from pathlib import Path
 
-from rebrew.utils import run_process_group
+lazy from rebrew.utils import run_process_group
 
 log = logging.getLogger(__name__)
 

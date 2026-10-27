@@ -7,12 +7,12 @@ export directories are explicit caller inputs, not workspace configuration.
 
 from __future__ import annotations
 
-import os
 import re
-import tomllib
-import unicodedata
-from pathlib import Path
-from typing import Any
+lazy import os
+lazy import tomllib
+lazy import unicodedata
+lazy from pathlib import Path
+lazy from typing import Any
 
 from rebrew.errors import RebrewError
 

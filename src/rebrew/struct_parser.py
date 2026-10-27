@@ -5,12 +5,12 @@ or standalone ``struct { ... };`` definitions.
 """
 
 import logging
-from collections.abc import Iterator
-from pathlib import Path
-from typing import Any
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.c_parser import get_ts_parser
-from rebrew.utils import detect_source_encoding
+lazy from rebrew.c_parser import get_ts_parser
+lazy from rebrew.utils import detect_source_encoding
 
 logger = logging.getLogger(__name__)
 

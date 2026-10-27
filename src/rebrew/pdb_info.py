@@ -27,17 +27,17 @@ Usage::
 from __future__ import annotations
 
 import logging
-import re
-import shutil
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+lazy import re
+lazy import shutil
+lazy import subprocess
 
-import tomlkit
 import typer
 from typer.models import TyperPath
+lazy import tomlkit
 
-from rebrew.cli import console, error_exit, json_print, untrusted_ident
+lazy from rebrew.cli import console, error_exit, json_print, untrusted_ident
 
 log = logging.getLogger(__name__)
 

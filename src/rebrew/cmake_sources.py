@@ -30,13 +30,13 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.config import target_module
-from rebrew.metadata.storage import metadata_store
-from rebrew.source_selection import collect_target_sources
-from rebrew.utils import (
+lazy from rebrew.config import target_module
+lazy from rebrew.metadata.storage import metadata_store
+lazy from rebrew.source_selection import collect_target_sources
+lazy from rebrew.utils import (
     atomic_write_text,
 )
-from rebrew.workspace.config import config_path
+lazy from rebrew.workspace.config import config_path
 
 #: The module docstring is design notes, not help: it is RST, and Rich would
 #: render its double backticks and emphasis markers literally.

@@ -38,15 +38,15 @@ name instead of treating a second source as a conflict.
 
 from __future__ import annotations
 
-import importlib
-import logging
-import sys
 import threading
-from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from importlib.metadata import entry_points
-from pathlib import Path
-from typing import Any
+lazy import importlib
+lazy import logging
+lazy import sys
+lazy from collections.abc import Callable, Iterator
+lazy from importlib.metadata import entry_points
+lazy from pathlib import Path
+lazy from typing import Any
 
 from rebrew.errors import RebrewError
 

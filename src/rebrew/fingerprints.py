@@ -19,19 +19,19 @@ Usage:
 
 from __future__ import annotations
 
-import hashlib
-import importlib
-import importlib.util
 import logging
-import math
-import struct
-import zlib
-from collections.abc import Iterable
-from pathlib import Path
-from typing import Any, cast
+lazy import hashlib
+lazy import importlib
+lazy import importlib.util
+lazy import math
+lazy import struct
+lazy import zlib
+lazy from collections.abc import Iterable
+lazy from pathlib import Path
+lazy from typing import Any, cast
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,

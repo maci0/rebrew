@@ -11,7 +11,7 @@ from rebrew.cli import (
     require_config,
     run_cli,
 )
-from rebrew.metadata_transfer import migrate_metadata
+lazy from rebrew.metadata_transfer import migrate_metadata
 
 app = typer.Typer(
     help="Manage metadata storage and preview backend transfers.",

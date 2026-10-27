@@ -16,19 +16,19 @@ Usage:
 
 from __future__ import annotations
 
-import difflib
-import os
 import re
 from dataclasses import dataclass
-from pathlib import Path
+lazy import difflib
+lazy import os
+lazy from pathlib import Path
 
 import typer
 
 from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
-from rebrew.config import target_module
-from rebrew.metadata.bindings import FUNCTION_KINDS, read_source_bindings
-from rebrew.sources import iter_sources, source_exts
-from rebrew.utils import atomic_write_text, preset_module_key
+lazy from rebrew.config import target_module
+lazy from rebrew.metadata.bindings import FUNCTION_KINDS, read_source_bindings
+lazy from rebrew.sources import iter_sources, source_exts
+lazy from rebrew.utils import atomic_write_text, preset_module_key
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

@@ -8,12 +8,12 @@ console script.
 
 from __future__ import annotations
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import typer
 
 from rebrew.cli import RootOption, TargetOption, require_root
-from rebrew.coverage_db import write_coverage
+lazy from rebrew.coverage_db import write_coverage
 
 app = typer.Typer(
     help="Export portable coverage snapshots for offline viewing.",

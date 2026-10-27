@@ -31,10 +31,10 @@ error naming the functions and their flags, not silently averaged.
 
 from __future__ import annotations
 
-import os
-import re
-from collections.abc import Mapping
 from pathlib import Path
+lazy import os
+lazy import re
+lazy from collections.abc import Mapping
 
 import typer
 
@@ -46,13 +46,13 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.config import ProjectConfig
-from rebrew.lint_cflags import codegen_cflags_key
-from rebrew.metadata.bindings import read_source_bindings
-from rebrew.sources import iter_sources
-from rebrew.utils import atomic_write_text, preset_module_key
-from rebrew.workspace.config import config_path
+lazy from rebrew.compiler.overrides import resolve_compile_overrides
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.lint_cflags import codegen_cflags_key
+lazy from rebrew.metadata.bindings import read_source_bindings
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import atomic_write_text, preset_module_key
+lazy from rebrew.workspace.config import config_path
 
 #: The module docstring is design notes, not help: it is RST, and Rich would
 #: render its double backticks and emphasis markers literally.

@@ -4,49 +4,49 @@ Re-exports the library API so that ``from rebrew.catalog import X`` works
 without loading the Typer command in ``rebrew.catalog.cli``.
 """
 
-from rebrew.catalog.grid import (
+lazy from rebrew.catalog.grid import (
     build_coverage_data as build_coverage_data,
 )
-from rebrew.catalog.loaders import (
+lazy from rebrew.catalog.loaders import (
     cached_function_list as cached_function_list,
 )
-from rebrew.catalog.loaders import (
+lazy from rebrew.catalog.loaders import (
     cached_function_vas as cached_function_vas,
 )
-from rebrew.catalog.loaders import (
+lazy from rebrew.catalog.loaders import (
     cached_sorted_function_vas as cached_sorted_function_vas,
 )
-from rebrew.catalog.loaders import (
+lazy from rebrew.catalog.loaders import (
     load_function_structure as load_function_structure,
 )
-from rebrew.catalog.loaders import (
+lazy from rebrew.catalog.loaders import (
     load_ghidra_data_labels as load_ghidra_data_labels,
 )
-from rebrew.catalog.loaders import (
+lazy from rebrew.catalog.loaders import (
     parse_rizin_afl as parse_rizin_afl,
 )
-from rebrew.catalog.loaders import (
+lazy from rebrew.catalog.loaders import (
     scan_reversed_dir as scan_reversed_dir,
 )
-from rebrew.catalog.models import (
+lazy from rebrew.catalog.models import (
     FunctionEntry as FunctionEntry,
 )
-from rebrew.catalog.models import (
+lazy from rebrew.catalog.models import (
     GhidraDataLabel as GhidraDataLabel,
 )
-from rebrew.catalog.pipeline import (
+lazy from rebrew.catalog.pipeline import (
     build_catalog_data as build_catalog_data,
 )
-from rebrew.catalog.registry import (
+lazy from rebrew.catalog.registry import (
     RegistryEntry as RegistryEntry,
 )
-from rebrew.catalog.registry import (
+lazy from rebrew.catalog.registry import (
     build_function_registry as build_function_registry,
 )
-from rebrew.catalog.registry import (
+lazy from rebrew.catalog.registry import (
     count_detection_sources as count_detection_sources,
 )
-from rebrew.catalog.registry import (
+lazy from rebrew.catalog.registry import (
     is_jump_table as is_jump_table,
 )
 

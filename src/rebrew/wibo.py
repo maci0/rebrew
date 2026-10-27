@@ -12,22 +12,22 @@ latest release asset from GitHub (``download_wibo``).
 
 from __future__ import annotations
 
-import contextlib
-import hashlib
-import os
-import platform
-import shutil
-import stat
-import sys
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urljoin, urlparse
+lazy import contextlib
+lazy import hashlib
+lazy import os
+lazy import platform
+lazy import shutil
+lazy import stat
+lazy import sys
+lazy import tempfile
+lazy from urllib.parse import urljoin, urlparse
 
 if TYPE_CHECKING:
     import httpx
 
-from rebrew.utils import close_response
+lazy from rebrew.utils import close_response
 
 _WIBO_API_URL = "https://api.github.com/repos/decompals/wibo/releases/latest"
 _WIBO_DEFAULT_PATH = Path("tools/wibo")

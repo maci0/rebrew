@@ -13,8 +13,8 @@ Usage:
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
@@ -30,9 +30,9 @@ from rebrew.cli import (
     require_non_negative,
     untrusted_ident,
 )
-from rebrew.data_layout import built_data_va
-from rebrew.formats.binary_loader import load_binary
-from rebrew.metadata.storage import metadata_store
+lazy from rebrew.data_layout import built_data_va
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.metadata.storage import metadata_store
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

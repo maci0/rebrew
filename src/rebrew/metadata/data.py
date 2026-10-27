@@ -8,29 +8,19 @@ replacement. Data comparison evidence remains separate from ordinary edit stamps
 
 from __future__ import annotations
 
-import contextlib
-import hashlib
 import logging
-import os
 import threading
-import unicodedata
-from collections.abc import Iterator
-from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy import contextlib
+lazy import hashlib
+lazy import os
+lazy import unicodedata
+lazy from collections.abc import Iterator
+lazy from datetime import datetime
+lazy from pathlib import Path
 
-import tomlkit
+lazy import tomlkit
 
-from rebrew.metadata.document import (
-    MetadataDocCache,
-    build_metadata_key_index,
-    load_metadata_doc,
-    load_metadata_for_write,
-    pop_metadata_doc_cache,
-    qualified_key,
-    resolve_metadata_key,
-    stamp_format,
-)
 from rebrew.metadata.functions import (
     METADATA_FIELD_TYPES,
     PROVENANCE_TAGS,
@@ -42,7 +32,17 @@ from rebrew.metadata.functions import (
     validate_identity_file,
     validate_provenance_table,
 )
-from rebrew.metadata.storage import metadata_store, metadata_write_lock
+lazy from rebrew.metadata.document import (
+    MetadataDocCache,
+    build_metadata_key_index,
+    load_metadata_doc,
+    load_metadata_for_write,
+    pop_metadata_doc_cache,
+    qualified_key,
+    resolve_metadata_key,
+    stamp_format,
+)
+lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
 
 if TYPE_CHECKING:
     from rebrew.metadata.bindings import SourceBinding

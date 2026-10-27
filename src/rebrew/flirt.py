@@ -3,12 +3,12 @@
 Usage: rebrew library scan-signatures [sig_dir]
 """
 
-import json
-import logging
-import os
-import warnings
 from pathlib import Path
-from typing import Any
+lazy import json
+lazy import logging
+lazy import os
+lazy import warnings
+lazy from typing import Any
 
 try:
     import flirt
@@ -18,9 +18,9 @@ except ImportError:  # optional dependency
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
-from rebrew.config import REBREW_FLIRT_SIGS_DIR_ENV, ConfigError, env_dir_path
-from rebrew.formats.binary_loader import load_binary
-from rebrew.utils import SOURCE_CHECKOUT, atomic_write_bytes, read_json_text
+lazy from rebrew.config import REBREW_FLIRT_SIGS_DIR_ENV, ConfigError, env_dir_path
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.utils import SOURCE_CHECKOUT, atomic_write_bytes, read_json_text
 
 _MAX_FUNC_SCAN = 4096
 _MIN_MATCH_WINDOW = 32

@@ -1,7 +1,7 @@
 """Compare physical NE bytes independently of relocation and content inventories."""
 
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
@@ -13,8 +13,8 @@ from rebrew.cli import (
     json_print,
     resolve_binary_arg,
 )
-from rebrew.formats.ne_analysis import NeImage, byte_score, relocation_census, segment_budget
-from rebrew.formats.ne_loader import NeParseError
+lazy from rebrew.formats.ne_analysis import NeImage, byte_score, relocation_census, segment_budget
+lazy from rebrew.formats.ne_loader import NeParseError
 
 app = typer.Typer(
     help="Compare NE file/segment bytes and report separate content overlap.",

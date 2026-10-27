@@ -12,13 +12,13 @@ Usage:
     rebrew source graph --include-dispatch       # Fold dispatch-table edges into the graph
 """
 
-import bisect
-import contextlib
 import json
 import logging
 import re
-from pathlib import Path
 from typing import Any, Literal, TypedDict
+lazy import bisect
+lazy import contextlib
+lazy from pathlib import Path
 
 import typer
 from typer.models import TyperPath
@@ -33,13 +33,13 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
-from rebrew.config import ProjectConfig, target_module
-from rebrew.metadata.bindings import read_source_bindings
-from rebrew.rename_ops import c_name_from_symbol
-from rebrew.sources import iter_sources
-from rebrew.status_style import DISPLAY_STATUSES, STATUS_HEX
 from rebrew.theme import TOKENS
-from rebrew.utils import atomic_write_text, fold_ident
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.metadata.bindings import read_source_bindings
+lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.status_style import DISPLAY_STATUSES, STATUS_HEX
+lazy from rebrew.utils import atomic_write_text, fold_ident
 
 log = logging.getLogger(__name__)
 

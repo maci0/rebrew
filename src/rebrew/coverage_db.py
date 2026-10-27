@@ -5,23 +5,17 @@ normalizers and the same immutable schema in coverage_toml. Output directories
 are explicit export arguments; project configuration contains no coverage path.
 """
 
-import contextlib
-import json
 import logging
-import math
-import unicodedata
-from collections.abc import Mapping
-from datetime import UTC, datetime
-from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
+lazy import contextlib
+lazy import json
+lazy import math
+lazy import unicodedata
+lazy from collections.abc import Mapping
+lazy from datetime import UTC, datetime
+lazy from pathlib import Path
+lazy from types import SimpleNamespace
+lazy from typing import Any
 
-from rebrew.cli import (
-    console,
-    error_exit,
-    json_print,
-)
-from rebrew.config import load_config
 from rebrew.metadata.data import (
     DATA_STATUS_DISPLACED,
     DATA_STATUS_DRIFT,
@@ -30,6 +24,12 @@ from rebrew.metadata.data import (
     DATA_STATUS_VERIFIED,
 )
 from rebrew.workspace.status import COVERAGE_DB_STATUSES, KNOWN_STATUSES
+lazy from rebrew.cli import (
+    console,
+    error_exit,
+    json_print,
+)
+lazy from rebrew.config import load_config
 
 log = logging.getLogger(__name__)
 

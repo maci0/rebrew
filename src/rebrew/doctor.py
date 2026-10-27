@@ -18,19 +18,19 @@ Usage::
 """
 
 import logging
-import os
-import shlex
-import shutil
-import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from typing import Any
+lazy import os
+lazy import shlex
+lazy import shutil
+lazy import subprocess
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
+lazy from rich.panel import Panel
+lazy from rich.table import Table
+lazy from rich.text import Text
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, json_print
 from rebrew.config import (
@@ -42,8 +42,8 @@ from rebrew.config import (
     load_config,
 )
 from rebrew.errors import RebrewError
-from rebrew.metadata.storage import metadata_store
-from rebrew.utils import md5_file, read_json_text
+lazy from rebrew.metadata.storage import metadata_store
+lazy from rebrew.utils import md5_file, read_json_text
 
 logger = logging.getLogger(__name__)
 

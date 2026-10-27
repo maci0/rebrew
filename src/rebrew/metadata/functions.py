@@ -8,26 +8,26 @@ replacement is explicit and preserves the supplied canonical evidence.
 
 from __future__ import annotations
 
-import contextlib
-import copy
 import logging
-import math
-import os
 import threading
-import typing
-import unicodedata
 from collections import OrderedDict
-from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy import contextlib
+lazy import copy
+lazy import math
+lazy import os
+lazy import typing
+lazy import unicodedata
+lazy from collections.abc import Callable
+lazy from datetime import UTC, datetime
 
-import tomlkit
+lazy import tomlkit
 
-from rebrew.config import METADATA_FILENAME
 from rebrew.errors import RebrewError
-from rebrew.metadata.document import (
+lazy from rebrew.config import METADATA_FILENAME
+lazy from rebrew.metadata.document import (
     FUNCTION_FORMAT_VERSION,
     MetadataDocCache,
     MetadataDocFingerprint,
@@ -40,17 +40,17 @@ from rebrew.metadata.document import (
     resolve_metadata_key,
     stamp_format,
 )
-from rebrew.metadata.source_schema import validate_identity_file
-from rebrew.metadata.storage import metadata_store, metadata_write_lock
-from rebrew.utils import (
+lazy from rebrew.metadata.source_schema import validate_identity_file
+lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
+lazy from rebrew.utils import (
     resolved_path,
     toml_safe,
 )
-from rebrew.workspace.status import EARNED_STATUSES as EARNED_STATUSES
-from rebrew.workspace.status import INFRASTRUCTURE_STATUSES as INFRASTRUCTURE_STATUSES
-from rebrew.workspace.status import KNOWN_STATUSES as KNOWN_STATUSES
-from rebrew.workspace.status import MATCHED_STATUSES as MATCHED_STATUSES
-from rebrew.workspace.status import STUB_PLACEHOLDER_STATUSES
+lazy from rebrew.workspace.status import EARNED_STATUSES as EARNED_STATUSES
+lazy from rebrew.workspace.status import INFRASTRUCTURE_STATUSES as INFRASTRUCTURE_STATUSES
+lazy from rebrew.workspace.status import KNOWN_STATUSES as KNOWN_STATUSES
+lazy from rebrew.workspace.status import MATCHED_STATUSES as MATCHED_STATUSES
+lazy from rebrew.workspace.status import STUB_PLACEHOLDER_STATUSES
 
 if TYPE_CHECKING:
     from rebrew.metadata.bindings import SourceBinding

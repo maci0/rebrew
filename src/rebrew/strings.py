@@ -21,14 +21,13 @@ Usage:
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-from typing import Any
+lazy import re
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
-from rebrew.analysis import Xref, iter_strings, string_refs
 from rebrew.cli import (
     EXIT_ERROR,
     MIN_STRING_LEN_HELP,
@@ -39,8 +38,9 @@ from rebrew.cli import (
     resolve_binary_arg,
     untrusted_ident,
 )
-from rebrew.formats.binary_loader import load_binary
-from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.analysis import Xref, iter_strings, string_refs
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.formats.binary_model import BinaryInfo
 
 # Data-ish sections scanned when --section is not given; mirrors the
 # analysis.py default so the "nothing to scan" note can be detected here.

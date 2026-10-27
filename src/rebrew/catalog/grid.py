@@ -4,28 +4,28 @@ Builds cell-level coverage maps for binary sections, handling jump table
 detection, gap absorption, padding classification, and thunk identification.
 """
 
-import bisect
-import hashlib
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy import bisect
+lazy import hashlib
+lazy from pathlib import Path
 
 if TYPE_CHECKING:
     from rebrew.catalog.models import GhidraDataLabel
     from rebrew.formats.binary_model import BinaryInfo
 
-from rebrew.catalog.loaders import load_ghidra_data_labels
-from rebrew.catalog.registry import RegistryEntry, is_jump_table
-from rebrew.metadata.bindings import SourceBinding
-from rebrew.metadata.data import DATA_STATUS_UNCHECKED
-from rebrew.sections import (
+lazy from rebrew.catalog.loaders import load_ghidra_data_labels
+lazy from rebrew.catalog.registry import RegistryEntry, is_jump_table
+lazy from rebrew.metadata.bindings import SourceBinding
+lazy from rebrew.metadata.data import DATA_STATUS_UNCHECKED
+lazy from rebrew.sections import (
     get_globals,
     has_back_jumps,
     sections_from_info,
     trim_trailing_padding,
 )
-from rebrew.utils import floor_pct, merged_span_bytes
-from rebrew.workspace.status import MATCHED_STATUSES
+lazy from rebrew.utils import floor_pct, merged_span_bytes
+lazy from rebrew.workspace.status import MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
 

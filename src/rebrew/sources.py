@@ -11,12 +11,12 @@ without pulling in the presentation layer.
 from __future__ import annotations
 
 import logging
-import os
-from collections.abc import Callable, Sequence
-from pathlib import Path
+lazy import os
+lazy from collections.abc import Callable, Sequence
+lazy from pathlib import Path
 
-from rebrew.config import ProjectConfig
-from rebrew.utils import path_is_relative_to, resolved_path
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.utils import path_is_relative_to, resolved_path
 
 logger = logging.getLogger(__name__)
 

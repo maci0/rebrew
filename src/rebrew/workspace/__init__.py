@@ -4,7 +4,7 @@ No coverage directory or database is configured here. Consumers resolve a projec
 root; portable export directories are explicit inputs to the coverage reader.
 """
 
-from rebrew.workspace.config import (
+lazy from rebrew.workspace.config import (
     CONFIG_NAME,
     DEFAULT_REVERSED_ROOT,
     WorkspaceConfigError,
@@ -19,8 +19,8 @@ from rebrew.workspace.config import (
     targets_table,
     walk_up_to_root,
 )
-from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
-from rebrew.workspace.va import VA_MAX, parse_va_candidates
+lazy from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
+lazy from rebrew.workspace.va import VA_MAX, parse_va_candidates
 
 __all__ = [
     "CONFIG_NAME",

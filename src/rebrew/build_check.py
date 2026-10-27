@@ -46,16 +46,16 @@ from __future__ import annotations
 
 import logging
 import re
-import shutil
-import subprocess
-from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+lazy import shutil
+lazy import subprocess
+lazy from collections.abc import Iterator
+lazy from typing import Any
 
 import typer
 
-from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, console, json_print
-from rebrew.utils import run_process_group
+lazy from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, console, json_print
+lazy from rebrew.utils import run_process_group
 
 log = logging.getLogger(__name__)
 

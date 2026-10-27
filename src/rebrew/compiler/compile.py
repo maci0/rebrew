@@ -48,24 +48,26 @@ All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 """
 
 import atexit
-import contextlib
-import hashlib
-import logging
-import math
-import os
 import re
-import shlex
-import shutil
-import subprocess
 import threading
-import uuid
-from collections import Counter
-from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Literal, Self, cast, get_args
+lazy import contextlib
+lazy import hashlib
+lazy import logging
+lazy import math
+lazy import os
+lazy import shlex
+lazy import shutil
+lazy import subprocess
+lazy import uuid
+lazy from collections import Counter
+lazy from collections.abc import Iterator, Mapping
+lazy from pathlib import Path
 
-from rebrew.coff_reloc import (
+from rebrew.errors import RebrewError
+from rebrew.workspace.status import MATCHED_STATUSES
+lazy from rebrew.coff_reloc import (
     binding_summary,
     build_iat_region,
     relocation_binding_evidence,
@@ -78,16 +80,16 @@ from rebrew.coff_reloc import (
 #: the life of this module.  The local per-function override is named
 #: ``toolchain`` throughout, so the module is bound under a name that cannot
 #: be shadowed by it.
-from rebrew.compiler import toolchain as toolchain_registry
-from rebrew.compiler.cache import (
+lazy from rebrew.compiler import toolchain as toolchain_registry
+lazy from rebrew.compiler.cache import (
     CacheBackend,
     compile_cache_key,
     get_project_cache,
 )
-from rebrew.compiler.context import CONTEXT_UNIT_NAME, CompileContext
-from rebrew.compiler.headless import XVFB_RUN_SERVER_ARGS, ensure_xvfb, xvfb_cookie_for
-from rebrew.compiler.msvc_env import msvc_env_from_config, resolve_runner_path
-from rebrew.compiler.toolchain import (
+lazy from rebrew.compiler.context import CONTEXT_UNIT_NAME, CompileContext
+lazy from rebrew.compiler.headless import XVFB_RUN_SERVER_ARGS, ensure_xvfb, xvfb_cookie_for
+lazy from rebrew.compiler.msvc_env import msvc_env_from_config, resolve_runner_path
+lazy from rebrew.compiler.toolchain import (
     ToolchainError,
     ToolchainSpec,
     bind_mount,
@@ -95,7 +97,7 @@ from rebrew.compiler.toolchain import (
     image_content_id,
     run_toolchain,
 )
-from rebrew.config import (
+lazy from rebrew.config import (
     DEFAULT_COMPILE_TIMEOUT,
     DEFAULT_RECOMPILE_RETRIES,
     ProjectConfig,
@@ -103,20 +105,18 @@ from rebrew.config import (
     parse_env_bool,
     validate_http_url,
 )
-from rebrew.errors import RebrewError
-from rebrew.formats.binary_loader import load_binary
-from rebrew.formats.binary_model import BinaryInfo, SectionInfo
-from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-from rebrew.metadata.functions import canonical_status
-from rebrew.sources import contained_path, source_roots
-from rebrew.utils import (
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.formats.binary_model import BinaryInfo, SectionInfo
+lazy from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+lazy from rebrew.metadata.functions import canonical_status
+lazy from rebrew.sources import contained_path, source_roots
+lazy from rebrew.utils import (
     container_runtime,
     interruptible_pool,
     read_source_text,
     safe_shlex_split,
 )
-from rebrew.workspace.config import config_path
-from rebrew.workspace.status import MATCHED_STATUSES
+lazy from rebrew.workspace.config import config_path
 
 # ---------------------------------------------------------------------------
 # Shared result type

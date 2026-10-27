@@ -22,21 +22,17 @@ JSON audit log.
 
 from __future__ import annotations
 
-import json
-import logging
-import tempfile
-from collections.abc import Callable
-from itertools import pairwise
-from pathlib import Path
-from typing import Any
+lazy import json
+lazy import logging
+lazy import tempfile
+lazy from collections.abc import Callable
+lazy from itertools import pairwise
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 from typer.models import TyperPath
 
-from rebrew.catalog import (
-    build_function_registry,
-    cached_function_list,
-)
 from rebrew.cli import (
     TargetOption,
     console,
@@ -44,12 +40,16 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.coff_reloc import build_name_to_va
-from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.config import ProjectConfig, inventory_path_for, target_module
-from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
-from rebrew.metadata.bindings import derive_c_symbol, read_source_bindings
-from rebrew.sources import contained_path, iter_sources, source_roots
+lazy from rebrew.catalog import (
+    build_function_registry,
+    cached_function_list,
+)
+lazy from rebrew.coff_reloc import build_name_to_va
+lazy from rebrew.compiler.overrides import resolve_compile_overrides
+lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
+lazy from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
+lazy from rebrew.metadata.bindings import derive_c_symbol, read_source_bindings
+lazy from rebrew.sources import contained_path, iter_sources, source_roots
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

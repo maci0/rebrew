@@ -23,8 +23,8 @@ promotion gate, and ``size``/``blocker_delta`` are coerced to ``int``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 from rebrew.errors import RebrewError
 from rebrew.metadata.functions import (
@@ -38,7 +38,7 @@ from rebrew.metadata.functions import (
     update_statuses_batch,
     validate_metadata_field,
 )
-from rebrew.workspace.status import KNOWN_STATUSES, MATCHED_STATUSES
+lazy from rebrew.workspace.status import KNOWN_STATUSES, MATCHED_STATUSES
 
 # Field names (lower-case TOML keys) with a single canonical Python type.
 _INT_FIELDS = frozenset({"size", "blocker_delta"})

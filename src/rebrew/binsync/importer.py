@@ -24,13 +24,23 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
-from rebrew.binsync.serial import require_declib
-from rebrew.binsync.state import (
+from rebrew.cli import (
+    CREATE_MISSING_HELP,
+    EXIT_MISMATCH,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+    run_standalone,
+)
+lazy from rebrew.binsync.serial import require_declib
+lazy from rebrew.binsync.state import (
     acknowledge_sync,
     expand_type_aliases,
     has_state_data,
@@ -59,19 +69,9 @@ from rebrew.binsync.state import (
     sync_value_hash,
     type_aliases,
 )
-from rebrew.cli import (
-    CREATE_MISSING_HELP,
-    EXIT_MISMATCH,
-    TargetOption,
-    console,
-    error_exit,
-    json_print,
-    require_config,
-    run_standalone,
-)
-from rebrew.config import ProjectConfig, target_module
-from rebrew.naming import avoid_windows_reserved
-from rebrew.utils import (
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.naming import avoid_windows_reserved
+lazy from rebrew.utils import (
     c_comment_safe,
     fold_ident,
     is_safe_c_ident,

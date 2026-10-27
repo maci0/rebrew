@@ -38,21 +38,21 @@ built: a CLI process composes once and has no module to swap, and
 
 from __future__ import annotations
 
-import contextlib
-import inspect
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
-from functools import partial
-from types import FunctionType, MethodType
 from typing import Any, Protocol, override, runtime_checkable
+lazy import contextlib
+lazy import inspect
+lazy from functools import partial
+lazy from types import FunctionType, MethodType
 
-import typer
-from rich.console import Console
-from rich.markup import escape
+lazy import typer
+lazy from rich.console import Console
+lazy from rich.markup import escape
 
-from rebrew.cli import EXIT_ERROR
 from rebrew.errors import RebrewError
-from rebrew.registry import Registration, RegistryError, import_registration
+lazy from rebrew.cli import EXIT_ERROR
+lazy from rebrew.registry import Registration, RegistryError, import_registration
 
 Disposer = Callable[[], None]
 

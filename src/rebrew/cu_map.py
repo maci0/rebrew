@@ -46,22 +46,22 @@ alignment signal), so neither runs unless asked for.
 """
 
 from dataclasses import dataclass
-from itertools import pairwise
-from typing import Any
+lazy from itertools import pairwise
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
-from rebrew.analysis import data_references, direct_call_target, section_range
-from rebrew.catalog import (
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+lazy from rebrew.analysis import data_references, direct_call_target, section_range
+lazy from rebrew.catalog import (
     RegistryEntry,
     build_function_registry,
     is_jump_table,
 )
-from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.config import ProjectConfig, arch_pointer_size, inventory_path_for
-from rebrew.formats.binary_loader import capstone_config_for, extract_bytes_at_va, load_binary
-from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.config import ProjectConfig, arch_pointer_size, inventory_path_for
+lazy from rebrew.formats.binary_loader import capstone_config_for, extract_bytes_at_va, load_binary
+lazy from rebrew.formats.binary_model import BinaryInfo
 
 # ---------------------------------------------------------------------------
 # Optional-signal constants

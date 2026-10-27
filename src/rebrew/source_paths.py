@@ -1,9 +1,9 @@
 """Preserve source-relative header resolution when moving C definitions."""
 
-import os
-from pathlib import Path
+lazy import os
+lazy from pathlib import Path
 
-from rebrew.c_parser import parse_c_source
+lazy from rebrew.c_parser import parse_c_source
 
 
 def rebase_includes(text: str, source_dir: Path, output_dir: Path) -> str:

@@ -24,25 +24,25 @@ To load a specific target::
 """
 
 import contextlib
-import ipaddress
 import logging
-import math
-import os
 import re
-import shlex
-import tomllib
-import unicodedata
-from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from typing import Any, TypedDict, override
-from urllib.parse import urlparse
+lazy import ipaddress
+lazy import math
+lazy import os
+lazy import shlex
+lazy import tomllib
+lazy import unicodedata
+lazy from collections.abc import Callable, Iterator, Mapping
+lazy from functools import partial
+lazy from urllib.parse import urlparse
 
-from rebrew.compiler.toolchain_spec import FlagsStyle
 from rebrew.errors import RebrewError
-from rebrew.metadata.storage import metadata_store, metadata_write_lock
-from rebrew.utils import (
+lazy from rebrew.compiler.toolchain_spec import FlagsStyle
+lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
+lazy from rebrew.utils import (
     BYTES_PER_MIB,
     console,
     load_tomllib,
@@ -50,8 +50,8 @@ from rebrew.utils import (
     preset_module_key,
     untrusted_text,
 )
-from rebrew.workspace import walk_up_to_root
-from rebrew.workspace.config import CONFIG_NAME, config_path
+lazy from rebrew.workspace import walk_up_to_root
+lazy from rebrew.workspace.config import CONFIG_NAME, config_path
 
 
 class ConfigError(RebrewError, ValueError):

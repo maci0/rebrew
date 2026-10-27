@@ -9,16 +9,16 @@ stage their toolchain there before invoking :func:`run_dosbox`.
 
 from __future__ import annotations
 
-import atexit
 import itertools
-import os
-import shutil
-import subprocess
 import threading
-from pathlib import Path
+lazy import atexit
+lazy import os
+lazy import shutil
+lazy import subprocess
+lazy from pathlib import Path
 
 from rebrew.errors import RebrewError
-from rebrew.utils import run_process_group
+lazy from rebrew.utils import run_process_group
 
 _DOSBOX_CONF_HEADER = "[sdl]\nfullscreen=false\n\n[cpu]\ncycles=fixed 30000\n\n[autoexec]\n"
 

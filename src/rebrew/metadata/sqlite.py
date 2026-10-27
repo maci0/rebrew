@@ -1,20 +1,20 @@
 """Experimental transactional SQLite persistence for managed metadata documents."""
 
 import contextlib
-import hashlib
-import os
-import sqlite3
 import threading
-import tomllib
-from collections.abc import Callable, Iterator
-from pathlib import Path
-from typing import Any
+lazy import hashlib
+lazy import os
+lazy import sqlite3
+lazy import tomllib
+lazy from collections.abc import Callable, Iterator
+lazy from pathlib import Path
+lazy from typing import Any
 
-import tomlkit
-from tomlkit.exceptions import ParseError
+lazy import tomlkit
+lazy from tomlkit.exceptions import ParseError
 
 from rebrew.errors import RebrewError
-from rebrew.metadata.locking import file_transaction, project_transaction
+lazy from rebrew.metadata.locking import file_transaction, project_transaction
 
 DATABASE_FILENAME = "rebrew-metadata.sqlite3"
 _SCHEMA_VERSION = 1

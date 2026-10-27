@@ -27,20 +27,19 @@ own order at 0x10018c49 / 0x10018c59.
 
 from __future__ import annotations
 
-import contextlib
-import os
 import re
-import signal
-import tempfile
 from collections.abc import Callable, Sequence
 from difflib import Match, SequenceMatcher
 from functools import lru_cache, partial
-from pathlib import Path
 from typing import Any, Literal, override
+lazy import contextlib
+lazy import os
+lazy import signal
+lazy import tempfile
+lazy from pathlib import Path
 
 import typer
 
-from rebrew.analysis import Insn
 from rebrew.cli import (
     CFLAGS_HELP,
     SIZE_HELP,
@@ -55,14 +54,15 @@ from rebrew.cli import (
     require_source_arg,
     select_annotation,
 )
-from rebrew.coff_reloc import build_name_to_va
-from rebrew.compiler.compile import CompareResult, compile_and_compare, matched_byte_count
-from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
-from rebrew.config import ProjectConfig, target_module
-from rebrew.formats.binary_loader import extract_raw_bytes
-from rebrew.metadata.bindings import read_source_bindings
-from rebrew.utils import (
+lazy from rebrew.analysis import Insn
+lazy from rebrew.coff_reloc import build_name_to_va
+lazy from rebrew.compiler.compile import CompareResult, compile_and_compare, matched_byte_count
+lazy from rebrew.compiler.overrides import resolve_compile_overrides
+lazy from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.formats.binary_loader import extract_raw_bytes
+lazy from rebrew.metadata.bindings import read_source_bindings
+lazy from rebrew.utils import (
     SOURCE_BACKUP_DIRNAME,
     atomic_write_text,
     filename_component,

@@ -7,34 +7,34 @@ Unchanged inputs reuse the same view; a failed target does not hide healthy ones
 
 from __future__ import annotations
 
-import hashlib
 import threading
-import time
 from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from pathlib import Path
-from types import MappingProxyType
 from typing import Any
+lazy import hashlib
+lazy import time
+lazy from datetime import UTC, datetime
+lazy from pathlib import Path
+lazy from types import MappingProxyType
 
-from rebrew.catalog.pipeline import build_catalog_data
 from rebrew.config import ProjectConfig, inventory_path_for, load_config, target_module
-from rebrew.coverage_db import import_verify_rows
 from rebrew.coverage_toml import (
     CoverageSnapshot,
     coverage_document,
     previous_measurements,
     snapshot_from_document,
 )
-from rebrew.data_ownership import ownership_inputs
 from rebrew.errors import RebrewError
-from rebrew.formats.binary_loader import load_binary
-from rebrew.metadata.functions import load_status_history
-from rebrew.metadata.storage import metadata_inputs, metadata_store
-from rebrew.sources import scan_files
-from rebrew.verify_cache import CACHE_FILENAME, cache_path_for
-from rebrew.workspace import read_config, targets_table
+lazy from rebrew.catalog.pipeline import build_catalog_data
+lazy from rebrew.coverage_db import import_verify_rows
+lazy from rebrew.data_ownership import ownership_inputs
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.metadata.functions import load_status_history
+lazy from rebrew.metadata.storage import metadata_inputs, metadata_store
+lazy from rebrew.sources import scan_files
+lazy from rebrew.verify_cache import CACHE_FILENAME, cache_path_for
+lazy from rebrew.workspace import read_config, targets_table
 
 __all__ = ["ProjectCoverageError", "ProjectCoverageView", "load_project_coverage"]
 

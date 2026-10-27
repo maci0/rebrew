@@ -25,13 +25,13 @@ Usage::
 
 from __future__ import annotations
 
-import argparse
-import json
-import subprocess
 import sys
 from pathlib import Path
+lazy import argparse
+lazy import json
+lazy import subprocess
 
-from rebrew.utils import run_process_group
+lazy from rebrew.utils import run_process_group
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 

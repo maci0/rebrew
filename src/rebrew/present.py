@@ -9,8 +9,8 @@ are the ones that may grow.
 
 from __future__ import annotations
 
-from rich.table import Table
-from rich.text import Text
+lazy from rich.table import Table
+lazy from rich.text import Text
 
 # Same width as the rebrew status .text bar.
 BAR_WIDTH = 40

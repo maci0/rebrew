@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
 from dataclasses import asdict, dataclass, replace
-from pathlib import Path
-from typing import Any
+lazy import hashlib
+lazy import json
+lazy import os
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.c_parser import (
+lazy from rebrew.c_parser import (
     array_type_shape,
     declares_function,
     find_extern_variables,
@@ -18,22 +18,22 @@ from rebrew.c_parser import (
     replace_function_prototype,
     type_from_declaration,
 )
-from rebrew.c_rename import ParsedSource, declarator_name, non_external_function_declarations
-from rebrew.compiler.cache import scan_include_closure
-from rebrew.compiler.compile import effective_compile_flags, extract_include_dirs
-from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.config import ProjectConfig, target_module
-from rebrew.metadata.bindings import read_source_bindings
-from rebrew.metadata.storage import (
+lazy from rebrew.c_rename import ParsedSource, declarator_name, non_external_function_declarations
+lazy from rebrew.compiler.cache import scan_include_closure
+lazy from rebrew.compiler.compile import effective_compile_flags, extract_include_dirs
+lazy from rebrew.compiler.overrides import resolve_compile_overrides
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.metadata.bindings import read_source_bindings
+lazy from rebrew.metadata.storage import (
     input_digest,
     metadata_store_paths,
     metadata_write_lock,
     snapshot_input,
 )
-from rebrew.rename_ops import FileChange, RenamePlan, SourceEdit, apply_rename_plan
-from rebrew.source_selection import collect_target_sources
-from rebrew.types import type_size
-from rebrew.utils import detect_source_encoding, source_newline
+lazy from rebrew.rename_ops import FileChange, RenamePlan, SourceEdit, apply_rename_plan
+lazy from rebrew.source_selection import collect_target_sources
+lazy from rebrew.types import type_size
+lazy from rebrew.utils import detect_source_encoding, source_newline
 
 
 @dataclass(frozen=True)

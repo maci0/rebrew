@@ -1,10 +1,10 @@
 """Strict schemas for addressless definitions and support files in the function store."""
 
 from dataclasses import dataclass
-from pathlib import PurePosixPath
-from typing import Any
+lazy from pathlib import PurePosixPath
+lazy from typing import Any
 
-from rebrew.utils import preset_module_key
+lazy from rebrew.utils import preset_module_key
 
 
 def validate_identity_file(value: str) -> str:

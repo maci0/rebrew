@@ -7,11 +7,11 @@ project, a credential, or the network. ``schema`` is the only caller.
 from __future__ import annotations
 
 import re
-from typing import Any
+lazy from typing import Any
 
-import typer
+lazy import typer
 
-from rebrew import __version__
+lazy from rebrew import __version__
 
 _RICH_TAG = re.compile(
     r"\[/?(?:bold|dim|cyan|green|yellow|red|italic|underline|white|blue|magenta)\]",

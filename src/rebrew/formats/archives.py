@@ -1,7 +1,7 @@
 """Static archive iteration and stock-library cache paths shared by analysis tools."""
 
-from collections.abc import Iterator
-from pathlib import Path
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
 
 
 def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:

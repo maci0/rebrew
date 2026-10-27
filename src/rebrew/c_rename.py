@@ -23,7 +23,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from rebrew.c_parser import find_function_name_in_node, mask_msvc_syntax, parse_c_source
+lazy from rebrew.c_parser import find_function_name_in_node, mask_msvc_syntax, parse_c_source
 
 # ---------------------------------------------------------------------------
 # Occurrence roles

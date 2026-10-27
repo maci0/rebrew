@@ -17,9 +17,9 @@ place between functions.
 from __future__ import annotations
 
 import re
-import struct
-from collections.abc import Iterator
 from dataclasses import dataclass
+lazy import struct
+lazy from collections.abc import Iterator
 
 # Each vtordisp function begins with `sub ecx, <byte>`.
 _VTOR_START_RE = re.compile(rb"\x2b\x49")

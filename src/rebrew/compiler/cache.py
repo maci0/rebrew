@@ -54,19 +54,19 @@ at key time).
 
 from __future__ import annotations
 
-import atexit
-import contextlib
 import hashlib
 import logging
-import os
 import re
 import threading
-import unicodedata
 from collections import OrderedDict
-from collections.abc import Callable, Iterator, Sequence
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Protocol
+lazy import atexit
+lazy import contextlib
+lazy import os
+lazy import unicodedata
+lazy from collections.abc import Callable, Iterator, Sequence
+lazy from pathlib import Path
 
 import diskcache
 

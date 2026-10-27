@@ -6,28 +6,25 @@ generate_flag_combinations() compile C source through the profile's toolchain
 one) and extract function bytes from the resulting object/executable.
 """
 
-import contextlib
-import copy
 import functools
-import itertools
 import logging
-import math
-import os
 import re
-import shlex
-import shutil
-import subprocess
-import tempfile
 import threading
-import time
-import warnings
-from collections.abc import Callable
-from pathlib import Path
-from typing import Any
+lazy import contextlib
+lazy import copy
+lazy import itertools
+lazy import math
+lazy import os
+lazy import shlex
+lazy import shutil
+lazy import subprocess
+lazy import tempfile
+lazy import time
+lazy import warnings
+lazy from collections.abc import Callable
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.compiler.cache import CacheBackend, compile_cache_key
-from rebrew.compiler.toolchain_spec import FlagsStyle
-from rebrew.config import profile_flags_style
 from rebrew.flag_data import (
     BORLAND_FLAGS,
     BORLAND_SWEEP_TIERS,
@@ -41,16 +38,19 @@ from rebrew.flag_data import (
     WATCOM_FLAGS,
     WATCOM_SWEEP_TIERS,
 )
-from rebrew.flags import Checkbox, Flags, FlagSet
-from rebrew.utils import (
+lazy from rebrew.compiler.cache import CacheBackend, compile_cache_key
+lazy from rebrew.compiler.toolchain_spec import FlagsStyle
+lazy from rebrew.config import profile_flags_style
+lazy from rebrew.flags import Checkbox, Flags, FlagSet
+lazy from rebrew.utils import (
     interruptible_pool,
     read_source_text,
     run_process_group,
     safe_shlex_split,
 )
 
-from .core import BuildResult
-from .parsers import extract_function_from_binary, parse_obj_symbol_and_relocs
+lazy from .core import BuildResult
+lazy from .parsers import extract_function_from_binary, parse_obj_symbol_and_relocs
 
 log = logging.getLogger(__name__)
 

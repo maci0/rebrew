@@ -2,7 +2,6 @@
 
 import typer
 
-from rebrew.catalog.inventory import repair_inventory_extents
 from rebrew.cli import (
     EXPECTED_DIGEST_HELP,
     TargetOption,
@@ -12,6 +11,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
+lazy from rebrew.catalog.inventory import repair_inventory_extents
 
 app = typer.Typer(
     help="Repair native inventory extents or explicitly admit reviewed missing entries.",

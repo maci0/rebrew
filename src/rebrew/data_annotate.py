@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+lazy from datetime import UTC, datetime
+lazy from pathlib import Path
+lazy from typing import Any
 
 from rebrew.c_parser import CALLING_CONVENTION, is_pointer_to_array
-from rebrew.config import ProjectConfig, target_module
-from rebrew.metadata.data import iter_data_symbols, load_data_document
-from rebrew.utils import (
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.metadata.data import iter_data_symbols, load_data_document
+lazy from rebrew.utils import (
     atomic_write_text,
     c_comment_safe,
     is_safe_c_ident,

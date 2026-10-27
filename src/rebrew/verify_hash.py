@@ -7,18 +7,18 @@ invalidates cached results when result-affecting code changes.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import threading
-import weakref
 from collections import OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
-from typing import Any
+lazy import hashlib
+lazy import weakref
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.config import ProjectConfig, compiler_dir, source_date_epoch
 from rebrew.utils import BYTES_PER_MIB, path_is_relative_to, resolved_path
+lazy from rebrew.config import ProjectConfig, compiler_dir, source_date_epoch
 
 #: Sentinel stored in VerifyCacheEntry.toolchain when no override names a
 #: compiler (the project's default profile applies).  Distinct from ``""`` so

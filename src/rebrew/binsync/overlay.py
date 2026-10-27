@@ -32,33 +32,12 @@ Typical flow::
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
-from rebrew.binsync.importer import (
-    apply_binsync_func_name,
-    apply_binsync_prototype,
-    import_type_definitions,
-    is_meaningful,
-    is_safe_prototype,
-    normalize_stack_vars,
-    resolve_state_dir,
-    strip_cdecl_prefix,
-)
-from rebrew.binsync.serial import require_declib
-from rebrew.binsync.state import (
-    load_binsync_comments,
-    load_binsync_enums,
-    load_binsync_state,
-    load_binsync_structs,
-    load_binsync_typedefs,
-    load_manifest,
-    module_predicate,
-    normalize_prototype,
-)
 from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
@@ -68,8 +47,29 @@ from rebrew.cli import (
     require_config,
     run_standalone,
 )
-from rebrew.config import ProjectConfig, target_module
-from rebrew.cross_import import (
+lazy from rebrew.binsync.importer import (
+    apply_binsync_func_name,
+    apply_binsync_prototype,
+    import_type_definitions,
+    is_meaningful,
+    is_safe_prototype,
+    normalize_stack_vars,
+    resolve_state_dir,
+    strip_cdecl_prefix,
+)
+lazy from rebrew.binsync.serial import require_declib
+lazy from rebrew.binsync.state import (
+    load_binsync_comments,
+    load_binsync_enums,
+    load_binsync_state,
+    load_binsync_structs,
+    load_binsync_typedefs,
+    load_manifest,
+    module_predicate,
+    normalize_prototype,
+)
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.cross_import import (
     annotations_by_va,
     cross_match,
     disasm_sizes,
@@ -78,8 +78,8 @@ from rebrew.cross_import import (
     target_bytes_by_va,
     unmatched_dest_bytes,
 )
-from rebrew.sources import contained_path, source_roots
-from rebrew.utils import fold_ident, preset_module_key, strip_body
+lazy from rebrew.sources import contained_path, source_roots
+lazy from rebrew.utils import fold_ident, preset_module_key, strip_body
 
 log = logging.getLogger(__name__)
 

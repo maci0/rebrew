@@ -51,15 +51,15 @@ functions, reporting how many it skipped rather than truncating silently.
 
 from __future__ import annotations
 
-import difflib
-import hashlib
 import re
 from dataclasses import dataclass, field
-from types import SimpleNamespace
-from typing import Any
+lazy import difflib
+lazy import hashlib
+lazy from types import SimpleNamespace
+lazy from typing import Any
 
 from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_insns, normalized_operands
-from rebrew.config import inventory_path_for
+lazy from rebrew.config import inventory_path_for
 
 #: Shortest common instruction run reported by sub-function matching.  A run
 #: of fewer instructions is noise: a shared prologue of two or three

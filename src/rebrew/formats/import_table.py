@@ -11,12 +11,12 @@ Library layer under the ``rebrew binary imports list`` command
 from __future__ import annotations
 
 import logging
-import struct
 import threading
-from pathlib import Path
-from typing import Any
+lazy import struct
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.formats.pe_headers import PE32_PLUS_MAGIC, pe_layout
+lazy from rebrew.formats.pe_headers import PE32_PLUS_MAGIC, pe_layout
 
 log = logging.getLogger(__name__)
 

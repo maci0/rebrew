@@ -37,12 +37,12 @@ message points at; the Makefile passes its resolved absolute path.
 
 from __future__ import annotations
 
-import importlib.util
-import os
-import sys
-from collections.abc import Sequence
-from pathlib import Path
 from typing import NamedTuple
+lazy import importlib.util
+lazy import os
+lazy import sys
+lazy from collections.abc import Sequence
+lazy from pathlib import Path
 
 # `uv`'s name for the project virtualenv, which is also the directory
 # ``make doctor`` must not create just by reporting on the environment.

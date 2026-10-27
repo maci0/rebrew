@@ -1,25 +1,25 @@
 """Stable type identities with target-specific compiler and native layout evidence."""
 
-import hashlib
-import json
 import re
-import shlex
-from dataclasses import replace
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Any
+lazy import hashlib
+lazy import json
+lazy import shlex
+lazy from dataclasses import replace
+lazy from pathlib import Path
+lazy from tempfile import TemporaryDirectory
+lazy from typing import Any
 
-import tomlkit
+lazy import tomlkit
 
-from rebrew.c_parser import mask_msvc_syntax, parse_c_source
-from rebrew.config import ProjectConfig
-from rebrew.metadata.functions import validate_identity_file
-from rebrew.metadata.storage import metadata_store, metadata_write_lock
-from rebrew.utils import (
+lazy from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.metadata.functions import validate_identity_file
+lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
+lazy from rebrew.utils import (
     preset_module_key,
     read_source_text,
 )
-from rebrew.verify_hash import entry_headers_fp
+lazy from rebrew.verify_hash import entry_headers_fp
 
 TYPE_METADATA_FILENAME = "rebrew-types.toml"
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*\Z")

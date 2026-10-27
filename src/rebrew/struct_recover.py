@@ -54,8 +54,8 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
@@ -71,7 +71,7 @@ from rebrew.cli import (
 )
 from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends
 from rebrew.errors import RebrewError
-from rebrew.utils import atomic_write_text, fold_ident, parse_int_literal, read_source_text
+lazy from rebrew.utils import atomic_write_text, fold_ident, parse_int_literal, read_source_text
 
 logger = logging.getLogger(__name__)
 

@@ -9,17 +9,17 @@ OMF16 objects go through :mod:`rebrew.formats.omf16`, other OMF objects are
 converted to COFF with objconv first.
 """
 
-import bisect
 import logging
-import struct
-import warnings
-from collections.abc import Iterable
-from pathlib import Path
-from typing import Any
+lazy import bisect
+lazy import struct
+lazy import warnings
+lazy from collections.abc import Iterable
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.coff_reloc import CoffRelocRecord
 from rebrew.formats.binary_loader import PADDING_BYTES as _PADDING_BYTES
-from rebrew.formats.binary_loader import decode_binary_name
+lazy from rebrew.coff_reloc import CoffRelocRecord
+lazy from rebrew.formats.binary_loader import decode_binary_name
 
 _PADDING_STRIP = bytes(_PADDING_BYTES)
 

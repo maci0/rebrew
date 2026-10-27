@@ -48,19 +48,19 @@ from __future__ import annotations
 
 import logging
 import re
-import subprocess
-import uuid
-from pathlib import Path
-from typing import Any
+lazy import subprocess
+lazy import uuid
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.config import compiler_dir, target_module
-from rebrew.formats.pe_headers import pe_image_base, pe_layout
-from rebrew.formats.pe_image import PeImport, derive_link_options, parse_pe
-from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
-from rebrew.utils import atomic_write_text, container_runtime, fold_ident, pe_name_token
+lazy from rebrew.config import compiler_dir, target_module
+lazy from rebrew.formats.pe_headers import pe_image_base, pe_layout
+lazy from rebrew.formats.pe_image import PeImport, derive_link_options, parse_pe
+lazy from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
+lazy from rebrew.utils import atomic_write_text, container_runtime, fold_ident, pe_name_token
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

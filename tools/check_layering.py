@@ -57,12 +57,12 @@ Also importable for tests::
     assert check_layering("src/rebrew") == []
 """
 
-import ast
-import os
-from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
 from typing import override
+lazy import ast
+lazy import os
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
 
 #: Modules that assemble the Typer app.  Nothing outside this set may import
 #: them at module scope.

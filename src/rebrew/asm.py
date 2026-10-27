@@ -33,23 +33,21 @@ Usage:
 
 from __future__ import annotations
 
-import bisect
 import functools
-import json
 import logging
 import re
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
+lazy import bisect
+lazy import json
+lazy import shutil
+lazy import subprocess
+lazy import tempfile
 
 import typer
-from rich.markup import escape
-from rich.text import Text
+lazy from rich.markup import escape
+lazy from rich.text import Text
 
-from rebrew.analysis import direct_call_target, direct_jump_target
-from rebrew.catalog import load_function_structure
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
@@ -60,12 +58,14 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import ProjectConfig, inventory_path_for, load_config, target_module
-from rebrew.metadata.bindings import read_source_bindings
-from rebrew.rename_ops import c_name_from_symbol
-from rebrew.sources import iter_sources
-from rebrew.status_style import DISPLAY_STATUSES
-from rebrew.utils import atomic_write_text, parse_int_literal, untrusted_ident
+lazy from rebrew.analysis import direct_call_target, direct_jump_target
+lazy from rebrew.catalog import load_function_structure
+lazy from rebrew.config import ProjectConfig, inventory_path_for, load_config, target_module
+lazy from rebrew.metadata.bindings import read_source_bindings
+lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.status_style import DISPLAY_STATUSES
+lazy from rebrew.utils import atomic_write_text, parse_int_literal, untrusted_ident
 
 logger = logging.getLogger(__name__)
 

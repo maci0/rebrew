@@ -7,14 +7,14 @@ run log (``.rebrew/ga_runs.jsonl``).  Read-only.
 
 from __future__ import annotations
 
-import unicodedata
-from typing import Any
+lazy import unicodedata
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
 from rebrew.cli import TargetOption, console, json_print, require_config
-from rebrew.utils import untrusted_text
+lazy from rebrew.utils import untrusted_text
 
 app = typer.Typer(
     help="Query the GA solutions database (winning fingerprints + run history).",

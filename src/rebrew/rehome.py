@@ -8,8 +8,8 @@ A renamed or moved file (``git mv``) leaves every function and data row that
 names it stale; ``--from OLD --to NEW`` retargets them all at once.
 """
 
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 from typer.models import TyperPath

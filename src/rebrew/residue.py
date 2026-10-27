@@ -21,13 +21,13 @@ project config — no hardcoded ``build/split_poc.dll`` or ``0x10000000``.
 
 from __future__ import annotations
 
-import contextlib
-from pathlib import Path
-from typing import Any
+lazy import contextlib
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
-from rich.cells import cell_len
 from typer.models import TyperPath
+lazy from rich.cells import cell_len
 
 from rebrew.cli import (
     TargetOption,
@@ -37,8 +37,8 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.errors import RebrewError
-from rebrew.formats.pe_headers import pe_layout
-from rebrew.utils import atomic_write_text, read_json_text, untrusted_ident
+lazy from rebrew.formats.pe_headers import pe_layout
+lazy from rebrew.utils import atomic_write_text, read_json_text, untrusted_ident
 
 #: Width of the function-name column in the residue table.
 _NAME_COLUMN = 40

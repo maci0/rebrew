@@ -34,20 +34,20 @@ Usage:
 
 from __future__ import annotations
 
-import re
-from collections import defaultdict
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
+lazy import re
+lazy from collections import defaultdict
+lazy from pathlib import Path
 
 import typer
 
-from rebrew.c_parser import parse_c_source
 from rebrew.cli import TargetOption, console, json_print, require_config
-from rebrew.data_layout import data_raw_from_binary, layout_geometry
-from rebrew.metadata.data import data_rows_for_path, set_data_fields_batch
-from rebrew.sources import files_with_ext
-from rebrew.utils import (
+lazy from rebrew.c_parser import parse_c_source
+lazy from rebrew.data_layout import data_raw_from_binary, layout_geometry
+lazy from rebrew.metadata.data import data_rows_for_path, set_data_fields_batch
+lazy from rebrew.sources import files_with_ext
+lazy from rebrew.utils import (
     atomic_write_text,
     join_source_lines,
     read_source_text,

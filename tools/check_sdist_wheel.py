@@ -26,10 +26,10 @@ drifted between the checkout and the sdist is a real difference and must fail.
 
 from __future__ import annotations
 
-import hashlib
 import sys
-import zipfile
-from pathlib import Path
+lazy import hashlib
+lazy import zipfile
+lazy from pathlib import Path
 
 # Directory entries setuptools emits inside a wheel. They carry no payload and
 # appear or vanish with the build path, so they are not part of the contract.

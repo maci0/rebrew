@@ -12,27 +12,27 @@ the same shape the report writes.
 from __future__ import annotations
 
 import contextlib
-import copy
-import hashlib
-import json
-import logging
-import math
-import os
 import re
 import threading
-import tomllib
 from dataclasses import dataclass, fields
 from functools import lru_cache
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy import copy
+lazy import hashlib
+lazy import json
+lazy import logging
+lazy import math
+lazy import os
+lazy import tomllib
+lazy from pathlib import Path
 
-from rebrew.utils import atomic_write_text, file_lock, read_toml_text
 from rebrew.verify_hash import (
     compiler_config_hash,
     fresh_entry_fingerprint,
     headers_hash,
 )
-from rebrew.workspace.status import MATCHED_STATUSES
+lazy from rebrew.utils import atomic_write_text, file_lock, read_toml_text
+lazy from rebrew.workspace.status import MATCHED_STATUSES
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

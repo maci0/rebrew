@@ -16,22 +16,22 @@ never pruned.
 from __future__ import annotations
 
 import contextlib
-import dataclasses
 import functools
-import hashlib
-import json
 import logging
-import math
-import os
 import threading
 from collections import OrderedDict
-from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+lazy import dataclasses
+lazy import hashlib
+lazy import json
+lazy import math
+lazy import os
+lazy from collections.abc import Iterator
+lazy from datetime import UTC, datetime
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.utils import atomic_write_bytes, file_lock
+lazy from rebrew.utils import atomic_write_bytes, file_lock
 
 log = logging.getLogger(__name__)
 

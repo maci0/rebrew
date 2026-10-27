@@ -6,13 +6,13 @@ wire types; successful decoding does not establish recovery of event bodies.
 
 from __future__ import annotations
 
-import struct
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, override
+lazy import struct
+lazy from collections.abc import Iterator
 
 from rebrew.errors import RebrewError
-from rebrew.formats.ne_loader import segment_file_ranges
+lazy from rebrew.formats.ne_loader import segment_file_ranges
 
 _TYPE_INT8, _TYPE_INT16, _TYPE_INT32 = 0x02, 0x03, 0x04
 _TYPE_STR, _TYPE_IDENT, _TYPE_FALSE, _TYPE_TRUE = 0x06, 0x07, 0x08, 0x09

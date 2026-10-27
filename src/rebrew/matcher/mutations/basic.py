@@ -7,22 +7,22 @@ reshaping, and expression-level rewrites.
 
 from __future__ import annotations
 
-import difflib
-import logging
-import random
 import re
-from collections.abc import Callable
-from typing import Any
+lazy import difflib
+lazy import logging
+lazy import random
+lazy from collections.abc import Callable
+lazy from typing import Any
 
-import tree_sitter as ts
+lazy import tree_sitter as ts
 
-from rebrew.matcher.ast_engine import (
+lazy from rebrew.matcher.ast_engine import (
     decode_source,
     encode_source,
     parse_c_ast,
     replace_node,
 )
-from rebrew.matcher.mutations.queries import (
+lazy from rebrew.matcher.mutations.queries import (
     _QUERY_ACCUM,
     _QUERY_ADJACENT_DECL,
     _QUERY_ADJACENT_EXPR_STMTS,
@@ -87,7 +87,7 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_XOR_SELF,
     _LazyQuery,
 )
-from rebrew.matcher.mutations.runtime import (
+lazy from rebrew.matcher.mutations.runtime import (
     _RE_FUNC_PRAGMA,
     _RE_GUARD_CLAUSE,
     _RE_RET_FALSE_LABEL,
@@ -105,7 +105,7 @@ from rebrew.matcher.mutations.runtime import (
     _statement_region_start,
     brace_block,
 )
-from rebrew.utils import parse_c_integer_literal
+lazy from rebrew.utils import parse_c_integer_literal
 
 # --- Mutations ---
 

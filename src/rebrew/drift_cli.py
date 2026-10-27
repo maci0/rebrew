@@ -12,11 +12,11 @@ after it.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
 from rebrew.cli import (
     CFLAGS_HELP,
@@ -33,12 +33,12 @@ from rebrew.cli import (
     require_source_arg,
     select_annotation,
 )
-from rebrew.compiler.compile import compile_and_compare
-from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.config import target_module
-from rebrew.drift import DerivedRegion, DriftWindow, derive_regions, drift_windows
-from rebrew.formats.binary_loader import extract_raw_bytes
-from rebrew.metadata.bindings import read_function_fields, read_source_bindings
+lazy from rebrew.compiler.compile import compile_and_compare
+lazy from rebrew.compiler.overrides import resolve_compile_overrides
+lazy from rebrew.config import target_module
+lazy from rebrew.drift import DerivedRegion, DriftWindow, derive_regions, drift_windows
+lazy from rebrew.formats.binary_loader import extract_raw_bytes
+lazy from rebrew.metadata.bindings import read_function_fields, read_source_bindings
 
 # Module-form registration (empty ``attr`` in app/builtins.py) resolves BOTH a
 # ``main`` callable and a module-level ``app``.  A module exposing only ``main``

@@ -48,39 +48,39 @@ stays here because it is identifier text normalization that outlives any one
 store.
 """
 
-import bisect
-import codecs
-import concurrent.futures
 import contextlib
-import hashlib
 import logging
-import math
-import os
-import posixpath
+lazy import bisect
+lazy import codecs
+lazy import concurrent.futures
+lazy import hashlib
+lazy import math
+lazy import os
+lazy import posixpath
 
 try:
     import fcntl
 except ImportError:
     fcntl = None  # type: ignore[assignment]
 import re
-import shlex
-import signal
-import subprocess
 import threading
-import time
-import tomllib
-import unicodedata
 from collections import OrderedDict
-from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import IO, Any, override
+lazy import shlex
+lazy import signal
+lazy import subprocess
+lazy import time
+lazy import tomllib
+lazy import unicodedata
+lazy from collections.abc import Callable, Iterator, Sequence
 
-import tomlkit
 from rich.console import Console
-from rich.errors import MarkupError
-from rich.markup import escape as rich_escape
-from tomlkit import TOMLDocument
-from tomlkit.exceptions import InternalParserError, ParseError
+lazy import tomlkit
+lazy from rich.errors import MarkupError
+lazy from rich.markup import escape as rich_escape
+lazy from tomlkit import TOMLDocument
+lazy from tomlkit.exceptions import InternalParserError, ParseError
 
 logger = logging.getLogger(__name__)
 

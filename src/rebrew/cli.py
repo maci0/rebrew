@@ -19,28 +19,28 @@ Usage in a tool::
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import stat
-import sys
-import time
-import unicodedata
-import warnings
-from collections.abc import Callable
-from pathlib import Path
 from typing import Any, Literal, NoReturn, override
+lazy import json
+lazy import os
+lazy import stat
+lazy import sys
+lazy import time
+lazy import unicodedata
+lazy import warnings
+lazy from collections.abc import Callable
+lazy from pathlib import Path
 
-import click
 import typer
-from rich.console import Console
 from rich.theme import Theme
-from typer import rich_utils
-from typer._click.core import Command as TyperBaseCommand
-from typer._click.core import Context as TyperContext
-from typer._click.core import Parameter as TyperParameter
-from typer._click.exceptions import BadOptionUsage
 from typer.core import TyperGroup, TyperOption
+lazy import click
+lazy from rich.console import Console
+lazy from typer import rich_utils
+lazy from typer._click.core import Command as TyperBaseCommand
+lazy from typer._click.core import Context as TyperContext
+lazy from typer._click.core import Parameter as TyperParameter
+lazy from typer._click.exceptions import BadOptionUsage
 
 from rebrew.config import (
     DEFAULT_LOG_LEVEL,
@@ -53,8 +53,6 @@ from rebrew.config import (
     parse_env_log_level,
     target_module,
 )
-from rebrew.metadata.bindings import SourceBinding, read_source_bindings
-from rebrew.sources import iter_sources
 from rebrew.status_colors import RICH_STYLES
 from rebrew.utils import (
     console,
@@ -63,6 +61,8 @@ from rebrew.utils import (
     untrusted_literal,
     untrusted_text,
 )
+lazy from rebrew.metadata.bindings import SourceBinding, read_source_bindings
+lazy from rebrew.sources import iter_sources
 
 console.push_theme(Theme(RICH_STYLES))
 

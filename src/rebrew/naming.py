@@ -7,30 +7,30 @@ and data loading helpers shared across multiple CLI tools.
 Extracted from skeleton.py and todo.py to eliminate circular dependencies.
 """
 
-import bisect
 import re
-import unicodedata
-from collections.abc import Iterable, Sequence
-from pathlib import Path
 from typing import TYPE_CHECKING
+lazy import bisect
+lazy import unicodedata
+lazy from collections.abc import Iterable, Sequence
+lazy from pathlib import Path
 
-import capstone
+lazy import capstone
 
 if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
 
-from rebrew.analysis import capstone_handle
-from rebrew.config import ProjectConfig, inventory_path_for, target_module
-from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
-from rebrew.formats.binary_model import BinaryInfo
-from rebrew.metadata.bindings import (
+lazy from rebrew.analysis import capstone_handle
+lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
+lazy from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
+lazy from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.metadata.bindings import (
     iter_source_bindings,
     library_bindings_for_file,
     min_valid_va_for,
     read_source_bindings,
 )
-from rebrew.sources import iter_library_headers, iter_sources, source_exts
-from rebrew.utils import clip_span, fold_ident, preset_module_key, rel_display_path
+lazy from rebrew.sources import iter_library_headers, iter_sources, source_exts
+lazy from rebrew.utils import clip_span, fold_ident, preset_module_key, rel_display_path
 
 # ---------------------------------------------------------------------------
 # Unmatchable function detection

@@ -82,19 +82,18 @@ worker does not report a sibling stub's spend.
 
 from __future__ import annotations
 
-import ipaddress
-import json
-import logging
-import os
 import re
 import threading
-import time
-from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
-from urllib.parse import urlparse
+lazy import ipaddress
+lazy import json
+lazy import logging
+lazy import os
+lazy import time
+lazy from collections.abc import Sequence
+lazy from typing import Any
+lazy from urllib.parse import urlparse
 
-from rebrew.c_parser import normalize_function_prototype
 from rebrew.config import (
     LLM_PROJECT_ENDPOINT_TRUST_ENV,
     insecure_endpoint_message,
@@ -106,7 +105,8 @@ from rebrew.config import (
     validate_http_url,
     validate_llm_model,
 )
-from rebrew.utils import retry_backoff_delay, strip_bidi_format
+lazy from rebrew.c_parser import normalize_function_prototype
+lazy from rebrew.utils import retry_backoff_delay, strip_bidi_format
 
 # Cost / injection caps at the single LLM call site.
 _MAX_SOURCE_CHARS = 16_000  # ~4k tokens of C; larger functions truncate

@@ -19,27 +19,27 @@ Usage:
 
 from __future__ import annotations
 
-import contextlib
-import os
-import re
-import shlex
-import subprocess
-import tempfile
-import tomllib
 from pathlib import Path
+lazy import contextlib
+lazy import os
+lazy import re
+lazy import shlex
+lazy import subprocess
+lazy import tempfile
+lazy import tomllib
 
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, untrusted_ident
-from rebrew.formats.pe_headers import find_section
-from rebrew.utils import (
+lazy from rebrew.formats.pe_headers import find_section
+lazy from rebrew.utils import (
     atomic_write_text,
     load_tomllib,
     read_source_text,
     run_process_group,
     safe_shlex_split,
 )
-from rebrew.workspace import walk_up_to_root
+lazy from rebrew.workspace import walk_up_to_root
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

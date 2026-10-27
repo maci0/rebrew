@@ -18,18 +18,18 @@ no CLI.
 from __future__ import annotations
 
 import logging
-import os
 import re
-import unicodedata
 from pathlib import Path
-from typing import Any
+lazy import os
+lazy import unicodedata
+lazy from typing import Any
 
 import typer
 from rich.console import Console
-from rich.table import Table
+lazy from rich.table import Table
 
-from rebrew.cli import console, error_exit, json_print
-from rebrew.config import REBREW_SKILLS_DIR_ENV, ConfigError, env_dir_path
+lazy from rebrew.cli import console, error_exit, json_print
+lazy from rebrew.config import REBREW_SKILLS_DIR_ENV, ConfigError, env_dir_path
 
 logger = logging.getLogger(__name__)
 

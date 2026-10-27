@@ -2451,3 +2451,39 @@ class TestNativeTailAccounting:
         assert report.status_bytes["UNVERIFIED_TAIL"] == 6
         assert report.unattributed_bytes == 6
         assert report.matched_bytes + report.unmatched_bytes + report.unattributed_bytes == 16
+
+    def test_alignment_fill_in_a_tail_is_padding_not_missing_code(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dataclasses import replace
+
+        from bin_util import make_pe
+
+        from rebrew.naming import load_data
+
+        cfg = _make_cfg(tmp_path)
+        cfg.target_binary.write_bytes(make_pe(b"\xc3\xc3" + b"\x90" * 14))
+        cfg.reversed_dir.mkdir()
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            json.dumps([{"va": 0x401000, "size": 10, "ghidra_name": "a"}])
+        )
+        for va, name in [(0x401000, "a"), (0x401004, "b")]:
+            write_source(
+                cfg.reversed_dir / f"{name}.c",
+                f"/* ADDRESS: TEST {va:#x} */\nvoid {name}(void) {{}}\n",
+                metadata_fields={
+                    f"TEST.{va:#x}": {"kind": "FUNCTION", "size": 2, "status": "EXACT"}
+                },
+            )
+        functions, existing, covered = load_data(cfg)
+        functions = [replace(functions[0], size=10)]
+        monkeypatch.setattr(
+            "rebrew.naming.load_data", lambda *_a, **_kw: (functions, existing, covered)
+        )
+        report = collect_status(cfg)
+        # The gap inside the extent is nop/0xCC fill, so it is padding; nothing
+        # is left reading as function bytes the compile never saw.
+        assert "UNVERIFIED_TAIL" not in report.status_bytes
+        assert report.padding_bytes == 12
+        assert report.unverified_tail_ranges == []
+        assert report.unattributed_bytes == 0

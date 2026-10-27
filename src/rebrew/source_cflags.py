@@ -2,9 +2,9 @@
 
 import typer
 
-from rebrew.blocker import resolve_function
 from rebrew.cli import SOURCE_HELP, TargetOption, console, error_exit, json_print, require_config
-from rebrew.metadata.functions import get_entry, remove_field
+lazy from rebrew.blocker import resolve_function
+lazy from rebrew.metadata.functions import get_entry, remove_field
 
 app = typer.Typer(
     help="Clear a saved per-function compiler flag override.",

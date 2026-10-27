@@ -19,16 +19,16 @@ Usage:
     rebrew test --all --dir src/game_dll/ # batch mode, restrict to subdir
 """
 
-import contextlib
-import hashlib
-import json
-import logging
-import math
 import threading
-from collections.abc import Callable
-from dataclasses import replace
-from pathlib import Path
-from typing import Any, TypeGuard
+lazy import contextlib
+lazy import hashlib
+lazy import json
+lazy import logging
+lazy import math
+lazy from collections.abc import Callable
+lazy from dataclasses import replace
+lazy from pathlib import Path
+lazy from typing import Any, TypeGuard
 
 import typer
 from typer.models import TyperPath
@@ -57,7 +57,7 @@ from rebrew.cli import (
     require_source_arg,
     source_targets_run,
 )
-from rebrew.coff_reloc import (
+lazy from rebrew.coff_reloc import (
     CatalogScanError,
     binding_summary,
     build_iat_region,
@@ -67,7 +67,7 @@ from rebrew.coff_reloc import (
     relocation_binding_evidence,
     smart_reloc_compare,
 )
-from rebrew.compiler.compile import (
+lazy from rebrew.compiler.compile import (
     UNCLASSIFIED_DIFF,
     CompareResult,
     classify_compare_result,
@@ -77,25 +77,25 @@ from rebrew.compiler.compile import (
     is_matched,
     matched_byte_count,
 )
-from rebrew.compiler.context import CompileContext
-from rebrew.config import ProjectConfig, target_module
-from rebrew.formats.binary_loader import PADDING_BYTES, extract_raw_bytes
-from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-from rebrew.metadata.bindings import (
+lazy from rebrew.compiler.context import CompileContext
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.formats.binary_loader import PADDING_BYTES, extract_raw_bytes
+lazy from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+lazy from rebrew.metadata.bindings import (
     SourceBinding,
     min_valid_va_for,
     read_source_bindings,
 )
-from rebrew.metadata.functions import (
+lazy from rebrew.metadata.functions import (
     is_status_parked,
     set_fields_batch,
     should_promote_status,
     update_field,
     update_source_status,
 )
-from rebrew.present import bar_plain
-from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
-from rebrew.utils import floor_pct, untrusted_ident
+lazy from rebrew.present import bar_plain
+lazy from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
+lazy from rebrew.utils import floor_pct, untrusted_ident
 
 # At this match ratio, NEAR_MATCHING output is shown in bold steel blue instead of
 # plain steel blue — visually distinguishing "almost there" from "far off".

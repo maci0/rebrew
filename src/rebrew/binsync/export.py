@@ -22,19 +22,20 @@ stay in ``rebrew-functions.toml`` (STATUS is verify-earned; an old
 
 from __future__ import annotations
 
-import datetime as dt
 import logging
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+lazy import datetime as dt
+lazy from pathlib import Path
+lazy from typing import Any
 
-import tomlkit
 import typer
+lazy import tomlkit
 
-from rebrew.binsync import serial
-from rebrew.binsync.git import run_git
 from rebrew.binsync.repo import USER_HELP, checkout_user_branch, is_binsync_repo, resolve_user
-from rebrew.binsync.state import (
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
+lazy from rebrew.binsync import serial
+lazy from rebrew.binsync.git import run_git
+lazy from rebrew.binsync.state import (
     acknowledge_sync,
     artifact_hash,
     load_sync_baseline,
@@ -46,11 +47,10 @@ from rebrew.binsync.state import (
     sync_health,
     sync_health_messages,
 )
-from rebrew.catalog import scan_reversed_dir
-from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
-from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.metadata.bindings import span_contains_factory
-from rebrew.utils import is_safe_c_ident, md5_file, strip_body
+lazy from rebrew.catalog import scan_reversed_dir
+lazy from rebrew.config import ProjectConfig, inventory_path_for
+lazy from rebrew.metadata.bindings import span_contains_factory
+lazy from rebrew.utils import is_safe_c_ident, md5_file, strip_body
 
 app = typer.Typer(
     help="Export Rebrew symbols and types to a BinSync state directory.",

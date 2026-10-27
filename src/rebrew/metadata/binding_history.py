@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-import copy
-from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+lazy import copy
+lazy from datetime import UTC, datetime
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.metadata.document import (
-    build_metadata_key_index,
-    load_metadata_for_write,
-    resolve_metadata_key,
-    stamp_format,
-)
 from rebrew.metadata.functions import (
     FUNCTION_IDENTITY_FIELDS,
     METADATA_FIELDS,
@@ -23,8 +17,14 @@ from rebrew.metadata.functions import (
     validate_identity_file,
     validate_provenance_table,
 )
-from rebrew.metadata.storage import input_digest, metadata_store, metadata_write_lock
-from rebrew.utils import is_safe_c_ident, preset_module_key
+lazy from rebrew.metadata.document import (
+    build_metadata_key_index,
+    load_metadata_for_write,
+    resolve_metadata_key,
+    stamp_format,
+)
+lazy from rebrew.metadata.storage import input_digest, metadata_store, metadata_write_lock
+lazy from rebrew.utils import is_safe_c_ident, preset_module_key
 
 # History stores only the claim and its measurement, never another copy of history.
 _PREVIOUS_FIELDS = frozenset(FUNCTION_IDENTITY_FIELDS) | {

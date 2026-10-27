@@ -23,18 +23,18 @@ from __future__ import annotations
 
 import re
 import threading
-from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Protocol
+lazy from collections.abc import Iterator
 
-import capstone
+lazy import capstone
 
-from rebrew.formats.binary_loader import (
+lazy from rebrew.formats.binary_loader import (
     capstone_config_for,
     section_extent,
     va_to_file_offset,
 )
-from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.formats.binary_model import BinaryInfo
 
 DEFAULT_CS_ARCH = "CS_ARCH_X86"
 DEFAULT_CS_MODE = "CS_MODE_32"

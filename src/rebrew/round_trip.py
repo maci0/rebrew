@@ -23,19 +23,19 @@ reported as ``skipped_proven`` without altering the spliced PE.
 
 from __future__ import annotations
 
-import hashlib
-import re
-import struct
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+lazy import hashlib
+lazy import re
+lazy import struct
+lazy from collections.abc import Callable
+lazy from typing import Any
 
 import typer
-from rich.console import Group
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
+lazy from rich.console import Group
+lazy from rich.panel import Panel
+lazy from rich.table import Table
+lazy from rich.text import Text
 
 from rebrew.cli import (
     EXIT_MISMATCH,
@@ -46,23 +46,23 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.coff_reloc import (
+lazy from rebrew.coff_reloc import (
     CoffRelocRecord,
     UnresolvedSymbolError,
     apply_coff_relocations,
     build_symbol_resolver,
 )
-from rebrew.compiler.compile import compile_to_obj
-from rebrew.config import ProjectConfig, target_module
-from rebrew.formats.binary_loader import load_binary, va_to_file_offset
-from rebrew.formats.binary_model import BinaryInfo, SectionInfo
-from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
-from rebrew.metadata.bindings import iter_source_bindings, resolve_symbol
-from rebrew.metadata.functions import load_metadata
-from rebrew.sections import trim_trailing_padding
-from rebrew.sources import iter_sources
-from rebrew.status_style import STATUS_COLORS
-from rebrew.utils import (
+lazy from rebrew.compiler.compile import compile_to_obj
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.formats.binary_loader import load_binary, va_to_file_offset
+lazy from rebrew.formats.binary_model import BinaryInfo, SectionInfo
+lazy from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
+lazy from rebrew.metadata.bindings import iter_source_bindings, resolve_symbol
+lazy from rebrew.metadata.functions import load_metadata
+lazy from rebrew.sections import trim_trailing_padding
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.status_style import STATUS_COLORS
+lazy from rebrew.utils import (
     atomic_write_bytes,
     floor_pct,
     merged_span_bytes,
@@ -70,7 +70,7 @@ from rebrew.utils import (
     safe_shlex_split,
     untrusted_ident,
 )
-from rebrew.workspace.status import MATCHED_STATUSES
+lazy from rebrew.workspace.status import MATCHED_STATUSES
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

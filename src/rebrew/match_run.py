@@ -7,25 +7,25 @@ recently-run filter, and the batch flag sweep.
 from __future__ import annotations
 
 import logging
-import math
 import threading
-import time
-from collections.abc import Callable
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
+lazy import math
+lazy import time
+lazy from collections.abc import Callable
+lazy from pathlib import Path
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-import typer
-from rich.markup import escape
+lazy import typer
+lazy from rich.markup import escape
 
-from rebrew.cli import EXIT_MISMATCH, console, json_print
-from rebrew.compiler.compile import resolve_compiler_env
-from rebrew.config import ProjectConfig
-from rebrew.formats.binary_loader import capstone_mode_for_arch, extract_raw_bytes
-from rebrew.limits import NO_DELTA, NO_MAX_SIZE
-from rebrew.match_batch import (
+lazy from rebrew.cli import EXIT_MISMATCH, console, json_print
+lazy from rebrew.compiler.compile import resolve_compiler_env
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.formats.binary_loader import capstone_mode_for_arch, extract_raw_bytes
+lazy from rebrew.limits import NO_DELTA, NO_MAX_SIZE
+lazy from rebrew.match_batch import (
     StubInfo,
     find_all_matching,
     find_all_stubs,
@@ -34,23 +34,23 @@ from rebrew.match_batch import (
     update_cflags_annotation,
     update_stub_to_matched,
 )
-from rebrew.match_ga import (
+lazy from rebrew.match_ga import (
     MUTATION_FOCUS_WEIGHT,
     BinaryMatchingGA,
     ga_runs_dir,
     read_ga_checkpoint,
 )
-from rebrew.match_sweep import (
+lazy from rebrew.match_sweep import (
     BuildParams,
     compile_cflags,
     run_flag_sweep,
     select_annotation,
 )
-from rebrew.matcher import GACheckpoint, SolutionEntry, iter_ga_runs, load_ga_runs
-from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
-from rebrew.metadata.bindings import read_source_bindings
-from rebrew.metadata.storage import metadata_write_lock
-from rebrew.utils import (
+lazy from rebrew.matcher import GACheckpoint, SolutionEntry, iter_ga_runs, load_ga_runs
+lazy from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
+lazy from rebrew.metadata.bindings import read_source_bindings
+lazy from rebrew.metadata.storage import metadata_write_lock
+lazy from rebrew.utils import (
     atomic_write_text,
     filename_component,
     floor_pct,

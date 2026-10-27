@@ -22,8 +22,8 @@ what verify/test/match/prove actually compile with.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
@@ -36,9 +36,9 @@ from rebrew.cli import (
     require_source_arg,
     untrusted_ident,
 )
-from rebrew.config import ProjectConfig
-from rebrew.metadata.bindings import read_source_bindings
-from rebrew.sources import iter_sources
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.metadata.bindings import read_source_bindings
+lazy from rebrew.sources import iter_sources
 
 app = typer.Typer(
     help="Explain why a function compiles with its toolchain+flags (resolution trace).",

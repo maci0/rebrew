@@ -29,16 +29,16 @@ message directing users to ``uv tool install --reinstall 'rebrew[prove] @ git+ht
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import re
-import struct
-import time
-import warnings
-from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, override
+lazy import contextlib
+lazy import struct
+lazy import time
+lazy import warnings
+lazy from collections.abc import Callable
+lazy from pathlib import Path
 
 import typer
 
@@ -61,16 +61,16 @@ from rebrew.cli import (
     require_config,
     require_source_arg,
 )
-from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_compare
-from rebrew.compiler.compile import compile_to_obj
-from rebrew.config import ProjectConfig, target_module
-from rebrew.formats.binary_loader import extract_raw_bytes
-from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
-from rebrew.metadata.bindings import read_source_bindings, resolve_symbol
-from rebrew.prove_simprocs import get_win32_simprocs
-from rebrew.sources import iter_sources
-from rebrew.utils import safe_shlex_split, untrusted_ident
-from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
+lazy from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_compare
+lazy from rebrew.compiler.compile import compile_to_obj
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.formats.binary_loader import extract_raw_bytes
+lazy from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
+lazy from rebrew.metadata.bindings import read_source_bindings, resolve_symbol
+lazy from rebrew.prove_simprocs import get_win32_simprocs
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import safe_shlex_split, untrusted_ident
+lazy from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
 
 log = logging.getLogger(__name__)
 

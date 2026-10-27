@@ -53,22 +53,19 @@ Usage:
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
-import struct
 from collections.abc import Callable, Iterable
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy import contextlib
+lazy import struct
+lazy from pathlib import Path
 
 if TYPE_CHECKING:
     import lief
 
 import typer
 
-from rebrew.cli import EXIT_ERROR, console, error_exit, json_print
-from rebrew.formats.binary_loader import decode_binary_name, load_binary
 from rebrew.formats.binary_model import BinaryInfo, SectionInfo
-from rebrew.formats.pe_headers import find_section, pe_layout, pe_lfanew, sections_at
 from rebrew.layout_meta import (
     ImportMeta,
     LayoutMetadata,
@@ -76,7 +73,10 @@ from rebrew.layout_meta import (
     extract_layout,
     load_package,
 )
-from rebrew.utils import atomic_write_bytes
+lazy from rebrew.cli import EXIT_ERROR, console, error_exit, json_print
+lazy from rebrew.formats.binary_loader import decode_binary_name, load_binary
+lazy from rebrew.formats.pe_headers import find_section, pe_layout, pe_lfanew, sections_at
+lazy from rebrew.utils import atomic_write_bytes
 
 # ---------------------------------------------------------------------------
 # Fixer protocol

@@ -40,16 +40,16 @@ CI entry point, no real project needed.  Also importable for tests::
 
 from __future__ import annotations
 
-import contextlib
-import json
-import shutil
-import subprocess
-import sys
-from pathlib import Path
-from typing import Any
+lazy import contextlib
+lazy import json
+lazy import shutil
+lazy import subprocess
+lazy import sys
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.config import FUNCTION_STRUCTURE_JSON
-from rebrew.utils import run_process_group
+lazy from rebrew.config import FUNCTION_STRUCTURE_JSON
+lazy from rebrew.utils import run_process_group
 
 _PROJECT_TOML = """\
 [project]

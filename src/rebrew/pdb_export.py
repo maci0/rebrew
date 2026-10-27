@@ -42,23 +42,23 @@ Usage::
 
 from __future__ import annotations
 
-import json
-import os
 import re
-import shutil
 import struct
-import subprocess
 from dataclasses import dataclass, field
-from pathlib import Path, PureWindowsPath
 from typing import Any, Literal
+lazy import json
+lazy import os
+lazy import shutil
+lazy import subprocess
+lazy from pathlib import Path, PureWindowsPath
 
 import typer
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
 from rebrew.errors import RebrewError
-from rebrew.formats.pe_symbols import KIND_FUNC, pe_symbols
-from rebrew.symbol_addrs import SymbolRow, function_symbol_rows, merge_pe_symbols
-from rebrew.utils import untrusted_ident
+lazy from rebrew.formats.pe_symbols import KIND_FUNC, pe_symbols
+lazy from rebrew.symbol_addrs import SymbolRow, function_symbol_rows, merge_pe_symbols
+lazy from rebrew.utils import untrusted_ident
 
 app = typer.Typer(
     help="Write a synthetic PDB for the target binary from rebrew's symbols.",

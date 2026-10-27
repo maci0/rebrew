@@ -26,10 +26,10 @@ files, 1 with the missing path named on stderr otherwise.
 
 from __future__ import annotations
 
-import subprocess
-import sys
-from importlib.metadata import EntryPoint, PackageNotFoundError, entry_points, version
-from pathlib import Path
+lazy import subprocess
+lazy import sys
+lazy from importlib.metadata import EntryPoint, PackageNotFoundError, entry_points, version
+lazy from pathlib import Path
 
 DIST_NAME = "rebrew"
 

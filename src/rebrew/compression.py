@@ -13,8 +13,8 @@ component and pays nothing for a codec the caller may never reach.
 
 from __future__ import annotations
 
-import gzip
 from typing import Literal
+lazy import gzip
 
 #: Max effort for build-once static assets.  The dashboard's per-request
 #: bodies are cheaper by design and keep their own levels.

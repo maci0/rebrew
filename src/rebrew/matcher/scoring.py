@@ -5,18 +5,18 @@ candidate function bytes, and diff_functions() for instruction-level diffs.
 Uses capstone for x86 disassembly and numpy for vectorized byte comparison.
 """
 
-import difflib
 import threading
 from collections import OrderedDict
-from collections.abc import Callable
-from typing import Any
+lazy import difflib
+lazy from collections.abc import Callable
+lazy from typing import Any
 
 import capstone
 
 from rebrew.errors import RebrewError
 from rebrew.utils import BYTES_PER_MIB
 
-from .core import Score, StructuralSimilarity
+lazy from .core import Score, StructuralSimilarity
 
 
 class SimilarityUnavailable(RebrewError, RuntimeError):

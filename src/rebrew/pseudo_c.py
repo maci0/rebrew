@@ -9,7 +9,7 @@ seeding both call it from here.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+lazy from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # Token sanitization

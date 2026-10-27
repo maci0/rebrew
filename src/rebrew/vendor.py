@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-import hashlib
-import shutil
-import subprocess
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Any
+lazy import hashlib
+lazy import shutil
+lazy import subprocess
+lazy import tomllib
+lazy from tempfile import TemporaryDirectory
+lazy from typing import Any
 
 import typer
 
 from rebrew.cli import EXIT_MISMATCH, RootOption, console, error_exit, json_print, require_root
 from rebrew.errors import RebrewError
-from rebrew.utils import atomic_write_bytes
+lazy from rebrew.utils import atomic_write_bytes
 
 
 class VendorError(RebrewError, ValueError):

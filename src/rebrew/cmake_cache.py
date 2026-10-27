@@ -7,33 +7,33 @@ shared Wine prefixes continue through the original uncached runner.
 
 from __future__ import annotations
 
-import base64
-import binascii
-import contextlib
-import hashlib
-import io
-import json
 import re
-import sys
-import tempfile
-from collections.abc import Callable
-from dataclasses import asdict
-from pathlib import Path
+lazy import base64
+lazy import binascii
+lazy import contextlib
+lazy import hashlib
+lazy import io
+lazy import json
+lazy import sys
+lazy import tempfile
+lazy from collections.abc import Callable
+lazy from dataclasses import asdict
+lazy from pathlib import Path
 
-from rebrew.c_parser import mask_msvc_syntax, parse_c_source
-from rebrew.compiler import toolchain
-from rebrew.compiler.cache import (
+lazy from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+lazy from rebrew.compiler import toolchain
+lazy from rebrew.compiler.cache import (
     CacheBackend,
     compile_cache_key,
     get_project_cache,
     include_specs,
     scan_include_closure,
 )
-from rebrew.compiler.compile import extract_include_dirs
-from rebrew.compiler.toolchain import ToolchainSpec
-from rebrew.compiler.unshare import backend_identity
-from rebrew.config import ConfigError, load_compile_cache_config, source_date_epoch
-from rebrew.utils import atomic_write_bytes
+lazy from rebrew.compiler.compile import extract_include_dirs
+lazy from rebrew.compiler.toolchain import ToolchainSpec
+lazy from rebrew.compiler.unshare import backend_identity
+lazy from rebrew.config import ConfigError, load_compile_cache_config, source_date_epoch
+lazy from rebrew.utils import atomic_write_bytes
 
 # Deliberately an eligibility whitelist, not another CL command-line parser.
 # Other switches still work, through the original uncached driver.

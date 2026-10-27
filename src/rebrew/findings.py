@@ -1,8 +1,8 @@
 """Look up address-keyed findings in a project's documents without changing them."""
 
 import re
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 

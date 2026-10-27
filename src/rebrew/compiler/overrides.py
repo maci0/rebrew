@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.config import ProjectConfig
-from rebrew.utils import preset_module_key
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.utils import preset_module_key
 
 
 def resolve_cflags(

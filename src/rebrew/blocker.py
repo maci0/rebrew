@@ -20,9 +20,9 @@ Usage::
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-from typing import Any
+lazy import re
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
@@ -35,8 +35,8 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import target_module
-from rebrew.metadata.bindings import min_valid_va_for
+lazy from rebrew.config import target_module
+lazy from rebrew.metadata.bindings import min_valid_va_for
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

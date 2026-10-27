@@ -18,8 +18,8 @@ configured toolchain and format handlers.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
@@ -35,9 +35,9 @@ from rebrew.cli import (
     require_positive_size,
     select_annotation,
 )
-from rebrew.compiler.compile import compile_to_obj
-from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
-from rebrew.utils import floor_pct
+lazy from rebrew.compiler.compile import compile_to_obj
+lazy from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
+lazy from rebrew.utils import floor_pct
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

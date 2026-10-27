@@ -4,23 +4,23 @@ Loads Ghidra function JSON, function lists, Ghidra data labels,
 and scans reversed directories for annotated source files.
 """
 
-import json
 import threading
-import warnings
-from pathlib import Path
-from typing import Any
+lazy import json
+lazy import warnings
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
-from rebrew.config import ProjectConfig, inventory_path_for, target_module
-from rebrew.metadata.bindings import (
+lazy from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
+lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
+lazy from rebrew.metadata.bindings import (
     SourceBinding,
     iter_source_bindings,
     library_bindings_for_file,
     library_inventory_bindings,
     read_source_bindings,
 )
-from rebrew.sources import iter_library_headers, iter_sources, scan_files
-from rebrew.utils import preset_module_key, read_json_text
+lazy from rebrew.sources import iter_library_headers, iter_sources, scan_files
+lazy from rebrew.utils import preset_module_key, read_json_text
 
 # ---------------------------------------------------------------------------
 # Ghidra function loader

@@ -8,14 +8,14 @@ recompiled PE's resources can be checked against the original (e.g. the
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
-from typing import Any
+lazy import hashlib
+lazy from typing import Any
 
 import typer
 
-from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, console, json_print
-from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, console, json_print
+lazy from rebrew.formats.binary_loader import load_binary
 
 app = typer.Typer(
     help="Compare / extract PE resource (.rsrc) sections.",

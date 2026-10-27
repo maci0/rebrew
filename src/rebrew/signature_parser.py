@@ -10,13 +10,13 @@ qualifiers, and function-pointer parameters are stripped or simplified.
 """
 
 import re
-import unicodedata
-from collections.abc import Iterator
-from pathlib import Path
-from typing import Any
+lazy import unicodedata
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
+lazy from typing import Any
 
-from rebrew.c_parser import get_ts_parser
-from rebrew.utils import detect_source_encoding
+lazy from rebrew.c_parser import get_ts_parser
+lazy from rebrew.utils import detect_source_encoding
 
 _PTR_NOSPACE_RE = re.compile(r"([a-zA-Z0-9_])\*")
 # Word conventions (``WINAPI``) and the longer ``__`` forms. ``__vectorcall``

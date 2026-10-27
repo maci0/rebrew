@@ -27,22 +27,22 @@ and inject events into them.
 
 from __future__ import annotations
 
-import atexit
-import contextlib
 import logging
-import os
 import re
-import secrets
-import shutil
-import subprocess
-import tempfile
 import threading
-import time
-from collections.abc import Callable
 from pathlib import Path
+lazy import atexit
+lazy import contextlib
+lazy import os
+lazy import secrets
+lazy import shutil
+lazy import subprocess
+lazy import tempfile
+lazy import time
+lazy from collections.abc import Callable
 
 from rebrew.config import XVFB_DISPLAY_ENV as _XVFB_DISPLAY_ENV
-from rebrew.config import check_env_display
+lazy from rebrew.config import check_env_display
 
 log = logging.getLogger(__name__)
 

@@ -25,34 +25,34 @@ style/object-format conventions the rest of rebrew needs to drive it.
 
 from __future__ import annotations
 
-import contextlib
-import json
-import logging
-import os
 import re
-import shutil
-import subprocess
 import threading
-import tomllib
-import unicodedata
-import uuid
-from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-from pathlib import Path
-from types import MappingProxyType
 from typing import Any, Literal
+lazy import contextlib
+lazy import json
+lazy import logging
+lazy import os
+lazy import shutil
+lazy import subprocess
+lazy import tomllib
+lazy import unicodedata
+lazy import uuid
+lazy from collections.abc import Callable, Mapping
+lazy from pathlib import Path
+lazy from types import MappingProxyType
 
-from rebrew.compiler.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
-from rebrew.compiler.toolchain_paths import TOOLCHAINS_REPO_URL, toolchains_repo
-from rebrew.compiler.toolchain_spec import (
+from rebrew.errors import RebrewError
+lazy from rebrew.compiler.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
+lazy from rebrew.compiler.toolchain_paths import TOOLCHAINS_REPO_URL, toolchains_repo
+lazy from rebrew.compiler.toolchain_spec import (
     ToolchainSpec,
     arg_style_from_str,
     flags_style_from_str,
 )
-from rebrew.config import TOOLCHAIN_OVERLAY_ENV, ConfigError, env_dir_path, source_date_epoch
-from rebrew.errors import RebrewError
-from rebrew.registry import RegistryError, merge_provider_dict
-from rebrew.utils import container_runtime, find_install_tool, run_process_group
+lazy from rebrew.config import TOOLCHAIN_OVERLAY_ENV, ConfigError, env_dir_path, source_date_epoch
+lazy from rebrew.registry import RegistryError, merge_provider_dict
+lazy from rebrew.utils import container_runtime, find_install_tool, run_process_group
 
 _RUN_TIMEOUT = 300
 

@@ -6,13 +6,12 @@ move) through :mod:`rebrew.rename_ops`, prints it, and writes it unless
 comments only with ``--comments``.
 """
 
-import unicodedata
-from pathlib import Path
-from typing import Any
+lazy import unicodedata
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
-from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import (
     EXIT_ERROR,
     EXPECTED_DIGEST_HELP,
@@ -23,7 +22,8 @@ from rebrew.cli import (
     option_default,
     require_config,
 )
-from rebrew.rename_ops import (
+lazy from rebrew.catalog import scan_reversed_dir
+lazy from rebrew.rename_ops import (
     KIND_DATA,
     KIND_FUNCTION,
     RenameError,
@@ -39,8 +39,8 @@ from rebrew.rename_ops import (
     redecorated_symbol,
     rename_source_name,
 )
-from rebrew.sources import contained_path, source_roots
-from rebrew.utils import rel_display_path
+lazy from rebrew.sources import contained_path, source_roots
+lazy from rebrew.utils import rel_display_path
 
 #: Offending sources named in a rename failure, one line each.
 _RENAME_FAILURE_FILE_LIMIT = 10

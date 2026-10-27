@@ -39,13 +39,13 @@ Usage:
 
 from __future__ import annotations
 
-import bisect
-import csv
-import io
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+lazy import bisect
+lazy import csv
+lazy import io
+lazy from collections.abc import Callable
+lazy from typing import Any
 
 import typer
 
@@ -57,11 +57,11 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.config import target_module
 from rebrew.formats.pe_symbols import KIND_FUNC, PeSymbolTable, pe_symbols
-from rebrew.metadata.bindings import iter_source_bindings
-from rebrew.sources import iter_sources
-from rebrew.utils import atomic_write_text, parse_int_literal
+lazy from rebrew.config import target_module
+lazy from rebrew.metadata.bindings import iter_source_bindings
+lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import atomic_write_text, parse_int_literal
 
 #: Trailing-comment markers the rich format uses inside ``// ...`` comments.
 _TYPE_PREFIX = "type:"

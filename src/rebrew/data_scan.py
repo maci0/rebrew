@@ -7,28 +7,28 @@ code, so compile-time callers (``coff_reloc``) and analysis commands import it
 without pulling in the ``rebrew data list`` Typer app (``rebrew.data``).
 """
 
-import json
 import logging
-import os
 import re
-import struct
-import unicodedata
-import warnings
-from collections import defaultdict
 from dataclasses import dataclass, field
-from itertools import combinations
-from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
+lazy import json
+lazy import os
+lazy import struct
+lazy import unicodedata
+lazy import warnings
+lazy from collections import defaultdict
+lazy from itertools import combinations
+lazy from pathlib import Path
+lazy from types import SimpleNamespace
 
-from rebrew.config import (
+lazy from rebrew.config import (
     ProjectConfig,
     arch_byte_order,
     arch_pointer_size,
     inventory_path_for,
 )
-from rebrew.metadata.data import module_visible_to_target
-from rebrew.utils import floor_pct, merged_span_bytes, read_source_text, rel_display_path
+lazy from rebrew.metadata.data import module_visible_to_target
+lazy from rebrew.utils import floor_pct, merged_span_bytes, read_source_text, rel_display_path
 
 log = logging.getLogger(__name__)
 

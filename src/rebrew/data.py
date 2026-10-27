@@ -5,9 +5,9 @@ ownership and BSS gaps, and generate declarations or proven layout padding.
 Scanning and dispatch detection live in ``rebrew.data_scan``.
 """
 
-import re
-from pathlib import Path
-from typing import Any
+lazy import re
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
@@ -24,8 +24,8 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import target_module
-from rebrew.data_scan import (
+lazy from rebrew.config import target_module
+lazy from rebrew.data_scan import (
     BssReport,
     build_dispatch_known_functions,
     enrich_with_sections,
@@ -34,8 +34,8 @@ from rebrew.data_scan import (
     scan_globals,
     verify_bss_layout,
 )
-from rebrew.metadata.storage import metadata_store
-from rebrew.utils import atomic_write_text, untrusted_ident
+lazy from rebrew.metadata.storage import metadata_store
+lazy from rebrew.utils import atomic_write_text, untrusted_ident
 
 app = typer.Typer(
     help="Inspect global data, edit metadata, and generate declarations and layout repairs.",

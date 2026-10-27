@@ -5,12 +5,12 @@ size resolution (jump table detection, padding absorption, etc.).
 """
 
 import logging
-import struct
-from pathlib import Path
 from typing import Any, TypedDict
+lazy import struct
+lazy from pathlib import Path
 
-from rebrew.config import ProjectConfig, arch_byte_order, arch_pointer_size
-from rebrew.sections import has_back_jumps, trim_trailing_padding
+lazy from rebrew.config import ProjectConfig, arch_byte_order, arch_pointer_size
+lazy from rebrew.sections import has_back_jumps, trim_trailing_padding
 
 logger = logging.getLogger(__name__)
 

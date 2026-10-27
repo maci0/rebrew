@@ -24,21 +24,21 @@ remain visible. Cache states are described by each workload.
 
 from __future__ import annotations
 
-import argparse
-import hashlib
-import json
-import math
-import os
-import platform
-import random
-import statistics
-import subprocess
-import sys
-import tempfile
-import time
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+lazy import argparse
+lazy import hashlib
+lazy import json
+lazy import math
+lazy import os
+lazy import platform
+lazy import random
+lazy import statistics
+lazy import subprocess
+lazy import sys
+lazy import tempfile
+lazy import time
+lazy from collections.abc import Callable
+lazy from typing import Any
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIXTURE = _REPO_ROOT / "tests" / "fixtures" / "mini_pe.exe"

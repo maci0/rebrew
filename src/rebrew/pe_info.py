@@ -35,27 +35,27 @@ Usage:
 
 from __future__ import annotations
 
-import datetime as dt
-import math
-from pathlib import Path
-from typing import Any
+lazy import datetime as dt
+lazy import math
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
-from rebrew.formats.binary_loader import decode_binary_name, detect_format_and_arch
-from rebrew.formats.pe_headers import PE32_PLUS_MAGIC
-from rebrew.formats.pe_symbols import (
+lazy from rebrew.formats.binary_loader import decode_binary_name, detect_format_and_arch
+lazy from rebrew.formats.pe_headers import PE32_PLUS_MAGIC
+lazy from rebrew.formats.pe_symbols import (
     PeDirectories,
     export_table,
     forwarder_target,
     pe_directories,
 )
-from rebrew.formats.pe_symbols import (
+lazy from rebrew.formats.pe_symbols import (
     as_list as _safe_list,
 )
-from rebrew.utils import untrusted_ident
+lazy from rebrew.utils import untrusted_ident
 
 # ---------------------------------------------------------------------------
 # Named constants

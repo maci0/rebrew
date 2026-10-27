@@ -40,22 +40,22 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import re
-import shlex
-import subprocess
-import sys
 import threading
-import typing
 from collections import OrderedDict
-from collections.abc import Iterable, Iterator
 from pathlib import Path
+lazy import os
+lazy import shlex
+lazy import subprocess
+lazy import sys
+lazy import typing
+lazy from collections.abc import Iterable, Iterator
 
 import typer
 
 from rebrew.c_parser import CALLING_CONVENTION
-from rebrew.cli import console, error_exit, json_print
-from rebrew.utils import (
+lazy from rebrew.cli import console, error_exit, json_print
+lazy from rebrew.utils import (
     atomic_write_text,
     is_safe_c_ident,
     load_tomllib,

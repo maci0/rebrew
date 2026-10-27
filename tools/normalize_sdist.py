@@ -26,17 +26,17 @@ Usage::
 
 from __future__ import annotations
 
-import argparse
-import gzip
-import io
-import os
-import stat
-import tarfile
-import tempfile
-import time
-import zipfile
-from collections.abc import Callable
-from pathlib import Path
+lazy import argparse
+lazy import gzip
+lazy import io
+lazy import os
+lazy import stat
+lazy import tarfile
+lazy import tempfile
+lazy import time
+lazy import zipfile
+lazy from collections.abc import Callable
+lazy from pathlib import Path
 
 _EXEC_MODE = 0o755
 _FILE_MODE = 0o644

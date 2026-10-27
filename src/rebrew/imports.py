@@ -11,8 +11,8 @@ Usage:
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
@@ -25,10 +25,10 @@ from rebrew.cli import (
     require_config,
     resolve_binary_arg,
 )
-from rebrew.config import target_module
-from rebrew.formats.import_table import find_import_stubs, parse_imports
-from rebrew.rename_ops import c_name_from_symbol
-from rebrew.utils import pe_name_token, read_source_text, untrusted_text
+lazy from rebrew.config import target_module
+lazy from rebrew.formats.import_table import find_import_stubs, parse_imports
+lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.utils import pe_name_token, read_source_text, untrusted_text
 
 
 def imports_payload(

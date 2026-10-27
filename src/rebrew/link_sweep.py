@@ -26,24 +26,24 @@ Usage::
 
 from __future__ import annotations
 
-import re
-import shlex
-import shutil
-import struct
-import subprocess
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
-from string import Formatter
-from typing import Any
+lazy import re
+lazy import shlex
+lazy import shutil
+lazy import struct
+lazy import subprocess
+lazy import tempfile
+lazy from pathlib import Path
+lazy from string import Formatter
+lazy from typing import Any
 
 import typer
-from rich.table import Table
+lazy from rich.table import Table
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.formats.pe_headers import pe_layout
-from rebrew.formats.pe_image import derive_link_options, parse_pe
-from rebrew.utils import run_process_group, untrusted_ident
+lazy from rebrew.formats.pe_headers import pe_layout
+lazy from rebrew.formats.pe_image import derive_link_options, parse_pe
+lazy from rebrew.utils import run_process_group, untrusted_ident
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

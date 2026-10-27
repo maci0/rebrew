@@ -18,14 +18,13 @@ unmatched and feeds them in.
 
 from __future__ import annotations
 
-import re
-import unicodedata
-from pathlib import Path
-from typing import Any
+lazy import re
+lazy import unicodedata
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
-from rebrew.catalog import cached_function_list
 from rebrew.cli import (
     TargetOption,
     console,
@@ -33,10 +32,11 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.config import target_module
-from rebrew.intake import classify_all
-from rebrew.metadata.bindings import iter_source_bindings
-from rebrew.sources import iter_sources
+lazy from rebrew.catalog import cached_function_list
+lazy from rebrew.config import target_module
+lazy from rebrew.intake import classify_all
+lazy from rebrew.metadata.bindings import iter_source_bindings
+lazy from rebrew.sources import iter_sources
 
 app = typer.Typer(
     help="Document unmatched functions as STUB skeletons + blockers.",

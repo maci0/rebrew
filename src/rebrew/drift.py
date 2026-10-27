@@ -30,9 +30,9 @@ opposing window can achieve.  Read both signs before attributing a cause.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+lazy from typing import Any
 
-from rebrew.utils import parse_int_literal
+lazy from rebrew.utils import parse_int_literal
 
 __all__ = [
     "DriftWindow",

@@ -12,14 +12,14 @@ Usage:
 
 from __future__ import annotations
 
-import struct
-from pathlib import Path
-from typing import Any
+lazy import struct
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
-from rebrew.cli import console, error_exit, json_print
-from rebrew.formats.lzexe import NotLzexeError, unpack_lzexe
+lazy from rebrew.cli import console, error_exit, json_print
+lazy from rebrew.formats.lzexe import NotLzexeError, unpack_lzexe
 
 app = typer.Typer(
     help="Unpack an LZEXE 0.90/0.91 compressed DOS executable.",

@@ -7,17 +7,17 @@ hashes, CPU/wall samples and call counts make the experiment reviewable.
 
 from __future__ import annotations
 
-import argparse
-import cProfile
-import hashlib
-import json
-import tempfile
-from collections.abc import Callable
-from dataclasses import asdict, is_dataclass
-from pathlib import Path
-from typing import Any
+lazy import argparse
+lazy import cProfile
+lazy import hashlib
+lazy import json
+lazy import tempfile
+lazy from collections.abc import Callable
+lazy from dataclasses import asdict, is_dataclass
+lazy from pathlib import Path
+lazy from typing import Any
 
-from tools.bench_hotpaths import measure
+lazy from tools.bench_hotpaths import measure
 
 CASES = (
     "parse_cache",

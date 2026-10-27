@@ -27,18 +27,18 @@ Usage::
 
 from __future__ import annotations
 
-import contextlib
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+lazy import contextlib
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
 from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
-from rebrew.pseudo_c import sanitize_tokens
-from rebrew.utils import atomic_write_text, read_source_text
+lazy from rebrew.pseudo_c import sanitize_tokens
+lazy from rebrew.utils import atomic_write_text, read_source_text
 
 # ---------------------------------------------------------------------------
 # Diagnostic-driven injection

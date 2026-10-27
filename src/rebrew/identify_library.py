@@ -20,16 +20,16 @@ written (same rule as ``rebrew library crt-match --fix-source``).
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.rename_ops import c_name_from_symbol
-from rebrew.utils import (
+lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.utils import (
     atomic_write_text,
     library_header_name,
     pe_name_token,

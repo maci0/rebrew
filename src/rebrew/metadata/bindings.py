@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-import bisect
-import copy
 import logging
-import os
 import re
 import threading
-from collections.abc import Callable
 from dataclasses import dataclass, field, fields
-from pathlib import Path
 from typing import Any, ClassVar, Final
+lazy import bisect
+lazy import copy
+lazy import os
+lazy from collections.abc import Callable
+lazy from pathlib import Path
 
-from rebrew.c_parser import extract_function_name_from_line
-from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
-from rebrew.utils import preset_module_key, read_source_text, rel_display_path
-from rebrew.workspace.status import MATCHED_STATUSES
+lazy from rebrew.c_parser import extract_function_name_from_line
+lazy from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
+lazy from rebrew.utils import preset_module_key, read_source_text, rel_display_path
+lazy from rebrew.workspace.status import MATCHED_STATUSES
 
 logger = logging.getLogger(__name__)
 MIN_VALID_VA = 0x1000

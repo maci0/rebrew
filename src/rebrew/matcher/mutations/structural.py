@@ -6,10 +6,10 @@ zero-extension/register clearing, and register-pressure fuzzing.
 
 from __future__ import annotations
 
-import random
-from typing import Any
+lazy import random
+lazy from typing import Any
 
-import tree_sitter as ts
+lazy import tree_sitter as ts
 
 from rebrew.matcher.ast_engine import (
     C_LANGUAGE,
@@ -37,7 +37,7 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_WHILE_LOOP,
     _LazyQuery,
 )
-from rebrew.matcher.mutations.runtime import (
+lazy from rebrew.matcher.mutations.runtime import (
     _apply_query_once,
     _cap_bytes,
     _capture,

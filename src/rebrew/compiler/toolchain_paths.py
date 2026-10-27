@@ -6,8 +6,8 @@ recompile-toolchains checkout, overridable with REBREW_TOOLCHAINS_DIR.
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
+lazy import os
+lazy from pathlib import Path
 
 TOOLCHAINS_REPO_URL = "https://github.com/maci0/recompile-toolchains"
 

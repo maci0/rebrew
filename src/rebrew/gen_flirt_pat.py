@@ -11,20 +11,20 @@ needed.  MIPS relocations mask the whole 4-byte instruction word (the fixup
 target field shares the word with the opcode).
 """
 
-import bisect
 import logging
-import struct
-from collections.abc import Iterator
-from pathlib import Path
-from typing import Any
+lazy import bisect
+lazy import struct
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 from typer.models import TyperPath
 
-from rebrew.cli import console, error_exit, json_print
-from rebrew.formats.archives import parse_archive as parse_archive
-from rebrew.formats.coff import load_coff
-from rebrew.utils import atomic_write_text
+lazy from rebrew.cli import console, error_exit, json_print
+lazy from rebrew.formats.archives import parse_archive as parse_archive
+lazy from rebrew.formats.coff import load_coff
+lazy from rebrew.utils import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
