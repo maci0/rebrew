@@ -495,37 +495,6 @@ def _ordinary_collisions(
     return sites
 
 
-def _collisions_not_owned_elsewhere(
-    project: _Project,
-    collisions: list[tuple[Path, int]],
-    new_name: str,
-    modules: frozenset[str] | None,
-) -> list[tuple[Path, int]]:
-    """Drop collisions that are another module's row with the same name.
-
-    Only rows of modules outside the selected definition's visible set qualify:
-    those compile to a different image (or behind their target's guard).
-    """
-    from rebrew.metadata.functions import load_metadata
-
-    if modules is None:
-        return collisions
-    from rebrew.utils import preset_module_key
-
-    owned: set[Path] = set()
-    for (module, _va), row in load_metadata(project.metadata_dir, deepcopy=False).items():
-        if str(row.get("name") or "") != new_name:
-            continue
-        if preset_module_key(module) in modules:
-            continue
-        stored = str(row.get("file") or "")
-        if not stored:
-            continue
-        root = project.cfg.root if row.get("kind") == "LIBRARY" else project.metadata_dir
-        owned.add((root / stored).resolve())
-    return [site for site in collisions if site[0].resolve() not in owned]
-
-
 def _row_name_collisions(
     project: _Project,
     new_name: str,
@@ -936,20 +905,13 @@ def plan_symbol_rename(
             collision_modules = frozenset(visible)
     collisions = _ordinary_collisions(project, new_name, collision_modules)
     if collisions and not require_ack:
-        # A shared tree carries one file per target whose bodies are guarded by
-        # that target's define. With --shared-definition the caller has reviewed
-        # the counterpart, so a collision that exists only because another
-        # module's own row names the same function is not a duplicate symbol in
-        # this target's image.
-        own_module = (
-            preset_module_key(selected.module) if selected is not None and selected.module else None
-        )
-        collisions = _collisions_not_owned_elsewhere(
-            project,
-            collisions,
-            new_name,
-            frozenset({own_module}) if own_module else collision_modules,
-        )
+        # One source tree carries each target's counterpart body in the same
+        # file behind that target's define, and shared headers declare the name
+        # for every caller. --shared-definition is the caller's reviewed
+        # acknowledgement of exactly that, so only a row of the selected
+        # definition's own module can still make the name a duplicate symbol;
+        # _row_name_collisions below enforces that.
+        collisions = []
     if collisions:
         raise RenameError(
             f"cannot rename {old_name} to {new_name}: {new_name} is already used at "
