@@ -317,3 +317,40 @@ def test_explicit_function_symbol_is_not_a_data_owner(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path, external_libs={"CRT": "./crt.lib"})
     enrich_library_owners(ScanResult(globals={entry.name: entry}), cfg, link_map)
     assert not entry.library_owners
+
+
+class TestSourceOwnershipScanCost:
+    def test_each_source_is_parsed_once_per_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+        from unittest.mock import Mock
+
+        from rebrew.c_parser import find_variable_roles
+
+        source = tmp_path / "globals.c"
+        source.write_text("int first; int second; extern int external;\n")
+        link_map = tmp_path / "game.map"
+        link_map.write_text(
+            " 0003:00000000 _first 20003000 globals.c.obj\n"
+            " 0003:00000004 _second 20003004 globals.c.obj\n"
+            " 0003:00000008 _external 20003008 globals.c.obj\n"
+        )
+        (tmp_path / "compile_commands.json").write_text(json.dumps([{"file": str(source)}]))
+        parse = Mock(wraps=find_variable_roles)
+        monkeypatch.setattr("rebrew.c_parser.find_variable_roles", parse)
+        cfg = _cfg(tmp_path, reversed_dir=tmp_path)
+        scan = ScanResult(
+            globals={name: GlobalEntry(name) for name in ("first", "second", "external")}
+        )
+        enrich_library_owners(scan, cfg, link_map)
+        assert parse.call_count == 1
+        assert scan.globals["first"].defined_in == ["globals.c"]
+        assert scan.globals["second"].defined_in == ["globals.c"]
+        assert scan.globals["external"].defined_in == []
+
+        source.write_text("int external;\n")
+        fresh = ScanResult(globals={"external": GlobalEntry("external")})
+        enrich_library_owners(fresh, cfg, link_map)
+        assert parse.call_count == 2
+        assert fresh.globals["external"].defined_in == ["globals.c"]

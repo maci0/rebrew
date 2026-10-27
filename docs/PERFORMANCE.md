@@ -3,6 +3,64 @@
 Measured facts about where rebrew's hot paths spend time, and what was done
 (and deliberately *not* done) about it.
 
+## Source and rename review (2026-10-28, 6.5.0)
+
+The review traced CLI source discovery, metadata joins, global ownership,
+rename planning, coverage/catalog reads, compiler cache identity, matching,
+and integration readers. Expected load is a local reversing workspace with
+thousands of source files and symbols. Native toolchain execution, remote
+Ghidra/BinSync latency, cold storage, and all possible plugin implementations
+were not benchmarked.
+
+The retained changes remove repeated work:
+
+- Ownership enrichment parses each map-selected source once per command.
+  The cache dies with the command; the next call sees edited sources.
+- Global definition/user association looks up actual file symbols instead of
+  testing every global against every file. Target-local collisions retain the
+  same declaration-site checks and output order.
+- Address-anchor and forbidden-metadata discovery use a native Tree-sitter
+  comment query. Strings remain opaque and function-body metadata comments
+  remain excluded. Query cursors are per call and compiled queries per thread.
+- Named-string inlining reuses external-source parses by complete content,
+  including when another source changes during the scan. Comment/literal
+  membership uses binary search over disjoint, sorted AST spans.
+- Rename plans index canonical source identities once. Exact path matching,
+  Windows separators, first-match behavior and the existing preview/freshness
+  checks are preserved; indexes are local to a plan.
+
+Measured on Python 3.15.1 with identical outputs in each paired comparison:
+
+| Workload | Before | After | Measurement |
+|---|---:|---:|---|
+| Guild `data list --json`, ownership-cache change | 58.6 s | 21.9 s | Wall time, 3,758 globals |
+| Anchor/comment discovery, fixed snapshot of 5,604 files | 6.334 s | 2.802 s | Wall time |
+| Named inlining, 30 strings and 200 other-file functions | 16.83 ms | 2.85 ms | Median process CPU, 5 samples |
+| Rename path lookup, 200 sources and 200 lookups | 70.32 ms | 0.717 ms | Median process CPU, index build included |
+
+The first row isolates the ownership-cache change. Subsequent Guild source and
+metadata edits prevented a comparable final command-wide timing. The rename
+row measures path resolution within a plan, not the whole rename operation.
+Synthetic fixtures are prepared outside the timed region, with one untimed
+warmup. Benchmark controls and the named-inlining workload are reproducible:
+
+```sh
+uv run --frozen python -m tools.bench_source_scans named_string_reuse
+uv run --frozen python -m tools.bench_source_scans include_scan
+uv run --frozen python -m tools.bench_source_scans struct_scan
+```
+
+Two additional query conversions, for includes and struct discovery, increased
+latency by about 1.6–1.7 times on their fixtures and were reverted. The include
+and struct workloads remain controls. SIMD/NumPy and mmap were not added:
+file reads accounted for 0.18 s in a 77 s profiled run, while anchor discovery
+accounted for about 35 s. The retained query addresses Python AST traversal.
+These profile timings include profiler overhead and are not command benchmarks.
+
+Regression tests count ownership parses and rename identity conversions, check
+updates between calls and during inlining, and preserve malformed-anchor,
+comment/string, sibling-path, TU-local and cross-target cases.
+
 ## Metadata store resolution (2026-10-19)
 
 The backend-neutral storage layer resolves a logical store per cached read,

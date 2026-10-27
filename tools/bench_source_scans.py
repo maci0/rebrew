@@ -1,4 +1,4 @@
-"""Focused CPU-time workloads for the ten source-scan optimization rounds.
+"""Focused CPU-time workloads for source-scan optimization rounds.
 
 Run with ``uv run --frozen python -m tools.bench_source_scans CASE``. Compare
 the same runner against two source checkouts via PYTHONPATH; inputs, output
@@ -30,6 +30,9 @@ CASES = (
     "variable_lines",
     "asm_tokens",
     "pointer_names",
+    "include_scan",
+    "struct_scan",
+    "named_string_reuse",
 )
 
 
@@ -99,6 +102,36 @@ def workload(case: str, root: Path) -> Callable[[], Any]:
         params = ", ".join(f"int p{i}" for i in range(20))
         source = "".join(f"extern int (*callback{i})({params});\n" for i in range(300))
         return lambda: c_parser.find_extern_variables(source)
+    if case == "include_scan":
+        from rebrew.source_paths import rebase_includes
+
+        (root / "local.h").write_text("int provider;\n")
+        source = '#include "local.h"\nint table[] = {' + ",".join(map(str, range(5000))) + "};\n"
+        return lambda: rebase_includes(source, root, root / "out")
+    if case == "struct_scan":
+        from rebrew.type_metadata import struct_definition_names
+
+        source = "typedef struct ITEM { int value; } Item;\nint table[] = {"
+        source += ",".join(map(str, range(5000))) + "};\n"
+        return lambda: sorted(struct_definition_names(source))
+    if case == "named_string_reuse":
+        from rebrew.inline_strings import inline_named_strings
+
+        owner, other = root / "owner.c", root / "other.c"
+        names = [f"s_value_{i}" for i in range(30)]
+        owner.write_text(
+            "".join(f'char {name}[] = "value";\n' for name in names)
+            + "int f(void) { return "
+            + "+".join(name + "[0]" for name in names)
+            + "; }\n"
+        )
+        other.write_text(
+            "/* "
+            + " ".join(names)
+            + " */\n"
+            + "".join(f"int f{i}(void) {{ return {i}; }}\n" for i in range(200))
+        )
+        return lambda: inline_named_strings(owner, "s_", [other], True)
     raise ValueError(case)
 
 

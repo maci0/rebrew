@@ -233,3 +233,18 @@ def test_stacked_identity_markers_keep_shared_function_users(tmp_path: Path) -> 
     )
     cfg = SimpleNamespace(module="SERVER", target_modules={"SERVER", "GOLD"}, metadata_dir=tmp_path)
     assert scan_globals(tmp_path, cfg).globals["value"].referenced_in == ["shared.c"]
+
+
+class TestRoleIndexing:
+    def test_users_keep_file_order_and_unknown_identifiers_do_not_create_globals(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "globals.h").write_text("extern int first; extern int second;\n")
+        (tmp_path / "a.c").write_text("int first; int a(void) { return second + unknown; }\n")
+        (tmp_path / "z.c").write_text("int second; int z(void) { return first + second; }\n")
+        scan = scan_globals(tmp_path)
+        assert set(scan.globals) == {"first", "second"}
+        assert scan.globals["first"].defined_in == ["a.c"]
+        assert scan.globals["second"].defined_in == ["z.c"]
+        assert scan.globals["first"].referenced_in == ["z.c"]
+        assert scan.globals["second"].referenced_in == ["a.c", "z.c"]

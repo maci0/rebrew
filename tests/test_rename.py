@@ -2204,3 +2204,30 @@ class TestReviewedReferenceOwners:
         with pytest.raises(rename_ops.RenameError, match="inputs changed"):
             rename_ops.apply_rename_plan(cfg, plan)
         assert before == snapshot(tmp_path)
+
+
+class TestRenamePathIndex:
+    def test_lookups_do_not_rescan_sources_or_confuse_sibling_basenames(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import Mock
+
+        from rebrew.metadata.functions import identity_file
+
+        files = []
+        for directory in ("left", "right"):
+            (tmp_path / directory).mkdir()
+            files.append(_src(tmp_path, f"{directory}/same.c", "int value;\n"))
+        _patch_sources(monkeypatch, files)
+        project = rename_ops._Project(_cfg(tmp_path))
+        identify = Mock(wraps=identity_file)
+        monkeypatch.setattr("rebrew.metadata.functions.identity_file", identify)
+        for _ in range(50):
+            assert project.path_for_stored("left/same.c") == files[0]
+            assert project.path_for_stored("right\\same.c") == files[1]
+            assert project.path_for_stored("same.c") is None
+            assert project.path_for_stored("") is None
+        assert identify.call_count == len(files)
+        added = _src(tmp_path, "new.c", "int another;\n")
+        _patch_sources(monkeypatch, [*files, added])
+        assert rename_ops._Project(_cfg(tmp_path)).path_for_stored("new.c") == added

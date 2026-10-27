@@ -77,3 +77,21 @@ class TestAnchorCache:
         oversized = "// ADDRESS: CACHE 0x1000\nint value;\n" + " " * 101
         assert parse_address_anchors(oversized)[0].name == "value"
         assert oversized not in anchors._ANCHOR_CACHE
+
+
+class TestNativeCommentQueries:
+    def test_metadata_comments_keep_source_order_and_ignore_function_bodies(self) -> None:
+        from rebrew.metadata.anchors import metadata_comments
+
+        source = (
+            'char *text = "/* STATUS: EXACT */";\n'
+            "/* NAME: first */\n"
+            "void f(void) { /* STATUS: EXACT */ { /* NAME: local */ } }\n"
+            "#if FEATURE\n/* SIZE: 4 */\n#endif\n"
+        )
+        assert metadata_comments(source) == [(2, "NAME"), (5, "SIZE")]
+
+    def test_comments_within_function_still_bind_address_anchors(self) -> None:
+        source = "void f(void) {\n// ADDRESS: TEST 0x1000\nextern int value;\n}\n"
+        anchors = parse_address_anchors(source)
+        assert [(a.name, a.kind, a.definition_line) for a in anchors] == [("value", "DATA", 3)]

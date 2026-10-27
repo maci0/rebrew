@@ -135,14 +135,11 @@ class TestSourcePurposeWork:
 
 
 class TestCommentScanWork:
-    def test_ignored_function_bodies_are_not_walked(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from types import SimpleNamespace
-
-        from rebrew.c_parser import parse_c_source
+    def test_comment_filter_does_not_walk_python_ast(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.c_parser import comment_nodes
         from rebrew.metadata.anchors import metadata_comments
 
         source = "/* NOTE: global */\nint f(void) { /* NOTE: local */ return 0; }\n"
-        tree, raw = parse_c_source(source)
 
         class Node:
             def __init__(self, node: Any) -> None:
@@ -153,12 +150,11 @@ class TestCommentScanWork:
 
             @property
             def named_children(self) -> list[Any]:
-                assert self.node.type != "function_definition", "walked an ignored function body"
-                return [Node(child) for child in self.node.named_children]
+                pytest.fail("comment filtering walked the Python AST")
 
         monkeypatch.setattr(
-            "rebrew.metadata.anchors.parse_c_source",
-            lambda text: (SimpleNamespace(root_node=Node(tree.root_node)), raw),
+            "rebrew.metadata.anchors.comment_nodes",
+            lambda tree: [Node(node) for node in comment_nodes(tree)],
         )
         assert metadata_comments(source) == [(1, "NOTE")]
 

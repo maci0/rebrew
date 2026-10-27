@@ -357,3 +357,69 @@ class TestNamedMode:
         row = load_data_metadata(tmp_path)[("game.dll", 0x10027000)]
         assert row["storage_kind"] == "literal"
         assert row["updated_by"] == "inline-strings"
+
+
+class TestNamedScanBudget:
+    def test_other_source_parsed_once_and_next_call_sees_edits(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import Mock
+
+        from rebrew import inline_strings
+
+        source = tmp_path / "owner.c"
+        source.write_text(
+            'char s_a[] = "a"; char s_b[] = "b";\nint f(void) { return s_a[0] + s_b[0]; }\n'
+        )
+        other = tmp_path / "other.c"
+        other.write_text("/* s_a and s_b are only mentioned in this comment. */\n")
+        parse = Mock(wraps=inline_strings._parse_source)
+        monkeypatch.setattr(inline_strings, "_parse_source", parse)
+        result = inline_strings.inline_named_strings(source, "s_", [other], True)
+        assert result.inlined == {"s_a": 1, "s_b": 1}
+        assert parse.call_count == 2  # Owner and other source, independent of string count.
+        other.write_text("#define EXTERNAL s_b\n")
+        result = inline_strings.inline_named_strings(source, "s_", [other], True)
+        assert "s_b" in result.skipped
+        assert result.inlined == {"s_a": 1}
+
+    def test_edit_during_scan_does_not_reuse_old_parse(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import inline_strings
+
+        source = tmp_path / "owner.c"
+        source.write_text(
+            'char s_a[] = "a"; char s_b[] = "b";\nint f(void) { return s_a[0] + s_b[0]; }\n'
+        )
+        other = tmp_path / "other.c"
+        from rebrew.utils import read_source_text
+
+        read = read_source_text
+        calls = 0
+
+        def changing_read(path: Path) -> tuple[str, str]:
+            nonlocal calls
+            if path == other:
+                calls += 1
+                return ("/* s_a s_b */" if calls == 1 else "#define EXTERNAL s_b\n", "utf-8")
+            return read(path)
+
+        monkeypatch.setattr(inline_strings, "read_source_text", changing_read)
+        result = inline_strings.inline_named_strings(source, "s_", [other], True)
+        assert result.inlined == {"s_a": 1}
+        assert result.skipped == {"s_b": f"used from {other}"}
+
+
+class TestOccurrenceIndex:
+    def test_literals_comments_and_identifier_boundaries_stay_distinct(self) -> None:
+        from rebrew.inline_strings import _code_occurrences, _parse_source
+
+        source = (
+            '/* s_value */ char *example = "s_value";\n'
+            "// s_value\nint s_value_extra;\n"
+            "int f(void) { return s_value[0] + s_value[1]; }\n"
+        )
+        _, parsed = _parse_source(source, "s_")
+        assert _code_occurrences(parsed, "s_value") == 2
+        assert _code_occurrences(parsed, "missing") == 0

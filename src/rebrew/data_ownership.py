@@ -318,6 +318,7 @@ def enrich_library_owners(
         except (OSError, ValueError, KeyError, TypeError) as exc:
             log.warning("cannot resolve data object sources from %s: %s", compilation_db, exc)
     function_symbols = {row.name for row in rows if row.is_function}
+    definitions_by_source: dict[Path, set[str]] = {}
     for entry in scan.globals.values():
         spellings = ["_" + entry.name, entry.name] if cfg.arch == "x86_32" else [entry.name]
         if entry.link_symbol:
@@ -365,10 +366,14 @@ def enrich_library_owners(
                 from rebrew.c_parser import find_variable_roles
                 from rebrew.utils import read_source_text, rel_display_path
 
-                try:
-                    source_definitions, _, _ = find_variable_roles(read_source_text(source_path)[0])
-                except OSError:
-                    source_definitions = set()
+                if source_path not in definitions_by_source:
+                    try:
+                        definitions_by_source[source_path], _, _ = find_variable_roles(
+                            read_source_text(source_path)[0]
+                        )
+                    except OSError:
+                        definitions_by_source[source_path] = set()
+                source_definitions = definitions_by_source[source_path]
                 display = rel_display_path(source_path, cfg.reversed_dir)
                 if entry.name in source_definitions:
                     entry.defined_in.append(display)
