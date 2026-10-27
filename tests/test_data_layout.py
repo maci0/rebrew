@@ -1704,6 +1704,41 @@ def test_data_symbols_includes_bss_when_asked(tmp_path: Path) -> None:
     assert data_symbols(meta, (".data", ".bss")) == {"g_init": 0x1000, "g_zero": 0x2000}
 
 
+def test_fill_data_keeps_one_pad_per_address(tmp_path: Path) -> None:
+    """A pad is identified by its address, not by the TU that owns it today.
+
+    `fill` re-emitted a pad when the most-referencing owner changed between
+    runs, producing two declarations of different sizes for one address.
+    """
+    from rebrew.data_layout import fill_data
+
+    data_base = 0x10027000
+    raw = b"\x01\x00\x00\x00" + b"\x00" * 0xFC
+    _write_layout(tmp_path, data_base, len(raw), 0x1000)
+    (tmp_path / "original").mkdir(exist_ok=True)
+    (tmp_path / "original" / "x.dll").write_bytes(
+        _make_pe(raw, image_base=0x10000000, data_va=0x18000)
+    )
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.c").write_text("extern int g_first;\n", encoding="utf-8")
+    meta = tmp_path / "rebrew-data.toml"
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base + 0x40:x}"]\nname = "g_first"\nsection = ".data"\ntype = "int"\n',
+        encoding="utf-8",
+    )
+    first = fill_data(tmp_path, meta, tmp_path / "original" / "x.dll", src)
+    assert first["init_pads"] >= 1, first
+    text_after_first = (src / "a.c").read_text(encoding="utf-8")
+    fill_data(tmp_path, meta, tmp_path / "original" / "x.dll", src)
+    import re
+
+    names = re.findall(r"unsigned char (_dpad_[0-9a-f]+)\s*\[", (src / "a.c").read_text())
+    assert len(names) == len(set(names)), names
+    assert text_after_first in (src / "a.c").read_text(encoding="utf-8")
+
+
 def test_fill_data_emits_bss_pads(tmp_path: Path) -> None:
     """`.bss` globals live past the raw end and must become zero-init pads.
 

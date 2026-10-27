@@ -765,6 +765,26 @@ def audit_layout(
 # ---------------------------------------------------------------------------
 
 
+_PAD_DECL_RE = re.compile(r"unsigned char (_dpad_[0-9a-f]+)\s*\[")
+
+
+def _existing_pad_names(files: Sequence[Path]) -> set[str]:
+    """Names of pads this tree already declares, in any owner TU.
+
+    `fill` used to re-emit a pad whenever the most-referencing TU changed between
+    runs, so one address ended up as two declarations of different sizes in two
+    files. A pad is identified by its address, not by its current owner.
+    """
+    names: set[str] = set()
+    for path in files:
+        try:
+            text, _encoding = read_source_text(path)
+        except OSError:
+            continue
+        names.update(_PAD_DECL_RE.findall(text))
+    return names
+
+
 def fill_data(
     root: Path,
     metadata: Path,
@@ -804,6 +824,15 @@ def fill_data(
     if not by_addr:
         return {"init_pads": 0, "bss_pads": 0}
     references = reference_counts(files)
+    known_pads = _existing_pad_names(files)
+
+    def emit_pad(owner: Path, name: str, size: int, init: str | None) -> bool:
+        if name in known_pads:
+            return False
+        if insert_definition(owner, name, "unsigned char", size, init, dry_run):
+            known_pads.add(name)
+            return True
+        return False
 
     n_bss = n_pad = 0
 
@@ -839,7 +868,7 @@ def fill_data(
         if addr >= raw_end:
             # BSS region: anonymous zero-init pad (named symbols keep their
             # scalar/field identity; the array region is the gap itself)
-            if insert_definition(owner, f"_dpad_{addr:x}", "unsigned char", gap, None, dry_run):
+            if emit_pad(owner, f"_dpad_{addr:x}", gap, None):
                 n_bss += 1
         elif raw_end < nxt_addr:
             # The gap straddles raw_end: the byte-exact run stops there and the
@@ -848,13 +877,9 @@ def fill_data(
                 start = addr - data_base
                 data = orig[start : raw_end - data_base]
                 init = hex_list(data)
-                if insert_definition(
-                    owner, f"_dpad_{addr:x}", "unsigned char", raw_end - addr, init, dry_run
-                ):
+                if emit_pad(owner, f"_dpad_{addr:x}", raw_end - addr, init):
                     n_pad += 1
-            if insert_definition(
-                owner, f"_dpad_{raw_end:x}", "unsigned char", nxt_addr - raw_end, None, dry_run
-            ):
+            if emit_pad(owner, f"_dpad_{raw_end:x}", nxt_addr - raw_end, None):
                 n_bss += 1
         elif not bss_only:
             # initialized region: byte-exact run from the original
@@ -862,9 +887,7 @@ def fill_data(
             end = nxt_addr - data_base
             data = orig[start:end]
             init = hex_list(data)
-            if insert_definition(
-                owner, f"_dpad_{addr:x}", "unsigned char", end - start, init, dry_run
-            ):
+            if emit_pad(owner, f"_dpad_{addr:x}", end - start, init):
                 n_pad += 1
     return {"init_pads": n_pad, "bss_pads": n_bss}
 
