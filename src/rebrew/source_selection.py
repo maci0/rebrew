@@ -10,6 +10,10 @@ lazy from rebrew.sources import iter_sources
 lazy from rebrew.utils import preset_module_key
 
 
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="surrogateescape")
+
+
 def collect_target_sources(
     cfg: ProjectConfig, target_module_name: str
 ) -> tuple[list[Path], list[Path]]:
@@ -56,6 +60,16 @@ def collect_target_sources(
         ]
         anns.extend(library_entries.get(src.resolve(), []))
         if not anns:
+            # An anchor that resolved to no live row still names a module: a
+            # leftover of another target's claim must not join this build as a
+            # shared helper, or it drags that target's unbound callees in.
+            from rebrew.metadata.anchors import parse_address_anchors
+
+            raw = parse_address_anchors(_read(src))
+            modules_named = {preset_module_key(a.module) for a in raw if a.va}
+            if modules_named and preset_module_key(target_module_name) not in modules_named:
+                foreign.append(src.resolve())
+                continue
             relative = identity_file(src.resolve(), cfg.metadata_dir.resolve())
             modules = {
                 record.module

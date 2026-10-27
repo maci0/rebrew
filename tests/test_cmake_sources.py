@@ -54,6 +54,27 @@ def _project(tmp_path: Path, sources: dict[str, str]) -> ProjectConfig:
     return load_config(root=tmp_path, target="server_dll")
 
 
+def test_leftover_anchor_of_another_target_stays_foreign(tmp_path: Path) -> None:
+    """A file whose only anchor names another target must not join this build.
+
+    Its claim was retired or rebound elsewhere, so the anchor resolves to no
+    live row. Treating it as an unbound helper pulls that target's closures
+    into this binary.
+    """
+    cfg = _project(
+        tmp_path,
+        {
+            "src/shared/GOLDTL.leftover.c": (
+                "/* ADDRESS: CLIENT 0x401000 */\nint __cdecl fcn_00401000(void) { return 1; }\n"
+            ),
+        },
+    )
+    own, foreign = collect_target_sources(cfg, "SERVER")
+    leftover = tmp_path / "src/shared/GOLDTL.leftover.c"
+    assert leftover not in own
+    assert leftover in foreign
+
+
 def test_stacked_file_belongs_to_both_targets(tmp_path: Path) -> None:
     """One stacked file serves every target whose marker it carries."""
     _project(
