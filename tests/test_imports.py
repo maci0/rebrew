@@ -4,6 +4,8 @@ import struct
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from bin_util import make_elf, make_pe
@@ -761,11 +763,13 @@ class TestImportsMarkRebindRetired:
         with pytest.raises(ValueError, match="--rebind-retired"):
             mark_import_stubs(cfg, {0x401000: "MessageBoxA"}, dry_run=False)
 
-    def test_mark_rebinds_retired_with_the_flag(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("module", ["SERVER", "server"])
+    def test_mark_rebinds_retired_with_the_flag(self, tmp_path: Path, module: str) -> None:
         from rebrew.imports import mark_import_stubs
         from rebrew.metadata.functions import get_entry
 
         cfg = self._retired_row(tmp_path)
+        cfg.module = module
         added = mark_import_stubs(
             cfg, {0x401000: "MessageBoxA"}, dry_run=False, rebind_retired=True
         )
@@ -781,6 +785,26 @@ class TestImportsMarkRebindRetired:
         assert history[-1]["replacement"]["symbol"] == "MessageBoxA"
         header = cfg.reversed_dir / "library_imports.h"
         assert header.read_text(encoding="utf-8").startswith("/* Auto-generated")
+
+    def test_mark_refuses_concurrent_metadata_changes(self, tmp_path: Path) -> None:
+        from rebrew.imports import mark_import_stubs
+        from rebrew.metadata.functions import get_entry, update_field
+        from rebrew.naming import load_existing_vas
+
+        cfg = self._retired_row(tmp_path)
+
+        def scan(*args: Any) -> Any:
+            result = load_existing_vas(*args)
+            update_field(cfg.metadata_dir, 0x401000, "size", 6, module="SERVER")
+            return result
+
+        with (
+            patch("rebrew.naming.load_existing_vas", side_effect=scan),
+            pytest.raises(ValueError, match="source bindings changed"),
+        ):
+            mark_import_stubs(cfg, {0x401000: "MessageBoxA"}, rebind_retired=True)
+        assert len(get_entry(cfg.metadata_dir, 0x401000, "SERVER")["binding_history"]) == 1
+        assert not (cfg.reversed_dir / "library_imports.h").exists()
 
     def test_mark_rebind_dry_run_writes_nothing(self, tmp_path: Path) -> None:
         from rebrew.imports import mark_import_stubs

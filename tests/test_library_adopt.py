@@ -295,6 +295,54 @@ class TestLibraryAdoptNoClaim:
         assert "status" not in row
         assert (cfg.reversed_dir / "library_mylib.h").is_file()
 
+    def test_concurrent_claim_is_not_overwritten(self, tmp_path: Path) -> None:
+        cfg = _bare_project(tmp_path)
+
+        def claim(*_args: object) -> None:
+            record_function_identity(
+                cfg.metadata_dir,
+                module="SERVER",
+                va=VA,
+                file="src/claimed.c",
+                name="claimed",
+                symbol="_claimed",
+                kind="FUNCTION",
+            )
+
+        with patch("rebrew.identify_library.prepare_library_header", side_effect=claim):
+            result = _adopt(cfg, tmp_path / "mylib.lib", "--json")
+        assert result.exit_code == 2, result.output
+        assert "inputs changed" in result.output
+        assert get_entry(cfg.metadata_dir, VA, "SERVER")["file"] == "src/claimed.c"
+
+    def test_inventory_extent_change_invalidates_the_preview(self, tmp_path: Path) -> None:
+        import json
+
+        cfg = _bare_project(tmp_path)
+        lib = tmp_path / "mylib.lib"
+        preview = _adopt(cfg, lib, "--dry-run", "--json")
+        assert preview.exit_code == 0, preview.output
+        digest = json.loads(preview.output)["input_digest"]
+        cfg.inventory_file.write_text(json.dumps([{"va": VA, "size": len(CODE) - 1}]))
+        result = _adopt(cfg, lib, "--expected-digest", digest, "--json")
+        assert result.exit_code == 2, result.output
+        assert not get_entry(cfg.metadata_dir, VA, "SERVER")
+        assert not (cfg.reversed_dir / "library_mylib.h").exists()
+
+    def test_address_only_row_preserves_historical_verdict(self, tmp_path: Path) -> None:
+        from rebrew.metadata.functions import update_field
+
+        cfg = _bare_project(tmp_path)
+        update_field(cfg.metadata_dir, VA, "size", len(CODE), module="SERVER")
+        update_source_status(cfg.metadata_dir, "EXACT", module="SERVER", va=VA)
+        result = _adopt(cfg, tmp_path / "mylib.lib", "--json")
+        assert result.exit_code == 0, result.output
+        row = get_entry(cfg.metadata_dir, VA, "SERVER")
+        assert row["kind"] == "LIBRARY"
+        assert "status" not in row
+        assert row["binding_history"][-1]["previous"]["status"] == "EXACT"
+        assert row["size"] == len(CODE)
+
 
 class TestLibraryAdoptSymbolNames:
     """A unique archive match with no C-identifier name still gets a row."""

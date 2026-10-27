@@ -94,6 +94,8 @@ def bind_source_cmd(
 
     cfg = require_config(target=target, json_mode=json_output)
     address = parse_va(va, json_mode=json_output)
+    store = metadata_store(cfg.metadata_dir / METADATA_FILENAME)
+    digest = store.digest()
     target_module_name = preset_module_key(target_module(cfg))
     known = any(
         entry.va == address and preset_module_key(entry.module or "") == target_module_name
@@ -125,31 +127,37 @@ def bind_source_cmd(
         "kind": "LIBRARY",
     }
     if not dry_run:
-        if retired:
-            change_source_binding(
-                cfg.metadata_dir,
-                target_module(cfg),
-                address,
-                reason=f"Compiled library source {identity['file']} provides {symbol}.",
-                identity={**identity, "name": c_name_from_symbol(symbol)},
-                project_root=cfg.root,
-            )
-        elif not existing:
-            record_function_identity(
-                cfg.metadata_dir,
-                module=target_module(cfg),
-                va=address,
-                file=identity["file"],
-                kind="LIBRARY",
-                name=c_name_from_symbol(symbol),
-                symbol=symbol,
-                updated_by="match",
-            )
-        else:
-            record_function_rows(
-                cfg.metadata_dir,
-                [{"module": target_module(cfg), "va": address, "identity": identity}],
-            )
+        with metadata_write_lock(cfg.metadata_dir, METADATA_FILENAME):
+            # The claim check above ran unlocked; a concurrent claim must win.
+            if store.digest() != digest:
+                error_exit(
+                    "Library source bindings changed; rerun bind-source", json_mode=json_output
+                )
+            if retired:
+                change_source_binding(
+                    cfg.metadata_dir,
+                    target_module(cfg),
+                    address,
+                    reason=f"Compiled library source {identity['file']} provides {symbol}.",
+                    identity={**identity, "name": c_name_from_symbol(symbol)},
+                    project_root=cfg.root,
+                )
+            elif not existing:
+                record_function_identity(
+                    cfg.metadata_dir,
+                    module=target_module(cfg),
+                    va=address,
+                    file=identity["file"],
+                    kind="LIBRARY",
+                    name=c_name_from_symbol(symbol),
+                    symbol=symbol,
+                    updated_by="match",
+                )
+            else:
+                record_function_rows(
+                    cfg.metadata_dir,
+                    [{"module": target_module(cfg), "va": address, "identity": identity}],
+                )
     payload = {"va": f"0x{address:08x}", "provider": "compiled", **identity, "dry_run": dry_run}
     if json_output:
         json_print(payload)
@@ -501,10 +509,11 @@ def adopt_cmd(
 
     The match must be unique against the archives the target links; the row then
     becomes kind LIBRARY with the archive family's declaration header and the
-    native symbol. A prior claim (FUNCTION/STUB or a retired binding) goes to
-    binding_history; a VA with no row gets the LIBRARY row directly, sized from
-    the discovery inventory. The preview digest guards the write. Vendored-object
-    matches are refused: bind their source with ``rebrew library bind-source``.
+    native symbol. A prior row (FUNCTION/STUB claim, retired binding, or an
+    address-only row with its verdict) goes to binding_history; a VA with no row
+    gets the LIBRARY row directly, sized from the discovery inventory. The preview
+    digest, which covers that extent, guards the write. Vendored-object matches
+    are refused: bind their source with ``rebrew library bind-source``.
     """
     import hashlib
     import json as json_mod
@@ -604,6 +613,7 @@ def adopt_cmd(
                 "binary": binary_hash,
                 "metadata": metadata_digest,
                 "va": address,
+                "size": size,
                 "identity": identity,
                 "object": object_label,
                 "reason": reason.strip(),
@@ -616,7 +626,8 @@ def adopt_cmd(
     if not dry_run:
         prepare_library_header(cfg, header)
     try:
-        if row.get("file") or row.get("binding_history"):
+        # An address-only row's verdict goes to binding_history like a claim's.
+        if row:
             result = change_source_binding(
                 cfg.metadata_dir,
                 module,
@@ -629,16 +640,23 @@ def adopt_cmd(
             )
         else:
             if not dry_run:
-                record_function_identity(
-                    cfg.metadata_dir,
-                    module=module,
-                    va=address,
-                    file=identity["file"],
-                    kind="LIBRARY",
-                    name=identity["name"],
-                    symbol=identity["symbol"],
-                    updated_by="match",
-                )
+                with metadata_write_lock(cfg.metadata_dir, METADATA_FILENAME):
+                    # A claim recorded since the scan must not be overwritten.
+                    if (
+                        metadata_store(cfg.metadata_dir / METADATA_FILENAME).digest()
+                        != metadata_digest
+                    ):
+                        raise ValueError("library adopt inputs changed; review a new preview")
+                    record_function_identity(
+                        cfg.metadata_dir,
+                        module=module,
+                        va=address,
+                        file=identity["file"],
+                        kind="LIBRARY",
+                        name=identity["name"],
+                        symbol=identity["symbol"],
+                        updated_by="match",
+                    )
             result = {"action": "record"}
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)

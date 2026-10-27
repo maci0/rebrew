@@ -45,7 +45,9 @@ Replay: `pytest tests/test_inventory_repair.py::TestReviewedRetirement`.
 
 ## Record a proved library identity over an existing FUNCTION row (2026-10-23)
 
-Status: implemented as `rebrew library adopt` (2026-10-24); see CHANGELOG.
+Status: implemented as `rebrew library adopt` (2026-10-24), extended in
+6.2.0 to unclaimed inventory functions and mangled symbols. Since 6.4.0 the
+discovery extent participates in the preview digest.
 
 Guild's client campaigns keep finding functions whose stored identity is wrong:
 the row says FUNCTION/STUB, but the bytes are stock library code.
@@ -77,7 +79,22 @@ binary.
 Guild replay/evidence: `.scratch/lead/library-stubs.json` (per-VA stock match
 sweep) and the 2026-10-23 entries in guild-rebrew `docs/provenance.md`.
 
-## PE import hint/name positions — implemented, caller migration pending release (2026-10-20)
+## Retired import claims and library sources — implemented in 6.2.0
+
+`binary imports mark --rebind-retired` replaces retired claims through the
+binding-history writer. `library bind-source` accepts unclaimed and retired
+rows while refusing active non-library claims. Retired orphan anchors warn
+without aborting unrelated scans. Postlink todo comparisons require identical
+`.text` address and virtual size, preventing shifted-layout false positives.
+Since 6.4.0, `imports mark`, `library bind-source` and a no-row `library adopt`
+refuse to write when metadata changed after their scan.
+
+Replay: `tests/test_imports.py::TestImportsMarkRebindRetired`,
+`tests/test_function_providers.py::TestBindSourceWithoutPriorClaim`,
+`tests/test_library_adopt.py::TestLibraryAdoptNoClaim`, and
+`tests/test_todo.py::TestCollectors::test_postlink_lane_silent_when_text_layouts_differ`.
+
+## PE import hint/name positions — released in 5.4.0, caller migration pending (2026-10-20)
 
 Guild's `scripts/gen_import_includes.py` needs physical hint/name positions as
 inputs to a reviewed server-specific import-retention recipe. Existing
@@ -2539,6 +2556,10 @@ mode remains available for existing single-target builds. Guild adoption is
 staged until its running client baselines finish so their inputs stay frozen.
 
 ## Replace one FUNCTION claim with a header LIBRARY identity (2026-10-17)
+
+Status: implemented by `rebrew library adopt`; previous verdicts and identity
+remain in binding history. This transition does not establish a native callee
+provider, which still requires its own reviewed evidence.
 
 Problem: ten Gold VAs (`0x5dea38`, `0x5dea49`, `0x5dea5a`, `0x5dedd8`,
 `0x5dedf8`, `0x5defef`, `0x5e5157`, `0x5e4fe7`, `0x5e5269`, `0x5e533f`) have

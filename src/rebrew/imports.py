@@ -104,12 +104,14 @@ def mark_import_stubs(
         retired_binding,
     )
     from rebrew.metadata.functions import (
+        METADATA_FILENAME,
         identity_file,
         load_metadata,
         record_function_identity,
     )
+    from rebrew.metadata.storage import metadata_store, metadata_write_lock
     from rebrew.naming import load_existing_vas
-    from rebrew.utils import atomic_write_text
+    from rebrew.utils import atomic_write_text, preset_module_key
 
     target_module_name = target_module(cfg)
     out_file = Path(cfg.reversed_dir) / "library_imports.h"
@@ -117,11 +119,17 @@ def mark_import_stubs(
 
     # A decompiled .c and a store row both count. A legacy marker still in
     # the header counts too, and a dry run must not migrate it away.
+    store = metadata_store(Path(cfg.metadata_dir) / METADATA_FILENAME)
+    digest = store.digest()
     annotated = set(load_existing_vas(cfg.reversed_dir, cfg))
-    rows = load_metadata(cfg.metadata_dir, deepcopy=False)
-    retired = [
-        va for va in sorted(stubs) if retired_binding(rows.get((target_module_name, va), {}))
-    ]
+    # Config may spell the module in any case; match stored owners by preset key.
+    module_key = preset_module_key(target_module_name)
+    retired_owners = {
+        va: owner
+        for (owner, va), entry in load_metadata(cfg.metadata_dir, deepcopy=False).items()
+        if preset_module_key(owner) == module_key and retired_binding(entry)
+    }
+    retired = [va for va in sorted(stubs) if va in retired_owners]
     retired_set = set(retired)
     new_vas = [va for va in sorted(stubs) if va not in annotated and va not in retired_set]
     if retired and not rebind_retired:
@@ -148,46 +156,50 @@ def mark_import_stubs(
                 console.print(f"  [dim]0x{va:08X} {pe_name_token(stubs[va])}[/]")
         return len(new_vas) + len(retired)
 
-    if not existing.strip():
-        atomic_write_text(out_file, _IMPORTS_BANNER, encoding=encoding or "utf-8")
+    with metadata_write_lock(Path(cfg.metadata_dir), METADATA_FILENAME):
+        # The scan above ran unlocked; a concurrent writer invalidates it.
+        if store.digest() != digest:
+            raise ValueError("import source bindings changed; rerun imports mark")
+        if not existing.strip():
+            atomic_write_text(out_file, _IMPORTS_BANNER, encoding=encoding or "utf-8")
 
-    file_rel = identity_file(out_file, cfg.metadata_dir)
-    for va in new_vas:
-        # The stub name comes from the target's hint/name table, so it is
-        # attacker-controlled whenever the binary is.
-        token = pe_name_token(stubs[va])
-        record_function_identity(
-            cfg.metadata_dir,
-            module=target_module_name,
-            va=va,
-            file=file_rel,
-            kind="LIBRARY",
-            # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
-            name=c_name_from_symbol(token),
-            symbol=token,
-        )
-    if retired:
-        # LIBRARY identities resolve against the project root, not the
-        # metadata root, because that is where the header lives.
-        root_file_rel = identity_file(out_file, cfg.root)
-        change_source_bindings_batch(
-            cfg.metadata_dir,
-            [
-                {
-                    "module": target_module_name,
-                    "va": va,
-                    "reason": _retired_stub_reason(pe_name_token(stubs[va])),
-                    "identity": {
-                        "file": root_file_rel,
-                        "kind": "LIBRARY",
-                        "name": c_name_from_symbol(pe_name_token(stubs[va])),
-                        "symbol": pe_name_token(stubs[va]),
-                    },
-                }
-                for va in retired
-            ],
-            project_root=Path(cfg.root),
-        )
+        file_rel = identity_file(out_file, cfg.metadata_dir)
+        for va in new_vas:
+            # The stub name comes from the target's hint/name table, so it is
+            # attacker-controlled whenever the binary is.
+            token = pe_name_token(stubs[va])
+            record_function_identity(
+                cfg.metadata_dir,
+                module=target_module_name,
+                va=va,
+                file=file_rel,
+                kind="LIBRARY",
+                # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
+                name=c_name_from_symbol(token),
+                symbol=token,
+            )
+        if retired:
+            # LIBRARY identities resolve against the project root, not the
+            # metadata root, because that is where the header lives.
+            root_file_rel = identity_file(out_file, cfg.root)
+            change_source_bindings_batch(
+                cfg.metadata_dir,
+                [
+                    {
+                        "module": retired_owners[va],
+                        "va": va,
+                        "reason": _retired_stub_reason(pe_name_token(stubs[va])),
+                        "identity": {
+                            "file": root_file_rel,
+                            "kind": "LIBRARY",
+                            "name": c_name_from_symbol(pe_name_token(stubs[va])),
+                            "symbol": pe_name_token(stubs[va]),
+                        },
+                    }
+                    for va in retired
+                ],
+                project_root=Path(cfg.root),
+            )
     console.print(
         f"[green]Recorded {len(new_vas)} import stub(s) in {out_file.name}"
         + (f", rebound {len(retired)} retired row(s)" if retired else "")

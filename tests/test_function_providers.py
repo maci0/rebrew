@@ -616,3 +616,74 @@ class TestBindSourceWithoutPriorClaim:
             )
         assert result.exit_code == 2
         assert "retire or rebind" in result.output
+
+    def test_retired_claim_keeps_history(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.library import app
+        from rebrew.metadata.binding_history import change_source_binding
+        from rebrew.metadata.functions import get_entry, record_function_identity
+
+        cfg = _project(tmp_path)
+        source = tmp_path / "vendor.c"
+        source.write_text("int checksum(void) { return 7; }\n")
+        record_function_identity(
+            cfg.metadata_dir,
+            module="GAME",
+            va=0x10001000,
+            file="src/f.c",
+            kind="FUNCTION",
+            name="f",
+            symbol="_f",
+            size=7,
+        )
+        change_source_binding(cfg.metadata_dir, "GAME", 0x10001000, reason="wrong claim")
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+            result = CliRunner().invoke(
+                app,
+                ["bind-source", "0x10001000", str(source), "--symbol", "_checksum", "--json"],
+            )
+        assert result.exit_code == 0, result.output
+        row = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
+        assert row["kind"] == "LIBRARY" and row["size"] == 7
+        assert [event["action"] for event in row["binding_history"]] == ["retire", "rebind"]
+
+    def test_concurrent_claim_is_not_overwritten(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        from typer.testing import CliRunner
+
+        from rebrew.library import app
+        from rebrew.metadata import functions
+        from rebrew.metadata.functions import get_entry, record_function_identity
+
+        cfg = _project(tmp_path)
+        source = tmp_path / "references" / "adler32.c"
+        source.parent.mkdir(parents=True)
+        source.write_text("int f(void) { return 0; }\n")
+        real_get_entry = functions.get_entry
+
+        def claim_after_read(*args: Any, **kwargs: Any) -> Any:
+            entry = real_get_entry(*args, **kwargs)
+            record_function_identity(
+                cfg.metadata_dir,
+                module="GAME",
+                va=0x10001000,
+                file="src/f.c",
+                kind="FUNCTION",
+                name="f",
+                symbol="_f",
+            )
+            return entry
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+            with patch("rebrew.metadata.functions.get_entry", side_effect=claim_after_read):
+                result = CliRunner().invoke(
+                    app,
+                    ["bind-source", "0x10001000", str(source), "--symbol", "_adler32", "--json"],
+                )
+        assert result.exit_code == 2, result.output
+        assert "bindings changed" in result.output
+        assert get_entry(cfg.metadata_dir, 0x10001000, "GAME")["file"] == "src/f.c"
