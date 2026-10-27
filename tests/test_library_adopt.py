@@ -98,7 +98,7 @@ class TestLibraryAdopt:
         # The verdict describes the retired claim's compile.  Leaving it on the
         # row let status readers fall back to it and report a byte result for
         # source nobody compiles any more.
-        from rebrew.metadata.functions import record_verification, set_fields_batch
+        from rebrew.metadata.functions import set_fields_batch
 
         cfg, lib = _project(tmp_path)
         set_fields_batch(
