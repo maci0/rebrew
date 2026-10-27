@@ -213,18 +213,34 @@ def _run_objdump_uncached(obj: Path, flag: str) -> str:
     return r.stdout
 
 
-def link_objects(root: Path) -> list[Path]:
+def link_objects(root: Path, target: str | None = None) -> list[Path]:
     """The build's object files in link order.
 
-    CMake builds are read from ``build/CMakeFiles/*/objects*.rsp``, which
-    preserves the link order.  Makefile-style builds (no rsp) fall back to
+    A build directory that holds several targets needs *target* (the linked
+    file name, e.g. ``game.exe``); the ``/out:<target>`` line in each
+    ``link.txt`` then picks that target's rsp directory instead of the first by
+    name, which silently read another target's objects.  CMake builds are read
+    from ``build/CMakeFiles/*/objects*.rsp``, which preserves the link order.
+    Makefile-style builds (no rsp) fall back to
     the object directory (``out/`` then ``build/``) sorted by name — GNU
     make expands ``$(wildcard ...)``/``$(SRCS)`` in sorted order, so a plain
     Makefile links objects in exactly that order.
     """
-    rsps = sorted((root / "build/CMakeFiles").glob("*/objects*.rsp"))
-    if rsps:
-        text = rsps[0].read_text(encoding="utf-8")
+    rsp_dirs = sorted({path.parent for path in (root / "build/CMakeFiles").glob("*/objects*.rsp")})
+    if rsp_dirs:
+        chosen = rsp_dirs[0]
+        if target:
+            wanted = f"/out:{target}".lower()
+            for candidate in rsp_dirs:
+                link_txt = candidate / "link.txt"
+                if not link_txt.is_file():
+                    continue
+                if wanted in link_txt.read_text(encoding="utf-8", errors="replace").lower():
+                    chosen = candidate
+                    break
+        text = "\n".join(
+            path.read_text(encoding="utf-8") for path in sorted(chosen.glob("objects*.rsp"))
+        )
         # Wine/MSVC CMake rsp lines may use ``\\`` separators; on POSIX that
         # would become a single literal path component without normalization.
         return [Path(root / "build") / config_path(a or b) for a, b in _OBJ_RE.findall(text)]
@@ -1809,7 +1825,7 @@ def converge_layout(
         data_va = built_data_va(dll)
         tot = 0
         rows: list[tuple[Path, int, dict[str, int]]] = []
-        for obj in link_objects(root):
+        for obj in link_objects(root, dll.name):
             dsize, syms = obj_data_symbol_offsets(obj)
             rows.append((obj, data_va + tot, {s: off for s, off in syms.items() if s in toml}))
             tot += dsize

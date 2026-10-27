@@ -1280,6 +1280,30 @@ def test_link_objects_cmake_rsp(tmp_path: Path) -> None:
     ]
 
 
+def test_link_objects_selects_the_named_target(tmp_path: Path) -> None:
+    """A multi-target build dir needs the target's own rsp, not the first by name.
+
+    Sorted by directory name the server target came first, so converge measured
+    another target's objects and reported no adjustments for the client.
+    """
+    from rebrew.data_layout import link_objects
+
+    for name, output, source in (
+        ("server", "server.dll", "src/server.c.obj"),
+        ("tl", "Euro_TL.exe", "src/tl.c.obj"),
+    ):
+        rsp_dir = tmp_path / f"build/CMakeFiles/{name}.dir"
+        rsp_dir.mkdir(parents=True)
+        (rsp_dir / "link.txt").write_text(
+            f"link /nologo @objects1.rsp /out:{output}\n", encoding="utf-8"
+        )
+        (rsp_dir / "objects1.rsp").write_text(f"CMakeFiles/{name}.dir/{source}\n", encoding="utf-8")
+    assert link_objects(tmp_path) == [tmp_path / "build" / "CMakeFiles/server.dir/src/server.c.obj"]
+    assert link_objects(tmp_path, "Euro_TL.exe") == [
+        tmp_path / "build" / "CMakeFiles/tl.dir/src/tl.c.obj"
+    ]
+
+
 def test_link_objects_cmake_rsp_backslash_paths(tmp_path: Path) -> None:
     """Wine/MSVC CMake rsp lines may use ``\\``; POSIX Path must still join."""
     from rebrew.data_layout import link_objects
@@ -1509,7 +1533,7 @@ class TestAuditLayoutSection:
         import rebrew.data_layout as dl
 
         monkeypatch.setattr(dl, "_run_objdump", fake_run)
-        monkeypatch.setattr(dl, "link_objects", lambda root: [tmp_path / "f.obj"])
+        monkeypatch.setattr(dl, "link_objects", lambda root, target=None: [tmp_path / "f.obj"])
         report = audit_layout(tmp_path, meta, ".rdata")
         assert report["violations"] == 0
         assert report["unowned"] == []
@@ -1542,7 +1566,7 @@ def test_converge_layout_preserves_source_encoding(
     monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base + 0x20})
     monkeypatch.setattr(dl, "_converge_target", lambda root, target: "server.dll")
     monkeypatch.setattr(dl, "built_data_va", lambda d: data_base)
-    monkeypatch.setattr(dl, "link_objects", lambda root: [tmp_path / "a.obj"])
+    monkeypatch.setattr(dl, "link_objects", lambda root, target=None: [tmp_path / "a.obj"])
     monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x10, {"g_a": 0}))
     monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
 
@@ -1575,7 +1599,7 @@ def test_converge_layout_negative_delta_without_pad_leaves_tu_alone(
     monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base})
     monkeypatch.setattr(dl, "_converge_target", lambda root, target: "server.dll")
     monkeypatch.setattr(dl, "built_data_va", lambda d: data_base)
-    monkeypatch.setattr(dl, "link_objects", lambda root: [tmp_path / "a.obj"])
+    monkeypatch.setattr(dl, "link_objects", lambda root, target=None: [tmp_path / "a.obj"])
     monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x10, {"g_a": 0x20}))
     monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
 
@@ -1829,7 +1853,7 @@ def test_converge_layout_rerun_updates_existing_pad_idempotent(
     monkeypatch.setattr(dl, "data_raw_from_binary", lambda p: b"\xab" * 0x80)
     monkeypatch.setattr(dl, "_converge_target", lambda root, target: "server.dll")
     monkeypatch.setattr(dl, "built_data_va", lambda d: data_base)
-    monkeypatch.setattr(dl, "link_objects", lambda root: [tmp_path / "a.obj"])
+    monkeypatch.setattr(dl, "link_objects", lambda root, target=None: [tmp_path / "a.obj"])
     monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
 
     # Run 1: offset 0x20 -> needs pad of 32 bytes
@@ -1885,7 +1909,7 @@ def test_converge_layout_shrinks_to_zero_removes_pad(
     monkeypatch.setattr(dl, "data_raw_from_binary", lambda p: b"\xab" * 0x80)
     monkeypatch.setattr(dl, "_converge_target", lambda root, target: "server.dll")
     monkeypatch.setattr(dl, "built_data_va", lambda d: data_base)
-    monkeypatch.setattr(dl, "link_objects", lambda root: [tmp_path / "a.obj"])
+    monkeypatch.setattr(dl, "link_objects", lambda root, target=None: [tmp_path / "a.obj"])
     monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
 
     # exp (0) - cur (0x20) = delta -32, old_size 16 -> new_size 0

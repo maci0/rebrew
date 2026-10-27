@@ -266,7 +266,7 @@ class TestConvergeLayoutIdempotent:
         monkeypatch.setattr(dl, "data_raw_from_binary", lambda p: b"\xab" * 0x80)
         monkeypatch.setattr(dl, "_converge_target", lambda root, target: "server.dll")
         monkeypatch.setattr(dl, "built_data_va", lambda d: data_base)
-        monkeypatch.setattr(dl, "link_objects", lambda root: [tmp_path / "a.obj"])
+        monkeypatch.setattr(dl, "link_objects", lambda root, target=None: [tmp_path / "a.obj"])
         monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
 
         # Initial layout needs 32-byte pad
