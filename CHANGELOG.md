@@ -1,10 +1,36 @@
 ## [Unreleased]
 
+## [6.4.0] - 2026-10-27
+
+### Added
+
+- `library adopt --symbol` selects the reviewed native symbol when the bytes
+  match several byte-identical archive aliases, and still refuses a symbol no
+  candidate carries.
+- `status --json` reports `unverified_tail_ranges`: the native-tail bytes beyond
+  the compared source body that are not alignment fill, as VA/size objects.
+
 ### Changed
 
 - Defer every module-level import the module does not read while loading (PEP 810
   `lazy`). `rebrew --help` drops from 236 to 171 ms. A broken dependency now fails
   at first use instead of at startup.
+- `status` counts alignment fill inside a native tail as padding instead of
+  UNVERIFIED_TAIL.
+
+### Fixed
+
+- `library adopt` drops the previous claim's verification block, so readers no
+  longer report a byte verdict for source nobody compiles. Over an address-only
+  row it moves the stored verdict into `binding_history` instead of keeping it
+  on the LIBRARY row.
+- `library adopt` includes the matched extent in its preview digest, so an
+  inventory size change invalidates an earlier preview.
+- `binary imports mark`, `library bind-source` and a no-row `library adopt`
+  recheck metadata under the writer lock and refuse when it changed after their
+  scan, instead of overwriting a concurrent claim.
+- `binary imports mark --rebind-retired` matches retired rows whatever the case
+  of the configured module name.
 
 ## [6.3.1] - 2026-10-26
 

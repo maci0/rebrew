@@ -802,6 +802,8 @@ accounted_text_bytes = matched_bytes + padding_bytes
 extents by effective status plus LIBRARY, NO_SOURCE, and UNVERIFIED_TAIL.
 UNVERIFIED_TAIL contains discovered native bytes beyond the compared source body;
 these bytes count as unmatched, with overlapping source definitions counted once.
+Alignment fill inside such a tail counts as padding instead, and
+`unverified_tail_ranges` lists the remaining tail bytes as VA/size objects.
 `unattributed_ranges` lists the remaining non-padding gaps as VA/size objects.
 Sourced functions use
 the annotated SIZE that verification compares; library rows use the larger of
@@ -5104,6 +5106,7 @@ refuses the write. A vendored-object match is refused; use
 | `--reason` | str | required | Reviewed evidence naming the unique match |
 | `--expected-digest` | str | — | Require the digest from a reviewed preview |
 | `--dry-run` | flag | `False` | Preview changes without writing |
+| `--symbol` | str | — | Reviewed native symbol when the bytes match several byte-identical archive aliases; the stored identity is the symbol alone |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 
