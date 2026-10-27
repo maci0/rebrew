@@ -1317,6 +1317,19 @@ def _documented_assembly_symbols(
         return set()
 
 
+def _lazy_metadata_entries(
+    cfg: Any, filepath: Path
+) -> dict[tuple[str, int], dict[str, Any]] | None:
+    """Function rows for one file's metadata directory, or None when unavailable."""
+    try:
+        from rebrew.metadata.functions import load_metadata, resolve_metadata_dir
+
+        directory = resolve_metadata_dir(cfg.metadata_dir if cfg else filepath.parent)
+        return load_metadata(directory, deepcopy=False)
+    except OSError, ValueError:
+        return None
+
+
 def _retired_leftover(
     filepath: Path,
     entries: dict[tuple[str, int], dict[str, Any]],
@@ -1354,6 +1367,16 @@ def _retired_leftover(
     # each name must be one a reviewed change retired from a different file.
     definitions = [name for name, _line in find_c_function_definitions(source)]
     if not definitions:
+        # A comment-only leftover (a retired switch arm) has nothing to bind;
+        # recognise it by the name of the claim that used to live here.
+        from rebrew.metadata.binding_history import validate_binding_history
+
+        for entry in entries.values():
+            for event in validate_binding_history(entry.get("binding_history", [])):
+                previous = event.get("previous") or {}
+                previous_file = str(previous.get("file") or "")
+                if previous_file and Path(previous_file).name == filepath.name:
+                    return True
         return False
     for name in definitions:
         retired = False
@@ -2187,6 +2210,18 @@ def lint_file(
         ]
         all_headers.sort(key=lambda header: int(header[0]["_LINE"]))
     except ValueError as exc:
+        # A leftover of a move can still carry an anchor whose VA now belongs to
+        # another claim; that is history, not a conflicting new definition.
+        entries = _lazy_metadata_entries(cfg, filepath)
+        if entries is not None:
+            from rebrew.metadata.functions import resolve_metadata_dir
+            from rebrew.workspace.config import walk_up_to_root
+
+            directory = resolve_metadata_dir(cfg.metadata_dir if cfg else filepath.parent)
+            project_root = cfg.root if cfg else walk_up_to_root(directory) or directory
+            if _retired_leftover(filepath, entries, directory, project_root):
+                result._kind_counts["INACTIVE"] += 1
+                return result
         result.error(1, "E001", str(exc))
         return result
 

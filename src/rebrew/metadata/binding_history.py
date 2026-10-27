@@ -147,17 +147,21 @@ def retired_source_elsewhere(
     if current_path == filepath.resolve() and entry.get("name") == name:
         return False
     for event in validate_binding_history(entry["binding_history"]):
-        if event["action"] != "retire":
-            continue
+        # A retirement and a rebind both end this file's claim; the second is
+        # how a project body gives way to a library identity.
         previous = event["previous"]
-        if previous.get("name") != name:
+        if previous.get("name") not in (None, "", name):
             continue
         previous_file = str(previous.get("file") or "")
         if not previous_file:
             continue
         root = project_root if previous.get("kind") == "LIBRARY" else metadata_dir
-        if (root / previous_file).resolve() != filepath.resolve():
+        previous_path = (root / previous_file).resolve()
+        if previous_path == filepath.resolve():
+            continue
+        if not name or previous_path.name == filepath.name:
             return True
+        return True
     return False
 
 

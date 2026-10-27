@@ -1124,18 +1124,29 @@ def source_bindings(
         is_data = anchor.kind == "DATA"
         key = (preset_module_key(anchor.module), anchor.va, is_data)
         if not is_data and metadata_dir is not None:
-            from rebrew.metadata.binding_history import historical_source_anchor, retired_binding
+            from rebrew.metadata.binding_history import (
+                historical_source_anchor,
+                retired_binding,
+                retired_source_elsewhere,
+            )
 
             if functions is None:
                 functions = load_metadata(metadata_dir, deepcopy=False)
             stored = functions.get((anchor.module, anchor.va), {})
+            history_root = project_root or _binding_project_root(metadata_dir)
             if stored.get("binding_history") and historical_source_anchor(
                 stored,
                 filepath,
                 anchor.name,
                 metadata_dir,
-                project_root or _binding_project_root(metadata_dir),
+                history_root,
             ):
+                continue
+            if stored.get("binding_history") and retired_source_elsewhere(
+                stored, anchor.name, filepath, metadata_dir, history_root
+            ):
+                # The claim moved: a reorganised tree keeps the old file beside
+                # the new one, and its anchors describe history, not a conflict.
                 continue
             if retired_binding(stored):
                 # A retired binding with a remaining ADDRESS comment is stale
