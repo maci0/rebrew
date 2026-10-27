@@ -145,6 +145,10 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
             overwrite_name=True,
             updated_by="rehome",
         )
+        for r in rows:
+            old_file = str(r.get("old_file") or "")
+            if old_file and old_file != r["file"]:
+                _follow_assembly_evidence(cfg, old_file, r["file"])
     return rows
 
 
@@ -216,7 +220,28 @@ def retarget_file(
                 for module, va, _entry in data
             ],
         )
+        _follow_assembly_evidence(cfg, old_rel, new_rel)
     return function_rows, data_rows
+
+
+def _follow_assembly_evidence(cfg: Any, old_rel: str, new_rel: str) -> None:
+    """Keep documented original-assembly records filed under the live path.
+
+    Assembly provenance is keyed by source path, so a moved file would lose its
+    reviewed evidence and fall back to "whole-function asm is not allowed".
+    """
+    from rebrew.metadata.source_provenance import rename_source_provenance
+
+    directory = cfg.metadata_dir.resolve()
+    old_path = directory / old_rel
+    new_path = directory / new_rel
+    if not old_path.exists() and not new_path.exists():
+        return
+    try:
+        rename_source_provenance(directory, {}, move=(old_path, new_path))
+    except ValueError:
+        # A record already under the new path means an earlier pass moved it.
+        return
 
 
 @app.callback(invoke_without_command=True)

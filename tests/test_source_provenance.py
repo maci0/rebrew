@@ -31,6 +31,34 @@ def _source(root: Path) -> Path:
     return file
 
 
+class TestMoveFollowsEvidence:
+    def test_pure_move_relocates_documented_definitions(self, tmp_path: Path) -> None:
+        # A reviewed record is keyed by source path.  Moving the file must carry
+        # it, or lint reports the moved whole-function asm as undocumented.
+        from rebrew.metadata.source_provenance import rename_source_provenance
+
+        file = _source(tmp_path)
+        document_assembly(tmp_path, file, "fill0", "CLIENT", "Original macro at 0x401000")
+        moved = tmp_path / "develop" / "helpers.c"
+        moved.parent.mkdir()
+        moved.write_text(file.read_text(encoding="utf-8"), encoding="utf-8")
+        file.unlink()
+        rename_source_provenance(tmp_path, {}, move=(file, moved))
+        records = load_source_provenance(tmp_path)
+        assert [r.file for r in records] == ["develop/helpers.c"]
+        assert records[0].symbol == "fill0"
+
+    def test_move_without_recorded_definitions_is_a_noop(self, tmp_path: Path) -> None:
+        from rebrew.metadata.source_provenance import rename_source_provenance
+
+        file = _source(tmp_path)
+        moved = tmp_path / "moved.c"
+        moved.write_text(file.read_text(encoding="utf-8"), encoding="utf-8")
+        file.unlink()
+        rename_source_provenance(tmp_path, {}, move=(file, moved))
+        assert load_source_provenance(tmp_path) == ()
+
+
 class TestSourceProvenance:
     def test_record_clear_and_noop_preserve_other_target(self, tmp_path: Path) -> None:
         file = _source(tmp_path)

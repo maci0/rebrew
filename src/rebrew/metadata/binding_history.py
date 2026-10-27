@@ -128,6 +128,39 @@ def historical_source_anchor(
     return False
 
 
+def retired_source_elsewhere(
+    entry: dict[str, Any], name: str, filepath: Path, metadata_dir: Path, project_root: Path
+) -> bool:
+    """Whether a reviewed change retired this definition name from another file.
+
+    A source file left behind by a moved or replaced claim is reviewable
+    history, not an unbound definition. The path check in
+    :func:`historical_source_anchor` only recognises the file sitting where the
+    retired claim lived, so a reorganised tree reports every leftover as a
+    fresh missing binding.
+    """
+    if not entry.get("binding_history"):
+        return False
+    current_file = str(entry.get("file") or "")
+    current_root = project_root if entry.get("kind") == "LIBRARY" else metadata_dir
+    current_path = (current_root / current_file).resolve() if current_file else None
+    if current_path == filepath.resolve() and entry.get("name") == name:
+        return False
+    for event in validate_binding_history(entry["binding_history"]):
+        if event["action"] != "retire":
+            continue
+        previous = event["previous"]
+        if previous.get("name") != name:
+            continue
+        previous_file = str(previous.get("file") or "")
+        if not previous_file:
+            continue
+        root = project_root if previous.get("kind") == "LIBRARY" else metadata_dir
+        if (root / previous_file).resolve() != filepath.resolve():
+            return True
+    return False
+
+
 def _validate_change(
     module: str,
     va: int,

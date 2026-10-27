@@ -1317,6 +1317,55 @@ def _documented_assembly_symbols(
         return set()
 
 
+def _retired_leftover(
+    filepath: Path,
+    entries: dict[tuple[str, int], dict[str, Any]],
+    metadata_dir: Path,
+    project_root: Path,
+) -> bool:
+    """True when every anchor was retired from a different file, by name.
+
+    The path-keyed INACTIVE check cannot follow a source file that was moved,
+    so a reorganised tree would report each retired leftover as an unbound
+    definition. Matching the retired claim's definition name keeps the check
+    to reviewed history instead of guessing from content.
+    """
+    from rebrew.metadata.anchors import parse_address_anchors
+    from rebrew.metadata.binding_history import retired_source_elsewhere
+
+    try:
+        source = filepath.read_text(errors="surrogateescape")
+    except OSError:
+        return False
+    from rebrew.c_parser import find_c_function_definitions
+
+    anchors = parse_address_anchors(source)
+    if anchors:
+        for anchor in anchors:
+            entry = entries.get((preset_module_key(anchor.module), anchor.va))
+            if entry is None:
+                return False
+            if not retired_source_elsewhere(
+                entry, anchor.name, filepath, metadata_dir, project_root
+            ):
+                return False
+        return True
+    # An anchor-free leftover is recognised by the definitions it still holds:
+    # each name must be one a reviewed change retired from a different file.
+    definitions = [name for name, _line in find_c_function_definitions(source)]
+    if not definitions:
+        return False
+    for name in definitions:
+        retired = False
+        for entry in entries.values():
+            if retired_source_elsewhere(entry, name, filepath, metadata_dir, project_root):
+                retired = True
+                break
+        if not retired:
+            return False
+    return True
+
+
 def _check_E023_naked_asm(
     result: LintResult,
     lines: list[str],
@@ -2173,6 +2222,11 @@ def lint_file(
             for row in _metadata_entries.values()
         ):
             # Explicitly retired TUs remain reviewable source, outside compilation.
+            result._kind_counts["INACTIVE"] += 1
+            return result
+        if _retired_leftover(filepath, _metadata_entries, directory, project_root):
+            # A file whose every anchor names a definition another file's claim
+            # retired is the leftover of a move, not a new unbound TU.
             result._kind_counts["INACTIVE"] += 1
             return result
     # A pure-C file whose row names this path is annotated. A anchor-free

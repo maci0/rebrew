@@ -178,7 +178,7 @@ def rename_source_provenance(
     """Follow mechanical source renames without making stale evidence current."""
     directory = directory.resolve()
     path = directory / SOURCE_PROVENANCE_FILENAME
-    if not edits or not metadata_store(path).exists():
+    if (not edits and move is None) or not metadata_store(path).exists():
         return
     with nullcontext() if dry_run else metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
         store = load_metadata_for_write(path, "function metadata", known_fields=_FUNCTION_FIELDS)
@@ -231,6 +231,17 @@ def rename_source_provenance(
             if new_relative != relative:
                 del definitions[relative]
                 definitions[new_relative] = records
+                changed = True
+        if move and not edits:
+            # A pure move keeps the definitions and their hashes; only the
+            # path key changes.  Without this the documented evidence stays
+            # filed under a path nobody reads any more.
+            old_relative = move[0].resolve().relative_to(directory).as_posix()
+            new_relative = move[1].resolve().relative_to(directory).as_posix()
+            if old_relative != new_relative and old_relative in definitions:
+                if new_relative in definitions:
+                    raise ValueError(f"source provenance already exists for {new_relative}")
+                definitions[new_relative] = definitions.pop(old_relative)
                 changed = True
         if changed and not dry_run:
             metadata_store(path).write(store, "function metadata")
