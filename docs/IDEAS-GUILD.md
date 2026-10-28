@@ -3700,3 +3700,18 @@ Proposed: for an `XX` call whose candidate operand is a relocation, print the
 relocation's symbol name and target VA (or `unresolved`). Replay: run
 `rebrew diff 0x00501d20 --json` on the guild-rebrew project and read the `XX`
 instruction entry.
+
+## Audit forced archive members against the reference image (2026-10-30)
+
+A hand-written `/INCLUDE` list (guild-rebrew's `d3dx8-includes.rsp`) was filtered
+against the reference import table, so it forced 13 archive members the
+reference does not contain, adding about 190 KB of code and pushing every later
+section off its offset. A byte-presence test (relocation-free 24-byte window, then
+>=85% of the member's non-relocation bytes matching at the located VA) found the
+13 absent and 2 present.
+
+Proposed: `rebrew library audit-includes <rsp> --built <image>` that, for each
+forced symbol, extracts or identifies its member and reports present, absent, or
+unknown against the target image, with the located VA and match ratio. Replay:
+run the lookup in `.scratch/organize/strong_presence.py` from guild-rebrew and
+compare with `wide` membership.
