@@ -3663,3 +3663,27 @@ rows covering its address imply (here 14 bytes for `_g_current_year` plus the
 0x7f4c04/08/0c views). Replay: `uv run rebrew build symbol-stubs -o <out>` for
 the guild-rebrew `Europa1400Gold_TL.exe` target and check that `_g_7f4c00` and
 `_g_current_year` cannot both be definitions.
+
+## Linker control over archive member order (2026-10-29)
+
+The guild-rebrew reference places its CRT and D3DX code as a 528 KB block whose
+member order no project input can currently reproduce. `build order-sources`
+sorts the project's own objects by first VA, and `/ORDER` only reorders
+contributions inside a section (it put 0 of 5,180 functions at their reference
+VA in a measured attempt). `/INCLUDE` forces a member in but does not set
+extraction order: an ordered 279-symbol list left the library region at the same
+10,437 matched bytes and the same median delta.
+
+Feeding the used members as explicit `.obj` inputs works at the link level (an
+explicit `d3dxmath.obj` landed 901 bytes from its reference VA), but the order
+still depends on per-member reference VAs. Whole-object byte search located only
+101 of 195 LIBCMT members because COMDAT members are not stored contiguously in
+the reference, and 71 members could not be located at all.
+
+Proposed: a `build library-order` command that, for the configured libraries,
+locates each member's functions in the reference image (relocation-masked,
+function granularity for COMDAT), emits the explicit member object list in
+reference order, and reports members it cannot place or that the reference does
+not link. Replay: extract the guild-rebrew LIBCMT members with
+`rebrew build driver lib -- /EXTRACT:<member>` and run the locator against
+`original/Europa1400Gold_TL.exe`.
