@@ -100,7 +100,10 @@ def byte_score(a: NeImage, b: NeImage, window: int = 32) -> tuple[int, int]:
 
 def segment_budget(a: NeImage, b: NeImage, window: int = 32) -> list[tuple[int, int, int]]:
     """Physical segment and trailing-region content overlap, without source claims."""
-    runs = block_set(b.data, window)
+    return _segment_budget(a, block_set(b.data, window), window)
+
+
+def _segment_budget(a: NeImage, runs: set[bytes], window: int) -> list[tuple[int, int, int]]:
     rows = [
         (i, len(a.seg_bytes(i)), covered_bytes(a.seg_bytes(i), runs, window))
         for i in range(a.seg_count)
@@ -109,6 +112,14 @@ def segment_budget(a: NeImage, b: NeImage, window: int = 32) -> list[tuple[int, 
     tail = a.data[last:]
     rows.append((-1, len(tail), covered_bytes(tail, runs, window)))
     return rows
+
+
+def comparison_content(
+    a: NeImage, b: NeImage, window: int = 32
+) -> tuple[int, int, list[tuple[int, int, int]]]:
+    """Whole-file and segment overlap against the same rebuilt windows."""
+    runs = block_set(b.data, window)
+    return covered_bytes(a.data, runs, window), len(a.data), _segment_budget(a, runs, window)
 
 
 def relocation_census(ne: NeImage) -> tuple[collections.Counter[int], collections.Counter[int]]:

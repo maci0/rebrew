@@ -13,7 +13,7 @@ from rebrew.cli import (
     json_print,
     resolve_binary_arg,
 )
-lazy from rebrew.formats.ne_analysis import NeImage, byte_score, relocation_census, segment_budget
+lazy from rebrew.formats.ne_analysis import NeImage, comparison_content, relocation_census
 lazy from rebrew.formats.ne_loader import NeParseError
 
 app = typer.Typer(
@@ -30,8 +30,8 @@ app = typer.Typer(
 def compare_images(original: Path, rebuilt: Path, window: int = 32) -> dict[str, Any]:
     """Inventory both layouts, exact agreement, fixups and overlapping content."""
     a, b = NeImage(original), NeImage(rebuilt)
-    covered, total = byte_score(a, b, window)
-    budget = {i: (length, count) for i, length, count in segment_budget(a, b, window)}
+    covered, total, segments = comparison_content(a, b, window)
+    budget = {i: (length, count) for i, length, count in segments}
     rows = []
     for i in range(max(a.seg_count, b.seg_count)):
         left = a.segments[i] if i < a.seg_count else None

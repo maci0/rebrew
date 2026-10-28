@@ -273,6 +273,73 @@ class TestDiscoverMZ:
 
 
 class TestInteriorFalsePositiveDrop:
+    def test_boundary_membership_uses_one_lookup_per_candidate(self, monkeypatch) -> None:
+        from collections import Counter
+
+        from rebrew.discover import _validate_and_refine
+
+        lookups = []
+
+        class CountingCounter(Counter[int]):
+            def __contains__(self, key):
+                lookups.append(key)
+                return super().__contains__(key)
+
+        monkeypatch.setattr("rebrew.discover.Counter", CountingCounter)
+        monkeypatch.setattr(
+            "rebrew.discover.iter_instructions",
+            lambda _info, va, _size: [SimpleNamespace(va=va, size=1, mnemonic="ret")],
+        )
+        monkeypatch.setattr("rebrew.discover._function_start", lambda *_args: 990)
+        monkeypatch.setattr("rebrew.discover._is_padding", lambda *_args: False)
+        funcs = [(i * 10, 0, f"f{i}") for i in range(100)]
+        assert len(_validate_and_refine(None, funcs)) == 100
+        assert lookups == [990] * 100
+
+    def test_disassembly_failure_keeps_raw_gap(self, monkeypatch) -> None:
+        from rebrew.discover import _validate_and_refine
+
+        def fail(*_args):
+            raise ValueError("bad instruction")
+
+        monkeypatch.setattr("rebrew.discover.iter_instructions", fail)
+        assert _validate_and_refine(None, [(10, 0, "first"), (20, 0, "last")]) == [
+            (10, 10, "first"),
+            (20, 0, "last"),
+        ]
+
+    @pytest.mark.parametrize("duplicate", [False, True])
+    def test_recovery_tracks_deleted_and_duplicate_starts(
+        self, monkeypatch, duplicate: bool
+    ) -> None:
+        from rebrew.discover import _validate_and_refine
+
+        first_calls = 0
+
+        def instructions(info, va, size):
+            nonlocal first_calls
+            if va == 10:
+                first_calls += 1
+                if first_calls == 1:
+                    yield SimpleNamespace(va=10, size=10, mnemonic="mov")
+                    return
+            yield SimpleNamespace(va=va, size=1, mnemonic="ret")
+
+        monkeypatch.setattr("rebrew.discover.iter_instructions", instructions)
+        monkeypatch.setattr(
+            "rebrew.discover._function_start", lambda _info, va: 20 if va == 11 else None
+        )
+        monkeypatch.setattr("rebrew.discover._is_padding", lambda *_args: False)
+        candidates = [(10, 0, "first"), (20, 0, "dropped"), (40, 0, "last")]
+        if duplicate:
+            candidates.insert(2, (20, 0, "remaining"))
+        result = _validate_and_refine(None, candidates)
+        assert [row[2] for row in result] == [
+            "first",
+            "remaining" if duplicate else "fcn.14",
+            "last",
+        ]
+
     def test_candidate_without_a_boundary_is_dropped(self, monkeypatch) -> None:
         """A candidate whose predecessor decodes straight into it (no ret, no
         decodable boundary) is a call target inside that function.  The old

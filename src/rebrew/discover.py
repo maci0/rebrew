@@ -36,6 +36,7 @@ lazy import bisect
 lazy import re
 lazy import struct
 lazy import subprocess
+lazy from collections import Counter
 lazy from typing import Any
 
 import typer
@@ -694,6 +695,7 @@ def _validate_and_refine(
     padding — the size a compiler actually emits.
     """
     funcs = sorted(funcs, key=lambda f: f[0])
+    starts = Counter(f[0] for f in funcs)
     out: list[tuple[int, int, str]] = []
     i = 0
     while i < len(funcs):
@@ -757,6 +759,10 @@ def _validate_and_refine(
         if hit_nxt:
             # code runs straight into the next candidate with no ret — that
             # candidate is a false positive inside this function: drop it.
+            removed = funcs[i + 1][0]
+            starts[removed] -= 1
+            if not starts[removed]:
+                del starts[removed]
             del funcs[i + 1]
             continue
 
@@ -767,7 +773,8 @@ def _validate_and_refine(
         # gap/size logic and the next iteration sizes it too.
         if boundary_start is not None:
             nxt_va = boundary_start
-            if not any(f[0] == nxt_va for f in funcs):
+            if nxt_va not in starts:
+                starts[nxt_va] += 1
                 funcs.insert(i + 1, (nxt_va, 0, f"fcn.{nxt_va:x}"))
                 logger.info(
                     "discoverer missed a function at 0x%x (inside 0x%x); recovered "
