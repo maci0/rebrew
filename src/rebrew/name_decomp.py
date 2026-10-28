@@ -547,7 +547,10 @@ def main(
 
         sources = list(iter_sources(cfg.reversed_dir, cfg))
         sources += list(iter_library_headers(cfg.reversed_dir, cfg))
-        definitions = existing_structs(sources)
+        try:
+            definitions = existing_structs(sources)
+        except ValueError as exc:
+            error_exit(str(exc), json_mode=json_output)
         pointer_width = int(getattr(cfg, "pointer_size", 4) or 4)
         result = apply_known_names(code, definitions, pointer_width=pointer_width)
         code = result.code

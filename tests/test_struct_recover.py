@@ -558,6 +558,27 @@ class TestRecoverProjectStructs:
         assert payload["applied"] is None
         assert target.read_text() == original
 
+    def test_unreadable_source_fails_cli_before_write(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.app.main as main_mod
+
+        cfg = _project_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _player_decompiler)
+        readable = cfg.reversed_dir / "f.c"
+        missing = cfg.reversed_dir / "missing.h"
+        monkeypatch.setattr("rebrew.sources.iter_sources", lambda *a: iter([readable, missing]))
+        target = tmp_path / "structs.h"
+        result = CliRunner().invoke(
+            main_mod.app,
+            ["types", "recover", "--functions", "0x401000", "--output", str(target), "--json"],
+        )
+        assert result.exit_code != 0
+        assert "cannot read struct source" in result.output
+        assert "Traceback" not in result.output
+        assert not target.exists()
+
     def test_overlap_cli_fails_before_write(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -20,6 +20,7 @@ def _iter_definitions(
     *,
     keyword: bytes = b"struct",
     all_type_defs: bool = False,
+    strict: bool = False,
 ) -> Iterator[str]:
     """Yield definitions of one specifier kind (``struct``/``enum``) from *filepath*.
 
@@ -35,6 +36,8 @@ def _iter_definitions(
     try:
         code_bytes = filepath.read_bytes()
     except OSError as exc:
+        if strict:
+            raise
         logger.warning("cannot read %s for type definitions: %s", filepath, exc)
         return
 
@@ -94,14 +97,14 @@ def _iter_definitions(
     yield from walk(tree.root_node)
 
 
-def extract_structs_from_file(filepath: Path) -> Iterator[str]:
+def extract_structs_from_file(filepath: Path, *, strict: bool = False) -> Iterator[str]:
     """Parse a C file and yield struct/typedef-struct definitions with bodies.
 
     Does not include standalone typedefs (use ``extract_type_definitions`` for those).
     Returns empty if tree-sitter is unavailable or the file is unreadable
-    (logged as a warning).
+    (logged as a warning). With *strict*, read errors propagate.
     """
-    yield from _iter_definitions(filepath, keyword=b"struct")
+    yield from _iter_definitions(filepath, keyword=b"struct", strict=strict)
 
 
 def extract_type_definitions(filepath: Path) -> Iterator[str]:
