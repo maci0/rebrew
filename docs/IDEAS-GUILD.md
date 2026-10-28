@@ -3687,3 +3687,16 @@ reference order, and reports members it cannot place or that the reference does
 not link. Replay: extract the guild-rebrew LIBCMT members with
 `rebrew build driver lib -- /EXTRACT:<member>` and run the locator against
 `original/Europa1400Gold_TL.exe`.
+
+## `diff` does not name the candidate relocation on unresolved calls (2026-10-29)
+
+An unresolved relative call shows as `XX call 0xfffefd60 || call 0x2b3` with no
+callee name, so a caller cannot tell which source call is unresolved without
+compiling the TU and parsing the object relocations. Ten guild-rebrew NEAR rows
+were blocked on exactly this: each called `gm_AddObjekt()` where the reference
+calls `gm_FindNextFilteredEntity` (`0x503e80`), and the diff never said so.
+
+Proposed: for an `XX` call whose candidate operand is a relocation, print the
+relocation's symbol name and target VA (or `unresolved`). Replay: run
+`rebrew diff 0x00501d20 --json` on the guild-rebrew project and read the `XX`
+instruction entry.
