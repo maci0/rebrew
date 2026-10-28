@@ -59,7 +59,7 @@ for Ghidra/BinSync integration.
 
 ```bash
 rebrew status --json                    # Quick overview: counts per STATUS, % coverage
-rebrew todo --json                      # Primary: highest ROI action items
+rebrew todo --json                      # Primary: highest-impact action items
 rebrew todo --category start-function --json    # --category: setup | compile-error | extract-error | fix-delta | improve-match | start-function | missing-annotation | identify-library | run-prover | documented (audit-only) | naked-reconstruction | data-drift | start-data | exact-only | postlink-mangled
 rebrew library scan-signatures --json                     # FLIRT scan: identify known library functions (fast wins)
 rebrew library crt-match --all --json           # CRT sources per LIBRARY function (needs `rebrew cfg detect-crt apply` first)
@@ -67,8 +67,8 @@ rebrew similarity function 0x10001000 --json        # Find structurally similar 
 ```
 
 **Default to `rebrew todo --json`.** Each item has a ready `command`: run it.
-The categories above are interleaved by one continuous ROI score, not a fixed
-tier ladder. `todo` JSON embeds the same accounting frame as `status --json`.
+Rank by affected bytes, then effort; setup first, linked-match audits last.
+Shared-TU compile failures collapse to one action (`affected_functions`); `impact_bytes` is scope, not promised gain. JSON shares `status --json` accounting.
 Keep file agreement, accounted `.text`, and stored data verdicts separate;
 function source counts do not measure matched bytes.
 

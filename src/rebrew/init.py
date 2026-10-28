@@ -1005,7 +1005,7 @@ def _render_agents_md(
         "Whole-program compilation and form round trips do not write function verdicts."
         if compiler_profile == "delphi-1.0"
         else "```\n"
-        "1. rebrew todo --json                          # get highest ROI action items\n"
+        "1. rebrew todo --json                          # get highest-impact action items\n"
         "2. rebrew library match --lib <runtime>.LIB --va 0x<VA>   # is it already in a library?\n"
         "3. rebrew skeleton 0x<VA>                      # only for an inventory VA without source\n"
         f"4. rebrew test src/{target_name}/<func>.c --json  # compile + compare\n"

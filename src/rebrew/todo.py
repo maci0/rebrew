@@ -1,11 +1,11 @@
 """todo.py – Prioritized action dashboard for rebrew projects.
 
 Synthesizes verify results, coverage data, and function catalog into a single
-ranked list of "what to work on next" with ROI scoring.
+ranked list of "what to work on next" by affected extent, then estimated effort.
 
 Usage::
 
-    rebrew todo                     Top 20 actions by ROI
+    rebrew todo                     Top 20 actions by overall impact
     rebrew todo --limit 50          Show top 50
     rebrew todo --category fix-delta        Filter by category
     rebrew todo --stats             Show coverage stats header
@@ -152,6 +152,8 @@ class TodoItem:
     match_percent: float | None = None
     mutations: list[str] = field(default_factory=list)
     blocker: str = ""
+    impact_bytes: int = 0
+    affected_functions: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON output."""
@@ -164,6 +166,8 @@ class TodoItem:
             "filename": self.filename,
             "description": self.description,
             "command": self.command,
+            "impact_bytes": self.impact_bytes,
+            "affected_functions": self.affected_functions,
         }
         if self.byte_delta is not None:
             d["byte_delta"] = self.byte_delta
@@ -193,11 +197,11 @@ def _item_domain(item: TodoItem) -> str:
 
 
 def calculate_roi(size: int, match_pct: float | None, delta: int | None) -> float:
-    """Calculate a continuous ROI score (0-100).
+    """Estimate effort for breaking ties between equally sized work scopes.
 
     User Workflow Heuristic: Higher match percentage is often HARDER to finish
     because it implies fighting the compiler (register allocation, instruction scheduling).
-    Therefore, rewrite tasks (low match) are prioritized over near-match tasks,
+    Therefore, rewrite tasks (low match) win effort ties over near-match tasks,
     unless the near-match task has a small, actionable byte delta.
     """
     if match_pct is None:
@@ -297,7 +301,7 @@ def _collect_active_functions(
     """Collect and score all incomplete functions currently tracked in the project.
 
     Compile errors, near misses, stubs, and verify failures share one pass
-    and one continuous ROI score.
+    and one effort heuristic; collection ranks their affected scope afterward.
     """
     items: list[TodoItem] = []
 
@@ -591,7 +595,7 @@ def _collect_active_functions(
 
 
 def _caller_boost(name: str, caller_counts: dict[str, int] | None) -> float:
-    """ROI bonus for functions other unmatched work waits on (leaf-first)."""
+    """Effort tie-break bonus for unfinished-source declaration hints."""
     if not caller_counts:
         return 0.0
     callers = caller_counts.get(name, 0) + caller_counts.get("_" + name, 0)
@@ -599,13 +603,13 @@ def _caller_boost(name: str, caller_counts: dict[str, int] | None) -> float:
 
 
 def _caller_suffix(desc: str, name: str, caller_counts: dict[str, int] | None) -> str:
-    """Append "unblocks N caller(s)" when other files declare this function."""
+    """Report declaration hints without claiming proven blocked callers."""
     if not caller_counts:
         return desc
     callers = caller_counts.get(name, 0) + caller_counts.get("_" + name, 0)
     if callers <= 0:
         return desc
-    return f"{desc} — unblocks {callers} caller(s)"
+    return f"{desc} — declared by {callers} unfinished source file(s)"
 
 
 def _collect_prover_candidates(
@@ -1108,7 +1112,7 @@ def _caller_counts(
 
     *matched_files* (relative paths, from the metadata store) are skipped: a
     caller that is already byte-matched no longer needs its callees
-    implemented, so it must not add ROI or an "unblocks N caller(s)" note.
+    implemented, so it must not add an effort bonus or a reference hint.
     The skip happens after the name lookup, so a matched file still fills
     the cache. Unchanged sources reuse ``.rebrew/extern-names.json``. A
     source that does not contain ``extern`` is stored empty and is not parsed.
@@ -1487,7 +1491,7 @@ def collect_all(
     *,
     scanned: Sequence[Path] | None = None,
 ) -> list[TodoItem]:
-    """Collect and rank all todo items by ROI score (descending).
+    """Collect and rank actions by affected bytes, using effort to break ties.
 
     *exclude_vas* holds VA rows that are linked library code (``external_vas``:
     ``LIBRARY`` markers plus configured external modules).  They are not work:
@@ -1570,9 +1574,49 @@ def collect_all(
                 item.command = command
                 item.description += f"; unshare cannot run linked comparison; {next_step}"
 
-    # Sort by ROI descending
-    items.sort(key=lambda x: (-x.roi_score, x.va))
-    return items
+    return _rank_by_impact(items)
+
+
+def _rank_by_impact(items: list[TodoItem]) -> list[TodoItem]:
+    """Rank unfinished scope first and collapse shared translation-unit errors."""
+    from rebrew.utils import merged_span_bytes
+
+    audits = {CAT_EXACT_ONLY, CAT_POSTLINK}
+    definitions = {CAT_COMPILE_ERROR, CAT_IMPROVE_MATCH, CAT_FIX_DELTA, CAT_RUN_PROVER, CAT_NAKED}
+    files: dict[str, list[TodoItem]] = {}
+    errors: dict[str, list[TodoItem]] = {}
+    for item in items:
+        item.impact_bytes = max(0, item.size)
+        item.affected_functions = int(bool(item.va) and _item_domain(item) == "code")
+        if item.filename and _item_domain(item) == "code" and item.category in definitions:
+            files.setdefault(item.filename, []).append(item)
+            if item.category == CAT_COMPILE_ERROR:
+                errors.setdefault(item.filename, []).append(item)
+    suppressed: set[int] = set()
+    for filename, failures in errors.items():
+        affected = files[filename]
+        first = min(failures, key=lambda item: item.va)
+        first.impact_bytes = merged_span_bytes(
+            [(item.va, item.va + item.size) for item in affected if item.va and item.size > 0]
+        )
+        first.affected_functions = len(affected)
+        if len(affected) > 1:
+            first.description += f" — {len(affected)} unfinished functions in {filename}"
+        suppressed.update(id(item) for item in failures if item is not first)
+
+    def order(item: TodoItem) -> tuple[int, int, float, int]:
+        tier = (
+            0
+            if item.category == CAT_SETUP
+            else 3
+            if item.category == CAT_DOCUMENTED
+            else 2
+            if item.category in audits
+            else 1
+        )
+        return tier, -item.impact_bytes, -item.roi_score, item.va
+
+    return sorted((item for item in items if id(item) not in suppressed), key=order)
 
 
 # ---------------------------------------------------------------------------
@@ -1588,7 +1632,7 @@ _EPILOG = (
     "  # Filter to functions needing general work\n"
     "  rebrew todo --category improve-match\n\n"
     "  rebrew todo --json  # Machine-readable JSON output\n\n"
-    "[bold]Categories (interleaved globally by continuous ROI score):[/bold]\n\n"
+    "[bold]Categories (ranked by affected bytes, then estimated effort):[/bold]\n\n"
     "  setup · · · · · · · · · Project setup steps (fresh projects)\n\n"
     "  compile-error · · · · · Failed verify syntax/includes\n\n"
     "  extract-error · · · · · Symbol not found in .obj: binding/symbol/implementation issue\n\n"
@@ -1634,7 +1678,7 @@ def _coverage_status_markup(status_counts: dict[str, int]) -> str:
 
 
 app = typer.Typer(
-    help="Prioritized action list: what to work on next for highest ROI.",
+    help="Prioritized actions by overall impact, then estimated effort.",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
@@ -1877,7 +1921,7 @@ def main(
     table.add_column("#", style="dim", width=3, justify="right", no_wrap=True)
     table.add_column("Cat", width=10, no_wrap=True, overflow="ellipsis")
     table.add_column("VA", width=10, no_wrap=True, overflow="ellipsis")
-    table.add_column("Sz", width=6, justify="right", no_wrap=True)
+    table.add_column("Impact", width=8, justify="right", no_wrap=True)
     table.add_column("Name", ratio=1, no_wrap=True, overflow="ellipsis")
     table.add_column("Match %", width=7, justify="right", no_wrap=True)
     table.add_column("Δ", width=5, justify="right", no_wrap=True)
@@ -1894,7 +1938,7 @@ def main(
             str(i),
             f"[{color}]{cat_label}[/{color}]",
             f"0x{item.va:08x}" if item.va else "",
-            f"{item.size}B" if item.size else "",
+            f"{item.impact_bytes}B" if item.impact_bytes else "—",
             item.name,
             match_str,
             delta_str,
@@ -1921,6 +1965,10 @@ def main(
     )
     console.print(panel)
     console.print(f"  Showing top {len(display_items)} of {len(all_items)} items")
+    console.print(
+        "  Ranked by affected bytes; setup first, linked-match audits last. "
+        "Impact is scope, not a promised coverage gain."
+    )
     console.print(
         "  Tip: use [bold]rebrew todo --category <category>[/bold] to filter  |  [bold]rebrew todo --stats[/bold] for stats"
     )
