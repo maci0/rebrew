@@ -1417,7 +1417,7 @@ def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int, int], ...]:
     see; this matches every other per-file memo in the tree
     (``verify_hash._SOURCE_MEMO``, ``metadata.document``, ``utils.read_source_text``).
     """
-    while True:
+    for _ in range(3):
         try:
             before = db_directory.stat()
         except OSError:
@@ -1439,6 +1439,7 @@ def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int, int], ...]:
             after.st_ctime_ns,
         ):
             return tuple(sorted(entries))
+    raise CoverageTomlError(f"{db_directory}: coverage directory changed repeatedly during scan")
 
 
 def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
