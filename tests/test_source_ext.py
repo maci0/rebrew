@@ -111,6 +111,24 @@ class TestScanFiles:
         assert len(combined) == len(set(combined))
         assert any(path.name == "library_zlib.h" for path in combined)
 
+    def test_sources_and_headers_classify_each_suffix_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        for name in ("a.c", "b.h"):
+            (src / name).touch()
+        suffix: Any = Path.suffix
+        calls: list[Path] = []
+
+        def count(path: Path) -> str:
+            calls.append(path)
+            return str(suffix.fget(path))
+
+        monkeypatch.setattr(Path, "suffix", property(count))
+        assert [path.name for path in iter_sources_and_headers(src)] == ["a.c", "b.h"]
+        assert len(calls) == 4  # One filter and one partition per file.
+
 
 # ---------------------------------------------------------------------------
 # detect_source_language() tests
