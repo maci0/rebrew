@@ -476,7 +476,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         CliComponent(
             name="presence",
             module="rebrew.lib_presence",
-            help="Locate one COFF object's function bodies in the reference binary; reports present/absent per symbol.",
+            help="Locate one COFF object's function bodies in the reference binary and report present/absent per symbol.",
             panel="",
         ),
         CliComponent(

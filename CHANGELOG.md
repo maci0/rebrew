@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Added
+
+- **Breaking:** `app.builtins.DOMAIN_COMPONENTS` gains a `library` entry for
+  `presence` (`rebrew.lib_presence`), so consumers that enumerate the library
+  subcommands see one more component. `rebrew library presence --object FILE`
+  reports, per symbol, where an object's masked body occurs in the image, at that
+  VA, and with what fixed-byte ratio; it answers whether an `/INCLUDE` member is
+  something the reference actually carries.
+
 ## [6.8.0] - 2026-10-28
 
 ### Changed

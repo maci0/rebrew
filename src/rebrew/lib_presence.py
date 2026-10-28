@@ -46,7 +46,7 @@ app = typer.Typer(
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew library presence --object member.obj\n\n"
-        "  rebrew library presence --object member.obj --binary build/other.exe --json"
+        "  rebrew library presence --object member.obj --json"
     ),
 )
 
