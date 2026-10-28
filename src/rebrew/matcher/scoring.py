@@ -295,7 +295,8 @@ def _normalize_and_mnems_x86_32(
     mnems: list[str] = []
     for addr, size, mnem, _op in md.disasm_lite(code, 0):
         mnems.append(mnem)
-        _zero_reloc_fields_raw(addr, size, code[addr : addr + size], out, md_det)
+        if size >= 5:
+            _zero_reloc_fields_raw(addr, size, code[addr : addr + size], out, md_det)
     return bytes(out), mnems
 
 
