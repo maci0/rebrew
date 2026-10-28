@@ -262,9 +262,6 @@ def define_remaining_strings(
                 tok_counts[tok_m.group(0)][f] += 1
     for tok in sorted(tok_counts):
         counts = tok_counts[tok]
-        # Zero-fill so tie-breaks follow use_lines insertion order.
-        for f in use_lines:
-            counts.setdefault(f, 0)
         owner[tok] = max(counts, key=counts.__getitem__)
 
     extern_re = re.compile(r"^(\s*)extern\s+(?:char|unsigned char)\s+")

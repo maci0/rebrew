@@ -121,6 +121,20 @@ class TestDefineRemaining:
         assert 'char s_msg_10027000[3] = "hi";' in b.read_text()
         assert "char s_msg_10027000[3]" not in a.read_text()
 
+    def test_owner_tie_uses_first_referencing_file(self, tmp_path: Path) -> None:
+        from rebrew.inline_strings import define_remaining_strings
+
+        files = [tmp_path / f"{name}.c" for name in ("unrelated", "first", "second")]
+        files[0].write_text("int unrelated;\n", encoding="utf-8")
+        for path in files[1:]:
+            path.write_text(
+                "extern char s_msg_10027000[];\nint x = s_msg_10027000[0];\n",
+                encoding="utf-8",
+            )
+        assert define_remaining_strings(files, b"hi\0", 0x10027000, _token_re(), False) == 1
+        assert 'char s_msg_10027000[3] = "hi";' in files[1].read_text()
+        assert "extern char" in files[2].read_text()
+
     def _cfg(self, tmp_path: Path) -> object:
         from types import SimpleNamespace
 
