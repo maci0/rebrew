@@ -59,6 +59,31 @@ class TestHasBackJumps:
         data = b"\xb8\x01\x00\x00\x00" + b"\xe9\xf6\xff\xff\xff"
         assert has_back_jumps(data, 0x1000, 0x100A, 0x1000) is True
 
+    def test_opcode_filter_matches_capstone(self) -> None:
+        import random
+
+        from capstone.x86 import X86_OP_IMM
+
+        from rebrew.analysis import capstone_for
+
+        def oracle(data: bytes) -> bool:
+            return any(
+                insn.mnemonic.startswith("j")
+                and insn.mnemonic not in {"jcxz", "jecxz", "jrcxz"}
+                and any(op.type == X86_OP_IMM and 0 <= op.imm < 0x2000 for op in insn.operands)
+                for insn in capstone_for().disasm(data, 0x1000)
+            )
+
+        rng = random.Random(63)
+        prefixes = [b"", b"\x66", b"\x67", b"\xf2", b"\x2e", b"\x66\x67"]
+        jumps = [bytes([opcode, 0xFE]) for opcode in range(0x70, 0x80)]
+        jumps += [b"\xeb\xfe", b"\xe9\xfb\xff\xff\xff"]
+        jumps += [bytes([0x0F, opcode, 0xFA, 0xFF, 0xFF, 0xFF]) for opcode in range(0x80, 0x90)]
+        samples = [prefix + jump for prefix in prefixes for jump in jumps]
+        samples += [rng.randbytes(rng.randrange(1, 128)) for _ in range(2000)]
+        for data in samples:
+            assert has_back_jumps(data, 0, 0x2000, 0x1000) == oracle(data)
+
     def test_jecxz_is_not_a_back_jump(self) -> None:
         assert has_back_jumps(b"\xe3\xfe", 0x1000, 0x1002, 0x1000) is False
 
