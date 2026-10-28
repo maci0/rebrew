@@ -1108,7 +1108,10 @@ class TestImmutability:
     def test_snapshot_field_is_frozen(
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
     ) -> None:
+        import weakref
+
         snap = self._snap(write, data, tmp_path)
+        assert weakref.ref(snap)() is snap
         with pytest.raises(FrozenInstanceError):
             snap.target = "other"  # type: ignore[misc]
 
