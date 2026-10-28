@@ -273,13 +273,21 @@ def _rewrite_args(mode: str, args: list[str]) -> list[str]:
                 else:
                     out.append(arg)
         else:  # lib
-            for flag in ("/OUT:", "/DEF:", "/LIST:", "/LIBPATH:"):
+            # ``/EXTRACT:`` and ``/REMOVE:`` name an archive member
+            # (``..\build\intel\mt_obj\strrchr.obj``), not a host path; a
+            # member name reaches the container as a Z: path otherwise.
+            for flag in ("/EXTRACT:", "/REMOVE:"):
                 if arg.upper().startswith(flag):
-                    out.append(flag + _to_w(arg[len(flag) :]))
+                    out.append(flag + arg[len(flag) :])
                     break
             else:
-                host_path = _is_host_path(arg) or arg.startswith(("/*.obj", "/*.lib"))
-                out.append(_to_w(arg) if host_path else arg)
+                for flag in ("/OUT:", "/DEF:", "/LIST:", "/LIBPATH:"):
+                    if arg.upper().startswith(flag):
+                        out.append(flag + _to_w(arg[len(flag) :]))
+                        break
+                else:
+                    host_path = _is_host_path(arg) or arg.startswith(("/*.obj", "/*.lib"))
+                    out.append(_to_w(arg) if host_path else arg)
     return out
 
 
