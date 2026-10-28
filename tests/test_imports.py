@@ -168,6 +168,23 @@ class TestParseImportTable:
 
 
 class TestFindImportStubs:
+    @pytest.mark.parametrize("blob", [b"\xff\x25", b"\xff\x25\0\0\0", b"\xff\x25\0\0\0\0"])
+    def test_truncated_and_complete_stub_at_section_end(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blob: bytes
+    ) -> None:
+        from rebrew.formats.binary_model import BinaryInfo, SectionInfo
+
+        path = tmp_path / "text.bin"
+        path.write_bytes(blob)
+        info = BinaryInfo(
+            path=path,
+            format="pe",
+            sections={".text": SectionInfo(".text", IMAGE_BASE, len(blob), 0, len(blob))},
+        )
+        monkeypatch.setattr("rebrew.formats.import_table.parse_import_table", lambda _: {0: "api"})
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda _: info)
+        assert find_import_stubs(path) == ({IMAGE_BASE: "api"} if len(blob) == 6 else {})
+
     def test_detects_jmp_stub(self, tmp_path: Path) -> None:
         pe_bytes, _, iat_va = _pe_with_stub(tmp_path)
         pe_path = tmp_path / "game.exe"

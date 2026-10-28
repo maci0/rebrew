@@ -2,6 +2,8 @@
 
 import hashlib
 import struct
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -55,6 +57,49 @@ def _project(
 
 
 class TestLiteralEvidence:
+    @pytest.mark.parametrize("values", [(0, 0), (0, 8)])
+    def test_duplicate_locals_require_equal_values(self, values: tuple[int, int]) -> None:
+        raw = make_coff_obj(
+            bytes(8), func_symbol="_entry", section_symbols=[("_dup", v) for v in values]
+        )
+        if values[0] == values[1]:
+            assert object_function(raw, "_entry", 8).local_symbols["_dup"] == 0
+        else:
+            with pytest.raises(ValueError, match="ambiguous object-local symbol"):
+                object_function(raw, "_entry", 8)
+
+    @pytest.mark.parametrize("value", [0, 4])
+    def test_duplicate_local_in_another_section(self, value: int) -> None:
+        raw = bytearray(
+            make_coff_obj(
+                bytes(8), func_symbol="_entry", section_symbols=[("_dup", 0), ("_dup", value)]
+            )
+        )
+        symtab = struct.unpack_from("<I", raw, 8)[0]
+        struct.pack_into("<H", raw, 2, 2)
+        struct.pack_into("<I", raw, 8, symtab + 40)
+        for offset in (40, 44):
+            struct.pack_into("<I", raw, offset, struct.unpack_from("<I", raw, offset)[0] + 40)
+        struct.pack_into("<h", raw, symtab + 2 * 18 + 12, 2)
+        raw[60:60] = struct.pack("<8sIIIIIIHHI", b".data", 0, 0, 0, 0, 0, 0, 0, 0, 0x40000040)
+        if value:
+            with pytest.raises(ValueError, match="ambiguous object-local symbol"):
+                object_function(bytes(raw), "_entry", 8)
+        else:
+            assert object_function(bytes(raw), "_entry", 8).local_symbols["_dup"] == 0
+
+    def test_auxiliary_symbol_preserves_literal_relocation(self) -> None:
+        raw = bytearray(_object(b"abc\0"))
+        symtab = struct.unpack_from("<I", raw, 8)[0]
+        relocation = struct.unpack_from("<I", raw, 44)[0]
+        struct.pack_into("<I", raw, relocation + 4, 2)
+        struct.pack_into("<I", raw, 12, struct.unpack_from("<I", raw, 12)[0] + 1)
+        raw[symtab + 17] = 1
+        raw[symtab + 18 : symtab + 18] = bytes(18)
+        function = object_function(bytes(raw), "_helper", 8)
+        assert function.literals[0].value == b"abc\0"
+        assert function.relocs[0].symbol == "??_C@_03HASH@abc?$AA@"
+
     @pytest.mark.parametrize(
         ("name", "size"),
         [
@@ -160,6 +205,55 @@ class TestLiteralEvidence:
 
 
 class TestReviewedNativeIdentity:
+    def test_catalog_does_not_mutate_cached_receipts_and_sees_edits(self, tmp_path: Path) -> None:
+        from rebrew.metadata.functions import load_metadata
+
+        cfg, obj = _project(
+            tmp_path,
+            b"\xc3\xcc\xcc\xcc",
+            make_coff_obj(b"\xc3\xcc\xcc\xcc", func_symbol="_helper"),
+            4,
+        )
+        preview = review_native_identity(
+            cfg, 0x401000, obj, "_helper", reason="review", dry_run=True
+        )
+        review_native_identity(
+            cfg, 0x401000, obj, "_helper", reason="review", expected_digest=preview["input_digest"]
+        )
+        before = load_metadata(cfg.metadata_dir)
+        names = build_name_to_va(cfg)
+        assert names["_helper"] == 0x401000
+        names["_helper"] = 0
+        assert load_metadata(cfg.metadata_dir, deepcopy=False) == before
+        assert build_name_to_va(cfg)["_helper"] == 0x401000
+        assert load_metadata(cfg.metadata_dir, deepcopy=False) == before
+        cfg.dll_exports[0x401100] = "_helper"
+        assert build_name_to_va(cfg)["_helper"] == 0x401100
+        cfg.dll_exports.clear()
+        from rebrew.coff_reloc import CatalogScanError
+
+        with (
+            patch(
+                "rebrew.metadata.native_identity.validate_native_identity",
+                side_effect=ValueError("invalid"),
+            ),
+            pytest.raises(CatalogScanError, match="invalid"),
+        ):
+            build_name_to_va(cfg)
+        assert load_metadata(cfg.metadata_dir, deepcopy=False) == before
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from pathlib import Path; from rebrew.metadata.functions import set_fields; "
+                "import sys; set_fields(Path(sys.argv[1]), 0x401000, {'size': 3}, module='GAME')",
+                str(cfg.metadata_dir),
+            ],
+            check=True,
+        )
+        assert "_helper" not in build_name_to_va(cfg)
+        assert load_metadata(cfg.metadata_dir)[("GAME", 0x401000)]["size"] == 3
+
     def test_preview_is_read_only_and_apply_only_establishes_exact_name(
         self, tmp_path: Path
     ) -> None:

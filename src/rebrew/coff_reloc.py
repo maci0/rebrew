@@ -425,7 +425,7 @@ def build_name_to_va(
 
         pending = []
         native_binary_hash: str | None = None
-        for (owner, va), entry in load_metadata(cfg.metadata_dir).items():
+        for (owner, va), entry in load_metadata(cfg.metadata_dir, deepcopy=False).items():
             if (
                 preset_module_key(owner) != preset_module_key(active_module)
                 or entry.get("kind") != "LIBRARY"

@@ -1938,6 +1938,29 @@ class TestLiteralSearch:
         # ``str.casefold`` would match this; the ASCII fold must not.
         assert not _name_match("ß", 0x1000, "ss")
         assert _name_match("FUNC", 0x1000, "", "my_FUNC_thing")
+        assert _name_match("Äbc", 0x1000, "ÄBC")
+        assert not _name_match("äbc", 0x1000, "ÄBC")
+
+    def test_fold_cache_rejects_identity_collision(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from types import SimpleNamespace
+
+        import rebrew.dashboard as dash
+
+        monkeypatch.setattr(dash, "id", lambda _: 1, raising=False)
+        monkeypatch.setattr(dash, "_FOLDED", {})
+        monkeypatch.setattr(dash, "_FOLDED_GLOBALS", {})
+        first = SimpleNamespace(functions=[SimpleNamespace(name="OLD", symbol="X")], globals=[])
+        second = SimpleNamespace(
+            functions=[
+                SimpleNamespace(name="NEW", symbol="Y"),
+                SimpleNamespace(name="TWO", symbol="Z"),
+            ],
+            globals=[SimpleNamespace(name="NEW")],
+        )
+        assert dash._folded_functions(first) == (("old", "x"),)
+        assert dash._folded_globals(first) == ()
+        assert dash._folded_functions(second) == (("new", "y"), ("two", "z"))
+        assert dash._folded_globals(second) == ("new",)
 
     def test_a_wildcard_term_matches_nothing_through_the_route(self, dashboard: Dashboard) -> None:
         assert dashboard.functions("server_dll", q="func%")["total"] == 0

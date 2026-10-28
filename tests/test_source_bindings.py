@@ -332,3 +332,15 @@ class TestIdentityOnlyScan:
             source_bindings(
                 "// ADDRESS: S 0x1000\nint a,b;", source, "S", None, tmp_path, with_prototypes=False
             )
+
+
+class TestFallbackDefinitionPrototypes:
+    def test_finds_brace_after_blank_lines_without_accepting_declarations(
+        self, tmp_path: Path
+    ) -> None:
+        from rebrew.metadata.bindings import _DefinitionPrototypes
+
+        prototypes = _DefinitionPrototypes(tmp_path / "source.c", "")
+        prototypes._lines = ["int target(void);", "int target(void)", "", "  {", "}"]
+        assert prototypes.get("target") == "int target(void)"
+        assert prototypes.get("missing") == ""

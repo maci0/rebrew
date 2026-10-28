@@ -686,14 +686,20 @@ def remote_sync_records(
     if funcs is None or globals_ is None:
         funcs, globals_ = load_binsync_state(state_dir)
     local = local or {}
+    local_keys: dict[tuple[str, str], str] = {}
+    for key in local:
+        kind, _, _ = key.partition(".")
+        if kind in ("function", "global") and "." in key:
+            local_keys.setdefault((kind, key.rsplit(".", 1)[1]), key)
     records: dict[str, dict[str, Any]] = {}
     for kind, source in (("function", funcs), ("global", globals_)):
         for va, entry in source.items():
-            key = next(
-                (k for k in local if k.startswith(f"{kind}.") and k.endswith(f".0x{va:x}")),
-                sync_key(kind, target_module(cfg), va),
-            )
+            key = local_keys.get((kind, f"0x{va:x}"), sync_key(kind, target_module(cfg), va))
             records[key] = {k: v for k, v in entry.items() if k in SYNC_FIELD_RULES[kind]}
+    function_records: dict[str, list[dict[str, Any]]] = {}
+    for key, fields in records.items():
+        if key.startswith("function."):
+            function_records.setdefault(key.rsplit(".", 1)[1], []).append(fields)
     for addr, comment in load_binsync_comments(state_dir).items():
         text = str(comment.get("comment") or "")
         if text.startswith((_NOTE_PREFIX, _GHIDRA_PREFIX)):
@@ -701,12 +707,11 @@ def remote_sync_records(
         owner = comment.get("func_addr")
         if not isinstance(owner, int):
             continue
-        for key, fields in records.items():
-            if key.startswith("function.") and key.endswith(f".0x{owner:x}"):
-                fields.setdefault("comments", {})[f"0x{addr:08x}"] = {
-                    "comment": text,
-                    "func_addr": owner,
-                }
+        for fields in function_records.get(f"0x{owner:x}", []):
+            fields.setdefault("comments", {})[f"0x{addr:08x}"] = {
+                "comment": text,
+                "func_addr": owner,
+            }
     records.update(incoming_type_records(state_dir))
     return records
 

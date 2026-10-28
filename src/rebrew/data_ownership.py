@@ -279,10 +279,15 @@ def enrich_library_owners(
         else:
             symbols[row.name] = row
     selected: dict[str, set[str]] = {}
+    library_names: dict[str, str] = {}
+    library_keys: dict[str, str] = {}
     for row in rows:
         if row.library:
-            selected.setdefault(_library_key(row.library), set()).add(row.member.casefold())
-    library_names = {_library_key(row.library): row.library for row in rows if row.library}
+            key = library_keys.get(row.library)
+            if key is None:
+                key = library_keys[row.library] = _library_key(row.library)
+            selected.setdefault(key, set()).add(row.member.casefold())
+            library_names[key] = row.library
     common_names = {row.name for row in rows if row.common}
     explicit_names = {entry.link_symbol for entry in scan.globals.values() if entry.link_symbol}
     common: dict[str, list[tuple[str, str, str]]] = {}

@@ -74,7 +74,7 @@ app = typer.Typer(
 #: (label, pattern, replacement) — each must keep the declaration legal and
 #: the function semantically identical.
 QUALIFIERS: list[tuple[str, str, str]] = [
-    ("volatile", r"^(\s*)(?!(?:.*\bvolatile\b))", r"\1volatile "),
+    ("volatile", r"\A(\s*)(?!(?:.*\bvolatile\b))(?=\S)", r"\1volatile "),
 ]
 
 

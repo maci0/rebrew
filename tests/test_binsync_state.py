@@ -3,9 +3,59 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from source_util import write_source
+
+
+class TestRemoteSyncRecords:
+    def test_identity_order_exact_suffix_and_comments(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.binsync import state
+
+        monkeypatch.setattr(
+            state,
+            "load_binsync_comments",
+            lambda _: {
+                0x1004: {"func_addr": 0x1000, "comment": "body"},
+                0x1001: {"func_addr": 0x1000, "comment": "[rebrew:note] private"},
+                0x1002: {"func_addr": 0x1000, "comment": "[rebrew:ghidra] private"},
+                0x2004: {"func_addr": 0x2000, "comment": "fallback"},
+                0x3004: {"func_addr": 0x3000, "comment": "no owner"},
+                0x4004: {"func_addr": None, "comment": "unknown"},
+            },
+        )
+        monkeypatch.setattr(state, "incoming_type_records", lambda _: {})
+        local: dict[str, dict[str, Any]] = {
+            "function.WRONG.0x01000": {},
+            "function.FIRST.0x1000": {},
+            "function.SECOND.0x1000": {},
+            "global.FIRST.0x5000": {},
+            "global.SECOND.0x5000": {},
+        }
+        cfg: Any = SimpleNamespace(module="GAME", target_name="game")
+        result = state.remote_sync_records(
+            cfg,
+            tmp_path,
+            {0x1000: {"name": "f", "evidence": "private"}, 0x2000: {"name": "g"}},
+            {0x5000: {"name": "v"}},
+            local,
+        )
+        assert list(result) == [
+            "function.FIRST.0x1000",
+            "function.GAME.0x2000",
+            "global.FIRST.0x5000",
+        ]
+        assert result["function.FIRST.0x1000"] == {
+            "name": "f",
+            "comments": {"0x00001004": {"comment": "body", "func_addr": 0x1000}},
+        }
+        assert result["function.GAME.0x2000"]["comments"] == {
+            "0x00002004": {"comment": "fallback", "func_addr": 0x2000}
+        }
 
 
 class TestDefinitionValidation:

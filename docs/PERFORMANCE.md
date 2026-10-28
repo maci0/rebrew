@@ -3,6 +3,16 @@
 Measured facts about where rebrew's hot paths spend time, and what was done
 (and deliberately *not* done) about it.
 
+## Independent hot-path load reviews (2026-10-28, 6.6.0)
+
+[Fifty fresh reviews](PERFORMANCE_6_6_0.md) profile complete callable paths at
+three load sizes or shapes, preserving raw CPU/wall samples and output checks.
+Retained production patches remove repeated archive/symbol/identity searches,
+layout regex setup and string scans. The report separates measurements from
+instrumented profiles, records rejected candidates and small-load regressions,
+and covers the cache freshness bugs exposed during refresh testing. The release
+includes a supplemental archive of runnable experiments and raw evidence.
+
 ## Source and rename review (2026-10-28, 6.5.0)
 
 The review traced CLI source discovery, metadata joins, global ownership,

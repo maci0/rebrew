@@ -630,6 +630,8 @@ def insert_definition(
     # comments/strings (e.g. Japanese game TUs). Same convention as
     # annotation / climb / rename write-backs.
     text, encoding = read_source_text(f)
+    if dry_run and name not in text:
+        return True
     lines = split_source_lines(text)
     extern_re = _name_line_re(name, is_array=is_array, extern=True)
     def_line = f"{ctype} {name}[{size}]" if is_array else f"{ctype} {name}"

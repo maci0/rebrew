@@ -44,6 +44,19 @@ def _prepare(monkeypatch: object, tmp_path: Path, score: object) -> Path:
 
 class TestStatementCandidates:
     @pytest.mark.parametrize(
+        "declaration",
+        ["    volatile int a;\n", "\n  volatile int a;\n\n", "volatile int\n  a;\n", "\n\t\n"],
+    )
+    def test_no_candidate_for_qualified_or_empty_unit(self, declaration: str) -> None:
+        assert rebrew.qual_sweep.variants(declaration) == []
+
+    def test_multiline_declaration_qualifies_first_nonempty_line(self) -> None:
+        declaration = "\n    unsigned\n        int a;\n"
+        assert rebrew.qual_sweep.variants(declaration) == [
+            ("volatile", "\n    volatile unsigned\n        int a;\n")
+        ]
+
+    @pytest.mark.parametrize(
         "statement", ["return 0;", "return value;", "return\tvalue;", "goto done;"]
     )
     def test_control_flow_is_not_a_declaration(self, statement: str) -> None:
@@ -74,6 +87,26 @@ class TestStatementCandidates:
             "volatile int a;",
             "volatile int b;",
         ]
+        assert src.read_text(encoding="utf-8") == original
+
+    def test_preview_skips_qualified_declarations(self, monkeypatch, tmp_path, capsys) -> None:
+        src = _prepare(monkeypatch, tmp_path, None)
+        original = SOURCE.replace("int a;", "volatile int a;")
+        write_source(src, original, encoding="utf-8")
+
+        main(
+            source=str(src),
+            va=None,
+            symbol=None,
+            rounds=1,
+            jobs=1,
+            dry_run=True,
+            json_output=True,
+            target=None,
+        )
+
+        result = json.loads(capsys.readouterr().out)
+        assert [candidate["text"] for candidate in result["candidates"]] == ["volatile int b;"]
         assert src.read_text(encoding="utf-8") == original
 
 

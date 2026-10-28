@@ -393,6 +393,8 @@ def refresh_all() -> dict[str, int]:
     the process to rebuild the CLI after changing its plugins; registry
     refresh does not remount the umbrella app.
     """
+    global _entry_points_snapshot
+
     from rebrew import decompiler, discover, toolchain_detect
     from rebrew.compiler import cache as compile_cache
     from rebrew.compiler import toolchain
@@ -402,6 +404,8 @@ def refresh_all() -> dict[str, int]:
     from rebrew.metadata import storage as metadata_storage
 
     with _REFRESH_ALL_LOCK:
+        with _entry_points_lock:
+            _entry_points_snapshot = None
         counts: dict[str, int] = {}
         counts["toolchains"] = len(toolchain.refresh_toolchain_registry())
         counts["decompiler_backends"] = len(decompiler.refresh_backends())

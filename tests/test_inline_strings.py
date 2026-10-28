@@ -121,6 +121,20 @@ class TestDefineRemaining:
         assert 'char s_msg_10027000[3] = "hi";' in b.read_text()
         assert "char s_msg_10027000[3]" not in a.read_text()
 
+    def test_owner_tie_uses_first_referencing_file(self, tmp_path: Path) -> None:
+        from rebrew.inline_strings import define_remaining_strings
+
+        files = [tmp_path / f"{name}.c" for name in ("unrelated", "first", "second")]
+        files[0].write_text("int unrelated;\n", encoding="utf-8")
+        for path in files[1:]:
+            path.write_text(
+                "extern char s_msg_10027000[];\nint x = s_msg_10027000[0];\n",
+                encoding="utf-8",
+            )
+        assert define_remaining_strings(files, b"hi\0", 0x10027000, _token_re(), False) == 1
+        assert 'char s_msg_10027000[3] = "hi";' in files[1].read_text()
+        assert "extern char" in files[2].read_text()
+
     def _cfg(self, tmp_path: Path) -> object:
         from types import SimpleNamespace
 
@@ -423,3 +437,60 @@ class TestOccurrenceIndex:
         _, parsed = _parse_source(source, "s_")
         assert _code_occurrences(parsed, "s_value") == 2
         assert _code_occurrences(parsed, "missing") == 0
+
+    def test_index_matches_byte_regex_on_unicode_macros_and_malformed_code(self) -> None:
+        import re
+        from bisect import bisect_right
+
+        from rebrew.inline_strings import _code_occurrences, _parse_source
+
+        text = (
+            '/* s_a */ char *literal = "s_a s_b";\n'
+            "#define M(x) s_a + x + s_b\n"
+            "int s_a_extra, s_a1;\n"
+            "int f( { s_a + é s_aé + é_s_a + $s_b;\n"
+        )
+        _, parsed = _parse_source(text, "s_")
+        for name in ("s_a", "s_b", "s_a", "s_b", "s_a_extra", "s_a1", "a-b"):
+            pattern = re.compile(rb"\b" + re.escape(name.encode()) + rb"\b")
+            expected = 0
+            for match in pattern.finditer(parsed.data):
+                i = bisect_right(parsed.non_code, match.start(), key=lambda span: span[0]) - 1
+                if i < 0 or match.start() >= parsed.non_code[i][1]:
+                    expected += 1
+            assert _code_occurrences(parsed, name) == expected
+        assert parsed.code_counts is not None
+
+    def test_single_query_does_not_build_index(self) -> None:
+        from rebrew.inline_strings import _code_occurrences, _parse_source
+
+        _, parsed = _parse_source("int s_one; int another;", "s_")
+        assert _code_occurrences(parsed, "s_one") == 1
+        assert parsed.code_counts is None
+
+    def test_edit_after_index_build_uses_new_source_text(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import inline_strings
+        from rebrew.utils import read_source_text
+
+        source = tmp_path / "owner.c"
+        source.write_text(
+            "".join(
+                f'char s_{i}[] = "x";\nint f{i}(void) {{ return s_{i}[0]; }}\n' for i in range(4)
+            )
+        )
+        other = tmp_path / "other.c"
+        reads = 0
+
+        def changing_read(path: Path) -> tuple[str, str]:
+            nonlocal reads
+            if path == other:
+                reads += 1
+                return ("/* s_0 s_1 s_2 s_3 */" if reads < 4 else "#define X s_3\n", "utf-8")
+            return read_source_text(path)
+
+        monkeypatch.setattr(inline_strings, "read_source_text", changing_read)
+        result = inline_strings.inline_named_strings(source, "s_", [other], True)
+        assert result.inlined == {"s_0": 1, "s_1": 1, "s_2": 1}
+        assert result.skipped == {"s_3": f"used from {other}"}

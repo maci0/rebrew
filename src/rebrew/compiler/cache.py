@@ -325,10 +325,11 @@ class CompileCache:
         with self._store_lock:
             store = self._cache
             size_limit = store.size_limit if store is not None else 0
+        volume = self.volume
         return {
             "entries": self.count,
-            "volume_bytes": self.volume,
-            "volume_mib": round(self.volume / BYTES_PER_MIB, 2),
+            "volume_bytes": volume,
+            "volume_mib": round(volume / BYTES_PER_MIB, 2),
             "size_limit_mib": round(size_limit / BYTES_PER_MIB, 2),
             "session_hits": hits,
             "session_misses": misses,
@@ -686,6 +687,8 @@ def _iter_include_specs(text: str) -> Iterator[tuple[str, str]]:
     if "#" not in text:
         return
     for raw in split_source_lines(text):
+        if "#" not in raw:
+            continue
         line = _strip_leading_comments(raw)
         if not line.startswith("#"):
             continue

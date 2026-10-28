@@ -17,6 +17,28 @@ from rebrew.compiler.toolchain import TOOLCHAINS
 from rebrew.config import load_compile_cache_config
 
 
+def test_command_admission_resolves_project_root_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "source.c").write_text("int x;\n")
+    (tmp_path / "include").mkdir()
+    original = Path.resolve
+    calls = []
+
+    def resolve(path: Path, *args: Any, **kwargs: Any) -> Path:
+        if path == tmp_path:
+            calls.append(1)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    assert (
+        cmake_cache._object_command(tmp_path, ["/c", "/Iinclude", "/Fooutput.obj", "source.c"])
+        is not None
+    )
+    assert len(calls) == 1
+
+
 @pytest.fixture
 def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     (tmp_path / "rebrew-project.toml").write_text(

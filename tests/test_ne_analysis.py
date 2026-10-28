@@ -13,6 +13,41 @@ from rebrew.ne_compare import compare_images
 
 
 class TestNeComparison:
+    @pytest.mark.parametrize("window", [1, 3, 1024])
+    def test_combined_content_reuses_windows_and_matches_helpers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, window: int
+    ) -> None:
+        from rebrew.formats import ne_analysis
+
+        a, b = tmp_path / "a.exe", tmp_path / "b.exe"
+        raw = bytearray(make_ne(segments=[(b"abcabc", 0), (bytes(16), 0)]))
+        struct.pack_into("<H", raw, 0x148, 0)  # Virtual second segment.
+        a.write_bytes(raw + b"tail")
+        b.write_bytes(make_ne(segments=[(b"abcxyz", 0)]))
+        left, right = NeImage(a), NeImage(b)
+        expected_score = ne_analysis.byte_score(left, right, window)
+        expected_budget = ne_analysis.segment_budget(left, right, window)
+        original = ne_analysis.block_set
+        calls = []
+
+        def count(data: bytes, size: int) -> set[bytes]:
+            calls.append((data, size))
+            return original(data, size)
+
+        monkeypatch.setattr(ne_analysis, "block_set", count)
+        report = compare_images(a, b, window)
+        assert (report["content_bytes"], report["original_bytes"]) == expected_score
+        assert [row["content_bytes"] for row in report["segments"]] == [
+            row[2] for row in expected_budget[:-1]
+        ]
+        assert report["trailing_content"] == {
+            "bytes": expected_budget[-1][1],
+            "content_bytes": expected_budget[-1][2],
+        }
+        assert calls == [(right.data, window)]
+        with pytest.raises(ValueError, match="window size must be positive"):
+            compare_images(a, b, 0)
+
     def test_relocated_content_is_not_file_equality(self, tmp_path: Path) -> None:
         a, b = tmp_path / "a.exe", tmp_path / "b.exe"
         a.write_bytes(make_ne(segments=[(b"ABCDEFGHIJKLMNOP", 0)]))

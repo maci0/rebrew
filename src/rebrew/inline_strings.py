@@ -262,9 +262,6 @@ def define_remaining_strings(
                 tok_counts[tok_m.group(0)][f] += 1
     for tok in sorted(tok_counts):
         counts = tok_counts[tok]
-        # Zero-fill so tie-breaks follow use_lines insertion order.
-        for f in use_lines:
-            counts.setdefault(f, 0)
         owner[tok] = max(counts, key=counts.__getitem__)
 
     extern_re = re.compile(r"^(\s*)extern\s+(?:char|unsigned char)\s+")
@@ -317,6 +314,8 @@ class _ParsedSource:
     data: bytes
     non_code: list[tuple[int, int]] = field(default_factory=list)
     identifiers: dict[str, list[Any]] = field(default_factory=dict)
+    occurrence_queries: int = 0
+    code_counts: dict[bytes, int] | None = None
 
 
 @dataclass
@@ -348,8 +347,21 @@ def _parse_source(text: str, prefix: str) -> tuple[Any, _ParsedSource]:
 
 def _code_occurrences(parsed: _ParsedSource, name: str) -> int:
     """Whole-word occurrences of *name* outside comments and literals."""
+    encoded = name.encode("utf-8")
+    if re.fullmatch(rb"\w+", encoded):
+        parsed.occurrence_queries += 1
+        if parsed.code_counts is None and parsed.occurrence_queries >= 3:
+            counts: dict[bytes, int] = {}
+            for match in re.finditer(rb"\b\w+\b", parsed.data):
+                i = bisect_right(parsed.non_code, match.start(), key=lambda span: span[0]) - 1
+                if i < 0 or match.start() >= parsed.non_code[i][1]:
+                    token = match.group()
+                    counts[token] = counts.get(token, 0) + 1
+            parsed.code_counts = counts
+        if parsed.code_counts is not None:
+            return parsed.code_counts.get(encoded, 0)
     count = 0
-    word = re.compile(rb"\b" + re.escape(name.encode("utf-8")) + rb"\b")
+    word = re.compile(rb"\b" + re.escape(encoded) + rb"\b")
     for m in word.finditer(parsed.data):
         i = bisect_right(parsed.non_code, m.start(), key=lambda span: span[0]) - 1
         if i < 0 or m.start() >= parsed.non_code[i][1]:

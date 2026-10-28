@@ -82,6 +82,64 @@ def test_map_matches_symbol_name_even_if_reference_va_drifted(tmp_path: Path) ->
     assert scan.to_dict()["summary"]["library_owned"] == 1
 
 
+def test_library_keys_are_normalized_once_per_spelling_per_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew import data_ownership
+
+    link_map = tmp_path / "server.map"
+    link_map.write_text(
+        " 0003:00000000 _a 10000000 CRT.lib:one.obj\n"
+        " 0003:00000004 _b 10000004 CRT.lib:two.obj\n"
+        " 0003:00000008 _c 10000008 crt.LIB:three.obj\n"
+    )
+    original = data_ownership._library_key
+    calls = []
+
+    def key(name: str) -> str:
+        calls.append(name)
+        return original(name)
+
+    monkeypatch.setattr(data_ownership, "_library_key", key)
+    monkeypatch.setattr(data_ownership, "cached_data_archives", lambda cfg: {})
+    cfg = _cfg(tmp_path)
+    for _ in range(2):
+        scan = ScanResult(globals={name: GlobalEntry(name) for name in ("a", "b", "c")})
+        enrich_library_owners(scan, cfg, link_map)
+        assert [scan.globals[name].library_owners[0]["library"] for name in ("a", "b", "c")] == [
+            "CRT.lib",
+            "CRT.lib",
+            "crt.LIB",
+        ]
+    assert calls == ["CRT.lib", "crt.LIB"] * 2
+
+
+def test_library_key_collision_keeps_last_map_spelling_for_common_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew import data_ownership
+
+    archive = tmp_path / "crt.lib"
+    archive.write_bytes(b"archive")
+    link_map = tmp_path / "server.map"
+    link_map.write_text(
+        " 0001:00000000 _one 10000000 f CRT.lib:one.obj\n"
+        " 0001:00000004 _two 10000004 f crt.LIB:two.obj\n"
+        " 0003:00000008 _g 10000008 <common>\n"
+    )
+    monkeypatch.setattr(data_ownership, "cached_data_archives", lambda cfg: {"crt": archive})
+
+    def definitions(path, members, names, explicit):
+        assert members == {"one.obj", "two.obj"}
+        return {"_g": ["one.obj"]}
+
+    monkeypatch.setattr(data_ownership, "_common_definitions", definitions)
+    entry = GlobalEntry("g")
+    enrich_library_owners(ScanResult(globals={"g": entry}), _cfg(tmp_path), link_map)
+    assert entry.library_owners[0]["library"] == "crt.LIB"
+    assert entry.library_owners[0]["member"] == "one.obj"
+
+
 def test_no_prefix_header_or_va_guessing(tmp_path: Path) -> None:
     link_map = tmp_path / "server.map"
     link_map.write_text(" 0003:00000000 ___argc 100354c4 LIBCMT:crt0dat.obj\n")

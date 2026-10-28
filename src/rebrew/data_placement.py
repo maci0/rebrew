@@ -116,6 +116,15 @@ def private_data_symbols(cfg: ProjectConfig, built: Path, map_path: Path) -> dic
     if image.format != "pe":
         return {}
     rows = parse_link_map(map_path.read_text(encoding="utf-8", errors="replace"))
+    by_object: dict[str, list[LinkSymbol]] = defaultdict(list)
+    by_library_member: dict[str, dict[str, list[LinkSymbol]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for row in rows:
+        by_object[PureWindowsPath(row.object or row.member).name].append(row)
+        by_library_member[PureWindowsPath(row.library).stem.casefold()][
+            row.member.casefold()
+        ].append(row)
 
     def read(va: int, size: int) -> bytes:
         for section in image.sections.values():
@@ -144,16 +153,15 @@ def private_data_symbols(cfg: ProjectConfig, built: Path, map_path: Path) -> dic
             obj = Path(output)
             if not obj.is_absolute():
                 obj = Path(command["directory"]) / obj
-            selected = [r for r in rows if PureWindowsPath(r.object or r.member).name == obj.name]
+            selected = by_object.get(obj.name, [])
             if selected and obj.is_file():
                 add(obj.read_bytes(), selected)
     for library, archive in cached_data_archives(cfg).items():
-        selected = [r for r in rows if PureWindowsPath(r.library).stem.casefold() == library]
-        members = {r.member.casefold() for r in selected}
+        members = by_library_member.get(library, {})
         for member, body in parse_archive(str(archive)):
             name = PureWindowsPath(member).name.casefold()
             if name in members:
-                add(body, [r for r in selected if r.member.casefold() == name])
+                add(body, members[name])
     return {name: next(iter(v)) for name, v in values.items() if len(v) == 1}
 
 

@@ -2415,6 +2415,12 @@ class TestUnattributedRanges:
 
 
 class TestNativeTailAccounting:
+    def test_subtracts_overlapping_claims_from_tail(self) -> None:
+        from rebrew.status import _unclaimed
+
+        claims = [(0, 30), (10, 15), (35, 45), (40, 50), (60, 70)]
+        assert _unclaimed(20, 60, claims) == [(30, 35), (50, 60)]
+
     def test_tails_are_unverified_and_do_not_overlap_another_body(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

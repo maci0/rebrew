@@ -310,14 +310,14 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
     stub_va = text.va
     blob = info.data[text.file_offset : text.file_offset + text.size]
     stubs: dict[int, str] = {}
-    for i in range(len(blob) - 5):
-        if blob[i] != 0xFF or blob[i + 1] != 0x25:
-            continue
+    pos = 0
+    while (i := blob.find(b"\xff\x25", pos, max(0, len(blob) - 4))) != -1:
+        pos = i + 1
         # ``<i`` reads the operand signed (a RIP-relative disp32 is signed).
         # A PE32 operand is the slot's absolute VA, so an image based at or
         # above 0x80000000 decodes negative and misses the table; mask it back
         # to 32 bits rather than look up a negative key.
-        operand = struct.unpack("<i", blob[i + 2 : i + 6])[0]
+        operand = struct.unpack_from("<i", blob, i + 2)[0]
         target = (
             (stub_va + i + 6 + operand) & 0xFFFFFFFFFFFFFFFF
             if rip_relative

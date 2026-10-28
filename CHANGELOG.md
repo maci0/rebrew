@@ -1,5 +1,35 @@
 ## [Unreleased]
 
+## [6.6.0] - 2026-10-28
+
+### Changed
+
+- **Breaking:** Import `byte_score` and `segment_budget` from
+  `rebrew.formats.ne_analysis`; `rebrew.ne_compare.byte_score` and
+  `rebrew.ne_compare.segment_budget` are no longer re-exported by the CLI module.
+- **Breaking:** `rebrew.qual_sweep.QUALIFIERS` anchors qualifier insertion to
+  the declaration start and excludes blank/already-qualified candidates.
+- Profile fifty independent hot paths at multiple load sizes; publish the
+  benchmark findings, rejected candidates and reproducible experiment archive.
+- Remove repeated source classification, metadata validation, include scanning,
+  map filtering, interval searches and string scans. Keep operation-local indexes
+  and all freshness, ownership and input-validation checks.
+- Avoid quadratic archive long-name and COFF-local ambiguity scans, reuse NE
+  comparison windows, and index discovered function starts and BinSync identities.
+- Read reviewed relocation receipts without copying the entire metadata store;
+  keep returned values and receipt validation isolated from cached metadata.
+
+### Fixed
+
+- Dashboard search folds verify snapshot identity, preventing stale matches or
+  index errors when a refreshed snapshot reuses an old object ID.
+- Explicit registry refresh rediscovers in-place plugin entry-point edits.
+- Qualifier search skips already-qualified declarations and trailing blank lines
+  instead of generating a malformed extra candidate.
+- Data-layout audit, fill, ownership and convergence use the selected target's
+  metadata module and response file. Fill emits one pad per address and avoids
+  adding a placeholder to a translation unit that already typed the symbol.
+
 ## [6.5.0] - 2026-10-28
 
 ### Fixed

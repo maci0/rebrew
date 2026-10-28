@@ -363,12 +363,14 @@ def iter_sources_and_headers(
             shared, lambda path: path.suffix.lower() in wanted, scanned=shared_scan
         )
         files = sorted(set(files) | set(extra))
-    sources = [path for path in files if path.suffix.lower() in extensions]
-    headers = [
-        path
-        for path in files
-        if path.suffix.lower() == ".h" and path.suffix.lower() not in extensions
-    ]
+    sources = []
+    headers = []
+    for path in files:
+        suffix = path.suffix.lower()
+        if suffix in extensions:
+            sources.append(path)
+        elif suffix == ".h":
+            headers.append(path)
     return sources + headers
 
 
