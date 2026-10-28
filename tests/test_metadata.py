@@ -1652,3 +1652,18 @@ class TestIdentityFileValidator:
                 tmp_path,
                 [{"module": "SERVER", "va": 0x1000, "identity": {"file": "../x.c"}}],
             )
+
+
+class TestProvenanceValidation:
+    def test_origins_follow_current_sync_rules_and_validate_every_entry(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata.functions import SYNC_FIELD_RULES, validate_provenance_table
+
+        monkeypatch.setitem(SYNC_FIELD_RULES, "custom", {"custom_field": ("name", "both")})
+        origins = {"name": {"provider": "one"}, "custom_field": {"provider": "two"}}
+        assert validate_provenance_table("origins", origins) is origins
+        with pytest.raises(ValueError, match="unknown origin field"):
+            validate_provenance_table("origins", {**origins, "unknown": {}})
+        with pytest.raises(ValueError, match="must contain string facts"):
+            validate_provenance_table("origins", {"name": {"provider": 3}})

@@ -442,10 +442,9 @@ def validate_provenance_table(key: str, value: Any) -> Any:
     if not isinstance(value, dict):
         raise ValueError(f"{key} must be a table")
     if key == "origins":
+        origin_fields = {name for rules in SYNC_FIELD_RULES.values() for name in rules}
         for field, origin in value.items():
-            if not isinstance(field, str) or field not in {
-                name for rules in SYNC_FIELD_RULES.values() for name in rules
-            }:
+            if not isinstance(field, str) or field not in origin_fields:
                 raise ValueError(f"unknown origin field {field!r}")
             if not isinstance(origin, dict) or any(
                 not isinstance(k, str) or not isinstance(v, str) for k, v in origin.items()

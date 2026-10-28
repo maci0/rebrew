@@ -770,7 +770,9 @@ class _DefinitionPrototypes:
             stripped = line.strip()
             if f"{name}(" not in stripped.replace(" (", "(") or stripped.endswith(";"):
                 continue
-            following = next((ln.strip() for ln in lines[index + 1 :] if ln.strip()), "")
+            following = next(
+                (lines[i].strip() for i in range(index + 1, len(lines)) if lines[i].strip()), ""
+            )
             if not (stripped.endswith("{") or following.startswith("{")):
                 continue
             parsed = extract_function_name_from_line(stripped)
