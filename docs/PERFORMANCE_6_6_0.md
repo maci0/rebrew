@@ -111,3 +111,9 @@ count.
 Full release gates validate the combined changes after integration. Actual
 compiler/image execution, live Ghidra/BinSync writes, cold storage, all possible
 plugins and production-game performance remain outside these synthetic reviews.
+
+NE comparison uses a new combined content helper. The CLI module stops
+re-exporting the separate byte/segment helpers; their canonical
+`rebrew.formats.ne_analysis` imports remain. Qualifier patterns now exclude
+invalid empty/already-qualified variants. These import/pattern changes are
+listed as breaking library-surface changes in the minor release notes.

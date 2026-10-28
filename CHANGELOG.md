@@ -4,6 +4,11 @@
 
 ### Changed
 
+- **Breaking:** Import `byte_score` and `segment_budget` from
+  `rebrew.formats.ne_analysis`; `rebrew.ne_compare.byte_score` and
+  `rebrew.ne_compare.segment_budget` are no longer re-exported by the CLI module.
+- **Breaking:** `rebrew.qual_sweep.QUALIFIERS` anchors qualifier insertion to
+  the declaration start and excludes blank/already-qualified candidates.
 - Profile fifty independent hot paths at multiple load sizes; publish the
   benchmark findings, rejected candidates and reproducible experiment archive.
 - Remove repeated source classification, metadata validation, include scanning,
