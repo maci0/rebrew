@@ -2623,6 +2623,20 @@ def _batch_group_key(toolchain: str, cflags: str | list[str]) -> tuple[str, str]
     return toolchain, " ".join(core)
 
 
+def _symbol_spellings(symbol: str) -> list[str]:
+    """Undecorated COFF spellings to try when *symbol* is absent from an object.
+
+    ``_foo@8`` (stdcall) and ``_foo`` (cdecl) name the same C function; a stored
+    symbol can keep one while the compiled definition has the other.
+    """
+    base = symbol.split("@", 1)[0]
+    out: list[str] = []
+    for candidate in (base, "_" + base.lstrip("_"), base.lstrip("_")):
+        if candidate and candidate != symbol and candidate not in out:
+            out.append(candidate)
+    return out
+
+
 def _extract_and_compare(
     obj_path: str,
     symbol: str,
@@ -2640,6 +2654,17 @@ def _extract_and_compare(
     """
     # Single LIEF parse for both the symbol bytes and the typed relocs.
     obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, symbol)
+    if obj_bytes is None:
+        # A stored COFF symbol may carry a calling-convention decoration the
+        # compiled source does not (a stdcall spelling recorded from a linker
+        # error while the reconstruction is a cdecl/naked definition). The
+        # body bytes are still comparable, so retry the undecorated spellings
+        # before declaring the symbol absent.
+        for fallback in _symbol_spellings(symbol):
+            obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, fallback)
+            if obj_bytes is not None:
+                break
+                break
     if obj_bytes is None:
         # Post-compile extraction failure: the .obj compiled fine but the
         # symbol is absent (wrong --symbol, optimized-away function).  Must

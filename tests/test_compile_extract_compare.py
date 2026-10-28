@@ -31,6 +31,33 @@ def _stub_parser(
     return _parse
 
 
+def test_decorated_symbol_falls_back_to_the_undecorated_spelling(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stored stdcall spelling must not turn a cdecl/naked body into EXTRACT_ERROR.
+
+    The store can keep ``_fcn_005ef2e0@20`` from an old linker error while the
+    reconstructed definition compiles as ``_fcn_005ef2e0``. Verify reported
+    EXTRACT_ERROR for eight such rows even though the body bytes matched.
+    """
+    from rebrew.compiler.compile import _extract_and_compare
+
+    body = b"\x55\x8b\xec\xc3"
+    seen: list[str] = []
+
+    def _parse(
+        _obj_path: Any, symbol: str
+    ) -> tuple[bytes | None, dict[int, str] | None, list[Any]]:
+        seen.append(symbol)
+        return (body if symbol == "_fcn_005ef2e0" else None), None, []
+
+    monkeypatch.setattr("rebrew.compiler.compile.parse_obj_symbol_and_relocs", _parse)
+    result = _extract_and_compare("f.obj", "_fcn_005ef2e0@20", body, check_known_bindings=False)
+    assert result.matched, result.message
+    assert seen[0] == "_fcn_005ef2e0@20"
+    assert "_fcn_005ef2e0" in seen
+
+
 class TestExtractAndCompare:
     @pytest.mark.parametrize("checked", [False, True])
     def test_public_compare_applies_the_targets_binding_policy(
