@@ -144,16 +144,21 @@ def match_bytes(index: Index, data: bytes) -> list[tuple[str, str]]:
         for obj_name, body, relocs in entries:
             if len(body) < len(data):
                 continue
+            if not relocs:
+                if body[: len(data)] == data and (sym, obj_name) not in matches:
+                    matches.append((sym, obj_name))
+                continue
             # Only reloc offsets inside the compared window mask a byte here;
             # relocs past len(data) (a longer library body) must not make the
             # mostly-relocation guard stricter than the comparison itself.
-            fixed = {i for i in range(len(data)) if i not in relocs}
-            if len(fixed) < MIN_FIXED_FRACTION * len(data):
+            if not all(i in relocs or data[i] == body[i] for i in range(len(data))):
+                continue
+            fixed_count = len(data) - sum(0 <= i < len(data) for i in relocs)
+            if fixed_count < MIN_FIXED_FRACTION * len(data):
                 continue  # a mostly-relocation table trivially matches anything
-            if all(data[i] == body[i] for i in fixed):
-                candidate = (sym, obj_name)
-                if candidate not in matches:
-                    matches.append(candidate)
+            candidate = (sym, obj_name)
+            if candidate not in matches:
+                matches.append(candidate)
     return matches
 
 
@@ -171,10 +176,13 @@ def match_leading_body(index: Index, data: bytes) -> list[tuple[str, str]]:
             n = len(body)
             if n < MIN_BYTES or n > len(data) or n < best_size:
                 continue
-            fixed = [i for i in range(n) if i not in relocs]
-            if len(fixed) < MIN_FIXED_FRACTION * n:
-                continue
-            if all(data[i] == body[i] for i in fixed):
+            if relocs:
+                if not all(i in relocs or data[i] == body[i] for i in range(n)):
+                    continue
+                matched = n - sum(0 <= i < n for i in relocs) >= MIN_FIXED_FRACTION * n
+            else:
+                matched = body == data[:n]
+            if matched:
                 if n > best_size:
                     best_size = n
                     matches.clear()

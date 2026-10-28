@@ -467,6 +467,21 @@ class TestLoadAllowlist:
 
 
 class TestMatchBytesRelocGuard:
+    @pytest.mark.parametrize("leading", [False, True])
+    def test_masked_and_unmasked_candidates(self, leading: bool) -> None:
+        from rebrew.lib_match import match_bytes, match_leading_body
+
+        data = bytes(range(16))
+        changed = bytes([255]) + data[1:]
+        index = {
+            "plain": [("a", data, set()), ("a", data, set())],
+            "different": [("b", changed, set())],
+            "masked": [("c", changed, {0, 1, 2, 3, 4, 5, 6, 7, -1, 100})],
+            "too_masked": [("d", data, set(range(9)))],
+        }
+        match = match_leading_body if leading else match_bytes
+        assert match(index, data) == [("plain", "a"), ("masked", "c")]
+
     def test_leading_body_keeps_longest_ties(self) -> None:
         from rebrew.lib_match import match_leading_body
 
