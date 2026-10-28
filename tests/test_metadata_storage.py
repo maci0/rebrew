@@ -583,3 +583,53 @@ def test_hot_load_does_not_resolve_an_already_resolved_path(
     assert load_metadata(tmp_path)
     assert load_metadata(tmp_path)
     assert calls["n"] == 0
+
+
+def test_project_root_cache_survives_scan_and_rechecks_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import rebrew.metadata.storage as storage
+
+    config = tmp_path / "rebrew-project.toml"
+    paths = [tmp_path / f"dir{i}" / "rebrew-functions.toml" for i in range(96)]
+    for path in paths:
+        path.parent.mkdir()
+    assert storage.metadata_store(paths[0]).name == "toml"
+    config.write_text('[metadata]\nbackend = "sqlite"\n')
+    assert all(storage.metadata_store(path).name == "sqlite" for path in paths)
+    calls = 0
+    real = storage.walk_up_to_root
+
+    def counting(start: Path) -> Path | None:
+        nonlocal calls
+        calls += 1
+        return real(start)
+
+    monkeypatch.setattr(storage, "walk_up_to_root", counting)
+    assert all(storage.metadata_store(path).name == "sqlite" for path in paths)
+    assert calls == 0
+    config.write_text('[metadata]\nbackend = "toml"\n')
+    assert all(storage.metadata_store(path).name == "toml" for path in paths)
+    config.unlink()
+    assert all(storage.metadata_store(path).name == "toml" for path in paths)
+    config.write_text('[metadata]\nbackend = "sqlite"\n')
+    assert all(storage.metadata_store(path).name == "sqlite" for path in paths)
+
+
+def test_project_root_cache_evicts_only_least_recently_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collections import OrderedDict
+
+    import rebrew.metadata.storage as storage
+
+    monkeypatch.setattr(storage, "_PROJECT_ROOTS", OrderedDict())
+    monkeypatch.setattr(storage, "walk_up_to_root", lambda _: tmp_path)
+    dirs = [tmp_path / str(i) for i in range(storage._PROJECT_ROOTS_MAX + 1)]
+    for directory in dirs[:-1]:
+        storage._project_root(directory)
+    storage._project_root(dirs[0])
+    storage._project_root(dirs[-1])
+    assert len(storage._PROJECT_ROOTS) == storage._PROJECT_ROOTS_MAX
+    assert dirs[0] in storage._PROJECT_ROOTS
+    assert dirs[1] not in storage._PROJECT_ROOTS
