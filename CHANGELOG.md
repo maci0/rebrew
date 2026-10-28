@@ -1,5 +1,28 @@
 ## [Unreleased]
 
+## [6.7.0] - 2026-10-28
+
+### Fixed
+
+- Portable dashboard scans retry concurrent directory replacements, preventing
+  empty bootstrap targets; sustained changes produce an error after three attempts.
+- Dashboard search caches use weak snapshot references, releasing old coverage
+  objects while retaining identity checks and repeated-target search folds.
+- Struct recovery identifies nested typedef aliases through the C AST, rejects
+  overlapping evidence before writing, preserves unaligned offsets as byte
+  arrays, and stops when an existing source cannot be read.
+
+### Changed
+
+- Skip catalog tail disassembly when no relative jump opcode is present;
+  Capstone still decides every possible back jump.
+- Reuse variable-role walks per source in dependency graphs and validated
+  retirement state within each binding-history batch.
+- Retain recently used project roots in a bounded cache rather than clearing
+  the entire cache during a large directory scan.
+- Document the fixes and measured follow-ups from fifty further independent
+  hot-path reviews in `docs/PERFORMANCE_6_7_0.md`.
+
 ## [6.6.0] - 2026-10-28
 
 ### Changed
