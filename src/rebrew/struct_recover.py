@@ -51,7 +51,6 @@ Usage::
 
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass, field
 lazy from pathlib import Path
@@ -72,8 +71,6 @@ from rebrew.cli import (
 from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends
 from rebrew.errors import RebrewError
 lazy from rebrew.utils import atomic_write_text, fold_ident, parse_int_literal, read_source_text
-
-logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Evidence parsing
@@ -487,7 +484,8 @@ def synthesize_struct(name: str, offsets: dict[int, dict[int, int]]) -> str:
     """Render ``typedef struct name_s { ... } name;`` for *offsets*.
 
     Fields are emitted at their offsets with the majority width; gaps are
-    ``char gap_XXXX[0xN];`` padding (the guild/decomp convention).  The base
+    ``char gap_XXXX[0xN];`` padding. Unaligned fields use byte arrays;
+    overlapping evidence raises ValueError. The base
     is materialized from offset 0 via a gap when no evidence anchors it —
     never an invented field, which could overlap real evidence.
     """
@@ -496,6 +494,10 @@ def synthesize_struct(name: str, offsets: dict[int, dict[int, int]]) -> str:
     prev_end = 0
     for offset, slots in sorted(offsets.items()):
         width = majority_width(slots)
+        if offset < 0 or width <= 0:
+            raise ValueError(f"{name}: invalid field evidence at offset {offset}, width {width}")
+        if offset < prev_end:
+            raise ValueError(f"{name}: overlapping field evidence at offset 0x{offset:x}")
         if offset > prev_end:
             fields.append(f"\tchar gap_{prev_end:04X}[0x{offset - prev_end:x}];")
         fields.append(_field_line(offset, width))
@@ -507,7 +509,7 @@ def _field_line(offset: int, width: int) -> str:
     """Render one field line.  Known widths get typed fields; everything
     else stays an opaque byte array (safe for C89)."""
     type_for = {1: "char", 2: "short", 4: "int", 8: "double"}
-    t = type_for.get(width)
+    t = type_for.get(width) if offset % width == 0 else None
     if t is None:
         return f"\tchar field_{offset:X}[0x{width:x}];"
     return f"\t{t} field_{offset:X};"
@@ -515,20 +517,22 @@ def _field_line(offset: int, width: int) -> str:
 
 def existing_structs(sources: list[Path]) -> dict[str, str]:
     """Map existing struct name → raw definition text across *sources*."""
+    from rebrew.c_parser import node_text, parse_c_source
     from rebrew.struct_parser import extract_structs_from_file
 
     out: dict[str, str] = {}
     for src in sources:
-        try:
-            for definition in extract_structs_from_file(src):
-                m = re.search(r"typedef struct\s+\w+\s*\{.*?\}\s*(\w+)\s*;", definition, re.S)
-                if m:
-                    out[m.group(1)] = definition
-        except OSError as exc:
-            # This map is the "already defined" set recovery checks against, so
-            # an unreadable source makes a duplicate type look absent.
-            logger.warning("struct-recover: cannot read %s: %s", src, exc)
-            continue
+        for definition in extract_structs_from_file(src):
+            tree, raw = parse_c_source(definition)
+            for node in tree.root_node.named_children:
+                if node.type != "type_definition" or node.has_error:
+                    continue
+                specifier = node.child_by_field_name("type")
+                if specifier is None or specifier.type != "struct_specifier":
+                    continue
+                for declarator in node.children_by_field_name("declarator"):
+                    if declarator.type == "type_identifier":
+                        out[node_text(declarator, raw)] = definition
     return out
 
 

@@ -1,5 +1,6 @@
 """Tests for struct_recover.py — struct recovery from decompiler output."""
 
+import itertools
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -267,6 +268,31 @@ class TestSynthesize:
         assert "int field_10;" in out
         assert "field_0;" not in out
 
+    def test_overlap_fails_and_unaligned_field_is_bytes(self) -> None:
+        with pytest.raises(ValueError, match="Overlap: overlapping field evidence at offset 0x2"):
+            synthesize_struct("Overlap", {0: {4: 1}, 2: {2: 1}})
+        out = synthesize_struct("Unaligned", {1: {4: 1}, 8: {2: 1}})
+        assert "char field_1[0x4];" in out
+        assert "short field_8;" in out
+
+    def test_compiler_offsets(self, tmp_path: Path) -> None:
+        import shutil
+        import subprocess
+
+        cc = shutil.which("cc")
+        if cc is None:
+            pytest.skip("C compiler unavailable")
+        header = synthesize_struct("Layout", {8: {2: 1}, 1: {4: 1}, 12: {4: 1}})
+        source = tmp_path / "layout.c"
+        source.write_text(
+            "#include <stddef.h>\n"
+            + header
+            + "typedef char a[offsetof(Layout, field_1) == 1 ? 1 : -1];\n"
+            "typedef char b[offsetof(Layout, field_8) == 8 ? 1 : -1];\n"
+            "typedef char c[offsetof(Layout, field_C) == 12 ? 1 : -1];\n"
+        )
+        subprocess.run([cc, "-fsyntax-only", str(source)], check=True)
+
 
 class TestRecover:
     def test_aggregates_and_merges(self) -> None:
@@ -331,6 +357,17 @@ class TestExistingStructs:
         out = existing_structs([src])
         assert "player_slot" in out
         assert "typedef struct" in out["player_slot"]
+
+    def test_nested_and_multiple_aliases(self, tmp_path: Path) -> None:
+        src = tmp_path / "types.h"
+        src.write_text(
+            "typedef struct { int x; struct { short z; int w; } nested; "
+            "union { int a; char b; }; } Existing, Another, *Pointer;\n"
+            "typedef struct { int broken; } Broken, ;\n"
+        )
+        out = existing_structs([src])
+        assert set(out) == {"Existing", "Another"}
+        assert "nested" not in out
 
 
 class TestCli:
@@ -507,6 +544,40 @@ class TestMemberOffsetCap:
 class TestRecoverProjectStructs:
     """``recover_project_structs()`` is the importable form of the CLI command."""
 
+    def test_nested_existing_output_is_not_appended(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _project_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _player_decompiler)
+        target = tmp_path / "structs.h"
+        original = "typedef struct { struct { int x; } nested; } PlayerInfo;\n"
+        target.write_text(original)
+        payload = recover_project_structs(
+            cfg, decompiler="kuna", functions="0x401000", output=target, json_output=True
+        )
+        assert payload["applied"] is None
+        assert target.read_text() == original
+
+    def test_overlap_cli_fails_before_write(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.app.main as main_mod
+
+        cfg = _project_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            "rebrew.decompiler.fetch_decompilation",
+            lambda *a: ("Player *p; p->field_0; *(short *)(p + 2);", "kuna"),
+        )
+        target = tmp_path / "structs.h"
+        result = CliRunner().invoke(
+            main_mod.app,
+            ["types", "recover", "--functions", "0x401000", "--output", str(target), "--json"],
+        )
+        assert result.exit_code != 0
+        assert "overlapping field evidence" in result.output
+        assert not target.exists()
+
     def test_zero_limit_skips_decompilation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -680,6 +751,13 @@ class TestStructRecoverFuzz:
     ) -> None:
         """Struct synthesis must always emit valid C typedef struct blocks with
         bounded gaps and expected field lines."""
+        ordered = sorted(
+            (off, max(slots, key=lambda w: (slots[w], w))) for off, slots in offsets.items()
+        )
+        if any(a + width > b for (a, width), (b, _) in itertools.pairwise(ordered)):
+            with pytest.raises(ValueError, match="overlapping"):
+                synthesize_struct(name, offsets)
+            return
         out = synthesize_struct(name, offsets)
         assert out.startswith(f"typedef struct {name}_s {{\n")
         assert out.endswith(f"\n}} {name};\n")
