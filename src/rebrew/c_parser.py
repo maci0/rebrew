@@ -2016,6 +2016,7 @@ def find_variable_roles(
     *,
     function_filter: Callable[[int], bool] | None = None,
     variable_filter: Callable[[str, bool], bool] | None = None,
+    function_uses: dict[int, set[str]] | None = None,
 ) -> tuple[set[str], set[str], set[str]]:
     """Return file definitions, extern declarations, and syntactic variable uses.
 
@@ -2023,6 +2024,7 @@ def find_variable_roles(
     names, member names, strings, and locally shadowed names are not uses. A
     tentative file-scope definition owns storage; an initialized extern does too.
     A variable filter scopes individual file declarations and their initializer uses.
+    When supplied, function_uses collects each function's uses by starting line.
     """
     tree, src = _variable_tree(source)
     definitions: set[str] = set()
@@ -2030,6 +2032,7 @@ def find_variable_roles(
     uses: set[str] = set()
 
     def walk(node: Any, shadows: set[str], file_scope: bool = False) -> None:
+        nonlocal uses
         if node.type.startswith("preproc_"):
             # Raw conditional branches can contain source facts; macro bodies
             # are not C expression references and require preprocessing.
@@ -2042,9 +2045,8 @@ def find_variable_roles(
                         walk(child, shadows, file_scope)
             return
         if node.type == "function_definition":
-            if function_filter is not None and not function_filter(
-                src.count(b"\n", 0, node.start_byte) + 1
-            ):
+            line = src.count(b"\n", 0, node.start_byte) + 1
+            if function_filter is not None and not function_filter(line):
                 return
             local = set(shadows)
             declarator = node.child_by_field_name("declarator")
@@ -2060,7 +2062,14 @@ def find_variable_roles(
                         stack.extend(part.named_children)
             body = node.child_by_field_name("body")
             if body is not None:
+                previous_uses = uses
+                if function_uses is not None:
+                    uses = set()
                 walk(body, local)
+                if function_uses is not None:
+                    function_uses.setdefault(line, set()).update(uses)
+                    previous_uses.update(uses)
+                    uses = previous_uses
             return
         if node.type in {"compound_statement", "for_statement"}:
             local = set(shadows)

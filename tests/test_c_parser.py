@@ -622,6 +622,25 @@ class TestTypeFromDeclaration:
 
 
 class TestVariableInventory:
+    def test_function_uses_match_filtered_walks(self) -> None:
+        from rebrew.c_parser import find_c_function_definitions, find_variable_roles
+
+        source = (
+            "extern int shared, first, second;\n"
+            "int *p = &shared;\n"
+            "int f(int second) { return first + second; }\n"
+            "int g(void) { int first = 1; return first + second; }\n"
+        )
+        per_function: dict[int, set[str]] = {}
+        all_roles = find_variable_roles(source, function_uses=per_function)
+        assert all_roles == find_variable_roles(source)
+        global_uses = find_variable_roles(source, function_filter=lambda _: False)[2]
+        for _, line in find_c_function_definitions(source):
+            filtered = find_variable_roles(
+                source, function_filter=lambda n, wanted=line: n == wanted
+            )[2]
+            assert global_uses | per_function[line] == filtered
+
     @pytest.mark.parametrize("convention", ["__cdecl", "__stdcall", "__fastcall", "WINAPI"])
     @pytest.mark.parametrize("assembly", ["", "void f(void) { __asm {\n ret\n} }\n"])
     def test_function_pointer_preserves_calling_convention(
