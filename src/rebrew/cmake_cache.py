@@ -98,10 +98,11 @@ def _object_command(root: Path, args: list[str]) -> tuple[Path, Path, list[str]]
         return None
     if output.exists() and (not output.is_file() or output.stat().st_nlink != 1):
         return None
-    if not all(p.resolve().is_relative_to(root.resolve()) for p in (output, source[0])):
+    resolved_root = root.resolve()
+    if not all(p.resolve().is_relative_to(resolved_root) for p in (output, source[0])):
         return None
     includes = [str(Path(p).resolve()) for p in extract_include_dirs(args)]
-    if any(not Path(p).is_dir() or not Path(p).is_relative_to(root.resolve()) for p in includes):
+    if any(not Path(p).is_dir() or not Path(p).is_relative_to(resolved_root) for p in includes):
         return None
     return source[0], output, includes
 

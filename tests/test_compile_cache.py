@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytest
 
+from rebrew.compiler import cache as cache_module
 from rebrew.compiler.cache import (
     CACHE_SCHEMA_VERSION,
     DEFAULT_CACHE_BACKEND,
@@ -21,6 +22,23 @@ from rebrew.compiler.cache import (
     include_fingerprint,
 )
 from rebrew.config import ProjectConfig
+
+
+class TestIncludeScanWork:
+    def test_only_lines_with_markers_need_comment_scanning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        original = cache_module._strip_leading_comments
+        visited = []
+
+        def strip(line: str) -> str:
+            visited.append(line)
+            return original(line)
+
+        monkeypatch.setattr(cache_module, "_strip_leading_comments", strip)
+        text = 'int f;\n/* prefix */ #include "a.h"\nint g;\n#include NAME\n'
+        assert list(cache_module.include_specs(text)) == [("quote", "a.h"), ("nonliteral", "")]
+        assert len(visited) == 2
 
 
 class TestCompileCache:
@@ -61,6 +79,20 @@ class TestCompileCache:
         # Binary, not decimal: a 1 MiB footprint reports 1.0, not 0.95.
         assert info["volume_mib"] == round(info["volume_bytes"] / (1024 * 1024), 2)
         assert "size_limit_mib" in info
+        cache.close()
+
+    def test_stats_reads_volume_once(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        cache = CompileCache(tmp_path / "cc")
+        calls = []
+
+        def volume(_self: CompileCache) -> int:
+            calls.append(1)
+            return 1024 * 1024
+
+        monkeypatch.setattr(CompileCache, "volume", property(volume))
+        info = cache.stats()
+        assert (info["volume_bytes"], info["volume_mib"]) == (1024 * 1024, 1.0)
+        assert len(calls) == 1
         cache.close()
 
     def test_type_safety_returns_none_for_non_bytes(self, tmp_path: Path) -> None:
