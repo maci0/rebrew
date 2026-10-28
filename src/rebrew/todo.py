@@ -1582,16 +1582,13 @@ def _rank_by_impact(items: list[TodoItem]) -> list[TodoItem]:
     from rebrew.utils import merged_span_bytes
 
     audits = {CAT_EXACT_ONLY, CAT_POSTLINK}
+    definitions = {CAT_COMPILE_ERROR, CAT_IMPROVE_MATCH, CAT_FIX_DELTA, CAT_RUN_PROVER, CAT_NAKED}
     files: dict[str, list[TodoItem]] = {}
     errors: dict[str, list[TodoItem]] = {}
     for item in items:
         item.impact_bytes = max(0, item.size)
         item.affected_functions = int(bool(item.va) and _item_domain(item) == "code")
-        if (
-            item.filename
-            and _item_domain(item) == "code"
-            and item.category not in {*audits, CAT_DOCUMENTED}
-        ):
+        if item.filename and _item_domain(item) == "code" and item.category in definitions:
             files.setdefault(item.filename, []).append(item)
             if item.category == CAT_COMPILE_ERROR:
                 errors.setdefault(item.filename, []).append(item)

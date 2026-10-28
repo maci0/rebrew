@@ -999,8 +999,9 @@ class TestRoiOrdering:
         c = self._item(CAT_IMPROVE_MATCH, 200, 0x2000, filename="shared.c")
         other = self._item(CAT_IMPROVE_MATCH, 300, 0x3000, filename="other.c")
         data = self._item("data-drift", 90000, 0x4000, filename="shared.c")
-        result = _rank_by_impact([b, other, c, a, data])
-        assert result == [data, a, other, c]
+        neighbor = self._item(CAT_START_FUNCTION, 50000, 0x5000, filename="shared.c")
+        result = _rank_by_impact([b, other, c, a, data, neighbor])
+        assert result == [data, neighbor, a, other, c]
         assert a.impact_bytes == 350
         assert a.affected_functions == 3
         assert "3 unfinished functions in shared.c" in a.description
