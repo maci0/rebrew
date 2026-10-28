@@ -1161,6 +1161,29 @@ class TestMemo:
         path.unlink()
         assert load_all_coverage_from(path.parent) == {}
 
+    def test_continuous_directory_changes_raise(
+        self,
+        write: Callable[[dict[str, Any]], list[Path]],
+        data: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        path = write(data)[0]
+        original = Path.glob
+        calls = 0
+
+        def changing(directory: Path, pattern: str, **kwargs: Any) -> Any:
+            nonlocal calls
+            calls += 1
+            staged = path.with_suffix(".staged")
+            staged.write_bytes(path.read_bytes())
+            os.replace(staged, path)
+            return original(directory, pattern, **kwargs)
+
+        monkeypatch.setattr(Path, "glob", changing)
+        with pytest.raises(CoverageTomlError, match="changed repeatedly during scan"):
+            load_all_coverage_from(path.parent)
+        assert calls == 3
+
     def test_rewrite_loads_the_new_content(
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
     ) -> None:
