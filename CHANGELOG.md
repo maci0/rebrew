@@ -2,6 +2,12 @@
 
 ### Added
 
+- **Breaking:** `app.builtins.DOMAIN_COMPONENTS` gains a `binary` entry for
+  `score` (`rebrew.binary_score`), so consumers that enumerate the binary
+  subcommands see one more component. `rebrew binary score --built IMAGE`
+  reports same-offset byte agreement with the reference, whole file and per
+  section, which is the metric the layout work optimizes.
+
 - **Breaking:** `app.builtins.DOMAIN_COMPONENTS` gains a `library` entry for
   `presence` (`rebrew.lib_presence`), so consumers that enumerate the library
   subcommands see one more component. `rebrew library presence --object FILE`

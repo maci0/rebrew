@@ -347,6 +347,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     ),
     "binary": (
         CliComponent(
+            name="score",
+            module="rebrew.binary_score",
+            help="Report same-offset byte agreement between the reference and a built image.",
+            panel="",
+        ),
+        CliComponent(
             name="ne-compare",
             module="rebrew.ne_compare",
             help="Compare NE file/segment bytes and report separate content overlap.",

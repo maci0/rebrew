@@ -2235,6 +2235,7 @@ Use `rebrew binary <operation> --help` for exact arguments and examples.
 
 | Operation | Purpose |
 | --- | --- |
+| `rebrew binary score --built <path> [--reference <path>] --json` | Same-offset byte agreement with the reference, whole file and per section. |
 | `rebrew binary ne-compare` | Compare NE file/segment bytes and report separate content overlap. |
 | `rebrew binary forms` | Decode Delphi 1 form streams and verify lossless re-encoding. |
 | `rebrew binary switches` | Decode jump-table switch dispatches in a function (case → handler map). |
@@ -2261,6 +2262,24 @@ complete original rows and their history. Applying requires `--expected-digest`
 from that preview. Combine retirement with `0xNEW=SIZE --add-missing` to replace
 an interior discovery artifact in one locked write. Metadata source identities
 and verdicts are unchanged.
+
+### `rebrew binary score`
+
+`rebrew binary score --built PATH [OPTIONS]`
+
+Report how many bytes equal the reference at the same file offset. The score is
+split into the reference's section windows (`.text`, `.rdata`, `.data`, `.data1`,
+`.rsrc`) plus a whole-file total, so a padded or shortened build cannot earn
+credit for bytes outside the reference's sections. Comparing at the same offset
+is what the layout work optimizes: a match means both the placement and the
+content are right.
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--built` | path | — | Built image to score (required) |
+| `--reference` | path | — | Reference image (default: the target's binary) |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 
 ### `rebrew binary ne-compare`
 
