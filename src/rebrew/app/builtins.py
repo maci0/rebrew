@@ -795,7 +795,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     CliComponent(
         name="todo",
         module="rebrew.todo",
-        help="Prioritized action list: what to work on next for highest ROI.",
+        help="Prioritized actions by overall impact, then estimated effort.",
         panel=Panel.ANALYSIS,
     ),
     CliComponent(

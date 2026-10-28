@@ -975,6 +975,22 @@ class TestRoiOrdering:
         assert data.to_dict()["impact_bytes"] == 40000
         assert data.affected_functions == 0
 
+    def test_collected_work_uses_impact_before_the_effort_score(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        existing = {
+            0x1000: {
+                "status": "NEAR_MATCHING",
+                "symbol": "tiny",
+                "size": "20",
+                "blocker_delta": "1",
+            },
+            0x2000: {"status": "STUB", "symbol": "large", "size": "12000"},
+        }
+        items = collect_all(cfg, [], existing, {})  # type: ignore[arg-type]
+        work = [item for item in items if item.category != CAT_SETUP]
+        assert [item.va for item in work] == [0x2000, 0x1000]
+        assert work[0].impact_bytes == 12000
+
     def test_shared_compile_failure_counts_unique_unfinished_bytes(self) -> None:
         from rebrew.todo import _rank_by_impact
 

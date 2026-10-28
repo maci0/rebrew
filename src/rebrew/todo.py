@@ -197,11 +197,11 @@ def _item_domain(item: TodoItem) -> str:
 
 
 def calculate_roi(size: int, match_pct: float | None, delta: int | None) -> float:
-    """Calculate a continuous ROI score (0-100).
+    """Estimate effort for breaking ties between equally sized work scopes.
 
     User Workflow Heuristic: Higher match percentage is often HARDER to finish
     because it implies fighting the compiler (register allocation, instruction scheduling).
-    Therefore, rewrite tasks (low match) are prioritized over near-match tasks,
+    Therefore, rewrite tasks (low match) win effort ties over near-match tasks,
     unless the near-match task has a small, actionable byte delta.
     """
     if match_pct is None:
@@ -301,7 +301,7 @@ def _collect_active_functions(
     """Collect and score all incomplete functions currently tracked in the project.
 
     Compile errors, near misses, stubs, and verify failures share one pass
-    and one continuous ROI score.
+    and one effort heuristic; collection ranks their affected scope afterward.
     """
     items: list[TodoItem] = []
 
@@ -595,7 +595,7 @@ def _collect_active_functions(
 
 
 def _caller_boost(name: str, caller_counts: dict[str, int] | None) -> float:
-    """ROI bonus for functions other unmatched work waits on (leaf-first)."""
+    """Effort tie-break bonus for unfinished-source declaration hints."""
     if not caller_counts:
         return 0.0
     callers = caller_counts.get(name, 0) + caller_counts.get("_" + name, 0)
@@ -1112,7 +1112,7 @@ def _caller_counts(
 
     *matched_files* (relative paths, from the metadata store) are skipped: a
     caller that is already byte-matched no longer needs its callees
-    implemented, so it must not add ROI or an "unblocks N caller(s)" note.
+    implemented, so it must not add an effort bonus or a reference hint.
     The skip happens after the name lookup, so a matched file still fills
     the cache. Unchanged sources reuse ``.rebrew/extern-names.json``. A
     source that does not contain ``extern`` is stored empty and is not parsed.
