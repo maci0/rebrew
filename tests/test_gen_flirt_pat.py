@@ -109,7 +109,9 @@ class TestParseArchive:
             (second.decode(), b"write"),
         ]
 
-    @pytest.mark.parametrize("table, offset", [(b"", 0), (b"name\0", 99), (b"name", 0)])
+    @pytest.mark.parametrize(
+        "table, offset", [(b"", 0), (b"name\0", 99), (b"name", 0), (b"name\0\0", 5)]
+    )
     def test_rejects_invalid_long_member_names(
         self, tmp_path: Path, table: bytes, offset: int
     ) -> None:
