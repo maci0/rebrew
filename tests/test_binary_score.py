@@ -35,6 +35,8 @@ def test_identical_images_score_every_compared_byte(
     assert payload["same"] == payload["compared"] > 0
     assert payload["ratio"] == 1.0
     assert payload["file"]["same"] == payload["file"]["compared"] > payload["same"]
+    assert 0 < payload["informative"]["same"] <= payload["same"]
+    assert payload["informative"]["compared"] <= payload["compared"]
 
 
 def test_changed_byte_costs_one_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

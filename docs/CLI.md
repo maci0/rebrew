@@ -2272,7 +2272,8 @@ split into the reference's section windows (`.text`, `.rdata`, `.data`, `.data1`
 `.rsrc`) plus a whole-file total, so a padded or shortened build cannot earn
 credit for bytes outside the reference's sections. Comparing at the same offset
 is what the layout work optimizes: a match means both the placement and the
-content are right.
+content are right. `informative` counts only positions where the reference byte is
+non-zero, so zero-initialized layout padding cannot inflate it.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

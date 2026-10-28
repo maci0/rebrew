@@ -51,6 +51,8 @@ def score(reference: bytes, built: bytes, reference_sections: dict[str, Any]) ->
     sections: dict[str, dict[str, int]] = {}
     total = 0
     compared = 0
+    info_total = 0
+    info_compared = 0
     for name in _COMPARED:
         section = reference_sections.get(name)
         if section is None:
@@ -58,21 +60,55 @@ def score(reference: bytes, built: bytes, reference_sections: dict[str, Any]) ->
         start = section.file_offset
         end = start + section.raw_size
         window = min(end, len(built))
-        same = sum(1 for i in range(start, window) if reference[i] == built[i])
-        sections[name] = {"same": same, "compared": max(0, window - start)}
+        same = 0
+        informative_same = 0
+        informative_compared = 0
+        for i in range(start, window):
+            if reference[i]:
+                informative_compared += 1
+                if reference[i] == built[i]:
+                    informative_same += 1
+                    same += 1
+            elif built[i] == 0:
+                same += 1
+        sections[name] = {
+            "same": same,
+            "compared": max(0, window - start),
+            "informative_same": informative_same,
+            "informative_compared": informative_compared,
+        }
         total += same
         compared += max(0, window - start)
+        info_total += informative_same
+        info_compared += informative_compared
     file_compared = min(len(reference), len(built))
-    file_same = sum(1 for i in range(file_compared) if reference[i] == built[i])
+    file_same = 0
+    file_info_same = 0
+    file_info_compared = 0
+    for i in range(file_compared):
+        if reference[i]:
+            file_info_compared += 1
+            if reference[i] == built[i]:
+                file_info_same += 1
+                file_same += 1
+        elif built[i] == 0:
+            file_same += 1
     return {
         "same": total,
         "compared": compared,
         "ratio": round(total / compared, 6) if compared else 0.0,
         "sections": sections,
+        "informative": {
+            "same": info_total,
+            "compared": info_compared,
+            "ratio": round(info_total / info_compared, 6) if info_compared else 0.0,
+        },
         "file": {
             "same": file_same,
             "compared": file_compared,
             "ratio": round(file_same / file_compared, 6) if file_compared else 0.0,
+            "informative_same": file_info_same,
+            "informative_compared": file_info_compared,
         },
     }
 

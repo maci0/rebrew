@@ -2,6 +2,9 @@
 
 ### Added
 
+- `rebrew binary score` also reports `informative` counts: same-offset matches
+  restricted to positions where the reference byte is non-zero, so
+  zero-initialized layout padding cannot inflate the score.
 - **Breaking:** `app.builtins.DOMAIN_COMPONENTS` gains a `binary` entry for
   `score` (`rebrew.binary_score`), so consumers that enumerate the binary
   subcommands see one more component. `rebrew binary score --built IMAGE`
