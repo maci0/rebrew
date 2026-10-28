@@ -126,6 +126,19 @@ def collect_actual_vas(root: Path, binary: Path) -> dict[str, int]:
     return here
 
 
+def correct_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rows for functions the build already places at their expected VA.
+
+    ``misplaced_list`` names what to fix; this is the complement a caller needs
+    to know which rows can be edited without touching layout.
+    """
+    return [
+        {"symbol": r["symbol"], "expected": r["expected"], "actual": r["actual"]}
+        for r in rows
+        if r["status"] == "OK"
+    ]
+
+
 def audit_text(
     expected: dict[str, int], actual: dict[str, int]
 ) -> tuple[list[dict[str, Any]], int, int, int]:
@@ -178,6 +191,11 @@ def main(
         help=BUILT_IMAGE_HELP,
     ),
     limit: int = typer.Option(15, "--limit", help="Max misplaced functions to print (0 = none)"),
+    list_correct: bool = typer.Option(
+        False,
+        "--list-correct",
+        help="Include the functions already at their expected VA in --json output",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -203,16 +221,17 @@ def main(
     shown = [r for r in rows if r["status"] != "OK"][:limit]
 
     if json_output:
-        json_print(
-            {
-                "functions": len(expected),
-                "found": n_ok + n_bad,
-                "correct": n_ok,
-                "misplaced": n_bad,
-                "missing": n_missing,
-                "misplaced_list": shown,
-            }
-        )
+        payload: dict[str, Any] = {
+            "functions": len(expected),
+            "found": n_ok + n_bad,
+            "correct": n_ok,
+            "misplaced": n_bad,
+            "missing": n_missing,
+            "misplaced_list": shown,
+        }
+        if list_correct:
+            payload["correct_list"] = correct_entries(rows)
+        json_print(payload)
     else:
         console.print(
             f"functions: {len(expected)}  found: {n_ok + n_bad}  "

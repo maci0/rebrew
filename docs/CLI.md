@@ -3993,6 +3993,7 @@ map does not trigger fallback or turn missing expected functions into success.
 | --- | --- | --- | --- |
 | `--built` | path | — | Built image (default: build/<target>) |
 | `--limit` | int | `15` | Max misplaced functions to print (0 = none) |
+| `--list-correct` | flag | `False` | Include the functions already at their expected VA in the `--json` payload as `correct_list` |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 

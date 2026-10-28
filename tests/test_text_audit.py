@@ -474,3 +474,35 @@ class TestDecoratedTextSymbols:
         )
         expected = expected_text_functions(load_config(tmp_path))
         assert expected == {"_foo": 0x3000, "foo": 0x4000, "hook": 0x2000}
+
+
+class TestCorrectListOption:
+    """``--list-correct`` names the rows that can change without moving layout."""
+
+    def test_correct_list_reports_ok_rows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.text_audit import app
+
+        monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C, "b.c": _TWO_FILES_B}))
+        (tmp_path / "build" / "game").write_bytes(b"MZ")
+        _patch_layout(monkeypatch, objects=[(0x20, {"alpha": 0}), (0x20, {"beta": 0})])
+        result = CliRunner().invoke(app, ["--json", "--list-correct"])
+        assert result.exit_code == 0, result.output
+        payload = cli_payload(result)
+        assert payload["correct_list"] == [
+            {"symbol": "alpha", "expected": "0x1000", "actual": "0x1000"},
+            {"symbol": "beta", "expected": "0x1020", "actual": "0x1020"},
+        ]
+
+    def test_correct_list_absent_without_flag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.text_audit import app
+
+        monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C}))
+        (tmp_path / "build" / "game").write_bytes(b"MZ")
+        _patch_layout(monkeypatch, objects=[(0x20, {"alpha": 0})])
+        result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code == 0, result.output
+        assert "correct_list" not in cli_payload(result)
