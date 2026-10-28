@@ -5259,8 +5259,9 @@ graph proof or evidence of the actual linked provider. It writes no metadata.
 `rebrew library presence --object PATH [OPTIONS]`
 
 Locate each function body of one COFF object in an image and report
-`present`/`absent`/`unknown` per symbol with the located VA and the masked
-byte ratio. A body counts as present at 85% of its non-relocation bytes with at
+`present`/`absent`/`unknown` per symbol with the located VA, the masked byte
+ratio, and the symbol's offset and text size inside the object (so a member
+start VA is `va - object_offset`). A body counts as present at 85% of its non-relocation bytes with at
 least 48 fixed bytes; bodies under 48 fixed bytes stay unknown. A match shows
 the image contains those bytes, not that the linker selected this member:
 shared inline copies and masked wrappers can appear elsewhere.

@@ -52,6 +52,8 @@ class TestPresence:
         row = payload["symbols"][0]
         assert row["verdict"] == "present"
         assert row["va"] == "0x401010"
+        assert row["object_offset"] == 0
+        assert row["object_text_size"] > 0
         assert row["ratio"] >= 0.9
 
     def test_absent_body_is_reported_absent(

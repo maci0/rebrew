@@ -26,6 +26,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+lazy from rebrew.data_layout import obj_text_symbol_offsets
 lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.gen_flirt_pat import parse_coff_obj
 
@@ -113,6 +114,7 @@ def audit_object(text: bytes, text_va: int, object_path: Path) -> list[dict[str,
     rows: list[dict[str, Any]] = []
     try:
         symbols = parse_coff_obj(object_path.read_bytes())
+        text_size, offsets = obj_text_symbol_offsets(object_path)
     except (OSError, ValueError) as exc:
         raise ValueError(f"cannot parse {object_path}: {exc}") from exc
     for symbol, body, relocs in symbols:
@@ -125,6 +127,8 @@ def audit_object(text: bytes, text_va: int, object_path: Path) -> list[dict[str,
         rows.append(
             {
                 "symbol": symbol,
+                "object_offset": offsets.get(symbol) or offsets.get(symbol.lstrip("_")) or 0,
+                "object_text_size": text_size,
                 "verdict": verdict,
                 "va": f"0x{text_va + best['offset']:x}" if best else None,
                 "ratio": best["ratio"] if best else None,
