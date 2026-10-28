@@ -522,7 +522,11 @@ def existing_structs(sources: list[Path]) -> dict[str, str]:
 
     out: dict[str, str] = {}
     for src in sources:
-        for definition in extract_structs_from_file(src):
+        try:
+            definitions = list(extract_structs_from_file(src, strict=True))
+        except OSError as exc:
+            raise ValueError(f"cannot read struct source {src}: {exc}") from exc
+        for definition in definitions:
             tree, raw = parse_c_source(definition)
             for node in tree.root_node.named_children:
                 if node.type != "type_definition" or node.has_error:
