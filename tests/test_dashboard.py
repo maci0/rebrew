@@ -1938,6 +1938,8 @@ class TestLiteralSearch:
         # ``str.casefold`` would match this; the ASCII fold must not.
         assert not _name_match("ß", 0x1000, "ss")
         assert _name_match("FUNC", 0x1000, "", "my_FUNC_thing")
+        assert _name_match("Äbc", 0x1000, "ÄBC")
+        assert not _name_match("äbc", 0x1000, "ÄBC")
 
     def test_a_wildcard_term_matches_nothing_through_the_route(self, dashboard: Dashboard) -> None:
         assert dashboard.functions("server_dll", q="func%")["total"] == 0

@@ -1846,7 +1846,7 @@ def _va_query(term: str) -> int | None:
 
 def _fold(text: str) -> str:
     """ASCII fold of one search field. Empty stays empty (SQL NULL matched nothing)."""
-    return (text or "").translate(_ASCII_FOLD)
+    return text.lower() if text and text.isascii() else (text or "").translate(_ASCII_FOLD)
 
 
 def _name_match(term: str, va: int, *texts: str) -> bool:
