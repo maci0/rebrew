@@ -4,6 +4,9 @@
 
 ### Changed
 
+- **Breaking:** `rebrew.app.builtins.BUILTIN_COMPONENTS` and
+  `rebrew.app.main.BUILTIN_COMPONENTS` now describe `todo` as ranking overall
+  impact instead of ROI. Consumers comparing the help text must use the new summary.
 - Rank `todo` by affected byte extent before the effort heuristic. Shared
   translation-unit compile failures produce one action with the union of
   unfinished function extents. Output exposes `impact_bytes` and
