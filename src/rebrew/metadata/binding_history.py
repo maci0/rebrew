@@ -219,6 +219,7 @@ def _apply_change(
     identity: dict[str, str] | None,
     counterpart_va: int | None,
     now: datetime | None,
+    retired: dict[Any, bool],
 ) -> dict[str, Any]:
     """Apply one validated change to an open metadata document."""
     key = resolve_metadata_key(doc, module, va)
@@ -226,14 +227,18 @@ def _apply_change(
         raise ValueError(f"no native metadata row for {module}.0x{va:x}")
     entry = doc[key]
     history = validate_binding_history(entry.get("binding_history", []))
-    if identity is None and (retired_binding(entry) or not entry.get("file")):
+    if identity is None and (
+        (history and history[-1]["action"] == "retire") or not entry.get("file")
+    ):
         raise ValueError("native row has no current source binding to retire")
     if identity is not None and all(entry.get(k) == v for k, v in identity.items()):
         raise ValueError("replacement is already the current source binding")
     if counterpart_va is not None:
         other_key = resolve_metadata_key(doc, module, counterpart_va)
         counterpart = doc.get(other_key, {})
-        if not counterpart.get("file") or retired_binding(counterpart):
+        if other_key not in retired and counterpart.get("file"):
+            retired[other_key] = retired_binding(counterpart)
+        if not counterpart.get("file") or retired[other_key]:
             raise ValueError("counterpart must have a current source binding in this target")
     if identity is not None:
         replacement_root = project_root if identity["kind"] == "LIBRARY" else directory
@@ -242,7 +247,11 @@ def _apply_change(
             other = doc[other_key]
             if other_va == va or preset_module_key(other_module) != preset_module_key(module):
                 continue
-            if not other.get("file") or retired_binding(other):
+            if not other.get("file"):
+                continue
+            if other_key not in retired:
+                retired[other_key] = retired_binding(other)
+            if retired[other_key]:
                 continue
             other_root = project_root if other.get("kind") == "LIBRARY" else directory
             other_path = (other_root / validate_identity_file(str(other["file"]))).resolve()
@@ -269,6 +278,7 @@ def _apply_change(
     if identity is not None:
         entry.update(identity)
     stamp_provenance(entry, "rehome", now=now)
+    retired[key] = identity is None
     return event
 
 
@@ -332,6 +342,7 @@ def change_source_binding(
             identity=identity,
             counterpart_va=counterpart_va,
             now=now,
+            retired={},
         )
         return doc, {
             "dry_run": dry_run,
@@ -417,6 +428,7 @@ def change_source_bindings_batch(
         doc = load_metadata_for_write(path, "function metadata", known_fields=fields)
         if metadata_store(path).snapshot() != before:
             raise ValueError("function metadata changed while reading; retry")
+        retired: dict[Any, bool] = {}
         events = [
             _apply_change(
                 doc,
@@ -428,6 +440,7 @@ def change_source_bindings_batch(
                 identity=change["identity"],
                 counterpart_va=change["counterpart_va"],
                 now=now,
+                retired=retired,
             )
             for change in prepared
         ]
