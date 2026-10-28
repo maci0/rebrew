@@ -99,6 +99,43 @@ def _invoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *extra_args: str) -
 
 
 class TestBinsyncExportBasic:
+    @pytest.mark.parametrize("matching", [True, False])
+    def test_function_identity_uses_first_exact_suffix(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, matching: bool
+    ) -> None:
+        from rebrew.binsync import export, state
+        from rebrew.config import load_config
+
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": SourceFixture(
+                    "/* ADDRESS: SERVER 0x10001000 */\nint foo(void) { return 1; }\n",
+                    {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 31}},
+                )
+            },
+        )
+        cfg = load_config(root=tmp_path)
+        original = state.local_sync_records
+
+        def records(cfg: Any, entries: Any) -> dict[str, dict[str, Any]]:
+            fields = next(iter(original(cfg, entries).values()))
+            result = {"function.WRONG.0x010001000": {**fields, "name": "wrong"}}
+            if matching:
+                result["function.FIRST.0x10001000"] = {**fields, "name": "first"}
+                result["function.SECOND.0x10001000"] = {**fields, "name": "second"}
+            return result
+
+        monkeypatch.setattr(export, "local_sync_records", records)
+        out = tmp_path / "state"
+        if not matching:
+            with pytest.raises(StopIteration):
+                export.export_state(cfg, out, dry_run=True)
+            return
+        result = export.export_state(cfg, out, dry_run=False)
+        assert result["functions"] == 1
+        assert _load_func(out / "functions" / "10001000.toml").name == "first"
+
     def test_name_and_addr(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
             tmp_path,

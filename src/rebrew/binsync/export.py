@@ -527,6 +527,10 @@ def export_state(
         if f"struct.{name}" not in local_records
     )
     exported_from: dict[int, str] = {}
+    function_keys: dict[str, list[str]] = {}
+    for key in local_records:
+        if key.startswith("function."):
+            function_keys.setdefault(key.rsplit(".", 1)[1], [key])
     for entry in all_func_entries:
         va = entry.va  # type: ignore[attr-defined]
         name = getattr(entry, "symbol", "") or getattr(entry, "name", "") or f"func_{va:08x}"
@@ -538,9 +542,7 @@ def export_state(
             )
         exported_from[va] = origin_file
 
-        key = next(
-            k for k in local_records if k.startswith("function.") and k.endswith(f".0x{va:x}")
-        )
+        key = next(iter(function_keys.get(f"0x{va:x}", [])))
         fields = merged_records.get(key)
         if fields is None:
             continue  # remote removal needs explicit resolution; do not resurrect it
