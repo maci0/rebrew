@@ -1867,35 +1867,34 @@ def _name_match(term: str, va: int, *texts: str) -> bool:
     return any(needle in _fold(text) for text in texts)
 
 
-# Folded name/symbol strings for one snapshot object. A reload builds a new
-# snapshot, so the old entry is dropped on the next miss. Search was re-folding
-# every row on every keystroke (~12ms at 8k functions).
-_FOLDED: dict[int, tuple[tuple[str, str], ...]] = {}
-_FOLDED_GLOBALS: dict[int, tuple[str, ...]] = {}
+# Retain each snapshot with its folds so an ID cannot be reused for another
+# snapshot. The bounded caches drop old snapshots together on overflow.
+_FOLDED: dict[int, tuple[CoverageSnapshot, tuple[tuple[str, str], ...]]] = {}
+_FOLDED_GLOBALS: dict[int, tuple[CoverageSnapshot, tuple[str, ...]]] = {}
 
 
 def _folded_functions(snapshot: CoverageSnapshot) -> tuple[tuple[str, str], ...]:
     """Folded ``(name, symbol)`` per function, built once per snapshot object."""
     hit = _FOLDED.get(id(snapshot))
-    if hit is not None:
-        return hit
+    if hit is not None and hit[0] is snapshot:
+        return hit[1]
     if len(_FOLDED) > 8:
         _FOLDED.clear()
-    hit = tuple((_fold(fn.name), _fold(fn.symbol)) for fn in snapshot.functions)
-    _FOLDED[id(snapshot)] = hit
-    return hit
+    folded = tuple((_fold(fn.name), _fold(fn.symbol)) for fn in snapshot.functions)
+    _FOLDED[id(snapshot)] = (snapshot, folded)
+    return folded
 
 
 def _folded_globals(snapshot: CoverageSnapshot) -> tuple[str, ...]:
     """Folded global names, built once per snapshot object."""
     hit = _FOLDED_GLOBALS.get(id(snapshot))
-    if hit is not None:
-        return hit
+    if hit is not None and hit[0] is snapshot:
+        return hit[1]
     if len(_FOLDED_GLOBALS) > 8:
         _FOLDED_GLOBALS.clear()
-    hit = tuple(_fold(item.name) for item in snapshot.globals)
-    _FOLDED_GLOBALS[id(snapshot)] = hit
-    return hit
+    folded = tuple(_fold(item.name) for item in snapshot.globals)
+    _FOLDED_GLOBALS[id(snapshot)] = (snapshot, folded)
+    return folded
 
 
 #: The mapping one request reads, pinned for its duration.  ``bootstrap`` and

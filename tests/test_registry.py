@@ -2102,6 +2102,31 @@ class TestRefreshAll:
         assert counts["toolchain_detectors"] >= 1
         assert counts["msvc_versions"] >= 1
 
+    def test_refresh_reads_entry_points_edited_in_place(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler.cache import available_cache_backends
+        from rebrew.registry import refresh_all
+
+        dist = tmp_path / "refresh_test-1.0.dist-info"
+        dist.mkdir()
+        (dist / "METADATA").write_text("Name: refresh-test\nVersion: 1.0\n", encoding="utf-8")
+        entry_file = dist / "entry_points.txt"
+        entry_file.write_text(
+            "[rebrew.cache_backends]\nold = rebrew.diagnose:main\n", encoding="utf-8"
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+        assert any(r.name == "old" for r in entry_point_registrations("rebrew.cache_backends"))
+        entry_file.write_text(
+            "[rebrew.cache_backends]\nnew = rebrew.diagnose:main\n", encoding="utf-8"
+        )
+        refresh_all()
+        names = {r.name for r in entry_point_registrations("rebrew.cache_backends")}
+        assert "new" in names
+        assert "old" not in names
+        assert "new" in available_cache_backends()
+        assert "old" not in available_cache_backends()
+
     def test_refresh_all_keys_are_group_names(self) -> None:
         """Every count key is an entry-point group minus the ``rebrew.`` prefix."""
         from rebrew.registry import refresh_all
