@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+## [6.8.0] - 2026-10-28
+
+### Changed
+
+- Rank `todo` by affected byte extent before the effort heuristic. Shared
+  translation-unit compile failures produce one action with the union of
+  unfinished function extents. Output exposes `impact_bytes` and
+  `affected_functions`; setup remains first and linked-match audits remain last.
+- Label extern-declaration hints as unfinished source references rather than
+  claiming that implementing the callee necessarily unblocks callers.
+
 ## [6.7.0] - 2026-10-28
 
 ### Fixed

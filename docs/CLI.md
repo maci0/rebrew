@@ -46,7 +46,7 @@ New to rebrew?  Start with the [first-run walkthrough](ONBOARDING.md)
 ## Typical Workflow
 
 ```
-rebrew todo              See what needs work (prioritized by ROI)
+rebrew todo              See what needs work (prioritized by affected extent)
 rebrew skeleton 0x<VA>   Generate a .c skeleton from address
 rebrew test src/<func>.c Compile, byte-compare, and auto-update STATUS
 rebrew diff src/f.c      Show byte diff for near-misses
@@ -146,7 +146,7 @@ reference section with its current arguments, options, and defaults.
 | [`rebrew init`](#rebrew-init) | 1 | Initialize a new rebrew project directory. |
 | [`rebrew intake`](#rebrew-intake) | 1 | One-shot binary onboarding: init + detect + functions + document. |
 | [`rebrew status`](#rebrew-status) | 1 | At-a-glance reversing progress overview. |
-| [`rebrew todo`](#rebrew-todo) | 1 | Prioritized action list: what to work on next for highest ROI. |
+| [`rebrew todo`](#rebrew-todo) | 1 | Prioritized actions by overall impact, then estimated effort. |
 | [`rebrew doctor`](#rebrew-doctor) | 1 | Diagnostic checks for rebrew project health. |
 | [`rebrew schema`](#rebrew-schema) | 1 | Print the clispec 0.3 JSON document for this CLI. |
 | [`rebrew prove`](#rebrew-prove) | 1 | Prove semantic equivalence of NEAR_MATCHING/SIZE_MISMATCH functions via symbolic execution. |
@@ -849,6 +849,20 @@ Unavailable byte measurements are omitted or null; they are not measured zeroes.
 
 `rebrew todo [OPTIONS]`
 
+Actions rank by affected byte extent, descending, with estimated effort
+(`roi_score`) breaking ties. Small deltas and small functions no longer outrank
+larger unresolved work simply because they appear easier. Setup comes first;
+linked-match audits follow unfinished work. `Impact` and JSON `impact_bytes`
+describe affected scope, not expected newly matched bytes or an effort estimate.
+Unknown extents contribute zero rather than invented benefit. Code and data
+retain their separate coverage denominators.
+
+Compile errors in one translation unit collapse to one action. Its impact is
+the union of that file's unfinished function extents, so overlapping aliases
+count once; `affected_functions` reports the number of unfinished definitions.
+Other code actions report one affected function, data actions zero. Declared
+externs are reference hints, not proof of a blocked caller.
+
 `improve-match` items whose blocker was written by `rebrew diagnose near --fix-blocker`
 carry a `mutations` array in `--json` (the GA operators to try next) and a
 `[try: ...]` hint in the terminal description.
@@ -1012,7 +1026,7 @@ Deterministic project advice across lanes (read-only by default):
 |------|-------|--------|
 | TU layout | `merge`, `split`, `move`, `flag-split`, `fix-sizes`, `cluster-fill` | `cu-map` clusters vs source files; merges carry the exact `rebrew source merge ... --consolidate` command, CFLAGS-divergent merges flagged to reconcile first; `flag-split` fires when one file mixes per-function flag sets; `fix-sizes` points at unsized functions; `cluster-fill` skeletons unreversed VAs inside a reversed cluster via `--append` |
 | Hygiene | `link-order`, `orphans`, `matched-orphans`, `lint-fixable`, `lint-errors`, `duplicate-globals`, `stale-addresses`, `shared-twins`, `foreign-sources`, `data-drift`, `start-data`, `build-check`, `stale-cache` | CMake VA-order drift, prunable metadata orphans (matched held back), matched orphans needing repaired source bindings, `lint --fix` repairs (W029/W016), E-code errors per file, W021 global collisions, W028 stale bound addresses, identical per-target twins for `rebrew source merge --shared`, files excluded from this target's build, DRIFT/unchecked data symbols, stale build/ flags, sources newer than verify cache |
-| Next | `stub-sort`, `verify-failures`, `missing-externs`, `default-names`, `backfill-blockers`, `next-action`, `merge-sweep` | Unannotated inventory functions, COMPILE/EXTRACT/MISSING_SIZE cache failures, undefined extern callees, decompiler default names, bare STUBs, highest-ROI `todo` item pointer, `rebrew match partitions --dry-run` when partitions unproven |
+| Next | `stub-sort`, `verify-failures`, `missing-externs`, `default-names`, `backfill-blockers`, `next-action`, `merge-sweep` | Unannotated inventory functions, COMPILE/EXTRACT/MISSING_SIZE cache failures, undefined extern callees, decompiler default names, bare STUBs, highest-impact `todo` item pointer, `rebrew match partitions --dry-run` when partitions unproven |
 
 `--apply` executes only safe mechanical lanes (`lint --fix`,
 `rebrew build link-order --apply`, `orphans --prune`, `rebrew source merge --shared` twins); TU

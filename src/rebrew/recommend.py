@@ -13,7 +13,7 @@ reuses the module that owns the check, never reimplements it):
   metadata, W029 redundant cflags, W016 backfillable SECTION).
 * **shared-twins**: per-target twin copies collapsible via
   ``rebrew source merge --shared`` (:mod:`rebrew.merge` normalization).
-* **next-action**: highest-ROI item from :mod:`rebrew.todo` (pointer only,
+* **next-action**: highest-impact item from :mod:`rebrew.todo` (pointer only,
   so ``recommend`` never duplicates the todo ranking logic).
 * **flag-split**: one file holds functions with divergent per-function
   CFLAGS/TOOLCHAIN — one TU compiles with one flag set, so split by flags.
@@ -351,7 +351,7 @@ def recommend_next_action(
     command: str,
     description: str,
 ) -> Recommendation | None:
-    """Pointer to the highest-ROI todo item (no duplicate ranking logic)."""
+    """Pointer to the highest-impact todo item (no duplicate ranking logic)."""
     if not command:
         return None
     return Recommendation(

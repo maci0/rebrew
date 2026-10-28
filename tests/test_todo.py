@@ -959,6 +959,62 @@ class TestCollectors:
 
 
 class TestRoiOrdering:
+    @staticmethod
+    def _item(category: str, size: int, va: int, *, filename: str = "") -> TodoItem:
+        return TodoItem(
+            category, 89.0 if size < 50 else 10.0, va, "f", size, filename, "work", "test"
+        )
+
+    def test_affected_extent_outranks_a_small_quick_win(self) -> None:
+        from rebrew.todo import CAT_DATA_DRIFT, _rank_by_impact
+
+        tiny = self._item(CAT_FIX_DELTA, 20, 0x1000)
+        body = self._item(CAT_IMPROVE_MATCH, 12000, 0x2000)
+        data = self._item(CAT_DATA_DRIFT, 40000, 0x10000)
+        assert _rank_by_impact([tiny, body, data]) == [data, body, tiny]
+        assert data.to_dict()["impact_bytes"] == 40000
+        assert data.affected_functions == 0
+
+    def test_shared_compile_failure_counts_unique_unfinished_bytes(self) -> None:
+        from rebrew.todo import _rank_by_impact
+
+        a = self._item(CAT_COMPILE_ERROR, 100, 0x1000, filename="shared.c")
+        b = self._item(CAT_COMPILE_ERROR, 100, 0x1032, filename="shared.c")
+        c = self._item(CAT_IMPROVE_MATCH, 200, 0x2000, filename="shared.c")
+        other = self._item(CAT_IMPROVE_MATCH, 300, 0x3000, filename="other.c")
+        data = self._item("data-drift", 90000, 0x4000, filename="shared.c")
+        result = _rank_by_impact([b, other, c, a, data])
+        assert result == [data, a, other, c]
+        assert a.impact_bytes == 350
+        assert a.affected_functions == 3
+        assert "3 unfinished functions in shared.c" in a.description
+        assert a.size == 100
+
+    def test_setup_and_audits_keep_their_meaning(self) -> None:
+        from rebrew.todo import _rank_by_impact
+
+        setup = self._item(CAT_SETUP, 0, 0)
+        audit = self._item(CAT_EXACT_ONLY, 1000000, 0x1000)
+        work = self._item(CAT_IMPROVE_MATCH, 1, 0x2000)
+        documented = self._item(CAT_DOCUMENTED, 1000000, 0x3000)
+        unknown = self._item(CAT_COMPILE_ERROR, -1, 0x4000)
+        assert _rank_by_impact([documented, audit, work, unknown, setup]) == [
+            setup,
+            work,
+            unknown,
+            audit,
+            documented,
+        ]
+        assert unknown.impact_bytes == 0
+
+    def test_equal_scope_uses_effort_then_address(self) -> None:
+        from rebrew.todo import _rank_by_impact
+
+        a = self._item(CAT_IMPROVE_MATCH, 100, 0x1000)
+        b = self._item(CAT_FIX_DELTA, 100, 0x2000)
+        b.roi_score = 20
+        assert _rank_by_impact([a, b]) == [b, a]
+
     def test_small_delta_ranks_higher(self) -> None:
         small = TodoItem(
             category=CAT_FIX_DELTA,
@@ -2365,7 +2421,9 @@ class TestCallerBoost:
         assert _caller_boost("other", counts) == 0.0
         assert _caller_boost("helper", None) == 0.0
         assert _caller_boost("helper", {"helper": 10}) == 15.0
-        assert "unblocks 2" in _caller_suffix("do work", "helper", counts)
+        assert "declared by 2 unfinished source file(s)" in _caller_suffix(
+            "do work", "helper", counts
+        )
         assert _caller_suffix("do work", "other", counts) == "do work"
 
     def test_underscore_symbol_matches(self, tmp_path: Path) -> None:
