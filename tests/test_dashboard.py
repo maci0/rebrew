@@ -1949,8 +1949,12 @@ class TestLiteralSearch:
         monkeypatch.setattr(dash, "id", lambda _: 1, raising=False)
         monkeypatch.setattr(dash, "_FOLDED", {})
         monkeypatch.setattr(dash, "_FOLDED_GLOBALS", {})
-        first = SimpleNamespace(functions=[SimpleNamespace(name="OLD", symbol="X")], globals=[])
-        second = SimpleNamespace(
+
+        class Snapshot(SimpleNamespace):
+            pass
+
+        first = Snapshot(functions=[SimpleNamespace(name="OLD", symbol="X")], globals=[])
+        second = Snapshot(
             functions=[
                 SimpleNamespace(name="NEW", symbol="Y"),
                 SimpleNamespace(name="TWO", symbol="Z"),
@@ -1961,6 +1965,29 @@ class TestLiteralSearch:
         assert dash._folded_globals(first) == ()
         assert dash._folded_functions(second) == (("new", "y"), ("two", "z"))
         assert dash._folded_globals(second) == ("new",)
+
+    def test_fold_caches_do_not_retain_snapshots(self) -> None:
+        import gc
+        import weakref
+        from types import SimpleNamespace
+
+        import rebrew.dashboard as dash
+
+        class Snapshot(SimpleNamespace):
+            pass
+
+        dash._FOLDED.clear()
+        dash._FOLDED_GLOBALS.clear()
+        snapshot = Snapshot(
+            functions=[SimpleNamespace(name="OLD", symbol="OLD")],
+            globals=[SimpleNamespace(name="OLD")],
+        )
+        ref = weakref.ref(snapshot)
+        dash._folded_functions(snapshot)
+        dash._folded_globals(snapshot)
+        del snapshot
+        gc.collect()
+        assert ref() is None
 
     def test_a_wildcard_term_matches_nothing_through_the_route(self, dashboard: Dashboard) -> None:
         assert dashboard.functions("server_dll", q="func%")["total"] == 0

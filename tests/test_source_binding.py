@@ -657,3 +657,21 @@ class TestBatchBindingChanges:
         assert [change["action"] for change in report["changes"]] == ["retire", "rebind"]
         assert not get_entry(cfg.metadata_dir, 0x401000, "GAME").get("file")
         assert get_entry(cfg.metadata_dir, 0x402000, "GAME")["file"] == "src/replacement.c"
+
+    def test_batch_refreshes_retirement_after_owner_scan(self, tmp_path: Path) -> None:
+        from rebrew.metadata.binding_history import change_source_bindings_batch
+
+        cfg = _project(tmp_path)
+        replacement = {"file": "src/new.c", "symbol": "_new", "name": "new", "kind": "FUNCTION"}
+        old_owner = {"file": "src/g.c", "symbol": "_g", "name": "g", "kind": "FUNCTION"}
+        report = change_source_bindings_batch(
+            cfg.metadata_dir,
+            [
+                {"module": "GAME", "va": 0x401000, "reason": "move", "identity": replacement},
+                {"module": "GAME", "va": 0x402000, "reason": "retire"},
+                {"module": "GAME", "va": 0x401000, "reason": "claim", "identity": old_owner},
+            ],
+        )
+        assert [event["action"] for event in report["changes"]] == ["rebind", "retire", "rebind"]
+        assert get_entry(cfg.metadata_dir, 0x401000, "GAME")["name"] == "g"
+        assert not get_entry(cfg.metadata_dir, 0x402000, "GAME").get("file")

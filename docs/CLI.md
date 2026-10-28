@@ -3490,7 +3490,12 @@ member-access offsets per pointer base.  Parses `->field_N` /
 (`*(int *)&a0[10]`; byte offset = index × element width).  Evidence is
 grouped by the pointer's named base type, and synthesized into
 `typedef struct name_s { ... } name;` definitions with `gap_XXXX` padding
-(the decomp convention).  Pseudo-types (`undefined4`, `byte`, ...) never
+(the decomp convention). The most frequent width at each offset wins (ties
+choose the largest). Overlapping selected fields stop recovery before any
+output is written. Unaligned fields use byte arrays. Typed fields assume the
+target C89 ABI has 1-, 2-, 4-, and 8-byte `char`, `short`, `int`, and
+`double`, respectively, and that each type's alignment divides its size;
+verify the resulting layout against the target compiler. Pseudo-types (`undefined4`, `byte`, ...) never
 name a struct, but their pointer evidence is NOT lost: it is reported as
 **anonymous candidates** (Kuna's `int a0` params, Ghidra's
 `undefined4 *this`) grouped by variable name, with a synthesized layout so

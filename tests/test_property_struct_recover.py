@@ -22,8 +22,10 @@ asserts more than "did not raise":
 
 from __future__ import annotations
 
+import itertools
 import re
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -155,6 +157,11 @@ def test_synthesized_struct_covers_every_evidence_offset(
     base: str, members: list[tuple[int, int]]
 ) -> None:
     offsets = {off: {width: 1} for off, width in members}
+    ordered = sorted(members)
+    if any(a + width > b for (a, width), (b, _) in itertools.pairwise(ordered)):
+        with pytest.raises(ValueError, match="overlapping"):
+            synthesize_struct(base, offsets)
+        return
     header = synthesize_struct(base, offsets)
 
     assert header.startswith(f"typedef struct {base}_s {{")

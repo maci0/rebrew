@@ -1097,7 +1097,7 @@ class Global:
     backing: str = ""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class CoverageSnapshot:
     """One target's coverage document, immutable and fully derived.
 
@@ -1407,8 +1407,9 @@ def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int, int], ...]:
     """``(name, mtime_ns, size, ino, ctime_ns)`` for every ``coverage-*.toml`` in the directory.
 
     Sorted, because a directory listing's order is not a fact about the files.
-    A file that vanishes between the listing and the stat is skipped: the next
-    call's key differs, so the miss is caught then.
+    Retry a scan if the directory changes during enumeration; rename-over can
+    otherwise make a listed file disappear from the scan. A file that vanishes
+    between listing and stat is skipped.
 
     The inode is what catches a document replaced by a same-size rename-over
     inside one mtime tick (a ``cp -p`` restore, a git checkout of a restored
@@ -1416,15 +1417,29 @@ def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int, int], ...]:
     see; this matches every other per-file memo in the tree
     (``verify_hash._SOURCE_MEMO``, ``metadata.document``, ``utils.read_source_text``).
     """
-    entries: list[tuple[str, int, int, int, int]] = []
-    for path in db_directory.glob(f"{_FILENAME_PREFIX}*{_FILENAME_SUFFIX}"):
+    for _ in range(3):
         try:
-            st = path.stat()
+            before = db_directory.stat()
         except OSError:
-            continue
-        entries.append((path.name, st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns))
-    entries.sort()
-    return tuple(entries)
+            return ()
+        entries: list[tuple[str, int, int, int, int]] = []
+        for path in db_directory.glob(f"{_FILENAME_PREFIX}*{_FILENAME_SUFFIX}"):
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            entries.append((path.name, st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns))
+        try:
+            after = db_directory.stat()
+        except OSError:
+            return ()
+        if (before.st_ino, before.st_mtime_ns, before.st_ctime_ns) == (
+            after.st_ino,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        ):
+            return tuple(sorted(entries))
+    raise CoverageTomlError(f"{db_directory}: coverage directory changed repeatedly during scan")
 
 
 def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:

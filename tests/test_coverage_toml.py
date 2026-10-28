@@ -1108,7 +1108,10 @@ class TestImmutability:
     def test_snapshot_field_is_frozen(
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
     ) -> None:
+        import weakref
+
         snap = self._snap(write, data, tmp_path)
+        assert weakref.ref(snap)() is snap
         with pytest.raises(FrozenInstanceError):
             snap.target = "other"  # type: ignore[misc]
 
@@ -1123,6 +1126,66 @@ class TestMemo:
         assert first is second
         assert first[TARGET] is second[TARGET]
         assert load_coverage_from(tmp_path / "db", TARGET).target == TARGET
+
+    def test_scan_retries_when_replace_changes_directory(
+        self,
+        write: Callable[[dict[str, Any]], list[Path]],
+        data: dict[str, Any],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+
+        path = write(data)[0]
+        staged = path.with_suffix(".staged")
+        staged.write_bytes(path.read_bytes())
+        original = Path.glob
+        calls = 0
+        scanning, replaced = Event(), Event()
+
+        def interrupted(directory: Path, pattern: str, **kwargs: Any) -> Any:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                scanning.set()
+                assert replaced.wait(5)
+                return iter(())
+            return original(directory, pattern, **kwargs)
+
+        monkeypatch.setattr(Path, "glob", interrupted)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(load_all_coverage_from, path.parent)
+            assert scanning.wait(5)
+            os.replace(staged, path)
+            replaced.set()
+            assert list(pending.result(timeout=5)) == [TARGET]
+        assert calls == 2
+        path.unlink()
+        assert load_all_coverage_from(path.parent) == {}
+
+    def test_continuous_directory_changes_raise(
+        self,
+        write: Callable[[dict[str, Any]], list[Path]],
+        data: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        path = write(data)[0]
+        original = Path.glob
+        calls = 0
+
+        def changing(directory: Path, pattern: str, **kwargs: Any) -> Any:
+            nonlocal calls
+            calls += 1
+            staged = path.with_suffix(".staged")
+            staged.write_bytes(path.read_bytes())
+            os.replace(staged, path)
+            return original(directory, pattern, **kwargs)
+
+        monkeypatch.setattr(Path, "glob", changing)
+        with pytest.raises(CoverageTomlError, match="changed repeatedly during scan"):
+            load_all_coverage_from(path.parent)
+        assert calls == 3
 
     def test_rewrite_loads_the_new_content(
         self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path

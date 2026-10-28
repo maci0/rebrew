@@ -7,6 +7,7 @@ verdicts; backends own persistence, input discovery, snapshots and transactions.
 import contextlib
 import logging
 import threading
+from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from functools import lru_cache
 from pathlib import Path
@@ -140,24 +141,27 @@ def _configured_backend(path: Path, fingerprint: tuple[int, int, int, int]) -> s
 #: ``directory -> project root``.  The walk lstats every ancestor; a whole-tree
 #: scan calls ``metadata_store`` once per source file.  Misses are not cached:
 #: a config created later must still be found.
-_PROJECT_ROOTS: dict[Path, Path] = {}
+_PROJECT_ROOTS: OrderedDict[Path, Path] = OrderedDict()
 _PROJECT_ROOTS_LOCK = threading.Lock()
-_PROJECT_ROOTS_MAX = 64
+_PROJECT_ROOTS_MAX = 256
 
 
 def _project_root(directory: Path) -> Path:
     """Find and memoize the project root for *directory*, if one exists."""
     with _PROJECT_ROOTS_LOCK:
         found = _PROJECT_ROOTS.get(directory)
+        if found is not None:
+            _PROJECT_ROOTS.move_to_end(directory)
     if found is not None:
         return found
     walked = walk_up_to_root(directory)
     if walked is None:
         return directory
     with _PROJECT_ROOTS_LOCK:
-        if len(_PROJECT_ROOTS) >= _PROJECT_ROOTS_MAX:
-            _PROJECT_ROOTS.clear()
         _PROJECT_ROOTS[directory] = walked
+        _PROJECT_ROOTS.move_to_end(directory)
+        if len(_PROJECT_ROOTS) > _PROJECT_ROOTS_MAX:
+            _PROJECT_ROOTS.popitem(last=False)
     return walked
 
 

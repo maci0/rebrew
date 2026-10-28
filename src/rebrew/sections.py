@@ -6,6 +6,7 @@ utilities (back-jump detection, padding trimming).
 """
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 lazy from pathlib import Path
 
@@ -45,6 +46,8 @@ def trim_trailing_padding(data: bytes, padding: tuple[int, ...] | None = None) -
 # ``jecxz`` / ``jcxz`` / ``jrcxz`` are relative too, and were never part of the
 # out-of-line-tail check (short and near jmp/jcc only).
 _NOT_A_BACK_JUMP = frozenset({"jcxz", "jecxz", "jrcxz"})
+# Short jcc/jmp, near jmp, and near jcc; prefixes precede these opcode bytes.
+_RELATIVE_JUMP_OPCODE = re.compile(rb"[\x70-\x7f\xe9\xeb]|\x0f[\x80-\x8f]")
 
 
 def has_back_jumps(
@@ -62,7 +65,7 @@ def has_back_jumps(
     skipped. Used to identify out-of-line code that belongs to the
     preceding function.
     """
-    if not data:
+    if not _RELATIVE_JUMP_OPCODE.search(data):
         return False
     from capstone.x86 import X86_OP_IMM
 
