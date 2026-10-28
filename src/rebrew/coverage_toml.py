@@ -1097,7 +1097,7 @@ class Global:
     backing: str = ""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class CoverageSnapshot:
     """One target's coverage document, immutable and fully derived.
 
