@@ -11,6 +11,9 @@
 - Struct recovery identifies nested typedef aliases through the C AST, rejects
   overlapping evidence before writing, preserves unaligned offsets as byte
   arrays, and stops when an existing source cannot be read.
+- Compiler extraction resolves unambiguous C-name matches across COFF calling
+  convention decorations; the library driver preserves archive member names.
+- Instruction diffs identify candidate relocation symbols on their own rows.
 
 ### Changed
 
