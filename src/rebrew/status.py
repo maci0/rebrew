@@ -831,9 +831,13 @@ def _compute_text_size(cfg: ProjectConfig) -> int:
 
 
 def _unclaimed(lo: int, hi: int, claimed: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    """Subtract claimed half-open intervals from a proposed span."""
+    """Subtract sorted claimed half-open intervals from a proposed span."""
     pieces = [(lo, hi)]
     for claim_lo, claim_hi in claimed:
+        if claim_lo >= hi:
+            break
+        if claim_hi <= lo:
+            continue
         nxt: list[tuple[int, int]] = []
         for piece_lo, piece_hi in pieces:
             if claim_hi <= piece_lo or claim_lo >= piece_hi:
@@ -1084,7 +1088,8 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         derived = 0
         for va in sorted(set(derived_starts)):
             lo = max(va, text_lo)
-            hi = next((start for start in known_starts if start > va), text_hi)
+            index = bisect.bisect_right(known_starts, va)
+            hi = known_starts[index] if index < len(known_starts) else text_hi
             hi = min(hi, text_hi)
             for piece_lo, piece_hi in _unclaimed(lo, hi, claimed):
                 length = piece_hi - piece_lo
