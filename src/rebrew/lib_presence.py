@@ -53,21 +53,24 @@ app = typer.Typer(
 
 
 def _anchor(body: bytes, relocs: set[int]) -> tuple[int, bytes] | None:
-    """First reloc-free 24-byte window of *body*, preferring unique bytes."""
-    for start in range(0, max(0, len(body) - ANCHOR_BYTES), 4):
-        if any(i in relocs for i in range(start, start + ANCHOR_BYTES)):
+    """First reloc-free window of *body*, short bodies use a narrower one."""
+    width = min(ANCHOR_BYTES, max(8, len(body)))
+    for start in range(0, max(0, len(body) - width) + 1, 4):
+        if any(i in relocs for i in range(start, start + width)):
             continue
-        window = body[start : start + ANCHOR_BYTES]
+        window = body[start : start + width]
         if window.count(0) >= 10:
             continue
         return start, window
     return None
 
 
-def locate_body(text: bytes, body: bytes, relocs: set[int]) -> dict[str, Any] | None:
+def locate_body(
+    text: bytes, body: bytes, relocs: set[int], min_fixed: int = PRESENT_MIN_FIXED
+) -> dict[str, Any] | None:
     """Best masked match of *body* in *text*: located offset and fixed-byte ratio."""
     total = sum(1 for i in range(len(body)) if i not in relocs)
-    if total < PRESENT_MIN_FIXED or len(body) < ANCHOR_BYTES:
+    if total < min_fixed or len(body) < 8:
         return None
     anchor = _anchor(body, relocs)
     if anchor is None:
@@ -92,7 +95,12 @@ def locate_body(text: bytes, body: bytes, relocs: set[int]) -> dict[str, Any] | 
     return best
 
 
-def classify(best: dict[str, Any] | None, tested: bool) -> str:
+def classify(
+    best: dict[str, Any] | None,
+    tested: bool,
+    min_ratio: float = PRESENT_RATIO,
+    min_fixed: int = PRESENT_MIN_FIXED,
+) -> str:
     """Present, absent or unknown for one body.
 
     ``tested`` is false when the body has too few fixed bytes to search for;
@@ -102,14 +110,21 @@ def classify(best: dict[str, Any] | None, tested: bool) -> str:
         return "unknown"
     if best is None:
         return "absent"
-    if best["ratio"] >= PRESENT_RATIO and best["fixed_matched"] >= PRESENT_MIN_FIXED:
+    if best["ratio"] >= min_ratio and best["fixed_matched"] >= min_fixed:
         return "present"
     if best["ratio"] < 0.5:
         return "absent"
     return "unknown"
 
 
-def audit_object(text: bytes, text_va: int, object_path: Path) -> list[dict[str, Any]]:
+def audit_object(
+    text: bytes,
+    text_va: int,
+    object_path: Path,
+    *,
+    min_ratio: float = PRESENT_RATIO,
+    min_fixed: int = PRESENT_MIN_FIXED,
+) -> list[dict[str, Any]]:
     """Per-symbol presence rows for one object, sorted by verdict then VA."""
     rows: list[dict[str, Any]] = []
     try:
@@ -121,9 +136,9 @@ def audit_object(text: bytes, text_va: int, object_path: Path) -> list[dict[str,
         if not body:
             continue
         fixed_total = sum(1 for i in range(len(body)) if i not in relocs)
-        tested = fixed_total >= PRESENT_MIN_FIXED and len(body) >= ANCHOR_BYTES
-        best = locate_body(text, body, relocs) if tested else None
-        verdict = classify(best, tested)
+        tested = fixed_total >= min_fixed and len(body) >= 8
+        best = locate_body(text, body, relocs, min_fixed) if tested else None
+        verdict = classify(best, tested, min_ratio, min_fixed)
         rows.append(
             {
                 "symbol": symbol,
@@ -149,6 +164,12 @@ def main(
     binary: Path | None = typer.Option(
         None, "--binary", help="Image to search (default: the target's reference binary)"
     ),
+    min_ratio: float = typer.Option(
+        PRESENT_RATIO, "--min-ratio", help="Fixed-byte ratio a body needs to count as present"
+    ),
+    min_fixed: int = typer.Option(
+        PRESENT_MIN_FIXED, "--min-fixed", help="Minimum fixed bytes a body must have to be tested"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -168,7 +189,7 @@ def main(
         error_exit(f"{image_path} has no .text section", json_mode=json_output)
     text = binary_info.data[section.file_offset : section.file_offset + section.raw_size]
     try:
-        rows = audit_object(text, section.va, object_path)
+        rows = audit_object(text, section.va, object_path, min_ratio=min_ratio, min_fixed=min_fixed)
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
     counts = {

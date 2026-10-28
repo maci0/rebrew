@@ -5270,6 +5270,8 @@ shared inline copies and masked wrappers can appear elsewhere.
 | --- | --- | --- | --- |
 | `--object` | path | — | COFF object to look for (required) |
 | `--binary` | path | — | Image to search (default: the target's reference binary) |
+| `--min-ratio` | float | `0.85` | Fixed-byte ratio a body needs to count as present |
+| `--min-fixed` | int | `48` | Minimum fixed bytes a body must have to be tested |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 

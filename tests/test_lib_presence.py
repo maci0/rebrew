@@ -75,3 +75,15 @@ class TestPresence:
         result = _run(project, monkeypatch, obj, "--json")
         assert result.exit_code == 0, result.output
         assert cli_payload(result)["counts"]["unknown"] == 1
+
+
+def test_lowered_thresholds_locate_a_short_body() -> None:
+    from rebrew.lib_presence import classify, locate_body
+
+    body = b"\x55\x8b\xec\x83\xec\x10\x8b\x45\x08\x85\xc0\x74\x05\x8b\x4d\x0c\x89\x08\x5d\xc3"
+    text = b"\xcc" * 32 + body + b"\xcc" * 32
+    best = locate_body(text, body, set(), min_fixed=16)
+    assert best is not None
+    assert best["offset"] == 32
+    assert classify(best, True, min_ratio=0.9, min_fixed=16) == "present"
+    assert classify(best, True) == "unknown"
