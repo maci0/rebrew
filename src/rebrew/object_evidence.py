@@ -139,17 +139,8 @@ def object_function(raw: bytes, symbol: str, size: int) -> ObjectFunction:
         for s, name in zip(symbols, names, strict=True)
         if s.section_idx == section_index and start <= s.value < end
     }
-    for name in local_symbols:
-        if (
-            len(
-                {
-                    s.value
-                    for s, n in zip(symbols, names, strict=True)
-                    if n == name and s.section_idx > 0
-                }
-            )
-            != 1
-        ):
+    for s, name in zip(symbols, names, strict=True):
+        if name in local_symbols and s.section_idx > 0 and s.value != local_symbols[name] + start:
             raise ValueError("ambiguous object-local symbol")
     for reloc in section.relocations:
         if reloc.address < start and reloc.address + 4 > start and int(reloc.type) & 0xFFFF:

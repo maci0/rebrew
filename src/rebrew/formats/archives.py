@@ -1,7 +1,10 @@
 """Static archive iteration and stock-library cache paths shared by analysis tools."""
 
+import re
 lazy from collections.abc import Iterator
 lazy from pathlib import Path
+
+_LONG_NAME_END = re.compile(b"\0|/\n")
 
 
 def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:
@@ -47,14 +50,10 @@ def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:
             offset = int(name[1:])
             if offset >= len(long_names):
                 raise ValueError(f"{lib_path}: invalid long-name offset {offset}")
-            endings = [
-                end
-                for delimiter in (b"\0", b"/\n")
-                if (end := long_names.find(delimiter, offset)) >= 0
-            ]
-            if not endings or min(endings) == offset:
+            ending = _LONG_NAME_END.search(long_names, offset)
+            if ending is None or ending.start() == offset:
                 raise ValueError(f"{lib_path}: invalid long name at offset {offset}")
-            name = long_names[offset : min(endings)].decode("ascii", errors="replace")
+            name = long_names[offset : ending.start()].decode("ascii", errors="replace")
 
         yield name, member_data
 

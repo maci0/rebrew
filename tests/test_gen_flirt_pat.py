@@ -109,6 +109,17 @@ class TestParseArchive:
             (second.decode(), b"write"),
         ]
 
+    def test_mixed_names_and_interior_offsets(self, tmp_path: Path) -> None:
+        table = b"prefix/name\0second/name/\nlast\0"
+        lib = self._make_archive(
+            [("/", table), ("/7", b"a"), ("/12", b"b"), ("/25", b"c")], tmp_path
+        )
+        assert list(parse_archive(str(lib))) == [
+            ("name", b"a"),
+            ("second/name", b"b"),
+            ("last", b"c"),
+        ]
+
     @pytest.mark.parametrize(
         "table, offset", [(b"", 0), (b"name\0", 99), (b"name", 0), (b"name\0\0", 5)]
     )
