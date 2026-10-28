@@ -1868,7 +1868,7 @@ def _name_match(term: str, va: int, *texts: str) -> bool:
 
 
 # Retain each snapshot with its folds so an ID cannot be reused for another
-# snapshot. The bounded caches drop old snapshots together on overflow.
+# snapshot. Keep only the most recently searched snapshot in each cache.
 _FOLDED: dict[int, tuple[CoverageSnapshot, tuple[tuple[str, str], ...]]] = {}
 _FOLDED_GLOBALS: dict[int, tuple[CoverageSnapshot, tuple[str, ...]]] = {}
 
@@ -1878,7 +1878,7 @@ def _folded_functions(snapshot: CoverageSnapshot) -> tuple[tuple[str, str], ...]
     hit = _FOLDED.get(id(snapshot))
     if hit is not None and hit[0] is snapshot:
         return hit[1]
-    if len(_FOLDED) > 8:
+    if _FOLDED:
         _FOLDED.clear()
     folded = tuple((_fold(fn.name), _fold(fn.symbol)) for fn in snapshot.functions)
     _FOLDED[id(snapshot)] = (snapshot, folded)
@@ -1890,7 +1890,7 @@ def _folded_globals(snapshot: CoverageSnapshot) -> tuple[str, ...]:
     hit = _FOLDED_GLOBALS.get(id(snapshot))
     if hit is not None and hit[0] is snapshot:
         return hit[1]
-    if len(_FOLDED_GLOBALS) > 8:
+    if _FOLDED_GLOBALS:
         _FOLDED_GLOBALS.clear()
     folded = tuple(_fold(item.name) for item in snapshot.globals)
     _FOLDED_GLOBALS[id(snapshot)] = (snapshot, folded)
