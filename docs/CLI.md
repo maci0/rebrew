@@ -5254,6 +5254,24 @@ graph proof or evidence of the actual linked provider. It writes no metadata.
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 
+### `rebrew library presence`
+
+`rebrew library presence --object PATH [OPTIONS]`
+
+Locate each function body of one COFF object in an image and report
+`present`/`absent`/`unknown` per symbol with the located VA and the masked
+byte ratio. A body counts as present at 85% of its non-relocation bytes with at
+least 48 fixed bytes; bodies under 48 fixed bytes stay unknown. A match shows
+the image contains those bytes, not that the linker selected this member:
+shared inline copies and masked wrappers can appear elsewhere.
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--object` | path | — | COFF object to look for (required) |
+| `--binary` | path | — | Image to search (default: the target's reference binary) |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+
 ### `rebrew library scan-signatures`
 
 `rebrew library scan-signatures [OPTIONS] [SIG_DIR]`

@@ -474,6 +474,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             panel="",
         ),
         CliComponent(
+            name="presence",
+            module="rebrew.lib_presence",
+            help="Locate one COFF object's function bodies in the reference binary; reports present/absent per symbol.",
+            panel="",
+        ),
+        CliComponent(
             name="match",
             module="rebrew.lib_match",
             help="Byte-compare reversed functions against linked static libraries (.lib/.a). Flags code the linker supplies, so it is not worth reversing.",
