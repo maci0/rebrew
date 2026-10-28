@@ -3731,3 +3731,23 @@ and can emit the prefix pad source (the `= {0}` to BSS trap included: a single
 non-zero initializer is required to keep the raw bytes). Replay: the offline
 simulation in guild-rebrew `.scratch/organize/sim_rdata_prefix2.py` and the
 paired sweep that produced R 0x3000 / D 0x28530.
+
+## Model a two-phase link order, objects after the archives (2026-11-03)
+
+guild-rebrew found that the reference image's post-application region
+(0x5E0060-0x660ACE, 1,490 inventory functions) mixes library bodies with
+application code: 937 functions match extracted archive members, 117 match the
+prebuilt DX8 supplementary objects, and 553 match nothing in the archives, the
+supp set, or a 7.1M-signature FLIRT database. One of those functions pushes a
+string that lives in the reference's own `.rdata`, and another initializes an
+0x840-dword table, so the original link placed some application objects after the
+libraries.
+
+A single-order link (objects, then archives) cannot reproduce that region: moving
+the affected objects after the archive scan moved them from too early to too
+late (raw 271,694, informative 92,035 against 271,837 / 92,169), and splitting
+them at five thresholds was worse still. Reproducing it needs the build pipeline
+to accept a second object phase after the library phase, plus per-object expected
+addresses and pads computed from those two phases. Proposed: a build-config
+option that emits a second object list into the link line after the external
+libraries, and a placement check that scores both phases.
