@@ -132,6 +132,32 @@ def test_insert_definition(tmp_path: Path) -> None:
     assert "unsigned char g_a[8] = {0x01,0x02,0x03,0x04};" in text
 
 
+def test_dry_run_absent_name_reads_file_without_compiling_patterns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew import data_layout
+
+    f = tmp_path / "owner.c"
+    f.write_text("int other;\n")
+    monkeypatch.setattr(
+        data_layout, "_name_line_re", lambda *args, **kwargs: pytest.fail("pattern")
+    )
+    assert insert_definition(f, "unusual.$name", "int", 4, "{0}", dry_run=True)
+    assert f.read_text() == "int other;\n"
+    with pytest.raises(OSError):
+        insert_definition(tmp_path / "missing.c", "missing", "int", 4, None, dry_run=True)
+
+
+@pytest.mark.parametrize(
+    "source", ["extern int pad[4];\n", "int pad[4] = {1};\n", "int pad[4];\n", "int padding;\n"]
+)
+def test_dry_run_existing_or_partial_name_preserves_source(tmp_path: Path, source: str) -> None:
+    f = tmp_path / "owner.c"
+    f.write_text(source)
+    assert insert_definition(f, "pad", "int", 4, "{0}", dry_run=True)
+    assert f.read_text() == source
+
+
 def test_insert_definition_rerun_does_not_duplicate(tmp_path: Path) -> None:
     """A second insert of the same name must replace, not append a twin def."""
     f = tmp_path / "mod.c"
