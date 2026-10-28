@@ -240,3 +240,26 @@ def test_cs_mode_for_16bit_target() -> None:
     # x86_64 must decode in 64-bit mode (REX prefixes, 8-byte operands) — the
     # same table binary_loader.capstone_config_for uses.
     assert capstone_mode_for_arch("x86_64") == capstone.CS_MODE_64
+
+
+def test_unresolved_call_row_carries_the_candidate_relocation_symbol() -> None:
+    """An XX call row must name the symbol it failed to resolve.
+
+    Without it the source call behind an ``XX e8 00 00 00 00`` row is invisible
+    to a JSON consumer; ten guild-rebrew rows were blocked on that.
+    """
+    from rebrew.diff import _annotate_candidate_relocations
+
+    summary = {
+        "instructions": [
+            {"match": "==", "candidate": {"bytes": "55"}},
+            {"match": "XX", "candidate": {"bytes": "e800000000"}},
+        ]
+    }
+    bindings = [{"offset": 2, "symbol": "_gm_FindNextFilteredEntity", "status": "UNRESOLVED"}]
+    _annotate_candidate_relocations(summary, bindings)
+    second = summary["instructions"][1]["candidate"]
+    assert second["relocations"] == [
+        {"offset": 2, "symbol": "_gm_FindNextFilteredEntity", "status": "UNRESOLVED"}
+    ]
+    assert "relocations" not in summary["instructions"][0]["candidate"]

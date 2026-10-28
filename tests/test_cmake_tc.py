@@ -128,6 +128,18 @@ class TestRewriteArgsLib:
             flag + r"Z:\tmp\input.def"
         ]
 
+    def test_extract_member_name_is_not_a_host_path(self) -> None:
+        """``/EXTRACT:..\\build\\intel\\mt_obj\\strrchr.obj`` names an archive member.
+
+        The old rule treated the leading ``/`` as a host path and rewrote it to
+        ``Z:\\EXTRACT:...``, so LIB reported the member as an input file and
+        extraction from LIBCMT failed.
+        """
+        member = "/EXTRACT:..\\build\\intel\\mt_obj\\strrchr.obj"
+        assert _rewrite_args("lib", [member]) == [member]
+        remove = "/REMOVE:..\\build\\intel\\mt_obj\\strrchr.obj"
+        assert _rewrite_args("lib", [remove]) == [remove]
+
     def test_out_and_members(self) -> None:
         out = _rewrite_args("lib", ["/OUT:/home/x.lib", "/home/maci/a.obj"])
         assert "/OUT:" + r"Z:\home\x.lib" in out

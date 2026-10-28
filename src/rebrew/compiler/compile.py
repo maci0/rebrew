@@ -2623,6 +2623,16 @@ def _batch_group_key(toolchain: str, cflags: str | list[str]) -> tuple[str, str]
     return toolchain, " ".join(core)
 
 
+_DECORATION_TAIL = re.compile(r"@+\d+$")
+
+
+def _demangled_c_name(symbol: str) -> str:
+    """C name behind a COFF decoration (``_f``, ``_f@8``, ``@f@4``, ``f@@8``)."""
+    name = symbol[1:] if symbol.startswith("_") else symbol
+    name = _DECORATION_TAIL.sub("", name)
+    return name.lstrip("@")
+
+
 def _symbol_spellings(symbol: str) -> list[str]:
     """Undecorated COFF spellings to try when *symbol* is absent from an object.
 
@@ -2664,6 +2674,18 @@ def _extract_and_compare(
             obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, fallback)
             if obj_bytes is not None:
                 break
+    if obj_bytes is None:
+        # Calling convention can change the decoration family entirely (a
+        # stored cdecl ``_foo`` against a compiled ``@foo@4`` fastcall body).
+        # Compare C names and take the object symbol that spells the same one.
+        from rebrew.matcher.parsers import list_obj_symbols
+
+        base = _demangled_c_name(symbol)
+        for candidate in list_obj_symbols(obj_path):
+            if candidate == symbol or _demangled_c_name(candidate) != base:
+                continue
+            obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, candidate)
+            if obj_bytes is not None:
                 break
     if obj_bytes is None:
         # Post-compile extraction failure: the .obj compiled fine but the

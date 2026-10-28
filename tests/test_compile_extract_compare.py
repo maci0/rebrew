@@ -58,6 +58,35 @@ def test_decorated_symbol_falls_back_to_the_undecorated_spelling(
     assert "_fcn_005ef2e0" in seen
 
 
+def test_stored_symbol_can_differ_in_decoration_family(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fastcall body (``@foo@4``) must compare when the store says ``_foo``.
+
+    ``fcn_005efd86`` is a __fastcall body while the stored symbol is the cdecl
+    spelling; verify reported EXTRACT_ERROR instead of EXACT.
+    """
+    from rebrew.compiler.compile import _extract_and_compare
+
+    body = b"\x8b\xc1\xc3"
+    seen: list[str] = []
+
+    def _parse(
+        _obj_path: Any, symbol: str
+    ) -> tuple[bytes | None, dict[int, str] | None, list[Any]]:
+        seen.append(symbol)
+        return (body if symbol == "@fcn_005efd86@4" else None), None, []
+
+    monkeypatch.setattr("rebrew.compiler.compile.parse_obj_symbol_and_relocs", _parse)
+    monkeypatch.setattr(
+        "rebrew.matcher.parsers.list_obj_symbols",
+        lambda _path: ["@fcn_005efd86@4", "_other"],
+    )
+    result = _extract_and_compare("f.obj", "_fcn_005efd86", body, check_known_bindings=False)
+    assert result.matched, result.message
+    assert "@fcn_005efd86@4" in seen
+
+
 class TestExtractAndCompare:
     @pytest.mark.parametrize("checked", [False, True])
     def test_public_compare_applies_the_targets_binding_policy(

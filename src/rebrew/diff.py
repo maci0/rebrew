@@ -124,6 +124,42 @@ def _global_name_map(cfg: Any) -> dict[int, str]:
 _HEX_ADDR_RE = re.compile(r"0x[0-9a-fA-F]+")
 
 
+def _annotate_candidate_relocations(
+    summary: dict[str, Any], bindings: list[dict[str, Any]]
+) -> None:
+    """Attach the candidate relocation symbol to each diff row it touches.
+
+    An unresolved relative call shows as ``XX e8 00 00 00 00`` with no callee,
+    so the source call that needs rebinding is invisible without parsing the
+    object separately. The binding evidence already knows the symbol; copy it
+    onto the row.
+    """
+    by_offset: dict[int, dict[str, Any]] = {}
+    for binding in bindings:
+        offset = binding.get("offset")
+        if isinstance(offset, int):
+            by_offset[offset] = binding
+    if not by_offset:
+        return
+    offset = 0
+    for row in summary.get("instructions", []):
+        candidate = row.get("candidate") or {}
+        raw = candidate.get("bytes") or ""
+        size = len(raw) // 2
+        hits = [
+            {
+                "offset": rel_offset,
+                "symbol": by_offset[rel_offset].get("symbol"),
+                "status": by_offset[rel_offset].get("status"),
+            }
+            for rel_offset in range(offset, offset + size)
+            if rel_offset in by_offset
+        ]
+        if hits:
+            candidate["relocations"] = hits
+        offset += size
+
+
 def _resolve_global_names(instructions: list[dict[str, Any]], cfg: Any) -> None:
     """Rewrite absolute addresses in the diff disasm to global names in place.
 
@@ -374,6 +410,8 @@ def run_diff(
 
     if isinstance(summary, dict) and summary.get("instructions"):
         _resolve_global_names(summary["instructions"], p.cfg)
+        if bindings:
+            _annotate_candidate_relocations(summary, bindings)
     missing_globals = _missing_global_hints(
         summary.get("instructions", []) if isinstance(summary, dict) else []
     )

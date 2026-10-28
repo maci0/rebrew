@@ -128,8 +128,11 @@ def test_mz_section_round_trips_header_geometry(mz_dir: Path, blob: bytes) -> No
     assert info.text_va == 0
     assert info.text_size == header["code_size"]
     if header["code_size"] > 0:
-        probe = blob[header["code_offset"] : header["code_offset"] + 4]
-        assert extract_bytes_at_va(info, 0, 4, trim_padding=False) == probe
+        # A 4-byte probe cannot exceed the pseudo section: a 1-3 byte code
+        # region returns its own length, so clamp the expected slice.
+        probe_len = min(4, header["code_size"])
+        probe = blob[header["code_offset"] : header["code_offset"] + probe_len]
+        assert extract_bytes_at_va(info, 0, probe_len, trim_padding=False) == probe
 
 
 @settings(max_examples=300, deadline=None)
