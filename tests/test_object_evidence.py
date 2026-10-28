@@ -2,6 +2,8 @@
 
 import hashlib
 import struct
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -203,6 +205,55 @@ class TestLiteralEvidence:
 
 
 class TestReviewedNativeIdentity:
+    def test_catalog_does_not_mutate_cached_receipts_and_sees_edits(self, tmp_path: Path) -> None:
+        from rebrew.metadata.functions import load_metadata
+
+        cfg, obj = _project(
+            tmp_path,
+            b"\xc3\xcc\xcc\xcc",
+            make_coff_obj(b"\xc3\xcc\xcc\xcc", func_symbol="_helper"),
+            4,
+        )
+        preview = review_native_identity(
+            cfg, 0x401000, obj, "_helper", reason="review", dry_run=True
+        )
+        review_native_identity(
+            cfg, 0x401000, obj, "_helper", reason="review", expected_digest=preview["input_digest"]
+        )
+        before = load_metadata(cfg.metadata_dir)
+        names = build_name_to_va(cfg)
+        assert names["_helper"] == 0x401000
+        names["_helper"] = 0
+        assert load_metadata(cfg.metadata_dir, deepcopy=False) == before
+        assert build_name_to_va(cfg)["_helper"] == 0x401000
+        assert load_metadata(cfg.metadata_dir, deepcopy=False) == before
+        cfg.dll_exports[0x401100] = "_helper"
+        assert build_name_to_va(cfg)["_helper"] == 0x401100
+        cfg.dll_exports.clear()
+        from rebrew.coff_reloc import CatalogScanError
+
+        with (
+            patch(
+                "rebrew.metadata.native_identity.validate_native_identity",
+                side_effect=ValueError("invalid"),
+            ),
+            pytest.raises(CatalogScanError, match="invalid"),
+        ):
+            build_name_to_va(cfg)
+        assert load_metadata(cfg.metadata_dir, deepcopy=False) == before
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from pathlib import Path; from rebrew.metadata.functions import set_fields; "
+                "import sys; set_fields(Path(sys.argv[1]), 0x401000, {'size': 3}, module='GAME')",
+                str(cfg.metadata_dir),
+            ],
+            check=True,
+        )
+        assert "_helper" not in build_name_to_va(cfg)
+        assert load_metadata(cfg.metadata_dir)[("GAME", 0x401000)]["size"] == 3
+
     def test_preview_is_read_only_and_apply_only_establishes_exact_name(
         self, tmp_path: Path
     ) -> None:
