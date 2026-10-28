@@ -1962,6 +1962,24 @@ class TestLiteralSearch:
         assert dash._folded_functions(second) == (("new", "y"), ("two", "z"))
         assert dash._folded_globals(second) == ("new",)
 
+    def test_fold_caches_retain_only_latest_snapshot(self) -> None:
+        from types import SimpleNamespace
+
+        import rebrew.dashboard as dash
+
+        dash._FOLDED.clear()
+        dash._FOLDED_GLOBALS.clear()
+        for name in ("OLD", "NEW"):
+            snapshot = SimpleNamespace(
+                functions=[SimpleNamespace(name=name, symbol=name)],
+                globals=[SimpleNamespace(name=name)],
+            )
+            dash._folded_functions(snapshot)
+            dash._folded_globals(snapshot)
+        assert len(dash._FOLDED) == len(dash._FOLDED_GLOBALS) == 1
+        assert next(iter(dash._FOLDED.values()))[0] is snapshot
+        assert next(iter(dash._FOLDED_GLOBALS.values()))[0] is snapshot
+
     def test_a_wildcard_term_matches_nothing_through_the_route(self, dashboard: Dashboard) -> None:
         assert dashboard.functions("server_dll", q="func%")["total"] == 0
         assert dashboard.functions("server_dll", q="func_")["total"] == 2
