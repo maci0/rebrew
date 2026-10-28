@@ -3643,3 +3643,23 @@ Proposed: let converge report the predicted direction and stop when the
 measured whole-image match drops, or accept a `--check-bytes` that compares the
 built image before/after a cycle. Until then, keep the previous pad sizes and
 check the byte match between cycles.
+
+## `build symbol-stubs` gives alias data rows their own storage (2026-10-29)
+
+`rebrew build symbol-stubs` works from unresolved linker symbols and knows nothing
+about the data store, so an alias row becomes a second definition. In the
+guild-rebrew client store `GOLDTL.0x007f4c00` is `name = "g_7f4c00"`,
+`storage_kind = "alias"`, `link_symbol = "_g_current_year"`, in a region the
+reference reaches through `_g_current_year`. The generated stub TU defines both
+`int g_7f4c00 = 0;` and `int g_current_year = 0;`, and the object's references to
+`g_current_year` stay unresolved at compile time, so the diff engine prints
+`mov edx, dword ptr [0]` against the reference `mov edx, dword ptr
+[_g_current_year]`. The 332-byte stub `fcn_00558220` and the 299-byte
+`fcn_00565980` are both blocked on that mismatch.
+
+Proposed: consult the data metadata when emitting definitions. An alias row gets
+no storage; the storage is spelled with the linked symbol name and the extent the
+rows covering its address imply (here 14 bytes for `_g_current_year` plus the
+0x7f4c04/08/0c views). Replay: `uv run rebrew build symbol-stubs -o <out>` for
+the guild-rebrew `Europa1400Gold_TL.exe` target and check that `_g_7f4c00` and
+`_g_current_year` cannot both be definitions.
