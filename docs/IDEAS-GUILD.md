@@ -3715,3 +3715,19 @@ forced symbol, extracts or identifies its member and reports present, absent, or
 unknown against the target image, with the located VA and match ratio. Replay:
 run the lookup in `.scratch/organize/strong_presence.py` from guild-rebrew and
 compare with `wide` membership.
+
+## Measure and emit section-content alignment pads (2026-11-01)
+
+guild-rebrew raised its same-offset score 244,344 -> 260,232 with two hand-tuned
+prefix pads inside `.data` (0x28530 zero bytes) and `.rdata` (0x3000), found by
+simulating candidate layouts and then sweeping builds. The existing `data layout`
+group models symbol placement, not the section-content offset that the file
+comparison actually sees, so the search was scratch-script work twice (text pads,
+then data/rdata prefix pads).
+
+Proposed: `rebrew data layout align-content --section .data --emit` that scores
+candidate content offsets against the reference section, reports the best offset,
+and can emit the prefix pad source (the `= {0}` to BSS trap included: a single
+non-zero initializer is required to keep the raw bytes). Replay: the offline
+simulation in guild-rebrew `.scratch/organize/sim_rdata_prefix2.py` and the
+paired sweep that produced R 0x3000 / D 0x28530.
