@@ -3810,3 +3810,23 @@ digest-guarded operation, so a crash or a concurrent inventory edit cannot land
 the shrink without its tail owner. The evidence is the same as the fill repair:
 reachable code ends at a terminator; the remainder is separately reachable code,
 not fill, so it needs its own owner rather than deletion.
+
+## `source split --va` should pick the definition live for the target (2026-10-30)
+
+`rebrew source split --va 0xVA file.c` fails with "Ambiguous C definition for VA
+0x..." when a file defines the same function twice under mutually exclusive
+preprocessor branches, for example guild-rebrew's `command.c`:
+
+```c
+#if defined(REBREW_SERVER)
+int __cdecl cm_ExAllocGraveyardWorker(int cmd, char* result) { ... }
+#else
+int __cdecl cm_ExAllocGraveyardWorker(int cmd, char* result) { ... }
+#endif
+```
+
+Only the branch active for the selected target ever compiles, so the extractor
+could evaluate the file's conditionals against that target's defines and take the
+live definition. Failing that, an `--ifdef NAME=VALUE` override or a positional
+`--occurrence N` selector would let the caller disambiguate. The same failure
+also hits `friedhof_logic.c` at 0x4F2FE0.
