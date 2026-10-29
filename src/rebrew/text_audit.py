@@ -6,6 +6,7 @@ a map, retain the object-walk estimate and exported-symbol fallback.
 
 Usage:
     rebrew build check-text-placement [--built build/<target>] [--limit 15] [--json]
+    rebrew build check-text-placement --rounding  # extent deviation audit
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from rebrew.cli import (
     require_non_negative,
 )
 lazy from rebrew.data_layout import built_text_va
+lazy from rebrew.verify_hash import expected_text_function_extents as _expected_extents
 lazy from rebrew.verify_hash import expected_text_functions as _expected_functions
 
 if TYPE_CHECKING:
@@ -37,7 +39,9 @@ _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  # Compare built .text VAs against metadata addresses\n"
     "  rebrew build check-text-placement\n\n"
-    "  rebrew build check-text-placement --json  # Machine-readable mismatch list\n"
+    "  rebrew build check-text-placement --json  # Machine-readable mismatch list\n\n"
+    "  # Report functions whose linked extent is shorter than the reference rounding\n"
+    "  rebrew build check-text-placement --rounding\n"
 )
 
 
@@ -183,6 +187,65 @@ def audit_text(
     return rows, n_ok, n_bad, n_missing
 
 
+def audit_rounding(expected: dict[str, tuple[int, int]], actual: dict[str, int]) -> dict[str, Any]:
+    """Compare linked extents with reference sizes rounded up to 16 bytes.
+
+    Only functions already at their expected VA are classified, because a
+    misplaced function has no meaningful linked extent. Only shorter extents are
+    reported: a linked body shorter than the reference extent makes every later
+    function sit that many bytes early, while a longer extent usually means
+    layout data between two functions. ``following_shifted`` counts later
+    functions whose own offset equals the deviation, which is exactly the set a
+    corrected extent would put back on its reference VA.
+    """
+    ordered = sorted(actual.items(), key=lambda kv: kv[1])
+    extents: dict[str, int] = {}
+    for i, (name, va) in enumerate(ordered):
+        if i + 1 == len(ordered):
+            continue  # no following symbol, so the extent is unknown
+        extents[name] = ordered[i + 1][1] - va
+    deviations: list[dict[str, Any]] = []
+    for name, va in ordered:
+        ref = expected.get(name)
+        if ref is None:
+            continue
+        ref_va, ref_size = ref
+        if va != ref_va:
+            continue
+        if name not in extents:
+            continue
+        padded = (ref_size + 15) & ~15
+        deviation = extents[name] - padded
+        if deviation >= 0:
+            continue
+        deviations.append(
+            {
+                "symbol": name,
+                "expected": f"0x{ref_va:x}",
+                "actual": f"0x{va:x}",
+                "reference_size": ref_size,
+                "reference_padded": padded,
+                "linked_extent": extents[name],
+                "deviation": deviation,
+                "following_shifted": 0,
+            }
+        )
+    for row in deviations:
+        deviation = row["deviation"]
+        actual_va = int(row["actual"], 16)
+        row["following_shifted"] = sum(
+            1
+            for name, va in ordered
+            if va > actual_va and name in expected and va - expected[name][0] == deviation
+        )
+    earliest = deviations[0] if deviations else None
+    return {
+        "deviations": deviations,
+        "earliest": earliest,
+        "following_shifted": earliest["following_shifted"] if earliest else 0,
+    }
+
+
 @app.callback(invoke_without_command=True)
 def main(
     built: Path | None = typer.Option(
@@ -195,6 +258,11 @@ def main(
         False,
         "--list-correct",
         help="Include the functions already at their expected VA in --json output",
+    ),
+    rounding: bool = typer.Option(
+        False,
+        "--rounding",
+        help="Also report functions whose linked extent is shorter than the reference rounding",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -219,6 +287,7 @@ def main(
     expected = _expected_functions(cfg)
     rows, n_ok, n_bad, n_missing = audit_text(expected, actual)
     shown = [r for r in rows if r["status"] != "OK"][:limit]
+    rounding_report = audit_rounding(_expected_extents(cfg), actual) if rounding else None
 
     if json_output:
         payload: dict[str, Any] = {
@@ -231,6 +300,8 @@ def main(
         }
         if list_correct:
             payload["correct_list"] = correct_entries(rows)
+        if rounding_report is not None:
+            payload["rounding"] = rounding_report
         json_print(payload)
     else:
         console.print(
@@ -245,6 +316,26 @@ def main(
                 )
             else:
                 console.print(f"  {r['symbol']:32} exp {r['expected']}  MISSING from build")
+        if rounding_report is not None:
+            deviations = rounding_report["deviations"]
+            console.print(
+                f"extent deviations: {len(deviations)}"
+                + (
+                    f", earliest {deviations[0]['symbol']} "
+                    f"{deviations[0]['linked_extent']}B vs padded "
+                    f"{deviations[0]['reference_padded']}B "
+                    f"({deviations[0]['deviation']:+#x}); "
+                    f"{rounding_report['following_shifted']} later functions share that offset"
+                    if deviations
+                    else ""
+                )
+            )
+            for r in deviations[:limit]:
+                console.print(
+                    f"  {r['symbol']:32} extent {r['linked_extent']:5}B  "
+                    f"padded {r['reference_padded']:5}B  d {r['deviation']:+#x}  "
+                    f"later {r['following_shifted']}"
+                )
     if n_bad or n_missing:
         raise typer.Exit(code=EXIT_MISMATCH)
 

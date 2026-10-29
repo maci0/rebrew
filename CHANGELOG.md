@@ -2,6 +2,13 @@
 
 ### Added
 
+- `rebrew build check-text-placement --rounding` reports functions whose linked
+  extent is shorter than the reference size rounded up to 16 bytes, including the
+  number of later functions whose offset equals that deviation. A short body
+  shifts every function after it in a multi-function translation unit, and the
+  audit names the earliest deviation without changing the exit code. Longer
+  extents are excluded because layout data between functions inflates them.
+
 - `rebrew binary score` also reports `informative` counts: same-offset matches
   restricted to positions where the reference byte is non-zero, so
   zero-initialized layout padding cannot inflate the score.

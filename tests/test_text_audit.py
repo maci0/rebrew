@@ -411,6 +411,57 @@ class TestExportFallback:
         assert [r["status"] for r in rows] == ["MISPLACED", "MISSING", "OK"]
 
 
+class TestRoundingAudit:
+    """Linked extents are compared with reference sizes rounded up to 16 bytes."""
+
+    def test_short_extent_reports_earliest_and_following_shift(self) -> None:
+        from rebrew.text_audit import audit_rounding
+
+        report = audit_rounding(
+            {"a": (0x1000, 100), "b": (0x1070, 16), "c": (0x1100, 16)},
+            {"a": 0x1000, "b": 0x1060, "c": 0x10F0},
+        )
+        assert len(report["deviations"]) == 1
+        row = report["deviations"][0]
+        assert row["symbol"] == "a"
+        assert row["reference_padded"] == 0x70
+        assert row["linked_extent"] == 0x60
+        assert row["deviation"] == -0x10
+        # b sits -0x10 from its reference VA, c -0x10 too.
+        assert row["following_shifted"] == 2
+        assert report["following_shifted"] == 2
+
+    def test_long_extent_is_not_reported(self) -> None:
+        from rebrew.text_audit import audit_rounding
+
+        # Layout data between two functions inflates the extent; that is not a
+        # short body and must not be reported.
+        report = audit_rounding(
+            {"a": (0x1000, 100), "b": (0x1080, 16)},
+            {"a": 0x1000, "b": 0x1080},
+        )
+        assert report["deviations"] == []
+
+    def test_matching_extents_report_nothing(self) -> None:
+        from rebrew.text_audit import audit_rounding
+
+        report = audit_rounding(
+            {"a": (0x1000, 100), "b": (0x1070, 16)},
+            {"a": 0x1000, "b": 0x1070},
+        )
+        assert report["deviations"] == []
+        assert report["following_shifted"] == 0
+
+    def test_misplaced_rows_are_skipped(self) -> None:
+        from rebrew.text_audit import audit_rounding
+
+        report = audit_rounding(
+            {"a": (0x1000, 100), "b": (0x1100, 16)},
+            {"a": 0x1010, "b": 0x1060},
+        )
+        assert report["deviations"] == []
+
+
 class TestDecoratedTextSymbols:
     """``__foo`` and ``_foo`` are different .text symbols."""
 

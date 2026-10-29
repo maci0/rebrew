@@ -4009,11 +4009,22 @@ are found, fall back to the image's exports. Per-function OK/MISPLACED/MISSING
 rows include address deltas; missing or misplaced functions exit 1. An empty
 map does not trigger fallback or turn missing expected functions into success.
 
+`--rounding` adds an extent audit for functions already at their expected VA:
+the linked extent (distance to the next actual function) is compared with the
+reference annotation size rounded up to 16 bytes. Only shorter extents are
+reported, because a short body makes every later function sit that many bytes
+early; a longer extent is usually layout data between two functions. Each
+reported deviation names the function, its extents and the number of later
+functions whose own offset equals the deviation, i.e. the rows a corrected
+extent would put back on their VAs. The last actual function is skipped because
+its extent is unknown. The audit is diagnostic and does not change the exit code.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--built` | path | — | Built image (default: build/<target>) |
 | `--limit` | int | `15` | Max misplaced functions to print (0 = none) |
 | `--list-correct` | flag | `False` | Include the functions already at their expected VA in the `--json` payload as `correct_list` |
+| `--rounding` | flag | `False` | Report functions whose linked extent is shorter than the reference rounding, as `rounding` in the `--json` payload |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 
