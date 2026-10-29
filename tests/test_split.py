@@ -116,7 +116,8 @@ def _invoke(
     """Run the split CLI, returning (result, source path)."""
     src = tmp_path / name
     monkeypatch.setattr(
-        "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        "rebrew.split.require_config",
+        lambda target=None, json_mode=False: _make_cfg(tmp_path),
     )
     result = runner.invoke(app, [*args, str(src)])
     return result, src
@@ -130,7 +131,10 @@ class TestSplitExtensionHandling:
         monkeypatch.setattr(
             "rebrew.split.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
-                module="SERVER", source_ext=".c,.cpp", reversed_dir=tmp_path, metadata_dir=tmp_path
+                module="SERVER",
+                source_ext=".c,.cpp",
+                reversed_dir=tmp_path,
+                metadata_dir=tmp_path,
             ),
         )
         result = runner.invoke(app, ["--force", str(src)])
@@ -145,7 +149,10 @@ class TestSplitExtensionHandling:
         monkeypatch.setattr(
             "rebrew.split.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
-                module="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
+                module="SERVER",
+                source_ext=".c",
+                reversed_dir=tmp_path,
+                metadata_dir=tmp_path,
             ),
         )
         result = runner.invoke(app, ["--force", str(src)])
@@ -300,7 +307,8 @@ class TestSplitBasic:
         result, src = _invoke(tmp_path, monkeypatch, "--force")
         assert result.exit_code == 0
         assert SourceFixture(
-            "/* ADDRESS: SERVER 0x10001000 */", {"SERVER.0x10001000": {"kind": "FUNCTION"}}
+            "/* ADDRESS: SERVER 0x10001000 */",
+            {"SERVER.0x10001000": {"kind": "FUNCTION"}},
         ) in existing.read_text(encoding="utf-8")
 
     def test_json_output_structure(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -367,7 +375,8 @@ class TestSplitExtractVA:
         assert "#include <stdio.h>" in content
         assert (
             SourceFixture(
-                "/* ADDRESS: SERVER 0x10001000 */", {"SERVER.0x10001000": {"kind": "FUNCTION"}}
+                "/* ADDRESS: SERVER 0x10001000 */",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
             )
             in content
         )
@@ -382,7 +391,8 @@ class TestSplitExtractVA:
         assert "0x10001000" not in remaining
         assert (
             SourceFixture(
-                "/* ADDRESS: SERVER 0x10002000 */", {"SERVER.0x10002000": {"kind": "FUNCTION"}}
+                "/* ADDRESS: SERVER 0x10002000 */",
+                {"SERVER.0x10002000": {"kind": "FUNCTION"}},
             )
             in remaining
         )
@@ -424,7 +434,8 @@ class TestSplitExtractVA:
         content = (out_dir / "func_a.c").read_text(encoding="utf-8")
         assert (
             SourceFixture(
-                "/* ADDRESS: SERVER 0x10001000 */", {"SERVER.0x10001000": {"kind": "FUNCTION"}}
+                "/* ADDRESS: SERVER 0x10001000 */",
+                {"SERVER.0x10001000": {"kind": "FUNCTION"}},
             )
             in content
         )
@@ -514,7 +525,13 @@ class TestSplitExtractVA:
         custom_dir = tmp_path / "custom_out"
 
         result, src = _invoke(
-            tmp_path, monkeypatch, "--va", "0x10001000", "--force", "--output", str(custom_dir)
+            tmp_path,
+            monkeypatch,
+            "--va",
+            "0x10001000",
+            "--force",
+            "--output",
+            str(custom_dir),
         )
         assert result.exit_code == 0
         assert (custom_dir / "func_a.c").exists()
@@ -556,7 +573,8 @@ class TestSplitHelpers:
 class TestSplitCliErrors:
     def test_missing_source_argument(self, tmp_path: Path, monkeypatch: Any) -> None:
         monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+            "rebrew.split.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         result = runner.invoke(app, [])
         assert result.exit_code == 2
@@ -565,7 +583,8 @@ class TestSplitCliErrors:
 
     def test_source_not_found(self, tmp_path: Path, monkeypatch: Any) -> None:
         monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+            "rebrew.split.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         result = runner.invoke(app, ["nope.c"])
         assert result.exit_code != 0
@@ -573,7 +592,8 @@ class TestSplitCliErrors:
 
     def test_extension_mismatch(self, tmp_path: Path, monkeypatch: Any) -> None:
         monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+            "rebrew.split.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         _write(tmp_path / "multi.txt", "int x;\n")
         result = runner.invoke(app, [str(tmp_path / "multi.txt")])
@@ -588,7 +608,10 @@ class TestSplitCliErrors:
         )
         content = SourceFixture(
             "/* ADDRESS: SERVER 0x10001000 */\nint a(void) { return 0; }\n/* ADDRESS: OTHER 0x10002000 */\nint b(void) { return 1; }\n",
-            {"SERVER.0x10001000": {"kind": "FUNCTION"}, "OTHER.0x10002000": {"kind": "FUNCTION"}},
+            {
+                "SERVER.0x10001000": {"kind": "FUNCTION"},
+                "OTHER.0x10002000": {"kind": "FUNCTION"},
+            },
         )
         _write(tmp_path / "multi.c", content)
         result = runner.invoke(app, [str(tmp_path / "multi.c")])
@@ -599,7 +622,8 @@ class TestSplitCliErrors:
     def test_va_json_requires_force(self, tmp_path: Path, monkeypatch: Any) -> None:
         """--va in --json mode refuses destructive extraction without --force."""
         monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+            "rebrew.split.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         _write(tmp_path / "multi.c", _multi_two())
         result = runner.invoke(app, ["--va", "0x10001000", "--json", str(tmp_path / "multi.c")])
@@ -609,7 +633,8 @@ class TestSplitCliErrors:
     def test_va_json_force_extracts(self, tmp_path: Path, monkeypatch: Any) -> None:
 
         monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+            "rebrew.split.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         _write(tmp_path / "multi.c", _multi_two())
         result = runner.invoke(
@@ -767,7 +792,10 @@ class TestMarkerlessSplit:
             "int second(int n, ...) { return counter + n; }\n"
         )
         _write(tmp_path / "multi.c", source)
-        _seed(tmp_path, [("SERVER", 0x10001000, "_first"), ("SERVER", 0x10002000, "_second")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_first"), ("SERVER", 0x10002000, "_second")],
+        )
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10002000", "--force")
         assert result.exit_code == 0, result.output
         out = (tmp_path / "multi_c" / "second.c").read_text(encoding="utf-8")
@@ -792,7 +820,10 @@ class TestMarkerlessSplit:
             "int func_a(void) { return external(); }\nint func_b(void) { return 1; }\n"
         )
         _write(tmp_path / "multi.c", source)
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code == 0, result.output
         out = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
@@ -813,7 +844,10 @@ class TestMarkerlessSplit:
             "int func_b(void) { return 1; }\n"
         )
         _write(tmp_path / "multi.c", source)
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code == 0, result.output
         out = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
@@ -831,7 +865,10 @@ class TestMarkerlessSplit:
             "int func_a(void) { return hidden; }\n\nint func_b(void) { return 0; }\n"
         )
         _write(tmp_path / "multi.c", source)
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code != 0
         assert "depends on hidden" in result.output
@@ -846,7 +883,10 @@ class TestMarkerlessSplit:
             "int func_b(void);\nint (*dispatch[])(void) = {func_b};\n\n"
             "int func_a(void) { return dispatch[0](); }\n\nint func_b(void) { return 1; }\n",
         )
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code == 0, result.output
         out = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
@@ -857,7 +897,11 @@ class TestMarkerlessSplit:
     def test_va_extracts_the_definition_and_retargets_siblings(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from rebrew.metadata.functions import load_metadata, update_field, update_source_status
+        from rebrew.metadata.functions import (
+            load_metadata,
+            update_field,
+            update_source_status,
+        )
 
         _write(
             tmp_path / "multi.c",
@@ -877,7 +921,11 @@ class TestMarkerlessSplit:
             "SERVER",
             0x10001000,
             updated_by="verify",
-            verification={"status": "EXACT", "writer": "verify", "input_hash": "a" * 64},
+            verification={
+                "status": "EXACT",
+                "writer": "verify",
+                "input_hash": "a" * 64,
+            },
         )
         update_field(tmp_path, 0x10001000, "note", "keep", "SERVER")
         from rebrew.metadata.data import load_data_metadata, record_data_rows
@@ -924,7 +972,10 @@ class TestMarkerlessSplit:
             "int func_a(void) { return 0; }\n\n"
             "int func_b(void) { return g_table[0]; }\n",
         )
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
 
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10002000", "--force")
         assert result.exit_code == 0, result.output
@@ -944,7 +995,10 @@ class TestMarkerlessSplit:
             "int func_b(void) { return 0; }\n"
         )
         _write(tmp_path / "multi.c", source)
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
 
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code != 0
@@ -959,7 +1013,10 @@ class TestMarkerlessSplit:
             "int func_b(void) { return 0; }\n"
         )
         _write(tmp_path / "multi.c", source)
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
 
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code != 0
@@ -971,7 +1028,10 @@ class TestMarkerlessSplit:
             tmp_path / "multi.c",
             "int func_b(void) { return 1; }\n\nint func_a(void) { return func_b(); }\n",
         )
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
 
         result, _src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code == 0, result.output
@@ -1017,10 +1077,44 @@ class TestMarkerlessSplit:
         assert "No C definition" in result.output
         assert other.read_text(encoding="utf-8") == source
 
+    def test_occurrence_selects_between_duplicate_definitions(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        source = "int func_a(void) { return 0; }\n\nint func_a(void) { return 1; }\n"
+        _write(tmp_path / "multi.c", source)
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a")])
+
+        refused, _src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert refused.exit_code != 0
+        assert "Ambiguous" in refused.output
+        assert "--occurrence" in refused.output
+
+        out_of_range, _src = _invoke_meta(
+            tmp_path, monkeypatch, "--va", "0x10001000", "--occurrence", "3", "--force"
+        )
+        assert out_of_range.exit_code != 0
+        assert "outside the 2 definition" in out_of_range.output
+
+        without_va, _src = _invoke_meta(tmp_path, monkeypatch, "--occurrence", "2", "--force")
+        assert without_va.exit_code != 0
+        assert "--occurrence requires --va" in without_va.output
+
+        result, src = _invoke_meta(
+            tmp_path, monkeypatch, "--va", "0x10001000", "--occurrence", "2", "--force"
+        )
+        assert result.exit_code == 0, result.output
+        out = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
+        assert "return 1" in out
+        assert "return 0" not in out
+        assert "return 0" in src.read_text(encoding="utf-8")
+
     def test_dry_run_is_immutable(self, tmp_path: Path, monkeypatch: Any) -> None:
         source = "int func_a(void) { return 0; }\n\nint func_b(void) { return 1; }\n"
         _write(tmp_path / "multi.c", source)
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
         before = (tmp_path / "rebrew-functions.toml").read_bytes()
 
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--dry-run")
@@ -1032,7 +1126,10 @@ class TestMarkerlessSplit:
     def test_metadata_failure_restores_the_source(self, tmp_path: Path, monkeypatch: Any) -> None:
         source = "int func_a(void) { return 0; }\n\nint func_b(void) { return 1; }\n"
         _write(tmp_path / "multi.c", source)
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
         before = (tmp_path / "rebrew-functions.toml").read_bytes()
 
         def _boom(*_args: Any, **_kwargs: Any) -> None:
@@ -1049,7 +1146,10 @@ class TestMarkerlessSplit:
     def test_crlf_and_non_ascii_comment_round_trip(self, tmp_path: Path, monkeypatch: Any) -> None:
         text = "#include <stdio.h>\r\n\r\n/* café */\r\nint func_a(void) { return 0; }\r\n\r\nint func_b(void) { return 1; }\r\n"
         (tmp_path / "multi.c").write_bytes(text.encode("utf-8"))
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
 
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code == 0, result.output
@@ -1063,7 +1163,10 @@ class TestMarkerlessSplit:
     def test_preprocessor_conditional_is_refused(self, tmp_path: Path, monkeypatch: Any) -> None:
         source = "#if 1\nint func_a(void) { return 0; }\n#endif\nint func_b(void) { return 1; }\n"
         _write(tmp_path / "multi.c", source)
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
 
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code != 0
@@ -1080,7 +1183,10 @@ class TestMarkerlessSplit:
             "int func_a(void) { return 0; }\n\n"
             "int func_b(void) { return 1; }\n",
         )
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
 
         result, src = _invoke_meta(tmp_path, monkeypatch, "--force")
         assert result.exit_code == 0, result.output
@@ -1104,7 +1210,10 @@ class TestMarkerlessSplit:
             tmp_path / "multi.c",
             "#include <stdio.h>\n\nint func_a(void) { return 0; }\n\nint func_b(void) { return 1; }\n",
         )
-        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")],
+        )
 
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code == 0, result.output

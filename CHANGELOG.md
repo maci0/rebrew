@@ -13,6 +13,8 @@
 
 ### Added
 
+- `rebrew source split --occurrence N` picks one of several C definitions that share a VA, for example when a function is defined once per mutually exclusive preprocessor branch. It requires `--va`; definitions inside a conditional are still refused.
+
 - `rebrew build check-text-placement --rounding` reports functions whose linked
   extent is shorter than the reference size rounded up to 16 bytes, including the
   number of later functions whose offset equals that deviation. A short body

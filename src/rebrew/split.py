@@ -69,6 +69,8 @@ app = typer.Typer(
         "  rebrew source split src/game/funcs.c\n\n"
         "  # Extract one function by VA\n"
         "  rebrew source split src/game/funcs.c --va 0x10003da0\n\n"
+        "  # Pick one of two definitions under exclusive branches\n"
+        "  rebrew source split src/game/funcs.c --va 0x10003da0 --occurrence 2\n\n"
         "  # Preview without writing files\n"
         "  rebrew source split src/game/funcs.c --dry-run\n\n"
         "  # Custom output directory\n"
@@ -158,7 +160,10 @@ def _declarator_name(declarator: Any, raw: bytes) -> str | None:
         if nxt is None and node.type == "parenthesized_declarator":
             nxt = next((child for child in node.named_children), None)
         if nxt is None and node.type == "ERROR":
-            nxt = next((child for child in node.named_children if child.type != "identifier"), None)
+            nxt = next(
+                (child for child in node.named_children if child.type != "identifier"),
+                None,
+            )
         node = nxt
     return None
 
@@ -471,12 +476,15 @@ def _split_definitions(
     force: bool,
     json_output: bool,
     out_ext: str,
+    occurrence: int | None = None,
 ) -> None:
     """Split a pure-C file from its function rows.  ``error_exit`` does not return."""
     meta = getattr(cfg, "metadata_dir", None)
     if meta is None:
         error_exit("No metadata directory configured", json_mode=json_output)
     rel = os.path.relpath(source_path, meta).replace(os.sep, "/")
+    if occurrence is not None and va is None:
+        error_exit("--occurrence requires --va", json_mode=json_output)
     try:
         raw, spans = source_layout(text)
     except ImportError as exc:
@@ -520,17 +528,29 @@ def _split_definitions(
                 json_mode=json_output,
             )
         names = row_labels(entry)
-        found = [span for span in functions if span.name in names]
+        found = sorted(
+            (span for span in functions if span.name in names),
+            key=lambda span: span.start,
+        )
         if not found:
             error_exit(
                 f"No C definition for VA 0x{target_va:08x} in {source_path.name}",
                 json_mode=json_output,
             )
         if len(found) > 1 or len(names & {span.name for span in functions}) > 1:
-            error_exit(
-                f"Ambiguous C definition for VA 0x{target_va:08x} in {source_path.name}",
-                json_mode=json_output,
-            )
+            if occurrence is None:
+                error_exit(
+                    f"Ambiguous C definition for VA 0x{target_va:08x} in {source_path.name}; "
+                    "select one with --occurrence N",
+                    json_mode=json_output,
+                )
+            if not 1 <= occurrence <= len(found):
+                error_exit(
+                    f"--occurrence {occurrence} is outside the {len(found)} definition(s) "
+                    f"for VA 0x{target_va:08x} in {source_path.name}",
+                    json_mode=json_output,
+                )
+            found = [found[occurrence - 1]]
         selected = found
     else:
         grouped: list[SourceSpan] = []
@@ -586,7 +606,8 @@ def _split_definitions(
             rows.sort(key=lambda item: item[1] != requested)
         if not rows:
             error_exit(
-                f"No function row for {span.name} in {source_path.name}", json_mode=json_output
+                f"No function row for {span.name} in {source_path.name}",
+                json_mode=json_output,
             )
         own_va = rows[0][1]
         out_name = _build_output_name(span.name, own_va, out_ext)
@@ -620,7 +641,13 @@ def _split_definitions(
         except ValueError as exc:
             error_exit(str(exc), json_mode=json_output)
         plans.append(
-            {"span": span, "rows": rows, "path": out_path, "file": new_file, "dir": dest_dir}
+            {
+                "span": span,
+                "rows": rows,
+                "path": out_path,
+                "file": new_file,
+                "dir": dest_dir,
+            }
         )
 
     conflicts = [plan["path"] for plan in plans if not force and plan["path"].exists()]
@@ -764,13 +791,28 @@ def _split_definitions(
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(
-        ..., help="Path to a multi-function source file", click_type=TyperPath(path_type=str)
+        ...,
+        help="Path to a multi-function source file",
+        click_type=TyperPath(path_type=str),
     ),
     va: str | None = typer.Option(
         None, "--va", help="Extract a single function by VA (hex) into its own file"
     ),
+    occurrence: int | None = typer.Option(
+        None,
+        "--occurrence",
+        min=1,
+        help=(
+            "1-based C definition to pick when a VA has several definitions, for example "
+            "under mutually exclusive preprocessor branches"
+        ),
+    ),
     output_dir: str | None = typer.Option(
-        None, "--output", "-o", help="Output directory", click_type=TyperPath(path_type=str)
+        None,
+        "--output",
+        "-o",
+        help="Output directory",
+        click_type=TyperPath(path_type=str),
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     force: bool = typer.Option(
@@ -813,6 +855,7 @@ def main(
         text=text,
         encoding=encoding,
         va=va,
+        occurrence=occurrence,
         output_dir=output_dir,
         dry_run=dry_run,
         force=force,
