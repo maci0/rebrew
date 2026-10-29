@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.8.1] - 2026-10-30
+
 ### Added
 
 - `rebrew.splat_config.parse_splat_text(text, path)` parses already-read splat config
