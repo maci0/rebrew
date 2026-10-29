@@ -3787,3 +3787,26 @@ Proposed: classify those rows as a distinct reason, for example
 `SIZE_MISMATCH (padding-only)` with the trailing byte count, while keeping the
 status and byte accounting unchanged. Placement remains a separate question, so
 this is a diagnostic suffix, not a promotion.
+
+## Split an inventory extent when the tail is another function (2026-11-03)
+
+`binary repair-extents` can trim linker fill (`--merge`, `--retire`,
+`--add-missing`) but cannot split one inventory extent into two owners. In
+guild-rebrew's TL client, 52 rows match every byte of their own body yet stay
+SIZE_MISMATCH because the stored extent continues past the body with unrelated
+code: `mov eax,1; ret` style constant-return stubs (`0x4C75E0` tail
+`90 90 b8 01 00 00 00 c3`, `0x4B99E0` tail `b8 00 04 00 00 c3`), a single stray
+`ret` (`0x5386E0`), or a `ret`-then-fill tail that the fill scan already
+trimmed. None of these have a following inventory row at the split point, and
+trimming them would leave the tail bytes unowned.
+
+Workaround with today's flags: shrink the head with one digest-guarded repair,
+then `--add-missing` the tail row, then align the head's stored SIZE through the
+metadata writer. Five rows were split this way and promoted (`0x4B99E0` RELOC,
+`0x4C75E0` EXACT, `0x4EDEC0` RELOC, `0x506DF0` RELOC, `0x5EAAD0` RELOC).
+
+Proposed: `binary repair-extents --split 0xHEAD=0xTAIL@SIZE` to do that in one
+digest-guarded operation, so a crash or a concurrent inventory edit cannot land
+the shrink without its tail owner. The evidence is the same as the fill repair:
+reachable code ends at a terminator; the remainder is separately reachable code,
+not fill, so it needs its own owner rather than deletion.
