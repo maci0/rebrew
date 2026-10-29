@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew.splat_config.parse_splat_text(text, path)` parses already-read splat config
+  text as if it lived at an absolute *path*, without opening anything there.
+  `parse_splat_config` now reads the file and delegates to it, so file parsing, results
+  and errors are unchanged. A caller holding the config in an anonymous buffer needs no
+  file for the parser to resolve; `Path.resolve()` turns a memfd path into a name that
+  cannot be opened.
+
 ## [6.8.0] - 2026-10-28
 
 ### Changed

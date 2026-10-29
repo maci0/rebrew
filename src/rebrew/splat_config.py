@@ -626,9 +626,26 @@ def parse_splat_config(path: Path) -> SplatConfig:
     # them against the project root.
     path = path.resolve()
     try:
-        raw = parse_yaml_subset(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError(f"{path}: not readable as UTF-8: {exc}") from exc
+    return parse_splat_text(text, path)
+
+
+def parse_splat_text(text: str, path: Path) -> SplatConfig:
+    """Parse already-read splat config *text* as if it lived at *path*.
+
+    *path* must be absolute: the model's relative paths (target_path, symbol
+    files) hang from its directory and error messages name it.  Nothing at
+    *path* is opened, so a caller holding the text in memory (an anonymous
+    buffer, an upload) needs no file for the parser to resolve.  The result and
+    the errors are those :func:`parse_splat_config` gives for a file with this
+    text and location.
+    """
+    path = Path(path)
+    if not path.is_absolute():
+        raise ValueError(f"splat config location must be absolute: {path}")
+    raw = parse_yaml_subset(text)
     if not isinstance(raw, dict):
         raise ValueError(f"{path}: top-level value must be a mapping")
 
