@@ -48,6 +48,11 @@ def main(
         "--retire",
         help="Retire a reviewed erroneous inventory row (repeatable; requires preview digest)",
     ),
+    sync_rows: bool = typer.Option(
+        False,
+        "--sync-rows",
+        help="Also set the matching function row SIZE to the reviewed extent",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -86,6 +91,15 @@ def main(
         )
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
+    if sync_rows and not dry_run:
+        from rebrew.metadata.bindings import set_function_extent
+
+        module = str(getattr(cfg, "module", "") or "")
+        synced = 0
+        for va, size in sorted(updates.items()):
+            if set_function_extent(cfg.metadata_dir, va, size, module=module, reason=reason):
+                synced += 1
+        report["rows_synced"] = synced
     if json_output:
         json_print(report)
     else:

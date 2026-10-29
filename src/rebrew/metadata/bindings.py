@@ -1296,6 +1296,31 @@ def grow_function_extent(
     return True
 
 
+def set_function_extent(
+    directory: Path,
+    va: int,
+    new_size: int,
+    *,
+    module: str,
+    reason: str = "",
+) -> bool:
+    """Set a stored function SIZE to a reviewed native extent, in either direction.
+
+    ``grow_function_extent`` only widens a row, so a repaired smaller inventory
+    extent could never reach the metadata. This writer is for reviewed repairs:
+    it accepts a shrink as well as a grow and records the reason in the history.
+    """
+    from rebrew.metadata.functions import get_entry, update_field
+
+    if new_size <= 0:
+        return False
+    old_size = int(get_entry(directory, va, module=module).get("size", 0))
+    if new_size == old_size:
+        return False
+    update_field(directory, va, "size", new_size, module=module, updated_by="fix-sizes")
+    return True
+
+
 def set_binding_field(
     filepath: Path, va: int, key: str, new_value: str, metadata_dir: Path | None = None
 ) -> bool:
@@ -1390,6 +1415,7 @@ __all__ = [
     "file_backed_by_metadata",
     "function_rows_for_file",
     "grow_function_extent",
+    "set_function_extent",
     "has_skip_annotation",
     "iter_source_bindings",
     "kind_for_module",

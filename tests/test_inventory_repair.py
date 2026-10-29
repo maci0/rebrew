@@ -161,6 +161,48 @@ class TestReviewedAdmission:
         assert json.loads(result.stdout)["repairs"][0]["old_size"] is None
         assert (inventory.read_bytes(), inventory.stat()) == before
 
+    def test_sync_rows_carries_a_shrunk_extent_into_the_row(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+        from rebrew.metadata.functions import get_entry
+
+        cfg, _inventory = _project(tmp_path)
+        record_function_identity(
+            cfg.metadata_dir,
+            module="GAME",
+            va=0x401000,
+            file="src/f.c",
+            kind="FUNCTION",
+            name="f",
+            symbol="_f",
+            size=16,
+        )
+        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+            result = CliRunner().invoke(
+                app,
+                ["binary", "repair-extents", "0x401000=8", "--reason", "jump plus fill", "--json"],
+            )
+        assert result.exit_code == 0, result.output
+        assert get_entry(cfg.metadata_dir, 0x401000, module="GAME")["size"] == 16
+
+        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+            result = CliRunner().invoke(
+                app,
+                [
+                    "binary",
+                    "repair-extents",
+                    "0x401000=8",
+                    "--reason",
+                    "jump plus fill",
+                    "--sync-rows",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["rows_synced"] == 1
+        assert get_entry(cfg.metadata_dir, 0x401000, module="GAME")["size"] == 8
+
     def test_admission_preserves_existing_row_order(self, tmp_path: Path) -> None:
         cfg, inventory = _project(tmp_path)
         original = list(reversed(json.loads(inventory.read_text())))
