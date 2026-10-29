@@ -3751,3 +3751,39 @@ to accept a second object phase after the library phase, plus per-object expecte
 addresses and pads computed from those two phases. Proposed: a build-config
 option that emits a second object list into the link line after the external
 libraries, and a placement check that scores both phases.
+
+## Report padded extents against the reference rounding (2026-11-03)
+
+In guild-rebrew's server target, `gv_MoveSlotEntry` compiles 2 bytes short of its
+reference extent (672 vs 674). The next function is 16-byte aligned, so it lands
+16 bytes early, and 100 bodies that are EXACT or RELOC in their own objects miss
+their reference addresses. `build check-text-placement` reports the resulting
+per-function deltas but not where they start or what correcting one extent would
+recover.
+
+A three-step audit found the single deviation among 251 functions: linked extents
+from the map, reference size rounded up to 16, and store the difference. The same
+audit is useful whenever a target has multi-function translation units and a
+small per-function size difference shifts everything after it.
+
+Proposed: `build check-text-placement --rounding` prints, per deviating function,
+linked extent minus rounded reference size, the earliest deviation in address
+order, and the number of following functions whose addresses would match if that
+extent were corrected. Read-only over the existing link map and metadata; no new
+store.
+
+## Distinguish extent-only differences from body differences (2026-11-03)
+
+`verify --text --raw-link` reports SIZE_MISMATCH when a body matches the
+reference instruction for instruction but the inventory extent includes trailing
+alignment nops. In guild-rebrew's TL client, 17 rows are at 99.5 percent or better
+match and four of them differ only by the target's trailing nops (0x461560 80 vs
+72 bytes, 0x45DA70 128 vs 115, 0x4E32C0 224 vs 218, 0x4B6A00 240 vs 239). The
+message already says "0 byte diffs in common prefix", but the status hides that
+the body itself is solved and the row is placement or extent work, not reversing
+work.
+
+Proposed: classify those rows as a distinct reason, for example
+`SIZE_MISMATCH (padding-only)` with the trailing byte count, while keeping the
+status and byte accounting unchanged. Placement remains a separate question, so
+this is a diagnostic suffix, not a promotion.
