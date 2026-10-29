@@ -3830,3 +3830,18 @@ could evaluate the file's conditionals against that target's defines and take th
 live definition. Failing that, an `--ifdef NAME=VALUE` override or a positional
 `--occurrence N` selector would let the caller disambiguate. The same failure
 also hits `friedhof_logic.c` at 0x4F2FE0.
+
+## Row SIZE never follows a repaired smaller native extent (2026-10-30)
+
+`rebrew binary repair-extents 0xVA=SMALLER` updates the inventory, but the
+managed function row keeps its old, larger `size`. `coverage catalog --fix-sizes`
+and `grow_function_extent` only ever grow a row, so a repaired extent can never
+reach the row and the comparison keeps reporting SIZE_MISMATCH/STUB against bytes
+that now equal the shortened native span.
+
+Concrete case from guild-rebrew: `GOLDTL.0x00572760` and `GOLDTL.0x005756f0` are
+five-byte tail jumps (`jmp 0x546190`) followed by twelve `0x90` alignment bytes.
+Repairing the inventory to 5 bytes is correct, but the rows still say 17 and the
+five-byte C tail call can never match them. Proposed: let the repair writer push
+the reviewed extent into the row (digest-guarded like `source binding rebind`),
+or add a shrink mode to `--fix-sizes` that consumes repaired inventory extents.
