@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- `rebrew build check-data-placement` reads the linked image's own CMake tree when it builds outside `build/`, so a project with a named build directory no longer reports zero data symbols.
+
 - Keep the text-placement rounding example within the CLI help width.
 
 ### Added

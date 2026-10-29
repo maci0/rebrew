@@ -1306,6 +1306,23 @@ def test_link_objects_cmake_rsp(tmp_path: Path) -> None:
     ]
 
 
+def test_link_objects_in_reads_an_alternate_cmake_tree(tmp_path: Path) -> None:
+    """A build tree outside build/ keeps its own object order."""
+    from rebrew.data_layout import link_objects_in
+
+    build = tmp_path / "build-goldtl-audit"
+    rsp_dir = build / "CMakeFiles/game.dir"
+    rsp_dir.mkdir(parents=True)
+    (rsp_dir / "objects1.rsp").write_text(
+        "CMakeFiles/game.dir/src/z.c.obj CMakeFiles/game.dir/src/a.c.obj\n",
+        encoding="utf-8",
+    )
+    assert link_objects_in(build) == [
+        build / "CMakeFiles/game.dir/src/z.c.obj",
+        build / "CMakeFiles/game.dir/src/a.c.obj",
+    ]
+
+
 def test_audit_layout_filters_the_target_module(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

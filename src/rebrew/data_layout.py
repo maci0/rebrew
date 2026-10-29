@@ -226,24 +226,9 @@ def link_objects(root: Path, target: str | None = None) -> list[Path]:
     make expands ``$(wildcard ...)``/``$(SRCS)`` in sorted order, so a plain
     Makefile links objects in exactly that order.
     """
-    rsp_dirs = sorted({path.parent for path in (root / "build/CMakeFiles").glob("*/objects*.rsp")})
-    if rsp_dirs:
-        chosen = rsp_dirs[0]
-        if target:
-            wanted = f"/out:{target}".lower()
-            for candidate in rsp_dirs:
-                link_txt = candidate / "link.txt"
-                if not link_txt.is_file():
-                    continue
-                if wanted in link_txt.read_text(encoding="utf-8", errors="replace").lower():
-                    chosen = candidate
-                    break
-        text = "\n".join(
-            path.read_text(encoding="utf-8") for path in sorted(chosen.glob("objects*.rsp"))
-        )
-        # Wine/MSVC CMake rsp lines may use ``\\`` separators; on POSIX that
-        # would become a single literal path component without normalization.
-        return [Path(root / "build") / config_path(a or b) for a, b in _OBJ_RE.findall(text)]
+    objects = _cmake_rsp_objects(root / "build", target)
+    if objects is not None:
+        return objects
     for obj_dir in ("out", "build"):
         obj_path = root / obj_dir
         if not obj_path.is_dir():
@@ -254,6 +239,42 @@ def link_objects(root: Path, target: str | None = None) -> list[Path]:
     raise FileNotFoundError(
         "no build/CMakeFiles/*/objects*.rsp or out|build/*.obj found — build the project first"
     )
+
+
+def _cmake_rsp_objects(build_dir: Path, target: str | None = None) -> list[Path] | None:
+    """Objects from a CMake build's ``objects*.rsp`` in link order.
+
+    ``build_dir`` is the CMake binary directory (the one holding
+    ``CMakeFiles/``).  Returns ``None`` when that directory has no rsp files, so
+    a Makefile-style tree can fall back to scanning its object directory.
+    """
+    rsp_dirs = sorted({path.parent for path in (build_dir / "CMakeFiles").glob("*/objects*.rsp")})
+    if not rsp_dirs:
+        return None
+    chosen = rsp_dirs[0]
+    if target:
+        wanted = f"/out:{target}".lower()
+        for candidate in rsp_dirs:
+            link_txt = candidate / "link.txt"
+            if not link_txt.is_file():
+                continue
+            if wanted in link_txt.read_text(encoding="utf-8", errors="replace").lower():
+                chosen = candidate
+                break
+    text = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(chosen.glob("objects*.rsp"))
+    )
+    # Wine/MSVC CMake rsp lines may use ``\\`` separators; on POSIX that
+    # would become a single literal path component without normalization.
+    return [build_dir / config_path(a or b) for a, b in _OBJ_RE.findall(text)]
+
+
+def link_objects_in(build_dir: Path, target: str | None = None) -> list[Path]:
+    """Objects of a build tree whose CMake binary directory is not ``build/``."""
+    objects = _cmake_rsp_objects(build_dir, target)
+    if objects is None:
+        raise FileNotFoundError(f"no CMakeFiles/*/objects*.rsp under {build_dir}")
+    return objects
 
 
 def _obj_section_sizes(obj: Path) -> tuple[dict[int, str], dict[str, int]]:

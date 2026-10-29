@@ -133,7 +133,17 @@ def main(
     # after it by the same delta.
     per_object: dict[str, dict[str, int]] = {}
     try:
-        for obj in link_objects(root):
+        # The linked image may live in a CMake binary directory other than
+        # ``build/`` (the guild project builds into build-goldtl-audit).  Read
+        # objects from the tree that produced it, otherwise the inventory comes
+        # back empty and the check reports nothing.
+        from rebrew.data_layout import link_objects_in
+
+        if (dll.parent / "CMakeFiles").is_dir():
+            objects = link_objects_in(dll.parent)
+        else:
+            objects = link_objects(root)
+        for obj in objects:
             dsize, syms = obj_data_symbol_offsets(obj)
             obj_stats = per_object.setdefault(
                 str(obj), {"symbols": 0, "misplaced": 0, "delta_sum": 0}
