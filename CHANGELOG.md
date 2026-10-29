@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+### Changed
+
+- Reduce repeated parsing and allocation in metadata loading,
+  dependency graphs, todo ranking, data type sizing, OMF decoding,
+  binary similarity and candidate scoring. Ten synthetic microbenchmarks retain
+  CPU and wall samples, explicit cache states and output checks.
+
+### Fixed
+
+- Keep the text-placement rounding example within the CLI help width.
+
 ### Added
 
 - `rebrew build check-text-placement --rounding` reports functions whose linked

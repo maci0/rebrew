@@ -5,13 +5,17 @@ candidate function bytes, and diff_functions() for instruction-level diffs.
 Uses capstone for x86 disassembly and numpy for vectorized byte comparison.
 """
 
+import difflib  # base class of _RunTableMatcher: definition-time use
 import threading
-from collections import OrderedDict
-lazy import difflib
-lazy from collections.abc import Callable
-lazy from typing import Any
+from collections import Counter, OrderedDict
+from typing import override  # decorator: definition-time use
+lazy from collections.abc import Callable, Sequence
+lazy from typing import TYPE_CHECKING, Any
 
 import capstone
+
+if TYPE_CHECKING:
+    import numpy as np
 
 from rebrew.errors import RebrewError
 from rebrew.utils import BYTES_PER_MIB
@@ -681,11 +685,7 @@ def score_candidate(
         total_diffed = 0
         longest_run = len(target_mnems)
     else:
-        # autojunk=False: difflib's default drops "popular" elements from
-        # anchoring once a sequence passes 200 items, and x86 mnemonics
-        # (`push`, `mov`, `cmp`) cross that bar in any real function, so the
-        # alignment collapsed and every instruction read as a diff.
-        sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems, autojunk=False)
+        sm = _mnemonic_matcher(target_mnems, cand_mnems)
 
         # Walk opcodes: reward contiguous equal blocks, penalise diffs
         total_diffed = 0
@@ -726,6 +726,113 @@ def score_candidate(
         mnemonic_score=mnemonic_score,
         prologue_bonus=prologue_bonus,
     )
+
+
+#: The run table costs about this many matching pairs of difflib work per row of
+#: *a* (measured on 260 random shapes; the rule below was within 1% of picking
+#: the faster matcher every time).  Smaller, dissimilar, or lopsided pairs have
+#: too few pairs to repay it and stay on difflib.
+_ALIGN_TABLE_PAIRS_PER_ROW = 20
+#: Above this ``len(a) * len(b)`` difflib keeps the pair: the table, its boolean
+#: equality matrix and one clipped window together hold about 7 bytes per cell
+#: (7 MB at the cap) in every concurrent GA worker.
+_ALIGN_TABLE_MAX_CELLS = 1_000_000
+#: Window offsets and runs are stored as int16, so neither sequence may be longer.
+_ALIGN_TABLE_MAX_LEN = 32_767
+_RUN_DTYPE = "int16"
+
+
+class _RunTableMatcher(difflib.SequenceMatcher[str]):
+    """``SequenceMatcher(None, a, b, autojunk=False)`` with a table-driven ``find_longest_match``.
+
+    difflib re-scans every matching pair inside a window each time it splits a
+    block off, which dominates the GA fitness walk (x86 mnemonics repeat).  This
+    builds one table of diagonal run lengths on first use and answers each
+    window by clipping it: the longest run inside the window, earliest end in
+    *a* then in *b* (equal lengths end in the order they start), which is the
+    block difflib picks.  Valid only without junk or popular elements, so the
+    constructor takes neither.
+    """
+
+    a: Sequence[str]  # set by SequenceMatcher.set_seq1 / set_seq2
+    b: Sequence[str]
+    _runs: np.ndarray | None = None
+
+    @override
+    def set_seq1(self, a: Sequence[str]) -> None:
+        self._runs = None
+        super().set_seq1(a)
+
+    @override
+    def set_seq2(self, b: Sequence[str]) -> None:
+        self._runs = None
+        super().set_seq2(b)
+
+    def __init__(self, a: list[str], b: list[str]) -> None:
+        super().__init__(None, a, b, autojunk=False)
+
+    def _run_table(self) -> np.ndarray:
+        """``run[i, j]``: length of the equal run ending at ``a[i] == b[j]``."""
+        import numpy as np  # deferred: ~60 ms of startup for non-GA commands
+
+        ids: dict[str, int] = {}
+        a = np.fromiter((ids.setdefault(m, len(ids)) for m in self.a), np.int32, len(self.a))
+        b = np.fromiter((ids.setdefault(m, len(ids)) for m in self.b), np.int32, len(self.b))
+        eq = a[:, None] == b[None, :]
+        run = np.zeros(eq.shape, dtype=_RUN_DTYPE)
+        if len(a):
+            run[0] = eq[0]
+        for i in range(1, len(a)):
+            row = run[i]
+            np.add(run[i - 1, :-1], 1, out=row[1:])
+            row[1:] *= eq[i, 1:]
+            row[0] = eq[i, 0]
+        return run
+
+    @override
+    def find_longest_match(
+        self, alo: int = 0, ahi: int | None = None, blo: int = 0, bhi: int | None = None
+    ) -> difflib.Match:
+        import numpy as np  # deferred: ~60 ms of startup for non-GA commands
+
+        ahi = len(self.a) if ahi is None else ahi
+        bhi = len(self.b) if bhi is None else bhi
+        if alo >= ahi or blo >= bhi:
+            return difflib.Match(alo, blo, 0)
+        if self._runs is None:
+            self._runs = self._run_table()
+        window = self._runs[alo:ahi, blo:bhi]
+        if alo or blo:  # a run may start before the window; count only the part inside
+            window = np.minimum(
+                window,
+                np.minimum(
+                    np.arange(1, ahi - alo + 1, dtype=_RUN_DTYPE)[:, None],
+                    np.arange(1, bhi - blo + 1, dtype=_RUN_DTYPE)[None, :],
+                ),
+            )
+        ei, ej = divmod(int(window.argmax()), bhi - blo)
+        size = int(window[ei, ej])
+        if not size:
+            return difflib.Match(alo, blo, 0)
+        return difflib.Match(alo + ei - size + 1, blo + ej - size + 1, size)
+
+
+def _mnemonic_matcher(target: list[str], cand: list[str]) -> difflib.SequenceMatcher[str]:
+    """The ``autojunk=False`` matcher for two mnemonic streams, table-driven when that pays.
+
+    ``autojunk=False``: difflib's default drops "popular" elements from
+    anchoring once a sequence passes 200 items, and x86 mnemonics (``push``,
+    ``mov``, ``cmp``) cross that bar in any real function, so the alignment
+    collapsed and every instruction read as a diff.
+    """
+    if len(target) * len(cand) <= _ALIGN_TABLE_MAX_CELLS and max(len(target), len(cand)) <= (
+        _ALIGN_TABLE_MAX_LEN
+    ):
+        counts = Counter(cand)
+        pairs = sum(n * counts[m] for m, n in Counter(target).items())
+        if pairs >= _ALIGN_TABLE_PAIRS_PER_ROW * len(target):
+            return _RunTableMatcher(target, cand)
+    return difflib.SequenceMatcher(None, target, cand, autojunk=False)
 
 
 def precompute_target(

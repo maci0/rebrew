@@ -3,6 +3,13 @@
 Measured facts about where rebrew's hot paths spend time, and what was done
 (and deliberately *not* done) about it.
 
+## Ten CPU-time microbenchmarks (2026-10-29)
+
+[Ten synthetic hotpath workloads](PERFORMANCE_TEN_HOTPATHS.md) exercise metadata,
+source analysis, formats, matching and workflow analysis. The report includes
+paired CPU medians, raw CPU/wall samples, cache states, correctness checks,
+rejected changes and reproduction commands.
+
 ## Independent hot-path load reviews (2026-10-28, 6.6.0)
 
 [Fifty fresh reviews](PERFORMANCE_6_6_0.md) profile complete callable paths at

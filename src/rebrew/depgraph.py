@@ -290,8 +290,8 @@ def build_graph(
     nodes: dict[str, NodeInfo] = {}
     edges: list[tuple[str, str]] = []
     name_lookup: dict[str, str] = {}  # spelling -> node key
-    # Store (cfile, node_key, caller_label, block_text) for edge extraction
-    file_callers: list[tuple[Path, str, str, str]] = []
+    # (node_key, callee names) per annotation, in source order
+    file_callers: list[tuple[str, list[str]]] = []
 
     # Single pass: collect all reversed functions and cache file text.
     # Uses read_source_bindings to capture every annotation in multi-function files.
@@ -317,8 +317,8 @@ def build_graph(
         lines_by_name = dict(find_c_function_definitions(text))
         externs = _extract_callees(cfile, text)
         function_uses: dict[int, set[str]] = {}
-        find_variable_roles(text, function_uses=function_uses)
-        _, _, global_uses = find_variable_roles(text, function_filter=lambda _: False)
+        global_uses: set[str] = set()
+        find_variable_roles(text, function_uses=function_uses, global_uses=global_uses)
         for entry in read_source_bindings(
             cfile,
             target_name=target_module(cfg),
@@ -342,10 +342,10 @@ def build_graph(
             line = lines_by_name.get(entry.name)
             if line is not None:
                 uses = global_uses | function_uses.get(line, set())
-                own = "\n".join(f"extern int {name}(void);" for name in externs if name in uses)
+                callees = [name for name in externs if name in uses]
             else:
-                own = text
-            file_callers.append((cfile, key, label, own))
+                callees = externs
+            file_callers.append((key, callees))
 
     # library_*.h entries (identify-library / crt-match --fix-source) are
     # counted by the summary and now listed in the function table, so the graph
@@ -394,9 +394,8 @@ def build_graph(
             }
             _register_spellings(name_lookup, label, key)
 
-    # Extract extern callees and build edges (reuses cached file text)
-    for cfile, caller_key, _caller_label, cached_text in file_callers:
-        callees = _extract_callees(cfile, text=cached_text)
+    # Build edges from the callee lists collected above
+    for caller_key, callees in file_callers:
         for callee in callees:
             callee_key = name_lookup.get(fold_ident(callee), callee)
             # Add unknown callee as an unreversed node

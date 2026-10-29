@@ -1135,8 +1135,17 @@ def data_symbol_size(fields: dict[str, Any], *, arch: str = "x86_32") -> int:
     return width
 
 
+#: Distinct declared type spellings kept by :func:`estimate_type_size`.
+_TYPE_SIZE_CACHE_ENTRIES = 4096
+
+
+@functools.lru_cache(maxsize=_TYPE_SIZE_CACHE_ENTRIES)
 def estimate_type_size(type_str: str) -> int:
-    """Byte size of a declared C type string (pointer- and array-aware)."""
+    """Byte size of a declared C type string (pointer- and array-aware).
+
+    Memoized per spelling: a project repeats a few hundred type strings across
+    thousands of globals, and each parse folds array bounds through tree-sitter.
+    """
     from rebrew.c_parser import (
         abstract_pointer_array_dimensions,
         array_type_shape,

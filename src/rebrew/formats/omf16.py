@@ -32,10 +32,16 @@ documented follow-up).
 
 from __future__ import annotations
 
+import re
+import threading
 from dataclasses import dataclass, field
 lazy from pathlib import Path
 
 from rebrew.errors import RebrewError
+
+_PRINTABLE_ASCII = re.compile(rb"[\x20-\x7e]*")
+# A capstone handle is not thread-safe, so each thread keeps its own.
+_disassemblers = threading.local()
 
 
 class Omf16Error(RebrewError, RuntimeError):
@@ -75,7 +81,7 @@ def _parse_name_list(body: bytes) -> list[str]:
         if ln == 0 or i + 1 + ln > len(body):
             break
         raw = body[i + 1 : i + 1 + ln]
-        if all(32 <= c < 127 for c in raw):
+        if _PRINTABLE_ASCII.fullmatch(raw):
             names.append(raw.decode("ascii", "replace"))
         i += 1 + ln
     return names
@@ -106,6 +112,7 @@ def parse_omf16(data: bytes) -> Omf16Module:
     picks the length).
     """
     mod = Omf16Module()
+    code = bytearray()
     pos = 0
     saw_code = False
     c2_bodies: list[bytes] = []
@@ -127,9 +134,10 @@ def parse_omf16(data: bytes) -> Omf16Module:
             # byte-matching.
             if code_chunk and ((sum(body) + t + (ln & 0xFF) + ((ln >> 8) & 0xFF)) % 256 == 0):
                 code_chunk = code_chunk[:-1]
-            if len(mod.code) < off + len(code_chunk):
-                mod.code = mod.code.ljust(off + len(code_chunk), b"\x00")
-            mod.code = mod.code[:off] + code_chunk + mod.code[off + len(code_chunk) :]
+            end = off + len(code_chunk)
+            if len(code) < end:
+                code.extend(bytes(end - len(code)))
+            code[off:end] = code_chunk
         elif t == 0xC2:  # optimized dialect: one code record per function
             saw_code = True
             c2_bodies.append(body)
@@ -141,7 +149,7 @@ def parse_omf16(data: bytes) -> Omf16Module:
                     i += 1
                     continue
                 name = body[i + 1 : i + 1 + ln2]
-                if all(32 <= c < 127 for c in name):
+                if _PRINTABLE_ASCII.fullmatch(name):
                     mod.publics[name.decode("ascii", "replace")] = int.from_bytes(
                         body[i + 1 + ln2 : i + 3 + ln2], "little"
                     )
@@ -168,7 +176,8 @@ def parse_omf16(data: bytes) -> Omf16Module:
         if len(body) > header_len:
             code_chunk = body[header_len:-1]  # trailing byte = checksum
             mod.code_records.append(code_chunk)
-            mod.code += code_chunk
+            code += code_chunk
+    mod.code = bytes(code)
     return mod
 
 
@@ -196,11 +205,14 @@ def _code_relocs(code: bytes, start: int, end: int) -> dict[int, str]:
         if code[i] in (0xE8, 0xE9) and i + 2 < end:
             relocs[i + 1 - start] = "rel16"
     # disp16 absolute-operand slots via capstone (locates them exactly)
-    try:
-        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
-        md.detail = True
-    except Exception:  # pragma: no cover — capstone is a core dep
-        return relocs
+    md = getattr(_disassemblers, "md", None)
+    if md is None:
+        try:
+            md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
+            md.detail = True
+        except Exception:  # pragma: no cover — capstone is a core dep
+            return relocs
+        _disassemblers.md = md
     for insn in md.disasm(code[start:end], 0):
         raw = bytes(insn.bytes)
         for op in insn.operands:

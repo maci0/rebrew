@@ -40,7 +40,7 @@ _EPILOG = (
     "  # Compare built .text VAs against metadata addresses\n"
     "  rebrew build check-text-placement\n\n"
     "  rebrew build check-text-placement --json  # Machine-readable mismatch list\n\n"
-    "  # Report functions whose linked extent is shorter than the reference rounding\n"
+    "  # Report linked extents shorter than the reference rounding\n"
     "  rebrew build check-text-placement --rounding\n"
 )
 

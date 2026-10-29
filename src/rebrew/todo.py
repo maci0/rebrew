@@ -184,9 +184,12 @@ class TodoItem:
         return d
 
 
+_DATA_CATEGORIES = frozenset({CAT_DATA_DRIFT, CAT_START_DATA})
+
+
 def _item_domain(item: TodoItem) -> str:
     """``data`` or ``code``. The two do not replace each other at one address."""
-    if item.category in {CAT_DATA_DRIFT, CAT_START_DATA}:
+    if item.category in _DATA_CATEGORIES:
         return "data"
     return "code"
 
@@ -304,6 +307,7 @@ def _collect_active_functions(
     and one effort heuristic; collection ranks their affected scope afterward.
     """
     items: list[TodoItem] = []
+    prover_available: bool | None = None  # one angr probe per call, taken on first need
 
     # 1. Gather all unique VAs between metadata and verify cache
     metadata_vas = set(existing.keys())
@@ -392,7 +396,8 @@ def _collect_active_functions(
         # the blocker already states they are not decomp work, so a 6-byte
         # thunk must not surface as a "5B diff — try flag sweep" quick-win.
         # Keep them listed under their own category so the decision is auditable.
-        if status == "STUB" and any(m in info.get("blocker", "") for m in _NON_TARGET_MARKERS):
+        blocker = info.get("blocker", "")
+        if status == "STUB" and any(m in blocker for m in _NON_TARGET_MARKERS):
             items.append(
                 TodoItem(
                     category=CAT_DOCUMENTED,
@@ -401,10 +406,10 @@ def _collect_active_functions(
                     name=name,
                     size=size,
                     filename=filename,
-                    description=f"Documented non-target — {info.get('blocker', '')[:60]}",
+                    description=f"Documented non-target — {blocker[:60]}",
                     command="",
                     status=status,
-                    blocker=info.get("blocker", ""),
+                    blocker=blocker,
                 )
             )
             continue
@@ -422,9 +427,9 @@ def _collect_active_functions(
         if calc_delta is None and status in FUZZY_STATUSES and not unmeasured:
             raw_bd = info.get("blocker_delta", "")
             try:
-                calc_delta = int(raw_bd) if raw_bd else parse_byte_delta(info.get("blocker", ""))
+                calc_delta = int(raw_bd) if raw_bd else parse_byte_delta(blocker)
             except ValueError:
-                calc_delta = parse_byte_delta(info.get("blocker", ""))
+                calc_delta = parse_byte_delta(blocker)
 
         zero_delta = calc_delta == 0
         if zero_delta:
@@ -490,21 +495,22 @@ def _collect_active_functions(
             # led here already ran, so this is improve-match work.
             category = CAT_IMPROVE_MATCH
             desc = "PROVEN, bytes still differ"
-            blocker = info.get("blocker", "")
             if blocker:
                 desc += f" — Blocked: {blocker[:50]}"
             score = calculate_roi(size, v_match, calc_delta)
             cmd = f"rebrew diff 0x{va:08x}"
 
-        elif info.get("blocker", "").startswith(GA_CEILING_PREFIX):
+        elif blocker.startswith(GA_CEILING_PREFIX):
             # The GA exhausted on a register-only delta — byte-exact is not
             # reproducible from portable C, so no flag sweep / GA item helps.
             # The prover lane needs angr: without it, there is nothing to
             # run, so classify as improve-match with a match/near-diag
             # command instead of routing to a prover that cannot execute.
-            from rebrew.prove import angr_available
+            if prover_available is None:
+                from rebrew.prove import angr_available
 
-            if angr_available():
+                prover_available = angr_available()
+            if prover_available:
                 category = CAT_RUN_PROVER
                 desc = "GA ceiling (register-only delta) — prove semantic equivalence for PROVEN"
                 score = calculate_roi(size, v_match, calc_delta) + 10.0
@@ -522,7 +528,6 @@ def _collect_active_functions(
             category = CAT_FIX_DELTA
             desc = f"{calc_delta}B diff — try flag sweep, GA, or padding adjustments"
             score = calculate_roi(size, v_match, calc_delta)
-            blocker = info.get("blocker", "")
             # A near-diag STRUCTURAL verdict means the diff is control-flow
             # layout, not a flag/padding quick-win — demote it so the item is
             # not offered as one (regression: smygb's 0x00404a90 stayed a
@@ -554,7 +559,6 @@ def _collect_active_functions(
             desc = "Needs implementation/fixing"
             score = calculate_roi(size, v_match, calc_delta)
 
-            blocker = info.get("blocker", "")
             if blocker:
                 desc += f" — Blocked: {blocker[:50]}"
                 # near-diag --fix-blocker writes the suggested GA operators
@@ -587,7 +591,7 @@ def _collect_active_functions(
                 status=status,
                 match_percent=v_match,
                 mutations=mutations,
-                blocker=info.get("blocker", "") or "",
+                blocker=blocker or "",
             )
         )
 
@@ -1587,8 +1591,9 @@ def _rank_by_impact(items: list[TodoItem]) -> list[TodoItem]:
     errors: dict[str, list[TodoItem]] = {}
     for item in items:
         item.impact_bytes = max(0, item.size)
-        item.affected_functions = int(bool(item.va) and _item_domain(item) == "code")
-        if item.filename and _item_domain(item) == "code" and item.category in definitions:
+        is_code = _item_domain(item) == "code"
+        item.affected_functions = int(bool(item.va) and is_code)
+        if item.filename and is_code and item.category in definitions:
             files.setdefault(item.filename, []).append(item)
             if item.category == CAT_COMPILE_ERROR:
                 errors.setdefault(item.filename, []).append(item)

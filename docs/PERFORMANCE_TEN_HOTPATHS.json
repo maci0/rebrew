@@ -1,0 +1,2254 @@
+{
+  "baseline": "d598d5ec15a1396e314b30806218d20810ae44b4",
+  "order": [
+    "before",
+    "after",
+    "after",
+    "before"
+  ],
+  "primary_clock": "process_time_ns",
+  "blas_threads": 1,
+  "workloads": [
+    {
+      "domain": "analysis",
+      "workload": "depgraph_build",
+      "before_cpu_samples_seconds": [
+        0.124473297,
+        0.113370595,
+        0.11814544,
+        0.112333521,
+        0.113793386,
+        0.123453834,
+        0.126473419,
+        0.143510311,
+        0.148609491,
+        0.132364141,
+        0.121060322,
+        0.131745931,
+        0.174256847,
+        0.149081225,
+        0.146881376,
+        0.160512875,
+        0.135618268,
+        0.133138321
+      ],
+      "before_cpu_median_seconds": 0.13205503600000001,
+      "after_cpu_samples_seconds": [
+        0.130071387,
+        0.124241052,
+        0.125573681,
+        0.120025793,
+        0.117650692,
+        0.110016614,
+        0.10681148,
+        0.100383698,
+        0.109892324,
+        0.11401096,
+        0.112136184,
+        0.106007378,
+        0.120454074,
+        0.131104798,
+        0.132158931,
+        0.120974924,
+        0.124125534,
+        0.096256544
+      ],
+      "after_cpu_median_seconds": 0.1188382425,
+      "speedup": 1.1112166691627068
+    },
+    {
+      "domain": "analysis",
+      "workload": "struct_extract_recover",
+      "before_cpu_samples_seconds": [
+        0.060200986,
+        0.05887445,
+        0.059117674,
+        0.056147773,
+        0.056230036,
+        0.057583565,
+        0.056348023,
+        0.056606358,
+        0.056474926,
+        0.055883035,
+        0.055250481,
+        0.052399693,
+        0.051669875,
+        0.054552843,
+        0.048772941,
+        0.051317723,
+        0.054873972,
+        0.05518513
+      ],
+      "before_cpu_median_seconds": 0.056015404,
+      "after_cpu_samples_seconds": [
+        0.054419315,
+        0.055033802,
+        0.057765458,
+        0.056741488,
+        0.059596038,
+        0.056540239,
+        0.058223063,
+        0.058351203,
+        0.057873326,
+        0.051695917,
+        0.054000926,
+        0.049474373,
+        0.052156687,
+        0.056261195,
+        0.059827971,
+        0.060177049,
+        0.056275149,
+        0.054037488
+      ],
+      "after_cpu_median_seconds": 0.056407693999999994,
+      "speedup": 0.993045452274649
+    },
+    {
+      "domain": "formats",
+      "workload": "archive_members",
+      "before_cpu_samples_seconds": [
+        0.045581542,
+        0.051203141,
+        0.046105056,
+        0.037851623,
+        0.034287192,
+        0.036928383,
+        0.037261831,
+        0.037773128,
+        0.038192438,
+        0.045109238,
+        0.03924917,
+        0.042566551,
+        0.044730568,
+        0.047054105,
+        0.047382791,
+        0.051516199,
+        0.053168792,
+        0.04888612
+      ],
+      "before_cpu_median_seconds": 0.044919903,
+      "after_cpu_samples_seconds": [
+        0.045326494,
+        0.041337082,
+        0.04231193,
+        0.038634521,
+        0.038388192,
+        0.037774235,
+        0.040282439,
+        0.039288023,
+        0.036819239,
+        0.039723396,
+        0.045265172,
+        0.042097793,
+        0.040096616,
+        0.041956409,
+        0.039979114,
+        0.045165948,
+        0.041743069,
+        0.038783893
+      ],
+      "after_cpu_median_seconds": 0.0401895275,
+      "speedup": 1.117701694800965
+    },
+    {
+      "domain": "formats",
+      "workload": "omf16_relocs",
+      "before_cpu_samples_seconds": [
+        0.249160978,
+        0.257111038,
+        0.282774958,
+        0.273982355,
+        0.294769945,
+        0.274090371,
+        0.267060106,
+        0.264943965,
+        0.265621612,
+        0.289267185,
+        0.297270265,
+        0.285769243,
+        0.267085236,
+        0.261538963,
+        0.270089134,
+        0.268099417,
+        0.263184803,
+        0.255605732
+      ],
+      "before_cpu_median_seconds": 0.2675923265,
+      "after_cpu_samples_seconds": [
+        0.137638783,
+        0.13169358,
+        0.12789285,
+        0.129322511,
+        0.130463966,
+        0.126174094,
+        0.126014176,
+        0.130938692,
+        0.13085739,
+        0.133669613,
+        0.13967284,
+        0.13736385,
+        0.147633729,
+        0.142255018,
+        0.13852133,
+        0.137751893,
+        0.135306202,
+        0.132531159
+      ],
+      "after_cpu_median_seconds": 0.13310038600000001,
+      "speedup": 2.010454924601045
+    },
+    {
+      "domain": "workflow",
+      "workload": "todo_rank",
+      "before_cpu_samples_seconds": [
+        0.448917169,
+        0.354361341,
+        0.33445522,
+        0.373643521,
+        0.420875252,
+        0.411493839,
+        0.304144253,
+        0.279113655,
+        0.293269932,
+        0.295675796,
+        0.266997081,
+        0.247017601,
+        0.247545838,
+        0.238997632,
+        0.371329836,
+        0.326271271,
+        0.324184238,
+        0.27668851
+      ],
+      "before_cpu_median_seconds": 0.3141642455,
+      "after_cpu_samples_seconds": [
+        0.431758514,
+        0.23576451,
+        0.319733076,
+        0.322595976,
+        0.295279395,
+        0.35418077,
+        0.285308612,
+        0.278770925,
+        0.278776525,
+        0.432925857,
+        0.314704248,
+        0.28002376,
+        0.26779877,
+        0.306423733,
+        0.350541988,
+        0.276203809,
+        0.261712375,
+        0.285739788
+      ],
+      "after_cpu_median_seconds": 0.2905095915,
+      "speedup": 1.0814246919623651
+    },
+    {
+      "domain": "workflow",
+      "workload": "data_inventory",
+      "before_cpu_samples_seconds": [
+        0.183174409,
+        0.287990138,
+        0.187838641,
+        0.200629721,
+        0.163457182,
+        0.208295205,
+        0.199494631,
+        0.144021244,
+        0.162428698,
+        0.128566888,
+        0.266893283,
+        0.180335443,
+        0.164715277,
+        0.166911366,
+        0.226355194,
+        0.24098543,
+        0.161128373,
+        0.196842118
+      ],
+      "before_cpu_median_seconds": 0.185506525,
+      "after_cpu_samples_seconds": [
+        0.104440921,
+        0.093650312,
+        0.092267938,
+        0.139426381,
+        0.10776249,
+        0.10861349,
+        0.132186644,
+        0.120211628,
+        0.08906447,
+        0.078217308,
+        0.074320849,
+        0.081795432,
+        0.114828543,
+        0.079407202,
+        0.077216012,
+        0.087860703,
+        0.097141802,
+        0.089860662
+      ],
+      "after_cpu_median_seconds": 0.092959125,
+      "speedup": 1.9955709028027102
+    },
+    {
+      "domain": "matcher",
+      "workload": "binary_similarity_aggregate",
+      "before_cpu_samples_seconds": [
+        0.085162392,
+        0.0920049,
+        0.100562265,
+        0.104461605,
+        0.099808807,
+        0.098142284,
+        0.080005963,
+        0.083319091,
+        0.078343676,
+        0.077899395,
+        0.067546079,
+        0.070815379,
+        0.077095315,
+        0.081062721,
+        0.084670759,
+        0.083642128,
+        0.089393171,
+        0.086120578
+      ],
+      "before_cpu_median_seconds": 0.0841564435,
+      "after_cpu_samples_seconds": [
+        0.036815903,
+        0.037931862,
+        0.04743995,
+        0.044861604,
+        0.045197443,
+        0.040473138,
+        0.053816716,
+        0.051215795,
+        0.05739113,
+        0.047885713,
+        0.046949375,
+        0.040306121,
+        0.041088993,
+        0.040498263,
+        0.051058652,
+        0.047837125,
+        0.052342523,
+        0.07215383
+      ],
+      "after_cpu_median_seconds": 0.0471946625,
+      "speedup": 1.7831771442374442
+    },
+    {
+      "domain": "matcher",
+      "workload": "score_candidate_heuristic",
+      "before_cpu_samples_seconds": [
+        0.885368509,
+        0.861762314,
+        0.873015928,
+        0.831938292,
+        0.818576153,
+        0.829741603,
+        0.809451151,
+        0.825415096,
+        0.866813613,
+        0.871540901,
+        0.882427936,
+        0.848315116,
+        0.880329622,
+        0.844116638,
+        0.835900031,
+        0.834531036,
+        0.783840006,
+        0.769953056
+      ],
+      "before_cpu_median_seconds": 0.8400083345,
+      "after_cpu_samples_seconds": [
+        0.408738633,
+        0.433061205,
+        0.423112478,
+        0.432449392,
+        0.421027553,
+        0.427555454,
+        0.476276845,
+        0.409866664,
+        0.405533406,
+        0.411693231,
+        0.419073012,
+        0.41186013,
+        0.409188448,
+        0.413101427,
+        0.403699812,
+        0.397202752,
+        0.424237457,
+        0.419362148
+      ],
+      "after_cpu_median_seconds": 0.41608721950000005,
+      "speedup": 2.018827532144375
+    },
+    {
+      "domain": "metadata",
+      "workload": "metadata_cold_load_validate",
+      "before_cpu_samples_seconds": [
+        0.522121268,
+        0.700905679,
+        0.814726883,
+        0.867253894,
+        0.8696615,
+        0.803976095,
+        0.775437982,
+        0.709070264,
+        1.008395001,
+        0.776321133,
+        0.788190505,
+        0.84176303,
+        0.878547889,
+        0.739037939,
+        0.800570895,
+        0.943076165,
+        0.912174663,
+        0.932281402
+      ],
+      "before_cpu_median_seconds": 0.809351489,
+      "after_cpu_samples_seconds": [
+        0.818686731,
+        0.852702622,
+        0.763816625,
+        0.886664728,
+        1.071602612,
+        0.867104879,
+        0.967431642,
+        0.890711384,
+        0.786707053,
+        0.637199524,
+        0.77150391,
+        0.802273196,
+        0.712167965,
+        0.68891042,
+        0.672006672,
+        0.694785018,
+        0.760145156,
+        0.775464586
+      ],
+      "after_cpu_median_seconds": 0.7810858195,
+      "speedup": 1.0361876618347696
+    },
+    {
+      "domain": "metadata",
+      "workload": "binding_resolution_inventory",
+      "before_cpu_samples_seconds": [
+        0.22456276,
+        0.155842664,
+        0.157480326,
+        0.143344538,
+        0.149233704,
+        0.141541909,
+        0.159586333,
+        0.215601011,
+        0.167220822,
+        0.315622821,
+        0.105719173,
+        0.094888715,
+        0.094991601,
+        0.11182984,
+        0.103579,
+        0.098460057,
+        0.142252711,
+        0.110917958
+      ],
+      "before_cpu_median_seconds": 0.1427986245,
+      "after_cpu_samples_seconds": [
+        0.130304063,
+        0.091476369,
+        0.095900584,
+        0.0907089,
+        0.095321869,
+        0.102393532,
+        0.151255887,
+        0.082403102,
+        0.08900454,
+        0.134771165,
+        0.092793972,
+        0.094300076,
+        0.083158388,
+        0.112141159,
+        0.109355008,
+        0.184276914,
+        0.104972768,
+        0.118786262
+      ],
+      "after_cpu_median_seconds": 0.099147058,
+      "speedup": 1.4402709205955462
+    }
+  ],
+  "reports": {
+    "analysis-0-before": {
+      "seed": 20260629,
+      "repeat": 9,
+      "python": "3.15.1",
+      "workloads": {
+        "depgraph_build": {
+          "cache_state": "warm: process-level C syntax caches primed by one untimed run",
+          "cpu_median_seconds": 0.123453834,
+          "wall_median_seconds": 0.12932036,
+          "cpu_samples": [
+            0.124473297,
+            0.113370595,
+            0.11814544,
+            0.112333521,
+            0.113793386,
+            0.123453834,
+            0.126473419,
+            0.143510311,
+            0.148609491
+          ],
+          "wall_samples": [
+            0.12932036,
+            0.114635359,
+            0.122025278,
+            0.117463863,
+            0.116466004,
+            0.129821572,
+            0.137586348,
+            0.158294365,
+            0.166208371
+          ],
+          "dimensions": {
+            "files": 120,
+            "functions": 480,
+            "externs_per_file": 24,
+            "nodes": 480,
+            "edges": 2874
+          }
+        },
+        "struct_extract_recover": {
+          "cache_state": "warm: tree-sitter parser and compiled regexes primed by one untimed run",
+          "cpu_median_seconds": 0.056606358,
+          "wall_median_seconds": 0.072835121,
+          "cpu_samples": [
+            0.060200986,
+            0.05887445,
+            0.059117674,
+            0.056147773,
+            0.056230036,
+            0.057583565,
+            0.056348023,
+            0.056606358,
+            0.056474926
+          ],
+          "wall_samples": [
+            0.089707309,
+            0.083758943,
+            0.072492417,
+            0.074535372,
+            0.074459409,
+            0.070970983,
+            0.071910491,
+            0.072835121,
+            0.067615237
+          ],
+          "dimensions": {
+            "header_structs": 400,
+            "decompilations": 300,
+            "accesses_per_decomp": 24,
+            "extracted_structs": 400,
+            "named_bases": 600,
+            "anonymous_vars": 300,
+            "synthesized": 600
+          }
+        }
+      }
+    },
+    "analysis-1-after": {
+      "seed": 20260629,
+      "repeat": 9,
+      "python": "3.15.1",
+      "workloads": {
+        "depgraph_build": {
+          "cache_state": "warm: process-level C syntax caches primed by one untimed run",
+          "cpu_median_seconds": 0.117650692,
+          "wall_median_seconds": 0.139279064,
+          "cpu_samples": [
+            0.130071387,
+            0.124241052,
+            0.125573681,
+            0.120025793,
+            0.117650692,
+            0.110016614,
+            0.10681148,
+            0.100383698,
+            0.109892324
+          ],
+          "wall_samples": [
+            0.182116022,
+            0.139279064,
+            0.172836135,
+            0.146793538,
+            0.144364847,
+            0.133865554,
+            0.138275104,
+            0.113539146,
+            0.13608934
+          ],
+          "dimensions": {
+            "files": 120,
+            "functions": 480,
+            "externs_per_file": 24,
+            "nodes": 480,
+            "edges": 2874
+          }
+        },
+        "struct_extract_recover": {
+          "cache_state": "warm: tree-sitter parser and compiled regexes primed by one untimed run",
+          "cpu_median_seconds": 0.057765458,
+          "wall_median_seconds": 0.069927119,
+          "cpu_samples": [
+            0.054419315,
+            0.055033802,
+            0.057765458,
+            0.056741488,
+            0.059596038,
+            0.056540239,
+            0.058223063,
+            0.058351203,
+            0.057873326
+          ],
+          "wall_samples": [
+            0.061442889,
+            0.064422187,
+            0.067538823,
+            0.069927119,
+            0.073543385,
+            0.066451106,
+            0.072800056,
+            0.071406243,
+            0.072848987
+          ],
+          "dimensions": {
+            "header_structs": 400,
+            "decompilations": 300,
+            "accesses_per_decomp": 24,
+            "extracted_structs": 400,
+            "named_bases": 600,
+            "anonymous_vars": 300,
+            "synthesized": 600
+          }
+        }
+      }
+    },
+    "analysis-2-after": {
+      "seed": 20260629,
+      "repeat": 9,
+      "python": "3.15.1",
+      "workloads": {
+        "depgraph_build": {
+          "cache_state": "warm: process-level C syntax caches primed by one untimed run",
+          "cpu_median_seconds": 0.120454074,
+          "wall_median_seconds": 0.161169417,
+          "cpu_samples": [
+            0.11401096,
+            0.112136184,
+            0.106007378,
+            0.120454074,
+            0.131104798,
+            0.132158931,
+            0.120974924,
+            0.124125534,
+            0.096256544
+          ],
+          "wall_samples": [
+            0.128929434,
+            0.129367688,
+            0.114172638,
+            0.199146988,
+            0.239787713,
+            0.196179322,
+            0.161569029,
+            0.161169417,
+            0.103201418
+          ],
+          "dimensions": {
+            "files": 120,
+            "functions": 480,
+            "externs_per_file": 24,
+            "nodes": 480,
+            "edges": 2874
+          }
+        },
+        "struct_extract_recover": {
+          "cache_state": "warm: tree-sitter parser and compiled regexes primed by one untimed run",
+          "cpu_median_seconds": 0.054037488,
+          "wall_median_seconds": 0.059804685,
+          "cpu_samples": [
+            0.051695917,
+            0.054000926,
+            0.049474373,
+            0.052156687,
+            0.056261195,
+            0.059827971,
+            0.060177049,
+            0.056275149,
+            0.054037488
+          ],
+          "wall_samples": [
+            0.055527956,
+            0.061183211,
+            0.052104573,
+            0.058403207,
+            0.059804685,
+            0.06892909,
+            0.06794623,
+            0.064568081,
+            0.058437302
+          ],
+          "dimensions": {
+            "header_structs": 400,
+            "decompilations": 300,
+            "accesses_per_decomp": 24,
+            "extracted_structs": 400,
+            "named_bases": 600,
+            "anonymous_vars": 300,
+            "synthesized": 600
+          }
+        }
+      }
+    },
+    "analysis-3-before": {
+      "seed": 20260629,
+      "repeat": 9,
+      "python": "3.15.1",
+      "workloads": {
+        "depgraph_build": {
+          "cache_state": "warm: process-level C syntax caches primed by one untimed run",
+          "cpu_median_seconds": 0.135618268,
+          "wall_median_seconds": 0.161039491,
+          "cpu_samples": [
+            0.132364141,
+            0.121060322,
+            0.131745931,
+            0.174256847,
+            0.149081225,
+            0.146881376,
+            0.160512875,
+            0.135618268,
+            0.133138321
+          ],
+          "wall_samples": [
+            0.145372603,
+            0.136357745,
+            0.157221726,
+            0.215207919,
+            0.174852171,
+            0.175397526,
+            0.191090765,
+            0.161039491,
+            0.148742496
+          ],
+          "dimensions": {
+            "files": 120,
+            "functions": 480,
+            "externs_per_file": 24,
+            "nodes": 480,
+            "edges": 2874
+          }
+        },
+        "struct_extract_recover": {
+          "cache_state": "warm: tree-sitter parser and compiled regexes primed by one untimed run",
+          "cpu_median_seconds": 0.054552843,
+          "wall_median_seconds": 0.061326781,
+          "cpu_samples": [
+            0.055883035,
+            0.055250481,
+            0.052399693,
+            0.051669875,
+            0.054552843,
+            0.048772941,
+            0.051317723,
+            0.054873972,
+            0.05518513
+          ],
+          "wall_samples": [
+            0.060842058,
+            0.066795854,
+            0.056039749,
+            0.061326781,
+            0.062715805,
+            0.056756819,
+            0.056899307,
+            0.062177662,
+            0.066802537
+          ],
+          "dimensions": {
+            "header_structs": 400,
+            "decompilations": 300,
+            "accesses_per_decomp": 24,
+            "extracted_structs": 400,
+            "named_bases": 600,
+            "anonymous_vars": 300,
+            "synthesized": 600
+          }
+        }
+      }
+    },
+    "formats-0-before": {
+      "benchmark": "bench_perf10_formats",
+      "python": "3.15.1",
+      "rebrew_source": "/tmp/rebrew-perf10-baseline/src/rebrew",
+      "platform": "Linux-7.3.0-5-cachyos-x86_64-with-glibc2.44",
+      "clock": "process_time_ns (cpu, primary), perf_counter_ns (wall)",
+      "workloads": {
+        "archive_members": {
+          "workload": "archive_members",
+          "cache_state": "warm: file in OS page cache, capstone imported and primed, no in-process result cache",
+          "inputs": {
+            "seed": 20261029,
+            "members": 6000,
+            "archive_bytes": 10114383,
+            "long_name_members": 2000,
+            "body_bytes_min_max": [
+              200,
+              3000
+            ]
+          },
+          "cpu_median_seconds": 0.037851623,
+          "wall_median_seconds": 0.047283568,
+          "cpu_samples_seconds": [
+            0.045581542,
+            0.051203141,
+            0.046105056,
+            0.037851623,
+            0.034287192,
+            0.036928383,
+            0.037261831,
+            0.037773128,
+            0.038192438
+          ],
+          "wall_samples_seconds": [
+            0.058668397,
+            0.058635394,
+            0.056724367,
+            0.040905653,
+            0.037545368,
+            0.044448351,
+            0.049557999,
+            0.047283568,
+            0.043808537
+          ],
+          "runs_per_sample": 3
+        },
+        "omf16_relocs": {
+          "workload": "omf16_relocs",
+          "cache_state": "warm: file in OS page cache, capstone imported and primed, no in-process result cache",
+          "inputs": {
+            "seed": 20261029,
+            "functions_per_object": 500,
+            "unoptimized_bytes": 47609,
+            "optimized_bytes": 42624,
+            "symbol_lookups": 51,
+            "relocs_checked": 716
+          },
+          "cpu_median_seconds": 0.267060106,
+          "wall_median_seconds": 0.318850026,
+          "cpu_samples_seconds": [
+            0.249160978,
+            0.257111038,
+            0.282774958,
+            0.273982355,
+            0.294769945,
+            0.274090371,
+            0.267060106,
+            0.264943965,
+            0.265621612
+          ],
+          "wall_samples_seconds": [
+            0.277923072,
+            0.269804882,
+            0.319030826,
+            0.336309829,
+            0.40733276,
+            0.316596113,
+            0.313834796,
+            0.326564916,
+            0.318850026
+          ],
+          "runs_per_sample": 2
+        }
+      }
+    },
+    "formats-1-after": {
+      "benchmark": "bench_perf10_formats",
+      "python": "3.15.1",
+      "rebrew_source": "/tmp/rebrew-perf10/src/rebrew",
+      "platform": "Linux-7.3.0-5-cachyos-x86_64-with-glibc2.44",
+      "clock": "process_time_ns (cpu, primary), perf_counter_ns (wall)",
+      "workloads": {
+        "archive_members": {
+          "workload": "archive_members",
+          "cache_state": "warm: file in OS page cache, capstone imported and primed, no in-process result cache",
+          "inputs": {
+            "seed": 20261029,
+            "members": 6000,
+            "archive_bytes": 10114383,
+            "long_name_members": 2000,
+            "body_bytes_min_max": [
+              200,
+              3000
+            ]
+          },
+          "cpu_median_seconds": 0.039288023,
+          "wall_median_seconds": 0.045692263,
+          "cpu_samples_seconds": [
+            0.045326494,
+            0.041337082,
+            0.04231193,
+            0.038634521,
+            0.038388192,
+            0.037774235,
+            0.040282439,
+            0.039288023,
+            0.036819239
+          ],
+          "wall_samples_seconds": [
+            0.060394666,
+            0.055156045,
+            0.055042442,
+            0.047533328,
+            0.042371071,
+            0.044076351,
+            0.045577366,
+            0.045692263,
+            0.041228131
+          ],
+          "runs_per_sample": 3
+        },
+        "omf16_relocs": {
+          "workload": "omf16_relocs",
+          "cache_state": "warm: file in OS page cache, capstone imported and primed, no in-process result cache",
+          "inputs": {
+            "seed": 20261029,
+            "functions_per_object": 500,
+            "unoptimized_bytes": 47609,
+            "optimized_bytes": 42624,
+            "symbol_lookups": 51,
+            "relocs_checked": 716
+          },
+          "cpu_median_seconds": 0.130463966,
+          "wall_median_seconds": 0.151843753,
+          "cpu_samples_seconds": [
+            0.137638783,
+            0.13169358,
+            0.12789285,
+            0.129322511,
+            0.130463966,
+            0.126174094,
+            0.126014176,
+            0.130938692,
+            0.13085739
+          ],
+          "wall_samples_seconds": [
+            0.170874583,
+            0.156345917,
+            0.146166407,
+            0.147243114,
+            0.151843753,
+            0.147945485,
+            0.145934701,
+            0.154969347,
+            0.1616392
+          ],
+          "runs_per_sample": 2
+        }
+      }
+    },
+    "formats-2-after": {
+      "benchmark": "bench_perf10_formats",
+      "python": "3.15.1",
+      "rebrew_source": "/tmp/rebrew-perf10/src/rebrew",
+      "platform": "Linux-7.3.0-5-cachyos-x86_64-with-glibc2.44",
+      "clock": "process_time_ns (cpu, primary), perf_counter_ns (wall)",
+      "workloads": {
+        "archive_members": {
+          "workload": "archive_members",
+          "cache_state": "warm: file in OS page cache, capstone imported and primed, no in-process result cache",
+          "inputs": {
+            "seed": 20261029,
+            "members": 6000,
+            "archive_bytes": 10114383,
+            "long_name_members": 2000,
+            "body_bytes_min_max": [
+              200,
+              3000
+            ]
+          },
+          "cpu_median_seconds": 0.041743069,
+          "wall_median_seconds": 0.048892396,
+          "cpu_samples_seconds": [
+            0.039723396,
+            0.045265172,
+            0.042097793,
+            0.040096616,
+            0.041956409,
+            0.039979114,
+            0.045165948,
+            0.041743069,
+            0.038783893
+          ],
+          "wall_samples_seconds": [
+            0.044131966,
+            0.055262195,
+            0.053206546,
+            0.044168615,
+            0.047569146,
+            0.048966215,
+            0.05285276,
+            0.048892396,
+            0.0478794
+          ],
+          "runs_per_sample": 3
+        },
+        "omf16_relocs": {
+          "workload": "omf16_relocs",
+          "cache_state": "warm: file in OS page cache, capstone imported and primed, no in-process result cache",
+          "inputs": {
+            "seed": 20261029,
+            "functions_per_object": 500,
+            "unoptimized_bytes": 47609,
+            "optimized_bytes": 42624,
+            "symbol_lookups": 51,
+            "relocs_checked": 716
+          },
+          "cpu_median_seconds": 0.137751893,
+          "wall_median_seconds": 0.159784419,
+          "cpu_samples_seconds": [
+            0.133669613,
+            0.13967284,
+            0.13736385,
+            0.147633729,
+            0.142255018,
+            0.13852133,
+            0.137751893,
+            0.135306202,
+            0.132531159
+          ],
+          "wall_samples_seconds": [
+            0.159784419,
+            0.175251551,
+            0.150415064,
+            0.185582697,
+            0.176776592,
+            0.161976475,
+            0.156241822,
+            0.144952662,
+            0.143175477
+          ],
+          "runs_per_sample": 2
+        }
+      }
+    },
+    "formats-3-before": {
+      "benchmark": "bench_perf10_formats",
+      "python": "3.15.1",
+      "rebrew_source": "/tmp/rebrew-perf10-baseline/src/rebrew",
+      "platform": "Linux-7.3.0-5-cachyos-x86_64-with-glibc2.44",
+      "clock": "process_time_ns (cpu, primary), perf_counter_ns (wall)",
+      "workloads": {
+        "archive_members": {
+          "workload": "archive_members",
+          "cache_state": "warm: file in OS page cache, capstone imported and primed, no in-process result cache",
+          "inputs": {
+            "seed": 20261029,
+            "members": 6000,
+            "archive_bytes": 10114383,
+            "long_name_members": 2000,
+            "body_bytes_min_max": [
+              200,
+              3000
+            ]
+          },
+          "cpu_median_seconds": 0.047054105,
+          "wall_median_seconds": 0.050644474,
+          "cpu_samples_seconds": [
+            0.045109238,
+            0.03924917,
+            0.042566551,
+            0.044730568,
+            0.047054105,
+            0.047382791,
+            0.051516199,
+            0.053168792,
+            0.04888612
+          ],
+          "wall_samples_seconds": [
+            0.050278385,
+            0.04076018,
+            0.045040697,
+            0.049878051,
+            0.051704068,
+            0.050644474,
+            0.063493569,
+            0.06275602,
+            0.052844595
+          ],
+          "runs_per_sample": 3
+        },
+        "omf16_relocs": {
+          "workload": "omf16_relocs",
+          "cache_state": "warm: file in OS page cache, capstone imported and primed, no in-process result cache",
+          "inputs": {
+            "seed": 20261029,
+            "functions_per_object": 500,
+            "unoptimized_bytes": 47609,
+            "optimized_bytes": 42624,
+            "symbol_lookups": 51,
+            "relocs_checked": 716
+          },
+          "cpu_median_seconds": 0.268099417,
+          "wall_median_seconds": 0.29449845,
+          "cpu_samples_seconds": [
+            0.289267185,
+            0.297270265,
+            0.285769243,
+            0.267085236,
+            0.261538963,
+            0.270089134,
+            0.268099417,
+            0.263184803,
+            0.255605732
+          ],
+          "wall_samples_seconds": [
+            0.368158654,
+            0.48914124,
+            0.41030292,
+            0.306206607,
+            0.288618773,
+            0.29449845,
+            0.294253238,
+            0.28235892,
+            0.273631123
+          ],
+          "runs_per_sample": 2
+        }
+      }
+    },
+    "matcher-0-before": {
+      "python": "3.15.1",
+      "clock": "process_time_ns",
+      "workloads": {
+        "binary_similarity_aggregate": {
+          "dimensions": {
+            "funcs_a": 1400,
+            "funcs_b": 1100,
+            "scored_a": 1385,
+            "scored_b": 1088,
+            "vocab": 320,
+            "mnemonics_per_func": [
+              6,
+              40
+            ],
+            "pairs": 1506880,
+            "seed": 20261029
+          },
+          "cache_state": "warm: numpy imported and one untimed call made; the kernel keeps no cross-call cache",
+          "result_sha256": "b68d79de9a0c597c090defc2a001ced3d30cbec5ea6049585723069739ba3cb6",
+          "cpu_ns": {
+            "median": 92004900,
+            "samples": [
+              85162392,
+              92004900,
+              100562265,
+              104461605,
+              99808807,
+              98142284,
+              80005963,
+              83319091,
+              78343676
+            ]
+          },
+          "wall_ns": {
+            "median": 102735058,
+            "samples": [
+              96419230,
+              103927592,
+              113514347,
+              119821157,
+              110403361,
+              102735058,
+              88856215,
+              91569412,
+              84124650
+            ]
+          }
+        },
+        "score_candidate_heuristic": {
+          "dimensions": {
+            "target_insns": [
+              30,
+              60,
+              120,
+              200,
+              320,
+              480
+            ],
+            "target_bytes": [
+              135,
+              242,
+              485,
+              833,
+              1354,
+              2005
+            ],
+            "candidates_per_target": 60,
+            "candidates": 360,
+            "mutation_fraction": [
+              0.01,
+              0.2
+            ],
+            "reloc_offsets": null,
+            "seed": 20261030
+          },
+          "cache_state": "warm: per-thread capstone handles built by the untimed warm-up and the targets precomputed; score_candidate memoizes nothing per candidate",
+          "result_sha256": "9143d17d8bc77b307798e2c8d8bf9d88e97aa7be7d17a43ad44d62c184654f4b",
+          "cpu_ns": {
+            "median": 831938292,
+            "samples": [
+              885368509,
+              861762314,
+              873015928,
+              831938292,
+              818576153,
+              829741603,
+              809451151,
+              825415096,
+              866813613
+            ]
+          },
+          "wall_ns": {
+            "median": 861964330,
+            "samples": [
+              964324372,
+              908836603,
+              943973277,
+              861964330,
+              839177731,
+              843468386,
+              824350022,
+              845353765,
+              900037761
+            ]
+          }
+        }
+      }
+    },
+    "matcher-1-after": {
+      "python": "3.15.1",
+      "clock": "process_time_ns",
+      "workloads": {
+        "binary_similarity_aggregate": {
+          "dimensions": {
+            "funcs_a": 1400,
+            "funcs_b": 1100,
+            "scored_a": 1385,
+            "scored_b": 1088,
+            "vocab": 320,
+            "mnemonics_per_func": [
+              6,
+              40
+            ],
+            "pairs": 1506880,
+            "seed": 20261029
+          },
+          "cache_state": "warm: numpy imported and one untimed call made; the kernel keeps no cross-call cache",
+          "result_sha256": "b68d79de9a0c597c090defc2a001ced3d30cbec5ea6049585723069739ba3cb6",
+          "cpu_ns": {
+            "median": 45197443,
+            "samples": [
+              36815903,
+              37931862,
+              47439950,
+              44861604,
+              45197443,
+              40473138,
+              53816716,
+              51215795,
+              57391130
+            ]
+          },
+          "wall_ns": {
+            "median": 45680701,
+            "samples": [
+              37127912,
+              38541823,
+              47913853,
+              45407706,
+              45680701,
+              43138886,
+              59543964,
+              57810701,
+              67304520
+            ]
+          }
+        },
+        "score_candidate_heuristic": {
+          "dimensions": {
+            "target_insns": [
+              30,
+              60,
+              120,
+              200,
+              320,
+              480
+            ],
+            "target_bytes": [
+              135,
+              242,
+              485,
+              833,
+              1354,
+              2005
+            ],
+            "candidates_per_target": 60,
+            "candidates": 360,
+            "mutation_fraction": [
+              0.01,
+              0.2
+            ],
+            "reloc_offsets": null,
+            "seed": 20261030
+          },
+          "cache_state": "warm: per-thread capstone handles built by the untimed warm-up and the targets precomputed; score_candidate memoizes nothing per candidate",
+          "result_sha256": "9143d17d8bc77b307798e2c8d8bf9d88e97aa7be7d17a43ad44d62c184654f4b",
+          "cpu_ns": {
+            "median": 423112478,
+            "samples": [
+              408738633,
+              433061205,
+              423112478,
+              432449392,
+              421027553,
+              427555454,
+              476276845,
+              409866664,
+              405533406
+            ]
+          },
+          "wall_ns": {
+            "median": 443466051,
+            "samples": [
+              426357771,
+              485586491,
+              476358873,
+              472985053,
+              434087169,
+              443466051,
+              611511877,
+              416906761,
+              423396897
+            ]
+          }
+        }
+      }
+    },
+    "matcher-2-after": {
+      "python": "3.15.1",
+      "clock": "process_time_ns",
+      "workloads": {
+        "binary_similarity_aggregate": {
+          "dimensions": {
+            "funcs_a": 1400,
+            "funcs_b": 1100,
+            "scored_a": 1385,
+            "scored_b": 1088,
+            "vocab": 320,
+            "mnemonics_per_func": [
+              6,
+              40
+            ],
+            "pairs": 1506880,
+            "seed": 20261029
+          },
+          "cache_state": "warm: numpy imported and one untimed call made; the kernel keeps no cross-call cache",
+          "result_sha256": "b68d79de9a0c597c090defc2a001ced3d30cbec5ea6049585723069739ba3cb6",
+          "cpu_ns": {
+            "median": 47837125,
+            "samples": [
+              47885713,
+              46949375,
+              40306121,
+              41088993,
+              40498263,
+              51058652,
+              47837125,
+              52342523,
+              72153830
+            ]
+          },
+          "wall_ns": {
+            "median": 51086655,
+            "samples": [
+              51536021,
+              50015349,
+              41794536,
+              46778046,
+              41909442,
+              55103696,
+              51086655,
+              57943100,
+              80737484
+            ]
+          }
+        },
+        "score_candidate_heuristic": {
+          "dimensions": {
+            "target_insns": [
+              30,
+              60,
+              120,
+              200,
+              320,
+              480
+            ],
+            "target_bytes": [
+              135,
+              242,
+              485,
+              833,
+              1354,
+              2005
+            ],
+            "candidates_per_target": 60,
+            "candidates": 360,
+            "mutation_fraction": [
+              0.01,
+              0.2
+            ],
+            "reloc_offsets": null,
+            "seed": 20261030
+          },
+          "cache_state": "warm: per-thread capstone handles built by the untimed warm-up and the targets precomputed; score_candidate memoizes nothing per candidate",
+          "result_sha256": "9143d17d8bc77b307798e2c8d8bf9d88e97aa7be7d17a43ad44d62c184654f4b",
+          "cpu_ns": {
+            "median": 411860130,
+            "samples": [
+              411693231,
+              419073012,
+              411860130,
+              409188448,
+              413101427,
+              403699812,
+              397202752,
+              424237457,
+              419362148
+            ]
+          },
+          "wall_ns": {
+            "median": 449377998,
+            "samples": [
+              436783954,
+              454327795,
+              461023166,
+              449377998,
+              441939678,
+              432297390,
+              420025381,
+              463399399,
+              453419516
+            ]
+          }
+        }
+      }
+    },
+    "matcher-3-before": {
+      "python": "3.15.1",
+      "clock": "process_time_ns",
+      "workloads": {
+        "binary_similarity_aggregate": {
+          "dimensions": {
+            "funcs_a": 1400,
+            "funcs_b": 1100,
+            "scored_a": 1385,
+            "scored_b": 1088,
+            "vocab": 320,
+            "mnemonics_per_func": [
+              6,
+              40
+            ],
+            "pairs": 1506880,
+            "seed": 20261029
+          },
+          "cache_state": "warm: numpy imported and one untimed call made; the kernel keeps no cross-call cache",
+          "result_sha256": "b68d79de9a0c597c090defc2a001ced3d30cbec5ea6049585723069739ba3cb6",
+          "cpu_ns": {
+            "median": 81062721,
+            "samples": [
+              77899395,
+              67546079,
+              70815379,
+              77095315,
+              81062721,
+              84670759,
+              83642128,
+              89393171,
+              86120578
+            ]
+          },
+          "wall_ns": {
+            "median": 84817964,
+            "samples": [
+              81667054,
+              69208283,
+              72944526,
+              81972609,
+              84817964,
+              92388754,
+              88491709,
+              96285378,
+              94898377
+            ]
+          }
+        },
+        "score_candidate_heuristic": {
+          "dimensions": {
+            "target_insns": [
+              30,
+              60,
+              120,
+              200,
+              320,
+              480
+            ],
+            "target_bytes": [
+              135,
+              242,
+              485,
+              833,
+              1354,
+              2005
+            ],
+            "candidates_per_target": 60,
+            "candidates": 360,
+            "mutation_fraction": [
+              0.01,
+              0.2
+            ],
+            "reloc_offsets": null,
+            "seed": 20261030
+          },
+          "cache_state": "warm: per-thread capstone handles built by the untimed warm-up and the targets precomputed; score_candidate memoizes nothing per candidate",
+          "result_sha256": "9143d17d8bc77b307798e2c8d8bf9d88e97aa7be7d17a43ad44d62c184654f4b",
+          "cpu_ns": {
+            "median": 844116638,
+            "samples": [
+              871540901,
+              882427936,
+              848315116,
+              880329622,
+              844116638,
+              835900031,
+              834531036,
+              783840006,
+              769953056
+            ]
+          },
+          "wall_ns": {
+            "median": 861832608,
+            "samples": [
+              895881907,
+              910846973,
+              874761754,
+              916966140,
+              861832608,
+              851060814,
+              850130843,
+              789300028,
+              776852779
+            ]
+          }
+        }
+      }
+    },
+    "metadata-0-before": {
+      "clock": "process_time_ns",
+      "wall_clock": "perf_counter_ns",
+      "seed": 20260610,
+      "samples": 9,
+      "python": "3.15.1",
+      "workloads": {
+        "metadata_cold_load_validate": {
+          "cache_state": "cold: in-memory document cache cleared and persisted parsed-document cache removed before each sample; every sample parses and validates the TOML",
+          "dimensions": {
+            "function_rows": 7200,
+            "main_rows": 6000,
+            "dropin_files": 3,
+            "rows_per_dropin": 400,
+            "source_definitions": 300,
+            "modules": 3
+          },
+          "cpu_seconds_median": 0.803976095,
+          "wall_seconds_median": 0.845583644,
+          "cpu_samples": [
+            0.522121268,
+            0.700905679,
+            0.814726883,
+            0.867253894,
+            0.8696615,
+            0.803976095,
+            0.775437982,
+            0.709070264,
+            1.008395001
+          ],
+          "wall_samples": [
+            0.524826739,
+            0.71385539,
+            0.847678337,
+            0.917491997,
+            0.949044354,
+            0.845583644,
+            0.798015944,
+            0.720780314,
+            1.136689992
+          ]
+        },
+        "binding_resolution_inventory": {
+          "cache_state": "warm document caches (function and data stores already loaded); per-store file index cleared before each sample, so each sample rebuilds it",
+          "dimensions": {
+            "sources": 500,
+            "function_rows": 4000,
+            "data_rows": 1000,
+            "modules": 3
+          },
+          "cpu_seconds_median": 0.157480326,
+          "wall_seconds_median": 0.187420435,
+          "cpu_samples": [
+            0.22456276,
+            0.155842664,
+            0.157480326,
+            0.143344538,
+            0.149233704,
+            0.141541909,
+            0.159586333,
+            0.215601011,
+            0.167220822
+          ],
+          "wall_samples": [
+            0.277756422,
+            0.186609899,
+            0.187420435,
+            0.169938942,
+            0.173860393,
+            0.168371612,
+            0.214241988,
+            0.287455637,
+            0.253996041
+          ]
+        }
+      }
+    },
+    "metadata-1-after": {
+      "clock": "process_time_ns",
+      "wall_clock": "perf_counter_ns",
+      "seed": 20260610,
+      "samples": 9,
+      "python": "3.15.1",
+      "workloads": {
+        "metadata_cold_load_validate": {
+          "cache_state": "cold: in-memory document cache cleared and persisted parsed-document cache removed before each sample; every sample parses and validates the TOML",
+          "dimensions": {
+            "function_rows": 7200,
+            "main_rows": 6000,
+            "dropin_files": 3,
+            "rows_per_dropin": 400,
+            "source_definitions": 300,
+            "modules": 3
+          },
+          "cpu_seconds_median": 0.867104879,
+          "wall_seconds_median": 0.959118083,
+          "cpu_samples": [
+            0.818686731,
+            0.852702622,
+            0.763816625,
+            0.886664728,
+            1.071602612,
+            0.867104879,
+            0.967431642,
+            0.890711384,
+            0.786707053
+          ],
+          "wall_samples": [
+            0.921523474,
+            0.959118083,
+            0.821017466,
+            1.01609893,
+            1.298806491,
+            1.053787927,
+            1.091520536,
+            0.953430087,
+            0.814352871
+          ]
+        },
+        "binding_resolution_inventory": {
+          "cache_state": "warm document caches (function and data stores already loaded); per-store file index cleared before each sample, so each sample rebuilds it",
+          "dimensions": {
+            "sources": 500,
+            "function_rows": 4000,
+            "data_rows": 1000,
+            "modules": 3
+          },
+          "cpu_seconds_median": 0.095321869,
+          "wall_seconds_median": 0.097915352,
+          "cpu_samples": [
+            0.130304063,
+            0.091476369,
+            0.095900584,
+            0.0907089,
+            0.095321869,
+            0.102393532,
+            0.151255887,
+            0.082403102,
+            0.08900454
+          ],
+          "wall_samples": [
+            0.132185955,
+            0.093499901,
+            0.097915352,
+            0.094329754,
+            0.09796724,
+            0.104797325,
+            0.153940981,
+            0.083562478,
+            0.090104021
+          ]
+        }
+      }
+    },
+    "metadata-2-after": {
+      "clock": "process_time_ns",
+      "wall_clock": "perf_counter_ns",
+      "seed": 20260610,
+      "samples": 9,
+      "python": "3.15.1",
+      "workloads": {
+        "metadata_cold_load_validate": {
+          "cache_state": "cold: in-memory document cache cleared and persisted parsed-document cache removed before each sample; every sample parses and validates the TOML",
+          "dimensions": {
+            "function_rows": 7200,
+            "main_rows": 6000,
+            "dropin_files": 3,
+            "rows_per_dropin": 400,
+            "source_definitions": 300,
+            "modules": 3
+          },
+          "cpu_seconds_median": 0.712167965,
+          "wall_seconds_median": 0.770886801,
+          "cpu_samples": [
+            0.637199524,
+            0.77150391,
+            0.802273196,
+            0.712167965,
+            0.68891042,
+            0.672006672,
+            0.694785018,
+            0.760145156,
+            0.775464586
+          ],
+          "wall_samples": [
+            0.666956728,
+            0.799577913,
+            0.845819356,
+            0.770886801,
+            0.704568009,
+            0.704354687,
+            0.714195759,
+            0.779605341,
+            0.804334555
+          ]
+        },
+        "binding_resolution_inventory": {
+          "cache_state": "warm document caches (function and data stores already loaded); per-store file index cleared before each sample, so each sample rebuilds it",
+          "dimensions": {
+            "sources": 500,
+            "function_rows": 4000,
+            "data_rows": 1000,
+            "modules": 3
+          },
+          "cpu_seconds_median": 0.109355008,
+          "wall_seconds_median": 0.114963309,
+          "cpu_samples": [
+            0.134771165,
+            0.092793972,
+            0.094300076,
+            0.083158388,
+            0.112141159,
+            0.109355008,
+            0.184276914,
+            0.104972768,
+            0.118786262
+          ],
+          "wall_samples": [
+            0.140856534,
+            0.094917079,
+            0.09530025,
+            0.084115488,
+            0.114963309,
+            0.11214824,
+            0.192188178,
+            0.122253911,
+            0.130886339
+          ]
+        }
+      }
+    },
+    "metadata-3-before": {
+      "clock": "process_time_ns",
+      "wall_clock": "perf_counter_ns",
+      "seed": 20260610,
+      "samples": 9,
+      "python": "3.15.1",
+      "workloads": {
+        "metadata_cold_load_validate": {
+          "cache_state": "cold: in-memory document cache cleared and persisted parsed-document cache removed before each sample; every sample parses and validates the TOML",
+          "dimensions": {
+            "function_rows": 7200,
+            "main_rows": 6000,
+            "dropin_files": 3,
+            "rows_per_dropin": 400,
+            "source_definitions": 300,
+            "modules": 3
+          },
+          "cpu_seconds_median": 0.84176303,
+          "wall_seconds_median": 0.904380917,
+          "cpu_samples": [
+            0.776321133,
+            0.788190505,
+            0.84176303,
+            0.878547889,
+            0.739037939,
+            0.800570895,
+            0.943076165,
+            0.912174663,
+            0.932281402
+          ],
+          "wall_samples": [
+            0.838749308,
+            0.815886568,
+            0.923404603,
+            0.904380917,
+            0.746523915,
+            0.841983576,
+            1.020477409,
+            0.992657828,
+            1.052024805
+          ]
+        },
+        "binding_resolution_inventory": {
+          "cache_state": "warm document caches (function and data stores already loaded); per-store file index cleared before each sample, so each sample rebuilds it",
+          "dimensions": {
+            "sources": 500,
+            "function_rows": 4000,
+            "data_rows": 1000,
+            "modules": 3
+          },
+          "cpu_seconds_median": 0.105719173,
+          "wall_seconds_median": 0.121213353,
+          "cpu_samples": [
+            0.315622821,
+            0.105719173,
+            0.094888715,
+            0.094991601,
+            0.11182984,
+            0.103579,
+            0.098460057,
+            0.142252711,
+            0.110917958
+          ],
+          "wall_samples": [
+            0.420140761,
+            0.121213353,
+            0.100736862,
+            0.106196208,
+            0.133961055,
+            0.109174694,
+            0.102468633,
+            0.154736578,
+            0.122113337
+          ]
+        }
+      }
+    },
+    "workflow-0-before": {
+      "seed": 20260630,
+      "repeat": 9,
+      "python": "3.15.1",
+      "workloads": {
+        "todo_rank": {
+          "cache_state": "warm: deferred imports and the angr probe primed by one untimed run",
+          "cpu_median_seconds": 0.354361341,
+          "wall_median_seconds": 0.409711371,
+          "cpu_samples": [
+            0.448917169,
+            0.354361341,
+            0.33445522,
+            0.373643521,
+            0.420875252,
+            0.411493839,
+            0.304144253,
+            0.279113655,
+            0.293269932
+          ],
+          "wall_samples": [
+            0.527496988,
+            0.409711371,
+            0.379441096,
+            0.481078328,
+            0.52410326,
+            0.4916576,
+            0.347187137,
+            0.311776527,
+            0.316948091
+          ],
+          "dimensions": {
+            "metadata_rows": 24000,
+            "verify_entries": 19125,
+            "verify_only_vas": 1500,
+            "source_files": 1500,
+            "caller_counts": 396,
+            "ranked_items": 19173,
+            "categories": {
+              "compile-error": 1247,
+              "documented": 340,
+              "exact-only": 2220,
+              "extract-error": 687,
+              "fix-delta": 1815,
+              "improve-match": 9843,
+              "missing-annotation": 1900,
+              "naked-reconstruction": 59,
+              "run-prover": 1062
+            }
+          }
+        },
+        "data_inventory": {
+          "cache_state": "cold: type-size memo cleared before every timed run (one CLI pass); deferred imports and the tree-sitter parser primed by one untimed run",
+          "cpu_median_seconds": 0.187838641,
+          "wall_median_seconds": 0.230446798,
+          "cpu_samples": [
+            0.183174409,
+            0.287990138,
+            0.187838641,
+            0.200629721,
+            0.163457182,
+            0.208295205,
+            0.199494631,
+            0.144021244,
+            0.162428698
+          ],
+          "wall_samples": [
+            0.209559083,
+            0.361938312,
+            0.230446798,
+            0.273518648,
+            0.204220434,
+            0.30679979,
+            0.239771929,
+            0.15973305,
+            0.207661953
+          ],
+          "dimensions": {
+            "globals": 12000,
+            "sections": 4,
+            "type_conflicts": 200,
+            "summary_sections": 4,
+            "out_of_range": 611,
+            "bss_entries": 3557,
+            "bss_gaps": 27,
+            "bss_coverage_bytes": 260494
+          }
+        }
+      }
+    },
+    "workflow-1-after": {
+      "seed": 20260630,
+      "repeat": 9,
+      "python": "3.15.1",
+      "workloads": {
+        "todo_rank": {
+          "cache_state": "warm: deferred imports and the angr probe primed by one untimed run",
+          "cpu_median_seconds": 0.295279395,
+          "wall_median_seconds": 0.331126087,
+          "cpu_samples": [
+            0.431758514,
+            0.23576451,
+            0.319733076,
+            0.322595976,
+            0.295279395,
+            0.35418077,
+            0.285308612,
+            0.278770925,
+            0.278776525
+          ],
+          "wall_samples": [
+            0.477339651,
+            0.247517007,
+            0.370774784,
+            0.358486966,
+            0.331126087,
+            0.398733268,
+            0.3286839,
+            0.310555308,
+            0.297434863
+          ],
+          "dimensions": {
+            "metadata_rows": 24000,
+            "verify_entries": 19125,
+            "verify_only_vas": 1500,
+            "source_files": 1500,
+            "caller_counts": 396,
+            "ranked_items": 19173,
+            "categories": {
+              "compile-error": 1247,
+              "documented": 340,
+              "exact-only": 2220,
+              "extract-error": 687,
+              "fix-delta": 1815,
+              "improve-match": 9843,
+              "missing-annotation": 1900,
+              "naked-reconstruction": 59,
+              "run-prover": 1062
+            }
+          }
+        },
+        "data_inventory": {
+          "cache_state": "cold: type-size memo cleared before every timed run (one CLI pass); deferred imports and the tree-sitter parser primed by one untimed run",
+          "cpu_median_seconds": 0.10776249,
+          "wall_median_seconds": 0.122050053,
+          "cpu_samples": [
+            0.104440921,
+            0.093650312,
+            0.092267938,
+            0.139426381,
+            0.10776249,
+            0.10861349,
+            0.132186644,
+            0.120211628,
+            0.08906447
+          ],
+          "wall_samples": [
+            0.114525069,
+            0.106236799,
+            0.100420151,
+            0.158404389,
+            0.1308041,
+            0.122050053,
+            0.157834006,
+            0.14579157,
+            0.097378777
+          ],
+          "dimensions": {
+            "globals": 12000,
+            "sections": 4,
+            "type_conflicts": 200,
+            "summary_sections": 4,
+            "out_of_range": 611,
+            "bss_entries": 3557,
+            "bss_gaps": 27,
+            "bss_coverage_bytes": 260494
+          }
+        }
+      }
+    },
+    "workflow-2-after": {
+      "seed": 20260630,
+      "repeat": 9,
+      "python": "3.15.1",
+      "workloads": {
+        "todo_rank": {
+          "cache_state": "warm: deferred imports and the angr probe primed by one untimed run",
+          "cpu_median_seconds": 0.285739788,
+          "wall_median_seconds": 0.31984336,
+          "cpu_samples": [
+            0.432925857,
+            0.314704248,
+            0.28002376,
+            0.26779877,
+            0.306423733,
+            0.350541988,
+            0.276203809,
+            0.261712375,
+            0.285739788
+          ],
+          "wall_samples": [
+            0.513120327,
+            0.349118462,
+            0.316772139,
+            0.291331124,
+            0.327651687,
+            0.371309449,
+            0.31984336,
+            0.28730161,
+            0.317894301
+          ],
+          "dimensions": {
+            "metadata_rows": 24000,
+            "verify_entries": 19125,
+            "verify_only_vas": 1500,
+            "source_files": 1500,
+            "caller_counts": 396,
+            "ranked_items": 19173,
+            "categories": {
+              "compile-error": 1247,
+              "documented": 340,
+              "exact-only": 2220,
+              "extract-error": 687,
+              "fix-delta": 1815,
+              "improve-match": 9843,
+              "missing-annotation": 1900,
+              "naked-reconstruction": 59,
+              "run-prover": 1062
+            }
+          }
+        },
+        "data_inventory": {
+          "cache_state": "cold: type-size memo cleared before every timed run (one CLI pass); deferred imports and the tree-sitter parser primed by one untimed run",
+          "cpu_median_seconds": 0.081795432,
+          "wall_median_seconds": 0.087596345,
+          "cpu_samples": [
+            0.078217308,
+            0.074320849,
+            0.081795432,
+            0.114828543,
+            0.079407202,
+            0.077216012,
+            0.087860703,
+            0.097141802,
+            0.089860662
+          ],
+          "wall_samples": [
+            0.083003369,
+            0.081944506,
+            0.087596345,
+            0.123324381,
+            0.083141469,
+            0.079796333,
+            0.090591711,
+            0.099081701,
+            0.091675612
+          ],
+          "dimensions": {
+            "globals": 12000,
+            "sections": 4,
+            "type_conflicts": 200,
+            "summary_sections": 4,
+            "out_of_range": 611,
+            "bss_entries": 3557,
+            "bss_gaps": 27,
+            "bss_coverage_bytes": 260494
+          }
+        }
+      }
+    },
+    "workflow-3-before": {
+      "seed": 20260630,
+      "repeat": 9,
+      "python": "3.15.1",
+      "workloads": {
+        "todo_rank": {
+          "cache_state": "warm: deferred imports and the angr probe primed by one untimed run",
+          "cpu_median_seconds": 0.27668851,
+          "wall_median_seconds": 0.295580512,
+          "cpu_samples": [
+            0.295675796,
+            0.266997081,
+            0.247017601,
+            0.247545838,
+            0.238997632,
+            0.371329836,
+            0.326271271,
+            0.324184238,
+            0.27668851
+          ],
+          "wall_samples": [
+            0.308937563,
+            0.276486363,
+            0.252504084,
+            0.252322282,
+            0.243261407,
+            0.391692515,
+            0.341816057,
+            0.347310689,
+            0.295580512
+          ],
+          "dimensions": {
+            "metadata_rows": 24000,
+            "verify_entries": 19125,
+            "verify_only_vas": 1500,
+            "source_files": 1500,
+            "caller_counts": 396,
+            "ranked_items": 19173,
+            "categories": {
+              "compile-error": 1247,
+              "documented": 340,
+              "exact-only": 2220,
+              "extract-error": 687,
+              "fix-delta": 1815,
+              "improve-match": 9843,
+              "missing-annotation": 1900,
+              "naked-reconstruction": 59,
+              "run-prover": 1062
+            }
+          }
+        },
+        "data_inventory": {
+          "cache_state": "cold: type-size memo cleared before every timed run (one CLI pass); deferred imports and the tree-sitter parser primed by one untimed run",
+          "cpu_median_seconds": 0.180335443,
+          "wall_median_seconds": 0.211840938,
+          "cpu_samples": [
+            0.128566888,
+            0.266893283,
+            0.180335443,
+            0.164715277,
+            0.166911366,
+            0.226355194,
+            0.24098543,
+            0.161128373,
+            0.196842118
+          ],
+          "wall_samples": [
+            0.130702067,
+            0.287651859,
+            0.211840938,
+            0.178517446,
+            0.184074575,
+            0.266160618,
+            0.275865494,
+            0.182700319,
+            0.217145712
+          ],
+          "dimensions": {
+            "globals": 12000,
+            "sections": 4,
+            "type_conflicts": 200,
+            "summary_sections": 4,
+            "out_of_range": 611,
+            "bss_entries": 3557,
+            "bss_gaps": 27,
+            "bss_coverage_bytes": 260494
+          }
+        }
+      }
+    }
+  },
+  "candidate_source_sha256": {
+    "src/rebrew/binary_similarity.py": "6d1582b2e7e99d2b3989c80205250fa7b4f1332c91b8cad0af2628e34f1f56b0",
+    "src/rebrew/c_parser.py": "b9fb6fb59209fa3c845bb66acb71fd76a90caecfbd9883f2872c31d6ec1836de",
+    "src/rebrew/data_layout.py": "410203de5bf82bc79fe8e7df3a4bc2e1213abc39ef1dcfe5119649905ef46a0f",
+    "src/rebrew/depgraph.py": "595a973369fc2dc495fe2a87b919a5530ec1831d43a27408de343e0aa77b3337",
+    "src/rebrew/formats/omf16.py": "3a40bfc9c61f5a5dc305f0b1c11440fe48cfa51c7360a39c82e9b590543e008c",
+    "src/rebrew/matcher/scoring.py": "a6346bd853e235662070d9eaabab41f3ef70c0a5434d0c0065e22444703831e7",
+    "src/rebrew/metadata/document.py": "afe944fc7e08817fac0a7da5ce83ba63c14ea6f205568d187c2795a72322a88b",
+    "src/rebrew/text_audit.py": "8dfa7d8e7a8664d6d3864ccc14e74c6a0f7298fb80a88c92e998bd4cdfc040a1",
+    "src/rebrew/todo.py": "28b70a7ef6c004e713eb2d69b0a5da440325db7341bce0cf567c67e0cc717d32"
+  },
+  "unchanged_controls": [
+    "archive_members",
+    "struct_extract_recover",
+    "binding_resolution_inventory"
+  ],
+  "limits": "Process CPU excludes descheduling, not CPU frequency, cache contention, BLAS behavior, garbage-collection state or shared-host effects. Unchanged controls have substantial timing variation; small gains are unconfirmed."
+}

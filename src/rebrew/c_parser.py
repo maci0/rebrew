@@ -2017,6 +2017,7 @@ def find_variable_roles(
     function_filter: Callable[[int], bool] | None = None,
     variable_filter: Callable[[str, bool], bool] | None = None,
     function_uses: dict[int, set[str]] | None = None,
+    global_uses: set[str] | None = None,
 ) -> tuple[set[str], set[str], set[str]]:
     """Return file definitions, extern declarations, and syntactic variable uses.
 
@@ -2024,15 +2025,18 @@ def find_variable_roles(
     names, member names, strings, and locally shadowed names are not uses. A
     tentative file-scope definition owns storage; an initialized extern does too.
     A variable filter scopes individual file declarations and their initializer uses.
-    When supplied, function_uses collects each function's uses by starting line.
+    When supplied, function_uses collects each function's uses by starting line
+    and global_uses collects the uses outside every function body, which is the
+    third result of a walk whose function_filter rejects every function.
     """
     tree, src = _variable_tree(source)
     definitions: set[str] = set()
     declarations: set[str] = set()
     uses: set[str] = set()
+    body_depth = 0
 
     def walk(node: Any, shadows: set[str], file_scope: bool = False) -> None:
-        nonlocal uses
+        nonlocal uses, body_depth
         if node.type.startswith("preproc_"):
             # Raw conditional branches can contain source facts; macro bodies
             # are not C expression references and require preprocessing.
@@ -2065,7 +2069,9 @@ def find_variable_roles(
                 previous_uses = uses
                 if function_uses is not None:
                     uses = set()
+                body_depth += 1
                 walk(body, local)
+                body_depth -= 1
                 if function_uses is not None:
                     function_uses.setdefault(line, set()).update(uses)
                     previous_uses.update(uses)
@@ -2107,6 +2113,8 @@ def find_variable_roles(
             name = node_text(node, src)
             if name not in shadows:
                 uses.add(name)
+                if global_uses is not None and body_depth == 0:
+                    global_uses.add(name)
             return
         for child in node.named_children:
             walk(child, shadows, file_scope)

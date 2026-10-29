@@ -59,6 +59,13 @@ log = logging.getLogger(__name__)
 #: float noise of the weighted sum, far above the 1 decimal shown in reports.
 _SCORE_NOISE_DECIMALS = 6
 
+#: :func:`_count_agreement` gathers from a table of distinct count pairs only
+#: when the matrix has at least this many cells and each table cell serves at
+#: least ``_COUNT_TABLE_MIN_REUSE`` matrix cells (measured: with mostly distinct
+#: counts the table plus the gather is slower than the direct ratio).
+_COUNT_TABLE_MIN_CELLS = 10_000
+_COUNT_TABLE_MIN_REUSE = 8
+
 
 def _pair_ratio(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Element-wise min/max ratio matching :func:`rebrew.similar._ratio`.
@@ -105,18 +112,13 @@ def score_matrix(sigs_a: list[dict[str, Any]], sigs_b: list[dict[str, Any]]) -> 
     ha, hb = _hist_rows(sigs_a), _hist_rows(sigs_b)
     na = np.linalg.norm(ha, axis=1)
     nb = np.linalg.norm(hb, axis=1)
-    cos = np.divide(
-        ha @ hb.T,
-        na[:, None] * nb[None, :],
-        out=np.zeros((len(sigs_a), len(sigs_b)), dtype=float),
-        where=(na[:, None] > 0) & (nb[None, :] > 0),
-    )
+    # In place from here: each N×M temporary is megabytes at ~2000 functions.
+    # Rows with a zero norm have an all-zero product row, so skipping their
+    # division leaves the 0.0 cosine the masked divide used to write.
+    cos = ha @ hb.T
+    norms = np.multiply.outer(na, nb)
+    np.divide(cos, norms, out=cos, where=norms > 0)
     np.clip(cos, 0.0, 1.0, out=cos)
-
-    ca = np.array([s["calls"] for s in sigs_a], dtype=float)[:, None]
-    cb = np.array([s["calls"] for s in sigs_b], dtype=float)[None, :]
-    ba = np.array([s["branches"] for s in sigs_a], dtype=float)[:, None]
-    bb = np.array([s["branches"] for s in sigs_b], dtype=float)[None, :]
 
     # Rounded only far enough to drop the float noise of the weighted sum
     # (an identical pair weighs 99.99999999999999).  The caller picks the
@@ -124,11 +126,36 @@ def score_matrix(sigs_a: list[dict[str, Any]], sigs_b: list[dict[str, Any]]) -> 
     # precision here would tie near-equal candidates and move a score across
     # a bucket edge: a true 94.96 becomes 95.0 and reports as
     # ">= 95 (near-identical)".  Display rounds at the JSON/console layer.
-    scores: np.ndarray = np.round(
-        0.6 * cos * 100.0 + 0.2 * _pair_ratio(ca, cb) * 100.0 + 0.2 * _pair_ratio(ba, bb) * 100.0,
-        _SCORE_NOISE_DECIMALS,
-    )
+    # The operation order matches 0.6 * cos * 100 + 0.2 * r_calls * 100 +
+    # 0.2 * r_branches * 100 exactly, so the floats are unchanged.
+    cos *= 0.6
+    cos *= 100.0
+    for key in ("calls", "branches"):
+        cos += _count_agreement(
+            np.array([s[key] for s in sigs_a], dtype=float),
+            np.array([s[key] for s in sigs_b], dtype=float),
+        )
+    scores: np.ndarray = np.round(cos, _SCORE_NOISE_DECIMALS, out=cos)
     return scores
+
+
+def _count_agreement(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """The N×M ``0.2 * ratio * 100`` term of two count vectors.
+
+    Counts repeat heavily (a handful of distinct call and branch counts per
+    binary), so for a large matrix with few distinct pairs the ratio is
+    computed once per pair and gathered.  Small matrices and mostly-distinct
+    counts take the direct form, where the lookup would cost more than it saves.
+    """
+    import numpy as np  # deferred: ~60 ms of startup for non-similarity commands
+
+    if a.size * b.size >= _COUNT_TABLE_MIN_CELLS:
+        ua, ia = np.unique(a, return_inverse=True)
+        ub, ib = np.unique(b, return_inverse=True)
+        if ua.size * ub.size * _COUNT_TABLE_MIN_REUSE <= a.size * b.size:
+            table = 0.2 * _pair_ratio(ua[:, None], ub[None, :]) * 100.0
+            return table[ia[:, None], ib[None, :]]
+    return 0.2 * _pair_ratio(a[:, None], b[None, :]) * 100.0
 
 
 def aggregate_similarity(

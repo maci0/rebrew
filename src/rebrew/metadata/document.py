@@ -220,13 +220,19 @@ def load_metadata_doc(
         parsed: list[dict[tuple[str, int], dict[str, Any]]] = []
 
         def validate(doc: Any) -> None:
+            # Only the last call's rows are kept, and they are copied once after
+            # the read, so a backend that retains its documents stays isolated.
             rows = parse_metadata_doc(
-                doc, known_fields=known_fields, source=str(path), version=version
+                doc,
+                known_fields=known_fields,
+                source=str(path),
+                version=version,
+                deepcopy=False,
             )
             parsed[:] = [rows]
 
         store.read(description, validate=validate)
-        result = parsed[0] if parsed else {}
+        result = copy.deepcopy(parsed[0]) if parsed else {}
         _write_doc_cache(path, current_fp, known_fields, result)
     with _METADATA_DOC_CACHE_LOCK:
         # Re-check: a writer may have invalidated (or another reader filled)
@@ -369,6 +375,12 @@ def parse_metadata_doc(
         raise ValueError(
             f"{source}: metadata requires format = {version}; run rebrew source consolidate --dry-run for format-2 functions"
         )
+    # Spellings the full test below accepts without calling upper/lower per key.
+    lowered = (
+        frozenset(f.lower() for f in known_fields if f.lower().upper() == f)
+        if known_fields is not None
+        else frozenset()
+    )
     result = {}
     for key, value in doc.items():
         if key == FORMAT_KEY:
@@ -387,7 +399,8 @@ def parse_metadata_doc(
             unknown = [
                 str(k)
                 for k in value
-                if str(k).upper() not in known_fields or str(k) != str(k).lower()
+                if k not in lowered
+                and (str(k).upper() not in known_fields or str(k) != str(k).lower())
             ]
             if unknown:
                 raise ValueError(f"{source}: unknown metadata fields in {key}: {unknown}")
