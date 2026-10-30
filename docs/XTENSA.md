@@ -41,7 +41,11 @@ that must also be reconstructed and compared for whole-image equality.
 With an image-backed `xt-xcc` profile, compile/compare invokes that image's
 `xt-ld` at the requested function VA. The admitted compiler image ID is also
 the linker image ID. The real core linker resolves bundled/TIE instruction
-operands and performs its normal relaxation. Rebrew returns and compares the
+operands and performs its normal relaxation. Input literals and code retain
+their reference output-section affinity. Expanded calls use typed address
+anchors for external functions; these carry no recovered callee implementation
+and their bytes are never returned as reconstructed code. Every linked external
+symbol is checked against its supplied binding after relaxation. Rebrew returns and compares the
 linked bytes, including any changed function length; it never copies target
 bytes into the object or masks instruction operands.
 
@@ -72,7 +76,8 @@ entries, and unsupported forms. A real XCC 14.04 assembly/link probe also
 reproduced CALL8 and L32R bytes through Rebrew's compile-and-compare API. The
 recovered stock `fls` source matches all 95 bytes through the native linker,
 including its bundled conditional branches; native disassembly covers every
-byte of that same stock window.
+byte of that same stock window. A recovered startup `main` also matches all 28
+stock bytes after the core linker relaxes four expanded calls.
 
 Relocation numbering and hint semantics follow the
 [Xtensa ELF relocation documentation](https://github.com/espressif/xtensa-isa-doc/blob/main/ELFRelocations.tex).

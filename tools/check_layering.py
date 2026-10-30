@@ -109,6 +109,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "flags",
             "formats.binary_loader",
             "formats.binary_model",
+            "formats.xtensa",
             "formats.ne_loader",
             "matcher.parsers",
             "metadata.functions",

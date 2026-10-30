@@ -13,7 +13,8 @@ lazy import lief
 lazy from rebrew.compiler import toolchain as registry
 lazy from rebrew.compiler.temp_dirs import writable_temp_dir
 lazy from rebrew.compiler.toolchain import ToolchainError, cached_image_digest, run_toolchain
-lazy from rebrew.formats.binary_loader import decode_binary_name
+lazy from rebrew.formats.binary_loader import decode_binary_name, load_binary
+lazy from rebrew.formats.xtensa import xtensa_symbol_relocations
 
 _NAME = re.compile(r"[A-Za-z_.$][A-Za-z0-9_.$-]*\Z")
 
@@ -77,7 +78,22 @@ def link_xtensa_function(
         for s in elf.sections
         if decode_binary_name(s.name) in reachable
     }
-    statements = []
+    reference_path = getattr(cfg, "target_binary", None)
+    reference = load_binary(Path(reference_path)) if reference_path is not None else None
+
+    def native_section(address: int) -> Any:
+        return (
+            next(
+                (s for s in reference.sections.values() if s.va <= address < s.va + s.raw_size),
+                None,
+            )
+            if reference is not None
+            else None
+        )
+
+    # Keep literal pools and callees in their native output section: XCC only
+    # relaxes expanded calls when the callee has code-section affinity.
+    groups: dict[str, list[tuple[int, str]]] = {}
     for name in sorted(reachable):
         if not _NAME.fullmatch(name):
             raise ValueError("invalid Xtensa input section name")
@@ -86,7 +102,9 @@ def link_xtensa_function(
             raise ValueError(f"native Xtensa link needs a section binding for {name}")
         if address + sections[name].size > 0x100000000:
             raise ValueError("Xtensa section binding overflows ELF32")
-        statements.append(f'"{name}" 0x{address:x} : {{ KEEP(input.o("{name}")) }}')
+        native = native_section(address)
+        group = native.name if native is not None else name
+        groups.setdefault(group, []).append((address, f'KEEP(input.o("{name}"))'))
     external = {
         decode_binary_name(r.symbol.name)
         for r in elf.relocations
@@ -96,12 +114,43 @@ def link_xtensa_function(
         and r.symbol.shndx == 0
         and r.symbol.name
     }
+    call_names = (
+        {name for _, kind, name, _, _ in xtensa_symbol_relocations(elf, target) if kind == 11}
+        if external
+        else set()
+    )
     definitions = []
+    anchors: dict[int, list[str]] = {}
     for name in sorted(external):
         address = addresses.get(name)
         if address is None or not _NAME.fullmatch(name) or not 0 <= address <= 0xFFFFFFFF:
             raise ValueError(f"native Xtensa link needs a symbol binding for {name}")
-        definitions.append(f"--defsym={name}=0x{address:x}")
+        native = native_section(address)
+        if name in call_names and native is not None and native.is_code_section:
+            anchors.setdefault(address, []).append(name)
+        else:
+            definitions.append(f"--defsym={name}=0x{address:x}")
+    assembly = []
+    for index, (address, names_at_address) in enumerate(sorted(anchors.items())):
+        section_name = f".text.rebrew.bind.{index}"
+        assembly.append(f'.section {section_name},"ax",@progbits')
+        for name in names_at_address:
+            assembly.extend([f".global {name}", f".type {name},@function", f"{name}:"])
+        assembly.append(".byte 0")  # Address/type anchor only; never returned as recovered code.
+        native = native_section(address)
+        groups.setdefault(native.name, []).append((address, f'KEEP(anchors.o("{section_name}"))'))
+    statements = []
+    for name, entries in sorted(groups.items()):
+        if not _NAME.fullmatch(name):
+            raise ValueError("invalid Xtensa native section name")
+        entries.sort()
+        base = entries[0][0]
+        if reference is not None and entries[-1][0] - base > len(reference.data):
+            raise ValueError("Xtensa placement exceeds the file-backed native layout")
+        contents = " ".join(
+            f". = 0x{address - base:x}; {selector}" for address, selector in entries
+        )
+        statements.append(f'"{name}" 0x{base:x} : {{ {contents} }}')
     directory = writable_temp_dir("rebrew_xtensa_link_")
     try:
         shutil.copyfile(obj_path, directory / "input.o")
@@ -110,6 +159,21 @@ def link_xtensa_function(
             + "\n".join(statements)
             + "\n/DISCARD/ : { *(.debug*) *(.text*) *(.literal*) *(.rodata*) *(.data*) *(.bss*) }\n}\n"
         )
+        image_id = cached_image_digest(spec.image)
+        if assembly:
+            (directory / "anchors.S").write_text("\n".join(assembly) + "\n")
+            assembled = run_toolchain(
+                spec,
+                ["-c", "anchors.S", "-o", "anchors.o"],
+                workdir=directory,
+                timeout=cfg.compile_timeout,
+                image_id=image_id,
+                execution_backend=cfg.execution_backend,
+            )
+            if assembled.returncode:
+                raise ValueError(
+                    f"native Xtensa binding assembly failed: {assembled.stderr or assembled.stdout}"
+                )
         linker = replace(spec, binary="xt-ld", image_entrypoint="xt-ld")
         result = run_toolchain(
             linker,
@@ -120,25 +184,26 @@ def link_xtensa_function(
                 "layout.ld",
                 *definitions,
                 "input.o",
+                *(["anchors.o"] if assembly else []),
                 "-o",
                 "linked.elf",
             ],
             workdir=directory,
             timeout=cfg.compile_timeout,
-            image_id=cached_image_digest(spec.image),
+            image_id=image_id,
             execution_backend=cfg.execution_backend,
         )
         if result.returncode:
             raise ValueError(f"native Xtensa linker failed: {result.stderr or result.stdout}")
         linked = lief.ELF.parse(str(directory / "linked.elf"))
-        output = (
-            next(
-                (s for s in linked.symtab_symbols if decode_binary_name(s.name) == target_name),
-                None,
-            )
-            if linked is not None
-            else None
-        )
+        if linked is None:
+            raise ValueError("native Xtensa linker did not produce an ELF image")
+        linked_symbols = {decode_binary_name(s.name): s for s in linked.symtab_symbols}
+        for name in external:
+            bound = linked_symbols.get(name)
+            if bound is None or bound.value != addresses[name]:
+                raise ValueError(f"native Xtensa linker changed the binding for {name}")
+        output = linked_symbols.get(target_name)
         if (
             output is None
             or output.section is None

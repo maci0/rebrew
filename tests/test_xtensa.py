@@ -270,3 +270,82 @@ class TestNativeDisassembly:
         response.stdout = "32001000:\t004136\tentry\ta1, 32\n"
         with pytest.raises(ValueError, match="complete byte window"):
             xtensa.disassemble_xtensa(cfg, code, 0x32001000)
+
+
+class TestNativeCallRelaxation:
+    def test_link_preserves_section_affinity_and_external_addresses(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import lief
+
+        from rebrew.compiler import xtensa
+        from rebrew.compiler.toolchain_spec import ToolchainSpec
+        from rebrew.formats.binary_model import SectionInfo
+
+        source_section = SimpleNamespace(name=".text.probe", size=8, flags=6)
+        source_symbol = SimpleNamespace(name="probe", section=source_section, value=0, size=8)
+        callee = SimpleNamespace(name="callee", section=None, shndx=0)
+        obj = SimpleNamespace(
+            header=SimpleNamespace(machine_type=lief.ELF.ARCH.XTENSA),
+            symtab_symbols=[source_symbol],
+            sections=[source_section],
+            relocations=[SimpleNamespace(section=source_section, symbol=callee)],
+        )
+        output_section = SimpleNamespace(content=b"linked", virtual_address=0x32001000)
+        output = SimpleNamespace(name="probe", section=output_section, value=0x32001000, size=6)
+        bound = SimpleNamespace(name="callee", value=0x32002000)
+        linked = SimpleNamespace(symtab_symbols=[output, bound])
+        monkeypatch.setattr(
+            lief.ELF, "parse", lambda p: linked if str(p).endswith("linked.elf") else obj
+        )
+        monkeypatch.setattr(
+            xtensa, "xtensa_symbol_relocations", lambda *_: [(0, 11, "callee", 0, None)]
+        )
+        reference = SimpleNamespace(
+            sections={".text": SectionInfo(".text", 0x32000000, 0x10000, 0, 0x10000, True)},
+            data=b"\0" * 0x10000,
+        )
+        monkeypatch.setattr(xtensa, "load_binary", lambda _: reference)
+        monkeypatch.setattr(
+            xtensa.registry,
+            "TOOLCHAINS",
+            {"xcc": ToolchainSpec("xcc", "test/xcc:1", binary="xt-xcc")},
+        )
+        monkeypatch.setattr(xtensa, "cached_image_digest", lambda _: "sha256:" + "a" * 64)
+        tools = []
+
+        def run(spec, args, **kwargs):
+            directory = kwargs["workdir"]
+            tools.append(spec.binary)
+            if spec.binary == "xt-xcc":
+                assembly = (directory / "anchors.S").read_text()
+                assert ".type callee,@function" in assembly and ".byte 0" in assembly
+            else:
+                layout = (directory / "layout.ld").read_text()
+                assert '".text" 0x32001000' in layout
+                assert (
+                    'input.o(".text.probe")' in layout
+                    and 'anchors.o(".text.rebrew.bind.0")' in layout
+                )
+                assert ". = 0x1000;" in layout
+                assert "--defsym=callee=0x32002000" not in args
+                assert "anchors.o" in args
+            return SimpleNamespace(returncode=0)
+
+        monkeypatch.setattr(xtensa, "run_toolchain", run)
+        path = tmp_path / "input.o"
+        path.write_bytes(b"operator object")
+        cfg = SimpleNamespace(
+            compiler_profile="xcc",
+            compile_timeout=60,
+            execution_backend="docker",
+            target_binary=tmp_path / "reference.elf",
+        )
+        assert (
+            xtensa.link_xtensa_function(cfg, path, "probe", 0x32001000, {"callee": 0x32002000})
+            == b"linked"
+        )
+        assert tools == ["xt-xcc", "xt-ld"]
+        bound.value += 4
+        with pytest.raises(ValueError, match="changed the binding for callee"):
+            xtensa.link_xtensa_function(cfg, path, "probe", 0x32001000, {"callee": 0x32002000})
