@@ -3845,3 +3845,19 @@ Repairing the inventory to 5 bytes is correct, but the rows still say 17 and the
 five-byte C tail call can never match them. Proposed: let the repair writer push
 the reviewed extent into the row (digest-guarded like `source binding rebind`),
 or add a shrink mode to `--fix-sizes` that consumes repaired inventory extents.
+
+## source split leaves helpers unlinked when the remaining file has no rows
+
+Splitting a multi-function TU that also holds shared helpers removes its rows and
+`build cmake-sources` then drops the file, so any helper still called from other
+TUs becomes an unresolved external at link time. `source register FILE --support`
+records the purpose but does not add the file to the CMake source list.
+
+Repro: split `alchemistry_logic.c` (7 rows) on the T guild project; `command.c`
+then fails with `error LNK2001: unresolved external symbol _ahm_ClampFloatValue`
+and nine more from the same file. The file still defines those helpers.
+
+Proposed: keep the remainder in the source list when a split leaves code behind
+either by adding a residual file row or by having `cmake-sources` include support
+files that carry code. Until then, splits must move every helper that other TUs
+call.
