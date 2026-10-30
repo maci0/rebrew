@@ -59,6 +59,7 @@ from rebrew.cli import (
 )
 lazy from rebrew.coff_reloc import (
     CatalogScanError,
+    apply_coff_relocations,
     binding_summary,
     build_iat_region,
     build_name_to_va,
@@ -2037,6 +2038,15 @@ def _test_multi(
                             f"[red]EXTRACT_ERROR[/red] {untrusted_ident(sym)} — not found in .obj"
                         )
                     continue
+
+                if any(rec.format == "elf-xtensa" for rec in full_relocs):
+                    obj_bytes = apply_coff_relocations(
+                        obj_bytes,
+                        full_relocs,
+                        lambda name: (name_to_va or {}).get(name),
+                        section_va=ann.va,
+                    )
+                    full_relocs, reloc_dict = [], {}
 
                 coff_relocs = full_relocs or reloc_dict
 

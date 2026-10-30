@@ -90,6 +90,9 @@ class CoffRelocRecord:
     offset: int  # byte offset inside the function's .text slice
     type: int  # e.g. IMAGE_REL_I386_* (0x06=DIR32, 0x14=REL32), or ELF-MIPS/PPC reloc type
     symbol: str  # target symbol name (with leading underscore on MSVC)
+    format: str = "coff-i386"
+    addend: int = 0
+    local_offset: int | None = None
 
 
 _RELOC_ALIGNMENT = 4
@@ -501,6 +504,16 @@ def apply_coff_relocations(
     table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
     fmt = _reloc_fmt(reloc_table)
     for r in relocs:
+        if r.format == "elf-xtensa":
+            from rebrew.formats.xtensa import apply_xtensa_relocation
+
+            target_va = (
+                section_va + r.local_offset if r.local_offset is not None else resolve_va(r.symbol)
+            )
+            if r.type not in (0, 11, 12) and (target_va is None or target_va < 0):
+                raise UnresolvedSymbolError(r.symbol)
+            apply_xtensa_relocation(buf, r.offset, r.type, (target_va or 0) + r.addend, section_va)
+            continue
         kind = table.get(r.type)
         if kind == "none":
             continue  # IMAGE_REL_I386_ABSOLUTE: no patch, no symbol to resolve
@@ -685,7 +698,12 @@ def relocation_binding_evidence(
         records = [(offset, "abs32", symbol, False) for offset, symbol in coff_relocs.items()]
     else:
         records = [
-            (rec.offset, table.get(rec.type, "unsupported"), rec.symbol, True)
+            (
+                rec.offset,
+                table.get(rec.type, "unsupported") if rec.format == "coff-i386" else "unsupported",
+                rec.symbol,
+                True,
+            )
             if isinstance(rec, CoffRelocRecord)
             else (rec, "mask", "", False)
             for rec in coff_relocs or []
@@ -892,6 +910,21 @@ def smart_reloc_compare(
         (matched, match_count, total_bytes, valid_relocs, invalid_relocs)
 
     """
+    if isinstance(coff_relocs, (list, tuple)) and any(
+        isinstance(rec, CoffRelocRecord) and rec.format == "elf-xtensa" for rec in coff_relocs
+    ):
+        records = cast(list[CoffRelocRecord], coff_relocs)
+        if section_va is None:
+            return False, 0, max(len(obj_bytes), len(target_bytes)), [], [r.offset for r in records]
+        try:
+            resolved = apply_coff_relocations(
+                obj_bytes, records, lambda name: (name_to_va or {}).get(name), section_va=section_va
+            )
+        except UnresolvedSymbolError, ValueError, NotImplementedError:
+            return False, 0, max(len(obj_bytes), len(target_bytes)), [], [r.offset for r in records]
+        count = sum(a == b for a, b in zip(resolved, target_bytes, strict=False))
+        return resolved == target_bytes, count, max(len(resolved), len(target_bytes)), [], []
+
     min_len = min(len(obj_bytes), len(target_bytes))
     max_len = max(len(obj_bytes), len(target_bytes))
 

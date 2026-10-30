@@ -68,6 +68,8 @@ lazy from pathlib import Path
 from rebrew.errors import RebrewError
 from rebrew.workspace.status import MATCHED_STATUSES
 lazy from rebrew.coff_reloc import (
+    UnresolvedSymbolError,
+    apply_coff_relocations,
     binding_summary,
     build_iat_region,
     relocation_binding_evidence,
@@ -2695,6 +2697,28 @@ def _extract_and_compare(
         return classify_compare_result(
             False, f"EXTRACT_ERROR: Symbol '{symbol}' not found in .obj", target_bytes, None, None
         )
+
+    if any(rec.format == "elf-xtensa" for rec in full_relocs):
+        if section_va is None:
+            return classify_compare_result(
+                False,
+                "EXTRACT_ERROR: Xtensa relocation needs the function VA",
+                target_bytes,
+                None,
+                None,
+            )
+        try:
+            obj_bytes = apply_coff_relocations(
+                obj_bytes,
+                full_relocs,
+                lambda name: (name_to_va or {}).get(name),
+                section_va=section_va,
+            )
+        except (UnresolvedSymbolError, ValueError, NotImplementedError) as exc:
+            return classify_compare_result(
+                False, f"EXTRACT_ERROR: Xtensa relocation: {exc}", target_bytes, None, None
+            )
+        full_relocs, reloc_dict = [], {}
 
     coff_relocs = full_relocs if full_relocs else reloc_dict
     bindings = (

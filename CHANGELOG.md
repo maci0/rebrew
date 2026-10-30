@@ -2,6 +2,10 @@
 
 ### Added
 
+- Recognize little-endian Xtensa ELF32 targets and resolve standard 32-bit data,
+  CALL, L32R, and J relocations with explicit symbol bindings. Unsupported core
+  instruction forms and offset-only masking fail closed; see `docs/XTENSA.md`.
+
 - `rebrew binary score` also reports `informative` counts: same-offset matches
   restricted to positions where the reference byte is non-zero, so
   zero-initialized layout padding cannot inflate the score.

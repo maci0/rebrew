@@ -94,6 +94,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "flag_data",
             "flags",
             "formats.binary_loader",
+            "formats.xtensa",
             "formats.omf16",
             "registry",
             "utils",

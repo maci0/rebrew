@@ -1219,6 +1219,7 @@ def _arch_maps() -> tuple[
             _lf.ELF.ARCH.PPC: "ppc32",
             _lf.ELF.ARCH.PPC64: "ppc64",
             _lf.ELF.ARCH.SH: "sh2",
+            _lf.ELF.ARCH.XTENSA: "xtensa",
         },
         {
             _lf.MachO.Header.CPU_TYPE.X86: "x86_32",
@@ -1364,6 +1365,12 @@ def capstone_config_for(info: BinaryInfo) -> tuple[int, int]:
         return capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM | bits
     if arch == "arm64":
         return capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM | bits
+    if arch == "xtensa":
+        if not hasattr(capstone, "CS_ARCH_XTENSA"):
+            raise NotImplementedError(
+                "installed Capstone cannot disassemble Xtensa; use IDA or xt-objdump"
+            )
+        return capstone.CS_ARCH_XTENSA, bits
     if arch == "sh2":
         return capstone.CS_ARCH_SH, capstone.CS_MODE_SH2 | bits
     return capstone.CS_ARCH_X86, capstone_mode_for_arch(arch, getattr(info, "format", "") or "")
