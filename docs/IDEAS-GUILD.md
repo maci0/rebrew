@@ -3877,3 +3877,25 @@ by 53 with the same clean link.
 
 Proposed: a `--prune-existing FILE --sources DIR` mode (or an automatic check at
 generation time) that omits definitions whose symbol the source set defines.
+
+## parallel verify reports identical COMPILE_ERROR rows under the unshare backend
+
+`rebrew verify --no-cache --text --raw-link` on the GOLDTL project reports the same
+60 rows as `COMPILE_ERROR` in two consecutive runs, all with
+`rebrew-unshare: mount target mkdir: Read-only file system` (row 0x4058D0, file
+`src/Develop/Unassigned/GOLD.fcn_00404e40.c` among them). Running
+`rebrew test <file> --va <va> --no-promote` on each of the 60 rows sequentially
+succeeds (31 EXACT, 29 RELOC), so the sources and flags are fine and the failure is
+specific to the verify fan-out.
+
+The error comes from `unshare_runner.c` `do_mount` (`mkdirat` returns EROFS while
+building a mount target). Deterministic per row set, so it looks like those rows'
+profiles ask for a mount target under a path that an earlier mount in the same
+profile made read-only, rather than a race. A single-file run builds a different
+mount set.
+
+Repro: in a project with the unshare backend selected, run
+`rebrew verify --no-cache --text --raw-link --built build/<target>` and then run
+`rebrew test` on the reported COMPILE_ERROR rows individually. Proposed: make
+`do_mount` create all target directories before any `MS_RDONLY` mount is applied,
+or report which mount entry made the parent read-only.
