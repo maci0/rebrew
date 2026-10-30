@@ -165,6 +165,11 @@
 - Splat YAML errors include the supplied config path, and nested inputs fail with
   a bounded `ValueError` instead of overflowing the parser stack.
 
+- `load_ne_binary` passes the code probe's verdict into `SectionInfo`, so NE
+  sections named `SEG<n>` read as code through `is_code_section` instead of
+  falling back to a name no NE section carries. Without it every NE section
+  read as data and `catalog.inventory.complete_span` refused every
+  repair-extents request with "not a complete file-backed executable span".
 ## [6.8.1] - 2026-10-30
 
 ### Added

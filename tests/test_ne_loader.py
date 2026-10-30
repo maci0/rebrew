@@ -166,6 +166,23 @@ class TestLoadNeBinary:
         assert info.text_size > 0
         assert info.text_va == info.sections["SEG1"].va
 
+    def test_section_code_flag_follows_the_probe(self, tmp_path: Path) -> None:
+        """The probe's verdict has to reach `SectionInfo`, not stop at `text_size`.
+
+        `SectionInfo.is_code_section` resolves a None flag by section name, and
+        `SEG<n>` matches no code name, so without the stated flag every NE
+        section reads as data and `catalog.inventory.complete_span` refuses
+        every repair-extents request with "not a complete file-backed
+        executable span".
+        """
+        from rebrew.formats.binary_loader import load_binary
+
+        path = tmp_path / "code_and_data.ne"
+        path.write_bytes(make_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)]))
+        info = load_binary(path)
+        assert info.sections["SEG1"].is_code_section is True
+        assert info.sections["SEG2"].is_code_section is False
+
 
 class TestProbeIsCode:
     def test_code_segment(self) -> None:

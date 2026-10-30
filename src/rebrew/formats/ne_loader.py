@@ -623,6 +623,12 @@ def load_ne_binary(path: Path) -> BinaryInfo:
             size=max(seg.length, seg.min_allocation),
             file_offset=seg.file_offset,
             raw_size=raw_size,
+            # The probe above is the only code verdict NE has, and it has to
+            # reach the model: `is_code_section` resolves a None flag by name,
+            # `SEG<n>` matches no code name, and every NE section then reads as
+            # data, which is what made `catalog.inventory.complete_span` refuse
+            # every repair-extents request.
+            is_code=seg.is_code,
         )
         if seg.is_code:
             # Aggregate code segments so tools (catalog coverage, report)
