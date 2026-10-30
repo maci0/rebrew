@@ -13,7 +13,7 @@ lazy import lief
 lazy from rebrew.compiler import toolchain as registry
 lazy from rebrew.compiler.temp_dirs import writable_temp_dir
 lazy from rebrew.compiler.toolchain import ToolchainError, cached_image_digest, run_toolchain
-lazy from rebrew.formats.binary_loader import decode_binary_name, load_binary
+lazy from rebrew.formats.binary_loader import decode_binary_name, load_binary, sniff_image_endian
 lazy from rebrew.formats.xtensa import xtensa_symbol_relocations
 
 _NAME = re.compile(r"[A-Za-z_.$][A-Za-z0-9_.$-]*\Z")
@@ -159,7 +159,10 @@ def link_xtensa_function(
             + "\n".join(statements)
             + "\n/DISCARD/ : { *(.debug*) *(.text*) *(.literal*) *(.rodata*) *(.data*) *(.bss*) }\n}\n"
         )
-        image_id = cached_image_digest(spec.image)
+        image_id = cached_image_digest(
+            spec.image,
+            runtime=cfg.execution_backend if cfg.execution_backend not in ("", "unshare") else None,
+        )
         if assembly:
             (directory / "anchors.S").write_text("\n".join(assembly) + "\n")
             assembled = run_toolchain(
@@ -242,6 +245,10 @@ def disassemble_xtensa(
         raise ValueError("Xtensa disassembly requires an image-backed xt-xcc profile")
     if va < 0 or va + len(code) > 0x100000000:
         raise ValueError("Xtensa disassembly window overflows ELF32")
+    if getattr(cfg, "endian", "") == "big" or (
+        binary is not None and sniff_image_endian(binary) == "big"
+    ):
+        raise ValueError("big-endian Xtensa images are unsupported")
     if not code:
         return []
     directory = writable_temp_dir("rebrew_xtensa_asm_")
@@ -262,7 +269,7 @@ def disassemble_xtensa(
         else:
             shutil.copyfile(binary, directory / "input.elf")
             arguments = [
-                "-d",
+                "-D",
                 "-z",
                 f"--start-address={va}",
                 f"--stop-address={va + len(code)}",
@@ -273,7 +280,12 @@ def disassemble_xtensa(
             arguments,
             workdir=directory,
             timeout=cfg.compile_timeout,
-            image_id=cached_image_digest(spec.image),
+            image_id=cached_image_digest(
+                spec.image,
+                runtime=cfg.execution_backend
+                if cfg.execution_backend not in ("", "unshare")
+                else None,
+            ),
             execution_backend=cfg.execution_backend,
         )
         if result.returncode:

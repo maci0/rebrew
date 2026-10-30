@@ -191,7 +191,9 @@ class TestNativeCoreLinker:
         )
         spec = ToolchainSpec("xcc", "test/xcc:1", binary="xt-xcc")
         monkeypatch.setattr(xtensa.registry, "TOOLCHAINS", {"xcc": spec})
-        monkeypatch.setattr(xtensa, "cached_image_digest", lambda _: "sha256:" + "a" * 64)
+        monkeypatch.setattr(
+            xtensa, "cached_image_digest", lambda _, **_kwargs: "sha256:" + "a" * 64
+        )
         runs = []
 
         def run(spec, args, **kwargs):
@@ -240,7 +242,9 @@ class TestNativeDisassembly:
             "TOOLCHAINS",
             {"xcc": ToolchainSpec("xcc", "test/xcc:1", binary="xt-xcc")},
         )
-        monkeypatch.setattr(xtensa, "cached_image_digest", lambda _: "sha256:" + "a" * 64)
+        monkeypatch.setattr(
+            xtensa, "cached_image_digest", lambda _, **_kwargs: "sha256:" + "a" * 64
+        )
         response = SimpleNamespace(
             returncode=0, stdout="32001000:\t004136\tentry\ta1, 32\n32001003:\tf01d\tretw.n\n"
         )
@@ -273,8 +277,9 @@ class TestNativeDisassembly:
 
 
 class TestNativeCallRelaxation:
+    @pytest.mark.parametrize("backend", ["docker", "podman"])
     def test_link_preserves_section_affinity_and_external_addresses(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, backend: str
     ) -> None:
         import lief
 
@@ -311,7 +316,9 @@ class TestNativeCallRelaxation:
             "TOOLCHAINS",
             {"xcc": ToolchainSpec("xcc", "test/xcc:1", binary="xt-xcc")},
         )
-        monkeypatch.setattr(xtensa, "cached_image_digest", lambda _: "sha256:" + "a" * 64)
+        monkeypatch.setattr(
+            xtensa, "cached_image_digest", lambda _, **_kwargs: "sha256:" + "a" * 64
+        )
         tools = []
 
         def run(spec, args, **kwargs):
@@ -338,7 +345,7 @@ class TestNativeCallRelaxation:
         cfg = SimpleNamespace(
             compiler_profile="xcc",
             compile_timeout=60,
-            execution_backend="docker",
+            execution_backend=backend,
             target_binary=tmp_path / "reference.elf",
         )
         assert (
@@ -349,3 +356,122 @@ class TestNativeCallRelaxation:
         bound.value += 4
         with pytest.raises(ValueError, match="changed the binding for callee"):
             xtensa.link_xtensa_function(cfg, path, "probe", 0x32001000, {"callee": 0x32002000})
+
+    def test_external_data_binding_uses_defsym(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import lief
+
+        from rebrew.compiler import xtensa
+        from rebrew.compiler.toolchain_spec import ToolchainSpec
+
+        section = SimpleNamespace(name=".text.probe", size=6, flags=6)
+        target = SimpleNamespace(name="probe", section=section, value=0, size=6)
+        external = SimpleNamespace(name="data", section=None, shndx=0)
+        obj = SimpleNamespace(
+            header=SimpleNamespace(machine_type=lief.ELF.ARCH.XTENSA),
+            symtab_symbols=[target],
+            sections=[section],
+            relocations=[SimpleNamespace(section=section, symbol=external)],
+        )
+        output = SimpleNamespace(
+            name="probe",
+            section=SimpleNamespace(content=b"linked", virtual_address=0x32001000),
+            value=0x32001000,
+            size=6,
+        )
+        linked = SimpleNamespace(
+            symtab_symbols=[output, SimpleNamespace(name="data", value=0x32002000)]
+        )
+        monkeypatch.setattr(
+            lief.ELF, "parse", lambda path: linked if str(path).endswith("linked.elf") else obj
+        )
+        monkeypatch.setattr(
+            xtensa, "xtensa_symbol_relocations", lambda *_: [(0, 1, "data", 0, None)]
+        )
+        monkeypatch.setattr(
+            xtensa.registry,
+            "TOOLCHAINS",
+            {"xcc": ToolchainSpec("xcc", "test/xcc:1", binary="xt-xcc")},
+        )
+        monkeypatch.setattr(
+            xtensa, "cached_image_digest", lambda _, **_kwargs: "sha256:" + "a" * 64
+        )
+        calls = []
+
+        def run(spec, args, **_kwargs):
+            assert spec.binary == "xt-ld" and "--defsym=data=0x32002000" in args
+            calls.append(args)
+            return SimpleNamespace(returncode=0)
+
+        monkeypatch.setattr(xtensa, "run_toolchain", run)
+        cfg = SimpleNamespace(
+            compiler_profile="xcc", compile_timeout=60, execution_backend="docker"
+        )
+        path = tmp_path / "input.o"
+        path.write_bytes(b"operator object")
+        assert (
+            xtensa.link_xtensa_function(cfg, path, "probe", 0x32001000, {"data": 0x32002000})
+            == b"linked"
+        )
+        with pytest.raises(ValueError, match="symbol binding for data"):
+            xtensa.link_xtensa_function(cfg, path, "probe", 0x32001000, {})
+        assert len(calls) == 1
+
+
+class TestXtensaReviewRegressions:
+    def test_fallback_symbol_reaches_linker(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.compiler import compile as compiler
+        from rebrew.compiler import xtensa
+
+        raw = b"object"
+        records = [CoffRelocRecord(0, 20, "callee", "elf-xtensa")]
+
+        def parse(_path, symbol):
+            return (raw, {}, records) if symbol == "probe" else (None, None, [])
+
+        monkeypatch.setattr(compiler, "parse_obj_symbol_and_relocs", parse)
+        received = []
+
+        def link(_cfg, _path, symbol, *_args):
+            received.append(symbol)
+            return b"target"
+
+        monkeypatch.setattr(xtensa, "link_xtensa_function", link)
+        result = compiler._extract_and_compare(
+            "unused.o",
+            "_probe@4",
+            b"target",
+            section_va=0x32001000,
+            cfg=SimpleNamespace(arch="xtensa"),
+        )
+        assert result.matched and received == ["probe"]
+
+    def test_big_endian_elf_is_rejected_at_detection(self, tmp_path: Path) -> None:
+        from rebrew.formats.binary_loader import detect_format_and_arch
+
+        image = bytearray(make_elf(bytes.fromhex("3641001df0")))
+        header = list(struct.unpack_from("<HHIIIIIHHHHHH", image, 16))
+        header[1] = 94
+        for index in range(header[9]):
+            offset = header[4] + index * header[8]
+            struct.pack_into(">8I", image, offset, *struct.unpack_from("<8I", image, offset))
+        for index in range(header[11]):
+            offset = header[5] + index * header[10]
+            struct.pack_into(">10I", image, offset, *struct.unpack_from("<10I", image, offset))
+        struct.pack_into(">HHIIIIIHHHHHH", image, 16, *header)
+        image[5] = 2
+        path = tmp_path / "big.elf"
+        path.write_bytes(image)
+        with pytest.raises(ValueError, match="little-endian ELF32"):
+            detect_format_and_arch(path)
+        with pytest.raises(ValueError, match="little-endian ELF32"):
+            load_binary(path)
+
+    def test_unsupported_inline_c_is_explicit(self) -> None:
+        from rebrew.asm import generate_inline_c
+
+        with pytest.raises(RuntimeError, match="XCC ignores the naked"):
+            generate_inline_c(
+                bytes.fromhex("3641001df0"), SimpleNamespace(arch="xtensa"), 0x32001000, "probe"
+            )

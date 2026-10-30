@@ -337,7 +337,9 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     return BinaryInfo(
         path=path,
         format="elf",
-        arch=_elf_arch(binary.header.machine_type, binary.header.identity_class),
+        arch=_elf_arch(
+            binary.header.machine_type, binary.header.identity_class, binary.header.identity_data
+        ),
         endian=_elf_endian(binary.header.identity_data),
         pointer_size=8 if _elf_is_64(binary.header.identity_class) else 4,
         image_base=image_base,
@@ -1262,7 +1264,7 @@ def _elf_is_64(identity_class: Any) -> bool:
     return bool(identity_class == elfclass64)
 
 
-def _elf_arch(machine_type: Any, identity_class: Any) -> str:
+def _elf_arch(machine_type: Any, identity_class: Any, identity_data: Any = None) -> str:
     """Arch name for an ELF header, with the 32/64-bit MIPS split resolved.
 
     ``EM_MIPS`` covers both 32- and 64-bit MIPS and LIEF exposes no
@@ -1272,6 +1274,10 @@ def _elf_arch(machine_type: Any, identity_class: Any) -> str:
     maps has its own 32/64 enum member, so the map answer is unambiguous.
     """
     arch = _arch_maps()[1].get(machine_type, "")
+    if arch == "xtensa" and (
+        _elf_is_64(identity_class) or getattr(identity_data, "name", "") == "MSB"
+    ):
+        raise ValueError("Xtensa support requires little-endian ELF32 images")
     if arch != "mips32":
         return arch
     return "mips64" if _elf_is_64(identity_class) else "mips32"
@@ -1395,7 +1401,13 @@ def detect_format_and_arch(path: Path) -> tuple[str, str | None]:
     if lief.is_elf(spath):
         binary = lief.ELF.parse(spath)
         arch = (
-            _elf_arch(binary.header.machine_type, binary.header.identity_class) if binary else None
+            _elf_arch(
+                binary.header.machine_type,
+                binary.header.identity_class,
+                binary.header.identity_data,
+            )
+            if binary
+            else None
         )
         return "elf", arch
     if lief.is_macho(spath):
@@ -1420,7 +1432,9 @@ def object_arch(obj_data: bytes) -> tuple[str, str] | None:
         elf = lief.ELF.parse(list(obj_data))
         if elf is None:
             return None
-        arch = _elf_arch(elf.header.machine_type, elf.header.identity_class)
+        arch = _elf_arch(
+            elf.header.machine_type, elf.header.identity_class, elf.header.identity_data
+        )
         big = elf.header.identity_data == lief.ELF.Header.ELF_DATA.MSB
         endian = "big" if big else "little"
     else:

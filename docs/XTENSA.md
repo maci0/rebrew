@@ -66,6 +66,9 @@ compiler image. Unknown forms fail explicitly there. The legacy offset-only
 parser refuses relocated Xtensa functions: clients that cannot supply native
 placement/bindings must use the typed compile/compare path, not four-byte masks.
 Big-endian Xtensa objects remain outside this little-endian firmware backend.
+Hex disassembly is supported. NASM/inline-C and CFG export reject Xtensa explicitly;
+XCC 14.04 ignores the naked-function attribute, so emitting a supposed byte-exact
+inline-C stub would add a prologue and epilogue. Recover plain C instead.
 
 ## Validation
 

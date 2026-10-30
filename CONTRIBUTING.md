@@ -242,7 +242,8 @@ literals stops the gate instead of reading as a table with no routes.
   them in a checkout of the release commit), then
   attach those exact files to the GitHub release:
   `gh release create v<version> dist/rebrew-*.tar.gz dist/rebrew-*.whl dist/rebrew.buildinfo dist/rebrew.cdx.json --verify-tag --title "Rebrew <version>" --notes-file release-notes.md`.
-  The release notes come from the dated changelog section. The package artifact
+  Before running the command, copy the body of the dated changelog section
+  into `release-notes.md`. The package artifact
   is the build that ran the reproducible rebuild, sdist-to-wheel member diff,
   and clean-venv smoke install. Releases are distributed through GitHub only;
   no package-index upload or publishing token is part of this process.

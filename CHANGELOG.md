@@ -36,6 +36,14 @@
   VA, and with what fixed-byte ratio; it answers whether an `/INCLUDE` member is
   something the reference actually carries.
 
+### Fixed
+
+- Keep successful fallback symbol spellings through native linking, select image
+  digests from the configured execution backend, and reject unsupported endian
+  and export modes explicitly.
+- Splat YAML errors include the supplied config path, and nested inputs fail with
+  a bounded `ValueError` instead of overflowing the parser stack.
+
 ## [6.8.1] - 2026-10-30
 
 ### Added

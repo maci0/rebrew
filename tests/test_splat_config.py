@@ -403,6 +403,21 @@ class TestParseSplatText:
         with pytest.raises(ValueError, match="top-level value must be a mapping"):
             parse_splat_text("- a\n- b\n", Path("/virtual/splat.yaml"))
 
+    def test_syntax_error_names_the_virtual_path(self) -> None:
+        with pytest.raises(ValueError, match=r"^/virtual/splat\.yaml: line 3"):
+            parse_splat_text("options:\n  x: 1\n  x: 2\n", Path("/virtual/splat.yaml"))
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "options: " + "[" * 1000 + "0" + "]" * 1000,
+            "\n".join("  " * i + "key:" for i in range(1000)),
+        ],
+    )
+    def test_deep_yaml_is_a_path_named_value_error(self, text: str) -> None:
+        with pytest.raises(ValueError, match=r"^/virtual/splat\.yaml: line .*nesting"):
+            parse_splat_text(text, Path("/virtual/splat.yaml"))
+
     def test_the_file_parser_still_refuses_non_utf8_bytes(self, tmp_path: Path) -> None:
         yaml_path = tmp_path / "bad.yaml"
         yaml_path.write_bytes(b"options:\n  basename: \xff\xfe\n")
@@ -416,7 +431,7 @@ class TestParseSplatText:
     def test_arbitrary_text_is_a_model_or_a_value_error(self, text: str) -> None:
         try:
             cfg = parse_splat_text(text, Path("/virtual/splat.yaml"))
-        except ValueError, RecursionError:
+        except ValueError:
             return
         assert isinstance(cfg, SplatConfig)
 

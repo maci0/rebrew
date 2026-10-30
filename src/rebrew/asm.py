@@ -1425,6 +1425,11 @@ def generate_inline_c(
     ``rebrew-functions.toml`` when a caller writes the text to a file.
     Stdout output has no row.
     """
+    if getattr(cfg, "arch", "") == "xtensa":
+        raise RuntimeError(
+            "Xtensa inline-C emission is unsupported: XCC ignores the naked attribute; recover plain C instead"
+        )
+
     sym = symbol or f"_func_{va:08x}"
     # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``. One cdecl
     # underscore still comes off (``_foo`` is ``foo``).
@@ -1875,6 +1880,12 @@ def disassemble(
         error_exit("--size must be a positive integer", json_mode=json_output)
 
     cfg = require_config(target=target, json_mode=json_output)
+
+    if getattr(cfg, "arch", "") == "xtensa" and (fmt != "hex" or inline_c):
+        error_exit(
+            "Xtensa supports hex disassembly; NASM/inline-C and CFG export are unsupported",
+            json_mode=json_output,
+        )
 
     # --- NASM batch modes ---
     if fmt == "nasm" and (extract_all or batch_stubs):
