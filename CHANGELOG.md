@@ -2,6 +2,9 @@
 
 ### Added
 
+- **Breaking:** `compiler.cache.CACHE_SCHEMA_VERSION` advances to 11 so pre-Xtensa
+  compile-cache entries are retired and rebuilt with typed relocation handling.
+
 - Recognize little-endian Xtensa ELF32 targets and resolve standard 32-bit data,
   CALL, L32R, and J relocations with explicit symbol bindings. Unsupported core
   instruction forms and offset-only masking fail closed; see `docs/XTENSA.md`.

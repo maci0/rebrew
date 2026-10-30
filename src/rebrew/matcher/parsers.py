@@ -456,8 +456,15 @@ def _parse_xtensa_symbol(
     """Preserve Xtensa RELA types without LIEF's unsupported-type conversion."""
     from rebrew.formats.xtensa import xtensa_symbol_relocations
 
+    names = (symbol, symbol[1:] if symbol.startswith("_") else "_" + symbol)
     target = next(
-        (s for s in elf.symtab_symbols if s.name == symbol and s.section is not None), None
+        (
+            s
+            for name in names
+            for s in elf.symtab_symbols
+            if s.name == name and s.section is not None
+        ),
+        None,
     )
     if target is None:
         return None, None, []

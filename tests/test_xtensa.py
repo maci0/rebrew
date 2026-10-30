@@ -123,3 +123,28 @@ class TestXtensaCompare:
         encoded = int.from_bytes(buf[:3], "little") >> 6
         displacement = encoded - (1 << 18) if encoded & (1 << 17) else encoded
         assert 0x32001004 + displacement == destination and buf[3] == 0xA7
+
+    def test_elf_symbol_decoration_matches_shared_parser(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import lief
+
+        from rebrew.matcher.parsers import parse_obj_symbol_and_relocs, parse_obj_symbol_bytes
+
+        code = bytes.fromhex("3641001df0")
+        section = SimpleNamespace(content=code)
+        symbol = SimpleNamespace(name="probe", section=section, value=0, size=len(code))
+        elf = SimpleNamespace(
+            header=SimpleNamespace(
+                machine_type=lief.ELF.ARCH.XTENSA,
+                identity_data=SimpleNamespace(name="LSB"),
+                identity_class=SimpleNamespace(name="ELF32"),
+            ),
+            symtab_symbols=[symbol],
+            sections=[],
+        )
+        path = tmp_path / "probe.o"
+        path.write_bytes(b"\x7fELF")
+        monkeypatch.setattr(lief.ELF, "parse", lambda *_: elf)
+        assert parse_obj_symbol_and_relocs(path, "_probe") == (code, {}, [])
+        assert parse_obj_symbol_bytes(path, "_probe") == (code, {})
