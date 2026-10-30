@@ -1,6 +1,21 @@
 ## [Unreleased]
 
+## [6.9.0] - 2026-10-30
+
 ### Added
+
+- Recognize little-endian Xtensa ELF32 targets and resolve standard 32-bit data,
+  CALL, L32R, and J relocations with explicit symbol bindings. Unsupported core
+  instruction forms and offset-only masking fail closed; see `docs/XTENSA.md`.
+
+- Image-backed XCC targets use the matching core linker for bundled/TIE operands
+  and relaxation, and the core objdump for byte-checked native disassembly.
+
+- `rebrew binary score` also reports `informative` counts: same-offset matches
+  restricted to positions where the reference byte is non-zero, so
+  zero-initialized layout padding cannot inflate the score.
+
+### Changed
 
 - Release artifacts are attached to GitHub after CI artifact verification; remove
   package-index upload instructions and unrelated publishing checks.
@@ -8,15 +23,6 @@
 - **Breaking:** `compiler.cache.CACHE_SCHEMA_VERSION` advances to 11 so pre-Xtensa
   compile-cache entries are retired and rebuilt with typed relocation handling.
 
-- Recognize little-endian Xtensa ELF32 targets and resolve standard 32-bit data,
-  CALL, L32R, and J relocations with explicit symbol bindings. Unsupported core
-  instruction forms and offset-only masking fail closed; see `docs/XTENSA.md`.
-- Image-backed XCC targets use the matching core linker for bundled/TIE operands
-  and relaxation, and the core objdump for byte-checked native disassembly.
-
-- `rebrew binary score` also reports `informative` counts: same-offset matches
-  restricted to positions where the reference byte is non-zero, so
-  zero-initialized layout padding cannot inflate the score.
 - **Breaking:** `app.builtins.DOMAIN_COMPONENTS` gains a `binary` entry for
   `score` (`rebrew.binary_score`), so consumers that enumerate the binary
   subcommands see one more component. `rebrew binary score --built IMAGE`
