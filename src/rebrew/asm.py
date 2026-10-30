@@ -135,7 +135,7 @@ def disasm_bytes(code_bytes: bytes, va: int, cfg: ProjectConfig | None = None) -
     Shared by any module that needs a quick human-readable disassembly
     representation without the full hex-mode output of :func:`_run_hex_mode`.
     """
-    if cfg is not None and cfg.arch == "xtensa":
+    if cfg is not None and getattr(cfg, "arch", "") == "xtensa":
         from rebrew.compiler.xtensa import disassemble_xtensa
 
         return "\n".join(
@@ -734,7 +734,7 @@ def _hex_view(
             "(reached end of available file-backed bytes)"
         )
 
-    if cfg.arch == "xtensa":
+    if getattr(cfg, "arch", "") == "xtensa":
         from rebrew.compiler.xtensa import disassemble_xtensa
 
         decoded = disassemble_xtensa(cfg, data, va_int, binary=cfg.target_binary)
