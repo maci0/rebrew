@@ -19,6 +19,7 @@
 | [CLI_MIGRATION.md](CLI_MIGRATION.md) | Old-to-new route mapping for the October 2026 CLI reorganization (ADR 028) |
 | [PYTHON_API.md](PYTHON_API.md) | Library imports, toolchain registry views, structured errors, and injectable service clients |
 | [CORDIS.md](CORDIS.md) | Composition concepts, runtime API, lifecycle and failure contracts, recipes, and paper mapping |
+| [XTENSA.md](XTENSA.md) | Xtensa ELF, core-aware XCC linking and native disassembly |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, config loader, arch presets, compiler profiles |
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Dedicated format-2 identities (`MODULE.0xVA`), optional ADDRESS anchors, library provenance, and lint diagnostics |
 | [METADATA_FORMAT.md](METADATA_FORMAT.md) | TOML metadata files (`rebrew-functions.toml`, `rebrew-data.toml`): volatile fields, status lifecycle |

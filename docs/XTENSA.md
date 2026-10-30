@@ -36,17 +36,32 @@ A successful comparison returns the resolved bytes and earns `EXACT` only
 when every function byte agrees. Literal-pool contents remain separate data
 that must also be reconstructed and compared for whole-image equality.
 
-`NONE`, `ASM_EXPAND`, and `ASM_SIMPLIFY` carry no direct operand patch; the
-last two are linker relaxation hints. Rebrew does not perform relaxation.
-Unknown relocation types, bundled/TIE instruction forms, unsupported branches,
-missing bindings, and out-of-range operands fail comparison. Linker-relaxed
-long calls and final literal-pool placement still require the matching core's
-linker. Architecture support is not a claim of complete Xtensa ISA coverage.
+## Core-aware XCC backend
 
-The legacy offset-only parser refuses relocated Xtensa functions so GA/diff
-clients cannot silently apply pointer-width masks. Relocation-free functions
-remain available there. Capstone 5 has no Xtensa decoder; disassembly requests
-fail explicitly and should use IDA or the matching `xt-objdump` instead.
+With an image-backed `xt-xcc` profile, compile/compare invokes that image's
+`xt-ld` at the requested function VA. The admitted compiler image ID is also
+the linker image ID. The real core linker resolves bundled/TIE instruction
+operands and performs its normal relaxation. Rebrew returns and compares the
+linked bytes, including any changed function length; it never copies target
+bytes into the object or masks instruction operands.
+
+The function's input section is anchored automatically. Every other referenced
+allocated section (including literal pools) needs its native section-base VA in
+the symbol-binding map. Undefined symbols need their native symbol VAs. Missing,
+contradictory, overflowing or overlapping placements fail rather than inventing
+layout. Whole-image reconstruction still owns data contents and section order.
+
+`rebrew binary asm show` and the shared byte-disassembly API use the image's
+`xt-objdump`, covering core-specific bundled/TIE instructions without Capstone.
+The image view preserves the original ELF instruction/property metadata. Raw
+byte views cannot infer literal pools or padding boundaries. Decoder output is
+checked for complete coverage and exact agreement with the supplied bytes.
+
+The pure relocation API continues to handle standard 24-bit operands without a
+compiler image. Unknown forms fail explicitly there. The legacy offset-only
+parser refuses relocated Xtensa functions: clients that cannot supply native
+placement/bindings must use the typed compile/compare path, not four-byte masks.
+Big-endian Xtensa objects remain outside this little-endian firmware backend.
 
 ## Validation
 
@@ -54,7 +69,10 @@ fail explicitly and should use IDA or the matching `xt-objdump` instead.
 encodings, exact resolved output, wrong-callee and adjacent-byte controls,
 zero-address bindings, explicit addends, jump-range endpoints, malformed RELA
 entries, and unsupported forms. A real XCC 14.04 assembly/link probe also
-reproduced CALL8 and L32R bytes through Rebrew's compile-and-compare API.
+reproduced CALL8 and L32R bytes through Rebrew's compile-and-compare API. The
+recovered stock `fls` source matches all 95 bytes through the native linker,
+including its bundled conditional branches; native disassembly covers every
+byte of that same stock window.
 
 Relocation numbering and hint semantics follow the
 [Xtensa ELF relocation documentation](https://github.com/espressif/xtensa-isa-doc/blob/main/ELFRelocations.tex).

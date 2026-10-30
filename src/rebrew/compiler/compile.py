@@ -2658,6 +2658,8 @@ def _extract_and_compare(
     section_va: int | None = None,
     iat_region: frozenset[int] | None = None,
     check_known_bindings: bool = False,
+    cfg: ProjectConfig | None = None,
+    toolchain: str | None = None,
 ) -> CompareResult:
     """Extract *symbol* from a compiled .obj and compare against *target_bytes*.
 
@@ -2708,12 +2710,19 @@ def _extract_and_compare(
                 None,
             )
         try:
-            obj_bytes = apply_coff_relocations(
-                obj_bytes,
-                full_relocs,
-                lambda name: (name_to_va or {}).get(name),
-                section_va=section_va,
-            )
+            if cfg is not None and cfg.arch == "xtensa":
+                from rebrew.compiler.xtensa import link_xtensa_function
+
+                obj_bytes = link_xtensa_function(
+                    cfg, obj_path, symbol, section_va, name_to_va, toolchain
+                )
+            else:
+                obj_bytes = apply_coff_relocations(
+                    obj_bytes,
+                    full_relocs,
+                    lambda name: (name_to_va or {}).get(name),
+                    section_va=section_va,
+                )
         except (UnresolvedSymbolError, ValueError, NotImplementedError) as exc:
             return classify_compare_result(
                 False, f"EXTRACT_ERROR: Xtensa relocation: {exc}", target_bytes, None, None
@@ -2906,6 +2915,8 @@ def compile_and_compare(
                     section_va=section_va,
                     check_known_bindings=getattr(cfg, "check_known_bindings", False),
                     iat_region=build_iat_region(cfg),
+                    cfg=cfg,
+                    toolchain=toolchain,
                 )
             )
         except (ValueError, OSError) as exc:

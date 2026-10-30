@@ -135,6 +135,14 @@ def disasm_bytes(code_bytes: bytes, va: int, cfg: ProjectConfig | None = None) -
     Shared by any module that needs a quick human-readable disassembly
     representation without the full hex-mode output of :func:`_run_hex_mode`.
     """
+    if cfg is not None and cfg.arch == "xtensa":
+        from rebrew.compiler.xtensa import disassemble_xtensa
+
+        return "\n".join(
+            f"  {i.address:08X}  {i.bytes.hex():20s}  {i.mnemonic:6s} {i.op_str}"
+            for i in disassemble_xtensa(cfg, code_bytes, va)
+        )
+
     try:
         from capstone import CS_ARCH_X86, CS_MODE_32, Cs
     except ImportError as exc:
@@ -724,6 +732,27 @@ def _hex_view(
         console.print(
             f"[yellow]warning:[/yellow] requested {size} bytes, got {len(data)} "
             "(reached end of available file-backed bytes)"
+        )
+
+    if cfg.arch == "xtensa":
+        from rebrew.compiler.xtensa import disassemble_xtensa
+
+        decoded = disassemble_xtensa(cfg, data, va_int, binary=cfg.target_binary)
+        return _HexView(
+            bin_path,
+            data,
+            truncated,
+            False,
+            decoded,
+            decoded,
+            0,
+            "xtensa",
+            ne_seg,
+            ne_seg_name,
+            ne_segment_count,
+            func_lookup,
+            import_map,
+            string_map,
         )
 
     try:

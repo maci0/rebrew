@@ -59,7 +59,6 @@ from rebrew.cli import (
 )
 lazy from rebrew.coff_reloc import (
     CatalogScanError,
-    apply_coff_relocations,
     binding_summary,
     build_iat_region,
     build_name_to_va,
@@ -2040,11 +2039,10 @@ def _test_multi(
                     continue
 
                 if any(rec.format == "elf-xtensa" for rec in full_relocs):
-                    obj_bytes = apply_coff_relocations(
-                        obj_bytes,
-                        full_relocs,
-                        lambda name: (name_to_va or {}).get(name),
-                        section_va=ann.va,
+                    from rebrew.compiler.xtensa import link_xtensa_function
+
+                    obj_bytes = link_xtensa_function(
+                        cfg, obj_path, sym, ann.va, name_to_va, _effective_overrides(ann)[0]
                     )
                     full_relocs, reloc_dict = [], {}
 

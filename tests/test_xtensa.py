@@ -115,6 +115,19 @@ class TestXtensaCompare:
         assert result.matched and result.obj_bytes == target and result.delta == 0
         unresolved = _extract_and_compare("unused.o", "probe", raw, section_va=0x3200BB63)
         assert not unresolved.matched and unresolved.status == "EXTRACT_ERROR"
+        from rebrew.compiler import xtensa
+
+        calls = []
+
+        def native(*args):
+            calls.append(args)
+            return target
+
+        monkeypatch.setattr(xtensa, "link_xtensa_function", native)
+        result = _extract_and_compare(
+            "unused.o", "probe", target, section_va=0x3200BB63, cfg=SimpleNamespace(arch="xtensa")
+        )
+        assert result.matched and result.obj_bytes == target and calls
 
     @pytest.mark.parametrize("destination", [0x32001004 - 131072, 0x32001004 + 131071])
     def test_jump_range(self, destination: int) -> None:
@@ -148,3 +161,112 @@ class TestXtensaCompare:
         monkeypatch.setattr(lief.ELF, "parse", lambda *_: elf)
         assert parse_obj_symbol_and_relocs(path, "_probe") == (code, {}, [])
         assert parse_obj_symbol_bytes(path, "_probe") == (code, {})
+
+
+class TestNativeCoreLinker:
+    def test_core_link_uses_object_and_bindings_without_reference_bytes(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import lief
+
+        from rebrew.compiler import xtensa
+        from rebrew.compiler.toolchain_spec import ToolchainSpec
+
+        code = bytes.fromhex("3641001df0")
+        section = SimpleNamespace(name=".text.probe", size=7, flags=6)
+        target = SimpleNamespace(name="probe", section=section, value=0, size=7)
+        obj = SimpleNamespace(
+            header=SimpleNamespace(machine_type=lief.ELF.ARCH.XTENSA),
+            symtab_symbols=[target],
+            sections=[section],
+            relocations=[],
+        )
+        linked_section = SimpleNamespace(content=code, virtual_address=0x32001000)
+        output = SimpleNamespace(name="probe", section=linked_section, value=0x32001000, size=5)
+        linked = SimpleNamespace(symtab_symbols=[output])
+        path = tmp_path / "input.o"
+        path.write_bytes(b"operator object")
+        monkeypatch.setattr(
+            lief.ELF, "parse", lambda p: linked if str(p).endswith("linked.elf") else obj
+        )
+        spec = ToolchainSpec("xcc", "test/xcc:1", binary="xt-xcc")
+        monkeypatch.setattr(xtensa.registry, "TOOLCHAINS", {"xcc": spec})
+        monkeypatch.setattr(xtensa, "cached_image_digest", lambda _: "sha256:" + "a" * 64)
+        runs = []
+
+        def run(spec, args, **kwargs):
+            directory = kwargs["workdir"]
+            assert (directory / "input.o").read_bytes() == b"operator object"
+            assert '".text.probe" 0x32001000' in (directory / "layout.ld").read_text()
+            assert spec.binary == "xt-ld" and spec.image_entrypoint == "xt-ld"
+            assert kwargs["image_id"] == "sha256:" + "a" * 64
+            assert not any("--defsym=probe=" in arg for arg in args)
+            runs.append(directory)
+            return SimpleNamespace(returncode=0)
+
+        monkeypatch.setattr(xtensa, "run_toolchain", run)
+        cfg = SimpleNamespace(
+            compiler_profile="xcc", compile_timeout=60, execution_backend="docker"
+        )
+        assert (
+            xtensa.link_xtensa_function(cfg, path, "_probe", 0x32001000, {"probe": 0x32001000})
+            == code
+        )
+        assert not runs[0].exists()
+        with pytest.raises(ValueError, match="contradicts"):
+            xtensa.link_xtensa_function(cfg, path, "probe", 0x32001000, {"probe": 0x32001004})
+        output.value += 4
+        with pytest.raises(ValueError, match="requested function VA"):
+            xtensa.link_xtensa_function(cfg, path, "probe", 0x32001000, {})
+        output.value -= 4
+        literal = SimpleNamespace(name=".literal.probe", flags=2, size=4)
+        obj.relocations = [
+            SimpleNamespace(
+                section=section, symbol=SimpleNamespace(section=literal, name="", shndx=1)
+            )
+        ]
+        obj.sections.append(literal)
+        with pytest.raises(ValueError, match="section binding"):
+            xtensa.link_xtensa_function(cfg, path, "probe", 0x32001000, {})
+
+
+class TestNativeDisassembly:
+    def test_decoding_is_checked_against_input(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.compiler import xtensa
+        from rebrew.compiler.toolchain_spec import ToolchainSpec
+
+        monkeypatch.setattr(
+            xtensa.registry,
+            "TOOLCHAINS",
+            {"xcc": ToolchainSpec("xcc", "test/xcc:1", binary="xt-xcc")},
+        )
+        monkeypatch.setattr(xtensa, "cached_image_digest", lambda _: "sha256:" + "a" * 64)
+        response = SimpleNamespace(
+            returncode=0, stdout="32001000:\t004136\tentry\ta1, 32\n32001003:\tf01d\tretw.n\n"
+        )
+        workdirs = []
+
+        def run(spec, args, **kwargs):
+            assert spec.binary == "xt-objdump"
+            assert "-EL" in args and "-b" in args
+            workdirs.append(kwargs["workdir"])
+            return response
+
+        monkeypatch.setattr(xtensa, "run_toolchain", run)
+        cfg = SimpleNamespace(
+            compiler_profile="xcc", compile_timeout=60, execution_backend="docker"
+        )
+        code = bytes.fromhex("3641001df0")
+        insns = xtensa.disassemble_xtensa(cfg, code, 0x32001000)
+        assert [(i.address, i.mnemonic, i.size) for i in insns] == [
+            (0x32001000, "entry", 3),
+            (0x32001003, "retw.n", 2),
+        ]
+        assert b"".join(i.bytes for i in insns) == code
+        assert not workdirs[0].exists()
+        response.stdout = response.stdout.replace("004136", "004137")
+        with pytest.raises(ValueError, match="bytes disagree"):
+            xtensa.disassemble_xtensa(cfg, code, 0x32001000)
+        response.stdout = "32001000:\t004136\tentry\ta1, 32\n"
+        with pytest.raises(ValueError, match="complete byte window"):
+            xtensa.disassemble_xtensa(cfg, code, 0x32001000)

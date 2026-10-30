@@ -110,7 +110,7 @@ src/rebrew/          # package; discover modules there; do not rely on an inline
 tests/               # pytest; typically test_<module>.py
 ```
 
-The only shipped packaging format is the PyPI wheel + sdist. `make build` pins the build backend by hash, `make sdist-check` proves the sdist reproduces the wheel, and `tests/test_package_metadata.py` gates the declared metadata: every third-party top-level import under `src/rebrew` needs a `[project].dependencies` floor or a justified `_OPTIONAL_IMPORTS` entry, and every `[project.scripts]` target must import. Both failures otherwise surface only on a user's machine.
+The shipped packages are wheels and sdists attached to GitHub releases; there is no package-index upload. `make build` pins the build backend by hash, `make sdist-check` proves the sdist reproduces the wheel, and `tests/test_package_metadata.py` gates the declared metadata: every third-party top-level import under `src/rebrew` needs a `[project].dependencies` floor or a justified `_OPTIONAL_IMPORTS` entry, and every `[project.scripts]` target must import. Both failures otherwise surface only on a user's machine.
 
 **Third-party grants**: every distribution in `uv.lock` has its artifact's own declared license in `tools/licenses.py`; `make sbom` (CycloneDX) refuses to emit a component without one, and `tests/test_packaging.py` fails when the lock and the table disagree. A `uv lock --upgrade` therefore lands with its license recorded, and a copyleft, attribution-bearing, or restrictive grant also gets a `NOTICE` section in the same change. Record the declared string verbatim; do not rewrite a trove classifier into an SPDX id the upstream never wrote, and do not cut a grant out of a multi-line `License` header.
 

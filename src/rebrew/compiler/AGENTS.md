@@ -10,6 +10,7 @@ Compile execution and the compile cache: resolve a toolchain profile, run its do
 | `cache.py` | Compile cache keys and storage (`CACHE_SCHEMA_VERSION`, diskcache backend, `rebrew.cache_backends` plugins) |
 | `context.py` | `CompileContext`: the declarations document a compile is pinned to |
 | `overrides.py` | Effective `TOOLCHAIN` / `CFLAGS` per source (function → `rebrew-libraries.toml` → project) |
+| `xtensa.py` | Core-aware XCC relocation/relaxation linking and verified native disassembly |
 | `toolchain.py` | Toolchain registry, image id admission, `run_toolchain` (image-backed for shipped profiles) |
 | `toolchain_spec.py` / `toolchain_data.py` | `ToolchainSpec` value types and the packaged profile table |
 | `toolchain_paths.py` | Location of the sibling recompile-toolchains checkout (`REBREW_TOOLCHAINS_DIR`) |
