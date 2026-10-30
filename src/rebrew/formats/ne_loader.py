@@ -4,7 +4,10 @@ Borland Delphi 1.0 / Turbo Pascal Windows applications ship as NE
 executables (MZ stub + "NE" header) — e.g. ``holiday.exe``.  rebrew's
 flat-VA model (PE/ELF/Mach-O) does not apply directly: NE uses segmented
 addressing, so this module maps each segment to a synthetic flat VA of
-``(segment_index << 16) | offset`` (segment 1 → 0x10000..0x1FFFF, …).
+``((segment_index - 1) << 16) | offset`` (segment 1 → 0x00000..0x0FFFF, …).
+The VAs are the project's zero-based inventory space, where rows below
+0x10000 must stay addressable; NE's own segment numbers remain one-based
+and are what section names ``SEGn`` carry.
 
 Parses the NE header, segment table, resident name table (named exports),
 module reference table + imported names table (Win16 imports).  Exposes
@@ -77,8 +80,13 @@ class NeSegment:
 
     @property
     def base_va(self) -> int:
-        """Synthetic flat VA for segment:offset addressing (segment 1 → 0x10000)."""
-        return self.index << 16
+        """Synthetic flat VA for segment:offset addressing (segment 1 → 0x00000).
+
+        ``index`` is NE's one-based segment number; the VA space is the
+        project's zero-based inventory space, so the first segment starts
+        at 0 and inventory rows below 0x10000 exist.
+        """
+        return (self.index - 1) << 16
 
 
 #: x86-16 opcodes that mark a likely code start in a Borland segment.
@@ -161,7 +169,7 @@ def probe_is_code(data: bytes, file_offset: int, length: int, index: int = 0) ->
 class NeFunction:
     """A function discovered by :func:`enumerate_ne_functions`."""
 
-    va: int  # synthetic flat VA (segment << 16 | offset)
+    va: int  # synthetic flat VA ((segment - 1) << 16 | offset)
     segment: int  # 1-based segment index
     offset: int  # offset within the segment
     size: int
@@ -236,7 +244,7 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
     segments (code from offset 0, with the segment entry forced as a
     function start).  Functions whose body fails to decode or whose size is
     implausible (< 3 bytes) are dropped.  Returns a list sorted by VA with
-    synthetic flat VAs (``segment << 16 | offset``).
+    synthetic flat VAs (``((segment - 1) << 16) | offset``).
     """
     import capstone
 
@@ -597,8 +605,8 @@ def load_ne_binary(path: Path) -> BinaryInfo:
     """Parse a 16-bit NE executable into a rebrew ``BinaryInfo``.
 
     Segments become sections named ``SEG1``..``SEGn`` with synthetic flat VAs
-    of ``(index << 16)`` so segment:offset addressing maps onto rebrew's
-    flat-VA tools (asm, strings, analyze).  Iterated-data segments (flag
+    of ``((index - 1) << 16)`` so segment:offset addressing maps onto rebrew's
+    flat-VA tools (asm, strings, analyze) in the zero-based inventory space.  Iterated-data segments (flag
     SEG_ITERATED) have no on-disk raw form; their raw_size is reported as 0.
     """
     path = Path(path)

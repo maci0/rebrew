@@ -104,7 +104,8 @@ class TestDiscoverFunctions:
         )
         d = discover_functions(p, min_size=1)
         assert d.sources == {"ne loader": 2}
-        assert [va for va, _s, _n in d.functions] == [0x10002, 0x1000F]
+        # zero-based VA space: segment 1 starts at 0x00000
+        assert [va for va, _s, _n in d.functions] == [0x0002, 0x000F]
         assert not called
 
     def test_merge_and_validation(self, monkeypatch) -> None:

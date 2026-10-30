@@ -130,7 +130,9 @@ class TestLoadNeBinary:
         assert info.sections["SEG1"].raw_size == 0x10000
         assert info.sections["SEG1"].size == 0x10000
         assert info.text_size == 0x10000
-        assert extract_bytes_at_va(info, 0x1FFFF, 1) == b"\xc3"
+        # zero-based space: segment 1 ends at 0xFFFF, not 0x1FFFF
+        assert extract_bytes_at_va(
+            info, info.sections["SEG1"].va + 0xFFFF, 1) == b"\xc3"
 
     @pytest.mark.parametrize("allocation, expected_size", [(0, 0x10000), (32, 32)])
     def test_zero_filled_segment_size(
@@ -146,7 +148,8 @@ class TestLoadNeBinary:
         assert info.sections["SEG1"].raw_size == 0
         assert info.sections["SEG1"].size == expected_size
         assert info.text_size == 0
-        assert extract_bytes_at_va(info, 0x10000, 1) == b""
+        # reads the segment start, which is VA 0 in the zero-based space
+        assert extract_bytes_at_va(info, info.sections["SEG1"].va, 1) == b""
 
     def test_binary_info_shape(self, tmp_path: Path) -> None:
         from rebrew.formats.binary_loader import load_binary
@@ -159,9 +162,11 @@ class TestLoadNeBinary:
         assert isinstance(info, BinaryInfo)
         assert info.format == "ne"
         assert set(info.sections) == {"SEG1", "SEG2"}
-        assert info.sections["SEG1"].va == 0x10000  # segment 1 → 0x10000
-        assert info.sections["SEG2"].va == 0x20000
-        assert info.ne_segments[0].base_va == 0x10000
+        # zero-based VA space is canonical: 33 inventory rows sit below
+        # 0x10000, which a one-based base cannot address at all
+        assert info.sections["SEG1"].va == 0x00000  # segment 1 → 0x00000
+        assert info.sections["SEG2"].va == 0x10000
+        assert info.ne_segments[0].base_va == 0x00000
         # text_size aggregates code segments (catalog coverage needs it)
         assert info.text_size > 0
         assert info.text_va == info.sections["SEG1"].va
@@ -248,7 +253,9 @@ class TestEnumerateFunctions:
         p.write_bytes(raw)
         info = load_binary(p)
         funcs = enumerate_ne_functions(info)
-        assert any(f.va == 0x10000 for f in funcs), [hex(f.va) for f in funcs]
+        # re-anchored on base_va: the VA number itself is not the claim
+        assert any(f.va == info.ne_segments[0].base_va for f in funcs), \
+            [hex(f.va) for f in funcs]
 
     def test_segment_past_eof_clamps_raw_size(self, tmp_path: Path) -> None:
         """Regression: a corrupt segment-table entry pointing past EOF made
@@ -380,7 +387,8 @@ def test_enumerate_ne_functions_invariants(body: bytes) -> None:
         assert func.segment == 1
         assert 0 <= func.offset < len(segment)
         assert 3 <= func.size <= len(segment) - func.offset
-        assert func.va == (1 << 16) + func.offset
+        # zero-based space: segment 1 contributes no 0x10000 offset
+        assert func.va == info.ne_segments[0].base_va + func.offset
         if previous is not None:
             assert func.va >= previous.va + previous.size
         previous = func
