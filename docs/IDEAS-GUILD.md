@@ -3861,3 +3861,19 @@ Proposed: keep the remainder in the source list when a split leaves code behind
 either by adding a residual file row or by having `cmake-sources` include support
 files that carry code. Until then, splits must move every helper that other TUs
 call.
+
+## symbol-stubs output cannot be pruned to the current tree
+
+`rebrew build symbol-stubs` writes definitions from a link error log. When the tree
+later gains a real definition for a symbol that the generated file also defines,
+the stale entry stays: the stub wins or the link reports LNK4006, and data bytes
+can come from the zero stub instead of the reconstructed source. There is no
+option to prune an existing stub file against definitions in the built source set.
+
+Repro: the GOLDTL project's `stubs/goldtl/symbol_stubs.c` defined 32 globals
+(g_67db50, g_67db54, SonnenstrahlenAktiv, ...) that the built TUs also define;
+removing those lines dropped LNK4006 from 188 to 156 and raised the raw byte score
+by 53 with the same clean link.
+
+Proposed: a `--prune-existing FILE --sources DIR` mode (or an automatic check at
+generation time) that omits definitions whose symbol the source set defines.
