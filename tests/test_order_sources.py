@@ -44,6 +44,48 @@ class TestBaseKey:
         assert _base_key("adler32.c") == "adler32.c"
 
 
+class TestFirstVaFile:
+    def test_order_file_supplies_a_missing_va(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+
+        hi = _write(tmp_path / "a.c", "int high(void){return 0;}\n")
+        lo = _write(tmp_path / "z.c", "/* ADDRESS: T 0x10001000 */\nint low(void){return 1;}\n")
+        order = tmp_path / "order.txt"
+        order.write_text("# vendored\na.c=0x10002000\n", encoding="utf-8")
+        result = CliRunner().invoke(
+            app,
+            ["build", "order-sources", str(hi), str(lo), "--first-va-file", str(order), "--json"],
+        )
+        assert result.exit_code == 0, result.output
+        ordered = [Path(item).name for item in __import__("json").loads(result.stdout)["ordered"]]
+        assert ordered == ["a.c", "z.c"]
+
+    def test_conflicting_file_entry_is_refused(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+
+        src = _write(tmp_path / "a.c", "int a(void){return 0;}\n")
+        order = tmp_path / "order.txt"
+        order.write_text("a.c=0x10000000\n", encoding="utf-8")
+        result = CliRunner().invoke(
+            app,
+            [
+                "build",
+                "order-sources",
+                str(src),
+                "--first-va",
+                "a.c=0x10001000",
+                "--first-va-file",
+                str(order),
+            ],
+        )
+        assert result.exit_code != 0
+        assert "already has" in result.output
+
+
 class TestOrderSources:
     def test_migrated_sources_keep_function_order(self, tmp_path: Path) -> None:
         sources = tmp_path / "nested"

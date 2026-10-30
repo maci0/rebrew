@@ -3869,6 +3869,7 @@ drops files absent from the original.
 | --- | --- | --- | --- |
 | `FILES` | path… | required | Source files to order |
 | `--first-va` | str (repeatable) | `[]` | File basename=0xVA for files without bound functions (repeatable) |
+| `--first-va-file` | path | — | Read `FILE=0xVA` lines (one per line, `#` comments allowed) for files without bound functions; a conflicting VA is refused |
 | `--exclude` | str (repeatable) | `[]` | File basenames absent from the original (repeatable) |
 | `--module` | str | `""` | Metadata module to order by (e.g. SERVER) for multi-target sources |
 | `--json` | flag | `False` | Output results as JSON |

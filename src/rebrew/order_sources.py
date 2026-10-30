@@ -43,6 +43,14 @@ def main(
         "--first-va",
         help="File basename=0xVA for files without bound functions (repeatable)",
     ),
+    first_va_file: Path | None = typer.Option(
+        None,
+        "--first-va-file",
+        help=(
+            "Read FILE=0xVA lines (one per line, # comments allowed) for files without "
+            "bound functions"
+        ),
+    ),
     exclude: list[str] = typer.Option(
         [], "--exclude", help="File basenames absent from the original (repeatable)"
     ),
@@ -72,6 +80,36 @@ def main(
                 f"--first-va {entry!r}: cannot parse VA {va!r} as an integer",
                 json_mode=json_output,
             )
+    if first_va_file is not None:
+        try:
+            lines = first_va_file.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            error_exit(f"--first-va-file: {exc}", json_mode=json_output)
+        for lineno, line in enumerate(lines, start=1):
+            text = line.split("#", 1)[0].strip()
+            if not text:
+                continue
+            name, sep, va = text.partition("=")
+            name, va = name.strip(), va.strip()
+            if not sep or not name or not va:
+                error_exit(
+                    f"--first-va-file {first_va_file}:{lineno}: expected FILE=0xVA",
+                    json_mode=json_output,
+                )
+            try:
+                value = int(va, 0)
+            except ValueError:
+                error_exit(
+                    f"--first-va-file {first_va_file}:{lineno}: cannot parse VA {va!r}",
+                    json_mode=json_output,
+                )
+            if name in table and table[name] != value:
+                error_exit(
+                    f"--first-va-file {first_va_file}:{lineno}: {name} already has "
+                    f"0x{table[name]:X}",
+                    json_mode=json_output,
+                )
+            table[name] = value
     try:
         cfg = load_config(target=target)
     except ConfigNotFoundError as exc:

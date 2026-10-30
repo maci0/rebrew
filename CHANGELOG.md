@@ -15,6 +15,8 @@
 
 ### Added
 
+- `rebrew build order-sources --first-va-file FILE` reads curated `FILE=0xVA` positions for files without bound functions, so vendored and helper sources can be ordered without repeating `--first-va` flags.
+
 - `rebrew binary repair-extents --sync-rows` carries a reviewed smaller native extent into the function row's stored SIZE. The regular size writer only grows a row, so a repaired shrink previously left the row reporting SIZE_MISMATCH against the shortened span.
 
 - `rebrew source split --occurrence N` picks one of several C definitions that share a VA, for example when a function is defined once per mutually exclusive preprocessor branch. It requires `--va`; definitions inside a conditional are still refused.
