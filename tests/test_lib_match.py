@@ -74,6 +74,9 @@ class TestNativeCallees:
         ).ljust(16, b"\0")
         reader = (b"\x55\x8b\xec" + b"\x90" * 12 + b"\x31\xc0\x5d\xc3").ljust(20, b"\0")
         writer = (b"\x55\x8b\xec" + b"\x90" * 12 + b"\xb8\x01\x00\x00\x00\x5d\xc3").ljust(24, b"\0")
+        (tmp_path / "reversed" / "function_structure.json").write_text(
+            json.dumps([{"va": va, "size": len(wrapper)}])
+        )
         linked = bytearray(wrapper)
         linked[5:9] = (0x80 - 9 + addend).to_bytes(4, "little", signed=True)
         child = {"reader": reader, "writer": writer, "game": b"\x40" * 32}[native]
@@ -137,6 +140,7 @@ def _write_project(tmp_path: Path) -> tuple[Path, Path, int]:
 
     src = tmp_path / "reversed"
     src.mkdir(exist_ok=True)
+    (src / "function_structure.json").write_text(json.dumps([{"va": va, "size": len(CODE)}]))
     write_source(
         src / "foo.c",
         f"/* ADDRESS: SERVER 0x{va:x} */\nint foo(void) {{ return 0; }}\n",
@@ -243,6 +247,40 @@ class TestLibMatch:
         }
         assert lib.read_bytes() == before
 
+    @pytest.mark.parametrize("tail", [b"\x90" * 12, b"\x90" * 16, b"\x90" * 11 + b"\x40"])
+    def test_complete_extent_and_object_padding(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tail: bytes
+    ) -> None:
+        from rebrew.lib_match import app
+
+        pe, lib, va = _write_project(tmp_path)
+        lib.write_bytes(
+            make_lib_archive([("body.obj", make_coff_obj(CODE + tail, func_symbol="_body"))])
+        )
+        _mock_cfg(tmp_path, pe, monkeypatch)
+        result = CliRunner().invoke(app, ["--lib", str(lib), "--json"])
+        assert cli_payload(result)["count"] == int(len(tail) == 12 and tail[-1] == 0x90)
+
+    @pytest.mark.parametrize("single", [False, True])
+    def test_matching_prefix_is_not_a_complete_native_match(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, single: bool
+    ) -> None:
+        from rebrew.lib_match import app
+
+        pe, lib, va = _write_project(tmp_path)
+        native = CODE + b"\x40" * 51
+        pe.write_bytes(make_pe(native))
+        (tmp_path / "reversed" / "function_structure.json").write_text(
+            json.dumps([{"va": va, "size": len(native)}])
+        )
+        lib.write_bytes(make_lib_archive([("body.obj", make_coff_obj(CODE, func_symbol="_body"))]))
+        _mock_cfg(tmp_path, pe, monkeypatch)
+        args = ["--lib", str(lib), "--json"] + (["--va", hex(va)] if single else [])
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 0, result.output
+        report = cli_payload(result)
+        assert (report["library"] if single else report["count"]) == 0
+
     def test_flags_reversed_library_function(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -337,8 +375,8 @@ class TestLibMatch:
         (tmp_path / "reversed").mkdir()
         _mock_cfg(tmp_path, pe, monkeypatch)
         res = CliRunner().invoke(app, ["--lib", str(lib), "--va", "0x401000", "--json"])
-        assert res.exit_code == 1, res.output
-        assert cli_payload(res)["symbol"] == "_small"
+        assert res.exit_code == 2, res.output
+        assert "no native extent" in cli_payload(res)["error"]
 
     @pytest.mark.parametrize("single_va", [False, True])
     def test_masked_wrappers_report_all_candidate_names(
@@ -404,6 +442,7 @@ class TestLibMatch:
         src = tmp_path / "reversed"
         src.mkdir(exist_ok=True)
         va = image_base + text_va
+        (src / "function_structure.json").write_text(json.dumps([{"va": va, "size": len(code)}]))
         write_source(
             src / "foo.c",
             f"/* ADDRESS: SERVER 0x{va:x} */\nint foo(void) {{ return 0; }}\n",
@@ -481,6 +520,17 @@ class TestMatchBytesRelocGuard:
         }
         match = match_leading_body if leading else match_bytes
         assert match(index, data) == [("plain", "a"), ("masked", "c")]
+
+    def test_complete_body_padding_limit_and_relocations(self) -> None:
+        from rebrew.lib_match import match_complete_body
+
+        index = {
+            "padded": [("a", CODE + b"\x90" * 15, set())],
+            "too_long": [("b", CODE + b"\x90" * 16, set())],
+            "relocated_padding": [("c", CODE + b"\xcc", {len(CODE)})],
+            "non_padding": [("d", CODE + b"\x40", set())],
+        }
+        assert match_complete_body(index, CODE) == [("padded", "a")]
 
     def test_leading_body_keeps_longest_ties(self) -> None:
         from rebrew.lib_match import match_leading_body
@@ -712,3 +762,27 @@ class TestStockLib:
         with pytest.raises(typer.Exit) as exc:
             lm.assert_library_is_stock(path, profile="msvc-6.0-sp6", name="LIBCMT.LIB")
         assert exc.value.exit_code == 2
+
+
+@pytest.mark.parametrize("failure", ["missing_extent", "unreadable_bytes"])
+def test_batch_match_fails_closed_for_unchecked_functions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    from rebrew.lib_match import app
+
+    pe, lib, va = _write_project(tmp_path)
+    _mock_cfg(tmp_path, pe, monkeypatch)
+    if failure == "missing_extent":
+        (tmp_path / "reversed" / "function_structure.json").write_text("[]")
+    else:
+
+        def fail_extract(*args, **kwargs):
+            raise ValueError("bad native address")
+
+        monkeypatch.setattr("rebrew.lib_match.extract_raw_bytes", fail_extract)
+    result = CliRunner().invoke(app, ["--lib", str(lib), "--json"])
+    assert result.exit_code == 2, result.output
+    report = cli_payload(result)
+    assert report["count"] == 0
+    assert report["unchecked"][0]["va"] == f"0x{va:08x}"
+    assert report["unchecked"][0]["reason"]

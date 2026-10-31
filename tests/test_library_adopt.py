@@ -387,3 +387,85 @@ class TestLibraryAdoptSymbolNames:
         assert row["symbol"] == "?fn@@YA"
         assert row["name"] == "fn_YA"
         assert row["name"].isidentifier()
+
+
+def test_adopt_missing_row_records_reviewed_inventory_size(tmp_path: Path) -> None:
+    cfg = _bare_project(tmp_path)
+    result = _adopt(cfg, tmp_path / "mylib.lib", "--json")
+    assert result.exit_code == 0, result.output
+    assert get_entry(cfg.metadata_dir, VA, "SERVER")["size"] == len(CODE)
+
+
+def test_adopt_retired_row_records_reviewed_inventory_size(tmp_path: Path) -> None:
+    from rebrew.metadata.binding_history import change_source_binding
+
+    cfg = _bare_project(tmp_path)
+    record_function_identity(
+        cfg.metadata_dir,
+        module="SERVER",
+        va=VA,
+        file="src/old.c",
+        kind="LIBRARY",
+        name="old",
+        symbol="_old",
+    )
+    change_source_binding(cfg.metadata_dir, "SERVER", VA, reason="retired")
+    result = _adopt(cfg, tmp_path / "mylib.lib", "--json")
+    assert result.exit_code == 0, result.output
+    row = get_entry(cfg.metadata_dir, VA, "SERVER")
+    assert row["size"] == len(CODE)
+    assert [event["action"] for event in row["binding_history"]] == ["retire", "rebind"]
+
+
+def test_adopt_rejects_conflicting_stored_size(tmp_path: Path) -> None:
+    from rebrew.metadata.functions import update_field
+
+    cfg = _bare_project(tmp_path)
+    update_field(cfg.metadata_dir, VA, "size", len(CODE) - 1, module="SERVER")
+    before = get_entry(cfg.metadata_dir, VA, "SERVER")
+    result = _adopt(cfg, tmp_path / "mylib.lib", "--json")
+    assert result.exit_code == 2, result.output
+    assert get_entry(cfg.metadata_dir, VA, "SERVER") == before
+
+
+def test_adopt_rechecks_inventory_after_review_before_writing(tmp_path: Path) -> None:
+    import json
+
+    from rebrew.metadata.binding_history import change_source_binding
+
+    cfg = _bare_project(tmp_path)
+    record_function_identity(
+        cfg.metadata_dir,
+        module="SERVER",
+        va=VA,
+        file="src/old.c",
+        kind="LIBRARY",
+        name="old",
+        symbol="_old",
+    )
+    change_source_binding(cfg.metadata_dir, "SERVER", VA, reason="retired")
+    before = get_entry(cfg.metadata_dir, VA, "SERVER")
+
+    def mutate_inventory(*_args: object) -> None:
+        cfg.inventory_file.write_text(json.dumps([{"va": VA, "size": len(CODE) - 1}]))
+
+    with patch("rebrew.identify_library.prepare_library_header", side_effect=mutate_inventory):
+        result = _adopt(cfg, tmp_path / "mylib.lib", "--json")
+    assert result.exit_code == 2, result.output
+    assert get_entry(cfg.metadata_dir, VA, "SERVER") == before
+
+
+def test_adopt_rejects_inventory_created_after_review(tmp_path: Path) -> None:
+    import json
+
+    cfg, lib = _project(tmp_path)
+    inventory = cfg.reversed_dir / "function_structure.json"
+    before = get_entry(cfg.metadata_dir, VA, "SERVER")
+
+    def create_inventory(*_args: object) -> None:
+        inventory.write_text(json.dumps([{"va": VA, "size": len(CODE) - 1}]))
+
+    with patch("rebrew.identify_library.prepare_library_header", side_effect=create_inventory):
+        result = _adopt(cfg, lib, "--json")
+    assert result.exit_code == 2, result.output
+    assert get_entry(cfg.metadata_dir, VA, "SERVER") == before

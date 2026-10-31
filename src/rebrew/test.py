@@ -588,6 +588,12 @@ def main(
     if symbol is None and va is None and size is None:
         annotations = lint_annos
         if len(annotations) > 1:
+            if target_bin:
+                error_exit(
+                    "--target-bin needs a single function — use --va or --symbol to select one",
+                    json_mode=json_output,
+                    code=EXIT_ERROR,
+                )
             if linked:
                 error_exit(
                     "--linked needs a single annotated function — use --va to select one",
@@ -1323,11 +1329,7 @@ def _run_test_impl(
     *lint_annos* and *name_to_va* come from :func:`_lint_preamble`, so the
     source is parsed and the project's VA map scanned once per invocation.
     """
-    # Derive symbol from annotation (C function definition).  The
-    # VA-based selection happens UNCONDITIONALLY (not just when symbol is
-    # absent): an explicit --va on a multi-module file must target the
-    # function AT that VA for symbol derivation AND for the metadata
-    # promotion below, even with --symbol given.
+    # Select metadata by VA independently of an explicit symbol override.
     sel_ann: SourceBinding | None = None
     if va is not None:
         # An explicit --va targets ONE function in (possibly) a
@@ -1349,11 +1351,16 @@ def _run_test_impl(
             )
     else:
         sel_ann = lint_annos[0] if lint_annos else None
+    symbol_mismatch = False
     if sel_ann is not None and sel_ann.name and sel_ann.prototype:
         from rebrew.metadata.bindings import derive_c_symbol
 
         derived_symbol = derive_c_symbol(sel_ann.name, sel_ann.prototype)
-        if derived_symbol:
+        if symbol and derived_symbol and symbol != derived_symbol:
+            symbol_mismatch = True
+            no_promote = True
+            status_skip_reason = "explicit symbol differs from selected function"
+        elif derived_symbol:
             symbol = derived_symbol
     if not symbol and sel_ann and sel_ann.symbol:
         symbol = sel_ann.symbol
@@ -1400,11 +1407,15 @@ def _run_test_impl(
         toolchain_name = cm_pin_tc
 
     section_va: int | None = None
-    if va_str is not None and size_val is not None:
-        va_int = parse_va(va_str, json_mode=json_output)
-        section_va = va_int
-        target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)
-    elif target_bin:
+    if target_bin:
+        no_promote = True
+        status_skip_reason = "comparison uses a raw target byte slice"
+        if fix_sizes:
+            error_exit(
+                "--fix-sizes cannot use --target-bin; compare against the configured binary",
+                json_mode=json_output,
+                code=EXIT_ERROR,
+            )
         if linked:
             error_exit(
                 "--linked needs the target binary's section geometry — use --va/--size, "
@@ -1424,6 +1435,10 @@ def _run_test_impl(
                 section_va = parse_va(va_str, json_mode=json_output)
             elif sel_ann is not None and getattr(sel_ann, "va", None):
                 section_va = sel_ann.va
+    elif va_str is not None and size_val is not None:
+        va_int = parse_va(va_str, json_mode=json_output)
+        section_va = va_int
+        target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)
     else:
         hint = ""
         if va_str is not None:
@@ -1494,7 +1509,7 @@ def _run_test_impl(
     _obj_len, total, match_count = _resolve_total_and_match_count(cmp, target_bytes)
     if not comparison_inputs_current(cfg, Path(source), measured_inputs):
         measured_inputs = None
-    if cmp.status == "RELOC":
+    if cmp.status == "RELOC" and not target_bin and not symbol_mismatch:
         # Recorded linked EXACT evidence that still describes this compare
         # (same inputs, same raw-link image) keeps the function EXACT.
         from rebrew.linked_exact import LINKED_MESSAGE, linked_exact_holds

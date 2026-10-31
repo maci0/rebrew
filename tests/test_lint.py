@@ -4222,3 +4222,53 @@ class TestE023EvidenceAcrossTargets:
         cfg = _make_cfg(module="SERVER", root=tmp_path)
         result = lint_file(f, cfg=cfg)
         assert not any(code == "E023" for _, code, _ in result.errors), result.errors
+
+
+def test_unbound_sources_check_only_nonempty_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import rebrew.lint as lint_module
+    from rebrew.metadata import binding_history, bindings, source_provenance
+
+    old = tmp_path / "old.c"
+    other = tmp_path / "other.c"
+    old.write_text("int old(void) { return 0; }\n")
+    other.write_text("int other(void) { return 0; }\n")
+    event = {
+        "action": "retire",
+        "reason": "reviewed",
+        "changed_at": "2026-10-31T00:00:00+00:00",
+        "previous": {"file": "old.c"},
+        "replacement": {},
+        "counterpart_va": 0,
+    }
+    rows = {("SERVER", 1): {}, ("SERVER", 2): {"binding_history": [event]}}
+    calls = []
+    original = binding_history.historical_source_files
+
+    def counted(row: dict[str, Any], directory: Path, root: Path) -> set[Path]:
+        calls.append(row)
+        return original(row, directory, root)
+
+    monkeypatch.setattr(source_provenance, "load_source_files", lambda directory: ())
+    monkeypatch.setattr(bindings, "source_bindings", lambda *args, **kwargs: [])
+    monkeypatch.setattr(lint_module, "_retired_leftover", lambda *args: False)
+    monkeypatch.setattr(binding_history, "historical_source_files", counted)
+    inactive = lint_file(old, preloaded_metadata=rows, preloaded_data_metadata={})
+    unbound = lint_file(other, preloaded_metadata=rows, preloaded_data_metadata={})
+    assert inactive._kind_counts["INACTIVE"] == 1
+    assert any(code == "E001" for _, code, _ in unbound.errors)
+    assert calls == [rows[("SERVER", 2)], rows[("SERVER", 2)]]
+
+    old.unlink()
+    old.symlink_to(other.name)
+    assert (
+        lint_file(other, preloaded_metadata=rows, preloaded_data_metadata={})._kind_counts[
+            "INACTIVE"
+        ]
+        == 1
+    )
+
+    rows[("SERVER", 1)]["binding_history"] = None
+    with pytest.raises(ValueError, match="binding_history must be an array"):
+        lint_file(other, preloaded_metadata=rows, preloaded_data_metadata={})

@@ -299,7 +299,7 @@ silent metadata write that the build never honors.
 | `SOURCE` | str | — | Source file, symbol name, or VA (hex) (omit with --all) |
 | `--va` | str | — | Target VA in hex (default: from metadata). Excludes --all |
 | `--symbol` | str | — | Compiled symbol name (default: from metadata or source definition). Excludes --all |
-| `--target-bin` | path | — | Raw function byte slice to compare against. Excludes --all |
+| `--target-bin` | path | — | Raw function byte slice to compare against. Does not update metadata; excludes --all and --fix-sizes |
 | `--size` | int | — | Size in bytes. Excludes --all |
 | `--cflags` | str | — | Compiler flags. Excludes --all |
 | `--toolchain` | str | — | Compiler profile (e.g. msvc-5.0); overrides the project default. Excludes --all |
@@ -1275,6 +1275,8 @@ Writes and output:
 | `--all-modules` | flag | `False` | Rename every module's rows of this definition, and every other definition of the name |
 | `--shared-definition` | flag | `False` | Rename every function row bound to one definition; requires MODULE.0xVA; excludes --all-modules, --data, --type, and --field |
 | `--reference-owner` | str, repeatable | — | Reviewed owner of all references in project-relative `FILE=MODULE.0xVA`; requires `--shared-definition` |
+| `--preserve-reference` | path, repeatable | — | Leave references in a reviewed file unchanged without asserting an owner; requires `--shared-definition` |
+| `--pending-owner` | str, repeatable | — | Reviewed prospective target identity for `FILE=MODULE.0xVA`, paired with a selected `--reference-owner` |
 | `--expected-digest` | str | — | Digest from a reviewed reference-binding or reference-ownership preview; required when applying explicit owners |
 | `--comments` | flag | `False` | Also rewrite whole-word occurrences inside comments |
 | `--dry-run` | flag | `False` | Preview changes without writing |
@@ -1296,6 +1298,17 @@ the owner. References assigned to a different definition are retained. Reference
 assigned to the renamed definition follow it. Unassigned ambiguous files still
 refuse the operation. A file containing references to both definitions needs a
 finer ownership repair; one file-level owner cannot describe it.
+
+Use `--preserve-reference FILE` to leave an unresolved reference file unchanged
+without asserting ownership. Its path and contents are included in the preview
+digest. Check the linked provider afterwards: unchanged text may resolve to a
+different definition after the rename.
+
+Use `--pending-owner FILE=MODULE.0xVA` with the selected reference owner only
+when a caller target has a reviewed, retired and currently unbound inventory
+identity intended for that definition. This records a prospective claim, not
+proof of a native call or an active provider. Bind and verify the pending
+identity before linking. The decision, inventory and binary are digest-pinned.
 
 Preview with `--dry-run --json`, review `reference_owners`, edited files and rows,
 then repeat with `--expected-digest DIGEST`. The digest covers the operation,
@@ -5115,22 +5128,23 @@ cflags = "/O2 /Gd /MT"       # compiler flags
 
 `rebrew library bind-source [OPTIONS] VA SOURCE`
 
-Bind an identified library function to a C/C++ translation unit compiled by
-this project. Accepted for a VA with an existing library declaration or
-`LIBRARY` row, a retired row (replaced through the binding history), or no row
-at all, which gets the LIBRARY row directly; an active `FUNCTION`/`STUB` claim is
-refused until it is retired or rebound. The source file must exist inside the
-project. The native symbol names the function to compare in the compiled
-object. Preview with `--dry-run`; accepted bindings go through the locked
-identity writer and retain library ancestry. The binding makes the provider
-built from source. A unique archive member in the raw link map is the
-statically linked provider. A declaration with neither stays unresolved.
+Bind an identified library function to a C translation unit inside the project.
+The source must contain one complete definition whose C object symbol matches
+`--symbol`, including static K&R definitions. C++ and decorated functions
+whose argument layout cannot be established from the declaration are refused.
+An active `FUNCTION`/`STUB` claim must first be retired or rebound. A retired
+row retains its binding history. Preview with `--dry-run` and pass its
+`input_digest` as `--expected-digest` to guard the source, selected target
+binary and metadata during apply. This validates the source identity; it does
+not establish that the build selected the object or that its native bytes match.
+Review the link map and compare the complete object separately.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `VA` | str | required | Reference virtual address of a library function |
 | `SOURCE` | path | required | Project source file compiled for this function |
 | `--symbol` | str | required | Native object symbol to compare |
+| `--expected-digest` | str | — | Require the input digest from a reviewed preview |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
@@ -5261,6 +5275,8 @@ never ships a `.LIB`.
 | `--resolve-callees` | Requires `--va`; reject x86 COFF candidates contradicted by complete known native direct callees and report unresolved edges |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
 | `--json` | Output results as JSON |
+
+Batch matching requires an extent in the configured native inventory and warns when one is missing. Single-address matching uses the inventory first, then the metadata size, and errors if neither exists. Object spans can contain up to 15 trailing NOP or INT3 padding bytes without relocations. Matches mask relocations, so they identify candidates rather than proving operands, literal contents, or the linked provider.
 
 A masked wrapper pair can match several library bodies, so a JSON finding
 carries `symbol` and `object` (each `null` when the bytes do not resolve one)

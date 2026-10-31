@@ -2,12 +2,38 @@
 
 ### Changed
 
+- Let reviewed source renames preserve selected reference files or record prospective retired target identities, guarded by the preview digest.
+
 - Reduce repeated parsing and allocation in metadata loading,
   dependency graphs, todo ranking, data type sizing, OMF decoding,
   binary similarity and candidate scoring. Ten synthetic microbenchmarks retain
   CPU and wall samples, explicit cache states and output checks.
 
 ### Fixed
+
+- Hash a unique K&R definition when its only grammar error is a single-identifier header macro (`local`, `ZEXPORT`). Prototypes, comments, duplicate definitions and broken declarators or bodies still have no definition hash, so `source binding rebind` can see the same bounded definition the signature walk already recovered.
+
+- Validate `library bind-source` definitions and symbol decoration, and guard reviewed source, binary and metadata inputs with an optional preview digest. C++ and ambiguous decorated argument layouts now require separate validation.
+
+- Preserve the reviewed inventory extent when adopting a new or retired library identity, and reject stale or conflicting sizes.
+
+- Fail batch library matching when a function has no native inventory extent or its bytes cannot be read; JSON reports unchecked rows alongside findings.
+
+- Avoid redundant round-trip metadata loads when applying reviewed bindings or renaming sources without affected provenance.
+
+- Recognize K&R definitions using a static storage macro in source binding review while keeping uncertain linkage subject to external-symbol collision checks.
+
+- Compare `rebrew test --target-bin` against the supplied raw bytes even when a VA and size are known; diagnostic slices do not update metadata.
+
+- Honor an explicit `rebrew test --symbol` when `--va` selects another function, and skip metadata promotion for that diagnostic comparison.
+
+- Refuse unresolved stub generation when a conditional macro may rename a callable; require a reviewed `--specials` definition.
+
+- Preserve return types in bare function declarations when generating unresolved-symbol stubs.
+
+- Avoid repeated empty binding-history validation and path resolution while linting unbound sources.
+
+- `rebrew library match` checks the full configured native extent and no longer promotes a matching prefix; a single-address check requires an inventory or metadata extent.
 
 - `rebrew build check-data-placement` reads the linked image's own CMake tree when it builds outside `build/`, so a project with a named build directory no longer reports zero data symbols.
 

@@ -13,6 +13,7 @@ lazy import tomlkit
 from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, METADATA_FIELDS
 lazy from rebrew.c_parser import (
     find_function_name_in_node,
+    function_definition_bounded,
     mask_msvc_syntax,
     mask_va_arg_types,
     parse_c_source,
@@ -55,7 +56,13 @@ _FUNCTION_FIELDS = METADATA_FIELDS | frozenset(k.upper() for k in FUNCTION_IDENT
 
 
 def function_definition_hashes(source: str) -> dict[str, str]:
-    """Hash unique, parseable definitions; ambiguous conditional bodies are excluded."""
+    """Hash unique bounded definitions; ambiguous or malformed bodies are excluded.
+
+    Header-macro ERROR nodes that ``function_definition_bounded`` accepts do
+    not by themselves make a definition ambiguous. Two definitions of one
+    name, a prototype, or a body or declarator the grammar cannot bound still
+    produce no hash. The digest is the original source bytes of the node.
+    """
     tree, parsed = parse_c_source(mask_va_arg_types(mask_msvc_syntax(source)))
     raw = source.encode("utf-8", errors="surrogateescape")
     hashes: dict[str, str] = {}
@@ -70,7 +77,7 @@ def function_definition_hashes(source: str) -> dict[str, str]:
         name = find_function_name_in_node(declarator, parsed) if declarator else None
         if not name:
             continue
-        if name in hashes or node.has_error:
+        if name in hashes or not function_definition_bounded(node):
             ambiguous.add(name)
         hashes[name] = hashlib.sha256(raw[node.start_byte : node.end_byte]).hexdigest()
     return {name: digest for name, digest in hashes.items() if name not in ambiguous}
@@ -181,6 +188,41 @@ def rename_source_provenance(
     if (not edits and move is None) or not metadata_store(path).exists():
         return
     with nullcontext() if dry_run else metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
+        version = metadata_format(path)
+        reader = metadata_store(path)
+        current = reader.read(
+            "function metadata",
+            validate=lambda member: parse_metadata_doc(
+                member,
+                known_fields=_FUNCTION_FIELDS,
+                source=str(path),
+                version=version,
+                deepcopy=False,
+            ),
+        )
+        parse_metadata_doc(
+            current,
+            known_fields=_FUNCTION_FIELDS,
+            source=str(path),
+            version=version,
+            deepcopy=False,
+        )
+        source = current.get("source", {"definitions": {}, "files": {}})
+        edit_paths = {
+            file.resolve().relative_to(directory).as_posix()
+            for file in edits
+            if file.resolve().is_relative_to(directory)
+        }
+        move_path = move[0].resolve().relative_to(directory).as_posix() if move else None
+        if move:
+            move[1].resolve().relative_to(directory)
+        if not (
+            edit_paths.intersection(source["definitions"])
+            or (move_path and move_path in source["files"])
+            or (move_path and not edits and move_path in source["definitions"])
+        ):
+            return
+        del current, source
         store = load_metadata_for_write(path, "function metadata", known_fields=_FUNCTION_FIELDS)
         doc = store.setdefault("source", {"definitions": {}, "files": {}})
         definitions = doc["definitions"]

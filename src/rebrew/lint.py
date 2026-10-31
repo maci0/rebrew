@@ -2252,9 +2252,11 @@ def lint_file(
 
         directory = resolve_metadata_dir(cfg.metadata_dir if cfg else filepath.parent)
         project_root = cfg.root if cfg else walk_up_to_root(directory) or directory
+        resolved = filepath.resolve() if _metadata_entries else None
         if any(
-            filepath.resolve() in historical_source_files(row, directory, project_root)
+            resolved in historical_source_files(row, directory, project_root)
             for row in _metadata_entries.values()
+            if row.get("binding_history", []) != []
         ):
             # Explicitly retired TUs remain reviewable source, outside compilation.
             result._kind_counts["INACTIVE"] += 1

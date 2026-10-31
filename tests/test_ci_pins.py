@@ -2474,12 +2474,17 @@ class TestRequireExtras:
         uv = bin_dir / "uv"
         uv.write_text('#!/bin/sh\nprintf "%s\\n" "$*" > "$PREFLIGHT_UV_CALL"\n')
         uv.chmod(0o755)
+        python3 = bin_dir / "python3"
+        python3.write_text('#!/bin/sh\nprintf "%s\\n" "$*" > "$PREFLIGHT_PYTHON3_CALL"\nexit 1\n')
+        python3.chmod(0o755)
         calls = tmp_path / "uv-call"
+        python3_calls = tmp_path / "python3-call"
         environment = tmp_path / "selected env"
         env = {
             **os.environ,
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
             "PREFLIGHT_UV_CALL": str(calls),
+            "PREFLIGHT_PYTHON3_CALL": str(python3_calls),
         }
         env.pop("UV_PROJECT_ENVIRONMENT", None)
         if selection != "default":
@@ -2504,11 +2509,21 @@ class TestRequireExtras:
             assert result.returncode == 0, result.stdout + result.stderr
             arguments = calls.read_text()
             assert arguments.startswith("run --frozen --no-sync python tools/require_extras.py ")
+            assert not python3_calls.exists()
             assert not (tmp_path / ".venv").exists()
         else:
-            assert result.returncode == (0 if target == "warn-test-extras" else 2)
-            assert "does not exist" in result.stdout
+            level = "WARNING" if target == "warn-test-extras" else "ERROR"
+            # make exits 2 when a recipe exits 1. warn-test-extras exits 0.
+            assert result.returncode == (0 if target == "warn-test-extras" else 2), (
+                result.stdout + result.stderr
+            )
+            assert f"{level}: no " in result.stdout
+            assert "so the 'prove' extra" in result.stdout
+            assert "and the 'similarity' group cannot be checked." in result.stdout
+            assert "uv sync --locked --all-extras --group similarity" in result.stdout
+            assert "python3" not in result.stdout
             assert not calls.exists()
+            assert not python3_calls.exists()
             assert not environment.exists()
             assert (tmp_path / ".venv").exists() == (selection == "missing")
 
@@ -2525,9 +2540,9 @@ class TestRequireExtras:
     def test_absent_venv_is_reported_without_probing_the_interpreter(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        # `make doctor` runs this file with the system python3 so a clean clone
-        # stays untouched; a system interpreter carrying angr must not read as
-        # the extra being installed in the project venv.
+        # A direct run still refuses a missing selected environment without
+        # probing modules. The Makefile does not invoke this file, or python3,
+        # for that case.
         monkeypatch.setattr(require_extras, "_venv_dir", lambda: tmp_path / "absent")
         monkeypatch.setattr(require_extras, "_satisfied", lambda modules: True)
         assert require_extras.main() == 1
@@ -2578,8 +2593,21 @@ class TestRequireExtras:
         assert not require_extras._satisfied(("rebrew_no_such_module",))
 
     def test_makefile_probe_does_not_build_the_venv_it_reports_on(self) -> None:
-        """`uv run` creates .venv, and `make doctor` is documented read-only."""
-        recipe = MAKEFILE.read_text(encoding="utf-8")
-        recipe = recipe.split("ensure-extras: ensure-uv", 1)[1].split("\n\n", 1)[0]
-        assert 'if [ -d "$${UV_PROJECT_ENVIRONMENT:-.venv}" ]' in recipe, recipe
-        assert "python3 tools/require_extras.py" in recipe, recipe
+        """`uv run` creates .venv, and `make doctor` is documented read-only.
+
+        A missing selected environment is a refusal or warning and is not
+        probed: no python3, and no uv run that would create .venv.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        block = text.split("ensure-extras: ensure-uv", 1)[1].split(
+            "\n# Whole-environment preflight", 1
+        )[0]
+        assert block.count('if [ -d "$${UV_PROJECT_ENVIRONMENT:-.venv}" ]') == 3, block
+        assert block.count("uv run --frozen --no-sync python tools/require_extras.py") == 3
+        assert "python3 tools/require_extras.py" not in block, block
+        assert "command -v python3" not in block, block
+        assert block.count("ERROR: no $${UV_PROJECT_ENVIRONMENT:-.venv}, so the 'prove' extra") == 2
+        assert "WARNING: no $${UV_PROJECT_ENVIRONMENT:-.venv}, so the 'prove' extra" in block
+        assert block.count("and the 'similarity' group cannot be checked.") == 3
+        assert block.count("uv sync --locked --all-extras --group similarity") == 3
+        assert block.count("exit 1") == 2

@@ -295,7 +295,7 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
     from a ``.c`` in the reviewed tree, and ``generate_stubs`` pastes it into
     a file the build compiles.
     """
-    rest = decl[len("extern") :].strip().rstrip(";").strip()
+    rest = re.sub(r"^extern\b", "", decl, count=1).strip().rstrip(";").strip()
 
     # Function with calling convention: TYPE __cdecl NAME(PARAMS).
     # ``WINAPI`` and ``__vectorcall`` are conventions too. Leaving them
@@ -595,6 +595,43 @@ def collect_called_symbols(src_dir: Path) -> set[str]:
     return called
 
 
+def collect_conditional_callable_aliases(src_dir: Path) -> set[str]:
+    """Names that conditional object-like macros may map from called symbols."""
+    from rebrew.c_parser import parse_c_source
+
+    aliases: set[str] = set()
+    for _path, source in _stripped_sources(src_dir):
+        if "define" not in source:
+            continue
+        called = {m.group(1) for m in _CALL_RE.finditer(source)} - _NON_CALL_KEYWORDS
+        tree, data = parse_c_source(source)
+        pending = [(tree.root_node, False)]
+        while pending:
+            node, conditional = pending.pop()
+            conditional = conditional or node.type in {
+                "preproc_if",
+                "preproc_ifdef",
+                "preproc_elif",
+                "preproc_else",
+            }
+            if conditional and node.type == "preproc_def":
+                name = node.child_by_field_name("name")
+                value = node.child_by_field_name("value")
+                if name is not None and value is not None:
+                    source_name = data[name.start_byte : name.end_byte].decode(
+                        "utf-8", errors="surrogateescape"
+                    )
+                    target = (
+                        data[value.start_byte : value.end_byte]
+                        .decode("utf-8", errors="surrogateescape")
+                        .strip()
+                    )
+                    if source_name in called and is_safe_c_ident(target):
+                        aliases.add(target)
+            pending.extend((child, conditional) for child in node.named_children)
+    return aliases
+
+
 _KNOWN_TYPES = {
     "ENT": "int",
     "Record*": "int*",
@@ -834,10 +871,12 @@ def generate_stubs(
     specials: dict[str, typing.Any] | None = None,
     footer: str = "",
     called: Iterable[str] | None = None,
+    conditional_callable_aliases: Iterable[str] | None = None,
 ) -> str:
     """The complete stub TU text for *unresolved* symbol names."""
     specials = specials or {}
     called_set: set[str] = set(called) if called is not None else set()
+    alias_set = set(conditional_callable_aliases or ())
     special_entries: dict[str, dict[str, typing.Any]] = specials.get("specials", {})
     bss_arrays: list[list[typing.Any]] = specials.get("bss_arrays", [])
     bss_tail: int = int(specials.get("bss_tail_size", 0) or 0)
@@ -888,6 +927,11 @@ def generate_stubs(
             special_list.append(name)
             continue
         info = _lookup(extern_info, name)
+        if name in alias_set:
+            raise ValueError(
+                f"{name} may be a conditional callable alias; review its ABI and "
+                "supply a --specials entry"
+            )
         fast_arity = fastcall_arity(original)
         if fast_arity is not None:
             if (
@@ -1296,11 +1340,19 @@ def main(
         error_exit(f"source directory not found: {src}", json_mode=json_output)
     extern_info = collect_extern_info(src)
     called = collect_called_symbols(src)
+    conditional_aliases = collect_conditional_callable_aliases(src)
 
     # 4. Generate.
     footer_text = read_source_text(footer)[0] if footer is not None else ""
     try:
-        content = generate_stubs(unresolved, extern_info, spec_dict, footer_text, called=called)
+        content = generate_stubs(
+            unresolved,
+            extern_info,
+            spec_dict,
+            footer_text,
+            called=called,
+            conditional_callable_aliases=conditional_aliases,
+        )
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
 

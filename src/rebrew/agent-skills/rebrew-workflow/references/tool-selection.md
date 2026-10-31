@@ -94,6 +94,17 @@ file, then apply with its `--expected-digest`. Ownership is a reviewed claim, no
 native call proof. A file with mixed owners or ambiguous linker references needs
 a finer repair; reverify every affected target after the rename.
 
+For a reviewed file whose references have unresolved ownership,
+`--preserve-reference FILE` leaves its text unchanged without asserting an
+owner. Preview with `--dry-run --json` and apply with `--expected-digest`; the
+file and decision are included in the digest. Check its linked provider after
+the rename: unchanged text can still bind to a different definition.
+
+`--pending-owner FILE=MODULE.0xVA` pairs a selected reference owner with a
+reviewed, retired and unbound native identity in another caller target. The
+preview pins inventories and marks the claim prospective; rebind and verify the
+identity before linking. It does not establish native call or provider proof.
+
 Delphi public mechanics are `compiler.delphi16.compile_ne`, `formats.dfm`, and
 `formats.ne_analysis.NeImage`. Form encoding preserves property order and wire
 types; unsupported candidates are errors. NE fixup inventories reject truncated

@@ -661,7 +661,7 @@ class TestBindSourceWithoutPriorClaim:
         cfg = _project(tmp_path)
         source = tmp_path / "references" / "adler32.c"
         source.parent.mkdir(parents=True)
-        source.write_text("int f(void) { return 0; }\n")
+        source.write_text("int adler32(void) { return 0; }\n")
         real_get_entry = functions.get_entry
 
         def claim_after_read(*args: Any, **kwargs: Any) -> Any:
@@ -685,5 +685,187 @@ class TestBindSourceWithoutPriorClaim:
                     ["bind-source", "0x10001000", str(source), "--symbol", "_adler32", "--json"],
                 )
         assert result.exit_code == 2, result.output
-        assert "bindings changed" in result.output
+        assert "changed" in result.output
         assert get_entry(cfg.metadata_dir, 0x10001000, "GAME")["file"] == "src/f.c"
+
+
+@pytest.mark.parametrize(
+    ("text", "symbol", "accepted"),
+    [
+        (
+            "#ifndef local\n#define local static\n#endif\nlocal int f(a) int a; { return a; }\n",
+            "_f",
+            True,
+        ),
+        ("int __stdcall f(int a) { return a; }\n", "_f@4", True),
+        ("int __stdcall f(int a) { return a; }\n", "_f", False),
+        (
+            "struct S { int a; int b; }; int __stdcall f(struct S a) { return a.a; }\n",
+            "_f@4",
+            False,
+        ),
+        ("int f(void) { return 1; }\n", "_missing", False),
+        ("int f(void) { return +; }\n", "_f", False),
+        (
+            "#if X\nint f(void) { return 1; }\n#else\nint f(void) { return 2; }\n#endif\n",
+            "_f",
+            False,
+        ),
+    ],
+)
+def test_bind_source_requires_complete_matching_c_definition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str, symbol: str, accepted: bool
+) -> None:
+    from typer.testing import CliRunner
+
+    from rebrew.library import app
+
+    cfg = _project(tmp_path)
+    source = tmp_path / "vendor.c"
+    source.write_text(text)
+    monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    result = CliRunner().invoke(
+        app, ["bind-source", "0x10001000", str(source), "--symbol", symbol, "--dry-run", "--json"]
+    )
+    assert (result.exit_code == 0) is accepted, result.output
+
+
+def test_bind_source_rejects_source_changed_after_preview(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from typer.testing import CliRunner
+
+    from rebrew.library import app
+    from rebrew.metadata.functions import get_entry
+
+    cfg = _project(tmp_path)
+    source = tmp_path / "vendor.c"
+    source.write_text("int f(void) { return 1; }\n")
+    monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    args = ["bind-source", "0x10001000", str(source), "--symbol", "_f", "--json"]
+    preview = CliRunner().invoke(app, [*args, "--dry-run"])
+    assert preview.exit_code == 0, preview.output
+    digest = cli_payload(preview)["input_digest"]
+    source.write_text("int f(void) { return 2; }\n")
+    result = CliRunner().invoke(app, [*args, "--expected-digest", digest])
+    assert result.exit_code == 2, result.output
+    assert not get_entry(cfg.metadata_dir, 0x10001000, "GAME")
+
+
+@pytest.mark.parametrize("changed", ["binary", "metadata"])
+def test_bind_source_rejects_other_review_input_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed: str
+) -> None:
+    from typer.testing import CliRunner
+
+    from rebrew.library import app
+    from rebrew.metadata.functions import get_entry, record_function_identity
+
+    cfg = _project(tmp_path)
+    cfg.target_binary = tmp_path / "target.exe"
+    cfg.target_binary.write_bytes(b"original")
+    source = tmp_path / "vendor.c"
+    source.write_text("int f(void) { return 1; }\n")
+    monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    args = ["bind-source", "0x10001000", str(source), "--symbol", "_f", "--json"]
+    preview = CliRunner().invoke(app, [*args, "--dry-run"])
+    assert preview.exit_code == 0, preview.output
+    digest = cli_payload(preview)["input_digest"]
+    if changed == "binary":
+        cfg.target_binary.write_bytes(b"changed")
+    else:
+        record_function_identity(
+            cfg.metadata_dir,
+            module="GAME",
+            va=0x10002000,
+            file="src/g.c",
+            kind="FUNCTION",
+            name="g",
+            symbol="_g",
+        )
+    result = CliRunner().invoke(app, [*args, "--expected-digest", digest])
+    assert result.exit_code == 2, result.output
+    assert not get_entry(cfg.metadata_dir, 0x10001000, "GAME")
+
+
+def test_bind_source_rechecks_source_at_locked_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from contextlib import contextmanager
+
+    from typer.testing import CliRunner
+
+    import rebrew.library as module
+    from rebrew.metadata.functions import get_entry
+
+    cfg = _project(tmp_path)
+    source = tmp_path / "vendor.c"
+    source.write_text("int f(void) { return 1; }\n")
+    monkeypatch.setattr(module, "require_config", lambda **_kwargs: cfg)
+    lock = module.metadata_write_lock
+
+    @contextmanager
+    def changed_before_lock(*args: Any, **kwargs: Any):
+        with lock(*args, **kwargs):
+            source.write_text("int f(void) { return 2; }\n")
+            yield
+
+    monkeypatch.setattr(module, "metadata_write_lock", changed_before_lock)
+    result = CliRunner().invoke(
+        module.app, ["bind-source", "0x10001000", str(source), "--symbol", "_f", "--json"]
+    )
+    assert result.exit_code == 2, result.output
+    assert not get_entry(cfg.metadata_dir, 0x10001000, "GAME")
+
+
+def test_bind_source_guarded_preview_can_apply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from typer.testing import CliRunner
+
+    from rebrew.library import app
+    from rebrew.metadata.functions import get_entry
+
+    cfg = _project(tmp_path)
+    source = tmp_path / "vendor.c"
+    source.write_text("static int f(void) { return 1; }\n")
+    monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    args = ["bind-source", "0x10001000", str(source), "--symbol", "_f", "--json"]
+    preview = CliRunner().invoke(app, [*args, "--dry-run"])
+    assert preview.exit_code == 0, preview.output
+    result = CliRunner().invoke(
+        app, [*args, "--expected-digest", cli_payload(preview)["input_digest"]]
+    )
+    assert result.exit_code == 0, result.output
+    assert get_entry(cfg.metadata_dir, 0x10001000, "GAME")["symbol"] == "_f"
+
+
+def test_bind_source_refuses_unsupported_cpp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from typer.testing import CliRunner
+
+    from rebrew.library import app
+    from rebrew.metadata.functions import get_entry
+
+    cfg = _project(tmp_path)
+    source = tmp_path / "vendor.cpp"
+    source.write_text("int f() { return 1; }\n")
+    monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    result = CliRunner().invoke(
+        app, ["bind-source", "0x10001000", str(source), "--symbol", "_f", "--json"]
+    )
+    assert result.exit_code == 2, result.output
+    assert not get_entry(cfg.metadata_dir, 0x10001000, "GAME")
+
+
+def test_bind_source_preserves_previous_positional_python_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.library import bind_source_cmd
+
+    cfg = _project(tmp_path)
+    source = tmp_path / "vendor.c"
+    source.write_text("int f(void) { return 1; }\n")
+    monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    bind_source_cmd("0x10001000", source, "_f", True, True, None)

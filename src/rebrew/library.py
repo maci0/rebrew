@@ -14,6 +14,7 @@ shipped CRT: /MT /O2 /Gd) and fills the missing fields.
 
 from __future__ import annotations
 
+from typing import Annotated
 lazy import re
 lazy from pathlib import Path
 lazy from typing import Any
@@ -75,22 +76,31 @@ def bind_source_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
+    expected_digest: Annotated[
+        str | None, typer.Option("--expected-digest", help=EXPECTED_DIGEST_HELP)
+    ] = None,
 ) -> None:
     """Bind an identified library function to a source file we compile ourselves.
 
-    Works for a VA that already has a library declaration or a LIBRARY row, for a
-    retired row (replaced through the binding history), and for a VA with no row
-    at all (the LIBRARY row is recorded directly). An active FUNCTION or STUB
-    claim still needs a reviewed rebind first, so this command never overwrites
-    one silently.
+    The C source must contain one complete definition with the requested C
+    object symbol; C++ and unsupported symbol decoration are refused. A retired
+    row is replaced through binding history. Active FUNCTION or STUB claims
+    need a reviewed rebind first. The preview digest pins source, binary and
+    metadata; it does not establish object selection or a native byte match.
     """
+    import hashlib
+    import json
+
+    from rebrew.c_parser import function_signatures
     from rebrew.config import target_module
     from rebrew.metadata.binding_history import change_source_binding, retired_binding
-    from rebrew.metadata.bindings import library_bindings_for_file
+    from rebrew.metadata.bindings import derive_c_symbol, library_bindings_for_file
     from rebrew.metadata.functions import get_entry, record_function_identity, record_function_rows
+    from rebrew.metadata.storage import input_digest
     from rebrew.rename_ops import c_name_from_symbol
+    from rebrew.source_binding import has_unique_source_definition, supported_decorated_signature
     from rebrew.sources import iter_library_headers
-    from rebrew.utils import preset_module_key
+    from rebrew.utils import is_safe_c_ident, preset_module_key, read_source_text
 
     cfg = require_config(target=target, json_mode=json_output)
     address = parse_va(va, json_mode=json_output)
@@ -117,19 +127,69 @@ def bind_source_cmd(
         error_exit(
             "Library source must be an existing file inside the project", json_mode=json_output
         )
-    if candidate.suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"} or not symbol.strip():
+    name = c_name_from_symbol(symbol)
+    if candidate.suffix.casefold() != ".c" or not is_safe_c_ident(name):
+        error_exit("bind-source requires a supported C symbol and .c source", json_mode=json_output)
+    source_digest = input_digest(candidate)
+    text, _ = read_source_text(candidate)
+    if input_digest(candidate) != source_digest:
         error_exit(
-            "Provide a C/C++ source file and a nonempty native symbol", json_mode=json_output
+            "library source changed while reading; review a new preview", json_mode=json_output
+        )
+    signatures = function_signatures(text)
+    if (
+        not has_unique_source_definition(text, name)
+        or name not in signatures
+        or derive_c_symbol(name, signatures[name]) != symbol
+        or ("@" in symbol and not supported_decorated_signature(signatures[name]))
+    ):
+        error_exit(
+            "source must contain one complete definition with matching C symbol",
+            json_mode=json_output,
         )
     identity = {
         "file": candidate.relative_to(cfg.root.resolve()).as_posix(),
         "symbol": symbol,
         "kind": "LIBRARY",
     }
+    binary = cfg.target_binary
+    binary_digest = input_digest(binary) if binary.is_file() else None
+    review = hashlib.sha256(
+        json.dumps(
+            {
+                "metadata": digest,
+                "source": source_digest,
+                "binary": binary_digest,
+                "file": identity["file"],
+                "symbol": symbol,
+                "module": target_module_name,
+                "va": address,
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    if (
+        store.digest() != digest
+        or not candidate.is_file()
+        or input_digest(candidate) != source_digest
+        or (input_digest(binary) if binary.is_file() else None) != binary_digest
+    ):
+        error_exit(
+            "library source binding inputs changed; review a new preview", json_mode=json_output
+        )
+    if expected_digest is not None and review != expected_digest:
+        error_exit(
+            "library source binding inputs changed; review a new preview", json_mode=json_output
+        )
     if not dry_run:
         with metadata_write_lock(cfg.metadata_dir, METADATA_FILENAME):
             # The claim check above ran unlocked; a concurrent claim must win.
-            if store.digest() != digest:
+            if (
+                store.digest() != digest
+                or not candidate.is_file()
+                or input_digest(candidate) != source_digest
+                or (input_digest(binary) if binary.is_file() else None) != binary_digest
+            ):
                 error_exit(
                     "Library source bindings changed; rerun bind-source", json_mode=json_output
                 )
@@ -158,7 +218,13 @@ def bind_source_cmd(
                     cfg.metadata_dir,
                     [{"module": target_module(cfg), "va": address, "identity": identity}],
                 )
-    payload = {"va": f"0x{address:08x}", "provider": "compiled", **identity, "dry_run": dry_run}
+    payload = {
+        "va": f"0x{address:08x}",
+        "provider": "compiled",
+        **identity,
+        "dry_run": dry_run,
+        "input_digest": review,
+    }
     if json_output:
         json_print(payload)
     else:
@@ -518,14 +584,13 @@ def adopt_cmd(
     import hashlib
     import json as json_mod
 
-    from rebrew.catalog import cached_function_list
-    from rebrew.config import target_module
+    from rebrew.config import inventory_path_for, target_module
     from rebrew.formats.binary_loader import extract_raw_bytes
     from rebrew.identify_library import prepare_library_header
-    from rebrew.lib_match import PREFIX_BYTES, match_bytes, project_match_index
-    from rebrew.metadata.binding_history import change_source_binding, retired_binding
+    from rebrew.lib_match import match_complete_body, native_sizes, project_match_index
+    from rebrew.metadata.binding_history import change_source_bindings_batch, retired_binding
     from rebrew.metadata.functions import get_entry, record_function_identity
-    from rebrew.metadata.storage import metadata_store
+    from rebrew.metadata.storage import input_digest, metadata_store
     from rebrew.rename_ops import c_name_from_symbol
     from rebrew.utils import library_header_name
 
@@ -544,24 +609,22 @@ def adopt_cmd(
         index, _archives, _objects = project_match_index(cfg, json_mode=json_output)
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
-    size = int(row.get("size") or 0)
-    if not size:
-        for func in cached_function_list(cfg):
-            try:
-                if int(func.get("va", -1)) == address:
-                    size = int(func.get("size") or 0)
-                    break
-            except TypeError, ValueError:
-                continue
+    inventory = inventory_path_for(cfg.reversed_dir, cfg)
+    inventory_digest = input_digest(inventory) if inventory.is_file() else None
+    size = native_sizes(cfg).get(address, 0) or int(row.get("size") or 0)
+    if (input_digest(inventory) if inventory.is_file() else None) != inventory_digest:
+        error_exit(
+            "library inventory changed while reading; review a new preview", json_mode=json_output
+        )
+    if row.get("size") and row["size"] != size:
+        error_exit("native inventory extent conflicts with stored size", json_mode=json_output)
     if not size:
         error_exit(
             f"no native metadata row and no inventory size for {module}.0x{address:x}",
             json_mode=json_output,
         )
-    data = extract_raw_bytes(cfg.target_binary, address, size or PREFIX_BYTES)
-    hit = match_bytes(index, data)
-    if not hit and size > PREFIX_BYTES:
-        hit = match_bytes(index, extract_raw_bytes(cfg.target_binary, address, PREFIX_BYTES))
+    data = extract_raw_bytes(cfg.target_binary, address, size)
+    hit = match_complete_body(index, data)
     pairs = {(symbol, obj) for symbol, obj in hit}
     if not pairs:
         error_exit(
@@ -614,6 +677,7 @@ def adopt_cmd(
                 "metadata": metadata_digest,
                 "va": address,
                 "size": size,
+                "inventory": inventory_digest,
                 "identity": identity,
                 "object": object_label,
                 "reason": reason.strip(),
@@ -628,16 +692,23 @@ def adopt_cmd(
     try:
         # An address-only row's verdict goes to binding_history like a claim's.
         if row:
-            result = change_source_binding(
+            batch = change_source_bindings_batch(
                 cfg.metadata_dir,
-                module,
-                address,
-                reason=reason,
-                identity=identity,
+                [
+                    {
+                        "module": module,
+                        "va": address,
+                        "reason": reason,
+                        "identity": identity,
+                        "native_size": size,
+                    }
+                ],
                 dry_run=dry_run,
                 expected_digest=None if dry_run else metadata_digest,
+                expected_inputs={inventory: inventory_digest or ""},
                 project_root=cfg.root,
             )
+            result = batch["changes"][0]
         else:
             if not dry_run:
                 with metadata_write_lock(cfg.metadata_dir, METADATA_FILENAME):
@@ -647,6 +718,10 @@ def adopt_cmd(
                         != metadata_digest
                     ):
                         raise ValueError("library adopt inputs changed; review a new preview")
+                    if (
+                        input_digest(inventory) if inventory.is_file() else None
+                    ) != inventory_digest:
+                        raise ValueError("library inventory changed; review a new preview")
                     record_function_identity(
                         cfg.metadata_dir,
                         module=module,
@@ -655,6 +730,7 @@ def adopt_cmd(
                         kind="LIBRARY",
                         name=identity["name"],
                         symbol=identity["symbol"],
+                        size=size,
                         updated_by="match",
                     )
             result = {"action": "record"}

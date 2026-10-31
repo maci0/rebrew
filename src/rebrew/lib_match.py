@@ -162,6 +162,29 @@ def match_bytes(index: Index, data: bytes) -> list[tuple[str, str]]:
     return matches
 
 
+def match_complete_body(index: Index, data: bytes) -> list[tuple[str, str]]:
+    """Match a native extent against a complete object span, allowing alignment padding."""
+    bounded: Index = {}
+    for sym, entries in index.items():
+        for obj, body, relocs in entries:
+            tail = body[len(data) :]
+            if len(body) < len(data) or len(tail) > 15:
+                continue
+            if any(byte not in (0x90, 0xCC) for byte in tail):
+                continue
+            if any(i >= len(data) for i in relocs):
+                continue
+            bounded.setdefault(sym, []).append((obj, body, relocs))
+    return match_bytes(bounded, data)
+
+
+def native_sizes(cfg: Any) -> dict[int, int]:
+    """Return positive extents from the configured discovery inventory."""
+    from rebrew.catalog.loaders import cached_function_list
+
+    return {int(f["va"]): int(f["size"]) for f in cached_function_list(cfg) if int(f["size"]) > 0}
+
+
 def match_leading_body(index: Index, data: bytes) -> list[tuple[str, str]]:
     """Return candidates whose whole library bodies start *data*.
 
@@ -346,10 +369,14 @@ def load_allowlist(path: Path | None, *, json_mode: bool = False) -> set[int]:
     return out
 
 
-def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, Any]]:
+def _findings(
+    cfg: Any, index: Index, allow: set[int]
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     from rebrew.catalog.loaders import scan_reversed_dir
 
     found: list[dict[str, Any]] = []
+    unchecked: list[dict[str, str]] = []
+    sizes = native_sizes(cfg)
     for entry in scan_reversed_dir(cfg.reversed_dir, cfg=cfg):
         module = getattr(entry, "module", "") or ""
         va = int(getattr(entry, "va", 0) or 0)
@@ -359,30 +386,23 @@ def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, Any]]:
         if getattr(entry, "kind", "FUNCTION") not in ("FUNCTION", "STUB"):
             continue
         try:
-            data = extract_raw_bytes(cfg.target_binary, va, entry.size or PREFIX_BYTES)
+            size = sizes.get(va, 0)
+            if not size:
+                unchecked.append(
+                    {"module": module, "va": f"0x{va:08x}", "reason": "no native inventory extent"}
+                )
+                continue
+            data = extract_raw_bytes(cfg.target_binary, va, size)
         except Exception as exc:
-            # A VA outside the image is a stale catalog entry.  Dropping it
-            # quietly would report the function as "not found in a library",
-            # a different conclusion from "could not be read", so name it.
-            logging.getLogger(__name__).warning(
-                "could not extract bytes for %s at 0x%08x from %s: %s",
-                module,
-                va,
-                cfg.target_binary,
-                exc,
+            unchecked.append(
+                {
+                    "module": module,
+                    "va": f"0x{va:08x}",
+                    "reason": f"could not extract native bytes: {exc}",
+                }
             )
             continue
-        hit = match_bytes(index, data)
-        if not hit and (entry.size or 0) > PREFIX_BYTES:
-            # A wrong SIZE in the metadata overruns the function and hides a
-            # real match; retry on a fixed prefix.
-            try:
-                hit = match_bytes(index, extract_raw_bytes(cfg.target_binary, va, PREFIX_BYTES))
-            except Exception as exc:
-                logging.getLogger(__name__).warning(
-                    "prefix retry failed for %s at 0x%08x: %s", module, va, exc
-                )
-                hit = []
+        hit = match_complete_body(index, data)
         if hit:
             found.append(
                 {
@@ -392,7 +412,7 @@ def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, Any]]:
                     **_match_details(hit),
                 }
             )
-    return found
+    return found, unchecked
 
 
 #: Path substring that marks a source-vendored library tree in a build database.
@@ -773,15 +793,18 @@ def main(
     if va_int is not None:
         from rebrew.metadata.functions import get_entry
 
-        module = target_module(cfg)
-        size = (get_entry(cfg.metadata_dir, va_int, module) or {}).get("size") or 0
-        data = extract_raw_bytes(cfg.target_binary, va_int, size or PREFIX_BYTES)
-        hit = match_bytes(index, data)
-        if not hit and (size or 0) > PREFIX_BYTES:
-            data = extract_raw_bytes(cfg.target_binary, va_int, PREFIX_BYTES)
-            hit = match_bytes(index, data)
-        if not hit and not size:
-            hit = match_leading_body(index, data)
+        size = native_sizes(cfg).get(va_int, 0)
+        if not size:
+            size = int(
+                (get_entry(cfg.metadata_dir, va_int, target_module(cfg)) or {}).get("size") or 0
+            )
+        if not size:
+            error_exit(
+                f"no native extent for 0x{va_int:x}; inventory or metadata size required",
+                json_mode=json_output,
+            )
+        data = extract_raw_bytes(cfg.target_binary, va_int, size) if size else b""
+        hit = match_complete_body(index, data)
         resolution: dict[str, Any] = {}
         if resolve_callees:
             hit, call_evidence = resolve_native_callees(
@@ -818,12 +841,18 @@ def main(
             )
         raise typer.Exit(code=EXIT_OK)
 
-    found = _findings(cfg, index, load_allowlist(allow, json_mode=json_output))
+    found, unchecked = _findings(cfg, index, load_allowlist(allow, json_mode=json_output))
     if json_output:
-        json_print({"findings": found, "count": len(found)})
-    elif not found:
+        json_print(
+            {
+                "findings": found,
+                "count": len(found),
+                **({"unchecked": unchecked} if unchecked else {}),
+            }
+        )
+    elif not found and not unchecked:
         console.print("[green]No reversed function matches a linked library.[/green]")
-    else:
+    elif found:
         console.print("Reversed functions whose bytes come from a linked library:\n")
         for f in found:
             console.print(f"  [yellow]{f['va']}[/yellow]  {f['file']}")
@@ -838,7 +867,10 @@ def main(
             "them. Delete the source, or add the VA to the --allow file with a reason "
             "if the file must stay for link reasons."
         )
-    raise typer.Exit(code=EXIT_MISMATCH if found else EXIT_OK)
+    if unchecked and not json_output:
+        for item in unchecked:
+            console.print(f"[red]Unchecked {item['module']} {item['va']}: {item['reason']}[/red]")
+    raise typer.Exit(code=EXIT_ERROR if unchecked else EXIT_MISMATCH if found else EXIT_OK)
 
 
 def main_entry() -> None:

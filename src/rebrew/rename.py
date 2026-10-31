@@ -162,6 +162,14 @@ def main(
         "--reference-owner",
         help="Reviewed owner for all references in a project-relative FILE=MODULE.0xVA; requires --shared-definition",
     ),
+    preserve_reference_file: list[str] | None = typer.Option(
+        None,
+        "--preserve-reference",
+        help="Leave references in a reviewed file unchanged; requires --shared-definition",
+    ),
+    pending_owner: list[str] | None = typer.Option(
+        None, "--pending-owner", help="Prospective target identity for a reviewed FILE=MODULE.0xVA"
+    ),
     expected_digest: str | None = typer.Option(
         None,
         "--expected-digest",
@@ -177,21 +185,19 @@ def main(
     """Rename a function, global, type or struct member and update every reference."""
     cfg = require_config(target=target, json_mode=json_output)
     reference_owner = option_default(reference_owner, None) or []
+    preserve_reference_file = option_default(preserve_reference_file, None) or []
+    pending_owner = option_default(pending_owner, None) or []
+    reviewed_references = reference_owner or preserve_reference_file or pending_owner
     expected_digest = option_default(expected_digest, None)
     binding = _parse_identity(new_name) if not (data or type_rename or field_rename) else None
-    if (reference_owner or (expected_digest and binding is None)) and not shared_definition:
+    if (reviewed_references or (expected_digest and binding is None)) and not shared_definition:
         error_exit(
-            "--reference-owner and --expected-digest require --shared-definition",
+            "reference selections and --expected-digest require --shared-definition",
             json_mode=json_output,
         )
-    if expected_digest and not reference_owner and binding is None:
+    if reviewed_references and not dry_run and not expected_digest:
         error_exit(
-            "--expected-digest requires reviewed --reference-owner selections",
-            json_mode=json_output,
-        )
-    if reference_owner and not dry_run and not expected_digest:
-        error_exit(
-            "review --reference-owner with --dry-run, then apply with --expected-digest",
+            "review reference selections with --dry-run, then apply with --expected-digest",
             json_mode=json_output,
         )
     if shared_definition and (
@@ -221,7 +227,7 @@ def main(
             error_exit(str(exc), json_mode=json_output)
         except RenameError as exc:
             error_exit(_rename_failure(exc, getattr(cfg, "root", None)), json_mode=json_output)
-    if reference_owner and header_plan is not None:
+    if reviewed_references and header_plan is not None:
         error_exit(
             "reference ownership requires a source-defined function, not a header identity",
             json_mode=json_output,
@@ -262,6 +268,8 @@ def main(
                 json_output,
                 shared_definition=shared_definition,
                 reference_owners=_parse_reference_owners(cfg, reference_owner),
+                preserved_references=_parse_preserved_references(cfg, preserve_reference_file),
+                pending_owners=_parse_reference_owners(cfg, pending_owner, "--pending-owner"),
             )
     except (FileExistsError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
@@ -315,6 +323,12 @@ def _report(
         console.print(
             f"  reviewed references {rel_display_path(path, root)} → {owner.module}.0x{owner.va:08x}"
         )
+    for path in sorted(plan.preserved_references):
+        console.print(f"  preserved references {rel_display_path(path, root)}")
+    for path, owner in sorted(plan.pending_owners.items()):
+        console.print(
+            f"  pending owner {rel_display_path(path, root)} → {owner.module}.0x{owner.va:08x}"
+        )
     if plan.input_hashes:
         console.print(f"  input digest: {plan.input_digest}")
     if dry_run:
@@ -324,20 +338,32 @@ def _report(
         console.print("[green]Done![/green]")
 
 
-def _parse_reference_owners(cfg: Any, values: list[str]) -> dict[Path, Selection]:
+def _parse_reference_owners(
+    cfg: Any, values: list[str], option: str = "--reference-owner"
+) -> dict[Path, Selection]:
     owners = {}
     root = Path(getattr(cfg, "root", None) or cfg.reversed_dir)
     for value in values:
         file, sep, ident = value.rpartition("=")
         identity = _parse_identity(ident)
         if not sep or not file or identity is None:
-            raise ValueError("--reference-owner takes FILE=MODULE.0xVA")
+            raise ValueError(f"{option} takes FILE=MODULE.0xVA")
         path = Path(file)
         path = (path if path.is_absolute() else root / path).resolve()
         if path in owners:
-            raise ValueError(f"duplicate reference-owner selection: {file}")
+            raise ValueError(f"duplicate {option} selection: {file}")
         owners[path] = Selection(KIND_FUNCTION, *identity)
     return owners
+
+
+def _parse_preserved_references(cfg: Any, values: list[str]) -> set[Path]:
+    root = Path(getattr(cfg, "root", None) or cfg.reversed_dir)
+    paths = [
+        (Path(value) if Path(value).is_absolute() else root / value).resolve() for value in values
+    ]
+    if len(paths) != len(set(paths)):
+        raise ValueError("duplicate preserved reference file")
+    return set(paths)
 
 
 def _check_scan_collision(
@@ -385,6 +411,8 @@ def _plan_function(
     *,
     shared_definition: bool = False,
     reference_owners: dict[Path, Selection] | None = None,
+    preserved_references: set[Path] | None = None,
+    pending_owners: dict[Path, Selection] | None = None,
 ) -> tuple[RenamePlan, dict[str, Any]]:
     """Resolve the function identity, then plan its rename."""
     from rebrew.metadata.functions import get_entry
@@ -458,6 +486,9 @@ def _plan_function(
         new_filename=new_file,
         dry_run=dry_run,
         reference_owners=reference_owners,
+        preserved_references=preserved_references,
+        pending_owners=pending_owners,
+        guarded=shared_definition,
     )
     return plan, {
         "module": selected.module,

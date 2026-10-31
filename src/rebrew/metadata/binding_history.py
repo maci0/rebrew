@@ -220,6 +220,7 @@ def _apply_change(
     counterpart_va: int | None,
     now: datetime | None,
     retired: dict[Any, bool],
+    native_size: int | None = None,
 ) -> dict[str, Any]:
     """Apply one validated change to an open metadata document."""
     key = resolve_metadata_key(doc, module, va)
@@ -227,6 +228,8 @@ def _apply_change(
         raise ValueError(f"no native metadata row for {module}.0x{va:x}")
     entry = doc[key]
     history = validate_binding_history(entry.get("binding_history", []))
+    if native_size is not None and entry.get("size") not in (None, 0, native_size):
+        raise ValueError("native inventory extent conflicts with stored size")
     if identity is None and (
         (history and history[-1]["action"] == "retire") or not entry.get("file")
     ):
@@ -273,6 +276,8 @@ def _apply_change(
         "counterpart_va": counterpart_va or 0,
     }
     entry["binding_history"] = validate_binding_history([*history, event])
+    if native_size is not None and not entry.get("size"):
+        entry["size"] = native_size
     for field in (*FUNCTION_IDENTITY_FIELDS, "status", "blocker", "blocker_delta"):
         entry.pop(field, None)
     if identity is not None:
@@ -352,8 +357,9 @@ def change_source_binding(
             **event,
         }
 
-    doc, report = prepare()
-    if not dry_run:
+    if dry_run:
+        _, report = prepare()
+    else:
         with metadata_write_lock(directory, METADATA_FILENAME):
             doc, report = prepare()
             stamp_format(doc)
@@ -374,11 +380,12 @@ def change_source_bindings_batch(
 ) -> dict[str, Any]:
     """Retire or replace several source claims in one atomic store write.
 
-    Each change is ``{module, va, reason, identity?, counterpart_va?}`` with the
+    Each change is ``{module, va, reason, identity?, counterpart_va?, native_size?}`` with the
     same meaning as :func:`change_source_binding`. Any invalid or conflicting
     change rejects the whole batch before publication, and one TOML rewrite
     carries every change instead of one per row. Preview reads create no files;
-    apply revalidates under the writer lock before the single write.
+    apply revalidates under the writer lock before the single write. An empty
+    expected input digest requires that input to remain absent.
     """
     if not isinstance(changes, list) or not changes:
         raise ValueError("batch binding changes require at least one change")
@@ -398,6 +405,11 @@ def change_source_bindings_batch(
         reason = change.get("reason") or ""
         identity = change.get("identity")
         counterpart_va = change.get("counterpart_va")
+        native_size = change.get("native_size")
+        if native_size is not None and (
+            type(native_size) is not int or native_size <= 0 or identity is None
+        ):
+            raise ValueError("native size requires a replacement and a positive integer")
         if not isinstance(va, int):
             raise ValueError("batch binding changes require an integer VA")
         _validate_change(module, va, reason, identity, counterpart_va)
@@ -412,6 +424,7 @@ def change_source_bindings_batch(
                     else None
                 ),
                 "counterpart_va": counterpart_va,
+                "native_size": native_size,
             }
         )
     path = directory / METADATA_FILENAME
@@ -419,7 +432,8 @@ def change_source_bindings_batch(
 
     def prepare() -> tuple[Any, dict[str, Any]]:
         for input_path, expected in (expected_inputs or {}).items():
-            if input_digest(input_path) != expected:
+            actual = input_digest(input_path) if input_path.is_file() else ""
+            if actual != expected:
                 raise ValueError(f"binding review input changed: {input_path}")
         before = metadata_store(path).snapshot()
         digest = metadata_store(path).digest()
@@ -441,6 +455,7 @@ def change_source_bindings_batch(
                 counterpart_va=change["counterpart_va"],
                 now=now,
                 retired=retired,
+                native_size=change["native_size"],
             )
             for change in prepared
         ]
@@ -457,8 +472,9 @@ def change_source_bindings_batch(
             ],
         }
 
-    doc, report = prepare()
-    if not dry_run:
+    if dry_run:
+        _, report = prepare()
+    else:
         with metadata_write_lock(directory, METADATA_FILENAME):
             doc, report = prepare()
             stamp_format(doc)

@@ -429,6 +429,76 @@ def test_va_arg_normalization_does_not_admit_malformed_bodies(expression: str) -
     assert "broken" not in function_definition_hashes(source)
 
 
+KR_DEFINITIONS = """\
+#ifndef local
+#  define local static
+#endif
+
+local int unzlocal_getByte(fin,pi)
+	FILE *fin;
+	int *pi;
+{
+	return 0;
+}
+
+extern int ZEXPORT unzStringFileNameCompare (fileName1,fileName2,iCaseSensitivity)
+	const char* fileName1;
+	const char* fileName2;
+	int iCaseSensitivity;
+{
+	return strcmp(fileName1,fileName2);
+}
+
+extern int ZEXPORT unzeof (file)
+	unzFile file;
+{
+	return 0;
+}
+"""
+
+_COMPARE = """\
+extern int ZEXPORT unzStringFileNameCompare (fileName1,fileName2,iCaseSensitivity)
+	const char* fileName1;
+	const char* fileName2;
+	int iCaseSensitivity;
+{
+	return strcmp(fileName1,fileName2);
+}
+"""
+
+
+def test_kr_header_macros_hash_the_definition_bytes() -> None:
+    import hashlib
+
+    hashes = function_definition_hashes(KR_DEFINITIONS)
+    assert set(hashes) == {
+        "unzlocal_getByte",
+        "unzStringFileNameCompare",
+        "unzeof",
+    }
+    assert (
+        hashes["unzStringFileNameCompare"]
+        == hashlib.sha256(_COMPARE.rstrip("\n").encode()).hexdigest()
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "extern int ZEXPORT unzStringFileNameCompare (const char* fileName1, const char* fileName2, int iCaseSensitivity);\n",
+        "/* extern int ZEXPORT unzStringFileNameCompare (fileName1) const char* fileName1; { return 0; } */\n",
+        "extern int ZEXPORT unzStringFileNameCompare (const char *fileName1);\n{ return 0; }\n",
+        "int unzStringFileNameCompare;\n",
+        KR_DEFINITIONS + "\n" + _COMPARE,
+        "extern int ZEXPORT unzStringFileNameCompare (fileName1)\n\tconst char* fileName1;\n{ return +; }\n",
+        "extern int ZEXPORT unzStringFileNameCompare( {\n\treturn 0;\n}\n",
+        "#define local static +\nlocal int unzStringFileNameCompare (a)\n\tint a;\n{ return a; }\n",
+    ],
+)
+def test_kr_hash_refuses_non_definitions(source: str) -> None:
+    assert "unzStringFileNameCompare" not in function_definition_hashes(source)
+
+
 def test_va_arg_hashes_preserve_comments_literals_and_utf8_coordinates() -> None:
     import hashlib
 
@@ -445,3 +515,25 @@ def test_va_arg_hashes_preserve_comments_literals_and_utf8_coordinates() -> None
     assert function_definition_hashes(source) == {"pick": hashlib.sha256(body.encode()).hexdigest()}
     changed = source.replace("/* ü */);", "/* é */);")
     assert function_definition_hashes(source) != function_definition_hashes(changed)
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_rename_without_relevant_provenance_skips_roundtrip(tmp_path: Path, dry_run: bool) -> None:
+    from unittest.mock import patch
+
+    from rebrew.metadata.source_provenance import rename_source_provenance
+
+    other = _source(tmp_path)
+    document_assembly(tmp_path, other, "fill0", "CLIENT", "Original macro")
+    unrelated = tmp_path / "unrelated.c"
+    before = "int f(void) { return 1; }\n"
+    after = "int g(void) { return 1; }\n"
+    unrelated.write_text(before)
+    store = tmp_path / SOURCE_PROVENANCE_FILENAME
+    original = store.read_bytes()
+    with patch(
+        "rebrew.metadata.source_provenance.load_metadata_for_write", side_effect=AssertionError
+    ):
+        rename_source_provenance(tmp_path, {unrelated: (before, after)}, dry_run=dry_run)
+    assert store.read_bytes() == original
+    assert len(load_source_provenance(tmp_path)) == 1

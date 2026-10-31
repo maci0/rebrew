@@ -3899,3 +3899,221 @@ Repro: in a project with the unshare backend selected, run
 `rebrew test` on the reported COMPILE_ERROR rows individually. Proposed: make
 `do_mount` create all target directories before any `MS_RDONLY` mount is applied,
 or report which mount entry made the parent read-only.
+
+## Guard reviewed compiler override clears against selected-row changes (2026-10-31)
+
+`rebrew source clear-cflags FUNCTION --dry-run --json` previews one row, and
+`remove_fields_batch` performs a locked atomic write, but neither accepts a
+reviewed selected-row digest or checks expected field values during that lock.
+A reviewer cannot safely apply a multi-row flag cleanup after an intervening
+flag edit without coordinating all flag writers. Support a scoped preview and
+expected-digest apply that rejects changed selected identities and values while
+preserving unrelated concurrent verification updates and historical evidence.
+Guild replay: inspect `rebrew source clear-cflags --help` and the public
+`rebrew.metadata.functions.remove_fields_batch` signature. Guild first-batch
+receipts are `.scratch/terra-goal-20261031/flags/first-before.json` and
+`rest-before.json`; the operation was coordinated without concurrent flag
+writers and does not establish fresh compilation verdicts.
+
+## Library prefix matches — fixed (2026-10-31)
+
+`library match` retried a 32-byte prefix after a full extent mismatch and
+could report a match even when the remainder differed. It now compares the
+configured native inventory extent against the complete object span, permitting
+at most 15 bytes of unrelocated NOP/INT3 alignment padding. Replay:
+`rebrew library match --lib references/dxsdk8/lib/d3dx8.lib --target Europa1400Gold_TL.exe --json`.
+The native inventory remains the authority; a reviewed extent is evidence, not
+proof of archive provider identity.
+
+## Repeated empty history checks in lint — fixed (2026-10-31)
+
+For an unbound source, lint checked every function row for a historical source,
+including rows without binding history, and repeatedly resolved the same input
+path. In a read-only 5,452-file Guild profile this made 1,412,208 history
+checks. Skip only empty histories and resolve the input path once; nonempty
+histories are still validated and resolved on each check so filesystem changes
+and malformed records remain visible. Replay profile and measured before/after:
+`.scratch/terra-goal-20261031/lint-performance/sample-{all,after}.txt`.
+
+## Bare stub declarations lost their return type — fixed (2026-10-31)
+
+`build symbol-stubs` feeds file-scope declarations without `extern` to its
+extern parser, which previously removed the first six characters of every
+input. A declaration such as `char* __cdecl f(int);` therefore lost its
+return type. The parser now removes the `extern` keyword only when present;
+focused tests cover both declaration forms and the emitted function.
+
+Conditional macro aliases are now fail-closed: a target that may be a renamed
+callable requires a reviewed `--specials` entry. Source-only scanning lacks the
+active target defines and exact referring-object mapping, so the guard does not
+infer a signature or select a conditional branch. Guild replay uses
+`.scratch/terra-goal-20261031/gold-link/unresolved.txt`.
+
+
+## Explicit test symbol override — fixed (2026-10-31)
+
+`rebrew test` overwrote an explicit symbol with the function selected by `--va`.
+Replay: `rebrew test src/Develop/DieGildeAddOn/command/command.c --va 0x4c75e0 --symbol _cm_RejectCommand --size 6 --target Europa1400Gold_TL.exe --no-promote --json` selected `_cm_MarkAndReturn`. The explicit symbol now wins; a comparison against a different selected function does not promote its metadata verdict.
+
+
+## Test raw target slice ignored — fixed (2026-10-31)
+
+`rebrew test 0x4c75f0 --target Europa1400Gold_TL.exe --target-bin .scratch/terra-goal-20261031/tl-dispatch-closure/window-4c75e0.bin --no-promote --json` compared against the configured binary instead of the supplied raw byte slice and incorrectly reported EXACT. The raw slice now takes precedence and never promotes a metadata verdict. Multi-function sources require an explicit selector; `--fix-sizes` cannot use a slice.
+
+## Guarded removal of data metadata fields
+
+`rebrew data set` and `patch_data_fields_batch` can assign a `file`, but cannot
+remove an obsolete source claim while preserving formatting. In Guild, moving
+partial definitions to comparison stubs requires dropping `file` from 24 data
+rows without dropping verification history. `file=""` is a supported interim
+value; `save_data_metadata` omits the key but rewrites the complete store.
+Add digest-guarded, locked field removal to the existing data patch API and CLI,
+with the same verdict invalidation and history preservation as changing `file`.
+Replay: preview `rebrew data set --target Europa1400Gold_TL.exe --file 0x680bd4= --dry-run --json` and compare the resulting row with a key-removal operation.
+
+## Review data-only storage changes
+
+`rebrew source organize review` reports `safe_to_reorganize=false` for a
+scaffold with storage definitions but no bounded C function definitions, even
+when reviewing removal of duplicate data owners rather than merging functions.
+In Guild, the review of `src/Develop/Unassigned/GOLDTL.fcn_004b3cb0.c` and
+`stubs/goldtl/symbol_stubs.c` found no problems or order cycles but marked the
+scaffold unknown solely because it has no bounded functions. Add an explicit
+storage-only review mode that reports per-target storage providers, conflicts,
+views and required raw-link checks without treating function absence as an
+unknown. Replay: `rebrew source organize review src/Develop/Unassigned/GOLDTL.fcn_004b3cb0.c stubs/goldtl/symbol_stubs.c --json` in Guild; the pre-change receipt is `.scratch/duplicates-20261031/shared-data/organize-review.json`.
+
+## Surface selected scaffold collisions during source rename (2026-10-31)
+
+A guarded `rebrew source rename` can rename a selected real definition to a
+COFF symbol already defined by an addressless comparison scaffold outside the
+source tree. The preview reports the bound definitions and callers but does not
+show that the selected target will gain a duplicate provider. The rename may
+correctly restrict edits to metadata-owned sources; a scaffold occurrence alone
+does not establish native identity or authorize its removal.
+
+In guild-rebrew, the reviewed rename `fcn_00576750` to `fcn_0057ecf0` changed
+`src/Develop/Unassigned/GOLD.fcn_00576750.c` and its callers for Gold and GoldTL.
+The selected Gold `stubs/gold/symbol_stubs.c` already defined
+`_fcn_0057ecf0`; a subsequent Gold link reported LNK2005. Native Gold callback
+stores in bound callers `0x578830` and `0x579100` target Gold `0x576750`, so the
+separate scaffold fallback was reviewed and retired; this is not a general rule
+for same-spelled functions or data. Preserved evidence: guild-rebrew
+`.scratch/duplicates-20261031/tl-pairs-late/rename-preview.json` and
+`.scratch/terra-goal-20261031/gold-scaffold-cleanup/xrefs-576750.json`.
+
+Add an optional target-aware collision review to rename preview that inspects
+actual selected source/object providers, including configured addressless
+scaffolds, and reports their COFF decoration, kind, selection, and provenance.
+When a generated fallback is involved, preview a separately guarded retirement
+and corresponding generator exception; require review of ABI, native identity,
+and all affected target contexts. Do not silently delete a fallback or equate a
+name collision with a native identity. Regression coverage should include an
+unselected scaffold, a selected conflicting scaffold, and two distinct native
+identities that happen to share a spelling.
+
+
+## Review vendor storage-macro definitions — implemented (2026-10-31)
+
+`source binding rebind` rejected the pristine minizip K&R helper at
+`references/minizip/unzip.c:805`, because tree-sitter flags its conditional
+`local` storage macro as a syntax error. Binding review now validates a
+complete definition after blanking a simple `static` macro token, and treats
+its linkage conservatively for collision checks. Assembly provenance hashing
+remains strict. Replay in Guild: `rebrew source binding rebind 0x465160
+references/minizip/unzip.c --name unzlocal_CheckCurrentFileCoherencyHeader
+--symbol _unzlocal_CheckCurrentFileCoherencyHeader --reason proof --target
+Europa1400Gold_TL.exe --dry-run --json`. Source-root and existing claim rules
+still apply.
+
+## Guard global renames and selected comparison scaffolds (2026-10-31)
+
+Guild's reviewed `g_9b0820` to `cut_RandomSeed` rename has three source
+users, two data identities and two selected comparison-stub definitions.
+`source rename --data --all-modules --dry-run --json` previews the source
+users and rows, but has no input digest; `--expected-digest` is rejected for
+data renames. Separate command-reference globals also leave Gold rows whose
+`file` is unset unchanged, despite independently established paired addresses.
+An exclusive write window and external before/after hashes currently guard
+these edits, with separately guarded `data set` updates for those Gold names.
+
+Extend the existing reviewed rename path to data identities: report the exact
+selected rows and source inputs, support the preview digest on apply, and
+report selected scaffold collisions separately from storage ownership. Do not
+infer an owner or a shared address from a matching C spelling. Reproduce in
+Guild with `source rename g_9b0820 cut_RandomSeed --data --all-modules
+--dry-run --json`; evidence is `.scratch/naming-20261031/globals/`.
+
+The ordinary single-definition function path also omits `input_digest` in
+some `--shared-definition` previews (for example the reviewed video helpers
+in Guild's `.scratch/naming-20261031/ui-list/`). Make guarded apply available
+consistently rather than requiring callers to distinguish plan branches.
+Preserve the existing target/definition selection and collision checks.
+
+
+## Adopted library identities retain reviewed inventory extents — implemented (2026-10-31)
+
+`library adopt` proved a complete archive body using discovery inventory, but
+created or revived its LIBRARY row without storing that size. In Guild, a
+scratch repair admitted GOLDTL `0x64e48f=44` and adoption left its retired
+address-only row without SIZE, so `library review-native` could not inspect
+the resulting identity. Adoption now carries the reviewed size atomically,
+rejects conflicting stored sizes, and guards the inventory input through the
+write. Replay evidence: Guild `.scratch/goal-next-20261031/minizip/crt-boundaries.md`.
+
+## Reviewed rename: preserve unresolved references without asserting an owner
+
+A shared translation unit can contain references to one independent definition
+only in some target/function contexts, while other contexts link a different
+provider. File-wide `--reference-owner` requires its selected provider to exist
+in every target represented by the file; it cannot express “leave this file
+unchanged, with ownership unresolved.” In Guild, previewing the rename of
+`GOLDTL.0x004cef30` from `gm_LookupEntityRecordById` with `command.c` assigned
+its evidenced SERVER provider fails because that TU also has GOLDTL rows.
+An unbound support function has calls whose native owner is unknown as well.
+
+The guarded `--preserve-reference` selection now leaves such files untouched
+without asserting an owner. A complete split still needs reviewed per-function
+or per-target ownership: preserved source text can bind to a different provider
+after a definition is renamed. Keep checks for rewritten files and report
+unresolved retained references. Replay and native/COFF evidence:
+`uv run python .scratch/goal-next-20261031/gold-lookup-callers/preview_owners.py`
+in the Guild checkout. Never infer owner from a name or suppress the existing
+ambiguity guard.
+
+
+## Guard compiled-library source binding reviews — implemented (2026-10-31)
+
+A `library bind-source --dry-run` accepted a nonexistent C symbol and provided
+no digest linking the review to apply. In Guild, both the real private K&R
+`_unzlocal_CheckCurrentFileCoherencyHeader` and a fabricated symbol were
+accepted after a scratch retirement at GOLDTL `0x465160`. The command now
+validates a unique complete C definition and supported decoration, and pins the
+source, target binary and metadata in a preview digest. It conservatively
+refuses C++ and decorated by-value types with unknown layout. Source identity
+alone does not prove the compiled object, native body or selected provider.
+Evidence: Guild `.scratch/goal-next2-20261031/minizip-binding/REPORT.md`.
+
+## K&R header macros dropped definition hashes (2026-10-31)
+
+Guild `function_definition_hashes` on `references/minizip/unzip.c` returned no
+names while `function_signatures` returned all 25. `source binding rebind`
+for `unzStringFileNameCompare` exited 2 with `replacement must contain one
+unambiguous definition; select --name` even with `--name` set. Tree-sitter
+already builds a `function_definition` for these K&R bodies. The hash walk
+treated the file as ambiguous because each definition carries one ERROR
+identifier: `local` occupies the type slot (`local int name(...)`) or
+`ZEXPORT` sits between the type and the name, sometimes as the declarator
+identifier with the real name in that ERROR (`unzeof`).
+
+The hash now keeps a unique definition when that header identifier is the
+only grammar error and the parameter list, K&R declarations and body are
+bounded. A `#define` of the header identifier, or of a type identifier in
+that header, must be absent, empty, or a single identifier. `#define local
+static +` stays unbounded. Original bytes are still the digest. A prototype,
+a comment, a following bare block, a variable, a duplicate definition, or a
+broken declarator or body still produces no hash. Rebind keeps the current kind;
+this does not turn a FUNCTION row into LIBRARY. The released 6.9 wheel is
+unchanged until a release is cut from this tree.
+
+Replay: `pytest tests/test_source_provenance.py::test_kr_header_macros_hash_the_definition_bytes tests/test_source_provenance.py::test_kr_hash_refuses_non_definitions tests/test_source_binding.py::test_kr_export_rebind_preview_accepts_the_named_definition tests/test_source_binding.py::test_kr_rebind_refuses_unbounded_or_mismatched_names`.

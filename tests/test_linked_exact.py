@@ -254,6 +254,26 @@ class TestStickiness:
         assert entry["status"] == "EXACT"
         assert entry["verification"]["linked_image_hash"] == evidence["linked_image_hash"]
 
+    @pytest.mark.parametrize(("symbol", "expected"), [("_foo", "EXACT"), ("_other", "RELOC")])
+    def test_rebrew_test_linked_exact_respects_symbol_identity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, symbol: str, expected: str
+    ) -> None:
+        from rebrew.app.main import app
+        from rebrew.metadata.functions import clear_metadata_cache
+
+        _project(tmp_path)
+        _mock(monkeypatch)
+        _verify(tmp_path, "--text", "--raw-link")
+        clear_metadata_cache()
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(
+            app,
+            ["test", "src/foo.c", "--va", hex(_VA), "--symbol", symbol, "--no-promote", "--json"],
+        )
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result)["status"] == expected
+        assert _stored(tmp_path)["status"] == "EXACT"
+
     def test_rebrew_test_multi_function_file_keeps_linked_exact(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

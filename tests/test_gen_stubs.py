@@ -146,6 +146,16 @@ class TestCollectExterns:
         assert infos["_crt_locked_call4a"]["is_func"] is True
         assert infos["_crt_locked_call4a"]["params"] == "(void*, int, int, void*)"
 
+    @pytest.mark.parametrize("storage", ["", "extern "])
+    def test_pointer_return_type_survives_declaration_scan(
+        self, tmp_path: Path, storage: str
+    ) -> None:
+        p = _write_src(tmp_path, f"{storage}char* __cdecl lookup(char*, int);\n")
+        info = collect_extern_info(p.parent)
+        assert info["lookup"]["type"] == "char*"
+        result = generate_stubs(["_lookup"], info)
+        assert "char* __cdecl lookup(char* a, int b)" in result
+
     def test_skips_definitions_locals_and_typedefs(self, tmp_path: Path) -> None:
         p = _write_src(
             tmp_path,
@@ -1129,3 +1139,69 @@ class TestStrippedSourceMemo:
         assert len(gen_stubs._STRIPPED_SOURCE_MEMO) < 64
         gen_stubs.clear_stripped_source_memo()
         assert gen_stubs._STRIPPED_SOURCE_MEMO_CHARS == 0
+
+
+def test_conditional_callable_alias_requires_reviewed_special(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.gen_stubs import app
+
+    monkeypatch.chdir(tmp_path)
+    _write_src(
+        tmp_path,
+        "#ifdef REBREW_GOLD\n#define old target\n#endif\n"
+        "char* __cdecl old(char*, int);\nvoid caller(void) { old(0, 1); }\n",
+    )
+    out = tmp_path / "out.c"
+    out.write_text("preserve\n")
+    link = "x.obj : error LNK2001: unresolved external symbol _target\n"
+    result = CliRunner().invoke(app, ["--json", "--output", str(out)], input=link)
+    assert result.exit_code == 2, result.output
+    assert "conditional callable alias" in result.output and "--specials" in result.output
+    assert out.read_text() == "preserve\n"
+
+    spec = tmp_path / "specials.toml"
+    spec.write_text(
+        '[specials.target]\nimpl = "char* __cdecl target(char* p, int n) { return 0; }"\n'
+    )
+    result = CliRunner().invoke(
+        app, ["--json", "--output", str(out), "--specials", str(spec)], input=link
+    )
+    assert result.exit_code == 0, result.output
+    assert "char* __cdecl target(char* p, int n)" in out.read_text()
+
+
+def test_conditional_alias_conflicting_prototypes_and_known_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.gen_stubs import app
+
+    monkeypatch.chdir(tmp_path)
+    _write_src(
+        tmp_path,
+        "#ifdef ONE\n#define first target\n#endif\n"
+        "#ifdef TWO\n#define second target\n#endif\n"
+        "int __cdecl first(int);\nchar* __cdecl second(char*);\n"
+        "void caller(void) { first(1); second(0); }\n"
+        "extern int known_data;\nextern int target;\n",
+    )
+    link = "x.obj : error LNK2001: unresolved external symbol _target\n"
+    result = CliRunner().invoke(app, ["--dry-run", "--json"], input=link)
+    assert result.exit_code == 2, result.output
+    assert "conditional callable alias" in result.output
+    result = CliRunner().invoke(
+        app,
+        ["--dry-run"],
+        input="x.obj : error LNK2001: unresolved external symbol _known_data\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "int known_data = 0;" in result.output
+
+
+def test_conditional_alias_handles_spaced_directive_and_non_utf8_source(tmp_path: Path) -> None:
+    source = _write_src(tmp_path, "")
+    source.write_bytes(
+        b"/* \xff */\n#ifdef TARGET\n# define old target\n#endif\n"
+        b"int old(void);\nvoid caller(void) { old(); }\n"
+    )
+    assert gen_stubs.collect_conditional_callable_aliases(source.parent) == {"target"}

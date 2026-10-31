@@ -1210,6 +1210,172 @@ class TestSelectedFunctionAliases:
 
 
 class TestReviewedReferenceOwnership:
+    @pytest.mark.parametrize("changed", ["definition", "source", "metadata"])
+    def test_shared_definition_digest_guards_without_reference_selections(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed: str
+    ) -> None:
+        root = _project(tmp_path)
+        args = ("GOLDTL.0x00401100", "gm_RenamedClientOnly", "--shared-definition", "--json")
+        preview = _run(root, monkeypatch, *args, "--dry-run")
+        assert preview.exit_code == 0, preview.output
+        digest = cli_payload(preview)["input_digest"]
+        if changed == "metadata":
+            from rebrew.metadata.functions import update_field
+
+            update_field(root, 0x401100, "note", "concurrent edit", module="GOLDTL")
+        else:
+            source = root / ("src/game/spiel.c" if changed == "definition" else "src/server.c")
+            source.write_text(source.read_text() + "/* concurrent edit */\n")
+        before = _snapshot(root)
+        applied = _run(root, monkeypatch, *args, "--expected-digest", digest)
+        assert applied.exit_code == 2 and "changed" in applied.output
+        assert _snapshot(root) == before
+
+    def test_same_name_file_move_accepts_digest_without_reference_owner(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata.functions import record_function_identity
+
+        root = _project(tmp_path)
+        body = "int solo(int a)\n{\n    return a;\n}\n"
+        caller = "int solo(int a);\nint use(void) { return solo(1); }\n"
+        write_source(root / "src/solo.c", body, encoding="utf-8")
+        write_source(root / "src/use.c", caller, encoding="utf-8")
+        for module, va in (("GOLDTL", 0x406000), ("GOLD", 0x506000)):
+            record_function_identity(
+                root,
+                module=module,
+                va=va,
+                file="src/solo.c",
+                name="solo",
+                symbol="_solo",
+                kind="FUNCTION",
+            )
+        args = (
+            "GOLDTL.0x00406000",
+            "solo",
+            "--shared-definition",
+            "--file",
+            "placed.c",
+            "--json",
+        )
+        preview = _run(root, monkeypatch, *args, "--dry-run")
+        assert preview.exit_code == 0, preview.output
+        payload = cli_payload(preview)
+        assert len(payload["input_digest"]) == 64
+        assert payload["input_hashes"]
+        assert payload["move"][1].endswith("placed.c")
+        assert {row["module"] for row in payload["rows"]} == {"GOLD", "GOLDTL"}
+        assert {row["new"]["file"] for row in payload["rows"]} == {"src/placed.c"}
+        assert {row["new"]["name"] for row in payload["rows"]} == {"solo"}
+        applied = _run(root, monkeypatch, *args, "--expected-digest", payload["input_digest"])
+        assert applied.exit_code == 0, applied.output
+        assert not (root / "src/solo.c").exists()
+        assert (root / "src/placed.c").read_text(encoding="utf-8") == body
+        assert (root / "src/use.c").read_text(encoding="utf-8") == caller
+        rows = _functions(root)
+        assert _row(rows, "GOLDTL", 0x406000)["file"] == "src/placed.c"
+        assert _row(rows, "GOLD", 0x506000)["file"] == "src/placed.c"
+        assert _row(rows, "GOLDTL", 0x406000)["symbol"] == "_solo"
+        assert _row(rows, "GOLD", 0x506000)["symbol"] == "_solo"
+
+    @pytest.mark.parametrize("failure", ["none", "no-inventory", "active", "stale-inventory"])
+    def test_pending_owner_requires_reviewed_retired_inventory_identity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+    ) -> None:
+        import json
+
+        from rebrew.metadata.binding_history import change_source_binding
+        from rebrew.metadata.functions import record_function_identity
+
+        root = _project(tmp_path)
+        shared = root / "src/shared.c"
+        shared.write_text(
+            "void cm_ExCreateCitizen(void);\nvoid use_shared(void) { cm_ExCreateCitizen(); }\n"
+        )
+        candidate = root / "src/retired.c"
+        candidate.write_text("void retired(void) {}\n")
+        for module, va in (("GOLDTL", 0x404000), ("GOLD", 0x504000)):
+            record_function_identity(
+                root,
+                module=module,
+                va=va,
+                file="src/shared.c",
+                name="use_shared",
+                symbol="_use_shared",
+                kind="FUNCTION",
+            )
+        record_function_identity(
+            root,
+            module="GOLD",
+            va=0x505000,
+            file="src/retired.c",
+            name="retired",
+            symbol="_retired",
+            kind="FUNCTION",
+        )
+        if failure != "active":
+            change_source_binding(root, "GOLD", 0x505000, reason="reviewed retirement")
+        inventory = root / "src/function_structure.json"
+        inventory.write_text(json.dumps([{"va": 0x505000, "size": 10, "name": "retired"}]))
+        if failure == "no-inventory":
+            inventory.write_text("[]")
+        args = (
+            "GOLDTL.0x00402000",
+            "ProcessActiveContexts",
+            "--shared-definition",
+            "--reference-owner",
+            "src/shared.c=GOLDTL.0x00402000",
+            "--pending-owner",
+            "src/shared.c=GOLD.0x00505000",
+            "--json",
+        )
+        before = _snapshot(root)
+        preview = _run(root, monkeypatch, *args, "--dry-run")
+        if failure in {"active", "no-inventory"}:
+            assert preview.exit_code == 2, preview.output
+            assert _snapshot(root) == before
+            return
+        assert preview.exit_code == 0, preview.output
+        report = cli_payload(preview)
+        assert report["pending_owners"] == [{"file": "src/shared.c", "identity": "GOLD.0x00505000"}]
+        assert "prospective" in " ".join(report["notes"])
+        if failure == "stale-inventory":
+            inventory.write_text("[]")
+        applied = _run(root, monkeypatch, *args, "--expected-digest", report["input_digest"])
+        if failure == "stale-inventory":
+            assert applied.exit_code == 2
+            assert "cm_ExCreateCitizen" in shared.read_text()
+        else:
+            assert applied.exit_code == 0, applied.output
+            assert "ProcessActiveContexts" in shared.read_text()
+
+    def test_preserved_reference_requires_digest_and_reports_no_owner(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _project(tmp_path)
+        header = root / "src/common.h"
+        header.write_text("void cm_ExCreateCitizen(void);\n")
+        args = (
+            "GOLDTL.0x00402000",
+            "ProcessActiveContexts",
+            "--shared-definition",
+            "--preserve-reference",
+            "src/common.h",
+            "--json",
+        )
+        before = _snapshot(root)
+        preview = _run(root, monkeypatch, *args, "--dry-run")
+        assert preview.exit_code == 0, preview.output
+        report = cli_payload(preview)
+        assert report["preserved_references"] == ["src/common.h"]
+        assert report["reference_owners"] == []
+        assert _run(root, monkeypatch, *args).exit_code == 2
+        assert _snapshot(root) == before
+        applied = _run(root, monkeypatch, *args, "--expected-digest", report["input_digest"])
+        assert applied.exit_code == 0, applied.output
+        assert header.read_text() == "void cm_ExCreateCitizen(void);\n"
+
     @pytest.mark.parametrize(
         "option",
         [

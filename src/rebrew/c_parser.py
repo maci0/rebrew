@@ -1023,6 +1023,97 @@ def _find_child(node: Any, *types: str) -> Any | None:
     return None
 
 
+def _single_identifier_error(node: Any) -> Any | None:
+    """The identifier in an ERROR that is only that token, else None."""
+    if node.type != "ERROR" or node.is_missing:
+        return None
+    children = [child for child in node.children if child.type != "comment"]
+    if (
+        len(children) == 1
+        and children[0].type == "identifier"
+        and not children[0].has_error
+        and not children[0].is_missing
+    ):
+        return children[0]
+    return None
+
+
+def _plain_header_macro(root: Any, name: bytes) -> bool:
+    """A file-local define of *name* is empty or one identifier, if it exists.
+
+    ``#define local static`` and an undefined ``ZEXPORT`` are header macros.
+    ``#define local static +`` is not, and does not make the definition bounded.
+    """
+    pending = [root]
+    while pending:
+        current = pending.pop()
+        if current.type == "preproc_function_def":
+            ident = next((child for child in current.children if child.type == "identifier"), None)
+            if ident is not None and ident.text == name:
+                return False
+            continue
+        if current.type == "preproc_def":
+            ident = next((child for child in current.children if child.type == "identifier"), None)
+            if ident is not None and ident.text == name:
+                arg = next(
+                    (child for child in current.children if child.type == "preproc_arg"), None
+                )
+                replacement = b"" if arg is None or arg.text is None else arg.text.strip()
+                if replacement and (
+                    not replacement.isascii() or not replacement.decode("ascii").isidentifier()
+                ):
+                    return False
+            continue
+        pending.extend(current.children)
+    return True
+
+
+def function_definition_bounded(node: Any) -> bool:
+    """True for one function_definition with an error-free body and declarator.
+
+    A single identifier ERROR in the header is the grammar's report of an
+    unknown macro (``local int name(...)`` or ``int ZEXPORT name(...)``),
+    including when that macro occupies the declarator name and the real
+    identifier sits in the ERROR. A define of that identifier in the same
+    file must be empty or a single identifier. The body, the parameter list
+    and any K&R parameter declarations must be error-free. A prototype, a
+    comment, or a broken declarator or body is not a definition.
+    """
+    if node.type != "function_definition" or node.is_missing:
+        return False
+    body = node.child_by_field_name("body")
+    declarator = node.child_by_field_name("declarator")
+    if (
+        body is None
+        or declarator is None
+        or body.type != "compound_statement"
+        or body.has_error
+        or body.is_missing
+        or declarator.is_missing
+    ):
+        return False
+    root = node
+    while root.parent is not None:
+        root = root.parent
+    pending = [child for child in node.children if child is not body]
+    while pending:
+        current = pending.pop()
+        if current.is_missing:
+            return False
+        if current.type == "type_identifier" and (
+            current.text is None or not _plain_header_macro(root, current.text)
+        ):
+            return False
+        if current.type == "ERROR":
+            ident = _single_identifier_error(current)
+            if ident is None or ident.text is None or not _plain_header_macro(root, ident.text):
+                return False
+            continue
+        if current.has_error:
+            pending.extend(current.children)
+    return True
+
+
 def find_function_name_in_node(declarator: Any, source_bytes: bytes) -> str | None:
     """Recursively walk a declarator to find the function name identifier."""
     if declarator.type == "function_declarator":

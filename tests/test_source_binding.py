@@ -495,6 +495,115 @@ def test_guarded_binding_accepts_variadic_pointer_payload(tmp_path: Path) -> Non
     assert row["binding_history"][-1]["previous"]["status"] == "EXACT"
 
 
+def test_kr_export_rebind_preview_accepts_the_named_definition(tmp_path: Path) -> None:
+    from rebrew.source_binding import app
+
+    cfg = _project(tmp_path)
+    source = cfg.reversed_dir / "unzip.c"
+    source.write_text(
+        "#ifndef local\n#  define local static\n#endif\n"
+        "local int unzlocal_getByte(fin,pi)\n\tFILE *fin;\n\tint *pi;\n{ return 0; }\n"
+        "extern int ZEXPORT unzStringFileNameCompare (fileName1,fileName2,iCaseSensitivity)\n"
+        "\tconst char* fileName1;\n\tconst char* fileName2;\n\tint iCaseSensitivity;\n"
+        "{ return strcmp(fileName1,fileName2); }\n"
+        "extern int ZEXPORT unzeof (file)\n\tunzFile file;\n{ return 0; }\n"
+    )
+    before = get_entry(cfg.metadata_dir, 0x401000, "GAME")
+    with patch("rebrew.source_binding.require_config", return_value=cfg):
+        preview = CliRunner().invoke(
+            app,
+            [
+                "rebind",
+                "0x401000",
+                str(source),
+                "--name",
+                "unzStringFileNameCompare",
+                "--symbol",
+                "_unzStringFileNameCompare",
+                "--reason",
+                "minizip K&R definition",
+                "--dry-run",
+                "--json",
+            ],
+        )
+    assert preview.exit_code == 0, preview.output
+    payload = cli_payload(preview)
+    assert payload["replacement"]["name"] == "unzStringFileNameCompare"
+    assert payload["replacement"]["symbol"] == "_unzStringFileNameCompare"
+    assert payload["replacement"]["kind"] == "FUNCTION"
+    assert payload["dry_run"] is True
+    assert get_entry(cfg.metadata_dir, 0x401000, "GAME") == before
+
+
+@pytest.mark.parametrize(
+    ("text", "name", "symbol"),
+    [
+        (
+            "extern int ZEXPORT unzStringFileNameCompare (const char *a, const char *b, int c);\n",
+            "unzStringFileNameCompare",
+            "_unzStringFileNameCompare",
+        ),
+        (
+            "extern int ZEXPORT unzStringFileNameCompare (fileName1,fileName2,iCaseSensitivity)\n"
+            "\tconst char* fileName1;\n\tconst char* fileName2;\n\tint iCaseSensitivity;\n"
+            "{ return 0; }\n"
+            "extern int ZEXPORT unzStringFileNameCompare (fileName1,fileName2,iCaseSensitivity)\n"
+            "\tconst char* fileName1;\n\tconst char* fileName2;\n\tint iCaseSensitivity;\n"
+            "{ return 1; }\n",
+            "unzStringFileNameCompare",
+            "_unzStringFileNameCompare",
+        ),
+        (
+            "extern int ZEXPORT unzStringFileNameCompare (fileName1)\n"
+            "\tconst char* fileName1;\n{ return +; }\n",
+            "unzStringFileNameCompare",
+            "_unzStringFileNameCompare",
+        ),
+        (
+            "extern int ZEXPORT unzStringFileNameCompare (fileName1,fileName2,iCaseSensitivity)\n"
+            "\tconst char* fileName1;\n\tconst char* fileName2;\n\tint iCaseSensitivity;\n"
+            "{ return 0; }\n",
+            "unzlocal_getByte",
+            "_unzlocal_getByte",
+        ),
+        (
+            "int unzStringFileNameCompare;\n",
+            "unzStringFileNameCompare",
+            "_unzStringFileNameCompare",
+        ),
+    ],
+)
+def test_kr_rebind_refuses_unbounded_or_mismatched_names(
+    tmp_path: Path, text: str, name: str, symbol: str
+) -> None:
+    from rebrew.source_binding import app
+
+    cfg = _project(tmp_path)
+    source = cfg.reversed_dir / "unzip.c"
+    source.write_text(text)
+    before = get_entry(cfg.metadata_dir, 0x401000, "GAME")
+    with patch("rebrew.source_binding.require_config", return_value=cfg):
+        result = CliRunner().invoke(
+            app,
+            [
+                "rebind",
+                "0x401000",
+                str(source),
+                "--name",
+                name,
+                "--symbol",
+                symbol,
+                "--reason",
+                "minizip K&R definition",
+                "--dry-run",
+                "--json",
+            ],
+        )
+    assert result.exit_code == 2
+    assert "unambiguous definition" in cli_payload(result)["error"]
+    assert get_entry(cfg.metadata_dir, 0x401000, "GAME") == before
+
+
 def test_malformed_va_arg_binding_preserves_previous_identity(tmp_path: Path) -> None:
     from rebrew.source_binding import app
 
@@ -675,3 +784,121 @@ class TestBatchBindingChanges:
         assert [event["action"] for event in report["changes"]] == ["rebind", "retire", "rebind"]
         assert get_entry(cfg.metadata_dir, 0x401000, "GAME")["name"] == "g"
         assert not get_entry(cfg.metadata_dir, 0x402000, "GAME").get("file")
+
+
+@pytest.mark.parametrize(
+    ("source_text", "accepted"),
+    [
+        (
+            "#ifndef local\n#define local static\n#endif\nlocal int f(a) int a; { return a; }\n",
+            True,
+        ),
+        ("#define local static\nlocal int f(a) int a; { return +; }\n", False),
+        (
+            "#define local static\n#if X\nlocal int f(a) int a; { return a; }\n#else\nlocal int f(a) int a; { return a; }\n#endif\n",
+            False,
+        ),
+        ("#define local static +\nlocal int f(a) int a; { return a; }\n", False),
+    ],
+)
+def test_binding_storage_macro_definition(tmp_path: Path, source_text: str, accepted: bool) -> None:
+    from rebrew.source_binding import app
+
+    cfg = _project(tmp_path)
+    source = cfg.reversed_dir / "replacement.c"
+    source.write_text(source_text)
+    with patch("rebrew.source_binding.require_config", return_value=cfg):
+        result = CliRunner().invoke(
+            app,
+            [
+                "rebind",
+                "0x401000",
+                str(source),
+                "--name",
+                "f",
+                "--reason",
+                "proof",
+                "--dry-run",
+                "--json",
+            ],
+        )
+    assert (result.exit_code == 0) is accepted, result.output
+
+
+def test_binding_conditional_storage_macro_does_not_bypass_external_collision(
+    tmp_path: Path,
+) -> None:
+    from rebrew.source_binding import app
+
+    cfg = _project(tmp_path)
+    source = cfg.reversed_dir / "replacement.c"
+    source.write_text(
+        "#ifndef local\n#define local static\n#endif\nlocal int g(a) int a; { return a; }\n"
+    )
+    with patch("rebrew.source_binding.require_config", return_value=cfg):
+        result = CliRunner().invoke(
+            app,
+            [
+                "rebind",
+                "0x401000",
+                str(source),
+                "--name",
+                "g",
+                "--reason",
+                "proof",
+                "--dry-run",
+                "--json",
+            ],
+        )
+    assert result.exit_code == 2
+    assert "external symbol" in cli_payload(result)["error"]
+
+
+@pytest.mark.parametrize("batch", [False, True])
+def test_apply_parses_metadata_only_under_lock(tmp_path: Path, batch: bool) -> None:
+    from rebrew.metadata import binding_history
+
+    cfg = _project(tmp_path)
+    with patch.object(
+        binding_history, "load_metadata_for_write", wraps=binding_history.load_metadata_for_write
+    ) as load:
+        if batch:
+            binding_history.change_source_bindings_batch(
+                cfg.metadata_dir, [{"module": "GAME", "va": 0x401000, "reason": "proof"}]
+            )
+        else:
+            binding_history.change_source_binding(
+                cfg.metadata_dir, "GAME", 0x401000, reason="proof"
+            )
+    assert load.call_count == 1
+
+
+def test_apply_rechecks_review_input_after_acquiring_lock(tmp_path: Path) -> None:
+    from contextlib import contextmanager
+
+    from rebrew.metadata import binding_history
+    from rebrew.metadata.storage import input_digest
+
+    cfg = _project(tmp_path)
+    source = cfg.reversed_dir / "f.c"
+    expected = input_digest(source)
+    lock = binding_history.metadata_write_lock
+
+    @contextmanager
+    def changed_before_lock(*args, **kwargs):
+        with lock(*args, **kwargs):
+            source.write_text("int f(void) { return 2; }\n")
+            yield
+
+    with (
+        patch.object(binding_history, "metadata_write_lock", changed_before_lock),
+        pytest.raises(ValueError, match="binding review input changed"),
+    ):
+        binding_history.change_source_binding(
+            cfg.metadata_dir,
+            "GAME",
+            0x401000,
+            reason="proof",
+            expected_inputs={source: expected},
+        )
+    assert get_entry(cfg.metadata_dir, 0x401000, "GAME")["file"] == "src/f.c"

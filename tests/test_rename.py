@@ -2106,6 +2106,51 @@ def _ownership_project(tmp_path: Path) -> tuple[SimpleNamespace, Path, Path, Pat
 
 
 class TestReviewedReferenceOwners:
+    def test_preserve_unresolved_reference_without_owner_and_guard_its_content(
+        self, tmp_path: Path
+    ) -> None:
+        cfg, a, b, caller, header = _ownership_project(tmp_path)
+        owner = rename_ops.Selection("function", "TL", 0x1000)
+        kwargs = {
+            "store": "function",
+            "selected": owner,
+            "definition_file": a,
+            "reference_owners": {header: owner},
+            "preserved_references": {caller},
+        }
+        plan = rename_ops.plan_symbol_rename(cfg, "old_fn", "new_fn", **kwargs)
+        assert plan.as_dict(tmp_path)["preserved_references"] == ["caller.c"]
+        assert caller not in {change.path for change in plan.files}
+        before = caller.read_text()
+        caller.write_text(before + "/* changed */\n")
+        with pytest.raises(rename_ops.RenameError, match="inputs changed"):
+            rename_ops.apply_rename_plan(cfg, plan)
+        caller.write_text(before)
+        plan = rename_ops.plan_symbol_rename(cfg, "old_fn", "new_fn", **kwargs)
+        rename_ops.apply_rename_plan(cfg, plan)
+        assert caller.read_text() == before
+        assert "new_fn" in header.read_text()
+        assert "old_fn" in b.read_text()
+
+    @pytest.mark.parametrize("preserve_definition", [False, True])
+    def test_preserved_reference_rejects_conflicting_owner_or_definition(
+        self, tmp_path: Path, preserve_definition: bool
+    ) -> None:
+        cfg, a, _, caller, header = _ownership_project(tmp_path)
+        owner = rename_ops.Selection("function", "TL", 0x1000)
+        preserved = a if preserve_definition else caller
+        with pytest.raises(rename_ops.RenameError):
+            rename_ops.plan_symbol_rename(
+                cfg,
+                "old_fn",
+                "new_fn",
+                store="function",
+                selected=owner,
+                definition_file=a,
+                reference_owners={caller: owner, header: owner},
+                preserved_references={preserved},
+            )
+
     @pytest.mark.parametrize(
         "issue", ["missing-owner", "wrong-name", "definition", "unused-file", "unassigned-header"]
     )

@@ -521,7 +521,7 @@ class TestFixSize:
                 "--size",
                 "9",
                 "--symbol",
-                "_f",
+                "_f@4",
                 "--fix-sizes",
                 "--json",
             ],
@@ -640,8 +640,6 @@ class TestFixSize:
                 "0x2000",
                 "--size",
                 "9",
-                "--symbol",
-                "f2",
                 "--fix-sizes",
                 "--json",
             ],
@@ -1529,6 +1527,89 @@ class TestRunTest:
         monkeypatch.setattr("rebrew.test.compile_and_compare", record)
         run_test(load_config(root), "src/x/f.c", no_promote=True, json_output=True)
         assert captured and captured[0][0] == "@f@12"
+
+    def test_explicit_symbol_overrides_selected_va_without_promoting(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        root = self._project(tmp_path, monkeypatch)
+        self._stub_compare(monkeypatch)
+        cli = CliRunner().invoke(
+            umbrella,
+            [
+                "test",
+                "src/x/f.c",
+                "--va",
+                "0x1000",
+                "--symbol",
+                "_other",
+                "--size",
+                "3",
+                "--json",
+            ],
+        )
+        assert cli.exit_code == 1, cli.output
+        result = cli_payload(cli)
+        assert result["symbol"] == "_other"
+        assert result["size"] == 3
+        assert 'status = "STUB"' in (root / "rebrew-functions.toml").read_text()
+
+    def test_address_target_bin_uses_blob_without_promoting(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+        from rebrew.compiler.compile import CompareResult
+
+        root = self._project(tmp_path, monkeypatch)
+        blob = root / "control.bin"
+        blob.write_bytes(b"\x01\x02\x03\x04")
+        seen: list[bytes] = []
+
+        def record(*args: Any, **kwargs: Any) -> CompareResult:
+            seen.append(args[3])
+            return CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=0.0,
+                delta=4,
+                obj_bytes=b"\x90" * 4,
+                reloc_offsets=[],
+            )
+
+        monkeypatch.setattr("rebrew.test.compile_and_compare", record)
+        cli = CliRunner().invoke(
+            umbrella,
+            [
+                "test",
+                "0x1000",
+                "--target-bin",
+                str(blob),
+                "--json",
+            ],
+        )
+        assert cli.exit_code == 1, cli.output
+        assert seen == [blob.read_bytes()]
+        assert 'status = "STUB"' in (root / "rebrew-functions.toml").read_text()
+
+    def test_target_bin_rejects_fix_sizes(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        root = self._project(tmp_path, monkeypatch)
+        blob = root / "control.bin"
+        blob.write_bytes(b"\x01")
+        cli = CliRunner().invoke(
+            umbrella,
+            ["test", "0x1000", "--target-bin", str(blob), "--fix-sizes", "--json"],
+        )
+        assert cli.exit_code == 2
+        assert "--fix-sizes cannot use --target-bin" in cli.output
 
     def test_no_promote_writes_no_metadata(self, tmp_path: Path, monkeypatch: Any) -> None:
         from rebrew.config import load_config

@@ -18,7 +18,13 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-lazy from rebrew.c_parser import function_signatures
+lazy from rebrew.c_parser import (
+    find_function_name_in_node,
+    function_signatures,
+    mask_msvc_syntax,
+    mask_va_arg_types,
+    parse_c_source,
+)
 lazy from rebrew.c_rename import ORDINARY_ROLES, ParsedSource, definitions, occurrences
 lazy from rebrew.config import ProjectConfig, target_module
 lazy from rebrew.metadata.binding_history import change_source_binding, validate_binding_history
@@ -38,6 +44,79 @@ app = typer.Typer(
         "Preview first; --expected-digest rejects changed review inputs."
     ),
 )
+
+
+def _storage_macro_definition(source: str, name: str) -> bool:
+    """Validate a definition whose storage macro confuses the C grammar."""
+    tree, raw = parse_c_source(mask_va_arg_types(mask_msvc_syntax(source)))
+    pending = [tree.root_node]
+    definitions = []
+    macros: dict[bytes, set[bytes]] = {}
+    while pending:
+        node = pending.pop()
+        pending.extend(node.named_children)
+        if node.type == "preproc_def":
+            macro = node.child_by_field_name("name")
+            value = node.child_by_field_name("value")
+            if macro is not None:
+                macros.setdefault(raw[macro.start_byte : macro.end_byte], set()).add(
+                    raw[value.start_byte : value.end_byte].strip() if value else b""
+                )
+        elif node.type == "function_definition":
+            declarator = node.child_by_field_name("declarator")
+            if declarator and find_function_name_in_node(declarator, raw) == name:
+                definitions.append(node)
+    if len(definitions) != 1:
+        return False
+    node = definitions[0]
+    first = node.named_children[0]
+    macro = raw[first.start_byte : first.end_byte]
+    if first.type != "type_identifier" or macros.get(macro) != {b"static"}:
+        return False
+    # Reparse the complete raw extent with only the storage alias blanked.
+    body = bytearray(raw[node.start_byte : node.end_byte])
+    body[first.start_byte - node.start_byte : first.end_byte - node.start_byte] = b" " * len(macro)
+    parsed, _ = parse_c_source(bytes(body))
+    children = parsed.root_node.named_children
+    return (
+        len(children) == 1
+        and children[0].type == "function_definition"
+        and not children[0].has_error
+    )
+
+
+def has_unique_source_definition(source: str, name: str) -> bool:
+    """Recognize one complete C definition, including simple storage aliases."""
+    return name in function_definition_hashes(source) or _storage_macro_definition(source, name)
+
+
+def supported_decorated_signature(prototype: str) -> bool:
+    """Reject calling-convention sizes that need unknown typedef or struct layouts."""
+    tree, _ = parse_c_source(mask_msvc_syntax(prototype + " {}"))
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if node.type == "function_declarator":
+            parameters = node.child_by_field_name("parameters")
+            if parameters is None:
+                return False
+            for parameter in parameters.named_children:
+                if parameter.type != "parameter_declaration":
+                    return False
+                typ = parameter.child_by_field_name("type")
+                declarator = parameter.child_by_field_name("declarator")
+                if typ is None:
+                    return False
+                if typ.type in {"primitive_type", "sized_type_specifier"}:
+                    continue
+                if declarator is None or declarator.type not in {
+                    "pointer_declarator",
+                    "array_declarator",
+                }:
+                    return False
+            return True
+        pending.extend(reversed(node.named_children))
+    return False
 
 
 def _change(
@@ -72,11 +151,10 @@ def _change(
         if not source.is_relative_to(cfg.root.resolve()):
             raise ValueError("replacement source must be inside the project")
         text, _ = read_source_text(source)
-        definition_hashes = function_definition_hashes(text)
         name = name or str(
             current.get("name") or (history[-1]["previous"].get("name") if history else "")
         )
-        if not name or name not in definition_hashes:
+        if not name or not has_unique_source_definition(text, name):
             raise ValueError("replacement must contain one unambiguous definition; select --name")
         pin(source, text)
         # Preserve library ancestry without accepting a new attribution by name.

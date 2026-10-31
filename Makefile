@@ -408,18 +408,13 @@ add-dep: warn-uv-version
 #
 # `uv run` creates .venv on first use, so the probe cannot go through it on a
 # clean clone: `make doctor` is documented as read-only, and a venv it built
-# itself would then be a half-synced one the next command has to repair.  With
-# no selected environment there is nothing to probe, so run the same file
-# with system python3, which reports the missing-venv case itself. A host with neither
-# python3 nor uv is told to run make setup first rather than left with a bare
-# "command not found".
+# itself would then be a half-synced one the next command has to repair.  A
+# missing selected environment is a refusal or warning and is not probed.
 ensure-extras: ensure-uv
 	@if [ -d "$${UV_PROJECT_ENVIRONMENT:-.venv}" ]; then \
 	  uv run --frozen --no-sync python tools/require_extras.py --context=mypy $(RESEMBL_DIR); \
-	elif command -v python3 >/dev/null 2>&1; then \
-	  python3 tools/require_extras.py --context=mypy $(RESEMBL_DIR); \
 	else \
-	  echo "ERROR: no $${UV_PROJECT_ENVIRONMENT:-.venv} and no python3 on PATH, so the 'prove' extra"; \
+	  echo "ERROR: no $${UV_PROJECT_ENVIRONMENT:-.venv}, so the 'prove' extra"; \
 	  echo "and the 'similarity' group cannot be checked."; \
 	  echo "Run 'make setup', or 'uv sync --locked --all-extras --group similarity', then re-run."; \
 	  exit 1; \
@@ -434,10 +429,8 @@ ensure-extras: ensure-uv
 ensure-test-extras: ensure-uv
 	@if [ -d "$${UV_PROJECT_ENVIRONMENT:-.venv}" ]; then \
 	  uv run --frozen --no-sync python tools/require_extras.py --context=test $(RESEMBL_DIR); \
-	elif command -v python3 >/dev/null 2>&1; then \
-	  python3 tools/require_extras.py --context=test $(RESEMBL_DIR); \
 	else \
-	  echo "ERROR: no $${UV_PROJECT_ENVIRONMENT:-.venv} and no python3 on PATH, so the 'prove' extra"; \
+	  echo "ERROR: no $${UV_PROJECT_ENVIRONMENT:-.venv}, so the 'prove' extra"; \
 	  echo "and the 'similarity' group cannot be checked."; \
 	  echo "Run 'make setup', or 'uv sync --locked --all-extras --group similarity', then re-run."; \
 	  exit 1; \
@@ -449,8 +442,10 @@ ensure-test-extras: ensure-uv
 warn-test-extras: ensure-uv
 	@if [ -d "$${UV_PROJECT_ENVIRONMENT:-.venv}" ]; then \
 	  uv run --frozen --no-sync python tools/require_extras.py --context=test --soft $(RESEMBL_DIR); \
-	elif command -v python3 >/dev/null 2>&1; then \
-	  python3 tools/require_extras.py --context=test --soft $(RESEMBL_DIR); \
+	else \
+	  echo "WARNING: no $${UV_PROJECT_ENVIRONMENT:-.venv}, so the 'prove' extra"; \
+	  echo "and the 'similarity' group cannot be checked."; \
+	  echo "Run 'make setup', or 'uv sync --locked --all-extras --group similarity', then re-run."; \
 	fi
 
 # Whole-environment preflight.  Every other target checks one prerequisite and
