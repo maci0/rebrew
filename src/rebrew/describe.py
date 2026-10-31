@@ -23,7 +23,9 @@ Usage:
 from __future__ import annotations
 
 import logging
-lazy from typing import Any
+from typing import Any, NamedTuple
+lazy import bisect
+lazy import heapq
 
 import typer
 lazy from rich.panel import Panel
@@ -175,27 +177,95 @@ def _build_lookup(
     return annotations, names, ranges
 
 
+class _FunctionRangeIndex(NamedTuple):
+    """Smallest covering name for each half-open address span."""
+
+    starts: tuple[int, ...]
+    ends: tuple[int, ...]
+    names: tuple[str, ...]
+
+    def covering(self, va: int) -> str | None:
+        """Name of the shortest range containing *va*, if one does."""
+        if not self.starts:
+            return None
+        index = bisect.bisect_right(self.starts, va) - 1
+        if index < 0 or va >= self.ends[index]:
+            return None
+        return self.names[index]
+
+
+def _scan_function_ranges(ranges: list[tuple[int, int, str]]) -> _FunctionRangeIndex:
+    """Index *ranges* in one pass.
+
+    A range replaces another at an address only when its extent is strictly
+    shorter, so an oversized annotation does not hide the function inside it.
+    Equal lengths keep the earlier entry. Empty extents match nothing.
+    """
+    active: dict[int, str] = {}
+    heap: list[tuple[int, int]] = []
+    events: list[tuple[int, int, int, int, str]] = []
+    for order, (start, end, name) in enumerate(ranges):
+        if end <= start:
+            continue
+        events.append((start, 0, end - start, order, name))
+        events.append((end, 1, 0, order, name))
+    events.sort()
+
+    starts: list[int] = []
+    ends: list[int] = []
+    names: list[str] = []
+    prev_pos: int | None = None
+    prev_name: str | None = None
+
+    def winner() -> str | None:
+        while heap and heap[0][1] not in active:
+            heapq.heappop(heap)
+        if not heap:
+            return None
+        return active[heap[0][1]]
+
+    cursor = 0
+    while cursor < len(events):
+        pos = events[cursor][0]
+        if prev_pos is not None and prev_name is not None and pos > prev_pos:
+            if ends and ends[-1] == prev_pos and names[-1] == prev_name:
+                ends[-1] = pos
+            else:
+                starts.append(prev_pos)
+                ends.append(pos)
+                names.append(prev_name)
+        while cursor < len(events) and events[cursor][0] == pos:
+            _pos, kind, length, order, name = events[cursor]
+            if kind == 0:
+                active[order] = name
+                heapq.heappush(heap, (length, order))
+            else:
+                active.pop(order, None)
+            cursor += 1
+        prev_pos = pos
+        prev_name = winner()
+    return _FunctionRangeIndex(tuple(starts), tuple(ends), tuple(names))
+
+
+def _name_from_index(va: int, names: dict[int, str], index: _FunctionRangeIndex) -> str:
+    """Resolve *va* from an exact start, else the indexed range, else ``fcn_``."""
+    name = names.get(va)
+    if name:
+        return name
+    found = index.covering(va)
+    if found is not None:
+        return found
+    return f"fcn_{va:08x}"
+
+
 def _containing_name(va: int, names: dict[int, str], ranges: list[tuple[int, int, str]]) -> str:
     """Resolve *va* to a function name, falling back to ``fcn_%08x``.
 
     An exact function-start match wins; otherwise the smallest known function
     range containing *va* is used so a call site inside a function body reports
-    its enclosing function.
+    its enclosing function. Equal lengths keep the earlier range.
     """
-    name = names.get(va)
-    if name:
-        return name
-    # The SMALLEST containing range: a stale/oversized annotation SIZE can
-    # overlap the next function, and returning the first (earliest-starting)
-    # hit attributed the call site to the outer range instead of the function
-    # that actually encloses it.
-    best: tuple[int, int, str] | None = None
-    for start, end, candidate in ranges:
-        if start <= va < end and (best is None or end - start < best[1] - best[0]):
-            best = (start, end, candidate)
-    if best is not None:
-        return best[2]
-    return f"fcn_{va:08x}"
+    return _name_from_index(va, names, _scan_function_ranges(ranges))
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +328,7 @@ def _compute_callers(
     refs: list[Xref],
     va: int,
     names: dict[int, str],
-    ranges: list[tuple[int, int, str]],
+    index: _FunctionRangeIndex,
 ) -> list[dict[str, Any]]:
     """Direct call/jmp sites targeting *va*."""
     out: list[dict[str, Any]] = []
@@ -267,7 +337,7 @@ def _compute_callers(
         if xref.kind not in _CALLER_KINDS or xref.to_va != va or xref.from_va in seen:
             continue
         seen.add(xref.from_va)
-        out.append({"from_va": xref.from_va, "name": _containing_name(xref.from_va, names, ranges)})
+        out.append({"from_va": xref.from_va, "name": _name_from_index(xref.from_va, names, index)})
     out.sort(key=lambda c: c["from_va"])
     return out
 
@@ -278,7 +348,7 @@ def _compute_callees(
     end: int,
     names: dict[int, str],
     import_table: dict[int, str],
-    ranges: list[tuple[int, int, str]],
+    index: _FunctionRangeIndex,
 ) -> list[dict[str, Any]]:
     """Direct calls and IAT calls/jumps inside the function range."""
     out: list[dict[str, Any]] = []
@@ -300,7 +370,7 @@ def _compute_callees(
         name = (
             import_table.get(xref.to_va)
             if xref.kind in _IAT_KINDS
-            else _containing_name(xref.to_va, names, ranges)
+            else _name_from_index(xref.to_va, names, index)
         )
         out.append({"to_va": xref.to_va, "name": name, "kind": xref.kind})
     out.sort(key=lambda c: (c["to_va"], c["kind"]))
@@ -392,6 +462,8 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
             "annotation lookup build failed for %s", getattr(cfg, "target_name", "?"), exc_info=True
         )
         annotations, names, ranges = {}, {}, []
+    # Callers and callees share this index.
+    range_index = _scan_function_ranges(ranges)
     ann = annotations.get(va)
     if ann is None:
         target_module_name = target_module(cfg)
@@ -453,9 +525,9 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
         "note": note,
         "pattern": pattern,
         "convention": convention,
-        "callers": _safe_section(lambda: _compute_callers(all_refs, va, names, ranges), []),
+        "callers": _safe_section(lambda: _compute_callers(all_refs, va, names, range_index), []),
         "callees": _safe_section(
-            lambda: _compute_callees(all_refs, start, end, names, import_table, ranges), []
+            lambda: _compute_callees(all_refs, start, end, names, import_table, range_index), []
         ),
         "strings": _safe_section(lambda: _compute_strings(info, start, end, all_refs), []),
         "globals": _safe_section(lambda: _compute_globals(info, all_refs, start, end), []),

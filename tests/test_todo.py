@@ -2664,3 +2664,70 @@ class TestMissingManagedBindings:
                 size=32,
             )
         assert _collect_missing_bindings(cfg, {0x1000: {"symbol": "_Live"}}) == []
+
+    def test_one_collect_parses_a_shared_source_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Many managed rows in one file parse that file's signatures once.
+
+        A second collect parses again. The set is local to the call, so a
+        later edit is visible, and the kept rows stay the missing definition
+        and the missing file.
+        """
+        import rebrew.c_parser as c_parser
+        from rebrew.metadata.functions import record_function_identity
+        from rebrew.todo import _collect_missing_bindings
+
+        cfg = _make_cfg(tmp_path)
+        (tmp_path / "shared.c").write_text(
+            "int Alpha(void) { return 1; }\n"
+            "int Beta(int x) { return x; }\n"
+            "int Gamma(void) { return 2; }\n"
+            "int Delta(void) { return 3; }\n"
+        )
+        for va, file, name in [
+            (0x1000, "shared.c", "Alpha"),
+            (0x2000, "shared.c", "Beta"),
+            (0x3000, "shared.c", "Missing"),
+            (0x4000, "shared.c", "Gamma"),
+            (0x5000, "shared.c", "Other"),
+            (0x6000, "absent.c", "Gone"),
+        ]:
+            record_function_identity(
+                tmp_path,
+                module="TEST",
+                va=va,
+                file=file,
+                kind="FUNCTION",
+                name=name,
+                symbol="_" + name,
+                size=32,
+            )
+        calls = 0
+        real = c_parser.function_signatures
+
+        def counting(source: str) -> dict[str, str]:
+            nonlocal calls
+            calls += 1
+            return real(source)
+
+        monkeypatch.setattr(c_parser, "function_signatures", counting)
+        items = _collect_missing_bindings(cfg, {})
+        assert calls == 1
+        expected = [
+            (0x3000, "_Missing", "Managed source definition missing: shared.c", "../shared.c"),
+            (0x5000, "_Other", "Managed source definition missing: shared.c", "../shared.c"),
+            (0x6000, "_Gone", "Managed source file missing: absent.c", "../absent.c"),
+        ]
+        assert [(item.va, item.name, item.description, item.filename) for item in items] == expected
+        assert [item.category for item in items] == [CAT_EXTRACT_ERROR] * 3
+        assert [item.command for item in items] == [
+            "rebrew test 0x00003000",
+            "rebrew test 0x00005000",
+            "rebrew test 0x00006000",
+        ]
+        again = _collect_missing_bindings(cfg, {})
+        assert calls == 2
+        assert [(item.va, item.name, item.description) for item in again] == [
+            (va, name, description) for va, name, description, _filename in expected
+        ]

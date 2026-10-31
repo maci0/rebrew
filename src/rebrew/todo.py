@@ -1452,6 +1452,8 @@ def _collect_missing_bindings(
 
     target_module_name = preset_module_key(target_module(cfg) or "")
     items: list[TodoItem] = []
+    # Derived symbols for one existing file stay fixed for this collect.
+    symbols_by_path: dict[Path, set[str]] = {}
     for (module, va), row in load_metadata(cfg.metadata_dir, deepcopy=False).items():
         stored = str(row.get("file") or "")
         if (
@@ -1465,9 +1467,13 @@ def _collect_missing_bindings(
         path = cfg.root / stored.replace("\\", "/")
         # A valid definition outside the normal source walk is not missing.
         if path.is_file():
-            definitions = function_signatures(read_source_text(path)[0])
+            symbols = symbols_by_path.get(path)
+            if symbols is None:
+                definitions = function_signatures(read_source_text(path)[0])
+                symbols = {derive_c_symbol(name, proto) for name, proto in definitions.items()}
+                symbols_by_path[path] = symbols
             symbol = str(row.get("symbol") or "")
-            if symbol in {derive_c_symbol(name, proto) for name, proto in definitions.items()}:
+            if symbol in symbols:
                 continue
         items.append(
             TodoItem(

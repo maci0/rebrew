@@ -54,6 +54,17 @@
   audit names the earliest deviation without changing the exit code. Longer
   extents are excluded because layout data between functions inflates them.
 
+### Performance
+
+- `rebrew binary function` indexes function ranges once per dossier and
+  resolves every caller and callee from that index. The smallest enclosing
+  range still wins, and an exact function start still wins over a range.
+  One dossier scans the range list once, however many callers it has.
+
+- `rebrew todo` parses each managed source file's signatures once per
+  collect. Rows that name the same file reuse that set. A defined symbol
+  is still skipped, and a missing definition or file is still reported.
+
 ## [6.9.0] - 2026-10-30
 
 ### Added

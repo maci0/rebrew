@@ -9,7 +9,9 @@ annotations and a function list so the dossier can resolve names.
 from __future__ import annotations
 
 import struct
+from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -445,6 +447,18 @@ class TestDescribeCli:
         assert via_all_refs == standalone
 
 
+class _RangeScans(list[tuple[int, int, str]]):
+    """Function-range list that counts each full walk."""
+
+    def __init__(self, items: list[tuple[int, int, str]]) -> None:
+        super().__init__(items)
+        self.scans = 0
+
+    def __iter__(self) -> Iterator[tuple[int, int, str]]:
+        self.scans += 1
+        return super().__iter__()
+
+
 class TestContainingNameSmallestRange:
     def test_overlapping_ranges_pick_the_smallest(self) -> None:
         """An oversized outer SIZE overlaps the next function; the resolver
@@ -454,6 +468,81 @@ class TestContainingNameSmallestRange:
         ranges = [(0x1000, 0x1200, "outer"), (0x1040, 0x1080, "inner")]
         assert _containing_name(0x1050, {}, ranges) == "inner"
         assert _containing_name(0x1150, {}, ranges) == "outer"
+        # The shorter range is still the one that contains the site when it
+        # is listed first, and equal lengths keep the earlier entry.
+        listed_first = [(0x1040, 0x1080, "inner"), (0x1000, 0x1200, "outer")]
+        assert _containing_name(0x1050, {}, listed_first) == "inner"
+        assert _containing_name(0x1150, {}, listed_first) == "outer"
+        same_length = [(0x1000, 0x1100, "first"), (0x1040, 0x1140, "second")]
+        assert _containing_name(0x1080, {}, same_length) == "first"
+        assert _containing_name(0x1120, {}, same_length) == "second"
+        assert _containing_name(0x1000, {0x1000: "exact"}, ranges) == "exact"
+        assert _containing_name(0x0900, {}, ranges) == "fcn_00000900"
+
+
+class TestDossierRangeScan:
+    def test_one_dossier_scans_function_ranges_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Caller and callee names walk the function ranges once per dossier.
+
+        Each interior site used to walk the same list again. The resolved
+        names stay the smallest enclosing range, with an exact start winning
+        over every range.
+        """
+        import rebrew.describe as describe_mod
+        from rebrew.analysis import Xref
+
+        items = [
+            (0x1800, 0x1900, "late"),
+            (0x1000, 0x2000, "outer"),
+            (0x1100, 0x1200, "inner"),
+        ]
+        names = {0x1000: "outer", 0x1100: "inner", 0x1800: "late"}
+        ann = SimpleNamespace(
+            name="probe",
+            size=0x100,
+            status="EXACT",
+            cflags="",
+            blocker="",
+            note="",
+        )
+        cfg = SimpleNamespace(arch="")
+        info = SimpleNamespace()
+
+        def dossier(n_callers: int) -> tuple[int, dict[str, Any]]:
+            ranges = _RangeScans(items)
+            refs = [Xref("call", 0x1300 + i, 0x1000) for i in range(n_callers)]
+            refs.append(Xref("call", 0x1120, 0x1000))
+            refs.extend(
+                (
+                    Xref("call", 0x1010, 0x1850),
+                    Xref("call", 0x1020, 0x1110),
+                )
+            )
+            monkeypatch.setattr(
+                describe_mod,
+                "_build_lookup",
+                lambda _cfg: ({0x1000: ann}, names, ranges),
+            )
+            monkeypatch.setattr(describe_mod, "scan_references", lambda _info: refs)
+            monkeypatch.setattr(describe_mod, "_import_table", lambda _cfg: {})
+            built = describe_mod.build_dossier(cfg, info, 0x1000)
+            return ranges.scans, built
+
+        scans, built = dossier(4)
+        assert scans == 1
+        assert built["callers"] == [
+            {"from_va": 0x1120, "name": "inner"},
+            {"from_va": 0x1300, "name": "outer"},
+            {"from_va": 0x1301, "name": "outer"},
+            {"from_va": 0x1302, "name": "outer"},
+            {"from_va": 0x1303, "name": "outer"},
+        ]
+        assert built["callees"] == [
+            {"to_va": 0x1110, "name": "inner", "kind": "call"},
+            {"to_va": 0x1850, "name": "late", "kind": "call"},
+        ]
+        wider, _again = dossier(40)
+        assert wider == 1
 
 
 class TestMalformedInventoryEntry:
