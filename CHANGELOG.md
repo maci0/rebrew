@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Performance
+
+- `rebrew binary function` indexes function ranges once per dossier and
+  resolves every caller and callee from that index. The smallest enclosing
+  range still wins, and an exact function start still wins over a range.
+  One dossier scans the range list once, however many callers it has.
+
 ## [6.9.0] - 2026-10-30
 
 ### Added
