@@ -248,3 +248,37 @@ class TestRoleIndexing:
         assert scan.globals["second"].defined_in == ["z.c"]
         assert scan.globals["first"].referenced_in == ["z.c"]
         assert scan.globals["second"].referenced_in == ["a.c", "z.c"]
+
+
+def test_warm_data_scan_replays_roles_without_parsing_again(tmp_path: Path, monkeypatch) -> None:
+    """``rebrew data`` calls ``scan_globals``. A second scan of unchanged sources must not parse them."""
+    from unittest.mock import Mock
+
+    from rebrew.c_parser import find_extern_variables, find_variable_roles
+    from rebrew.data_scan import _ROLE_FACT_CACHE
+
+    source = tmp_path / "a.c"
+    source.write_text("int first;\nint a(void) { return first; }\n")
+    roles = Mock(wraps=find_variable_roles)
+    externs = Mock(wraps=find_extern_variables)
+    monkeypatch.setattr("rebrew.c_parser.find_variable_roles", roles)
+    monkeypatch.setattr("rebrew.c_parser.find_extern_variables", externs)
+
+    cold = scan_globals(tmp_path)
+    assert roles.call_count == 1
+    assert externs.call_count == 1
+    assert (tmp_path / ".rebrew" / "data-scan-roles.json").is_file()
+
+    _ROLE_FACT_CACHE.clear()
+    warm = scan_globals(tmp_path)
+    assert roles.call_count == 1
+    assert externs.call_count == 1
+    assert warm.globals["first"].defined_in == cold.globals["first"].defined_in == ["a.c"]
+    assert warm.globals["first"].referenced_in == cold.globals["first"].referenced_in == ["a.c"]
+
+    source.write_text("int first;\nint a(void) { return 0; }\n")
+    changed = scan_globals(tmp_path)
+    assert roles.call_count == 2
+    assert externs.call_count == 2
+    assert changed.globals["first"].defined_in == ["a.c"]
+    assert changed.globals["first"].referenced_in == []

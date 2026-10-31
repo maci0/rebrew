@@ -462,6 +462,150 @@ def _flush_name_cover(cover: dict[str, Any]) -> None:
     cover["dirty"] = False
 
 
+# Bump when the recorded fact shape or the parser inputs change.
+_ROLE_FACT_VERSION = 1
+_ROLE_FACT_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def _role_identity(cfg: ProjectConfig | None) -> str:
+    """Target identity baked into cached visibility. An unconfigured scan is empty."""
+    if cfg is None:
+        return ""
+    module = str(getattr(cfg, "module", "") or "")
+    target = str(getattr(cfg, "target_name", "") or "")
+    return f"{module}\n{target}"
+
+
+def _usable_role_facts(facts: object) -> bool:
+    """True when *facts* can rebuild definitions, declarations, and uses."""
+    if not _usable_scan_fact(facts):
+        return False
+    assert isinstance(facts, dict)
+    if not facts["apply"]:
+        return True
+    roles = facts.get("roles")
+    if not isinstance(roles, list) or len(roles) != 3:
+        return False
+    return all(
+        isinstance(part, list) and all(isinstance(name, str) for name in part) for part in roles
+    )
+
+
+def _role_file_record(raw: object) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    stamp = _stamp_list(raw.get("stamp"))
+    facts = raw.get("facts")
+    if stamp is None or not _usable_role_facts(facts):
+        return None
+    return {"stamp": stamp, "facts": facts}
+
+
+def _begin_role_cache(metadata_dir: Path, cfg: ProjectConfig | None) -> dict[str, Any]:
+    """Load role facts when the store fingerprint and target identity still match."""
+    identity = _role_identity(cfg)
+    key = _path_key(metadata_dir) + "\n" + identity
+    stamp = _store_stamp(metadata_dir)
+    cached = _ROLE_FACT_CACHE.get(key)
+    if (
+        cached is not None
+        and cached["stamp"] == stamp
+        and cached["identity"] == identity
+        and cached["version"] == _ROLE_FACT_VERSION
+    ):
+        return cached
+    files: dict[str, dict[str, Any]] = {}
+    cache_path = metadata_dir / ".rebrew" / "data-scan-roles.json"
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except OSError, UnicodeError, json.JSONDecodeError, TypeError:
+        payload = None
+    stored_files = payload.get("files") if isinstance(payload, dict) else None
+    if (
+        isinstance(payload, dict)
+        and payload.get("version") == _ROLE_FACT_VERSION
+        and payload.get("stamp") == stamp
+        and payload.get("identity") == identity
+        and isinstance(stored_files, dict)
+    ):
+        for path_key, raw in stored_files.items():
+            parsed = _role_file_record(raw)
+            if isinstance(path_key, str) and parsed is not None:
+                files[path_key] = parsed
+    record: dict[str, Any] = {
+        "dir": metadata_dir,
+        "stamp": stamp,
+        "identity": identity,
+        "version": _ROLE_FACT_VERSION,
+        "files": files,
+        "dirty": False,
+    }
+    _ROLE_FACT_CACHE[key] = record
+    return record
+
+
+def _role_cache_facts(cache: dict[str, Any], cfile: Path) -> dict[str, Any] | None:
+    stamp = _source_stamp(cfile)
+    if stamp is None:
+        return None
+    record = cache["files"].get(_path_key(cfile))
+    if not isinstance(record, dict) or record.get("stamp") != stamp:
+        return None
+    facts = record.get("facts")
+    return facts if isinstance(facts, dict) else None
+
+
+def _restore_roles(
+    facts: dict[str, Any], file_roles: dict[str, tuple[set[str], set[str], set[str]]]
+) -> bool:
+    """Rebuild the role side table from cached facts. False means the record is unusable."""
+    if not facts.get("apply"):
+        return True
+    roles = facts.get("roles")
+    fname = facts.get("fname")
+    if not isinstance(fname, str) or not isinstance(roles, list) or len(roles) != 3:
+        return False
+    file_roles[fname] = (set(roles[0]), set(roles[1]), set(roles[2]))
+    return True
+
+
+def _role_cache_remember(cache: dict[str, Any], cfile: Path, facts: dict[str, Any]) -> None:
+    stamp = _source_stamp(cfile)
+    if stamp is None or not _usable_role_facts(facts):
+        return
+    key = _path_key(cfile)
+    current = cache["files"].get(key)
+    if (
+        isinstance(current, dict)
+        and current.get("stamp") == stamp
+        and current.get("facts") == facts
+    ):
+        return
+    cache["files"][key] = {"stamp": stamp, "facts": facts}
+    cache["dirty"] = True
+
+
+def _flush_role_cache(cache: dict[str, Any]) -> None:
+    """Write role facts for the next process. A failure leaves this scan's result."""
+    if not cache.get("dirty"):
+        return
+    cache_path = Path(cache["dir"]) / ".rebrew" / "data-scan-roles.json"
+    payload = {
+        "version": cache["version"],
+        "stamp": cache["stamp"],
+        "identity": cache["identity"],
+        "files": cache["files"],
+    }
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = cache_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        os.replace(temporary, cache_path)
+    except OSError:
+        return
+    cache["dirty"] = False
+
+
 def _collect_scan_file_facts(
     cfile: Path,
     src_dir: Path,
@@ -582,13 +726,15 @@ def _collect_scan_file_facts(
             or any(module_visible_to_target(m, cfg) for m in modules)
         )
 
+    roles: tuple[set[str], set[str], set[str]] | None = None
     if record_roles:
-        file_roles[fname] = find_variable_roles(
+        roles = find_variable_roles(
             text, function_filter=function_visible, variable_filter=variable_visible
         )
+        file_roles[fname] = roles
 
     visible_vars = [v for v in parsed_vars if variable_visible(v.name, v.is_definition)]
-    return {
+    facts: dict[str, Any] = {
         "apply": True,
         "fname": fname,
         "header": is_header,
@@ -612,6 +758,9 @@ def _collect_scan_file_facts(
             for ev in visible_vars
         ],
     }
+    if roles is not None:
+        facts["roles"] = [sorted(part) for part in roles]
+    return facts
 
 
 def _apply_scan_file_facts(
@@ -786,21 +935,24 @@ def scan_globals(
     from rebrew.workspace.config import walk_up_to_root
 
     project_root = getattr(cfg, "root", None) or walk_up_to_root(metadata_dir) or metadata_dir
-    inactive_sources = set().union(
-        *(
-            historical_source_files(row, metadata_dir, project_root)
-            for row in function_entries.values()
-        )
-    )
-    # Role walks need the source text, so a fact cache would skip that work
-    # and report an empty defined_in. The reloc name map passes record_roles
-    # False and is the caller that reuses facts.
+    inactive_sources: set[Path] = set()
+    for row in function_entries.values():
+        # An empty history cannot name a retired file. Skip the validate-and-copy.
+        if not row.get("binding_history"):
+            continue
+        inactive_sources.update(historical_source_files(row, metadata_dir, project_root))
+    # The reloc name map passes record_roles False and reuses declaration
+    # facts. Role scans keep their own stamped cache, which stores the roles.
     use_facts = not record_roles
     cached_facts = fact_cache if use_facts else None
     recorded_facts = facts_out if use_facts else None
     # declarations=False is the reloc name map. It records files the stores
     # already name so the next process does not read them again.
     name_cover = _begin_name_cover(metadata_dir) if not declarations else None
+    # The data inventory records roles. A later process with the same store
+    # fingerprint, target, and source stamp replays those facts and does not
+    # parse the file again. The reloc map keeps its own name cover.
+    role_cache = _begin_role_cache(metadata_dir, cfg) if record_roles else None
     for cfile in iter_sources_and_headers(src_dir, cfg):
         # A cover hit has no names to add. Callers that keep per-file facts
         # still take the collect path; verify preparation does not.
@@ -812,7 +964,11 @@ def scan_globals(
         ):
             continue
         fact_key = _scan_fact_key(cfile)
-        facts = cached_facts.get(fact_key) if cached_facts is not None else None
+        facts = _role_cache_facts(role_cache, cfile) if role_cache is not None else None
+        if facts is not None and not _restore_roles(facts, file_roles):
+            facts = None
+        if facts is None:
+            facts = cached_facts.get(fact_key) if cached_facts is not None else None
         if not _usable_scan_fact(facts):
             facts = _collect_scan_file_facts(
                 cfile,
@@ -826,6 +982,8 @@ def scan_globals(
                 declarations=declarations,
                 name_cover=name_cover,
             )
+            if role_cache is not None and facts is not None:
+                _role_cache_remember(role_cache, cfile, facts)
         if facts is None:
             continue
         if recorded_facts is not None:
@@ -849,6 +1007,8 @@ def scan_globals(
         )
     if name_cover is not None:
         _flush_name_cover(name_cover)
+    if role_cache is not None:
+        _flush_role_cache(role_cache)
 
     for (name, va), entry in by_key.items():
         if va and name in result.globals and result.globals[name] is not entry:

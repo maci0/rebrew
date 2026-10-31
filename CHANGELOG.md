@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+## [6.11.0] - 2026-11-01
+
+### Changed
+
+- `rebrew data` keeps a stamped role cache in `.rebrew/data-scan-roles.json`. A later scan of an unchanged source, store, and target replays definitions and uses without parsing the file again. A changed source is parsed again. Rows with no binding history skip the history copy.
+
 ## [6.10.0] - 2026-11-01
 
 ### Changed

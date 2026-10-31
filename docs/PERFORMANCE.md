@@ -284,8 +284,11 @@ The verify cache writes `.rebrew/verify_cache.json` after a TOML parse;
 the next process loads that document (0.045s for three status reads, where
 the TOML parse alone had been 0.164s). `rebrew todo` walks the source tree
 once and hands that list to the inventory and the caller count. `rebrew data`
-still spends 4.612s in `scan_globals` recording types and use sites. Its
-separate annotation walk skips function-prototype parses; one sample of
+records types and use sites in `scan_globals`. A warm scan replays those
+facts from `.rebrew/data-scan-roles.json` when the source stamp, the store
+fingerprint, and the target identity match, and parses again when the
+source changes. The reloc name map still uses its own name cover and does
+not read that role cache. The separate annotation walk skips function-prototype parses; one sample of
 that walk was 3.339s and returned 664 rows. The new gates are the symlink
 rejection, the verify-cache parse count, and the prototype call count.
 
