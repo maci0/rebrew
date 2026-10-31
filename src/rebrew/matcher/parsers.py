@@ -117,7 +117,12 @@ def parse_obj_symbol_and_relocs(
         return None, None, []
     fmt = _detect_obj_format_data(magic)
     if fmt == "elf":
-        code, relocs = _parse_elf_symbol_bytes(str(obj_path), symbol)
+        import lief
+
+        elf = lief.ELF.parse(str(obj_path))
+        if elf is not None and elf.header.machine_type == lief.ELF.ARCH.XTENSA:
+            return _parse_xtensa_symbol(elf, symbol)
+        code, relocs = _parse_elf_symbol_bytes(str(obj_path), symbol, elf=elf)
         return code, relocs, []
     if fmt == "macho":
         code, relocs = _parse_macho_symbol_bytes(str(obj_path), symbol)
@@ -359,12 +364,13 @@ def _list_coff_symbols(obj_path: str) -> list[str]:
 
 
 def _parse_elf_symbol_bytes(
-    obj_path: str, symbol: str
+    obj_path: str, symbol: str, *, elf: Any = None
 ) -> tuple[bytes | None, dict[int, str] | None]:
     """Extract code bytes + relocation offsets for a symbol from ELF .o using LIEF."""
     import lief
 
-    elf = lief.ELF.parse(str(obj_path))
+    if elf is None:
+        elf = lief.ELF.parse(str(obj_path))
     if elf is None:
         return None, None
 
@@ -372,6 +378,13 @@ def _parse_elf_symbol_bytes(
     if int(elf.header.machine_type) == 6502:
         log.warning("MOS objects compile successfully but relocation-aware matching is unsupported")
         return None, None
+
+    if elf.header.machine_type == lief.ELF.ARCH.XTENSA:
+        code, offsets, records = _parse_xtensa_symbol(elf, symbol)
+        if records:
+            log.warning("Xtensa relocation comparison requires typed records and target bindings")
+            return None, None
+        return code, offsets
 
     target_sym = None
     names = {symbol, symbol[1:] if symbol.startswith("_") else "_" + symbol}
@@ -435,6 +448,37 @@ def _parse_elf_symbol_bytes(
             return None, None
         reloc_offsets[reloc.address - func_start] = _extract_reloc_name(reloc)
     return code, reloc_offsets
+
+
+def _parse_xtensa_symbol(
+    elf: Any, symbol: str
+) -> tuple[bytes | None, dict[int, str] | None, list[CoffRelocRecord]]:
+    """Preserve Xtensa RELA types without LIEF's unsupported-type conversion."""
+    from rebrew.formats.xtensa import xtensa_symbol_relocations
+
+    names = (symbol, symbol[1:] if symbol.startswith("_") else "_" + symbol)
+    target = next(
+        (
+            s
+            for name in names
+            for s in elf.symtab_symbols
+            if s.name == name and s.section is not None
+        ),
+        None,
+    )
+    if target is None:
+        return None, None, []
+    if elf.header.identity_data.name != "LSB" or not target.size:
+        raise ValueError("Xtensa extraction requires a sized little-endian ELF32 symbol")
+    start, end = target.value, target.value + target.size
+    data = bytes(target.section.content)
+    if end > len(data):
+        raise ValueError("Xtensa function extends outside its section")
+    records = [
+        CoffRelocRecord(offset, kind, name, "elf-xtensa", addend, local)
+        for offset, kind, name, addend, local in xtensa_symbol_relocations(elf, target)
+    ]
+    return data[start:end], {}, records
 
 
 def _list_elf_symbols(obj_path: str) -> list[str]:

@@ -135,6 +135,14 @@ def disasm_bytes(code_bytes: bytes, va: int, cfg: ProjectConfig | None = None) -
     Shared by any module that needs a quick human-readable disassembly
     representation without the full hex-mode output of :func:`_run_hex_mode`.
     """
+    if cfg is not None and getattr(cfg, "arch", "") == "xtensa":
+        from rebrew.compiler.xtensa import disassemble_xtensa
+
+        return "\n".join(
+            f"  {i.address:08X}  {i.bytes.hex():20s}  {i.mnemonic:6s} {i.op_str}"
+            for i in disassemble_xtensa(cfg, code_bytes, va)
+        )
+
     try:
         from capstone import CS_ARCH_X86, CS_MODE_32, Cs
     except ImportError as exc:
@@ -724,6 +732,27 @@ def _hex_view(
         console.print(
             f"[yellow]warning:[/yellow] requested {size} bytes, got {len(data)} "
             "(reached end of available file-backed bytes)"
+        )
+
+    if getattr(cfg, "arch", "") == "xtensa":
+        from rebrew.compiler.xtensa import disassemble_xtensa
+
+        decoded = disassemble_xtensa(cfg, data, va_int, binary=cfg.target_binary)
+        return _HexView(
+            bin_path,
+            data,
+            truncated,
+            False,
+            decoded,
+            decoded,
+            0,
+            "xtensa",
+            ne_seg,
+            ne_seg_name,
+            ne_segment_count,
+            func_lookup,
+            import_map,
+            string_map,
         )
 
     try:
@@ -1396,6 +1425,11 @@ def generate_inline_c(
     ``rebrew-functions.toml`` when a caller writes the text to a file.
     Stdout output has no row.
     """
+    if getattr(cfg, "arch", "") == "xtensa":
+        raise RuntimeError(
+            "Xtensa inline-C emission is unsupported: XCC ignores the naked attribute; recover plain C instead"
+        )
+
     sym = symbol or f"_func_{va:08x}"
     # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``. One cdecl
     # underscore still comes off (``_foo`` is ``foo``).
@@ -1846,6 +1880,12 @@ def disassemble(
         error_exit("--size must be a positive integer", json_mode=json_output)
 
     cfg = require_config(target=target, json_mode=json_output)
+
+    if getattr(cfg, "arch", "") == "xtensa" and (fmt != "hex" or inline_c):
+        error_exit(
+            "Xtensa supports hex disassembly; NASM/inline-C and CFG export are unsupported",
+            json_mode=json_output,
+        )
 
     # --- NASM batch modes ---
     if fmt == "nasm" and (extract_all or batch_stubs):

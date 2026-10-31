@@ -16,6 +16,7 @@ Executable, object and archive file parsers: the layer every analysis, compile a
 | `pe_symbols.py` | PE data directories as symbol records |
 | `import_table.py` | Import tables and import-stub detection |
 | `relocations.py` | Typed relocation spans |
+| `xtensa.py` | ELF32 RELA decoding and exact standard Xtensa operand relocation |
 | `omf16.py` | 16-bit OMF objects (MSVC 1.52 dialect LIEF cannot parse) |
 | `lzexe.py` | LZEXE 0.90/0.91 unpacker |
 | `archives.py` | Static archive members and stock-library cache paths |

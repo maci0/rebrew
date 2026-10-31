@@ -70,7 +70,7 @@ binary = "original/game.exe"
 # Default: "pe"
 format = "pe"
 
-# Architecture: "x86_16", "x86_32", "x86_64", "arm32", "arm64", "mips32", "mips64", "ppc32", "ppc64", "sh2".
+# Architecture: "x86_16", "x86_32", "x86_64", "arm32", "arm64", "mips32", "mips64", "ppc32", "ppc64", "sh2", "xtensa".
 # Default: "x86_32"
 arch = "x86_32"
 
