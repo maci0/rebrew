@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.10.0] - 2026-11-01
+
 ### Changed
 
 - Let reviewed source renames preserve selected reference files or record prospective retired target identities, guarded by the preview digest.
