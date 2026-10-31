@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from tools import release_check, require_extras
+from tools import require_extras
 
 ROOT = Path(__file__).resolve().parents[1]
 CI_YML = ROOT / ".github" / "workflows" / "ci.yml"
@@ -1517,46 +1517,21 @@ class TestCiPins:
             f"README Development has lock-unsafe uv run: {commands}"
         )
 
-    def test_release_upload_names_its_files_and_keeps_the_token_off_argv(self) -> None:
-        """The manual PyPI upload is the one deploy step with a credential.
-
-        `uv publish` defaults to `dist/*`, which also matches
-        `rebrew.buildinfo` and `rebrew.cdx.json`; the index rejects a path that
-        is not a distribution, so the documented command has to name the sdist
-        and the wheel. And the token is the environment, not argv: a secret on
-        the command line is readable through the process table for the life of
-        the process, and lands in a shell history on the way there.
-        """
+    def test_github_release_attaches_verified_ci_artifacts(self) -> None:
+        """Releases attach the exact CI distributions and provenance to GitHub."""
         text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-        # The release bullet is the one place an upload command can appear, so
-        # the checks below stay scoped to it rather than the whole document.
         bullet = text.split("Nothing publishes\n", 1)[1].split("\n- **", 1)[0]
-        commands = re.findall(r"`uv publish ([^`]*)`", bullet)
-        assert commands, "CONTRIBUTING.md must document the release upload"
-        assert all(
-            "dist/rebrew-*.tar.gz" in cmd and "dist/rebrew-*.whl" in cmd for cmd in commands
-        ), f"the upload must name both distributions, not the dist/* default: {commands}"
-        assert "UV_PUBLISH_TOKEN" in bullet
-        # The attestation rides on the same command and has no flag: it is
-        # uv's default, and `UV_PUBLISH_NO_ATTESTATIONS` is the only way off.
-        # A release uploads once, so the bullet that names the off-switch is
-        # what keeps the next maintainer from exporting it and shipping files
-        # whose origin nothing records.
-        assert "PEP 740 attestation" in bullet
-        assert release_check.NO_ATTESTATIONS_ENV in bullet
-
-        # The upload carries the bytes CI verified. Publishing from a fresh
-        # local `make build` ships a wheel no gate ran: not the reproducible
-        # rebuild, not the sdist member diff, not the clean-venv smoke import.
-        assert "rebrew-dist-" in bullet, "publish the package job's artifact, not a local rebuild"
-        assert "make verify-dist" in bullet, (
-            "the unpacked artifact's manifest must be re-checked before the upload"
-        )
-        # A credential on the command line is readable through the process
-        # table and lands in shell history; the docs must not show one.
-        assert not re.search(r"(?<![\w-])(?:--token|--password|-p|-u)\s+\S", bullet), (
-            "CONTRIBUTING.md puts a credential on a command line; read it from the environment"
-        )
+        assert "gh release create" in bullet
+        for name in (
+            "dist/rebrew-*.tar.gz",
+            "dist/rebrew-*.whl",
+            "dist/rebrew.buildinfo",
+            "dist/rebrew.cdx.json",
+        ):
+            assert name in bullet
+        assert "rebrew-dist-" in bullet and "make verify-dist" in bullet
+        assert "--verify-tag" in bullet
+        assert "uv publish" not in text and "UV_PUBLISH_TOKEN" not in text
 
     def test_makefile_setup_warns_without_nasm(self) -> None:
         """Bootstrap should name the nasm host dep before the first test failure."""

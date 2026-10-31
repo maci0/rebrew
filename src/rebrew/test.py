@@ -2053,6 +2053,14 @@ def _test_multi(
                         )
                     continue
 
+                if any(rec.format == "elf-xtensa" for rec in full_relocs):
+                    from rebrew.compiler.xtensa import link_xtensa_function
+
+                    obj_bytes = link_xtensa_function(
+                        cfg, obj_path, sym, ann.va, name_to_va, _effective_overrides(ann)[0]
+                    )
+                    full_relocs, reloc_dict = [], {}
+
                 coff_relocs = full_relocs or reloc_dict
 
                 # Size mismatch must be computed on the ORIGINAL lengths — truncating

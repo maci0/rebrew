@@ -240,34 +240,21 @@ literals stops the gate instead of reading as a table with no routes.
   upload rather than after it; both `verify-dist` and `smoke-wheel` read `dist/`
   as they find it and never rebuild it, so unpack into an empty `dist/` and run
   them in a checkout of the release commit), then
-  `uv publish dist/rebrew-*.tar.gz dist/rebrew-*.whl` from that same `dist/`.
-  The artifact is the only build that ran the whole package job: reproducible
-  rebuild, sdist-to-wheel member diff, and clean-venv smoke install.
-  Name both files: `uv publish` defaults to `dist/*`, which also matches
-  `rebrew.buildinfo` and `rebrew.cdx.json`, and the index rejects a path that
-  is not a distribution.  The credential is the environment, never the command
-  line, because argv is world-readable through the process table:
-  `export UV_PUBLISH_TOKEN=...` from the password manager, or configure
-  trusted publishing on the project and pass
-  `--trusted-publishing always` with no token at all.  The same command uploads
-  a PEP 740 attestation beside the files and prints its URL: that attestation
-  is the only record that the bytes on the index came from a trusted publisher
-  rather than from whoever answered the request.  There is no flag to ask for
-  it, and `UV_PUBLISH_NO_ATTESTATIONS` is the only way to turn it off, so
-  `make release-check` fails on a uv too old to attest and on a shell carrying
-  that variable.  A version already on
-  PyPI is immutable: if a release is wrong, cut the next patch rather than
-  re-uploading.
-- **Verify the artifact, not just the tree.**  Run `make smoke-wheel` against
-  the unpacked `rebrew-dist-<sha>` before uploading: it installs that exact
+  attach those exact files to the GitHub release:
+  `gh release create v<version> dist/rebrew-*.tar.gz dist/rebrew-*.whl dist/rebrew.buildinfo dist/rebrew.cdx.json --verify-tag --title "Rebrew <version>" --notes-file release-notes.md`.
+  Before running the command, copy the body of the dated changelog section
+  into `release-notes.md`. The package artifact
+  is the build that ran the reproducible rebuild, sdist-to-wheel member diff,
+  and clean-venv smoke install. Releases are distributed through GitHub only;
+  no package-index upload or publishing token is part of this process.
+- **Verify the artifact, not just the tree.** Run `make smoke-wheel` against
+  the unpacked `rebrew-dist-<sha>` before attaching it: it installs that exact
   wheel into a throwaway `.venv-pkg` and smoke-imports it, so the file that
-  ships is the one that ran.  A wheel rebuilt locally says nothing about the
-  one on the index.
-- **A wrong release is yanked, not replaced.**  PyPI rejects a re-upload of an
-  existing version, so the recovery step is to yank it on the index: `pip
-  install rebrew` then stops resolving that version, while anyone who pinned it
-  keeps a resolvable file.  Yank once the fix is on PyPI, not before; a yank
-  with no successor published leaves installs broken either way.
+  ships is the one that ran. A wheel rebuilt locally says nothing about the
+  artifact from CI.
+- **Correct a wrong release with a new patch.** Keep the existing tag and
+  assets as a record of what shipped, note the issue in the GitHub release,
+  and publish the fix under a new version. Do not overwrite released bytes.
 - **Preflight before tagging with `make release-check`** (which runs
   `tools/release_check.py`): verifies
   `__version__` is bumped past the last tag, the tree is clean, the

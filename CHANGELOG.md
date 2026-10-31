@@ -54,9 +54,29 @@
   audit names the earliest deviation without changing the exit code. Longer
   extents are excluded because layout data between functions inflates them.
 
+## [6.9.0] - 2026-10-30
+
+### Added
+
+- Recognize little-endian Xtensa ELF32 targets and resolve standard 32-bit data,
+  CALL, L32R, and J relocations with explicit symbol bindings. Unsupported core
+  instruction forms and offset-only masking fail closed; see `docs/XTENSA.md`.
+
+- Image-backed XCC targets use the matching core linker for bundled/TIE operands
+  and relaxation, and the core objdump for byte-checked native disassembly.
+
 - `rebrew binary score` also reports `informative` counts: same-offset matches
   restricted to positions where the reference byte is non-zero, so
   zero-initialized layout padding cannot inflate the score.
+
+### Changed
+
+- Release artifacts are attached to GitHub after CI artifact verification; remove
+  package-index upload instructions and unrelated publishing checks.
+
+- **Breaking:** `compiler.cache.CACHE_SCHEMA_VERSION` advances to 11 so pre-Xtensa
+  compile-cache entries are retired and rebuilt with typed relocation handling.
+
 - **Breaking:** `app.builtins.DOMAIN_COMPONENTS` gains a `binary` entry for
   `score` (`rebrew.binary_score`), so consumers that enumerate the binary
   subcommands see one more component. `rebrew binary score --built IMAGE`
@@ -69,6 +89,25 @@
   reports, per symbol, where an object's masked body occurs in the image, at that
   VA, and with what fixed-byte ratio; it answers whether an `/INCLUDE` member is
   something the reference actually carries.
+
+### Fixed
+
+- Keep successful fallback symbol spellings through native linking, select image
+  digests from the configured execution backend, and reject unsupported endian
+  and export modes explicitly.
+- Splat YAML errors include the supplied config path, and nested inputs fail with
+  a bounded `ValueError` instead of overflowing the parser stack.
+
+## [6.8.1] - 2026-10-30
+
+### Added
+
+- `rebrew.splat_config.parse_splat_text(text, path)` parses already-read splat config
+  text as if it lived at an absolute *path*, without opening anything there.
+  `parse_splat_config` now reads the file and delegates to it, so file parsing, results
+  and errors are unchanged. A caller holding the config in an anonymous buffer needs no
+  file for the parser to resolve; `Path.resolve()` turns a memfd path into a name that
+  cannot be opened.
 
 ## [6.8.0] - 2026-10-28
 

@@ -626,9 +626,29 @@ def parse_splat_config(path: Path) -> SplatConfig:
     # them against the project root.
     path = path.resolve()
     try:
-        raw = parse_yaml_subset(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError(f"{path}: not readable as UTF-8: {exc}") from exc
+    return parse_splat_text(text, path)
+
+
+def parse_splat_text(text: str, path: Path) -> SplatConfig:
+    """Parse already-read splat config *text* as if it lived at *path*.
+
+    *path* must be absolute: the model's relative paths (target_path, symbol
+    files) hang from its directory and error messages name it.  Nothing at
+    *path* is opened, so a caller holding the text in memory (an anonymous
+    buffer, an upload) needs no file for the parser to resolve.  The result and
+    the errors are those :func:`parse_splat_config` gives for a file with this
+    text and location.
+    """
+    path = Path(path)
+    if not path.is_absolute():
+        raise ValueError(f"splat config location must be absolute: {path}")
+    try:
+        raw = parse_yaml_subset(text)
+    except ValueError as exc:
+        raise ValueError(f"{path}: {exc}") from exc
     if not isinstance(raw, dict):
         raise ValueError(f"{path}: top-level value must be a mapping")
 
@@ -1684,6 +1704,9 @@ def _write_libraries(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -
 # ---------------------------------------------------------------------------
 
 
+_MAX_YAML_DEPTH = 64
+
+
 def parse_yaml_subset(text: str) -> Any:
     """Parse the YAML subset splat configs use.
 
@@ -1753,14 +1776,20 @@ def _strip_comment(line: str) -> str:
     return line
 
 
-def _parse_block(lines: list[_Line], index: int, indent: int) -> tuple[Any, int]:
+def _parse_block(lines: list[_Line], index: int, indent: int, depth: int = 0) -> tuple[Any, int]:
     """Parse the block at *indent* starting at *index*."""
+    if depth >= _MAX_YAML_DEPTH:
+        raise ValueError(
+            f"line {lines[index].number}: YAML nesting exceeds {_MAX_YAML_DEPTH} levels"
+        )
     if lines[index].text.startswith("- "):
-        return _parse_sequence(lines, index, indent)
-    return _parse_mapping(lines, index, indent)
+        return _parse_sequence(lines, index, indent, depth)
+    return _parse_mapping(lines, index, indent, depth)
 
 
-def _parse_mapping(lines: list[_Line], index: int, indent: int) -> tuple[dict[str, Any], int]:
+def _parse_mapping(
+    lines: list[_Line], index: int, indent: int, depth: int
+) -> tuple[dict[str, Any], int]:
     out: dict[str, Any] = {}
     while index < len(lines):
         line = lines[index]
@@ -1778,28 +1807,34 @@ def _parse_mapping(lines: list[_Line], index: int, indent: int) -> tuple[dict[st
         value_text = rest.strip()
         index += 1
         if value_text:
-            out[key] = _parse_scalar(value_text, line.number)
+            out[key] = _parse_scalar(value_text, line.number, depth + 1)
             continue
         if index < len(lines) and lines[index].indent > indent:
-            out[key], index = _parse_block(lines, index, lines[index].indent)
+            out[key], index = _parse_block(lines, index, lines[index].indent, depth + 1)
         elif (
             index < len(lines)
             and lines[index].indent == indent
             and lines[index].text.startswith("- ")
         ):
-            out[key], index = _parse_sequence(lines, index, indent)
+            out[key], index = _parse_sequence(lines, index, indent, depth + 1)
         else:
             out[key] = None
     return out, index
 
 
-def _parse_sequence(lines: list[_Line], index: int, indent: int) -> tuple[list[Any], int]:
+def _parse_sequence(
+    lines: list[_Line], index: int, indent: int, depth: int
+) -> tuple[list[Any], int]:
     """Parse a ``- item`` block.
 
     An item's own content is every following line indented past the dash
     column, so ``- key: value`` with more keys underneath parses as one
     mapping and ``- [0x200, text, name]`` as one flow list.
     """
+    if depth >= _MAX_YAML_DEPTH:
+        raise ValueError(
+            f"line {lines[index].number}: YAML nesting exceeds {_MAX_YAML_DEPTH} levels"
+        )
     out: list[Any] = []
     while index < len(lines):
         line = lines[index]
@@ -1821,7 +1856,7 @@ def _parse_sequence(lines: list[_Line], index: int, indent: int) -> tuple[list[A
             out.append(None)
             continue
         if _looks_like_mapping(block[0].text) or block[0].text.startswith("- "):
-            value, consumed = _parse_block(block, 0, block[0].indent)
+            value, consumed = _parse_block(block, 0, block[0].indent, depth + 1)
             if consumed != len(block):
                 raise ValueError(f"line {block[consumed].number}: unexpected content")
             out.append(value)
@@ -1830,7 +1865,7 @@ def _parse_sequence(lines: list[_Line], index: int, indent: int) -> tuple[list[A
             raise ValueError(
                 f"line {block[0].number}: a sequence item with nested lines must be a mapping"
             )
-        out.append(_parse_scalar(block[0].text, block[0].number))
+        out.append(_parse_scalar(block[0].text, block[0].number, depth + 1))
     return out, index
 
 
@@ -1868,11 +1903,11 @@ def _looks_like_mapping(text: str) -> bool:
     return bool(sep) and bool(key)
 
 
-def _parse_scalar(text: str, number: int) -> Any:
+def _parse_scalar(text: str, number: int, depth: int) -> Any:
     """A plain, quoted, flow, or scalar value."""
     text = text.strip()
     if text.startswith(("[", "{")):
-        value, position = _flow_value(text, 0, number)
+        value, position = _flow_value(text, 0, number, depth)
         if text[position:].strip():
             raise ValueError(f"line {number}: unexpected content after a flow value")
         return value
@@ -1912,16 +1947,18 @@ def _parse_quoted(text: str, number: int) -> str:
     return value
 
 
-def _flow_value(text: str, position: int, number: int) -> tuple[Any, int]:
+def _flow_value(text: str, position: int, number: int, depth: int) -> tuple[Any, int]:
     """Parse one flow entry (sequence, mapping, quoted or plain scalar)."""
+    if depth >= _MAX_YAML_DEPTH:
+        raise ValueError(f"line {number}: YAML nesting exceeds {_MAX_YAML_DEPTH} levels")
     position = _skip_spaces(text, position)
     if position >= len(text):
         raise ValueError(f"line {number}: flow value ends unexpectedly")
     char = text[position]
     if char == "[":
-        return _flow_sequence(text, position, number)
+        return _flow_sequence(text, position, number, depth)
     if char == "{":
-        return _flow_mapping(text, position, number)
+        return _flow_mapping(text, position, number, depth)
     if char in "\"'":
         return _flow_quoted(text, position, number)
     start = position
@@ -1930,7 +1967,7 @@ def _flow_value(text: str, position: int, number: int) -> tuple[Any, int]:
     return _parse_plain(text[start:position].strip()), position
 
 
-def _flow_sequence(text: str, position: int, number: int) -> tuple[list[Any], int]:
+def _flow_sequence(text: str, position: int, number: int, depth: int) -> tuple[list[Any], int]:
     """Parse ``[a, b, ...]`` starting at *position* (the opening bracket)."""
     items: list[Any] = []
     position = _skip_spaces(text, position + 1)
@@ -1939,7 +1976,7 @@ def _flow_sequence(text: str, position: int, number: int) -> tuple[list[Any], in
             raise ValueError(f"line {number}: unterminated flow sequence")
         if text[position] == "]":
             return items, position + 1
-        value, position = _flow_value(text, position, number)
+        value, position = _flow_value(text, position, number, depth + 1)
         items.append(value)
         position = _skip_spaces(text, position)
         if position >= len(text):
@@ -1952,7 +1989,7 @@ def _flow_sequence(text: str, position: int, number: int) -> tuple[list[Any], in
         raise ValueError(f"line {number}: expected ',' or ']' in a flow sequence")
 
 
-def _flow_mapping(text: str, position: int, number: int) -> tuple[dict[str, Any], int]:
+def _flow_mapping(text: str, position: int, number: int, depth: int) -> tuple[dict[str, Any], int]:
     """Parse ``{k: v, ...}`` starting at *position* (the opening brace)."""
     out: dict[str, Any] = {}
     position = _skip_spaces(text, position + 1)
@@ -1973,7 +2010,7 @@ def _flow_mapping(text: str, position: int, number: int) -> tuple[dict[str, Any]
             raise ValueError(f"line {number}: flow mapping entry {key!r} has no value")
         if key in out:
             raise ValueError(f"line {number}: duplicate key {key!r}")
-        value, position = _flow_value(text, position + 1, number)
+        value, position = _flow_value(text, position + 1, number, depth + 1)
         out[key] = value
         position = _skip_spaces(text, position)
         if position >= len(text):

@@ -8,6 +8,7 @@ same writers the project's other tools use.
 
 from __future__ import annotations
 
+import os
 import shutil
 import struct
 import tempfile
@@ -28,6 +29,7 @@ from rebrew.splat_config import (
     SplatConfig,
     load_symbols,
     parse_splat_config,
+    parse_splat_text,
     parse_yaml_subset,
 )
 
@@ -345,6 +347,93 @@ class TestYamlSubsetFuzz:
             pass
         finally:
             tmp_yaml.unlink(missing_ok=True)
+
+
+class TestParseSplatText:
+    """The text seam gives exactly what the file parser gives, without opening a file."""
+
+    def test_equals_the_file_parser_on_the_fixture(self, tmp_path: Path) -> None:
+        yaml_path = _stage_splat(tmp_path)
+        resolved = yaml_path.resolve()
+        assert parse_splat_text(resolved.read_text(encoding="utf-8"), resolved) == (
+            parse_splat_config(yaml_path)
+        )
+
+    def test_opens_nothing_at_the_anchor(self, tmp_path: Path) -> None:
+        yaml_path = _stage_splat(tmp_path)
+        anchor = tmp_path / "never-created" / "splat.yaml"
+        cfg = parse_splat_text(yaml_path.read_text(encoding="utf-8"), anchor)
+        assert not anchor.parent.exists()
+        assert cfg.path == anchor and cfg.base_path == anchor.parent
+        from_file = parse_splat_config(yaml_path)
+        assert cfg.target_path is not None and from_file.target_path is not None
+        assert cfg.target_path.relative_to(anchor.parent) == from_file.target_path.relative_to(
+            yaml_path.resolve().parent
+        )
+
+    def test_reads_an_anonymous_buffer_the_path_parser_cannot_resolve(self) -> None:
+        text = FIXTURE_DIR.joinpath("win32_app.yaml").read_text(encoding="utf-8")
+        descriptor = os.memfd_create("splat-text", os.MFD_CLOEXEC)
+        try:
+            os.write(descriptor, text.encode())
+            buffer = Path(f"/proc/self/fd/{descriptor}")
+            # Negative control: resolve() turns the memfd into a name nothing can open.
+            with pytest.raises(FileNotFoundError):
+                parse_splat_config(buffer)
+            with open(descriptor, encoding="utf-8", closefd=False) as handle:
+                handle.seek(0)
+                assert parse_splat_text(handle.read(), Path("/virtual/splat.yaml")).platform == (
+                    "win32"
+                )
+        finally:
+            os.close(descriptor)
+
+    def test_refuses_a_relative_anchor(self) -> None:
+        with pytest.raises(ValueError, match="absolute"):
+            parse_splat_text("options: {}\n", Path("splat.yaml"))
+
+    def test_errors_name_the_anchor_like_the_file_parser(self, tmp_path: Path) -> None:
+        yaml_path = _write_minimal_config(tmp_path, **{"platform: win32": "platform: n64"})
+        resolved = yaml_path.resolve()
+        with pytest.raises(ValueError) as from_file:
+            parse_splat_config(yaml_path)
+        with pytest.raises(ValueError) as from_text:
+            parse_splat_text(resolved.read_text(encoding="utf-8"), resolved)
+        assert str(from_text.value) == str(from_file.value)
+        with pytest.raises(ValueError, match="top-level value must be a mapping"):
+            parse_splat_text("- a\n- b\n", Path("/virtual/splat.yaml"))
+
+    def test_syntax_error_names_the_virtual_path(self) -> None:
+        with pytest.raises(ValueError, match=r"^/virtual/splat\.yaml: line 3"):
+            parse_splat_text("options:\n  x: 1\n  x: 2\n", Path("/virtual/splat.yaml"))
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "options: " + "[" * 1000 + "0" + "]" * 1000,
+            "\n".join("  " * i + "key:" for i in range(1000)),
+        ],
+    )
+    def test_deep_yaml_is_a_path_named_value_error(self, text: str) -> None:
+        with pytest.raises(ValueError, match=r"^/virtual/splat\.yaml: line .*nesting"):
+            parse_splat_text(text, Path("/virtual/splat.yaml"))
+
+    def test_the_file_parser_still_refuses_non_utf8_bytes(self, tmp_path: Path) -> None:
+        yaml_path = tmp_path / "bad.yaml"
+        yaml_path.write_bytes(b"options:\n  basename: \xff\xfe\n")
+        with pytest.raises(ValueError, match="not readable as UTF-8"):
+            parse_splat_config(yaml_path)
+        with pytest.raises(ValueError, match="splat config not found"):
+            parse_splat_config(tmp_path / "missing.yaml")
+
+    @settings(max_examples=60, deadline=None)
+    @given(st.text(max_size=400))
+    def test_arbitrary_text_is_a_model_or_a_value_error(self, text: str) -> None:
+        try:
+            cfg = parse_splat_text(text, Path("/virtual/splat.yaml"))
+        except ValueError:
+            return
+        assert isinstance(cfg, SplatConfig)
 
 
 class TestParseSplatConfig:

@@ -68,6 +68,8 @@ lazy from pathlib import Path
 from rebrew.errors import RebrewError
 from rebrew.workspace.status import MATCHED_STATUSES
 lazy from rebrew.coff_reloc import (
+    UnresolvedSymbolError,
+    apply_coff_relocations,
     binding_summary,
     build_iat_region,
     relocation_binding_evidence,
@@ -2656,6 +2658,8 @@ def _extract_and_compare(
     section_va: int | None = None,
     iat_region: frozenset[int] | None = None,
     check_known_bindings: bool = False,
+    cfg: ProjectConfig | None = None,
+    toolchain: str | None = None,
 ) -> CompareResult:
     """Extract *symbol* from a compiled .obj and compare against *target_bytes*.
 
@@ -2663,6 +2667,7 @@ def _extract_and_compare(
     here is labeled EXTRACT_ERROR instead of masquerading as a compile error.
     """
     # Single LIEF parse for both the symbol bytes and the typed relocs.
+    matched_symbol = symbol
     obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, symbol)
     if obj_bytes is None:
         # A stored COFF symbol may carry a calling-convention decoration the
@@ -2673,6 +2678,7 @@ def _extract_and_compare(
         for fallback in _symbol_spellings(symbol):
             obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, fallback)
             if obj_bytes is not None:
+                matched_symbol = fallback
                 break
     if obj_bytes is None:
         # Calling convention can change the decoration family entirely (a
@@ -2686,6 +2692,7 @@ def _extract_and_compare(
                 continue
             obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, candidate)
             if obj_bytes is not None:
+                matched_symbol = candidate
                 break
     if obj_bytes is None:
         # Post-compile extraction failure: the .obj compiled fine but the
@@ -2695,6 +2702,35 @@ def _extract_and_compare(
         return classify_compare_result(
             False, f"EXTRACT_ERROR: Symbol '{symbol}' not found in .obj", target_bytes, None, None
         )
+
+    if any(rec.format == "elf-xtensa" for rec in full_relocs):
+        if section_va is None:
+            return classify_compare_result(
+                False,
+                "EXTRACT_ERROR: Xtensa relocation needs the function VA",
+                target_bytes,
+                None,
+                None,
+            )
+        try:
+            if cfg is not None and cfg.arch == "xtensa":
+                from rebrew.compiler.xtensa import link_xtensa_function
+
+                obj_bytes = link_xtensa_function(
+                    cfg, obj_path, matched_symbol, section_va, name_to_va, toolchain
+                )
+            else:
+                obj_bytes = apply_coff_relocations(
+                    obj_bytes,
+                    full_relocs,
+                    lambda name: (name_to_va or {}).get(name),
+                    section_va=section_va,
+                )
+        except (UnresolvedSymbolError, ValueError, NotImplementedError) as exc:
+            return classify_compare_result(
+                False, f"EXTRACT_ERROR: Xtensa relocation: {exc}", target_bytes, None, None
+            )
+        full_relocs, reloc_dict = [], {}
 
     coff_relocs = full_relocs if full_relocs else reloc_dict
     bindings = (
@@ -2882,6 +2918,8 @@ def compile_and_compare(
                     section_va=section_va,
                     check_known_bindings=getattr(cfg, "check_known_bindings", False),
                     iat_region=build_iat_region(cfg),
+                    cfg=cfg,
+                    toolchain=toolchain,
                 )
             )
         except (ValueError, OSError) as exc:

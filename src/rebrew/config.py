@@ -263,6 +263,12 @@ class _ArchPreset(TypedDict):
 
 
 ARCH_PRESETS: dict[str, _ArchPreset] = {
+    "xtensa": {
+        "capstone_arch": "CS_ARCH_XTENSA",
+        "capstone_mode": "CS_MODE_LITTLE_ENDIAN",
+        "pointer_size": 4,
+        "padding_bytes": [0x00],
+    },
     "x86_16": {
         "capstone_arch": "CS_ARCH_X86",
         "capstone_mode": "CS_MODE_16",
@@ -724,6 +730,10 @@ class ProjectConfig:
 
         preset = ARCH_PRESETS.get(self.arch)
         name = preset.get("capstone_arch", "CS_ARCH_X86") if preset else "CS_ARCH_X86"
+        if not hasattr(capstone, name):
+            raise NotImplementedError(
+                f"installed Capstone cannot disassemble {self.arch}; use IDA or xt-objdump"
+            )
         return int(getattr(capstone, name))
 
     @property
