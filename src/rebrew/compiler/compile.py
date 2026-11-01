@@ -1448,7 +1448,31 @@ def _compile_via_recompile(
         float(getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or DEFAULT_COMPILE_TIMEOUT)
         + 120.0
     )
-    client = _shared_recompile_client(timeout)
+    job_socket = os.environ.get("REBREW_JOB_COMPILE_SOCKET")
+    if job_socket:
+        if job_socket != "/run/rebrew-job/owner.sock" or url != "http://rebrew-job":
+            return None, "Invalid job compile transport configuration"
+        import secrets
+
+        import httpx
+
+        try:
+            capability = Path("/run/rebrew-job/capability").read_text(encoding="ascii").strip()
+        except OSError, UnicodeError:
+            return None, "Job compile capability unavailable"
+        if len(capability) != 64 or any(c not in "0123456789abcdef" for c in capability):
+            return None, "Invalid job compile capability"
+        client = httpx.Client(
+            timeout=timeout,
+            transport=httpx.HTTPTransport(uds=job_socket),
+            trust_env=False,
+            headers={
+                "X-Rebrew-Job-Capability": capability,
+                "X-Rebrew-Compile-Intent": secrets.token_hex(32),
+            },
+        )
+    else:
+        client = _shared_recompile_client(timeout)
     try:
         res = compile_source(
             url,
@@ -1464,14 +1488,19 @@ def _compile_via_recompile(
             # demote STATUS for a healthy source.  The count is
             # `[compiler] recompile_retries` (default 2) so a deployment
             # pointing at a slow or flaky service can raise or drop it.
-            retries=int(getattr(cfg, "recompile_retries", DEFAULT_RECOMPILE_RETRIES)),
+            retries=0
+            if job_socket
+            else int(getattr(cfg, "recompile_retries", DEFAULT_RECOMPILE_RETRIES)),
         )
     except RecompileError as exc:
         if backend_errors is not None:
             backend_errors.append(exc)
         return None, f"recompile service error: {exc}"
     finally:
-        _recompile_release(client)
+        if job_socket:
+            client.close()
+        else:
+            _recompile_release(client)
     if not res.ok or res.obj_bytes is None:
         err = _compiler_error_excerpt(res.log or "", limit=400)
         return None, err or "recompile service reported failure with no log"

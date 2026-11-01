@@ -1,0 +1,491 @@
+package jobs
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+
+// CompileMediator is one job's paid compilation boundary. The credential stays
+// in this owner process; the worker receives only the per-job capability.
+type CompileMediator struct {
+	mu                                    sync.Mutex
+	dir, upstream, credential, capability string
+	max                                   int
+	compilers                             map[string]bool
+	client                                *http.Client
+}
+
+// ServeSocket exposes the job-scoped mediator on an already private directory.
+// Closing the listener stops new requests; callers must also wait for active work.
+func (m *CompileMediator) ServeSocket(dir string) (*http.Server, net.Listener, error) {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 || !validHex(m.capability, 64) {
+		return nil, nil, errors.New("invalid private socket directory")
+	}
+	capFile, err := os.OpenFile(filepath.Join(dir, "capability"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0400)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err = capFile.WriteString(m.capability); err == nil {
+		err = capFile.Sync()
+	}
+	if closeErr := capFile.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	listener, err := net.Listen("unix", filepath.Join(dir, "owner.sock"))
+	if err != nil {
+		return nil, nil, err
+	}
+	if err = os.Chmod(filepath.Join(dir, "owner.sock"), 0600); err != nil {
+		listener.Close()
+		return nil, nil, err
+	}
+	server := &http.Server{Handler: m, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 180 * time.Second}
+	go func() { _ = server.Serve(listener) }()
+	return server, listener, nil
+}
+
+type compileOriginal struct {
+	Intent           string `json:"intent"`
+	Key              string `json:"key"`
+	Body             []byte `json:"body"`
+	BodySHA256       string `json:"body_sha256"`
+	Result           []byte `json:"result,omitempty"`
+	ResultSHA256     string `json:"result_sha256,omitempty"`
+	Artifact         string `json:"artifact,omitempty"`
+	CredentialSHA256 string `json:"credential_sha256"`
+	LastHTTPStatus   int    `json:"last_http_status,omitempty"`
+}
+
+type compileBody struct {
+	Compiler        string   `json:"compiler"`
+	Source          string   `json:"source"`
+	Flags           []string `json:"flags"`
+	Filename        string   `json:"filename"`
+	EmitAssembly    bool     `json:"emit_assembly"`
+	TrainingConsent bool     `json:"training_consent"`
+}
+
+func readCompileIndex(dir string) ([]string, error) {
+	b, err := os.ReadFile(filepath.Join(dir, "index.json"))
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	if json.Unmarshal(b, &ids) != nil || ids == nil || len(ids) > 1000 {
+		return nil, errors.New("invalid compile index")
+	}
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if !validHex(id, 64) || seen[id] {
+			return nil, errors.New("invalid compile index")
+		}
+		seen[id] = true
+	}
+	return ids, nil
+}
+
+func writeCompileIndex(dir string, ids []string) error {
+	b, err := json.Marshal(ids)
+	if err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".index-")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	if err = f.Chmod(0600); err == nil {
+		_, err = f.Write(b)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if e := f.Close(); err == nil {
+		err = e
+	}
+	if err != nil {
+		return err
+	}
+	if err = os.Rename(name, filepath.Join(dir, "index.json")); err != nil {
+		return err
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}
+
+// NewCompileMediator opens private per-job custody with a pinned action budget.
+// It never writes the upstream credential or worker capability to the ledger.
+func NewCompileMediator(dir, upstream, credential, capability string, max int, allowed []string) (*CompileMediator, error) {
+	u, err := url.Parse(upstream)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"))) || u.Path != "" || len(credential) < 1 || strings.ContainsAny(credential, "\r\n") || len(capability) < 32 || strings.ContainsAny(capability, "\r\n") || max < 1 || max > 1000 || len(allowed) == 0 {
+		return nil, errors.New("invalid compile mediator configuration")
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+		return nil, errors.New("compile ledger must be private")
+	}
+	compilers := make(map[string]bool, len(allowed))
+	for _, c := range allowed {
+		if c == "" {
+			return nil, errors.New("empty compiler pin")
+		}
+		compilers[c] = true
+	}
+	return &CompileMediator{dir: dir, upstream: upstream, credential: credential, capability: capability, max: max, compilers: compilers, client: &http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: 150 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+}
+
+func (m *CompileMediator) writeOriginal(v compileOriginal) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(m.dir, ".compile-")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	if err = f.Chmod(0600); err == nil {
+		_, err = f.Write(b)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if e := f.Close(); err == nil {
+		err = e
+	}
+	if err != nil {
+		return err
+	}
+	if err = os.Rename(name, filepath.Join(m.dir, v.Intent+".json")); err != nil {
+		return err
+	}
+	d, err := os.Open(m.dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}
+func (m *CompileMediator) readOriginal(id string) (compileOriginal, error) {
+	var v compileOriginal
+	if !validHex(id, 64) {
+		return v, errors.New("invalid intent")
+	}
+	b, e := os.ReadFile(filepath.Join(m.dir, id+".json"))
+	if e != nil {
+		return v, e
+	}
+	if json.Unmarshal(b, &v) != nil || v.Intent != id || !validHex(v.Key, 12) {
+		return v, errors.New("invalid retained intent")
+	}
+	bodySum := sha256.Sum256(v.Body)
+	if !json.Valid(v.Body) || v.BodySHA256 != hex.EncodeToString(bodySum[:]) {
+		return v, errors.New("compile original changed")
+	}
+	if len(v.Result) > 0 {
+		sum := sha256.Sum256(v.Result)
+		if v.ResultSHA256 != hex.EncodeToString(sum[:]) {
+			return v, errors.New("compile result changed")
+		}
+	}
+	sum := sha256.Sum256([]byte(m.credential))
+	if v.CredentialSHA256 != hex.EncodeToString(sum[:]) {
+		return v, errors.New("credential does not match original")
+	}
+	return v, nil
+}
+func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (compileOriginal, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.upstream+"/api/v1/compile", bytes.NewReader(v.Body))
+	if err != nil {
+		return v, err
+	}
+	req.Header.Set("Authorization", "Bearer "+m.credential)
+	// Go's transport treats Idempotency-Key as retryable when GetBody is set.
+	req.GetBody = nil
+	req.Header.Set("Idempotency-Key", v.Key)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return v, errors.New("compile outcome unresolved")
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024+1))
+	if err != nil || len(b) > 1024*1024 || resp.StatusCode != http.StatusOK {
+		v.LastHTTPStatus = resp.StatusCode
+		_ = m.writeOriginal(v)
+		return v, errors.New("compile outcome unresolved")
+	}
+	var result struct {
+		Status   string `json:"status"`
+		Artifact string `json:"artifact_url"`
+	}
+	if json.Unmarshal(b, &result) != nil || (result.Status != "ok" && result.Status != "error") {
+		return v, errors.New("compile outcome unresolved")
+	}
+	if result.Status == "ok" && !validArtifact(result.Artifact) {
+		return v, errors.New("compile result artifact invalid")
+	}
+	if result.Status == "error" && result.Artifact != "" {
+		return v, errors.New("compile result artifact invalid")
+	}
+	if len(v.Result) != 0 && !bytes.Equal(v.Result, b) {
+		return v, errors.New("compile result differs from retained original")
+	}
+	v.Result = append([]byte(nil), b...)
+	v.LastHTTPStatus = resp.StatusCode
+	resultSum := sha256.Sum256(b)
+	v.ResultSHA256 = hex.EncodeToString(resultSum[:])
+	v.Artifact = result.Artifact
+	if err = m.writeOriginal(v); err != nil {
+		return v, errors.New("compile result retention unresolved")
+	}
+	return v, nil
+}
+func validArtifact(p string) bool {
+	const prefix = "/api/v1/artifacts/"
+	if !strings.HasPrefix(p, prefix) {
+		return false
+	}
+	name := strings.TrimPrefix(p, prefix)
+	parts := strings.Split(name, ".")
+	if len(parts) != 2 || !validHex(parts[0], 12) {
+		return false
+	}
+	return parts[1] == "obj" || parts[1] == "o" || parts[1] == "exe" || parts[1] == "ne"
+}
+
+// Reconcile repeats only an explicitly selected original key and body.
+func (m *CompileMediator) Reconcile(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ids, err := readCompileIndex(m.dir)
+	if err != nil {
+		return err
+	}
+	indexed := make(map[string]bool, len(ids))
+	for _, known := range ids {
+		indexed[known] = true
+	}
+	entries, err := os.ReadDir(m.dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Name() == "index.json" || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		other := strings.TrimSuffix(entry.Name(), ".json")
+		if !indexed[other] && other != id {
+			return errors.New("another compile remains unresolved")
+		}
+	}
+	found := false
+	for _, known := range ids {
+		retained, err := m.readOriginal(known)
+		if err != nil {
+			return err
+		}
+		if known != id && !compileResultValid(retained) {
+			return errors.New("another compile remains unresolved")
+		}
+		if known == id {
+			found = true
+		}
+	}
+	v, err := m.readOriginal(id)
+	if err != nil {
+		return err
+	}
+	if !found {
+		if len(ids) >= m.max {
+			return errors.New("compile budget exhausted")
+		}
+		ids = append(ids, id)
+		if err = writeCompileIndex(m.dir, ids); err != nil {
+			return err
+		}
+	}
+	if len(v.Result) > 0 {
+		if !compileResultValid(v) {
+			return errors.New("invalid retained result")
+		}
+		return nil
+	}
+	_, err = m.exchange(ctx, v)
+	return err
+}
+
+func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Rebrew-Job-Capability")), []byte(m.capability)) != 1 {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r.Context().Err() != nil {
+		return
+	}
+	if r.Method == http.MethodPost && r.URL.Path == "/api/v1/compile" {
+		id := r.Header.Get("X-Rebrew-Compile-Intent")
+		if !validHex(id, 64) {
+			http.Error(w, "invalid intent", 400)
+			return
+		}
+		b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16*1024*1024))
+		if err != nil {
+			http.Error(w, "invalid body", 400)
+			return
+		}
+		var payload compileBody
+		dec := json.NewDecoder(bytes.NewReader(b))
+		dec.DisallowUnknownFields()
+		if dec.Decode(&payload) != nil || dec.Decode(new(any)) != io.EOF || !m.compilers[payload.Compiler] || payload.TrainingConsent {
+			http.Error(w, "compile refused", 400)
+			return
+		}
+		var canonical bytes.Buffer
+		if json.Compact(&canonical, b) != nil {
+			http.Error(w, "invalid body", 400)
+			return
+		}
+		b = canonical.Bytes()
+		ids, e := readCompileIndex(m.dir)
+		if e != nil {
+			http.Error(w, "ledger unavailable", 503)
+			return
+		}
+		indexed := make(map[string]bool, len(ids))
+		for _, known := range ids {
+			indexed[known] = true
+			v, err := m.readOriginal(known)
+			if err != nil || !json.Valid(v.Body) || !compileResultValid(v) {
+				http.Error(w, "prior compile remains unresolved", 409)
+				return
+			}
+		}
+		entries, e := os.ReadDir(m.dir)
+		if e != nil {
+			http.Error(w, "ledger unavailable", 503)
+			return
+		}
+		for _, entry := range entries {
+			if entry.Name() == "index.json" || !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+			if !indexed[strings.TrimSuffix(entry.Name(), ".json")] {
+				http.Error(w, "prior compile remains unresolved", 409)
+				return
+			}
+		}
+		if old, e := m.readOriginal(id); e == nil {
+			if !bytes.Equal(old.Body, b) || len(old.Result) == 0 {
+				http.Error(w, "original unresolved or changed", 409)
+				return
+			}
+			old, e = m.exchange(r.Context(), old)
+			if e != nil {
+				http.Error(w, "compile outcome unresolved", 503)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(old.Result)
+			return
+		} else if !errors.Is(e, os.ErrNotExist) {
+			http.Error(w, "ledger unavailable", 503)
+			return
+		}
+		if len(ids) >= m.max {
+			http.Error(w, "compile budget exhausted", 429)
+			return
+		}
+		var key [6]byte
+		if _, e = rand.Read(key[:]); e != nil {
+			http.Error(w, "ledger unavailable", 503)
+			return
+		}
+		sum := sha256.Sum256([]byte(m.credential))
+		bodySum := sha256.Sum256(b)
+		v := compileOriginal{Intent: id, Key: hex.EncodeToString(key[:]), Body: append([]byte(nil), b...), BodySHA256: hex.EncodeToString(bodySum[:]), CredentialSHA256: hex.EncodeToString(sum[:])}
+		if e = m.writeOriginal(v); e != nil {
+			http.Error(w, "ledger unavailable", 503)
+			return
+		}
+		ids = append(ids, id)
+		if e = writeCompileIndex(m.dir, ids); e != nil {
+			http.Error(w, "ledger unavailable", 503)
+			return
+		}
+		v, e = m.exchange(r.Context(), v)
+		if e != nil {
+			http.Error(w, "compile outcome unresolved", 503)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(v.Result)
+		return
+	}
+	if r.Method == http.MethodGet && validArtifact(r.URL.Path) {
+		id := r.Header.Get("X-Rebrew-Compile-Intent")
+		v, err := m.readOriginal(id)
+		if err != nil || v.Artifact != r.URL.Path || len(v.Result) == 0 {
+			http.NotFound(w, r)
+			return
+		}
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, m.upstream+v.Artifact, nil)
+		if err != nil {
+			http.Error(w, "artifact unavailable", 503)
+			return
+		}
+		req.Header.Set("Authorization", "Bearer "+m.credential)
+		resp, err := m.client.Do(req)
+		if err != nil {
+			http.Error(w, "artifact unavailable", 503)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			http.Error(w, "artifact unavailable", resp.StatusCode)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024*1024+1))
+		if err != nil || len(body) > 64*1024*1024 {
+			http.Error(w, "artifact unavailable", 503)
+			return
+		}
+		digest := sha256.Sum256(body)
+		if resp.Header.Get("ETag") != `"sha256-`+hex.EncodeToString(digest[:])+`"` {
+			http.Error(w, "artifact integrity unavailable", 503)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(body)
+		return
+	}
+	http.NotFound(w, r)
+}

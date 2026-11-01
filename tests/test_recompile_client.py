@@ -593,6 +593,48 @@ class TestCompileViaRecompile:
     def _cfg(self, url: str = "http://svc") -> SimpleNamespace:
         return SimpleNamespace(recompile_url=url, compile_timeout=60, recompile_emit_assembly=True)
 
+    def test_job_transport_disables_retries_and_uses_job_capability(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.compiler.recompile_client as rc
+
+        seen: dict[str, Any] = {}
+        original_read = Path.read_text
+
+        def read_cap(path: Path, *args: Any, **kwargs: Any) -> str:
+            if str(path) == "/run/rebrew-job/capability":
+                return "a" * 64
+            return original_read(path, *args, **kwargs)
+
+        def client(**kwargs: Any) -> Any:
+            seen.update(kwargs)
+            return SimpleNamespace(close=lambda: None)
+
+        def fake(url: str, **kwargs: Any) -> Any:
+            seen["url"] = url
+            seen["retries"] = kwargs["retries"]
+            return rc.RecompileResult(ok=True, obj_bytes=b"object")
+
+        monkeypatch.setenv("REBREW_JOB_COMPILE_SOCKET", "/run/rebrew-job/owner.sock")
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(Path, "read_text", read_cap)
+        monkeypatch.setattr(httpx, "Client", client)
+        monkeypatch.setattr(rc, "compile_source", fake)
+        out, err = _compile_via_recompile(
+            self._cfg("http://rebrew-job"),
+            tmp_path / "f.c",
+            [],
+            tmp_path,
+            "f.obj",
+            "msvc-6.0",
+            False,
+            source_text="int f;",
+        )
+        assert not err and out is not None and Path(out).read_bytes() == b"object"
+        assert seen["retries"] == 0 and seen["trust_env"] is False
+        assert seen["headers"]["X-Rebrew-Job-Capability"] == "a" * 64
+        assert len(seen["headers"]["X-Rebrew-Compile-Intent"]) == 64
+
     def test_writes_the_returned_artifact(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
