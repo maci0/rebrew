@@ -162,6 +162,9 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
     """Extract layout information from a PE binary."""
     import lief
 
+    magic = binary.optional_header.magic
+    if magic not in (lief.PE.PE_TYPE.PE32, lief.PE.PE_TYPE.PE32_PLUS):
+        raise ValueError("unsupported PE optional-header magic")
     image_base = binary.optional_header.imagebase
 
     sections: dict[str, SectionInfo] = {}
@@ -208,7 +211,10 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
         path=path,
         format="pe",
         arch=_arch_maps()[0].get(binary.header.machine, ""),
-        endian="little",
+        endian="big"
+        if binary.header.machine == lief.PE.Header.MACHINE_TYPES.POWERPCBE
+        else "little",
+        pointer_size=8 if magic == lief.PE.PE_TYPE.PE32_PLUS else 4,
         image_base=image_base,
         text_va=text_va,
         text_size=text_size,
@@ -1210,6 +1216,13 @@ def _arch_maps() -> tuple[
             _lf.PE.Header.MACHINE_TYPES.ARM: "arm32",
             _lf.PE.Header.MACHINE_TYPES.ARM64: "arm64",
             _lf.PE.Header.MACHINE_TYPES.MIPS16: "mips32",
+            _lf.PE.Header.MACHINE_TYPES.R4000: "mips32",
+            _lf.PE.Header.MACHINE_TYPES.POWERPC: "ppc32",
+            _lf.PE.Header.MACHINE_TYPES.POWERPCFP: "ppc32",
+            _lf.PE.Header.MACHINE_TYPES.POWERPCBE: "ppc32",
+            _lf.PE.Header.MACHINE_TYPES.ALPHA: "alpha",
+            _lf.PE.Header.MACHINE_TYPES.ALPHA64: "alpha64",
+            _lf.PE.Header.MACHINE_TYPES.IA64: "ia64",
         },
         {
             _lf.ELF.ARCH.I386: "x86_32",
@@ -1379,6 +1392,8 @@ def capstone_config_for(info: BinaryInfo) -> tuple[int, int]:
         return capstone.CS_ARCH_XTENSA, bits
     if arch == "sh2":
         return capstone.CS_ARCH_SH, capstone.CS_MODE_SH2 | bits
+    if arch in ("alpha", "alpha64", "ia64"):
+        raise NotImplementedError(f"Capstone disassembly is unsupported for {arch}")
     return capstone.CS_ARCH_X86, capstone_mode_for_arch(arch, getattr(info, "format", "") or "")
 
 

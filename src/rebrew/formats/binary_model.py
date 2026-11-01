@@ -81,9 +81,7 @@ class BinaryInfo:
     arch: str = ""  # "x86_32", "mips32", "ppc32", ... (multi-arch P0)
     endian: str = ""  # "little" / "big" / "" = unknown (multi-arch P0)
     # Bytes per target pointer (4 or 8), 0 when the format's loader did not
-    # fill it in.  Only the ELF loader populates this — it reads the ident
-    # EI_CLASS byte, the one place a word size is stated outright instead of
-    # having to be inferred from the arch name.
+    # fill it in. ELF uses EI_CLASS; PE uses the optional-header magic.
     pointer_size: int = 0
 
     image_base: int = 0

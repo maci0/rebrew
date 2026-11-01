@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+## [6.14.1] - 2026-11-02
+
+### Fixed
+
+- Identify historical PE Alpha, MIPS, PowerPC and IA64 machines and use the optional header for pointer width; reject malformed headers and unsupported Alpha and IA64 disassembly.
+
 ## [6.14.0] - 2026-11-02
 
 ### Added
