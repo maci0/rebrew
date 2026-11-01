@@ -221,7 +221,7 @@ class TestCiPins:
         assert "python-version:" not in SYNC_YML.read_text(encoding="utf-8")
 
     def test_every_job_uses_the_shared_setup_action(self) -> None:
-        """No job may hand-roll setup-uv: that is how the pins drifted before."""
+        """Python jobs share uv setup; the Go-only job verifies its pinned archive."""
         import yaml
 
         for path in (CI_YML, SYNC_YML):
@@ -229,7 +229,32 @@ class TestCiPins:
             jobs = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"]
             for name, spec in jobs.items():
                 uses = [step.get("uses") for step in spec["steps"]]
-                assert UV_ENV_USES in uses, f"{path.name}:{name} does not use {UV_ENV_USES}"
+                if path == CI_YML and name == "jobs-service":
+                    install = next(
+                        step
+                        for step in spec["steps"]
+                        if step.get("name") == "Install the pinned Go release"
+                    )
+                    assert install["env"] == {
+                        "GO_VERSION": "1.27.3",
+                        "GO_SHA256": "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40",
+                    }
+                    script = install["run"]
+                    assert "https://go.dev/dl/go$GO_VERSION.linux-amd64.tar.gz" in script
+                    assert '"$GO_SHA256  $RUNNER_TEMP/go.tar.gz" | sha256sum -c -' in script
+                    assert script.index("sha256sum -c -") < script.index("tar -xzf")
+                    check = next(
+                        step
+                        for step in spec["steps"]
+                        if step.get("name") == "Check the jobs service"
+                    )
+                    assert check["working-directory"] == "services/jobs"
+                    assert all(
+                        command in check["run"]
+                        for command in ("gofmt -l .", "go vet ./...", "go test -race ./...")
+                    )
+                else:
+                    assert UV_ENV_USES in uses, f"{path.name}:{name} does not use {UV_ENV_USES}"
 
     def test_dependabot_scans_the_composite_action(self) -> None:
         """A composite action in a subdirectory is skipped unless listed, so its

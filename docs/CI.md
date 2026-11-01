@@ -232,11 +232,12 @@ answer is reported on the first attempt.
 Branch protection on `main` must require every job in `ci.yml`; a rule that
 lists a subset leaves the rest advisory. GitHub names the checks after the job
 id, with the `test` matrix expanded per entry, so the required contexts are
-`lint`, `test (3.15.1)`, `pre-commit`, `package`, and
+`jobs-service`, `lint`, `test (3.15.1)`, `pre-commit`, `package`, and
 `cli-contract`.
 
 | Job | Gate |
 |-----|------|
+| `jobs-service` | Go formatting, vet, and race tests using a SHA-256 verified Go release; Docker and real-peer tests require separate fixtures |
 | `lint` | ruff, ruff format, mypy, `uv audit` |
 | `test` | the full suite on Python 3.15 under the coverage floor, fixture freshness, idempotency sweep, W3C validation of the HTML surfaces |
 | `pre-commit` | hook parity, including shellcheck and yamllint |

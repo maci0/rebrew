@@ -496,6 +496,11 @@ by the CLI layer and win for that invocation.
   run). When set to a non-empty URL, every compile routes through the
   service instead of local docker images. Must be an `http(s)` URL with a
   host (invalid values fail at load / resolve time).
+- `REBREW_JOB_COMPILE_SOCKET`: internal job-worker transport, set by the jobs owner
+  to `/run/rebrew-job/owner.sock` together with `REBREW_RECOMPILE_URL=http://rebrew-job`.
+  This selects a job-scoped Unix socket capability; the owner retains the caller credential
+  and the worker does not receive it. Other socket paths or URLs are rejected. This is
+  not a general configuration knob for direct CLI use.
 - `GH_TOKEN` / `GITHUB_TOKEN`: optional GitHub API token, `GH_TOKEN` first.
   Sent as `Authorization: Bearer` on the toolchain pin-check and update
   requests only (`rebrew toolchain check-updates` / `update`); unset, those
