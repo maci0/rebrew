@@ -38,6 +38,34 @@ env:
   # resembl-clone steps below so pytest/ruff/mypy never see the token.
 
 jobs:
+  jobs-service:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Go release
+        env:
+          GO_VERSION: 1.27.3
+          GO_SHA256: 65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -fsSLo "$RUNNER_TEMP/go.tar.gz" \
+            "https://go.dev/dl/go$GO_VERSION.linux-amd64.tar.gz"
+          echo "$GO_SHA256  $RUNNER_TEMP/go.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/jobs-go"
+          tar -xzf "$RUNNER_TEMP/go.tar.gz" -C "$RUNNER_TEMP/jobs-go"
+          echo "$RUNNER_TEMP/jobs-go/go/bin" >> "$GITHUB_PATH"
+      - name: Check the jobs service
+        working-directory: services/jobs
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race ./...
+
   lint:
     runs-on: ubuntu-24.04
     # 20, not 10: `uv sync --all-extras` installs the `prove` extra (angr,

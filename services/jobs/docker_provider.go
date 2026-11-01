@@ -21,8 +21,8 @@ type DockerReceipt struct {
 	Image    string `json:"image"`
 }
 type DockerProvider struct {
-	Binary, Image, CompileDir string
-	Generations, Population   int
+	Binary, Image, CompileDir, Kind string
+	Generations, Population         int
 }
 
 func matchArguments(seed string, generations, population int) []string {
@@ -33,6 +33,13 @@ func matchArguments(seed string, generations, population int) []string {
 	return args
 }
 
+func jobArguments(kind, seed string, generations, population int) []string {
+	if kind == "catalog" {
+		return []string{"coverage", "catalog", "--json"}
+	}
+	return matchArguments(seed, generations, population)
+}
+
 func validHex(s string, n int) bool {
 	if len(s) != n {
 		return false
@@ -41,6 +48,9 @@ func validHex(s string, n int) bool {
 	return err == nil && strings.ToLower(s) == s
 }
 func (p DockerProvider) check() error {
+	if p.Kind != "" && p.Kind != "match" && p.Kind != "catalog" {
+		return errors.New("invalid job kind")
+	}
 	if !filepath.IsAbs(p.Binary) || !strings.HasPrefix(p.Image, "sha256:") || !validHex(strings.TrimPrefix(p.Image, "sha256:"), 64) {
 		return errors.New("docker binary and pinned image required")
 	}
@@ -78,7 +88,7 @@ func (p DockerProvider) Create(ctx context.Context, original, workspace, id, see
 		args = append(args, "--mount", "type=bind,src="+p.CompileDir+",dst=/run/rebrew-job,readonly", "--env", "REBREW_RECOMPILE_URL=http://rebrew-job", "--env", "REBREW_JOB_COMPILE_SOCKET=/run/rebrew-job/owner.sock")
 	}
 	args = append(args, "--workdir", "/workspace", "--entrypoint", "/opt/venv/bin/rebrew", p.Image)
-	args = append(args, matchArguments(seed, p.Generations, p.Population)...)
+	args = append(args, jobArguments(p.Kind, seed, p.Generations, p.Population)...)
 	out, err := exec.CommandContext(ctx, p.Binary, args...).Output()
 	if err != nil {
 		return "", errors.New("container creation outcome unknown")
@@ -194,7 +204,7 @@ func (p DockerProvider) inspect(ctx context.Context, id, job, original, workspac
 	if p.CompileDir != "" {
 		mountCount = 3
 	}
-	if v.ID != id || v.Image != p.Image || v.Config.Labels["relumea.rebrew.job"] != job || v.Config.User != fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()) || v.Config.WorkingDir != "/workspace" || len(v.Config.Entrypoint) != 1 || v.Config.Entrypoint[0] != "/opt/venv/bin/rebrew" || strings.Join(v.Config.Cmd, "\x00") != strings.Join(matchArguments(seed, p.Generations, p.Population), "\x00") || !stateOK || v.HostConfig.NetworkMode != "none" || v.HostConfig.PidMode == "host" || v.HostConfig.IpcMode == "host" || v.HostConfig.UsernsMode == "host" || !v.HostConfig.ReadonlyRootfs || v.HostConfig.Privileged || len(v.HostConfig.CapDrop) != 1 || v.HostConfig.CapDrop[0] != "ALL" || v.HostConfig.PidsLimit != 128 || v.HostConfig.Memory != 1073741824 || v.HostConfig.NanoCpus != 1000000000 || len(v.Mounts) != mountCount {
+	if v.ID != id || v.Image != p.Image || v.Config.Labels["relumea.rebrew.job"] != job || v.Config.User != fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()) || v.Config.WorkingDir != "/workspace" || len(v.Config.Entrypoint) != 1 || v.Config.Entrypoint[0] != "/opt/venv/bin/rebrew" || strings.Join(v.Config.Cmd, "\x00") != strings.Join(jobArguments(p.Kind, seed, p.Generations, p.Population), "\x00") || !stateOK || v.HostConfig.NetworkMode != "none" || v.HostConfig.PidMode == "host" || v.HostConfig.IpcMode == "host" || v.HostConfig.UsernsMode == "host" || !v.HostConfig.ReadonlyRootfs || v.HostConfig.Privileged || len(v.HostConfig.CapDrop) != 1 || v.HostConfig.CapDrop[0] != "ALL" || v.HostConfig.PidsLimit != 128 || v.HostConfig.Memory != 1073741824 || v.HostConfig.NanoCpus != 1000000000 || len(v.Mounts) != mountCount {
 		return DockerReceipt{}, errors.New("container stop or isolation is unproven")
 	}
 	noPrivileges := false

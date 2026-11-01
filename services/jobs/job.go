@@ -22,6 +22,7 @@ import (
 
 type Receipt struct {
 	ID                    string `json:"id"`
+	Kind                  string `json:"kind,omitempty"`
 	Seed                  string `json:"seed"`
 	Generations           int    `json:"generations"`
 	Population            int    `json:"population"`
@@ -64,7 +65,7 @@ type Owner struct {
 
 // OpenDocker selects an isolated local Docker provider without changing CLI behavior.
 func OpenDocker(root, dir string, provider DockerProvider) (*Owner, error) {
-	if provider.CompileDir != "" || provider.Generations != 0 || provider.Population != 0 {
+	if provider.CompileDir != "" || provider.Kind != "" || provider.Generations != 0 || provider.Population != 0 {
 		return nil, errors.New("compile socket is assigned by the job owner")
 	}
 	if err := provider.check(); err != nil {
@@ -237,11 +238,11 @@ type MatchOptions struct {
 var defaultMatchOptions = MatchOptions{Generations: 100, Population: 64}
 
 func (o *Owner) Admit(key, seed, expectedWorkspaceSHA256 string) (Receipt, bool, error) {
-	return o.admit(key, seed, expectedWorkspaceSHA256, "", defaultMatchOptions)
+	return o.admit(key, seed, expectedWorkspaceSHA256, "", defaultMatchOptions, "")
 }
 
 func (o *Owner) AdmitTuned(key, seed, digest string, options MatchOptions) (Receipt, bool, error) {
-	return o.admit(key, seed, digest, "", options)
+	return o.admit(key, seed, digest, "", options, "")
 }
 
 // AdmitManaged keeps the caller credential in memory for the isolated job only.
@@ -249,17 +250,21 @@ func (o *Owner) AdmitManaged(key, seed, expectedWorkspaceSHA256, credential stri
 	if credential == "" {
 		return Receipt{}, false, errors.New("managed compile credential required")
 	}
-	return o.admit(key, seed, expectedWorkspaceSHA256, credential, defaultMatchOptions)
+	return o.admit(key, seed, expectedWorkspaceSHA256, credential, defaultMatchOptions, "")
 }
 
 func (o *Owner) AdmitManagedTuned(key, seed, digest, credential string, options MatchOptions) (Receipt, bool, error) {
 	if credential == "" {
 		return Receipt{}, false, errors.New("managed compile credential required")
 	}
-	return o.admit(key, seed, digest, credential, options)
+	return o.admit(key, seed, digest, credential, options, "")
 }
 
-func (o *Owner) admit(key, seed, expectedWorkspaceSHA256, credential string, options MatchOptions) (Receipt, bool, error) {
+func (o *Owner) AdmitCatalog(key, digest string) (Receipt, bool, error) {
+	return o.admit(key, "rebrew-project.toml", digest, "", defaultMatchOptions, "catalog")
+}
+
+func (o *Owner) admit(key, seed, expectedWorkspaceSHA256, credential string, options MatchOptions, kind string) (Receipt, bool, error) {
 	if options.Generations < 1 || options.Generations > 10000 || options.Population < 2 || options.Population > 4096 {
 		return Receipt{}, false, errors.New("invalid match bounds")
 	}
@@ -320,7 +325,7 @@ func (o *Owner) admit(key, seed, expectedWorkspaceSHA256, credential string, opt
 	}
 	r, err := o.read(id)
 	if err == nil {
-		if r.Seed != rel || r.SeedSHA256 != seedDigest || r.WorkspaceSHA256 != workspaceDigest || r.ManagedCompile != (credential != "") || r.CredentialSHA256 != credentialDigest || r.Generations != options.Generations || r.Population != options.Population {
+		if r.Kind != kind || r.Seed != rel || r.SeedSHA256 != seedDigest || r.WorkspaceSHA256 != workspaceDigest || r.ManagedCompile != (credential != "") || r.CredentialSHA256 != credentialDigest || r.Generations != options.Generations || r.Population != options.Population {
 			return Receipt{}, false, errors.New("idempotency conflict")
 		}
 		return r, false, nil
@@ -350,7 +355,7 @@ func (o *Owner) admit(key, seed, expectedWorkspaceSHA256, credential string, opt
 	if err != nil {
 		return Receipt{}, false, err
 	}
-	r = Receipt{ID: id, Seed: rel, SeedSHA256: seedDigest, WorkspaceSHA256: workspaceDigest, Generations: options.Generations, Population: options.Population, State: "uncertain", ManagedCompile: credential != "", CredentialSHA256: credentialDigest}
+	r = Receipt{ID: id, Kind: kind, Seed: rel, SeedSHA256: seedDigest, WorkspaceSHA256: workspaceDigest, Generations: options.Generations, Population: options.Population, State: "uncertain", ManagedCompile: credential != "", CredentialSHA256: credentialDigest}
 	if r.ManagedCompile {
 		if r.CompileSocket, err = o.startManagedCompile(r.ID, credential); err != nil {
 			return Receipt{}, false, err
@@ -418,7 +423,7 @@ func (o *Owner) run(r Receipt) error {
 	if saved.Provider == "docker" {
 		return o.runDocker(saved, workspace)
 	}
-	cmd := exec.Command(o.executable, matchArguments(saved.Seed, saved.Generations, saved.Population)...)
+	cmd := exec.Command(o.executable, jobArguments(saved.Kind, saved.Seed, saved.Generations, saved.Population)...)
 	cmd.Dir = workspace
 	outputFile, outputErr := os.OpenFile(filepath.Join(o.dir, saved.ID+".output"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if outputErr != nil {
@@ -492,7 +497,7 @@ func (o *Owner) runDocker(saved Receipt, workspace string) error {
 		return errors.New("container provider unavailable")
 	}
 	provider := *o.docker
-	provider.Generations, provider.Population = saved.Generations, saved.Population
+	provider.Generations, provider.Population, provider.Kind = saved.Generations, saved.Population, saved.Kind
 	managedRunning := saved.ManagedCompile
 	if managedRunning {
 		provider.CompileDir = saved.CompileSocket
@@ -610,7 +615,7 @@ func (o *Owner) ReconcileDocker(ctx context.Context, id string) (Receipt, error)
 		return r, errors.New("no recoverable exact container")
 	}
 	provider := *o.docker
-	provider.Generations, provider.Population = r.Generations, r.Population
+	provider.Generations, provider.Population, provider.Kind = r.Generations, r.Population, r.Kind
 	if r.ManagedCompile {
 		pending, pendingErr := o.compilePending(r.ID)
 		if pending || pendingErr != nil {

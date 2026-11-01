@@ -70,3 +70,5 @@ unresolved retained intent with `POST /jobs/{id}/compile-reconcile`, a JSON
 body containing `intent`, and the same credential; afterward reconcile the
 exact container stop. A changed
 caller credential or managed configuration refuses recovery.
+
+The experimental `catalog` kind admits `{"key":"…","kind":"catalog","workspace_sha256":"…"}` and executes the fixed command `rebrew coverage catalog --json` against the retained workspace. The project root must contain `rebrew-project.toml`; seed, match tuning and compile credentials are rejected. The existing output combines stdout and stderr and may be truncated, so it is not a standalone JSON response. Catalog is a report, not a durable corpus index; importing or exporting external state is not implemented by this kind.

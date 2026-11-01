@@ -27,6 +27,7 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 		if r.Method == http.MethodPost && r.URL.Path == "/jobs" {
 			var in struct {
 				Key             string `json:"key"`
+				Kind            string `json:"kind"`
 				Seed            string `json:"seed"`
 				WorkspaceSHA256 string `json:"workspace_sha256"`
 				Generations     *int   `json:"generations"`
@@ -49,7 +50,16 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			if in.Population != nil {
 				options.Population = *in.Population
 			}
-			if credential != "" {
+			if in.Kind == "catalog" {
+				if in.Seed != "" || credential != "" || in.Generations != nil || in.Population != nil {
+					http.Error(w, "invalid catalog request", 400)
+					return
+				}
+				saved, created, err = o.AdmitCatalog(in.Key, in.WorkspaceSHA256)
+			} else if in.Kind != "" && in.Kind != "match" {
+				http.Error(w, "invalid kind", 400)
+				return
+			} else if credential != "" {
 				saved, created, err = o.AdmitManagedTuned(in.Key, in.Seed, in.WorkspaceSHA256, credential, options)
 			} else {
 				saved, created, err = o.AdmitTuned(in.Key, in.Seed, in.WorkspaceSHA256, options)
