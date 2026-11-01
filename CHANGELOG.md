@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+### Added
+
+- Add an experimental local Go job owner for pinned workspaces, matching and coverage catalog jobs, with isolated Docker execution and optional managed compile mediation.
+
+### Changed
+
+- Allow reviewed global renames to include explicitly selected data rows and scaffold sources, bound to the preview digest.
+
+### Fixed
+
+- Preserve distinct multiline typedef declarations when merging preambles.
+
 ## [6.13.0] - 2026-11-01
 
 ### Changed

@@ -787,6 +787,8 @@ def plan_symbol_rename(
     preserved_references: set[Path] | None = None,
     pending_owners: dict[Path, Selection] | None = None,
     guarded: bool = False,
+    extra_data_rows: list[Selection] | None = None,
+    scaffold_paths: list[Path] | None = None,
 ) -> RenamePlan:
     """Plan renaming the function or global *old_name* to *new_name*.
 
@@ -941,6 +943,34 @@ def plan_symbol_rename(
 
     _plan_symbol_rows(project, plan, chosen, rename_set, selected, store)
     _check_acknowledged(plan, selected, all_modules=all_modules, require_ack=require_ack)
+    if extra_data_rows and store != KIND_DATA:
+        raise ValueError("additional data identities require a data rename")
+    additional_rows = []
+    for selection in extra_data_rows or []:
+        matches = [
+            (key, row)
+            for key, row in project.data_rows().items()
+            if preset_module_key(key[0]) == preset_module_key(selection.module)
+            and key[1] == selection.va
+        ]
+        if (
+            selection.store != KIND_DATA
+            or len(matches) != 1
+            or matches[0][1].get("name") != old_name
+        ):
+            raise RenameError(
+                f"data row {selection.module}.0x{selection.va:08x} does not uniquely name {old_name}",
+                files=[],
+            )
+        key, row = matches[0]
+        additional_rows.append((key, row))
+        if any((r.store, r.module, r.va) == (KIND_DATA, *key) for r in plan.rows):
+            raise RenameError(
+                f"data row {selection.module}.0x{selection.va:08x} is already selected", files=[]
+            )
+        plan.rows.append(RowChange(KIND_DATA, *key, *_data_row_names(row, old_name, new_name)))
+        prefix = f"left data row {key[0]}.0x{key[1]:08x} "
+        plan.notes = [note for note in plan.notes if not note.startswith(prefix)]
 
     collision_modules: frozenset[str] | None = None
     if store == KIND_FUNCTION and chosen:
@@ -989,14 +1019,18 @@ def plan_symbol_rename(
     if rename_file and store == KIND_FUNCTION and definition_file is not None:
         _plan_file_move(project, plan, definition_file, old_name, new_name, new_filename)
     symbols: dict[str, dict[str, str]] = {}
-    for row in plan.rows:
-        if "name" not in row.new:
+    for row_change in plan.rows:
+        if "name" not in row_change.new:
             continue
-        old = str(row.old.get("symbol") or row.old.get("link_symbol") or "_" + old_name)
-        new = str(
-            row.new.get("symbol") or row.new.get("link_symbol") or redecorated_symbol(old, new_name)
+        old = str(
+            row_change.old.get("symbol") or row_change.old.get("link_symbol") or "_" + old_name
         )
-        symbols.setdefault(row.module, {})[old] = new
+        new = str(
+            row_change.new.get("symbol")
+            or row_change.new.get("link_symbol")
+            or redecorated_symbol(old, new_name)
+        )
+        symbols.setdefault(row_change.module, {})[old] = new
     ambiguous_symbols: set[tuple[str, str]] = set()
     if reference_owners or preserved_references or pending_owners:
         from rebrew.utils import preset_module_key
@@ -1007,6 +1041,72 @@ def plan_symbol_rename(
                 if rename_source_name(ann.name, ann.symbol) == old_name:
                     ambiguous_symbols.add((preset_module_key(ann.module), native))
     plan.files.extend(_linker_reference_changes(cfg, symbols, ambiguous_symbols))
+    if scaffold_paths:
+        if store != KIND_DATA or not guarded:
+            raise ValueError("scaffold selection requires a guarded data rename")
+        root = _root(cfg)
+        paths = [p.resolve() for p in scaffold_paths]
+        if (
+            root is None
+            or len(paths) != len(set(paths))
+            or any(not p.is_relative_to(root.resolve()) or not p.is_file() for p in paths)
+        ):
+            raise ValueError("scaffolds must be distinct files inside the project")
+        if any(p in {q.resolve() for q in project.paths} for p in paths):
+            raise ValueError("scaffold is already in the ordinary source scan")
+        scaffolds = _Project(cfg, paths)
+        for path in paths:
+            parsed = scaffolds.parsed(path)
+            scaffold_definitions = definitions(parsed, old_name)
+            if not scaffold_definitions or any(
+                definition.kind != "variable" for definition in scaffold_definitions
+            ):
+                raise RenameError(
+                    f"scaffold {path} does not exclusively define data {old_name}", files=[path]
+                )
+            if any(
+                o.role in ORDINARY_ROLES | {ROLE_MACRO_NAME} for o in occurrences(parsed, new_name)
+            ):
+                raise RenameError(f"scaffold {path} already uses {new_name}", files=[path])
+            roles = ORDINARY_ROLES | ({ROLE_COMMENT} if comments else set())
+            spans = [
+                (o.start, o.end, o.line, o.column, o.role)
+                for o in occurrences(parsed, old_name)
+                if o.role in roles
+            ]
+            change = _file_change(scaffolds, path, spans, new_name)
+            if change is not None:
+                plan.files.append(change)
+        plan.notes.append(
+            "Selected scaffolds are comparison inputs, not storage ownership evidence."
+        )
+    if additional_rows:
+        from rebrew.metadata.functions import stored_file_matches
+
+        for (module, va), row in additional_rows:
+            stored = str(row.get("file") or "")
+            if not stored:
+                continue
+            backing_changes = [
+                change
+                for change in plan.files
+                if stored_file_matches(stored, project.stored_file(change.path))
+            ]
+            if len(backing_changes) != 1:
+                raise RenameError(
+                    f"data row {module}.0x{va:08x} has a backing source not selected for rename",
+                    files=[],
+                )
+            backing_definitions = definitions(
+                ParsedSource.parse(backing_changes[0].old_text), old_name
+            )
+            if not backing_definitions or any(
+                definition.kind != "variable" for definition in backing_definitions
+            ):
+                raise RenameError(
+                    f"data row {module}.0x{va:08x} backing source does not define data {old_name}",
+                    files=[backing_changes[0].path],
+                )
     if reference_owners or preserved_references or pending_owners or guarded:
         if reference_owners:
             plan.notes.append(

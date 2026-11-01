@@ -135,6 +135,12 @@ def main(
         "--data",
         help="Rename a global (data row, definition, declarations, uses); excludes --type and --field",
     ),
+    include_data_row: list[str] | None = typer.Option(
+        None, "--include-data-row", help="Include a reviewed additional MODULE.0xVA data identity"
+    ),
+    include_scaffold: list[str] | None = typer.Option(
+        None, "--include-scaffold", help="Include a reviewed project-relative scaffold source"
+    ),
     type_rename: bool = typer.Option(
         False,
         "--type",
@@ -184,13 +190,44 @@ def main(
 ) -> None:
     """Rename a function, global, type or struct member and update every reference."""
     cfg = require_config(target=target, json_mode=json_output)
+    include_data_row = option_default(include_data_row, None) or []
+    include_scaffold = option_default(include_scaffold, None) or []
+    if (include_data_row or include_scaffold) and not data:
+        error_exit("additional data rows and scaffolds require --data", json_mode=json_output)
+    if (
+        (include_data_row or include_scaffold)
+        and not dry_run
+        and not option_default(expected_digest, None)
+    ):
+        error_exit(
+            "review selected data rows and scaffolds with --dry-run, then apply with --expected-digest",
+            json_mode=json_output,
+        )
+    scaffold_paths = []
+    root = Path(cfg.root).resolve() if include_scaffold else None
+    for name in include_scaffold:
+        assert root is not None
+        path = (root / name).resolve()
+        if Path(name).is_absolute() or not path.is_relative_to(root) or not path.is_file():
+            error_exit(f"invalid scaffold path {name!r}", json_mode=json_output)
+        scaffold_paths.append(path)
+    extra_data_rows = []
+    for ident in include_data_row:
+        parsed = _parse_identity(ident)
+        if parsed is None:
+            error_exit(
+                f"invalid data identity {ident!r}; expected MODULE.0xVA", json_mode=json_output
+            )
+        extra_data_rows.append(Selection(KIND_DATA, *parsed))
     reference_owner = option_default(reference_owner, None) or []
     preserve_reference_file = option_default(preserve_reference_file, None) or []
     pending_owner = option_default(pending_owner, None) or []
     reviewed_references = reference_owner or preserve_reference_file or pending_owner
     expected_digest = option_default(expected_digest, None)
     binding = _parse_identity(new_name) if not (data or type_rename or field_rename) else None
-    if (reviewed_references or (expected_digest and binding is None)) and not shared_definition:
+    if (
+        reviewed_references or (expected_digest and binding is None and not data)
+    ) and not shared_definition:
         error_exit(
             "reference selections and --expected-digest require --shared-definition",
             json_mode=json_output,
@@ -254,7 +291,15 @@ def main(
             plan = plan_field_rename(cfg, record, member, new_name, comments=comments)
         elif data:
             plan, extra = _plan_data(
-                cfg, target_ident, new_name, all_modules, comments, dry_run, json_output
+                cfg,
+                target_ident,
+                new_name,
+                all_modules,
+                comments,
+                dry_run,
+                json_output,
+                extra_data_rows,
+                scaffold_paths,
             )
         else:
             plan, extra = _plan_function(
@@ -563,6 +608,8 @@ def _plan_data(
     comments: bool,
     dry_run: bool,
     json_output: bool,
+    extra_data_rows: list[Selection],
+    scaffold_paths: list[Path],
 ) -> tuple[RenamePlan, dict[str, Any]]:
     """Resolve the data identity (row or source global), then plan its rename."""
     from rebrew.metadata.data import load_data_metadata
@@ -607,7 +654,15 @@ def _plan_data(
             )
         _check_scan_collision(entries, None, new_name, json_output)
         plan = plan_symbol_rename(
-            cfg, target_ident, new_name, store=KIND_DATA, all_modules=all_modules, comments=comments
+            cfg,
+            target_ident,
+            new_name,
+            store=KIND_DATA,
+            all_modules=all_modules,
+            comments=comments,
+            guarded=True,
+            extra_data_rows=extra_data_rows,
+            scaffold_paths=scaffold_paths,
         )
         if not plan.files:
             error_exit(
@@ -647,6 +702,9 @@ def _plan_data(
         all_modules=all_modules,
         comments=comments,
         dry_run=dry_run,
+        guarded=True,
+        extra_data_rows=extra_data_rows,
+        scaffold_paths=scaffold_paths,
     )
     return plan, {"module": module, "va": f"0x{va:08x}"}
 

@@ -1156,6 +1156,150 @@ class TestRenameData:
         text = (tmp_path / "src" / "use.c").read_text(encoding="utf-8")
         assert "g_new" in text and "g_old" not in text
 
+    @pytest.mark.parametrize("stale", [False, True])
+    def test_guarded_data_rename(self, tmp_path: Path, monkeypatch, stale: bool) -> None:
+        import typer
+        from typer.testing import CliRunner
+
+        from rebrew.rename import main
+
+        self._project(tmp_path)
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        app = typer.Typer()
+        app.command()(main)
+        runner = CliRunner()
+        args = ["g_old", "g_new", "--data", "--json"]
+        preview = runner.invoke(app, [*args, "--dry-run"])
+        assert preview.exit_code == 0, preview.output
+        digest = cli_payload(preview)["input_digest"]
+        assert len(digest) == 64
+        if stale:
+            path = tmp_path / "src" / "use.c"
+            path.write_text(path.read_text() + "/* changed */\n")
+        before = snapshot(tmp_path)
+        result = runner.invoke(app, [*args, "--expected-digest", digest])
+        if stale:
+            assert result.exit_code == 2, result.output
+            assert snapshot(tmp_path) == before
+        else:
+            assert result.exit_code == 0, result.output
+            assert "g_new" in (tmp_path / "src" / "use.c").read_text()
+
+    def test_guarded_additional_data_row(self, tmp_path: Path, monkeypatch) -> None:
+        import typer
+        from typer.testing import CliRunner
+
+        from rebrew.metadata.data import get_data_entry
+        from rebrew.rename import main
+
+        self._project(tmp_path)
+        store = tmp_path / "rebrew-data.toml"
+        store.write_text(
+            store.read_text() + '\n["CLIENT.0x3000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n'
+        )
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        (tmp_path / "stubs").mkdir()
+        scaffold = tmp_path / "stubs" / "symbols.c"
+        scaffold.write_text("int g_old;\n")
+        app = typer.Typer()
+        app.command()(main)
+        runner = CliRunner()
+        args = [
+            "g_old",
+            "g_new",
+            "--data",
+            "--include-data-row",
+            "client.0x3000",
+            "--include-scaffold",
+            "stubs/symbols.c",
+            "--json",
+        ]
+        preview = runner.invoke(app, [*args, "--dry-run"])
+        assert preview.exit_code == 0, preview.output
+        report = cli_payload(preview)
+        assert {r["module"] for r in report["rows"]} == {"SERVER", "CLIENT"}
+        assert runner.invoke(app, args).exit_code == 2
+        scaffold.write_text("int g_old; /* changed */\n")
+        before = snapshot(tmp_path)
+        stale = runner.invoke(app, [*args, "--expected-digest", report["input_digest"]])
+        assert stale.exit_code == 2, stale.output
+        assert snapshot(tmp_path) == before
+        scaffold.write_text("int g_old;\n")
+        applied = runner.invoke(app, [*args, "--expected-digest", report["input_digest"]])
+        assert applied.exit_code == 0, applied.output
+        assert get_data_entry(tmp_path, 0x3000, "CLIENT")["name"] == "g_new"
+        assert scaffold.read_text() == "int g_new;\n"
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "int other;\n",
+            "int g_old; int g_new;\n",
+            "int g_old(void) { return 1; }\n",
+            "#define g_new 1\nint g_old;\n",
+        ],
+    )
+    def test_scaffold_must_define_old_without_collision(
+        self, tmp_path: Path, monkeypatch, body: str
+    ) -> None:
+        import typer
+        from typer.testing import CliRunner
+
+        from rebrew.rename import main
+
+        self._project(tmp_path)
+        (tmp_path / "stubs").mkdir()
+        (tmp_path / "stubs" / "symbols.c").write_text(body)
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        app = typer.Typer()
+        app.command()(main)
+        result = CliRunner().invoke(
+            app, ["g_old", "g_new", "--data", "--include-scaffold", "stubs/symbols.c", "--dry-run"]
+        )
+        assert result.exit_code == 2, result.output
+
+    @pytest.mark.parametrize("backing", ["stubs/symbols.c", "stubs/missing.c"])
+    def test_additional_row_requires_its_bound_source(
+        self, tmp_path: Path, monkeypatch, backing: str
+    ) -> None:
+        import typer
+        from typer.testing import CliRunner
+
+        from rebrew.metadata.data import get_data_entry
+        from rebrew.rename import main
+
+        self._project(tmp_path)
+        store = tmp_path / "rebrew-data.toml"
+        store.write_text(
+            store.read_text()
+            + f'\n["CLIENT.0x3000"]\nname = "g_old"\nfile = "{backing}"\nsize = 4\n'
+        )
+        (tmp_path / "stubs").mkdir()
+        scaffold = tmp_path / "stubs" / "symbols.c"
+        scaffold.write_text("int g_old;\n")
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        app = typer.Typer()
+        app.command()(main)
+        runner = CliRunner()
+        args = ["g_old", "g_new", "--data", "--include-data-row", "client.0x3000", "--json"]
+        before = snapshot(tmp_path)
+        refused = runner.invoke(app, [*args, "--dry-run"])
+        assert refused.exit_code == 2, refused.output
+        assert snapshot(tmp_path) == before
+        selected = [*args, "--include-scaffold", "stubs/symbols.c"]
+        preview = runner.invoke(app, [*selected, "--dry-run"])
+        if backing.endswith("missing.c"):
+            assert preview.exit_code == 2, preview.output
+            assert snapshot(tmp_path) == before
+            return
+        assert preview.exit_code == 0, preview.output
+        result = runner.invoke(
+            app, [*selected, "--expected-digest", cli_payload(preview)["input_digest"]]
+        )
+        assert result.exit_code == 0, result.output
+        assert get_data_entry(tmp_path, 0x3000, "CLIENT")["name"] == "g_new"
+        assert scaffold.read_text() == "int g_new;\n"
+
     def test_rename_data_follows_link_symbol(self, tmp_path: Path, monkeypatch) -> None:
         """The native linker symbol of the renamed definition keeps its decoration."""
         import typer as _typer

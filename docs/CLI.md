@@ -1270,6 +1270,8 @@ Writes and output:
 | `NEW_NAME` | str | required | New name, or MODULE.0xVA to bind function references |
 | `--file` | str | — | New filename |
 | `--data` | flag | `False` | Rename a global (data row, definition, declarations, uses); excludes --type and --field |
+| `--include-data-row` | str, repeatable | — | Include an additional reviewed `MODULE.0xVA` data row with the same name; requires `--data` |
+| `--include-scaffold` | path, repeatable | — | Include a distinct project-relative source file defining the data name; requires `--data` |
 | `--type` | flag | `False` | Rename a struct/union/enum tag or typedef name; excludes --data and --field |
 | `--field` | flag | `False` | Rename a struct/union member given as STRUCT.MEMBER; excludes --data and --type |
 | `--all-modules` | flag | `False` | Rename every module's rows of this definition, and every other definition of the name |
@@ -1277,11 +1279,20 @@ Writes and output:
 | `--reference-owner` | str, repeatable | — | Reviewed owner of all references in project-relative `FILE=MODULE.0xVA`; requires `--shared-definition` |
 | `--preserve-reference` | path, repeatable | — | Leave references in a reviewed file unchanged without asserting an owner; requires `--shared-definition` |
 | `--pending-owner` | str, repeatable | — | Reviewed prospective target identity for `FILE=MODULE.0xVA`, paired with a selected `--reference-owner` |
-| `--expected-digest` | str | — | Digest from a reviewed reference-binding or reference-ownership preview; required when applying explicit owners |
+| `--expected-digest` | str | — | Digest from a reviewed preview; required when applying explicit reference owners or selected data rows or scaffolds |
 | `--comments` | flag | `False` | Also rewrite whole-word occurrences inside comments |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+
+For data renames, preview with `--dry-run --json` to obtain an `input_digest`.
+Additional data rows and scaffolds must be selected again when applying with that
+`--expected-digest`; changed inputs refuse before writing. A selected scaffold
+must be a distinct project-relative file with a data definition of the old name;
+it is a comparison input, not evidence of storage ownership. An additional row
+with a stored source file requires that exact file to be selected and rewritten;
+a missing or unselected backing file is refused. An unbound row can be selected
+explicitly without asserting source ownership.
 
 Function reference binding (`PLACEHOLDER MODULE.0xVA`) previews an `input_digest`
 and `input_hashes` with `--dry-run --json`. Repeat with `--expected-digest DIGEST`
