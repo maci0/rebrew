@@ -319,11 +319,9 @@ def merge_preambles(preambles: list[str]) -> str:
     preambles leaves the ``/* */`` nesting malformed so the merged file does
     not compile (C2143 on orphaned comment lines).
 
-    Only ``#include`` lines dedup: exact-line union of anything else eats
-    repeated structural lines (a lone ``{`` opening five different structs
-    collapses to one, corrupting every struct after the first).  Divergent
-    typedefs/prototypes from different inputs are all kept — the compiler,
-    not the merge, arbitrates conflicts.
+    Deduplicate includes, externs, complete one-line typedefs and intrinsics.
+    Multiline typedef openings must stay: identical opening lines can begin
+    different declarations. The compiler arbitrates conflicting declarations.
     """
     seen_decl: set[str] = set()
     merged_lines: list[str] = []
@@ -337,7 +335,11 @@ def merge_preambles(preambles: list[str]) -> str:
             if (
                 _INCLUDE_RE.match(line)
                 or _EXTERN_RE.match(line)
-                or _TYPEDEF_RE.match(line)
+                or (
+                    _TYPEDEF_RE.match(line)
+                    and line.rstrip().endswith(";")
+                    and line.count("{") == line.count("}")
+                )
                 or _PRAGMA_INTRINSIC_RE.match(line)
             ):
                 if line in seen_decl:

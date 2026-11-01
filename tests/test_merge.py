@@ -397,6 +397,20 @@ class TestMergeBasic:
 
         assert merge_preambles(["", ""]) == ""
 
+    def test_merge_preambles_keeps_distinct_multiline_typedefs(self) -> None:
+        from rebrew.merge import merge_preambles
+
+        first = "typedef struct {\n    int x;\n} First;\n"
+        second = "typedef struct {\n    int y;\n} Second;\n"
+        for preambles in ([first + second], [first, second]):
+            out = merge_preambles(preambles)
+            assert first in out
+            assert second in out
+        out = merge_preambles(
+            ["typedef struct { int x;\n} First;\n", "typedef struct { int x;\n} Second;\n"]
+        )
+        assert out.count("typedef struct { int x;") == 2
+
     def test_collect_input_files_filters_extension(self, tmp_path: Path) -> None:
         from rebrew.merge import _collect_input_files
 
