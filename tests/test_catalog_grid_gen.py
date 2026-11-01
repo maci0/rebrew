@@ -385,6 +385,20 @@ class TestGenerateDataJsonGrid:
         out = fn["0x00009999"]
         assert out["fileOffset"] == 0x9999 - TEXT_VA
 
+    def test_duplicate_va_uses_same_status_for_function_cells_and_summary(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        blob = bytes(_blob())
+        bin_path = tmp_path / "fake.dll"
+        bin_path.write_bytes(blob)
+        _patch_binary(monkeypatch, blob)
+        entries = [_ann(TEXT_VA, "stub", "STUB", 0x40), _ann(TEXT_VA, "match", "EXACT", 0x40)]
+        for bindings in (entries, list(reversed(entries))):
+            data = build_coverage_data(bindings, [], TEXT_SIZE, bin_path)
+            assert data["functions"]["0x00001000"]["status"] == "EXACT"
+            assert data["sections"][".text"]["cells"][0]["state"] == "exact"
+            assert data["summary"]["exactMatches"] == data["summary"]["matchedFunctions"] == 1
+
     def test_cells_classification(self, monkeypatch, tmp_path: Path) -> None:
         data = self._run(monkeypatch, tmp_path)
         text = data["sections"][".text"]
@@ -580,6 +594,14 @@ class TestSingleBinaryParse:
         data = build_coverage_data(entries, [], text_size=size, bin_path=bin_path)
         assert calls["n"] == 1
         assert data["sections"][".text"]["size"] == size
+
+    def test_binary_directory_never_parses(self, monkeypatch, tmp_path: Path) -> None:
+        def fail_parse(path: Path) -> None:
+            raise AssertionError(f"parsed a directory: {path}")
+
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", fail_parse)
+        data = build_coverage_data([], [], text_size=0, bin_path=tmp_path)
+        assert data["summary"]["totalFunctions"] == 0
 
     def test_missing_binary_never_parses(self, monkeypatch, tmp_path: Path) -> None:
         calls: dict[str, int] = {"n": 0}

@@ -127,6 +127,18 @@ def _backdate(path: Path) -> None:
 class TestCallerSuppliedPrefixes:
     """A per-run scratch root sweeps by the prefix its caller names."""
 
+    def test_recent_empty_subdirectory_keeps_sandbox(self, tmp_path: Path) -> None:
+        from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
+
+        sandbox = tmp_path / "rebrew_live"
+        work = sandbox / "work"
+        (work / "fresh").mkdir(parents=True)
+        _backdate(work)
+        _backdate(sandbox)
+
+        assert sweep_stale_temp_dirs(tmp_path, age_s=60) == []
+        assert (work / "fresh").is_dir()
+
     def test_caller_prefix_selects_what_is_removed(self, tmp_path: Path) -> None:
         from rebrew.compiler.temp_dirs import sweep_stale_temp_dirs
 

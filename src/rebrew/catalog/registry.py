@@ -258,7 +258,7 @@ def build_function_registry(
     from rebrew.formats.binary_loader import iat_slot_vas
 
     registry: dict[int, RegistryEntry] = {}
-    iat_vas = iat_slot_vas(bin_path) if bin_path else set()
+    iat_vas = iat_slot_vas(bin_path) if bin_path and Path(bin_path).is_file() else set()
 
     # --- Discovery inventory ---
     r2_bogus = set(getattr(cfg, "r2_bogus_vas", [])) if cfg else set()

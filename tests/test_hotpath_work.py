@@ -59,7 +59,7 @@ class TestFlagWork:
             cache._iter_include_specs(
                 '/* prefix */ # include "a.h"\r\n#include_next <b.h>\n#include LIB_H\n'
             )
-        ) == [("quote", "a.h"), ("angle", "b.h"), ("nonliteral", "")]
+        ) == [("quote", "a.h"), ("next", "b.h"), ("nonliteral", "")]
 
 
 class TestVerifyShapeWork:

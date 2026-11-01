@@ -147,9 +147,9 @@ def _unpack(archive: Path, destination: Path) -> None:
         # writes, so an image cannot redirect extraction onto the host.
         for member in sorted(links, key=lambda row: row.issym()):
             target = destination / member.name
-            target.parent.mkdir(parents=True, exist_ok=True)
             if not target.parent.resolve().is_relative_to(destination):
                 raise UnshareError(f"image link parent escapes rootfs: {member.name}")
+            target.parent.mkdir(parents=True, exist_ok=True)
             if member.issym():
                 target.symlink_to(member.linkname)
                 os.utime(target, (member.mtime, member.mtime), follow_symlinks=False)

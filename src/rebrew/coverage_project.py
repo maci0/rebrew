@@ -194,7 +194,11 @@ def load_project_coverage(root: Path, *, refresh: bool = False) -> ProjectCovera
             _PROJECTS.popitem(last=False)
     with state.lock:
         stamp = time.monotonic()
-        if state is not None and not refresh and stamp - state.checked_at < _POLL_INTERVAL:
+        if (
+            state.config_key != (0, 0, 0, 0)
+            and not refresh
+            and stamp - state.checked_at < _POLL_INTERVAL
+        ):
             assert state.view is not None
             return state.view
         try:
@@ -209,6 +213,7 @@ def load_project_coverage(root: Path, *, refresh: bool = False) -> ProjectCovera
                 state.failures = failures
                 state.view = None
         except (OSError, ValueError, KeyError, TypeError, RebrewError) as exc:
+            state.config_key = (0, 0, 0, 0)
             raise ProjectCoverageError(f"{root}: cannot read project coverage: {exc}") from exc
         changed = state.view is None
         failures = dict(state.failures)

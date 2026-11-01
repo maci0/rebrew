@@ -27,6 +27,24 @@ def _record(root: Path, module: str, va: int, file: str, name: str, size: int = 
 
 
 class TestSourceBindings:
+    def test_anchor_module_case_cannot_bypass_stored_source_conflict(self, tmp_path: Path) -> None:
+        source = tmp_path / "other.c"
+        source.write_text("// ADDRESS: game 0x1000\nint other(void) { return 0; }\n")
+        _record(tmp_path, "GAME", 0x1000, "owner.c", "owner")
+
+        with pytest.raises(ValueError, match="conflicts with the stored source binding"):
+            read_source_bindings(source, target_name="GAME", metadata_dir=tmp_path)
+
+    def test_anchor_module_case_respects_retired_identity(self, tmp_path: Path) -> None:
+        from rebrew.metadata.binding_history import change_source_binding
+
+        source = tmp_path / "owner.c"
+        source.write_text("// ADDRESS: game 0x1000\nint owner(void) { return 0; }\n")
+        _record(tmp_path, "GAME", 0x1000, "owner.c", "owner")
+        change_source_binding(tmp_path, "GAME", 0x1000, reason="wrong identity")
+
+        assert read_source_bindings(source, target_name="GAME", metadata_dir=tmp_path) == []
+
     @pytest.mark.parametrize("level", [logging.WARNING, logging.DEBUG])
     def test_batch_conflict_reports_reason_with_traceback_only_at_debug(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture, level: int

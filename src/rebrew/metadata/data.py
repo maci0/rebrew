@@ -12,6 +12,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Any
 lazy import contextlib
+lazy import copy
 lazy import hashlib
 lazy import os
 lazy import unicodedata
@@ -393,13 +394,13 @@ def load_data_document(path: Path) -> dict[str, Any]:
         path,
         _data_metadata_cache,
         "data metadata",
-        deepcopy=False,
+        deepcopy=True,
         known_fields=DATA_METADATA_FIELDS,
         resolved=True,
     )
     return {
         "format": 2,
-        **{qualified_key(module, va): dict(row) for (module, va), row in rows.items()},
+        **{qualified_key(module, va): row for (module, va), row in rows.items()},
     }
 
 
@@ -418,21 +419,14 @@ def load_data_metadata(directory: Path | str | Any) -> dict[tuple[str, int], dic
     """
     dir_path = resolve_metadata_dir(directory)
     path = (dir_path / DATA_METADATA_FILENAME).resolve()
-    # Shared loader: tomllib reads (fast), mtime-keyed cache — same
-    # mechanism as rebrew-functions.toml (metadata/functions.py).  deepcopy=False:
-    # this function already returns a shallow copy of the outer map and
-    # each entry, so a full deep clone of the cache is wasted work.
-    cached = load_metadata_doc(
+    return load_metadata_doc(
         path,
         _data_metadata_cache,
         "data metadata",
-        deepcopy=False,
+        deepcopy=True,
         known_fields=DATA_METADATA_FIELDS,
         resolved=True,
     )
-    # Return a shallow copy of outer dict + each entry dict so callers cannot
-    # mutate the cached object and corrupt subsequent reads.
-    return {k: dict(v) for k, v in cached.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -463,7 +457,7 @@ def get_data_entry(directory: Path | str | Any, va: int, module: str) -> dict[st
         resolved=True,
     )
     entry = cached.get((unicodedata.normalize("NFC", module), va))
-    return dict(entry) if entry is not None else {}
+    return copy.deepcopy(entry) if entry is not None else {}
 
 
 def set_data_field(

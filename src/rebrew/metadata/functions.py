@@ -1700,7 +1700,7 @@ def apply_metadata_entry(ann: SourceBinding, entry: dict[str, Any]) -> None:
     for field in ("origins", "verification"):
         value = entry.get(field)
         if isinstance(value, dict):
-            setattr(ann, field, dict(value))
+            setattr(ann, field, copy.deepcopy(value))
 
     if "size" in entry:
         try:
@@ -1771,12 +1771,12 @@ def apply_metadata_entry(ann: SourceBinding, entry: dict[str, Any]) -> None:
     if "locals" in entry:
         raw_locals = entry["locals"]
         if isinstance(raw_locals, dict):
-            ann.locals = {str(k): v for k, v in raw_locals.items()}
+            ann.locals = {str(k): copy.deepcopy(v) for k, v in raw_locals.items()}
 
     if "comments" in entry:
         raw_comments = entry["comments"]
         if isinstance(raw_comments, dict):
-            ann.comments = {str(k): v for k, v in raw_comments.items()}
+            ann.comments = {str(k): copy.deepcopy(v) for k, v in raw_comments.items()}
 
     for field in ("source", "struct", "callers"):
         if field in entry:
@@ -1785,7 +1785,7 @@ def apply_metadata_entry(ann: SourceBinding, entry: dict[str, Any]) -> None:
     if "prove_constraints" in entry:
         raw_pc = entry["prove_constraints"]
         if isinstance(raw_pc, dict):
-            ann.prove_constraints = dict(raw_pc)
+            ann.prove_constraints = copy.deepcopy(raw_pc)
 
     if "updated_by" in entry:
         ann.updated_by = str(entry["updated_by"])

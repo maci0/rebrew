@@ -341,6 +341,13 @@ class TestParseRizinAfl:
             (0x3000, 16, "fcn.00003000"),
         ]
 
+    def test_negative_sizes_are_skipped(self) -> None:
+        from rebrew.catalog.loaders import parse_rizin_afl
+
+        assert parse_rizin_afl("0x1000 -1 bad\n0x2000 0x2000 -4 bad\n0x3000 4 good\n") == [
+            (0x3000, 4, "good")
+        ]
+
     def test_garbage_lines_skipped(self) -> None:
         from rebrew.catalog.loaders import parse_rizin_afl
 

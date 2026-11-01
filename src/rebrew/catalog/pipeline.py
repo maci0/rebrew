@@ -39,7 +39,7 @@ def build_catalog_data(
 
     # The .text size drives the coverage percentage.  With no binary there
     # is no real denominator, so report 0 (coverage_pct -> 0.0) and say so.
-    binary_missing = bin_path is None or not bin_path.exists()
+    binary_missing = bin_path is None or not bin_path.is_file()
     if binary_missing:
         if progress:
             console.print(

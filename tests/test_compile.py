@@ -2111,6 +2111,70 @@ class TestPinnedImageExecution:
         assert stored
         assert all(value == b"batch" for value in stored.values())
 
+    def test_batch_discards_tree_changed_during_staging(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import shutil
+
+        from rebrew.compiler.compile import precompile_batch
+
+        rev = tmp_path / "reversed"
+        rev.mkdir()
+        for name in ("a.c", "b.c"):
+            (rev / name).write_text('#include "h.h"\n')
+        header = rev / "h.h"
+        header.write_text("old\n")
+        copyfile = shutil.copyfile
+
+        def copy_then_edit(source: Any, target: Any) -> Any:
+            result = copyfile(source, target)
+            if Path(source) == header:
+                header.write_text("new header\n")
+            return result
+
+        class Cache:
+            def get(self, key: str) -> None:
+                return None
+
+            def put(self, key: str, data: bytes) -> None:
+                pytest.fail("a changed source tree must not publish an object")
+
+        monkeypatch.setattr("rebrew.compiler.compile.shutil.copyfile", copy_then_edit)
+        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", lambda *_: _ID_A)
+        monkeypatch.setattr("rebrew.compiler.compile.recompile_url", lambda _: None)
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.compile_batch_objs",
+            lambda *a, **k: pytest.fail("a changed source tree must not be compiled"),
+        )
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.toolchain_registry",
+            SimpleNamespace(
+                TOOLCHAINS={
+                    "test": SimpleNamespace(
+                        name="test", image="test", effective_arg_style="posix", flags_style="posix"
+                    )
+                }
+            ),
+        )
+        monkeypatch.setattr(
+            "rebrew.compiler.overrides.resolve_compile_overrides", lambda *a, **k: ("test", "")
+        )
+        entries = [
+            SimpleNamespace(filepath=name, toolchain="", cflags="", module="")
+            for name in ("a.c", "b.c")
+        ]
+        cfg = SimpleNamespace(
+            reversed_dir=rev,
+            root=tmp_path,
+            compiler_profile="test",
+            compiler_includes="",
+            base_cflags="",
+            compile_timeout=60,
+            default_jobs=1,
+        )
+        assert precompile_batch(cfg, entries, cache=Cache()) == {}
+        assert header.read_text() == "new header\n"
+
     def test_missing_pinned_image_is_not_pulled_or_cached(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -2174,28 +2238,64 @@ class TestPinnedImageExecution:
 
 
 class TestBatchGroupKey:
-    def test_ignores_include_dirs_and_order(self) -> None:
+    def test_different_include_dirs_do_not_batch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler.compile import precompile_batch
+
+        rev = tmp_path / "reversed"
+        rev.mkdir()
+        for name in ("a.c", "b.c"):
+            (rev / name).write_text("#include <x.h>\n")
+        entries = [
+            SimpleNamespace(filepath=name, toolchain="", cflags=flags, module="")
+            for name, flags in (("a.c", "-Ione"), ("b.c", "-Itwo"))
+        ]
+        spec = SimpleNamespace(
+            name="test", image="test", effective_arg_style="posix", flags_style="posix"
+        )
+        monkeypatch.setattr("rebrew.compiler.compile.recompile_url", lambda _: None)
+        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", lambda *_: _ID_A)
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.toolchain_registry", SimpleNamespace(TOOLCHAINS={"test": spec})
+        )
+        monkeypatch.setattr(
+            "rebrew.compiler.overrides.resolve_compile_overrides",
+            lambda cfg, path, tc, flags, mod: ("test", flags),
+        )
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.compile_batch_objs",
+            lambda *a, **k: pytest.fail("different include paths must not share a compile"),
+        )
+        cfg = SimpleNamespace(
+            reversed_dir=rev,
+            root=tmp_path,
+            compiler_profile="test",
+            compiler_includes="",
+            base_cflags="",
+            compile_timeout=60,
+            default_jobs=1,
+        )
+        assert precompile_batch(cfg, entries) == {}
+
+    def test_preserves_include_dirs_and_order(self) -> None:
         from rebrew.compiler.compile import _batch_group_key
 
-        assert _batch_group_key("", "/O2 /Gd /Ifoo") == _batch_group_key("", "/Gd /O2 /Ibar")
+        assert _batch_group_key("", "/O2 /Gd /Ifoo") != _batch_group_key("", "/Gd /O2 /Ibar")
+        assert _batch_group_key("", "/Ifoo /Ibar") != _batch_group_key("", "/Ibar /Ifoo")
         assert _batch_group_key("", "/O1 /Gd") != _batch_group_key("", "/O2 /Gd")
         assert _batch_group_key("a", "/O2") != _batch_group_key("b", "/O2")
 
-    def test_posix_include_prefix_ignored(self) -> None:
+    def test_posix_include_prefix_preserved(self) -> None:
         from rebrew.compiler.compile import _batch_group_key
 
-        assert _batch_group_key("", "-O2 -Ifoo") == _batch_group_key("", "-O2 -Ibar")
+        assert _batch_group_key("", "-O2 -Ifoo") != _batch_group_key("", "-O2 -Ibar")
 
-    def test_two_token_include_ignored_with_its_operand(self) -> None:
-        """``/I path`` must drop the path with the ``/I``, not leave it behind.
-
-        Filtering the bare ``/I`` out on its own would keep the operand as a
-        dangling group flag, shattering groups per include directory.
-        """
+    def test_two_token_include_matches_attached_form(self) -> None:
         from rebrew.compiler.compile import _batch_group_key
 
-        assert _batch_group_key("", "/O2 /I ../Units") == _batch_group_key("", "/O2 /I ../Other")
-        assert _batch_group_key("", "/O2 /I ../Units") == _batch_group_key("", "/O2")
+        assert _batch_group_key("", "/O2 /I ../Units") != _batch_group_key("", "/O2 /I ../Other")
+        assert _batch_group_key("", "/O2 /I ../Units") == _batch_group_key("", "/O2 /I../Units")
         assert _batch_group_key("", "/O2 /I ../Units") != _batch_group_key("", "/O2 /O1")
 
 

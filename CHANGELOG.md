@@ -1,5 +1,20 @@
 ## [Unreleased]
 
+## [6.12.0] - 2026-11-01
+
+### Changed
+
+- **Breaking:** `compiler.cache.CACHE_SCHEMA_VERSION` advances from 11 to 12; existing compile-cache entries are no longer reused and are rebuilt on demand.
+
+### Fixed
+
+- Track `#include_next` dependencies across include roots and invalidate cached objects when a later header changes or appears.
+- Keep batch compiles with different flag orders or include paths separate, and discard staged batches when the source tree changes during compilation.
+- Preserve recently active sandbox directories during stale cleanup and validate image archive link parents before creating directories.
+- Isolate nested metadata values from cached records and resolve source anchors against stored module identities without bypassing binding history.
+- Retry coverage loading after initialization fails, and report coverage consistently when the configured binary is missing.
+- Reject inventory merges that cross another function start, skip invalid negative Rizin extents, and select the matching status consistently in coverage grids.
+
 ## [6.11.0] - 2026-11-01
 
 ### Changed

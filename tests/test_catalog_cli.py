@@ -69,6 +69,15 @@ class TestCatalogCli:
         assert not list(cfg.db_dir.glob("*_functions.csv"))
         assert not list(cfg.db_dir.glob("coverage-*.toml"))
 
+    def test_binary_directory_is_reported_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _patch(monkeypatch, tmp_path)
+        cfg.target_binary = tmp_path
+        result = catalog_pipeline.build_catalog_data(cfg, with_data=False, progress=False)
+        assert result["binary_missing"]
+        assert result["text_size"] == 0
+
     def test_json_summary_to_stdout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, tmp_path)
         r = runner.invoke(catalog_cli.app, ["--json"])

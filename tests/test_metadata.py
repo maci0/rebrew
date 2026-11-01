@@ -210,6 +210,30 @@ class TestLoadSaveMetadata:
 
 
 class TestGetEntry:
+    def test_binding_nested_values_are_isolated_from_cache(self, tmp_path: Path) -> None:
+        from rebrew.metadata.bindings import read_source_bindings
+        from rebrew.metadata.functions import record_function_identity
+
+        source = tmp_path / "f.c"
+        source.write_text("int f(void) { return 0; }\n")
+        record_function_identity(
+            tmp_path, module="SERVER", va=0x1000, file="f.c", name="f", kind="FUNCTION"
+        )
+        fields = {
+            "origins": {"name": {"provider": "original"}},
+            "locals": {"-4": {"name": "counter"}},
+            "prove_constraints": {"args": {"0": [1, 2]}},
+        }
+        for key, value in fields.items():
+            update_field(tmp_path, 0x1000, key, value, "SERVER")
+        binding = read_source_bindings(source, metadata_dir=tmp_path)[0]
+        binding.origins["name"]["provider"] = "changed"
+        binding.locals["-4"]["name"] = "changed"
+        binding.prove_constraints["args"]["0"].append(3)
+
+        row = get_entry(tmp_path, 0x1000, "SERVER")
+        assert {key: row[key] for key in fields} == fields
+
     def test_missing_va(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80, "status": "EXACT"}})
         assert get_entry(tmp_path, 0x99999999, module="SERVER") == {}

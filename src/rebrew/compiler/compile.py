@@ -2347,7 +2347,17 @@ def precompile_batch(
             # hundred small files — negligible next to a container spawn.)
             rev = Path(cfg.reversed_dir)
             rev_resolved = rev.resolve()
+
+            def tree_snapshot() -> dict[Path, tuple[int, int, int]]:
+                paths = [rev, *rev.rglob("*")]
+                return {
+                    path: (st.st_mtime_ns, st.st_size, st.st_ino)
+                    for path in paths
+                    for st in (path.lstat(),)
+                }
+
             try:
+                staged_snapshot = tree_snapshot()
                 for child in sorted(rev.rglob("*")):
                     if child.is_dir() or child.is_symlink():
                         continue
@@ -2420,10 +2430,7 @@ def precompile_batch(
                 )
             if len(staged) < 2:
                 return group_out
-            # Union of include dirs: grouping ignores /I (they shatter
-            # groups per-directory), so re-add every member's /I here.
-            # A same-basename header in two unioned dirs could resolve to
-            # the wrong one — group failure falls back per file (ADR-021).
+            # Every member has the same ordered flags, including include dirs.
             flags = (
                 safe_shlex_split(group_flags) if isinstance(group_flags, str) else list(group_flags)
             )
@@ -2505,6 +2512,8 @@ def precompile_batch(
                             staged_key = _staged_cache_key(entry, staged_name)
                             if staged_key is not None:
                                 pre_keys[id(entry)] = staged_key
+            if tree_snapshot() != staged_snapshot:
+                return group_out
             objs, err = compile_batch_objs(
                 spec,
                 sorted(staged),
@@ -2519,6 +2528,8 @@ def precompile_batch(
                     else {}
                 ),
             )
+            if tree_snapshot() != staged_snapshot:
+                return group_out
             if err and not objs:
                 log.debug("batch group failed, falling back per file: %s", err[:120])
                 return group_out
@@ -2526,10 +2537,7 @@ def precompile_batch(
                 # Partial group: keep the good objects, fall back per file
                 # for the rest (their errors are in the log).
                 log.debug("batch group partial (%d/%d): %s", len(objs), len(staged), err[:120])
-            # Union /I from siblings means these bytes were compiled under a
-            # wider include search set than a single-file build of one member.
-            # Pinning under that member's own key would serve the wrong object
-            # on a later compile_to_obj hit.
+            # Defend cache publication if a member's flags changed during staging.
             union_includes = set(member_includes)
             for name, obj in objs.items():
                 # Promote the .obj out of the staged tree before the workdir
@@ -2611,18 +2619,9 @@ def precompile_batch(
 
 
 def _batch_group_key(toolchain: str, cflags: str | list[str]) -> tuple[str, str]:
-    """Group key ignoring ``/I`` include dirs and flag order.
-
-    Include dirs shatter groups per-directory (dozens of size-1 groups on
-    real projects); they're unioned back at batch-compile time, so grouping
-    on the rest merges aggressively.  Order-normalized: ``/O2 /Gd /DFOO``
-    and ``/DFOO /O2 /Gd`` compile identically.
-    """
+    """Group only flags with the same order and include search paths."""
     raw = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
-    # Merge the two-token "/I path" form first: filtering the bare "/I" out
-    # on its own would leave the path behind as a dangling group flag.
-    core = sorted(f for f in _merged_include_tokens(raw) if not f.startswith(("/I", "-I")))
-    return toolchain, " ".join(core)
+    return toolchain, shlex.join(_merged_include_tokens(raw))
 
 
 _DECORATION_TAIL = re.compile(r"@+\d+$")

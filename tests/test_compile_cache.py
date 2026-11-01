@@ -640,6 +640,33 @@ class TestHeaderDependencyHash:
     entries that include it, and an edit to an unreached header is a hit.
     """
 
+    def test_include_next_tracks_later_header(self, tmp_path: Path) -> None:
+        from rebrew.compiler.cache import header_dependency_hash, scan_include_closure
+
+        first, second, third = tmp_path / "first", tmp_path / "second", tmp_path / "third"
+        first.mkdir()
+        second.mkdir()
+        third.mkdir()
+        for directory in (first, second, third):
+            (directory / "sub").mkdir()
+        (first / "sub/x.h").write_text("#include_next <sub/x.h>\n")
+        header = second / "sub/x.h"
+        header.write_text("one\n")
+        source = "#include <sub/x.h>\n"
+        dirs = [str(first), str(second), str(third)]
+        unresolved: list[tuple[str, tuple[str, ...]]] = []
+        paths, fallback, _, consistent = scan_include_closure(
+            source, None, tuple(dirs), unresolved=unresolved
+        )
+        assert set(paths) == {str(first / "sub/x.h"), str(header)}
+        assert not fallback and consistent and not unresolved
+        before = header_dependency_hash(source, None, dirs)
+        header.write_text("changed\n")
+        changed = header_dependency_hash(source, None, dirs)
+        assert changed != before
+        (third / "sub/x.h").write_text("new\n")
+        assert header_dependency_hash(source, None, dirs) != changed
+
     def test_missing_header_does_not_stat_unrelated_directory_entries(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

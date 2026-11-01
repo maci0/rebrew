@@ -555,11 +555,32 @@ _METADATA_FILE_INDEX_MAX = 4
 #: Pins each indexed document so a freed entry's ``id`` is never reused as a
 #: live cache key.
 _METADATA_FILE_INDEX_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
+_METADATA_MODULE_INDEX: dict[int, dict[tuple[str, int], list[tuple[str, dict[str, Any]]]]] = {}
+_METADATA_MODULE_INDEX_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
 #: The owner hit, the two eviction clears, and the two stores are one
 #: check-then-act over two parallel dicts; ``rebrew match batch --jobs N`` reaches
 #: this from pool threads.  Held only for the dict work — the index build below
 #: walks the whole entry table and stays outside.
 _METADATA_FILE_INDEX_LOCK = threading.Lock()
+
+
+def _metadata_module_index(
+    entries: dict[tuple[str, int], dict[str, Any]],
+) -> dict[tuple[str, int], list[tuple[str, dict[str, Any]]]]:
+    key = id(entries)
+    with _METADATA_FILE_INDEX_LOCK:
+        if _METADATA_MODULE_INDEX_OWNER.get(key) is entries:
+            return _METADATA_MODULE_INDEX[key]
+    index: dict[tuple[str, int], list[tuple[str, dict[str, Any]]]] = {}
+    for (module, va), entry in entries.items():
+        index.setdefault((preset_module_key(module), va), []).append((module, entry))
+    with _METADATA_FILE_INDEX_LOCK:
+        if len(_METADATA_MODULE_INDEX) >= _METADATA_FILE_INDEX_MAX:
+            _METADATA_MODULE_INDEX.clear()
+            _METADATA_MODULE_INDEX_OWNER.clear()
+        _METADATA_MODULE_INDEX[key] = index
+        _METADATA_MODULE_INDEX_OWNER[key] = entries
+    return index
 
 
 def _metadata_file_index(
@@ -1125,6 +1146,8 @@ def source_bindings(
             continue
         is_data = anchor.kind == "DATA"
         key = (preset_module_key(anchor.module), anchor.va, is_data)
+        stored: dict[str, Any] = {}
+        stored_module = anchor.module
         if not is_data and metadata_dir is not None:
             from rebrew.metadata.binding_history import (
                 historical_source_anchor,
@@ -1135,6 +1158,12 @@ def source_bindings(
             if functions is None:
                 functions = load_metadata(metadata_dir, deepcopy=False)
             stored = functions.get((anchor.module, anchor.va), {})
+            if not stored:
+                matches = _metadata_module_index(functions).get((key[0], anchor.va), [])
+                if len(matches) > 1:
+                    raise ValueError(f"{filepath}:{anchor.line}: ambiguous address anchor module")
+                if matches:
+                    stored_module, stored = matches[0]
             history_root = project_root or _binding_project_root(metadata_dir)
             if stored.get("binding_history") and historical_source_anchor(
                 stored,
@@ -1198,7 +1227,7 @@ def source_bindings(
             continue
         ann = SourceBinding(
             va=anchor.va,
-            module=anchor.module,
+            module=stored_module,
             name=anchor.name,
             symbol="" if is_data else derive_c_symbol(anchor.name, anchor.prototype),
             kind=anchor.kind,
@@ -1210,10 +1239,6 @@ def source_bindings(
             stored = {}
         elif is_data:
             stored = get_data_entry(metadata_dir, anchor.va, anchor.module)
-        else:
-            if functions is None:
-                functions = load_metadata(metadata_dir, deepcopy=False)
-            stored = functions.get((anchor.module, anchor.va), {})
         if is_data:
             from rebrew.metadata.data import merge_into_data_binding
 

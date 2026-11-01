@@ -273,7 +273,7 @@ def build_coverage_data(
 
     sections: dict[str, Any] = {}
     _bin_info: BinaryInfo | None = None
-    if bin_path and bin_path.exists():
+    if bin_path and bin_path.is_file():
         from rebrew.formats.binary_loader import load_binary
 
         # Single lazy parse: sections, layout, and raw bytes all come from
@@ -370,7 +370,10 @@ def build_coverage_data(
     emitted_by_va: dict[int, list[SourceBinding]] = {}
     for va in sorted(unique_vas):
         elist = by_va[va]
-        e = elist[0]
+        e = next(
+            (entry for group in _STATUS_PRIORITY for entry in elist if entry["status"] in group),
+            elist[0],
+        )
 
         # Find which section this VA belongs to (O(log n) via bisect)
         sec_name = ".text"

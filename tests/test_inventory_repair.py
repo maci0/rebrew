@@ -400,6 +400,31 @@ class TestInventoryMerge:
         assert (inventory.read_bytes(), inventory.stat()) == before
         assert not inventory.with_suffix(".json.lock").exists()
 
+    @pytest.mark.parametrize("dry_run", [True, False])
+    def test_merge_rejects_intervening_overlapping_row(self, tmp_path: Path, dry_run: bool) -> None:
+        cfg, inventory = _contiguous_project(tmp_path)
+        rows = json.loads(inventory.read_text())
+        rows[0]["size"] = 24
+        inventory.write_text(json.dumps(rows))
+        before = inventory.read_bytes(), inventory.stat()
+        with pytest.raises(ValueError, match="next"):
+            repair_inventory_extents(
+                cfg, {}, reason="proof", merges=[(0x401000, 0x401018)], dry_run=dry_run
+            )
+        assert (inventory.read_bytes(), inventory.stat()) == before
+
+    def test_merge_rejects_tail_overlapping_next_row(self, tmp_path: Path) -> None:
+        cfg, inventory = _contiguous_project(tmp_path)
+        rows = json.loads(inventory.read_text())
+        rows[1]["size"] = 16
+        inventory.write_text(json.dumps(rows))
+        before = inventory.read_bytes(), inventory.stat()
+        with pytest.raises(ValueError, match="next"):
+            repair_inventory_extents(
+                cfg, {}, reason="proof", merges=[(0x401000, 0x401010)], dry_run=True
+            )
+        assert (inventory.read_bytes(), inventory.stat()) == before
+
     def test_merge_and_resize_of_one_row_is_refused(self, tmp_path: Path) -> None:
         cfg, inventory = _contiguous_project(tmp_path)
         before = inventory.read_bytes(), inventory.stat()

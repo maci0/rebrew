@@ -76,6 +76,37 @@ class TestLiveProjectCoverage:
         assert "bad" in view.failures
         assert "invalid-arch" in view.failures["bad"]
 
+    def test_config_change_during_refresh_invalidates_poll_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _project(tmp_path)
+        first = load_project_coverage(tmp_path)
+        original = coverage_project._inputs
+        changed = False
+
+        def change_config(cfg: Any, scans: Any = None) -> Any:
+            nonlocal changed
+            if not changed:
+                changed = True
+                config = tmp_path / "rebrew-project.toml"
+                config.write_text(config.read_text() + "\n")
+            return original(cfg, scans)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(coverage_project, "_inputs", change_config)
+            with pytest.raises(ProjectCoverageError, match="configuration changed"):
+                load_project_coverage(tmp_path, refresh=True)
+        assert load_project_coverage(tmp_path) is not first
+
+    def test_failed_refresh_does_not_serve_stale_view(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        load_project_coverage(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text("[broken")
+        with pytest.raises(ProjectCoverageError, match="cannot read project coverage"):
+            load_project_coverage(tmp_path, refresh=True)
+        with pytest.raises(ProjectCoverageError, match="cannot read project coverage"):
+            load_project_coverage(tmp_path)
+
     def test_malformed_project_never_falls_back_to_old_exports(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-project.toml").write_text("[broken")
         (tmp_path / "db").mkdir()

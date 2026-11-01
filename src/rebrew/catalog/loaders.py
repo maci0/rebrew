@@ -342,6 +342,8 @@ def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:
             name = p[2]
         else:
             continue
+        if size < 0:
+            continue
         if name in ("->", "loc") or name.startswith("sub."):
             name = f"fcn.{va:08x}"
         funcs.append((va, size, name))

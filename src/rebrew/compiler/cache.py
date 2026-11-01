@@ -75,7 +75,7 @@ from rebrew.utils import BYTES_PER_MIB, resolved_path, split_source_lines
 logger = logging.getLogger(__name__)
 
 # Bump on key semantics changes to invalidate stale entries.
-CACHE_SCHEMA_VERSION = 11
+CACHE_SCHEMA_VERSION = 12
 
 # Warn once per process *and per operation*: a corrupt/contended store
 # degrades every get/put, and one line per lookup would flood a GA batch's
@@ -678,7 +678,7 @@ def _iter_include_specs(text: str) -> Iterator[tuple[str, str]]:
     """Yield ``(kind, name)`` for every ``#include`` directive in *text*.
 
     *kind* is ``"quote"`` (``#include "x.h"``), ``"angle"`` (``#include
-    <x.h>`` and ``#include_next``), or ``"nonliteral"`` for a macro-expanded
+    <x.h>``), ``"next"`` for ``#include_next``, or ``"nonliteral"`` for a macro-expanded
     include (``#include LIB_H``) that cannot be resolved statically.
     Malformed directives yield ``("nonliteral", "")``.  Includes inside
     comments and ``#include``-shaped text outside directives are not matched
@@ -696,15 +696,18 @@ def _iter_include_specs(text: str) -> Iterator[tuple[str, str]]:
         m = _INCLUDE_RE.match(rest)
         if not m:
             continue
-        # #include_next is yielded as "angle": the resolver searches all dirs
-        # (an over-approximation of "the remaining dirs" — never a stale hit).
+        is_next = m.group().endswith("_next")
         tail = rest[m.end() :].lstrip()
         if tail.startswith('"'):
             end = tail.find('"', 1)
-            yield ("quote", tail[1:end]) if end != -1 else ("nonliteral", "")
+            yield (
+                (("next" if is_next else "quote"), tail[1:end]) if end != -1 else ("nonliteral", "")
+            )
         elif tail.startswith("<"):
             end = tail.find(">")
-            yield ("angle", tail[1:end]) if end != -1 else ("nonliteral", "")
+            yield (
+                (("next" if is_next else "angle"), tail[1:end]) if end != -1 else ("nonliteral", "")
+            )
         else:
             yield ("nonliteral", "")
 
@@ -888,7 +891,7 @@ def _resolve_include_paths(
         return cached[0], cached[1]
     misses: list[tuple[str, tuple[str, ...]]] = []
     paths, fallback, observed, consistent = scan_include_closure(
-        source_content, source_dir, include_dirs, unresolved=misses
+        source_content, source_dir, include_dirs, unresolved=misses, probes=misses
     )
     if not consistent or _header_stats(paths) != observed or not _unresolved_still_missing(misses):
         return paths, fallback
@@ -975,6 +978,7 @@ def scan_include_closure(
     include_dirs: tuple[str, ...],
     *,
     unresolved: list[tuple[str, tuple[str, ...]]] | None = None,
+    probes: list[tuple[str, tuple[str, ...]]] | None = None,
     contents: dict[str, bytes] | None = None,
 ) -> tuple[tuple[str, ...], bool, tuple[tuple[int, int, int], ...], bool]:
     """Uncached body of :func:`_resolve_include_paths`.
@@ -986,6 +990,7 @@ def scan_include_closure(
     memoize them.  Each include that resolved nowhere is appended to
     *unresolved* as ``(name, directories searched)``, so the caller can
     revalidate the memo when one of those headers is created later. Optional
+    *probes* also records absent candidates for include-next invalidation.
     *contents* captures the exact bytes parsed for each reached header; callers
     needing content proof must use these bytes rather than the stat-only memo.
     """
@@ -1004,7 +1009,7 @@ def scan_include_closure(
     fallback = False
     consistent = True
 
-    def _scan(text: str, base_dir: Path | None) -> None:
+    def _scan(text: str, base_dir: Path | None, current: Path | None = None) -> None:
         nonlocal fallback, consistent
         for kind, name in _iter_include_specs(text):
             if kind == "nonliteral" or not name:
@@ -1012,64 +1017,81 @@ def scan_include_closure(
                 return
             # Quote includes search the including file's directory first,
             # then the /I dirs; angle includes search the /I dirs only.
-            # #include_next is treated as an angle search of all dirs (an
-            # over-approximation — never a stale hit).
             if kind == "quote" and base_dir is not None:
                 dirs = [base_dir, *search_dirs]
             else:
                 dirs = [Path(d) for d in include_dirs]
-            found = _find_in_dirs(Path(name), dirs)
-            if found is None and (Path(name).is_absolute() or ".." in Path(name).parts):
-                # `#include "../../game_types.h"`: _find_in_dirs refuses the
-                # traversal, so resolve it here or the header joins nothing
-                # and its edit never invalidates the entry.
-                found = _resolve_escaping_include(Path(name), dirs)
+            # Include-next may select any later search root; track them all.
+            searches = [[d] for d in dirs] if kind == "next" else [dirs]
+            next_found = False
+            current_root = next(
+                (
+                    i
+                    for i, directory in enumerate(dirs)
+                    if current is not None and current.is_relative_to(resolved_path(directory))
+                ),
+                -1,
+            )
+            for index, dirs in enumerate(searches):
+                found = _find_in_dirs(Path(name), dirs)
+                if found is None and (Path(name).is_absolute() or ".." in Path(name).parts):
+                    # `#include "../../game_types.h"`: _find_in_dirs refuses the
+                    # traversal, so resolve it here or the header joins nothing
+                    # and its edit never invalidates the entry.
+                    found = _resolve_escaping_include(Path(name), dirs)
+                    if found is None:
+                        # Unresolvable on the host (lives in the toolchain image,
+                        # or the tree moved): nothing can pin it, so take the
+                        # conservative per-directory fingerprint rather than
+                        # cache an entry whose closure is unknown.
+                        fallback = True
+                        return
                 if found is None:
-                    # Unresolvable on the host (lives in the toolchain image,
-                    # or the tree moved): nothing can pin it, so take the
-                    # conservative per-directory fingerprint rather than
-                    # cache an entry whose closure is unknown.
+                    # Creating a header bumps the mtime of its immediate parent,
+                    # which may sit below a searched directory and so never reach
+                    # the directory mtimes the memo is keyed on.  Record the miss
+                    # instead: re-running these lookups is a few stats per
+                    # unresolved include, and it is what makes a header added
+                    # mid-run invalidate the memo.
+                    if kind != "next":
+                        misses.append((name, tuple(str(d) for d in dirs)))
+                    elif probes is not None:
+                        probes.append((name, tuple(str(d) for d in dirs)))
+                    continue
+                if kind == "next" and index > current_root:
+                    next_found = True
+                found_str = str(found)
+                if found_str in reached:
+                    continue
+                reached.add(found_str)
+                try:
+                    before = found.stat()
+                    raw = found.read_bytes()
+                    after = found.stat()
+                except OSError:
+                    # The compiler may still read this header and its includes.
+                    # Hashing only the stat (or skipping the file) serves an
+                    # object compiled against a different closure.  Fall back
+                    # for this call and do not memoize the failure.
                     fallback = True
+                    consistent = False
+                    reached.discard(found_str)
                     return
-            if found is None:
-                # Creating a header bumps the mtime of its immediate parent,
-                # which may sit below a searched directory and so never reach
-                # the directory mtimes the memo is keyed on.  Record the miss
-                # instead: re-running these lookups is a few stats per
-                # unresolved include, and it is what makes a header added
-                # mid-run invalidate the memo.
-                misses.append((name, tuple(str(d) for d in dirs)))
-                continue
-            found_str = str(found)
-            if found_str in reached:
-                continue
-            reached.add(found_str)
-            try:
-                before = found.stat()
-                raw = found.read_bytes()
-                after = found.stat()
-            except OSError:
-                # The compiler may still read this header and its includes.
-                # Hashing only the stat (or skipping the file) serves an
-                # object compiled against a different closure.  Fall back
-                # for this call and do not memoize the failure.
-                fallback = True
-                consistent = False
-                reached.discard(found_str)
-                return
-            if (before.st_mtime_ns, before.st_size, before.st_ino) != (
-                after.st_mtime_ns,
-                after.st_size,
-                after.st_ino,
-            ):
-                consistent = False
-            observed[found_str] = (after.st_mtime_ns, after.st_size, after.st_ino)
-            if contents is not None:
-                contents[found_str] = raw
-            header_text = raw.decode("utf-8", errors="surrogateescape")
-            _scan(header_text, found.parent)
-            if fallback:
-                return
+                if (before.st_mtime_ns, before.st_size, before.st_ino) != (
+                    after.st_mtime_ns,
+                    after.st_size,
+                    after.st_ino,
+                ):
+                    consistent = False
+                observed[found_str] = (after.st_mtime_ns, after.st_size, after.st_ino)
+                if contents is not None:
+                    contents[found_str] = raw
+                header_text = raw.decode("utf-8", errors="surrogateescape")
+                _scan(header_text, found.parent, found)
+                if fallback:
+                    return
+            if kind == "next" and not next_found:
+                misses.append((name, include_dirs[current_root + 1 :]))
 
     _scan(source_content, Path(source_dir) if source_dir else None)
     paths = tuple(sorted(reached))

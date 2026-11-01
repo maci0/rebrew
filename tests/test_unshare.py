@@ -234,6 +234,22 @@ class TestUnshareProfile:
 
 
 class TestUnshareArchive:
+    def test_link_parent_does_not_create_directories_outside_rootfs(self, tmp_path: Path) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        archive = tmp_path / "image.tar"
+        with tarfile.open(archive, "w") as out:
+            for name, target in (("link", str(outside)), ("link/new/nested", "target")):
+                link = tarfile.TarInfo(name)
+                link.type = tarfile.SYMTYPE
+                link.linkname = target
+                out.addfile(link)
+        rootfs = tmp_path / "rootfs"
+        rootfs.mkdir()
+        with pytest.raises(unshare.UnshareError, match="escapes rootfs"):
+            unshare._unpack(archive, rootfs)
+        assert not (outside / "new").exists()
+
     @pytest.mark.parametrize("member_name", ["../escape", "/absolute", "dir/../../escape"])
     def test_refuses_traversal(self, tmp_path: Path, member_name: str) -> None:
         archive = tmp_path / "image.tar"

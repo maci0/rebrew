@@ -72,6 +72,26 @@ class TestLoadSaveDataMetadata:
             load_data_metadata(tmp_path)
         assert path.read_text() == "{broken"
 
+    @pytest.mark.parametrize("reader", ["metadata", "document", "entry"])
+    def test_nested_provenance_is_detached(self, tmp_path: Path, reader: str) -> None:
+        from rebrew.metadata.data import load_data_document
+
+        set_data_field(tmp_path, 0x1000, "origins", {"name": {"provider": "original"}}, "SERVER")
+        if reader == "metadata":
+            row = load_data_metadata(tmp_path)[("SERVER", 0x1000)]
+        elif reader == "document":
+            from rebrew.metadata.document import qualified_key
+
+            row = load_data_document(tmp_path / DATA_METADATA_FILENAME)[
+                qualified_key("SERVER", 0x1000)
+            ]
+        else:
+            row = get_data_entry(tmp_path, 0x1000, "SERVER")
+        row["origins"]["name"]["provider"] = "changed"
+        assert (
+            get_data_entry(tmp_path, 0x1000, "SERVER")["origins"]["name"]["provider"] == "original"
+        )
+
 
 # ---------------------------------------------------------------------------
 # get_data_entry

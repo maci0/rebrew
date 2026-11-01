@@ -34,6 +34,15 @@ class TestBuildFunctionRegistry:
             ignored_symbols=[],
         )
 
+    def test_binary_directory_skips_iat_parse(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fail_parse(path: Path) -> None:
+            raise AssertionError(f"parsed a directory: {path}")
+
+        monkeypatch.setattr("rebrew.formats.binary_loader.iat_slot_vas", fail_parse)
+        assert build_function_registry([], self.cfg, bin_path=tmp_path) == {}
+
     def test_basic(self) -> None:
         funcs = [
             {"va": 0x10001000, "size": 64, "name": "_func_a"},

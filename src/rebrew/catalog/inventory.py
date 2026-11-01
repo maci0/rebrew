@@ -175,6 +175,8 @@ def repair_inventory_extents(
                     f"merge head 0x{head_va:x}+{head_size} does not end at tail 0x{tail_va:x}"
                 )
             new_size = tail_va + tail_size - head_va
+            if any(head_va < va < head_va + new_size and va != tail_va for va in rows):
+                raise ValueError("merge must stop before the next inventory start")
             if not complete_span(head_va, new_size):
                 raise ValueError(
                     f"0x{head_va:x}+{new_size} is not a complete file-backed executable span"

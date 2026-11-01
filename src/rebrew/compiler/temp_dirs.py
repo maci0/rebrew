@@ -144,9 +144,9 @@ def _newest_mtime(root: Path) -> float | None:
     except OSError:
         return None
     for parent, _dirs, files in os.walk(root):
-        for name in files:
+        for path in (Path(parent), *(Path(parent) / name for name in files)):
             try:
-                mtime = (Path(parent) / name).stat().st_mtime
+                mtime = path.stat().st_mtime
             except OSError:
                 continue
             if newest is None or mtime > newest:
