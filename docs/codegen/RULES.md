@@ -17,8 +17,8 @@ source is cited and the verification status is marked.
 
 Sources: [Agner Fog, calling conventions manual](https://www.agner.org/optimize/calling_conventions.pdf)
 (AF), [decomp.me compiler fleet](https://github.com/decompme/compilers)
-(DM), [guild-rebrew msvc6-allocator.md](../../../guild-rebrew/docs/msvc6-allocator.md)
-(GD), decomp.me's per-compiler practice docs (DP).
+(DM), the historical `guild-rebrew/docs/msvc6-allocator.md` (GD; source not
+present in this checkout), decomp.me's per-compiler practice docs (DP).
 
 ---
 

@@ -31,7 +31,7 @@ Automatic via content hash — different inputs produce different keys.
 Header dependencies participate via :func:`header_dependency_hash`: the
 source's ``#include`` closure (resolved transitively against the source
 directory and the ``/I`` dirs) is fingerprinted **per reached header**
-(name + size + mtime + inode, ccache-style), so editing a header invalidates only
+(path and SHA-256 content, with file metadata for race checks), so editing a header invalidates only
 the entries whose translation unit reaches it — an edit to an unrelated
 header in the same include dir is a cache hit.  Headers that cannot be
 resolved on the host (e.g. the MSVC CRT headers inside the immutable
@@ -48,7 +48,7 @@ ccache-style mode, via :func:`include_fingerprint`).  Resolution is
 memoized per process keyed by search-directory mtimes: a header *created*
 while a long GA run is in flight bumps the parent directory's mtime and is
 picked up on the next key computation (content edits to already resolved
-headers are still picked up, because each reached file is re-statted
+headers are still picked up, because each reached file is re-read
 at key time).
 """
 
@@ -75,7 +75,7 @@ from rebrew.utils import BYTES_PER_MIB, resolved_path, split_source_lines
 logger = logging.getLogger(__name__)
 
 # Bump on key semantics changes to invalidate stale entries.
-CACHE_SCHEMA_VERSION = 12
+CACHE_SCHEMA_VERSION = 13
 
 # Warn once per process *and per operation*: a corrupt/contended store
 # degrades every get/put, and one line per lookup would flood a GA batch's
@@ -478,17 +478,13 @@ def _clear_include_fingerprint_cache() -> None:
 def include_fingerprint(include_dir: str) -> str:
     """Return a digest of the headers reachable from *include_dir*.
 
-    Hashes ``(relative path, size, mtime_ns)`` of every header under the
-    directory rather than its contents: a stat walk costs microseconds where a
-    content read of an MSVC6 include tree costs megabytes, and a GA run issues
-    thousands of key computations per function.  This is the same tradeoff
-    ccache makes in its default mode — it can only be fooled by an edit that
-    preserves both size and mtime.
+    Hashes each relative path and header content under the directory. The
+    bytes are read on each call, so preserved timestamps do not hide edits.
 
     The header *path list* is memoized per directory while the mtimes of the
     directory and all its subdirectories are stable (membership changes at any
     depth invalidate); each call re-stats
-    those paths so content edits are visible mid-run without a process
+    and re-reads those paths so content edits are visible mid-run without a process
     restart.  A walk whose directory mtimes change before it is published is
     not memoized, and a publish never replaces a still-valid peer entry that
     already lists at least as many headers: verify ``-j N`` and GA workers
@@ -578,9 +574,21 @@ def include_fingerprint(include_dir: str) -> str:
             # treatment as the unreadable branch above.
             h.update(f"\0outside-root\0{p_str}\0".encode("utf-8", errors="surrogateescape"))
             continue
-        h.update(
-            f"{rel}\0{st.st_size}\0{st.st_mtime_ns}\0".encode("utf-8", errors="surrogateescape")
-        )
+        try:
+            content = path.read_bytes()
+            after = path.stat()
+        except OSError:
+            h.update(f"\0unreadable\0{rel}\0".encode("utf-8", errors="surrogateescape"))
+            continue
+        if (st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_ino) != (
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+            after.st_ino,
+        ):
+            h.update(os.urandom(16))
+        h.update(f"{rel}\0{st.st_size}\0".encode("utf-8", errors="surrogateescape"))
+        h.update(hashlib.sha256(content).digest())
     return h.hexdigest()
 
 
@@ -785,7 +793,7 @@ _INCLUDE_CLOSURE_MEMO: dict[
     tuple[
         tuple[str, ...],
         bool,
-        tuple[tuple[int, int, int], ...],
+        tuple[tuple[int, int, int, int, str], ...],
         tuple[tuple[str, tuple[str, ...]], ...],
         int,
     ],
@@ -870,7 +878,7 @@ def _resolve_include_paths(
     the key) or the compile errors and nothing is cached.
 
     Memoized on ``(source, dirs, dir_mtimes)`` and reused only while every
-    reached header keeps its ``(mtime_ns, size)`` and every missed include
+    reached header keeps its metadata and content digest and every missed include
     still misses: a header created later in a searched dir bumps that
     directory's mtime, an in-place header edit
     (which may add or drop an ``#include``) changes that header's stat, so
@@ -894,7 +902,7 @@ def _resolve_include_paths(
         source_content, source_dir, include_dirs, unresolved=misses, probes=misses
     )
     if not consistent or _header_stats(paths) != observed or not _unresolved_still_missing(misses):
-        return paths, fallback
+        return paths, True
     with _INCLUDE_CLOSURE_LOCK:
         existing = _INCLUDE_CLOSURE_MEMO.get(key)
         if (
@@ -904,7 +912,7 @@ def _resolve_include_paths(
         ):
             return existing[0], existing[1]
         if _header_stats(paths) != observed or not _unresolved_still_missing(misses):
-            return paths, fallback
+            return paths, True
         _store_include_closure_locked(key, paths, fallback, observed, tuple(misses))
     return paths, fallback
 
@@ -925,7 +933,7 @@ def _store_include_closure_locked(
     key: tuple[str, str | None, tuple[str, ...], tuple[int, ...]],
     paths: tuple[str, ...],
     fallback: bool,
-    observed: tuple[tuple[int, int, int], ...],
+    observed: tuple[tuple[int, int, int, int, str], ...],
     misses: tuple[tuple[str, tuple[str, ...]], ...],
 ) -> None:
     """Publish one closure, evicting by bytes. Caller holds
@@ -952,8 +960,8 @@ def _store_include_closure_locked(
         _include_closure_memo_chars = 0
 
 
-def _header_stats(paths: tuple[str, ...]) -> tuple[tuple[int, int, int], ...]:
-    """``(mtime_ns, size, ino)`` per path; ``(-1, -1, -1)`` for an unstat'able one.
+def _header_stats(paths: tuple[str, ...]) -> tuple[tuple[int, int, int, int, str], ...]:
+    """File metadata and content digest per path, or an unreadable marker.
 
     The inode is what a same-size rename-over inside one mtime tick changes
     (an editor's atomic save, a ``cp -p`` restore, a coarse-timestamp
@@ -961,14 +969,29 @@ def _header_stats(paths: tuple[str, ...]) -> tuple[tuple[int, int, int], ...]:
     way leaves the memoized closure and the key looking untouched, and the
     old object is served against the new header.
     """
-    out: list[tuple[int, int, int]] = []
+    out: list[tuple[int, int, int, int, str]] = []
     for p in paths:
         try:
             st = Path(p).stat()
         except OSError:
-            out.append((-1, -1, -1))
+            out.append((-1, -1, -1, -1, "unreadable"))
             continue
-        out.append((st.st_mtime_ns, st.st_size, st.st_ino))
+        try:
+            digest = hashlib.sha256(Path(p).read_bytes()).hexdigest()
+            after = Path(p).stat()
+        except OSError:
+            out.append((-1, -1, -1, -1, "unreadable"))
+            continue
+        if (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns) != (
+            after.st_mtime_ns,
+            after.st_size,
+            after.st_ino,
+            after.st_ctime_ns,
+        ):
+            # A racing read is never a reusable identity, even if the same
+            # metadata is observed by a second racing read.
+            digest = os.urandom(16).hex()
+        out.append((after.st_mtime_ns, after.st_size, after.st_ino, after.st_ctime_ns, digest))
     return tuple(out)
 
 
@@ -980,10 +1003,10 @@ def scan_include_closure(
     unresolved: list[tuple[str, tuple[str, ...]]] | None = None,
     probes: list[tuple[str, tuple[str, ...]]] | None = None,
     contents: dict[str, bytes] | None = None,
-) -> tuple[tuple[str, ...], bool, tuple[tuple[int, int, int], ...], bool]:
+) -> tuple[tuple[str, ...], bool, tuple[tuple[int, int, int, int, str], ...], bool]:
     """Uncached body of :func:`_resolve_include_paths`.
 
-    The third element is ``(mtime_ns, size, ino)`` captured around each header
+    The third element contains metadata and a content digest captured around each header
     read, in the same order as the returned paths.  The fourth is False when
     a header's stat changed between the read's bracketing stats — the bytes
     and the snapshot do not describe the same file, so the caller must not
@@ -1005,7 +1028,7 @@ def scan_include_closure(
     misses: list[tuple[str, tuple[str, ...]]] = [] if unresolved is None else unresolved
 
     reached: set[str] = set()
-    observed: dict[str, tuple[int, int, int]] = {}
+    observed: dict[str, tuple[int, int, int, int, str]] = {}
     fallback = False
     consistent = True
 
@@ -1077,13 +1100,20 @@ def scan_include_closure(
                     consistent = False
                     reached.discard(found_str)
                     return
-                if (before.st_mtime_ns, before.st_size, before.st_ino) != (
+                if (before.st_mtime_ns, before.st_size, before.st_ino, before.st_ctime_ns) != (
                     after.st_mtime_ns,
                     after.st_size,
                     after.st_ino,
+                    after.st_ctime_ns,
                 ):
                     consistent = False
-                observed[found_str] = (after.st_mtime_ns, after.st_size, after.st_ino)
+                observed[found_str] = (
+                    after.st_mtime_ns,
+                    after.st_size,
+                    after.st_ino,
+                    after.st_ctime_ns,
+                    hashlib.sha256(raw).hexdigest(),
+                )
                 if contents is not None:
                     contents[found_str] = raw
                 header_text = raw.decode("utf-8", errors="surrogateescape")
@@ -1095,7 +1125,7 @@ def scan_include_closure(
 
     _scan(source_content, Path(source_dir) if source_dir else None)
     paths = tuple(sorted(reached))
-    stats = tuple(observed.get(p, (-1, -1, -1)) for p in paths)
+    stats = tuple(observed.get(p, (-1, -1, -1, -1, "unreadable")) for p in paths)
     return paths, fallback, stats, consistent
 
 
@@ -1252,16 +1282,15 @@ FORCE_INCLUDE_PREFIXES = ("/FI", "-FI", "-include", "--include", "-imacros", "-f
 
 # ``(header paths, source dir, include dirs, dir lstats, header stats)`` ->
 # digest.  Every translation unit that reaches the same headers asks for the
-# same digest, and building it resolves each anchor.  A hit re-stats those
-# paths with ``os.stat`` instead.  A header edit or a retargeted include-dir
-# symlink changes one of those stats and resolves again.
+# same digest, and building it resolves each anchor. A hit re-reads reached
+# headers and checks directory identities before reusing the resolved digest.
 _HEADER_DIGEST_MAX = 256
 _HEADER_DIGEST_LOCK = threading.Lock()
 _HEADER_DIGESTS: OrderedDict[tuple[object, ...], str] = OrderedDict()
 
 
-def _path_stat_id(path: str, *, follow: bool) -> tuple[int, int, int]:
-    """``(mtime_ns, size, ino)``, or ``(-1, -1, -1)`` when *path* cannot be stat'ed.
+def _path_stat_id(path: str, *, follow: bool) -> tuple[int, int, int, int]:
+    """Return mtime, size, inode and change time, or a missing marker.
 
     ``os.stat`` rather than ``Path.stat``: this re-check runs once per
     translation unit, and building a ``Path`` for it was the digest's cost.
@@ -1269,8 +1298,8 @@ def _path_stat_id(path: str, *, follow: bool) -> tuple[int, int, int]:
     try:
         st = os.stat(path, follow_symlinks=follow)  # noqa: PTH116
     except OSError:
-        return (-1, -1, -1)
-    return (st.st_mtime_ns, st.st_size, st.st_ino)
+        return (-1, -1, -1, -1)
+    return (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
 
 
 def _header_digest_ident(
@@ -1279,8 +1308,8 @@ def _header_digest_ident(
     """Identity of one header digest: paths plus the stats that feed it.
 
     Include dirs are ``lstat``'d so a symlink retarget misses even when the
-    old header file is untouched.  Reached headers are ``stat``'d so an edit
-    of the file the symlink names misses too.
+    old header file is untouched. Reached headers are read and hashed so an
+    edit of the file the symlink names misses even with preserved timestamps.
     """
     return (
         paths,
@@ -1288,7 +1317,7 @@ def _header_digest_ident(
         include_dirs,
         None if source_dir is None else _path_stat_id(source_dir, follow=False),
         tuple(_path_stat_id(directory, follow=False) for directory in include_dirs),
-        tuple(_path_stat_id(path, follow=True) for path in paths),
+        _header_stats(paths),
     )
 
 
@@ -1298,16 +1327,15 @@ def header_dependency_hash(
     """SHA-256 over the translation unit's reached-header dependencies.
 
     Resolves the transitive ``#include`` closure of *source_content* and
-    hashes each reached header's ``(anchor, rel_path, size, mtime_ns, ino)`` in
-    sorted order.  An edit to a reached header changes the digest; an edit
+    hashes each reached header's identity and content digest in sorted order.  An edit to a reached header changes the digest; an edit
     to an unreached header does not.  Falls back to conservative per-directory
     fingerprints when the closure cannot be resolved statically (non-literal
     ``#include``, or ``/FI``-style force-includes — the caller forces this).
     Returns :data:`_NO_DEPS_HASH` for a unit with no header dependencies
     (never ``""`` — the verify cache reserves ``""`` for legacy entries).
 
-    Repeated calls that resolve the same headers reuse the digest while those
-    headers and the include-dir stats are unchanged.
+    Repeated calls reuse the digest only after re-reading the reached header
+    contents and checking the include-directory identities.
 
     Shared by the compile-cache key and the verify-cache per-entry guard, so
     both caches invalidate on exactly the same header dependency.
@@ -1324,6 +1352,7 @@ def header_dependency_hash(
             _HEADER_DIGESTS.move_to_end(ident)
             return cached
     h = hashlib.sha256()
+    h.update(repr(ident[-1]).encode())
     for anchor_idx, rel, size, mtime_ns, ino in _header_key_entries(
         paths, source_dir, include_dirs
     ):

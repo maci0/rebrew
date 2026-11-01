@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+## [6.13.0] - 2026-11-01
+
+### Changed
+
+- **Breaking:** `compiler.cache.CACHE_SCHEMA_VERSION` advances from 12 to 13; existing compile-cache entries are rebuilt on demand. The observation tuples returned by `compiler.cache.scan_include_closure` (also exposed as `cmake_cache.scan_include_closure` and `source_contracts.scan_include_closure`) add change time and the header content digest.
+
+### Fixed
+
+- Invalidate compile and verification cache entries when included header bytes change even if file size and modification time are preserved, including conservative include-directory scans.
+
 ## [6.12.0] - 2026-11-01
 
 ### Changed

@@ -2034,15 +2034,18 @@ class TestEntryFingerprint:
         monkeypatch.setattr(cache, "scan_include_closure", counted_scan)
         first = entry_fingerprint(cfg, entry)
         assert first is not None
-        assert reads == [source, header]
+        assert reads.count(source) == 1
+        assert header in reads
         assert len(scans) == 1
 
         reads.clear()
         scans.clear()
         assert entry_fingerprint(cfg, entry) == first
-        assert reads == []
+        assert source not in reads
+        assert header in reads
         assert scans == []
 
+        reads.clear()
         path = source if changed == "source" else header
         if operation == "touch":
             st = path.stat()
@@ -2058,7 +2061,8 @@ class TestEntryFingerprint:
             assert (after.source_hash != first.source_hash) == (operation == "edit")
             assert len(scans) == (1 if operation == "edit" else 0)
         else:
-            assert reads == [header]
+            assert source not in reads
+            assert header in reads
             assert len(scans) == 1
             assert after.source_hash == first.source_hash
             assert after.headers_fp != first.headers_fp

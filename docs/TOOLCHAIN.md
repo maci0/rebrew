@@ -21,6 +21,11 @@ image id, so remote compiles are not cached and a local Docker id is not
 treated as the remote runner. Switching backends therefore cannot serve
 the other's object. The transport lives in `rebrew/compiler/recompile_client.py`.
 
+Local compile and per-entry verification caches hash the contents of reached
+headers. Nonliteral or forced includes use a conservative fingerprint of the
+header trees. Header bytes are reread when a key is checked, so edits remain
+visible even when a file's size and modification time are preserved.
+
 Every shipped profile is **image-backed**: `gcc-14.2.0`/`gcc-12.3.0`, `mingw-16.2.0`/`mingw-14.2.0`,
 `clang-18.1.8`/`clang-16.0.4` and `watcom-2.0-win16` hold the compiler inside their image like the
 rest of the matrix (GCC built from the GNU source tarball, Clang from LLVM's

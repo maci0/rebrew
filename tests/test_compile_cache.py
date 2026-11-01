@@ -1041,7 +1041,6 @@ class TestHeaderDependencyHash:
         first_include = '#include "level0.h"' if depth else "#include LIB_H"
         source = first_include + '\n#include "unused.h"\n'
         include_dirs = [str(tmp_path)]
-        expected = header_dependency_hash("#include OTHER_MACRO\n", str(tmp_path), include_dirs)
         reads: list[str] = []
         read_bytes = Path.read_bytes
 
@@ -1050,8 +1049,53 @@ class TestHeaderDependencyHash:
             return read_bytes(path)
 
         monkeypatch.setattr(Path, "read_bytes", counted_read)
-        assert header_dependency_hash(source, str(tmp_path), include_dirs) == expected
+        _, fallback, _, _ = cache_module.scan_include_closure(
+            source, str(tmp_path), tuple(include_dirs)
+        )
+        assert fallback
         assert reads == [f"level{i}.h" for i in range(depth)]
+
+    @pytest.mark.parametrize(
+        "source,flags",
+        [('#include "x.h"\n', []), ("#include HEADER\n", []), ("int x;\n", ["-include", "x.h"])],
+    )
+    def test_rewrite_with_restored_timestamp_changes_key(
+        self, tmp_path: Path, source: str, flags: list[str]
+    ) -> None:
+        header = tmp_path / "x.h"
+        header.write_text("#define X 1\n")
+
+        def key() -> str:
+            return compile_cache_key(
+                source, "f.c", flags, [str(tmp_path)], "compiler", source_dir=str(tmp_path)
+            )
+
+        before = key()
+        stat = header.stat()
+        header.write_text("#define X 2\n")
+        os.utime(header, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        assert (header.stat().st_ino, header.stat().st_size, header.stat().st_mtime_ns) == (
+            stat.st_ino,
+            stat.st_size,
+            stat.st_mtime_ns,
+        )
+        assert key() != before
+
+    def test_rewrite_refreshes_transitive_header_closure(self, tmp_path: Path) -> None:
+        header = tmp_path / "x.h"
+        header.write_text('#include "b.h"\n')
+        (tmp_path / "b.h").write_text("b\n")
+        changed = tmp_path / "c.h"
+        changed.write_text("c\n")
+        source = '#include "x.h"\n'
+        old = header_dependency_hash(source, str(tmp_path), [])
+        stat = header.stat()
+        header.write_text('#include "c.h"\n')
+        os.utime(header, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        switched = header_dependency_hash(source, str(tmp_path), [])
+        assert switched != old
+        changed.write_text("changed\n")
+        assert header_dependency_hash(source, str(tmp_path), []) != switched
 
     def test_include_in_block_comment_not_tracked(self, tmp_path: Path) -> None:
         inc = tmp_path / "inc"
@@ -1137,7 +1181,7 @@ class TestHeaderDependencyHash:
         cc._INCLUDE_CLOSURE_MEMO.clear()
         paths, fallback = cc._resolve_include_paths(src, str(inc), ())
         assert paths
-        assert fallback is False
+        assert fallback is True
         assert cc._INCLUDE_CLOSURE_MEMO == {}
 
     def test_publish_keeps_valid_peer_closure(self, tmp_path: Path, monkeypatch: Any) -> None:
