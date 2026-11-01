@@ -8,12 +8,9 @@ error mapping.  Routing policy (when the remote backend is used) lives in
 :func:`rebrew.compiler.compile.compile_to_obj`; the service contract
 (request/response field names) mirrors ``recompile/models.py``.
 
-Every compile sent with ``emit_assembly=True`` also appends a
-``{source, assembly, compiler, image, flags, ...}`` row to the service's
-``train_data/train.jsonl`` — the opt-in tap that feeds resembl and LLM
-training.  rebrew sets it on every remote compile (test, verify, match)
-when ``[compiler] recompile_emit_assembly = true``; it is off by default and
-no CLI flag toggles it per run.
+``emit_assembly=True`` requests an assembly listing when the service supports
+it. Current Recompile separates assembly output from training consent; this
+client does not request corpus retention.
 """
 
 from __future__ import annotations
@@ -21,6 +18,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
+lazy import os
+lazy import secrets
 lazy import time
 lazy from collections.abc import Callable, Mapping
 lazy from contextlib import nullcontext
@@ -53,13 +52,13 @@ RecompileErrorKind = Literal[
 ]
 
 #: Retryable statuses that may arrive AFTER the service already ran the
-#: compile (and already appended to train.jsonl).
+#: compile (and may have performed service-side retention).
 _MAY_HAVE_COMPILED = frozenset({500, 502, 504})
 
 #: Subset of :data:`RETRYABLE_HTTP_STATUS` meaning the service never ran the
 #: compile.  Derived, not re-spelled: a new transient code added to the shared
 #: set must default to "worth another attempt", not silently become a
-#: re-POSTed ``emit_assembly`` that duplicates a train.jsonl row.
+#: re-POSTed ``emit_assembly`` that duplicates a service-side effect.
 _UNPROCESSED_HTTP = RETRYABLE_HTTP_STATUS - _MAY_HAVE_COMPILED
 
 
@@ -96,9 +95,18 @@ class HttpClient(Protocol):
     its replies must satisfy :class:`HttpResponse`.
     """
 
-    def post(self, url: str, *, json: Any = None) -> HttpResponse: ...
+    def post(
+        self,
+        url: str,
+        *,
+        json: Any = None,
+        headers: Mapping[str, str] | None = None,
+        follow_redirects: bool = False,
+    ) -> HttpResponse: ...
 
-    def get(self, url: str) -> HttpResponse: ...
+    def get(
+        self, url: str, *, headers: Mapping[str, str] | None = None, follow_redirects: bool = False
+    ) -> HttpResponse: ...
 
 
 @dataclass(frozen=True)
@@ -221,12 +229,20 @@ def _same_origin_artifact_url(base_url: str, artifact_url: str) -> str:
 
 
 def _download_artifact(
-    http: HttpClient, base_url: str, body: dict[str, Any], artifact_url: str
+    http: HttpClient,
+    base_url: str,
+    body: dict[str, Any],
+    artifact_url: str,
+    auth_headers: dict[str, str] | None = None,
 ) -> RecompileResult:
     """Fetch the artifact for an ``status == "ok"`` reply and build the result."""
     resolved = _same_origin_artifact_url(base_url, artifact_url)
     try:
-        art = http.get(resolved)
+        art = (
+            http.get(resolved, headers=auth_headers, follow_redirects=False)
+            if auth_headers
+            else http.get(resolved)
+        )
     except Exception as exc:
         raise RecompileError(
             f"recompile artifact download failed: {exc}",
@@ -235,8 +251,13 @@ def _download_artifact(
         ) from exc
     try:
         if art.status_code != 200:
+            detail = art.text
+            if auth_headers:
+                detail = detail.replace(
+                    auth_headers["Authorization"].removeprefix("Bearer "), "[redacted]"
+                )
             raise RecompileError(
-                f"recompile artifact download returned HTTP {art.status_code}: {art.text[:200]}",
+                f"recompile artifact download returned HTTP {art.status_code}: {detail[:200]}",
                 kind="http",
                 status_code=art.status_code,
                 retryable=art.status_code in RETRYABLE_HTTP_STATUS,
@@ -280,6 +301,11 @@ def compile_source(
     itself and is ignored for an injected *client*.  When omitted, one
     short-lived client covers both the compile POST and the artifact GET.
 
+    ``RECOMPILE_API_KEY`` supplies a bearer credential to this service and its
+    same-origin artifact endpoint. Authenticated POST retries share one key for
+    this invocation; neither key nor request is persisted across process restarts.
+    Job-socket compiles use their own capability and never forward this credential.
+
     *retries* re-attempts after a :class:`RecompileError` with
     ``retryable=True``.  Non-retryable errors (validation, 4xx other than
     the transient set) fail immediately.  ``retries=0`` (default) preserves
@@ -294,16 +320,15 @@ def compile_source(
     it reads :func:`time.sleep` per attempt, so a patched clock is honoured.
 
     Once the compile POST returns ``status == "ok"``, retries never re-POST:
-    ``emit_assembly=True`` appends a ``train_data/train.jsonl`` row per
-    successful compile, so a lost artifact GET must not create a duplicate
-    row.  Only the artifact download is retried against the same
-    ``artifact_url``.  A failed ``emit_assembly`` POST is re-sent only when
-    the service provably did not run it (connect failure, 408/425/429/503);
-    a read timeout or 500/502/504 may follow a compile that already appended
-    its row, so it fails instead.
+    Older services may retain assembly output as a side effect, so a lost
+    artifact GET only retries the same ``artifact_url``. A failed
+    ``emit_assembly`` POST is re-sent only when the service is treated as
+    unprocessed (connect failure, 408/425/429/503); a read timeout or
+    500/502/504 may follow a completed compile, so it fails instead.
     """
     import httpx
 
+    configured_key = os.environ.get("RECOMPILE_API_KEY", "")
     if retries < 0:
         raise RecompileError(
             f"retries must be >= 0, got {retries}",
@@ -319,24 +344,55 @@ def compile_source(
     for flag in flags_list:
         if len(flag) > _MAX_FLAG_LEN:
             raise RecompileError(
-                f"flag too long ({len(flag)} > {_MAX_FLAG_LEN}): {flag[:40]}",
+                f"flag too long ({len(flag)} > {_MAX_FLAG_LEN}): "
+                f"{flag.replace(configured_key, '[redacted]')[:40] if configured_key else flag[:40]}",
                 kind="validation",
             )
 
     # Fail fast on a mistyped base URL before opening a client / posting.
+    display_base = base_url.replace(configured_key, "[redacted]") if configured_key else base_url
     try:
         parsed = urlparse(base_url.strip())
     except ValueError as exc:
+        if configured_key:
+            raise RecompileError(
+                f"invalid recompile base URL: {display_base!r}", kind="validation"
+            ) from None
         raise RecompileError(
-            f"invalid recompile base URL: {base_url!r}", kind="validation"
+            f"invalid recompile base URL: {display_base!r}", kind="validation"
         ) from exc
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise RecompileError(
-            f"recompile base URL must be http(s) with a host: {base_url!r}",
+            f"recompile base URL must be http(s) with a host: {display_base!r}",
             kind="validation",
         )
 
     url = base_url.rstrip("/")
+    api_key = configured_key
+    if (
+        os.environ.get("REBREW_JOB_COMPILE_SOCKET")
+        and parsed.scheme == "http"
+        and parsed.netloc == "rebrew-job"
+    ):
+        api_key = ""
+    if api_key and (not api_key.isascii() or any(not 33 <= ord(c) <= 126 for c in api_key)):
+        raise RecompileError("invalid RECOMPILE_API_KEY", kind="validation")
+    if api_key and parsed.scheme != "https":
+        raise RecompileError("authenticated recompile service requires HTTPS", kind="validation")
+    if api_key and (
+        parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RecompileError(
+            "authenticated recompile base URL has forbidden components", kind="validation"
+        )
+    safe_url = url.replace(api_key, "[redacted]") if api_key else url
+    auth_headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+    post_headers = (
+        {**auth_headers, "Idempotency-Key": secrets.token_hex(6)} if auth_headers else None
+    )
     payload = {
         "compiler": compiler,
         "source": source,
@@ -349,7 +405,7 @@ def compile_source(
     last_exc: RecompileError | None = None
     nap = sleep if sleep is not None else time.sleep
     # Body + artifact_url from a successful compile POST.  Set once; retries
-    # only re-GET so emit_assembly cannot double-append train.jsonl.
+    # only re-GET so a successful compile is not repeated.
     pending: tuple[dict[str, Any], str] | None = None
     # Stopwatch for the terminal record: how long the run spent on a
     # dependency before giving up, which is the number an operator needs when
@@ -362,7 +418,16 @@ def compile_source(
             with cm as http:
                 if pending is None:
                     try:
-                        resp = http.post(f"{url}/api/v1/compile", json=payload)
+                        resp = (
+                            http.post(
+                                f"{url}/api/v1/compile",
+                                json=payload,
+                                headers=post_headers,
+                                follow_redirects=False,
+                            )
+                            if post_headers
+                            else http.post(f"{url}/api/v1/compile", json=payload)
+                        )
                     except Exception as exc:
                         never_sent = isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
                         raise RecompileError(
@@ -372,9 +437,12 @@ def compile_source(
                         ) from exc
                     try:
                         if resp.status_code != 200:
+                            detail = (
+                                resp.text.replace(api_key, "[redacted]") if api_key else resp.text
+                            )
                             raise RecompileError(
                                 f"recompile service returned HTTP {resp.status_code}: "
-                                f"{resp.text[:300]}",
+                                f"{detail[:300]}",
                                 kind="http",
                                 status_code=resp.status_code,
                                 retryable=resp.status_code
@@ -400,7 +468,10 @@ def compile_source(
                                 kind="protocol",
                             )
                         if status != "ok":
-                            return RecompileResult(ok=False, log=str(body.get("log", "")))
+                            failure_log = str(body.get("log", ""))
+                            if api_key:
+                                failure_log = failure_log.replace(api_key, "[redacted]")
+                            return RecompileResult(ok=False, log=failure_log)
                         artifact_url = body.get("artifact_url")
                         if not artifact_url:
                             raise RecompileError(
@@ -417,8 +488,25 @@ def compile_source(
                     finally:
                         close_response(resp)
                 body, artifact_url = pending
-                return _download_artifact(http, url, body, artifact_url)
+                result = _download_artifact(http, url, body, artifact_url, auth_headers)
+                if api_key:
+                    result = RecompileResult(
+                        ok=result.ok,
+                        obj_bytes=result.obj_bytes,
+                        log=result.log.replace(api_key, "[redacted]"),
+                        compiler_version=(
+                            result.compiler_version.replace(api_key, "[redacted]")
+                            if result.compiler_version is not None
+                            else None
+                        ),
+                    )
+                return result
         except RecompileError as exc:
+            if api_key:
+                exc.args = (str(exc).replace(api_key, "[redacted]"),)
+                exc.__cause__ = None
+                exc.__context__ = None
+                exc.__suppress_context__ = True
             last_exc = exc
             if not exc.retryable or attempt + 1 >= attempts:
                 # The last word on a dependency that is down: the retries
@@ -433,7 +521,7 @@ def compile_source(
                 # time, is what makes "which dependency failed" answerable.
                 log.warning(
                     "recompile %s gave up after %d attempt(s) over %.1fs (%s%s): %s",
-                    url,
+                    safe_url,
                     attempt + 1,
                     time.perf_counter() - started_at,
                     exc.kind,
@@ -450,7 +538,7 @@ def compile_source(
             # record of which dependency is faulting or how long the wait is.
             log.warning(
                 "recompile %s attempt %d/%d failed (%s%s), retrying in %.2fs: %s",
-                url,
+                safe_url,
                 attempt + 1,
                 attempts,
                 exc.kind,

@@ -3971,6 +3971,12 @@ bss_tail_size = 0x1269f30
 keep_stub_exceptions = ["_vfs_Crc32Update"]
 ```
 
+Use `--update-symbol NAME` to preview a digest-bound change to a selected
+existing definition from `--specials`; repeat the option for multiple symbols.
+An empty `impl` removes the selected definition, and the preview labels that
+action `remove`. Run with `--dry-run` first, then pass its digest with
+`--expected-digest` to apply the reviewed changes.
+
 Build integration: `--exclude-file PATH` renames the stub TU out of the
 build for the duration (`.off`, restored after); `--cmake-stub-var LINK_STUBS`
 temporarily blanks a `set(LINK_STUBS "...")` line in `CMakeLists.txt` so the

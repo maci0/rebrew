@@ -1714,6 +1714,12 @@ context to review. Guild's office-helper preview reports incomplete contexts
 including stdio.h, stdlib.h, windows.h and sys/types.h in unrelated translation
 units. Do not remove the guard or infer declarations from equal x86 widths.
 
+Additional Guild replay: `rebrew types reconcile cm_ChkCutsceneReady
+src/Develop/DieGildeAddOn/command/command_internal.h --prototype 'int __cdecl
+cm_ChkCutsceneReady(char* obj)' --dry-run --json` refuses incomplete contexts.
+Both client scratch callers retain 136/136 RELOC with this prototype and
+validated calls; receipts: `.scratch/counter-contract/caller-contract-{gold,tl}.json`.
+
 Replay from guild-rebrew: `rebrew types reconcile fcn_004e8240
 src/Develop/DieGildeAddOn/game/aemter.h --prototype 'int __cdecl
 fcn_004e8240(unsigned char, unsigned char*, unsigned char*, int, int);'
@@ -4044,6 +4050,13 @@ infer an owner or a shared address from a matching C spelling. Reproduce in
 Guild with `source rename g_9b0820 cut_RandomSeed --data --all-modules
 --dry-run --json`; evidence is `.scratch/naming-20261031/globals/`.
 
+The data path now previews a guarded digest and accepts explicit
+`--include-data-row MODULE.0xVA` and `--include-scaffold FILE` selections.
+Selected scaffolds must define the old name without a new-name collision;
+their selection does not assert ownership. This is implemented in the
+checkout and is not yet in Guild's installed release. Focused tests pass;
+the final full-suite run is in progress.
+
 The ordinary single-definition function path also omits `input_digest` in
 some `--shared-definition` previews (for example the reviewed video helpers
 in Guild's `.scratch/naming-20261031/ui-list/`). Make guarded apply available
@@ -4117,3 +4130,113 @@ this does not turn a FUNCTION row into LIBRARY. The released 6.9 wheel is
 unchanged until a release is cut from this tree.
 
 Replay: `pytest tests/test_source_provenance.py::test_kr_header_macros_hash_the_definition_bytes tests/test_source_provenance.py::test_kr_hash_refuses_non_definitions tests/test_source_binding.py::test_kr_export_rebind_preview_accepts_the_named_definition tests/test_source_binding.py::test_kr_rebind_refuses_unbounded_or_mismatched_names`.
+
+## Stable review snapshots during concurrent project work (2026-11-01)
+
+Guild's `source organize review` and guarded `source rename --shared-definition`
+repeatedly fail because unrelated source or function-store updates occur while
+the commands scan the shared tree, or between preview and apply. The guards
+correctly refuse stale input; repeated attempts cannot finish while normal
+verification and builds keep updating the project. For example, review
+`sim.c` with `GOLD.fcn_0047cec0.c`, or preview the scoped
+`GOLDTL.0x004f6520` rename documented in Guild
+`.scratch/sim-consolidation/rename-goal.json`; the reviewed apply returned
+`rename inputs or ownership decisions changed`.
+
+Provide a read-only, immutable project snapshot for review and an atomic guarded
+apply that validates all inputs actually used for ambiguity, ownership, and
+provider decisions against the live project. The operation must still reject a
+relevant change or newly introduced competing reference; it must not bypass the
+existing ownership guards. Report which inputs changed so callers can distinguish
+an unrelated verification update from a source or binding conflict. Include a
+concurrent-writer regression test and preserve locked metadata updates.
+
+## Target-conditional signature reconciliation (2026-11-01)
+
+Guild's `gm_LookupEntityRecordById` has an existing server definition returning
+`int` and a T&L definition returning `char *`, with many caller declarations
+using pointer views. Both are 32-bit return values, but their source contracts
+and compiler-sensitive contexts differ. `types reconcile` accepts one
+`--prototype` for every target, so its preview cannot express a reviewed header
+with target-conditional prototypes while retaining the server contract.
+
+Allow a reconciliation preview to accept reviewed per-target prototypes and
+header guards, report each target's definitions, callers, conversions and
+verification contexts, and apply atomically with the existing digest guard.
+Do not infer type equivalence or change bodies from ABI width alone. Replay:
+`rebrew types reconcile gm_LookupEntityRecordById src/Develop/DieGildeAddOn/game/spiel.h --prototype 'int __cdecl gm_LookupEntityRecordById(int entity_id)' --dry-run --json`.
+The server definition is in `spiel.c`; T&L `0x508e40` is in
+`GOLDTL.gm_LookupEntityRecordById.c`.
+
+### Stable, scoped contract reconciliation review under concurrent edits (2026-11-02)
+
+`rebrew types reconcile` audits every target and refuses if any project-wide
+input changes during that audit. On guild-rebrew, unrelated source edits during
+concurrent work repeatedly invalidate the preview even while function and data
+metadata locks are held. Its name-filtered audits also report hundreds of
+unrelated parse/include unknowns, which currently prevent reconciliation.
+Provide a reviewable immutable snapshot of the relevant source/include closure
+and target metadata, with explicit coverage for unresolved references, then
+validate the reviewed digest against live affected inputs when applying. The
+preview must still refuse when an unknown could affect the selected symbol; it
+should distinguish those from proven unrelated contexts. Replay from
+`guild-rebrew`: `rebrew types reconcile fcn_0042e520
+src/Develop/Units/vfs/vfs.h --prototype 'char * __cdecl
+fcn_0042e520(char *name)' --dry-run --json`. Evidence includes
+`.scratch/counter-contract/vfs-normalize-locked-run.log` and the partial
+`.scratch/counter-contract/vfs-normalize-contracts.json` report. This is a
+proposed capability; it must not silently ignore unresolved relevant callers or
+allow stale edits.
+
+### Target-scoped reference binding when the old spelling is a live definition (2026-11-02)
+
+Guild's T&L source `GOLDTL.fcn_005ba910.c` calls `fcn_005ba750` for native
+T&L `0x005ba750`, whose bound definition is named `fcn_005af160`. The same
+old spelling is also a live, independent Gold definition at Gold
+`0x005ba750`, with different behavior and callers. `rebrew source rename
+fcn_005ba750 GOLDTL.0x005ba750 --dry-run --json` correctly refuses because
+the source name is not globally unbound. Provide a guarded, explicitly
+file-and-target-scoped reference-binding plan that enumerates the selected
+references and all target contexts, preserves the independent Gold definition
+and its users, and rejects files compiled in contexts where ownership remains
+ambiguous. Native targets and signatures still require separate review. Replay
+and error: `guild-rebrew/.scratch/counter-contract/targeted-bind-5ba750-preview.err`.
+
+### Guarded selected-symbol scaffold regeneration (2026-11-02)
+
+Guild's client comparison scaffolds define `g_fb5760` at 0x20000 bytes, but
+native queue initialization proves a 0x50000-byte extent in each client.
+Gold also separately allocates `g_f31161`, an interior view at base +1.
+`rebrew build symbol-stubs` accepts reviewed `--specials` for these symbols,
+but regenerating from the historical Gold diagnostic log changes over 2,000
+lines, including unrelated ABI and provider decisions. Add a guarded
+selected-symbol update mode that parses the existing generated scaffold,
+replaces or removes only explicitly named generated definitions from the
+reviewed specials, previews exact edits and input digest, and preserves all
+other definitions. Reject ambiguous/multiple definitions and stale inputs;
+retain the distinction between comparison capacity and native storage owner.
+Replay: Guild `.scratch/counter-contract/gold-queue-specials.toml`,
+`gold-queue-generated.c`, and `diff -u stubs/gold/symbol_stubs.c
+.scratch/counter-contract/gold-queue-generated.c`. A complete clean rebuild
+and raw-link placement verification remain separate requirements.
+
+### Guarded, interleaved source organization (2026-11-02)
+
+Guild's T&L queue removal and clearing routines share a source file, with the
+clearing routine inside `#ifndef REBREW_GOLD`. Native order places the existing
+`character.c` insertion routine between them. `rebrew source merge` rejects
+the guarded definition and cannot interleave definitions from two files:
+`rebrew source merge src/Develop/Unassigned/GOLDTL.fcn_00406120.c
+src/Develop/DieGildeAddOn/game/character.c --output
+.scratch/counter-contract/merge-queue-preview.c --consolidate --force
+--dry-run --json`. Support a guarded plan with explicitly reviewed per-target
+preprocessor contexts, native order, all affected source identities and exact
+preamble/definition edits. Refuse ambiguous guards, stale inputs, duplicate
+owners and order cycles; preserve target-specific compiler context and require
+independent raw-link checks. This must not infer original source placement from
+an object match alone.
+
+The selected-symbol scaffold update prototype now also handles uniquely parsed
+function definitions, so a reviewed empty special can remove a superseded
+comparison stub without regenerating unrelated definitions. Guarded TU merging
+and raw-link verification remain separate work.

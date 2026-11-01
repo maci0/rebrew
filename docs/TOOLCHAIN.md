@@ -10,7 +10,13 @@ The default backend runs the profile's toolchain image through Docker.
 Setting `[compiler] recompile_url` (or `REBREW_RECOMPILE_URL`, which wins)
 routes every compile through the sibling [recompile](https://github.com/relumea/recompile)
 service instead: the same pinned images over `POST /api/v1/compile` plus an
-artifact download, with the opt-in `recompile_emit_assembly` training tap.
+artifact download, with optional assembly output via `recompile_emit_assembly`.
+The client does not grant training consent.
+For an authenticated HTTPS service, set `RECOMPILE_API_KEY` in the environment. The
+key is sent as a bearer credential to the configured service and its
+same-origin artifact endpoint. Each authenticated compile uses one idempotency
+key for retries within that invocation. The request and key are not saved for
+recovery across a process restart. Job-socket compiles use their own capability.
 For Docker execution, the local compile cache keys an object on the inspected
 image id (`sha256:` plus 64 hex), and `docker run` uses that same id with
 `--pull=never`, so a missing image is an error rather than a daemon pull.

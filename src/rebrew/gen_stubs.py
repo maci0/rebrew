@@ -54,7 +54,7 @@ lazy from collections.abc import Iterable, Iterator
 import typer
 
 from rebrew.c_parser import CALLING_CONVENTION
-lazy from rebrew.cli import console, error_exit, json_print
+lazy from rebrew.cli import EXPECTED_DIGEST_HELP, console, error_exit, json_print
 lazy from rebrew.utils import (
     atomic_write_text,
     is_safe_c_ident,
@@ -1251,6 +1251,84 @@ def _run_build(
                     error_exit(f"restore of {renamed[0].name} failed: {exc}", json_mode=json_mode)
 
 
+def _update_selected_stubs(
+    content: str, specs: dict[str, typing.Any], symbols: list[str]
+) -> tuple[str, list[dict[str, str]]]:
+    """Replace selected unambiguous top-level definitions from specials."""
+    from rebrew.c_parser import find_declarator_name, find_function_name_in_node, parse_c_source
+
+    def definitions(source: str) -> dict[str, list[typing.Any]]:
+        tree, data = parse_c_source(source)
+        found: dict[str, list[typing.Any]] = {}
+        pending = [(tree.root_node, True)]
+        while pending:
+            node, top = pending.pop()
+            if node.type == "function_definition":
+                decl = node.child_by_field_name("declarator")
+                name = find_function_name_in_node(decl, data) if decl is not None else None
+                if name:
+                    found.setdefault(name, []).append((node, top, 1))
+                continue
+            if node.type == "declaration":
+                decls = node.children_by_field_name("declarator")
+                for decl in decls:
+                    name = find_declarator_name(decl, data)
+                    if name:
+                        found.setdefault(name, []).append((node, top, len(decls)))
+                continue
+            pending.extend(
+                (child, node.type == "translation_unit") for child in node.named_children
+            )
+        return found
+
+    if not symbols or len(symbols) != len(set(symbols)):
+        raise ValueError("selected symbols must be distinct")
+    existing = definitions(content)
+    raw = content.encode("utf-8")
+    replacements = []
+    changes = []
+    for symbol in symbols:
+        if not is_safe_c_ident(symbol):
+            raise ValueError(f"invalid symbol: {symbol}")
+        matches = existing.get(symbol, [])
+        if len(matches) != 1 or not matches[0][1] or matches[0][2] != 1:
+            raise ValueError(f"expected one unambiguous top-level definition: {symbol}")
+        node = matches[0][0]
+        old = raw[node.start_byte : node.end_byte].decode("utf-8")
+        if old.lstrip().startswith("extern "):
+            raise ValueError(f"not a definition: {symbol}")
+        spec = specs.get("specials", {}).get(symbol, {})
+        impl = spec.get("impl")
+        if not isinstance(impl, str):
+            raise ValueError(f"missing special implementation: {symbol}")
+        impl = impl.strip()
+        new_defs = definitions(impl)
+        if impl:
+            new_tree, _ = parse_c_source(impl)
+            nodes = [n for n in new_tree.root_node.named_children if n.type != "comment"]
+            if (
+                len(nodes) != 1
+                or nodes[0].type != node.type
+                or impl.startswith("extern ")
+                or len(new_defs.get(symbol, [])) != 1
+                or len(new_defs) != 1
+                or new_defs[symbol][0][2] != 1
+            ):
+                raise ValueError(f"special must define only {symbol}")
+        replacements.append((node.start_byte, node.end_byte, impl.encode("utf-8")))
+        changes.append(
+            {
+                "symbol": symbol,
+                "action": "replace" if impl else "remove",
+                "before": old,
+                "after": impl,
+            }
+        )
+    for start, end, replacement in sorted(replacements, reverse=True):
+        raw = raw[:start] + replacement + raw[end:]
+    return raw.decode("utf-8"), changes
+
+
 @app.callback(invoke_without_command=True)
 def main(
     output: Path = typer.Option(
@@ -1286,11 +1364,67 @@ def main(
     footer: Path | None = typer.Option(
         None, "--footer", help="Text file appended verbatim (e.g. a _fltused marker)"
     ),
+    update_symbol: list[str] | None = typer.Option(
+        None,
+        "--update-symbol",
+        help="Update this definition from specials; an empty implementation removes it (repeatable)",
+    ),
+    expected_digest: str | None = typer.Option(
+        None, "--expected-digest", help=EXPECTED_DIGEST_HELP
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Generate a stub TU for unresolved linker symbols."""
     root = Path.cwd()
+
+    if update_symbol:
+        import hashlib
+        import json
+
+        if (
+            specials is None
+            or build_cmd
+            or log
+            or source_dir
+            or library_csv
+            or footer
+            or exclude_file
+            or cmake_stub_var
+        ):
+            error_exit(
+                "selected updates require --specials and exclude build inputs",
+                json_mode=json_output,
+            )
+        target = output if output.is_absolute() else root / output
+        try:
+            original = target.read_text(encoding="utf-8")
+            selected_spec = load_tomllib(specials)
+            content, changes = _update_selected_stubs(original, selected_spec, update_symbol)
+            digest = hashlib.sha256(
+                json.dumps([original, selected_spec, update_symbol], sort_keys=True).encode()
+            ).hexdigest()
+            if not dry_run:
+                if expected_digest != digest:
+                    raise ValueError("selected update digest does not match preview")
+                if target.read_text(encoding="utf-8") != original:
+                    raise ValueError("output changed since preview")
+                atomic_write_text(target, content, encoding="utf-8")
+        except (OSError, ValueError) as exc:
+            error_exit(str(exc), json_mode=json_output)
+        result = {
+            "digest": digest,
+            "changes": changes,
+            "written": not dry_run,
+            "output": str(target),
+        }
+        if json_output:
+            json_print(result)
+        else:
+            console.print(result)
+        return
+    if expected_digest:
+        error_exit("--expected-digest requires --update-symbol", json_mode=json_output)
 
     # 1. Collect linker output.
     if build_cmd:

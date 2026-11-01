@@ -1,12 +1,17 @@
 ## [Unreleased]
 
+## [6.14.0] - 2026-11-02
+
 ### Added
 
 - Add an experimental local Go job owner for pinned workspaces, matching and coverage catalog jobs, with isolated Docker execution and optional managed compile mediation.
+- Preview and apply digest-bound updates or explicit removals of selected stub definitions from special implementations.
 
 ### Changed
 
 - Allow reviewed global renames to include explicitly selected data rows and scaffold sources, bound to the preview digest.
+- Authenticate HTTPS Recompile requests with `RECOMPILE_API_KEY` and reuse one idempotency key for retries within the same invocation. Artifact fetches remain same-origin; process-restart recovery requires separately retained request custody.
+- Describe assembly output and training consent as separate Recompile settings.
 
 ### Fixed
 

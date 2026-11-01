@@ -559,17 +559,15 @@ class ProjectConfig:
     """Base URL of the recompile compile service (e.g. ``http://localhost:8000``).
 
     When set, every compile routes through ``POST /api/v1/compile`` instead
-    of local docker images — the same pinned toolchain images, plus the
-    opt-in training tap (``emit_assembly``) that feeds resembl and LLM
-    training.  Empty (the default) keeps local docker execution.
+    of local docker images. Assembly output can be requested separately.
+    Empty (the default) keeps local docker execution.
     """
     recompile_emit_assembly: bool = False
-    """Pass ``emit_assembly=true`` on remote compiles (training-data tap).
+    """Request assembly output on remote compiles.
 
-    Off by default so compiles do not grow the service's
-    ``train_data/train.jsonl``.  When on, every remote compile (test, verify,
-    match) sends it; ``match --collect-pairs`` writes local pairs and does
-    not touch this flag.
+    Off by default. When on, every remote compile (test, verify, match)
+    sends it; ``match --collect-pairs`` writes local pairs and does not touch
+    this flag. Current Recompile treats training consent separately.
     """
     recompile_retries: int = DEFAULT_RECOMPILE_RETRIES
     """Re-attempts of a retryable remote-compile failure (``0`` disables).
@@ -1911,7 +1909,7 @@ def _as_bool(value: Any, default: bool, field_name: str) -> bool:
 
     TOML booleans are real ``bool``s.  Reject stringy ``"false"``/``"0"`` —
     ``bool("false")`` is ``True`` in Python, which would silently enable a
-    training-data tap like ``recompile_emit_assembly``.
+    assembly-output flag like ``recompile_emit_assembly``.
     """
     if value is None:
         return default
@@ -2236,7 +2234,7 @@ _KNOWN_COMPILER_KEYS = {
     "base_cflags",
     "timeout",
     "recompile_url",  # remote compile backend (or REBREW_RECOMPILE_URL env)
-    "recompile_emit_assembly",  # training-data tap for remote compiles
+    "recompile_emit_assembly",  # assembly output for remote compiles
     "recompile_retries",  # re-attempts of a retryable remote-compile failure
     "cflags_presets",  # written by `rebrew cfg module set-cflags` without --target (per-origin compiler flag overrides)
 }

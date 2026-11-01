@@ -1160,7 +1160,7 @@ def find_function_name_in_node(declarator: Any, source_bytes: bytes) -> str | No
     return None
 
 
-def _find_declarator_name(declarator: Any, source_bytes: bytes) -> str | None:
+def find_declarator_name(declarator: Any, source_bytes: bytes) -> str | None:
     """Recursively walk a declarator to find the variable/function name identifier."""
     if declarator.type == "identifier":
         return node_text(declarator, source_bytes)
@@ -1170,28 +1170,32 @@ def _find_declarator_name(declarator: Any, source_bytes: bytes) -> str | None:
             if child.type == "identifier":
                 return node_text(child, source_bytes)
             if child.type in ("pointer_declarator", "array_declarator"):
-                name = _find_declarator_name(child, source_bytes)
+                name = find_declarator_name(child, source_bytes)
                 if name:
                     return name
     if declarator.type == "pointer_declarator":
         for child in declarator.children:
-            name = _find_declarator_name(child, source_bytes)
+            name = find_declarator_name(child, source_bytes)
             if name:
                 return name
     if declarator.type == "init_declarator":
         for child in declarator.children:
             if child.type != "=" and child.type not in ("number_literal", "string_literal"):
-                name = _find_declarator_name(child, source_bytes)
+                name = find_declarator_name(child, source_bytes)
                 if name:
                     return name
     # Function declarator — this is a function declaration, not a variable
     if declarator.type == "function_declarator":
         return None  # Caller should skip this
     for child in declarator.children:
-        name = _find_declarator_name(child, source_bytes)
+        name = find_declarator_name(child, source_bytes)
         if name:
             return name
     return None
+
+
+# Preserve the original internal spelling for existing callers.
+_find_declarator_name = find_declarator_name
 
 
 def _has_function_declarator(node: Any) -> bool:
@@ -2057,7 +2061,7 @@ def find_extern_variables(
                     if arr_node and arr_node.type == "array_declarator":
                         array_suffix = _extract_array_suffix(arr_node, src_bytes)
 
-                    name = _find_declarator_name(decl, src_bytes)
+                    name = find_declarator_name(decl, src_bytes)
                     if name:
                         full_type = type_str
                         if ptr_depth:

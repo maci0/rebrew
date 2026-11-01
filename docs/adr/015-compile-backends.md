@@ -48,7 +48,7 @@ service as a second, opt-in backend.
   tag is display metadata. A missing or malformed id compiles uncached.
   The recompile response carries no image id, so remote results are not
   cached and a local Docker id is not used as remote provenance.
-- `recompile_emit_assembly` passes the service's opt-in training tap.
+- `recompile_emit_assembly` requests assembly output; current Recompile treats training consent separately.
 
 The image-backed migration for `gcc-14.2.0`, `mingw-16.2.0`,
 `clang-18.1.8`, and `watcom-2.0-win16` landed in

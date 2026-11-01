@@ -1205,3 +1205,78 @@ def test_conditional_alias_handles_spaced_directive_and_non_utf8_source(tmp_path
         b"int old(void);\nvoid caller(void) { old(); }\n"
     )
     assert gen_stubs.collect_conditional_callable_aliases(source.parent) == {"target"}
+
+
+def test_selected_data_update_is_guarded_and_preserves_other_content(tmp_path: Path) -> None:
+    out = tmp_path / "stubs.c"
+    out.write_text("/* café */\nint queue[1] = {0};\nint keep[2] = {0};\n", encoding="utf-8")
+    spec = tmp_path / "specials.toml"
+    spec.write_text('[specials.queue]\nimpl = "int queue[10] = {0};"\n', encoding="utf-8")
+    args = ["--output", str(out), "--specials", str(spec), "--update-symbol", "queue", "--json"]
+    runner = CliRunner()
+    preview = runner.invoke(gen_stubs.app, [*args, "--dry-run"])
+    assert preview.exit_code == 0, preview.output
+    digest = cli_payload(preview)["digest"]
+    stale = runner.invoke(gen_stubs.app, [*args, "--expected-digest", "bad"])
+    assert stale.exit_code != 0
+    assert "queue[1]" in out.read_text(encoding="utf-8")
+    applied = runner.invoke(gen_stubs.app, [*args, "--expected-digest", digest])
+    assert applied.exit_code == 0, applied.output
+    assert (
+        out.read_text(encoding="utf-8") == "/* café */\nint queue[10] = {0};\nint keep[2] = {0};\n"
+    )
+    assert runner.invoke(gen_stubs.app, [*args, "--expected-digest", digest]).exit_code != 0
+
+
+def test_selected_removal_is_explicit_in_digest_bound_preview(tmp_path: Path) -> None:
+    out = tmp_path / "stubs.c"
+    original = "int done(void) { return 0; }\nint keep(void) { return 1; }\n"
+    out.write_text(original, encoding="utf-8")
+    spec = tmp_path / "specials.toml"
+    spec.write_text('[specials.done]\nimpl = ""\n', encoding="utf-8")
+    args = ["--output", str(out), "--specials", str(spec), "--update-symbol", "done", "--json"]
+    runner = CliRunner()
+    preview = runner.invoke(gen_stubs.app, [*args, "--dry-run"])
+    assert preview.exit_code == 0, preview.output
+    payload = cli_payload(preview)
+    assert payload["changes"][0]["action"] == "remove"
+    assert out.read_text(encoding="utf-8") == original
+    applied = runner.invoke(gen_stubs.app, [*args, "--expected-digest", payload["digest"]])
+    assert applied.exit_code == 0, applied.output
+    assert "done" not in out.read_text(encoding="utf-8")
+    assert "keep" in out.read_text(encoding="utf-8")
+
+
+def test_selected_data_update_rejects_ambiguous_or_wrong_definitions() -> None:
+    spec = {"specials": {"queue": {"impl": "int queue[10];"}}}
+    with pytest.raises(ValueError, match="unambiguous"):
+        gen_stubs._update_selected_stubs("int queue[1];\nint queue[2];", spec, ["queue"])
+    with pytest.raises(ValueError, match="unambiguous"):
+        gen_stubs._update_selected_stubs("#ifdef X\nint queue[1];\n#endif", spec, ["queue"])
+    with pytest.raises(ValueError, match="define only"):
+        gen_stubs._update_selected_stubs(
+            "int queue[1];", {"specials": {"queue": {"impl": "int other;"}}}, ["queue"]
+        )
+
+
+def test_selected_data_update_rejects_extra_include() -> None:
+    spec = {"specials": {"queue": {"impl": '#include "x.h"\nint queue[10];'}}}
+    with pytest.raises(ValueError, match="define only"):
+        gen_stubs._update_selected_stubs("int queue[1];", spec, ["queue"])
+
+
+def test_selected_update_removes_only_the_requested_function() -> None:
+    content = (
+        "int keep[2];\nint __cdecl done(void *p) { return 0; }\nint other(void) { return 1; }\n"
+    )
+    spec = {"specials": {"done": {"impl": ""}}}
+    result, changes = gen_stubs._update_selected_stubs(content, spec, ["done"])
+    assert result == "int keep[2];\n\nint other(void) { return 1; }\n"
+    assert changes[0]["symbol"] == "done"
+    assert changes[0]["action"] == "remove"
+    with pytest.raises(ValueError, match="unambiguous"):
+        gen_stubs._update_selected_stubs(content + "int done(void) { return 2; }", spec, ["done"])
+    with pytest.raises(ValueError, match="define only"):
+        gen_stubs._update_selected_stubs(
+            content, {"specials": {"done": {"impl": "int done;"}}}, ["done"]
+        )

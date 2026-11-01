@@ -221,9 +221,47 @@ class TestExtractAndCompare:
         assert r.delta == 1  # 3 - 2
         assert r.full_obj_size == 2
 
+    @pytest.mark.parametrize("tail", [b"\x90", b"\xcc"])
+    def test_reference_terminal_instruction_does_not_match_shorter_object(
+        self, tmp_path: Any, tail: bytes
+    ) -> None:
+        """A terminal NOP or INT3 is not proven padding by its byte value."""
+        from bin_util import make_coff_obj
+
+        body = b"\x55\x8b\xec\xc3"
+        obj_path = tmp_path / "f.obj"
+        obj_path.write_bytes(make_coff_obj(body, func_symbol="_f"))
+        result = _extract_and_compare(str(obj_path), "_f", body + tail)
+        assert result.status == "SIZE_MISMATCH"
+        assert not result.matched
+
+    @pytest.mark.parametrize(
+        "gap",
+        [
+            b"\x33\xc0\x40\xc3",  # xor eax,eax; inc eax; ret
+            b"\xcc\x90\x33\xc3",  # padding followed by real code
+        ],
+    )
+    def test_reference_real_code_gap_stays_a_size_mismatch(self, tmp_path: Any, gap: bytes) -> None:
+        """A suffix containing additional code remains a size mismatch."""
+        from bin_util import make_coff_obj
+
+        body = b"\x55\x8b\xec\xc3"
+        obj_path = tmp_path / "f.obj"
+        obj_path.write_bytes(make_coff_obj(body, func_symbol="_f"))
+        r = _extract_and_compare(str(obj_path), "_f", body + gap)
+        assert r.matched is False
+        assert r.status == "SIZE_MISMATCH"
+        assert r.delta == len(gap)
+
     @pytest.mark.parametrize(
         ("target_bytes", "obj_bytes"),
-        [(b"\x55\x8b\xec", b""), (b"", b"\x55\x8b\xec")],
+        [
+            (b"\x55\x8b\xec", b""),
+            (b"", b"\x55\x8b\xec"),
+            # An all-padding target still needs a candidate body to match.
+            (b"\xcc\xcc\x90", b""),
+        ],
     )
     def test_empty_common_prefix_preserves_size_delta(
         self, monkeypatch: pytest.MonkeyPatch, target_bytes: bytes, obj_bytes: bytes
